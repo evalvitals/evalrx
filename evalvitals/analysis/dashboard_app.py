@@ -2892,14 +2892,19 @@ def _render_top_metrics(report: dict[str, Any]) -> None:
     charts = report.get("charts") or []
     plots = report.get("plots") or []
 
-    metrics = [
-        ("Rows", _format_int(profile.get("loaded_rows", profile.get("n_rows"))), "records sampled"),
-        ("Columns", _format_int(len(columns) if isinstance(columns, dict) else None), "profiled fields"),
-        ("Signals", _format_int(len(signals)), "candidate follow-ups"),
-        ("Charts", _format_int(len(charts) + len(plots)), "visual artifacts"),
-        ("Attempts", _format_int(report.get("attempts", 0)), "agent/code runs"),
-        ("Notes", _format_int(len(observations)), "observations"),
+    raw_metrics = [
+        ("Rows", profile.get("loaded_rows", profile.get("n_rows")), "records sampled"),
+        ("Columns", len(columns) if isinstance(columns, dict) else None, "profiled fields"),
+        ("Signals", len(signals), "candidate follow-ups"),
+        ("Charts", len(charts) + len(plots), "visual artifacts"),
+        ("Attempts", report.get("attempts", 0), "agent/code runs"),
+        ("Notes", len(observations), "observations"),
     ]
+    # Drop tiles this report never populated (None) instead of showing a bare
+    # "-" that reads as broken; a real 0 (e.g. "Signals: 0") is still shown.
+    metrics = [(label, _format_int(v), caption) for label, v, caption in raw_metrics if v is not None]
+    if not metrics:
+        return
 
     cols = st.columns(len(metrics))
     for col, (label, value, caption) in zip(cols, metrics, strict=False):
@@ -3052,7 +3057,7 @@ def _signal_from_chart(chart: dict[str, Any]) -> str | None:
 
 def _render_plot_card(item: Any, turn_dir: Path) -> None:
     path = _resolve_artifact_path(item, turn_dir)
-    title = Path(str(item)).name
+    title = display_name(Path(str(item)).stem)
     st.markdown(f'<div class="ev-card-title">{_html_escape(title)}</div>', unsafe_allow_html=True)
     if path.exists() and path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
         st.image(str(path), width="stretch")
@@ -3286,7 +3291,10 @@ def _inject_css() -> None:
           color: var(--ev-muted);
         }
         .block-container {
-          padding-top: 0.75rem;
+          /* Streamlit's fixed stHeader is ~3.75rem tall; anything smaller here
+             lets the header clip the top of .ev-header (status pill/title get
+             cut in half instead of just sitting close to it). */
+          padding-top: 4rem;
           padding-bottom: 2.5rem;
           max-width: 1440px;
         }
