@@ -9,32 +9,40 @@ Conventions, constants, and reusable code blocks. Implement in your script or ad
 ### PALETTE
 
 ```python
+# NOTE (EvalVitals adaptation): the key names and family semantics are the
+# original skill's; the VALUES are synced to the CVD-validated EvalVitals
+# dataviz palette so agent-drawn figures, host plotly charts, and host
+# spec-rendered PNGs share ONE palette. See the notice in README.md.
 PALETTE = {
-    "blue_main":      "#0F4D92",
-    "blue_secondary": "#3775BA",
-    "green_1": "#DDF3DE",
-    "green_2": "#AADCA9",
-    "green_3": "#8BCF8B",
-    "red_1":   "#F6CFCB",
-    "red_2":   "#E9A6A1",
-    "red_strong": "#B64342",
-    "neutral_light": "#CFCECE",
-    "neutral_mid":   "#767676",
-    "neutral_dark":  "#4D4D4D",
-    "neutral_black": "#272727",
-    "gold":   "#FFD700",
-    "teal":   "#42949E",
-    "violet": "#9A4D8E",
-    "magenta":"#EA84DD",
+    "blue_main":      "#2a78d6",
+    "blue_secondary": "#6da7ec",
+    "green_1": "#7ec07e",
+    "green_2": "#4ca74b",
+    "green_3": "#008300",
+    "red_1":   "#ee9999",
+    "red_2":   "#e97675",
+    "red_strong": "#e34948",
+    "neutral_light": "#c3c2b7",
+    "neutral_mid":   "#898781",
+    "neutral_dark":  "#52514e",
+    "neutral_black": "#0b0b0b",
+    "gold":   "#eda100",
+    "teal":   "#1baf7a",
+    "violet": "#4a3aa7",
+    "magenta":"#e87ba4",
 }
 
+# Slots 1-5 are validated as a categorical set (worst adjacent CVD dE 13.3
+# with direct labels as relief); the 6th slot is muted ink for a
+# reference/background series only -- never a data series that must be
+# told apart by hue.
 DEFAULT_COLORS = [
     PALETTE["blue_main"],
     PALETTE["green_3"],
     PALETTE["red_strong"],
     PALETTE["teal"],
     PALETTE["violet"],
-    PALETTE["neutral_light"],
+    PALETTE["neutral_mid"],
 ]
 
 PALETTE_NMI_PASTEL = {

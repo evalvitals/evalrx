@@ -6,7 +6,7 @@ description: >
   explanatory variables the user specifies. Covers exploring the explanatory variables
   themselves (distributions, outliers, missingness, correlations), exploring each
   variable against the outcome (contingency tables for categorical variables,
-  side-by-side boxplots for continuous variables, conditioning on other variables),
+  distribution comparisons for continuous variables, conditioning on other variables),
   marginal screening, fitting a justified regression model (logistic vs. linear vs.
   mixed-effects, with explicit reasoning), goodness-of-fit diagnostics, result
   visualization, and a plain-language written report. Use this whenever the user has
@@ -17,7 +17,7 @@ description: >
   Do NOT use this for pure simulation studies with no real data, generating
   paper-ready LaTeX tables for an already-written paper, or benchmarking many methods
   against each other across datasets -- those are out of scope.
-version: 0.1.0
+version: 0.2.0
 license: MIT
 compatibility: Claude Code project-scoped skill. Assumes R and/or Python available on PATH; pick whichever is appropriate per task rather than requiring both.
 metadata:
@@ -41,6 +41,15 @@ fail?), but equally applicable to any pass/fail or success/failure outcome with
 covariates. It is not for simulation studies with no real data, generating
 publication-ready LaTeX tables for a paper that's already written, or benchmarking
 many methods against each other across datasets.
+
+## Chart types and palettes: defer to a chart-style skill when present
+
+This skill decides WHAT to visualize at each step (the statistical intent);
+it does not own HOW. When a dedicated chart-style skill (e.g.
+`eval-chart-style`) is installed alongside this one, that skill's chart-type
+policy and palette GOVERN every figure called for below — read the concrete
+figure prescriptions in steps 2, 3 and 7 as the standalone fallback for when
+no chart-style skill is present, never as an override of one.
 
 ## Choosing R or Python
 
@@ -92,9 +101,11 @@ For each explanatory variable, relate it to the outcome:
 - **Categorical variable** -> contingency table (variable x outcome) with row/column
   proportions; chi-square test of independence, or Fisher's exact test when any
   expected cell count is small (below ~5).
-- **Continuous variable** -> side-by-side boxplot (success group vs. fail group), plus
-  a group-comparison test: Welch's t-test if roughly normal, Mann-Whitney U as the
-  robust default when normality is doubtful.
+- **Continuous variable** -> a per-group distribution-comparison figure
+  (standalone fallback: side-by-side boxplot; an installed chart-style skill's
+  distribution-first policy — e.g. violin + jittered points — takes
+  precedence), plus a group-comparison test: Welch's t-test if roughly normal,
+  Mann-Whitney U as the robust default when normality is doubtful.
 - Always report an effect size next to the test, not just a p-value: Cramer's V or
   odds ratio for categorical variables, Cohen's d or rank-biserial correlation for
   continuous variables.
@@ -179,9 +190,9 @@ odds ratio and a p-value), while still surfacing the effect size, uncertainty, a
 caveats a careful reader would need (small samples, assumption violations, correlated
 predictors).
 
-Figure formatting, table formatting, and prose style are covered by the
-`clear-technical-writing` skill -- do not duplicate those conventions here. Once
-results are ready, apply that skill's guidance for figures, tables, and prose.
+Figure styling conventions come from the installed chart-style/polish skills
+(e.g. `eval-chart-style` for chart types and palette, `nature-figure` for
+publication polish) -- do not duplicate those conventions here.
 
 Save reproducibility information -- environment/package versions and any random seeds
 used -- to `session_info.txt` alongside the analysis.

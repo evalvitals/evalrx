@@ -45,6 +45,23 @@ def test_bundled_skill_set():
     assert "#2a78d6" in body           # categorical slot 1 / accent present
     assert "ramp" in body.lower()      # ordered-dimension single-hue ramp rule
     assert "Nothing else" not in body  # the old two-colors-only lockdown is gone
+    # The single chart authority: absorbed the stats-skill's result figures and
+    # carries the arbitration clause other skills defer to.
+    assert "ROC curve" in body and "calibration" in body
+    assert "This policy wins" in body
+
+    # outcome-driver-analysis defers chart HOW to the chart-style skill and no
+    # longer references skills that are not bundled.
+    oda_body = (oda / "SKILL.md").read_text(encoding="utf-8")
+    assert "eval-chart-style" in oda_body          # explicit deference target
+    assert "standalone fallback" in oda_body       # keeps solo usability
+    assert "clear-technical-writing" not in oda_body  # dangling ref removed
+
+    # nature-figure's canonical palette constants are synced to the same
+    # dataviz-validated values (host's load_nature_style parses api.md).
+    nf_api = (nf / "references" / "api.md").read_text(encoding="utf-8")
+    assert '"blue_main":      "#2a78d6"' in nf_api
+    assert "#0F4D92" not in nf_api                 # pre-sync palette retired
 
 
 def test_skill_backends_cover_claude_agy_codex():

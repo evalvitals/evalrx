@@ -1,5 +1,17 @@
 # `nature-figure` 技能
 
+> **EvalVitals adaptation notice (Apache-2.0 modification):** the canonical
+> palette constants in `references/api.md` and `references/design-theory.md`
+> (`PALETTE` / `DEFAULT_COLORS`) have been re-valued to the CVD-validated
+> EvalVitals dataviz palette, so agent-drawn figures, host plotly charts, and
+> host spec-rendered PNGs share one palette (key names and family semantics
+> unchanged; typography/layout/export guidance untouched). Hex values inside
+> tutorial/example snippets elsewhere in this skill are illustrative and were
+> not rewritten — the constants above and the `eval-chart-style` skill's
+> palette are authoritative. In EvalVitals sandboxes, chart-type and palette
+> decisions belong to `eval-chart-style`; this skill supplies publication
+> polish.
+
 `nature-figure` 用于生成可投稿级科研图，面向 Nature 级期刊和高影响力学术场景，同时支持 Python 与 R 两条绘图路径。
 
 该技能从“图件契约”开始，而不是直接套模板。开始绘图前，必须明确核心结论、证据层级、图件原型、后端选择、期刊与导出约束、统计说明和 source-data 可追溯性。只有在科学逻辑明确后，才使用绘图模板。

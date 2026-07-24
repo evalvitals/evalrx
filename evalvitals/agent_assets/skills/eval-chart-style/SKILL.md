@@ -1,6 +1,6 @@
 ---
 name: eval-chart-style
-version: 0.3.0
+version: 0.4.0
 description: >
   Chart-type policy + house style for FAIL-vs-PASS LLM/VLM eval analysis
   figures. Use whenever you plot eval results inside an EvalVitals analysis
@@ -31,9 +31,12 @@ hides the distribution and fakes certainty. Pick by *what the reader must see*:
 | What you're showing | DON'T | DO |
 |---|---|---|
 | Discrete class counts (FAIL/PASS n) | — | grouped bars, n annotated |
+| One variable's own distribution (EDA) | — | histogram (continuous) / count bars (categorical) |
 | A continuous signal across outcomes | two-bar "mean by outcome" | violin/box + jittered points, one panel |
-| Several signals' effects ranked | green/grey bars | horizontal **dot + CI** (forest) |
+| Several signals' effects ranked (incl. regression odds ratios) | green/grey bars | horizontal **dot + CI** (forest) |
 | Fail rate vs a continuous signal | bare binned bars | binned rate **line** (or logistic curve) + n per bin |
+| Predicted probability vs a key predictor | coefficient table only | probability **curve** + CI band, others held at reference |
+| Model discrimination / calibration | a lone accuracy bar | **ROC curve** + calibration (reliability) plot |
 | Two continuous signals jointly | scatter squeezed small | full-width scatter colored by outcome (+ marginals if easy) |
 | Rates across two categoricals | grouped bars ×k | **heatmap** with annotated cells |
 | Distribution shape / tail claims | histogram only | ECDF or KDE overlay by outcome |
@@ -41,6 +44,12 @@ hides the distribution and fakes certainty. Pick by *what the reader must see*:
 
 Why distributions: with small FAIL n a mean is outlier-driven, and any
 "two sub-populations" story is a *bimodality claim* — a bar can show neither.
+
+**This policy wins.** When another installed skill (e.g. a statistics-method
+skill like outcome-driver-analysis) calls for a specific chart at some step,
+keep its statistical intent but render it under THIS table's chart-type policy
+and §1's palette — e.g. its "side-by-side boxplot" becomes violin/box +
+jittered points here.
 
 **Suppress degenerate charts.** A binary/constant signal's fail-rate curve
 collapses to one or two dots — don't render it; note it in caveats instead.
