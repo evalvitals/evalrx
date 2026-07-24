@@ -103,6 +103,28 @@ Never print a raw column id (`generated_probe1_false_detection`) on an axis,
 tick, or title — use a short human alias (≤ ~12 chars) and keep the raw name in
 a caption/hover/table only.
 
+Never print a raw filename (`violin_by_probe.png`) as a figure's on-dashboard
+title either — the host strips `.png` and aliases the stem, but only for
+`figures/<name>.png` paths it recognizes; give figures descriptive stems
+(`attention_focus_by_probe`, not `plot3`) so the alias is readable.
+
+### 1a. Apply the house rcParams before drawing anything
+
+Colors alone don't make a matplotlib PNG match the host plotly charts and the
+dashboard's card chrome — font, spines, and grid do. At the top of every
+script that draws a figure under `figures/`, before the first `plt.subplots`
+or `plt.figure` call:
+
+```python
+from evalvitals.analysis.eval_viz_theme import matplotlib_rcparams
+import matplotlib.pyplot as plt
+plt.rcParams.update(matplotlib_rcparams())
+```
+
+If `evalvitals` isn't importable from the sandbox, inline the same rcParams
+rather than skipping this step — dropping it is what produces default-navy
+bars and visible top/right spines next to the host's themed charts.
+
 ## 2. Layout
 
 - Distribution plots and scatters get full width; never squeeze a scatter into
