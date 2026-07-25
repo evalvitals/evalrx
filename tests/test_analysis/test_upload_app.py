@@ -338,7 +338,7 @@ def test_finished_run_renders_explore_tabs(tmp_path):
     # M3-only run never reached grey out instead of disappearing
     assert [t.label for t in at.tabs] == [
         "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Held-out Verdicts", "5 Fix",
+        "4 Validation results", "5 Fix",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
     assert "Peaked attention marks hallucinations." in blob
@@ -373,7 +373,7 @@ def test_attached_local_dir_renders_in_sidebar_and_body(tmp_path):
     assert not at.exception
     assert [t.label for t in at.tabs] == [
         "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Held-out Verdicts", "5 Fix",
+        "4 Validation results", "5 Fix",
     ]
     assert any("attached results directory" in str(c.value) for c in at.caption)
     blob = " ".join(str(m.value) for m in at.markdown)

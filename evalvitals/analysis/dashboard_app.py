@@ -129,7 +129,7 @@ def render_explore_report(root: Path, turn: dict[str, Any]) -> None:
 # rather than vanish (see render_explore_report).
 EXPLORE_TAB_LABELS = [
     "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-    "4 Held-out Verdicts", "5 Fix",
+    "4 Validation results", "5 Fix",
 ]
 
 
@@ -150,7 +150,7 @@ def _render_sidebar(root: Path, session: dict[str, Any]) -> int:
     kind = session.get("kind", "explore")
 
     st.sidebar.markdown('<div class="ev-sidebar-title">EvalVitals</div>', unsafe_allow_html=True)
-    st.sidebar.caption(str(root))
+    st.sidebar.caption(root.name)
     st.sidebar.markdown(f"**Mode:** {kind}")
 
     if not runs:
@@ -526,6 +526,10 @@ def _render_problem_setting(
     plain_question = str(report.get("plain_question") or "").strip()
     signals = _candidate_signals(report)
     charts = [c for c in report.get("charts", []) if isinstance(c, dict)]
+    chart_count = (
+        len(charts) + len(report.get("plots") or [])
+        if "charts" in report or "plots" in report else None
+    )
 
     matrix = None
     if load_case_matrix is not None:
@@ -568,8 +572,8 @@ def _render_problem_setting(
     st.markdown(
         '<div class="ev-section-head">'
         '<div class="ev-section-title">Problem Setting</div>'
-        '<div class="ev-section-sub">What data was loaded and how it will be evaluated, '
-        "before any analysis runs.</div>"
+        '<div class="ev-section-sub">What this run studied, what one row means, '
+        "and how to interpret the analysis.</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -593,16 +597,18 @@ def _render_problem_setting(
             unsafe_allow_html=True,
         )
 
-    cols = st.columns(5)
     metrics = [
         ("Cases", n_cases, "rows/cases loaded"),
         ("Explore", n_explore, "agent discovery split"),
         ("Confirm", n_confirm, "held-out confirmation split"),
-        ("Signals", len(signals) or n_features, "candidate/features"),
-        ("Charts", len(charts) + len(report.get("plots") or []), "analysis visuals"),
+        ("Candidate patterns", len(signals) or n_features, "candidate/features"),
+        ("Charts", chart_count, "analysis visuals"),
     ]
-    for col, (label, value, help_text) in zip(cols, metrics, strict=False):
-        col.metric(label, _format_int(value), help=help_text)
+    metrics = [(label, value, help_text) for label, value, help_text in metrics if value is not None]
+    if metrics:
+        cols = st.columns(len(metrics))
+        for col, (label, value, help_text) in zip(cols, metrics, strict=False):
+            col.metric(label, _format_int(value), help=help_text)
 
     c1, c2 = st.columns([1.15, 1], gap="large")
     with c1:
@@ -650,7 +656,7 @@ def _render_problem_setting(
             st.info("No structured data profile was saved with this report.")
 
     with c2:
-        st.markdown("#### Evaluation frame")
+        st.markdown("#### How to interpret this analysis")
         # Standalone explore reports have no loop/story at all, so they're
         # always the descriptive framing; a loop run's own story says whether
         # a test phase actually ran.
@@ -681,7 +687,8 @@ def _render_problem_setting(
         )
         for label, count in stages:
             st.markdown(f"- **{label}:** {count}")
-        st.caption(f"Run directory: {root}")
+        with st.expander("View run directory", expanded=False):
+            st.code(str(root), language="text")
 
 
 def _render_stage_map(*, active: set[str]) -> None:
@@ -1563,13 +1570,13 @@ def _render_standalone_hypothesis_card(
 
 
 def _render_holdout_panel(confirm: dict[str, Any]) -> None:
-    """Held-out Verdicts tab: phase 2's frozen-recipe re-adjudication + the
+    """Validation results tab: phase 2's frozen-recipe re-adjudication + the
     per-hypothesis judge verdicts. Unlike the in-sample screen in tab 2,
     verdicts here are legitimate: thresholds were frozen before this data was
     touched."""
     st.markdown(
         '<div class="ev-section-head">'
-        '<div class="ev-section-title">Held-out Verdicts</div>'
+        '<div class="ev-section-title">Validation results</div>'
         '<div class="ev-section-sub">Recipes re-evaluated VERBATIM (thresholds frozen from the '
         "exploration half) on a validate split the explorer never saw; hypotheses graded "
         "against that evidence.</div>"
@@ -2886,16 +2893,57 @@ def _render_explore_tables_legacy(uniq: list[Path]) -> None:
                 st.dataframe(df, width="stretch", height=240)
 
 
+def _short_report_title(question: str) -> str:
+    q = " ".join(str(question or "").split()).strip()
+    if not q:
+        return "Exploratory analysis"
+    lower = q.lower()
+    if "hallucination" in lower and ("fail" in lower or "failure" in lower):
+        return "Hallucination failure patterns"
+    if lower.startswith("what predicts "):
+        target = q[len("What predicts "):].split("?", 1)[0].split(" in ", 1)[0].strip()
+        if target:
+            return f"What predicts {target}?"
+    if lower.startswith("what drives "):
+        target = q[len("What drives "):].split("?", 1)[0].split(" in ", 1)[0].strip()
+        if target:
+            return f"What drives {target}?"
+    return _truncate(q, 72)
+
+
+def _header_subtitle(report: dict[str, Any]) -> str:
+    profile = report.get("data_profile") or {}
+    parts = ["Exploratory analysis"]
+    n_rows = profile.get("loaded_rows", profile.get("n_rows"))
+    if n_rows is not None:
+        parts.append(f"{_format_int(n_rows)} records")
+    signals = report.get("candidate_signals") if "candidate_signals" in report else None
+    if isinstance(signals, list) and signals:
+        parts.append(f"{_format_int(len(signals))} candidate patterns")
+    charts = (report.get("charts") if "charts" in report else []) or []
+    plots = (report.get("plots") if "plots" in report else []) or []
+    n_visuals = len(charts) + len(plots)
+    if n_visuals:
+        parts.append(f"{_format_int(n_visuals)} visuals")
+    return " · ".join(parts)
+
+
 def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> None:
     ok = bool(report.get("ok"))
     status = "finished" if ok else "failed"
     status_class = "ev-pill-ok" if ok else "ev-pill-fail"
+
     question = str(report.get("question") or "Exploratory analysis")
     plain_question = str(report.get("plain_question") or "").strip()
-    headline = plain_question or question
+
+    title = plain_question or _short_report_title(question)
+    subtitle = _header_subtitle(report)
+
     technical_line = (
         f'<div class="ev-path">Original question: {_html_escape(question)}</div>'
-        if plain_question and question.strip() and question.strip() != plain_question
+        if plain_question
+        and question.strip()
+        and question.strip() != plain_question
         else ""
     )
 
@@ -2904,9 +2952,9 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
         <div class="ev-header">
           <div>
             <div class="ev-kicker">Exploratory Data Analysis</div>
-            <h1>{_html_escape(headline)}</h1>
+            <h1>{_html_escape(title)}</h1>
             {technical_line}
-            <div class="ev-path">{_html_escape(str(root))}</div>
+            <div class="ev-path">{_html_escape(subtitle)}</div>
           </div>
           <div class="ev-header-right">
             <span class="ev-pill {status_class}">{status}</span>
@@ -2917,25 +2965,27 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
         unsafe_allow_html=True,
     )
 
-
 def _render_top_metrics(report: dict[str, Any]) -> None:
     profile = report.get("data_profile") or {}
     columns = profile.get("columns") or {}
-    observations = report.get("observations") or []
-    signals = report.get("candidate_signals") or []
-    charts = report.get("charts") or []
-    plots = report.get("plots") or []
+    observations = report.get("observations") if "observations" in report else None
+    signals = report.get("candidate_signals") if "candidate_signals" in report else None
+    charts = report.get("charts") if "charts" in report else None
+    plots = report.get("plots") if "plots" in report else None
 
     raw_metrics = [
         ("Rows", profile.get("loaded_rows", profile.get("n_rows")), "records sampled"),
-        ("Columns", len(columns) if isinstance(columns, dict) else None, "profiled fields"),
-        ("Signals", len(signals), "candidate follow-ups"),
-        ("Charts", len(charts) + len(plots), "visual artifacts"),
-        ("Attempts", report.get("attempts", 0), "agent/code runs"),
-        ("Notes", len(observations), "observations"),
+        ("Columns", len(columns) if isinstance(columns, dict) and columns else None, "profiled fields"),
+        ("Candidate patterns", len(signals) if isinstance(signals, list) else None, "candidate follow-ups"),
+        ("Charts", len(charts or []) + len(plots or []) if charts is not None or plots is not None else None,
+         "visual artifacts"),
+        ("Attempts", report.get("attempts") if "attempts" in report else None, "agent/code runs"),
+        ("Findings", len(observations) if isinstance(observations, list) else None, "observations"),
     ]
-    # Drop tiles this report never populated (None) instead of showing a bare
-    # "-" that reads as broken; a real 0 (e.g. "Signals: 0") is still shown.
+    # Drop tiles this report never populated instead of showing bare "-" or
+    # zero-value profile cards that read as broken. A real populated zero (for
+    # example zero candidate patterns in a report that explicitly recorded the
+    # field) is still shown.
     metrics = [(label, _format_int(v), caption) for label, v, caption in raw_metrics if v is not None]
     if not metrics:
         return
