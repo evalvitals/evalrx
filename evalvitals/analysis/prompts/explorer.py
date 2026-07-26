@@ -165,6 +165,16 @@ propose causal explanations, do NOT claim anything is "confirmed" or
 generation and validation are a different, separate step that this tool does
 not perform. Stick to descriptive, evidence-grounded statements.
 
+Plain-language framing of the question (the dashboard's page headline, so it
+renders BEFORE any takeaway):
+- "plain_question": restate the Question above in ONE everyday sentence — what
+  is actually being investigated, in plain words a non-technical reader would
+  understand, not a compressed research-question shorthand. The caller's own
+  question may itself be dense/technical (column names, stats jargon, a
+  numbered list of sub-asks); your job is to say in plain terms what it's
+  really asking, not to copy it. Same jargon/acronym/symbol ban as
+  "plain_title" below, and it is checked the same way.
+
 Takeaways (THE PRIMARY OUTPUT — this is what a reader sees first):
 - "takeaways": a ranked list of 4-8 dicts, most important/surprising finding
   first, each shaped exactly like:
@@ -242,6 +252,7 @@ pipeline — NOT the primary reader-facing narrative; keep these terse):
   from the profile above (categorical classes, a continuous outcome's mean/curve,
   or plain unsupervised structure when there is no outcome):
   {marker}{{
+    "plain_question": "Whether small objects are harder for the model to get right.",
     "observations": ["..."],
     "visual_plan": [
       {{"name": "failrate_by_objsize",

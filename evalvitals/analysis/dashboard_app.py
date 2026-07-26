@@ -523,6 +523,7 @@ def _render_problem_setting(
     if story:
         fallback_question = _run_lifecycle(story).get("protocol_description") or fallback_question
     question = str(report.get("question") or fallback_question)
+    plain_question = str(report.get("plain_question") or "").strip()
     signals = _candidate_signals(report)
     charts = [c for c in report.get("charts", []) if isinstance(c, dict)]
 
@@ -576,11 +577,17 @@ def _render_problem_setting(
         _render_stage_map(active={"M1"})
     _render_storyboard_panel(storyboard, "problem_setting")
     if not _has_storyboard_panel(storyboard, "problem_setting"):
+        question_technical_line = (
+            f'<div class="ev-path">Original question: {_html_escape(question)}</div>'
+            if plain_question and question.strip() and question.strip() != plain_question
+            else ""
+        )
         st.markdown(
             f"""
             <div class="ev-report-answer">
               <div class="ev-brief-label">User question</div>
-              <div class="ev-report-answer-text">{_html_escape(question)}</div>
+              <div class="ev-report-answer-text">{_html_escape(plain_question or question)}</div>
+              {question_technical_line}
             </div>
             """,
             unsafe_allow_html=True,
@@ -2884,13 +2891,21 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
     status = "finished" if ok else "failed"
     status_class = "ev-pill-ok" if ok else "ev-pill-fail"
     question = str(report.get("question") or "Exploratory analysis")
+    plain_question = str(report.get("plain_question") or "").strip()
+    headline = plain_question or question
+    technical_line = (
+        f'<div class="ev-path">Original question: {_html_escape(question)}</div>'
+        if plain_question and question.strip() and question.strip() != plain_question
+        else ""
+    )
 
     st.markdown(
         f"""
         <div class="ev-header">
           <div>
             <div class="ev-kicker">Exploratory Data Analysis</div>
-            <h1>{_html_escape(question)}</h1>
+            <h1>{_html_escape(headline)}</h1>
+            {technical_line}
             <div class="ev-path">{_html_escape(str(root))}</div>
           </div>
           <div class="ev-header-right">

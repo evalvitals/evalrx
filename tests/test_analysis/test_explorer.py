@@ -236,6 +236,98 @@ def test_explorer_gives_up_on_jargon_after_max_attempts_but_stays_ok(tmp_path):
     assert any("Plain-language check failed" in c for c in report.critique)
 
 
+_JARGON_QUESTION = (
+    "What predicts hallucination failures? Signals are collinear; compare "
+    "ECDF distributions between FAIL and PASS."
+)
+
+_CODE_JARGON_QUESTION = """
+import json
+payload = {
+    "plain_question": "This is still collinear jargon about ECDF.",
+    "observations": [], "visual_plan": [], "takeaways": [],
+    "chart_readings": [], "dashboard_storyboard": [], "claims": [],
+    "candidate_signals": [], "plots": [], "tables": {}, "charts": [],
+    "caveats": [], "critique": [], "recommended_confirmatory_tests": [],
+}
+print("EXPLORATORY_RESULT_JSON=" + json.dumps(payload))
+"""
+
+_CODE_CLEAN_QUESTION = """
+import json
+payload = {
+    "plain_question": "Why does the model imagine objects that aren't there?",
+    "observations": [], "visual_plan": [], "takeaways": [],
+    "chart_readings": [], "dashboard_storyboard": [], "claims": [],
+    "candidate_signals": [], "plots": [], "tables": {}, "charts": [],
+    "caveats": [], "critique": [], "recommended_confirmatory_tests": [],
+}
+print("EXPLORATORY_RESULT_JSON=" + json.dumps(payload))
+"""
+
+_CODE_NO_PLAIN_QUESTION = """
+import json
+payload = {
+    "observations": [], "visual_plan": [], "takeaways": [],
+    "chart_readings": [], "dashboard_storyboard": [], "claims": [],
+    "candidate_signals": [], "plots": [], "tables": {}, "charts": [],
+    "caveats": [], "critique": [], "recommended_confirmatory_tests": [],
+}
+print("EXPLORATORY_RESULT_JSON=" + json.dumps(payload))
+"""
+
+
+def test_explorer_parses_plain_question(tmp_path):
+    agent = ExploratoryAnalysisAgent(
+        judge=ScriptedJudge(f"```python\n{_CODE_CLEAN_QUESTION}\n```"),
+        sandbox=ExperimentSandbox(workdir=tmp_path, cleanup=False),
+    )
+
+    report = agent.explore_records(_rows(), question=_JARGON_QUESTION)
+
+    assert report.ok
+    assert report.plain_question == "Why does the model imagine objects that aren't there?"
+    assert report.question == _JARGON_QUESTION
+
+
+def test_explorer_retries_a_jargon_plain_question(tmp_path):
+    judge = ScriptedJudge(
+        f"```python\n{_CODE_JARGON_QUESTION}\n```",
+        f"```python\n{_CODE_CLEAN_QUESTION}\n```",
+    )
+    agent = ExploratoryAnalysisAgent(
+        judge=judge,
+        sandbox=ExperimentSandbox(workdir=tmp_path, cleanup=False),
+        max_attempts=2,
+    )
+
+    report = agent.explore_records(_rows(), question=_JARGON_QUESTION)
+
+    assert report.ok
+    assert report.attempts == 2
+    assert report.plain_question == "Why does the model imagine objects that aren't there?"
+    repair_prompt = judge.prompts[1]
+    assert "plain_question" in repair_prompt
+
+
+def test_explorer_does_not_force_a_rewrite_when_question_is_already_plain(tmp_path):
+    """The caller's own question is often already fine (e.g. the default) —
+    a missing plain_question must not trigger a pointless retry loop."""
+    judge = ScriptedJudge(f"```python\n{_CODE_NO_PLAIN_QUESTION}\n```")
+    agent = ExploratoryAnalysisAgent(
+        judge=judge,
+        sandbox=ExperimentSandbox(workdir=tmp_path, cleanup=False),
+        max_attempts=3,
+    )
+
+    report = agent.explore_records(_rows(), question="Does tool usage correlate with failures?")
+
+    assert report.ok
+    assert report.attempts == 1  # no retry consumed
+    assert report.plain_question == ""
+    assert report.critique == []
+
+
 def test_explorer_keeps_working_report_when_plain_language_retry_crashes(tmp_path):
     """A jargon-y plain_title must never cost the whole analysis: if the
     retry aimed at fixing it crashes instead, fall back to the original

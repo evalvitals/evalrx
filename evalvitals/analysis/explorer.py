@@ -159,6 +159,7 @@ class ExploratoryAnalysisReport:
     """
 
     question: str = ""
+    plain_question: str = ""
     ok: bool = False
     observations: list[str] = field(default_factory=list)
     takeaways: list[Takeaway] = field(default_factory=list)
@@ -194,6 +195,7 @@ class ExploratoryAnalysisReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "question": self.question,
+            "plain_question": self.plain_question,
             "ok": self.ok,
             "observations": self.observations,
             "takeaways": [t.to_dict() for t in self.takeaways],
@@ -485,7 +487,7 @@ class ExploratoryAnalysisAgent:
             report.raw_outputs = raw_outputs
             report.agent_audits = agent_audits
             if report.ok:
-                violations = _plain_language_violations(report.takeaways)
+                violations = _plain_language_violations(report)
                 if not violations or attempt == self._max_attempts:
                     if violations:
                         report.critique = [
@@ -497,12 +499,11 @@ class ExploratoryAnalysisAgent:
                 best_report = report
                 last_error = (
                     "The analysis itself is fine — do not change it. Only the "
-                    "plain-language check on the takeaways' \"plain_title\" "
-                    "field failed: " + "; ".join(violations) + ". Rewrite each "
-                    "flagged takeaway's \"plain_title\" as one jargon-free, "
-                    "everyday sentence (numbers are fine; acronyms/stats terms/"
-                    "symbols are not), keep everything else the same, and "
-                    "reprint the full result JSON."
+                    "plain-language check on \"plain_title\"/\"plain_question\" "
+                    "failed: " + "; ".join(violations) + ". Rewrite each flagged "
+                    "field as one jargon-free, everyday sentence (numbers are "
+                    "fine; acronyms/stats terms/symbols are not), keep "
+                    "everything else the same, and reprint the full result JSON."
                 )
 
         if best_report is not None:
@@ -512,8 +513,8 @@ class ExploratoryAnalysisAgent:
             best_report.critique = [
                 *best_report.critique,
                 "A plain-language rewrite attempt failed (" + last_error + "); "
-                "kept the original working analysis, whose plain_title "
-                "violation may be unfixed.",
+                "kept the original working analysis, whose plain_title/"
+                "plain_question violation may be unfixed.",
             ]
             return best_report
 
@@ -1004,15 +1005,23 @@ As a minimum, consider this standard battery when the columns exist:
      its groups/periods; otherwise skip this item."""
 
 
-def _plain_language_violations(takeaways: list[Takeaway]) -> list[str]:
-    """Host-side check behind the prompt's ``plain_title`` requirement — the
-    prompt already asks for jargon-free headlines, but that alone doesn't
-    hold, so this is what actually gates a retry (see ``_run_explore_loop``)."""
+def _plain_language_violations(report: ExploratoryAnalysisReport) -> list[str]:
+    """Host-side check behind the prompt's ``plain_title``/``plain_question``
+    requirement — the prompt already asks for jargon-free headlines, but that
+    alone doesn't hold, so this is what actually gates a retry (see
+    ``_run_explore_loop``)."""
     violations = []
-    for i, t in enumerate(takeaways, start=1):
+    for i, t in enumerate(report.takeaways, start=1):
         reason = jargon_violation(t.plain_title, t.title)
         if reason:
             violations.append(f'takeaway {i}\'s "plain_title" {reason}: {t.plain_title!r}')
+    # The caller's own `question` is often already plain (short, jargon-free)
+    # — don't force a pointless rewrite of a fine question just because
+    # plain_question is empty or a verbatim copy in that case.
+    if jargon_violation(report.question) is not None:
+        reason = jargon_violation(report.plain_question, report.question)
+        if reason:
+            violations.append(f'"plain_question" {reason}: {report.plain_question!r}')
     return violations
 
 
@@ -1087,6 +1096,7 @@ def _report_from_sandbox(
     return (
         ExploratoryAnalysisReport(
             question=question,
+            plain_question=str(parsed.get("plain_question", "")),
             ok=True,
             observations=[str(x) for x in parsed.get("observations", []) or []],
             takeaways=takeaways,

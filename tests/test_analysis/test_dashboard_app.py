@@ -328,6 +328,45 @@ def test_standalone_dashboard_keeps_a_takeaway_with_only_plain_title(tmp_path):
     assert "no structured takeaways" not in blob.lower()
 
 
+def test_standalone_dashboard_renders_plain_question_as_page_headline(tmp_path):
+    """The page's <h1> is the report's biggest, most prominent text — it must
+    not be the raw research question verbatim when a plain restatement
+    exists (the technical one still shown, demoted)."""
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "question": (
+            "What predicts hallucination failures (label=fail)? Compare "
+            "attention_entropy/focus_share DISTRIBUTIONS (violin/ECDF) between "
+            "FAIL and PASS; signals are collinear."
+        ),
+        "plain_question": "Why does the model imagine objects that aren't in the picture?",
+        "ok": True,
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    html = "".join(str(m.value) for m in at.markdown if isinstance(m.value, str))
+    assert "<h1>Why does the model imagine objects that aren&#x27;t in the picture?</h1>" in html
+    assert "Original question:" in html
+    assert "collinear" in html  # the technical wording is demoted, not deleted
+
+
+def test_standalone_dashboard_falls_back_to_raw_question_without_plain_question(tmp_path):
+    """Older reports never had plain_question — must still render the raw
+    question as the headline, with no dangling 'Original question:' line."""
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "question": "What predicts yield?",
+        "ok": True,
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    html = "".join(str(m.value) for m in at.markdown if isinstance(m.value, str))
+    assert "<h1>What predicts yield?</h1>" in html
+    assert "Original question:" not in html
+
+
 def test_standalone_dashboard_falls_back_gracefully_with_no_takeaways(tmp_path):
     (tmp_path / "fused_report.json").write_text(json.dumps({
         "observations": ["No structured takeaways in this older report."],
