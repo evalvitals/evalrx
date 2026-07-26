@@ -149,6 +149,144 @@ def test_explorer_uses_inspector_for_repair(tmp_path):
     assert "Previous code" in inspector.prompts[0]
 
 
+_CODE_JARGON_TAKEAWAY = """
+import json
+payload = {
+    "observations": ["6 rows"],
+    "visual_plan": [],
+    "takeaways": [{
+        "plain_title": "This signal is collinear with a high AUC.",
+        "title": "flag has AUC=0.9 separating fail/pass",
+        "chart_names": [], "table_names": [], "analysis": "x", "caveat": "",
+    }],
+    "chart_readings": [], "dashboard_storyboard": [], "claims": [],
+    "candidate_signals": [], "plots": [], "tables": {}, "charts": [],
+    "caveats": [], "critique": [], "recommended_confirmatory_tests": [],
+}
+print("EXPLORATORY_RESULT_JSON=" + json.dumps(payload))
+"""
+
+_CODE_CLEAN_TAKEAWAY = """
+import json
+payload = {
+    "observations": ["6 rows"],
+    "visual_plan": [],
+    "takeaways": [{
+        "plain_title": "Cases with the flag set almost always fail.",
+        "title": "flag has AUC=0.9 separating fail/pass",
+        "chart_names": [], "table_names": [], "analysis": "x", "caveat": "",
+    }],
+    "chart_readings": [], "dashboard_storyboard": [], "claims": [],
+    "candidate_signals": [], "plots": [], "tables": {}, "charts": [],
+    "caveats": [], "critique": [], "recommended_confirmatory_tests": [],
+}
+print("EXPLORATORY_RESULT_JSON=" + json.dumps(payload))
+"""
+
+
+def test_explorer_parses_plain_title(tmp_path):
+    agent = ExploratoryAnalysisAgent(
+        judge=ScriptedJudge(f"```python\n{_CODE_CLEAN_TAKEAWAY}\n```"),
+        sandbox=ExperimentSandbox(workdir=tmp_path, cleanup=False),
+    )
+
+    report = agent.explore_records(_rows())
+
+    assert report.ok
+    assert report.takeaways[0].plain_title == "Cases with the flag set almost always fail."
+    assert report.takeaways[0].title == "flag has AUC=0.9 separating fail/pass"
+
+
+def test_explorer_retries_a_jargon_plain_title(tmp_path):
+    judge = ScriptedJudge(
+        f"```python\n{_CODE_JARGON_TAKEAWAY}\n```",
+        f"```python\n{_CODE_CLEAN_TAKEAWAY}\n```",
+    )
+    agent = ExploratoryAnalysisAgent(
+        judge=judge,
+        sandbox=ExperimentSandbox(workdir=tmp_path, cleanup=False),
+        max_attempts=2,
+    )
+
+    report = agent.explore_records(_rows())
+
+    assert report.ok
+    assert report.attempts == 2
+    assert report.takeaways[0].plain_title == "Cases with the flag set almost always fail."
+    assert report.critique == []
+    # the retry prompt names the specific plain_title violation
+    repair_prompt = judge.prompts[1]
+    assert "plain_title" in repair_prompt
+    assert "jargon" in repair_prompt
+
+
+def test_explorer_gives_up_on_jargon_after_max_attempts_but_stays_ok(tmp_path):
+    judge = ScriptedJudge(f"```python\n{_CODE_JARGON_TAKEAWAY}\n```")
+    agent = ExploratoryAnalysisAgent(
+        judge=judge,
+        sandbox=ExperimentSandbox(workdir=tmp_path, cleanup=False),
+        max_attempts=1,
+    )
+
+    report = agent.explore_records(_rows())
+
+    assert report.ok  # a language nitpick never fails the whole analysis
+    assert report.attempts == 1
+    assert report.takeaways[0].plain_title == "This signal is collinear with a high AUC."
+    assert any("Plain-language check failed" in c for c in report.critique)
+
+
+def test_explorer_keeps_working_report_when_plain_language_retry_crashes(tmp_path):
+    """A jargon-y plain_title must never cost the whole analysis: if the
+    retry aimed at fixing it crashes instead, fall back to the original
+    working report rather than returning ok=False with nothing."""
+    judge = ScriptedJudge(
+        f"```python\n{_CODE_JARGON_TAKEAWAY}\n```",
+        "```python\nraise RuntimeError('broken')\n```",
+    )
+    agent = ExploratoryAnalysisAgent(
+        judge=judge,
+        sandbox=ExperimentSandbox(workdir=tmp_path, cleanup=False),
+        max_attempts=2,
+    )
+
+    report = agent.explore_records(_rows())
+
+    assert report.ok
+    assert report.takeaways[0].plain_title == "This signal is collinear with a high AUC."
+    assert any("plain-language rewrite attempt failed" in c for c in report.critique)
+
+
+def test_explorer_keeps_takeaway_with_only_plain_title(tmp_path):
+    """A takeaway missing the technical 'title' but carrying 'plain_title'
+    must not be silently dropped — plain_title alone is enough evidence a
+    reader-facing finding was intended."""
+    code = """
+import json
+payload = {
+    "observations": [], "visual_plan": [],
+    "takeaways": [{
+        "plain_title": "Cases with the flag set almost always fail.",
+        "chart_names": [], "table_names": [], "analysis": "x", "caveat": "",
+    }],
+    "chart_readings": [], "dashboard_storyboard": [], "claims": [],
+    "candidate_signals": [], "plots": [], "tables": {}, "charts": [],
+    "caveats": [], "critique": [], "recommended_confirmatory_tests": [],
+}
+print("EXPLORATORY_RESULT_JSON=" + json.dumps(payload))
+"""
+    agent = ExploratoryAnalysisAgent(
+        judge=ScriptedJudge(f"```python\n{code}\n```"),
+        sandbox=ExperimentSandbox(workdir=tmp_path, cleanup=False),
+    )
+
+    report = agent.explore_records(_rows())
+
+    assert report.ok
+    assert len(report.takeaways) == 1
+    assert report.takeaways[0].plain_title == "Cases with the flag set almost always fail."
+
+
 def test_explorer_reports_missing_backend(tmp_path):
     agent = ExploratoryAnalysisAgent(sandbox=ExperimentSandbox(workdir=tmp_path, cleanup=False))
 

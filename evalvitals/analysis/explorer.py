@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from evalvitals.agent_runtime.sandbox import ExperimentSandbox, SandboxResult
+from evalvitals.analysis.plain_language import jargon_violation
 from evalvitals.analysis.profile import describe_outcome, profile_records
 from evalvitals.analysis.prompts.explorer import (
     GENERATE_PROMPT_RAW_FOLDER as _GENERATE_PROMPT_RAW_FOLDER,
@@ -66,14 +67,18 @@ logger = logging.getLogger(__name__)
 class Takeaway:
     """One finding paired with its supporting evidence — the primary UI unit.
 
-    The dashboard renders each takeaway as: title -> chart(s)/table(s) ->
-    analysis, so a reader never sees an orphaned chart or a claim with no
-    evidence next to it. Always descriptive: this agent does not generate or
-    validate hypotheses, so a takeaway is a description of the data, not a
-    claim of causation or statistical confirmation.
+    The dashboard renders each takeaway as: plain_title (falling back to
+    title) -> chart(s)/table(s) -> analysis, so a reader never sees an
+    orphaned chart or a claim with no evidence next to it. ``plain_title`` is
+    the jargon-free headline aimed at a non-technical reader; ``title`` keeps
+    the precise technical wording/numbers as a companion line. Always
+    descriptive: this agent does not generate or validate hypotheses, so a
+    takeaway is a description of the data, not a claim of causation or
+    statistical confirmation.
     """
 
     title: str = ""
+    plain_title: str = ""
     analysis: str = ""
     chart_names: list[str] = field(default_factory=list)
     table_names: list[str] = field(default_factory=list)
@@ -82,6 +87,7 @@ class Takeaway:
     def to_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
+            "plain_title": self.plain_title,
             "analysis": self.analysis,
             "chart_names": self.chart_names,
             "table_names": self.table_names,
@@ -416,6 +422,10 @@ class ExploratoryAnalysisAgent:
         code = ""
         last_result: SandboxResult | None = None
         last_error = ""
+        # A working report we're retrying only to fix a plain_title, kept in
+        # case the retry itself produces something worse (crashes, unparseable
+        # JSON) — a jargon-y headline must never cost the whole analysis.
+        best_report: ExploratoryAnalysisReport | None = None
 
         for attempt in range(1, self._max_attempts + 1):
             try:
@@ -475,7 +485,37 @@ class ExploratoryAnalysisAgent:
             report.raw_outputs = raw_outputs
             report.agent_audits = agent_audits
             if report.ok:
-                return report
+                violations = _plain_language_violations(report.takeaways)
+                if not violations or attempt == self._max_attempts:
+                    if violations:
+                        report.critique = [
+                            *report.critique,
+                            "Plain-language check failed and repair attempts were "
+                            "exhausted: " + "; ".join(violations),
+                        ]
+                    return report
+                best_report = report
+                last_error = (
+                    "The analysis itself is fine — do not change it. Only the "
+                    "plain-language check on the takeaways' \"plain_title\" "
+                    "field failed: " + "; ".join(violations) + ". Rewrite each "
+                    "flagged takeaway's \"plain_title\" as one jargon-free, "
+                    "everyday sentence (numbers are fine; acronyms/stats terms/"
+                    "symbols are not), keep everything else the same, and "
+                    "reprint the full result JSON."
+                )
+
+        if best_report is not None:
+            # The plain-language retry crashed or produced something
+            # unparseable — fall back to the last working analysis rather
+            # than losing every takeaway/chart/hypothesis over a headline.
+            best_report.critique = [
+                *best_report.critique,
+                "A plain-language rewrite attempt failed (" + last_error + "); "
+                "kept the original working analysis, whose plain_title "
+                "violation may be unfixed.",
+            ]
+            return best_report
 
         stdout = last_result.stdout if last_result is not None else ""
         stderr = last_result.stderr if last_result is not None else ""
@@ -964,6 +1004,18 @@ As a minimum, consider this standard battery when the columns exist:
      its groups/periods; otherwise skip this item."""
 
 
+def _plain_language_violations(takeaways: list[Takeaway]) -> list[str]:
+    """Host-side check behind the prompt's ``plain_title`` requirement — the
+    prompt already asks for jargon-free headlines, but that alone doesn't
+    hold, so this is what actually gates a retry (see ``_run_explore_loop``)."""
+    violations = []
+    for i, t in enumerate(takeaways, start=1):
+        reason = jargon_violation(t.plain_title, t.title)
+        if reason:
+            violations.append(f'takeaway {i}\'s "plain_title" {reason}: {t.plain_title!r}')
+    return violations
+
+
 def _report_from_sandbox(
     *,
     question: str,
@@ -1011,13 +1063,14 @@ def _report_from_sandbox(
     takeaways = [
         Takeaway(
             title=str(item.get("title", "")),
+            plain_title=str(item.get("plain_title", "")),
             analysis=str(item.get("analysis", "")),
             chart_names=[str(x) for x in item.get("chart_names", []) or []],
             table_names=[str(x) for x in item.get("table_names", []) or []],
             caveat=str(item.get("caveat", "")),
         )
         for item in parsed.get("takeaways", []) or []
-        if isinstance(item, dict) and item.get("title")
+        if isinstance(item, dict) and (item.get("title") or item.get("plain_title"))
     ]
     signals = [
         CandidateSignal(

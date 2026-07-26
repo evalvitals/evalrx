@@ -1199,7 +1199,10 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
             for caveat in caveats:
                 st.markdown(f"- {caveat}")
 
-    takeaways = [t for t in report.get("takeaways") or [] if isinstance(t, dict) and t.get("title")]
+    takeaways = [
+        t for t in report.get("takeaways") or []
+        if isinstance(t, dict) and (t.get("title") or t.get("plain_title"))
+    ]
     if not takeaways:
         st.info(
             "No structured takeaways were recorded for this report — showing the "
@@ -1217,13 +1220,21 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
 
     for i, takeaway in enumerate(takeaways, start=1):
         with st.container(border=True):
+            title = str(takeaway.get("title", ""))
+            plain_title = str(takeaway.get("plain_title") or "").strip()
+            headline = plain_title or title
             st.markdown(
                 '<div class="ev-takeaway-head">'
                 f'<div class="ev-takeaway-badge">{i}</div>'
-                f'<div class="ev-takeaway-title">{_html_escape(str(takeaway.get("title", "")))}</div>'
+                f'<div class="ev-takeaway-title">{_html_escape(headline)}</div>'
                 "</div>",
                 unsafe_allow_html=True,
             )
+            if plain_title and title.strip() and title.strip() != plain_title:
+                st.markdown(
+                    f'<div class="ev-signal-test">Technical detail: {_html_escape(title)}</div>',
+                    unsafe_allow_html=True,
+                )
             chart_names = [str(x) for x in takeaway.get("chart_names") or []]
             table_names = [str(x) for x in takeaway.get("table_names") or []]
             found_charts = []
@@ -1501,6 +1512,13 @@ def _render_standalone_hypotheses(report: dict[str, Any], turn_dir: Path) -> Non
 def _render_standalone_hypothesis_card(
     h: dict[str, Any], verdict: dict[str, Any] | None = None
 ) -> None:
+    statement = str(h.get("statement") or "").strip()
+    plain_statement = str(h.get("plain_statement") or "").strip()
+    headline = plain_statement or statement
+    technical_line = (
+        f'<div class="ev-signal-test">Technical detail: {_html_escape(statement)}</div>'
+        if plain_statement and statement and statement != plain_statement else ""
+    )
     basis = str(h.get("basis") or "").strip()
     test_design = str(h.get("test_design") or "").strip()
     basis_line = f'<div class="ev-signal-body">based on: {_html_escape(basis)}</div>' if basis else ""
@@ -1526,7 +1544,8 @@ def _render_standalone_hypothesis_card(
     st.markdown(
         f"""
         <div class="ev-signal">
-          <div class="ev-signal-title">{_html_escape(str(h.get('statement', '')))} {badge}</div>
+          <div class="ev-signal-title">{_html_escape(headline)} {badge}</div>
+          {technical_line}
           {basis_line}
           {test_line}
           {reasoning_line}

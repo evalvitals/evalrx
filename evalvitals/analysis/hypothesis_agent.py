@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from evalvitals.analysis.plain_language import jargon_violation
+from evalvitals.analysis.prompts.hypothesis_agent import PLAIN_REPAIR_PROMPT as _PLAIN_REPAIR_PROMPT
 from evalvitals.analysis.prompts.hypothesis_agent import PROPOSE_PROMPT as _PROPOSE_PROMPT
 
 if TYPE_CHECKING:
@@ -40,11 +42,17 @@ class Hypothesis:
     ``test_design`` names how it *could* be checked, not a verdict."""
 
     statement: str = ""
+    plain_statement: str = ""
     basis: str = ""
     test_design: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {"statement": self.statement, "basis": self.basis, "test_design": self.test_design}
+        return {
+            "statement": self.statement,
+            "plain_statement": self.plain_statement,
+            "basis": self.basis,
+            "test_design": self.test_design,
+        }
 
 
 class HypothesisAgent:
@@ -106,7 +114,32 @@ class HypothesisAgent:
         except Exception as exc:  # noqa: BLE001
             logger.warning("HypothesisAgent: generation failed: %s", exc)
             return []
-        return _parse_hypotheses(raw)
+        hypotheses = _parse_hypotheses(raw)
+        return self._repair_plain_language(raw, hypotheses)
+
+    def _repair_plain_language(self, raw: str, hypotheses: list[Hypothesis]) -> list[Hypothesis]:
+        """One bounded retry: if any PLAIN line is missing or still jargon-y,
+        ask the backend to rewrite just those lines. Never raises — a repair
+        failure just keeps the original (possibly jargon-y) hypotheses."""
+        if not hypotheses:
+            return hypotheses
+        violations = [
+            f"hypothesis {i}'s PLAIN line {reason}: {h.plain_statement!r}"
+            for i, h in enumerate(hypotheses, start=1)
+            for reason in [jargon_violation(h.plain_statement, h.statement)]
+            if reason
+        ]
+        if not violations:
+            return hypotheses
+        try:
+            repaired_raw = self._generate(
+                _PLAIN_REPAIR_PROMPT.format(raw=raw, violations="\n".join(f"- {v}" for v in violations))
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("HypothesisAgent: plain-language repair failed: %s", exc)
+            return hypotheses
+        repaired = _parse_hypotheses(repaired_raw)
+        return repaired or hypotheses
 
     def _generate(self, prompt: str) -> str:
         if self._cli_config is not None and self._cli_config.provider != "llm":
@@ -123,7 +156,9 @@ class HypothesisAgent:
 
 
 def _parse_hypotheses(raw: str) -> list[Hypothesis]:
-    """Parse ``HYPOTHESIS:``/``BASIS:``/``TEST:`` triples out of *raw*.
+    """Parse ``HYPOTHESIS:``/``PLAIN:``/``BASIS:``/``TEST:`` blocks out of
+    *raw*. ``PLAIN:`` is optional (older/repaired responses may omit it),
+    in which case ``plain_statement`` stays "".
 
     For the CLI-agent backend, *raw* is the full rendered tool-call
     trajectory, not just a final answer (``CliAgentResult.raw_output``'s
@@ -153,8 +188,10 @@ def _parse_hypotheses(raw: str) -> list[Hypothesis]:
         if upper.startswith("HYPOTHESIS:"):
             _flush()
             statement = line.split(":", 1)[1].strip()
-            cur = {"statement": statement, "basis": "", "test_design": ""}
+            cur = {"statement": statement, "plain_statement": "", "basis": "", "test_design": ""}
             cur_key = statement.lower()
+        elif upper.startswith("PLAIN:") and cur is not None:
+            cur["plain_statement"] = line.split(":", 1)[1].strip()
         elif upper.startswith("BASIS:") and cur is not None:
             cur["basis"] = line.split(":", 1)[1].strip()
         elif upper.startswith("TEST:") and cur is not None:

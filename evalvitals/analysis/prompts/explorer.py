@@ -168,7 +168,21 @@ not perform. Stick to descriptive, evidence-grounded statements.
 Takeaways (THE PRIMARY OUTPUT — this is what a reader sees first):
 - "takeaways": a ranked list of 4-8 dicts, most important/surprising finding
   first, each shaped exactly like:
-    {{"title": "<one punchy sentence — the finding itself, with real numbers>",
+    {{"plain_title": "<the SAME finding as 'title' below, restated in ONE
+                       everyday sentence a non-technical reader (a PM, not a
+                       statistician) can understand at a glance. NO acronyms
+                       (AUC, ROC, CI, ECDF...), NO statistics jargon
+                       (collinear, logistic, coefficient, p-value, quantile,
+                       monotonic, confound, variance, latent, mediator...),
+                       NO symbols (→, ρ, σ). Numbers/percentages ARE
+                       encouraged — plain language does not mean vague; keep
+                       the evidence, drop the notation. This is the headline
+                       a reader sees first; it is checked automatically and a
+                       jargon-y or copy-pasted one is sent back for a
+                       rewrite.>",
+      "title": "<one punchy sentence with the precise technical detail and
+                 real numbers — the companion line for a reader who wants
+                 it; stats terms/acronyms are fine here>",
       "chart_names": ["<name(s) from 'charts' or 'plots' that support it>"],
       "table_names": ["<key(s) from 'tables' that support it, if any>"],
       "analysis": "<2-4 sentences explaining WHY this matters, citing the
@@ -242,7 +256,8 @@ pipeline — NOT the primary reader-facing narrative; keep these terse):
         "not_promoted_reason": ""}}
     ],
     "takeaways": [
-      {{"title": "Small objects fail far more often (18% vs 4%, n=120).",
+      {{"plain_title": "Small objects trip up the model much more often than big ones.",
+        "title": "Small objects fail far more often (18% vs 4%, n=120).",
         "chart_names": ["failrate_by_objsize"],
         "table_names": [],
         "analysis": "The fail rate rises sharply below obj_size=40 (18% vs a 4% baseline above it), across 120 rows. This is the single strongest split in the ranked-discriminator chart.",

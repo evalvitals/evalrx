@@ -124,7 +124,9 @@ def test_run_explore_wires_m3_hypotheses_into_the_persisted_report(tmp_path, mon
 
     assert rc == 0
     saved = json.loads((out_dir / "exploratory_report.json").read_text())
-    assert saved["hypotheses"] == [{"statement": "Temperature drives yield.", "basis": "b", "test_design": "t"}]
+    assert saved["hypotheses"] == [
+        {"statement": "Temperature drives yield.", "plain_statement": "", "basis": "b", "test_design": "t"}
+    ]
 
 
 def test_run_explore_skips_m3_when_disabled(tmp_path, monkeypatch):

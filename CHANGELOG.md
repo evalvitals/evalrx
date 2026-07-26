@@ -6,6 +6,34 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Plain-language headlines for M2 takeaways and M3 hypotheses
+
+Reader feedback: `exploratory_report.json`'s takeaway/hypothesis headlines
+were often unreadable to a non-technical reader (e.g. `"focus_share
+separates FAIL from PASS at AUC 0.82 (CI 0.77-0.87)"`). Asking the prompt for
+"plain language" alone didn't hold — the model kept reusing the jargon-heavy
+technical line, so this adds a host-side check, not just a prompt tweak.
+
+- Each M2 takeaway now carries a required `plain_title` (jargon-free,
+  one-sentence headline) alongside the existing `title` (precise technical
+  line with the numbers). Each M3 hypothesis carries `plain_statement`
+  alongside `statement`.
+- New `evalvitals.analysis.plain_language.jargon_violation()` — flags a
+  missing headline, a verbatim copy of the technical line, banned stats
+  jargon/acronyms (AUC, collinear, logistic, p-value, quantile, ...), or
+  stray symbols (→, ρ, σ). Shared by both M2 and M3.
+- M2: a jargon violation reuses the existing repair-attempt budget
+  (`_run_explore_loop`) to ask for a rewrite; if attempts run out the report
+  still returns `ok=True` with the violation logged to `critique` rather than
+  failing the whole analysis.
+- M3 (`HypothesisAgent`): one bounded extra generation call rewrites only the
+  flagged `PLAIN:` lines; falls back to the original hypotheses if the
+  repair itself doesn't fix it.
+- Dashboard (`dashboard_app.py`): takeaway and hypothesis cards render the
+  plain headline first, with the technical line demoted to a small secondary
+  "Technical detail" line. Falls back to `title`/`statement` for older
+  reports that predate this field, so nothing existing breaks.
+
 ### Added — `run_codebase`: run a user's codebase, then explore the results
 
 New standalone entry point bridging the run infrastructure

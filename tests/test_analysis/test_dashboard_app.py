@@ -293,6 +293,41 @@ def test_standalone_dashboard_renders_unlinked_serialized_plot_path(tmp_path):
     assert any("Supporting exploratory material (not a conclusion)" in e.label for e in at.expander)
 
 
+def test_standalone_dashboard_renders_plain_title_as_headline_with_technical_detail(tmp_path):
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "takeaways": [{
+            "plain_title": "Small objects trip up the model far more often.",
+            "title": "Small objects fail far more often (18% vs 4%, AUC 0.71).",
+            "chart_names": [], "table_names": [], "analysis": "x", "caveat": "",
+        }],
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert 'ev-takeaway-title">Small objects trip up the model far more often.' in blob
+    assert "Technical detail: Small objects fail far more often (18% vs 4%, AUC 0.71)." in blob
+
+
+def test_standalone_dashboard_keeps_a_takeaway_with_only_plain_title(tmp_path):
+    """A takeaway with plain_title but no technical 'title' must not be
+    silently dropped — plain_title alone is a real finding."""
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "takeaways": [{
+            "plain_title": "Cases with the flag set almost always fail.",
+            "chart_names": [], "table_names": [], "analysis": "x", "caveat": "",
+        }],
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert "Cases with the flag set almost always fail." in blob
+    assert "no structured takeaways" not in blob.lower()
+
+
 def test_standalone_dashboard_falls_back_gracefully_with_no_takeaways(tmp_path):
     (tmp_path / "fused_report.json").write_text(json.dumps({
         "observations": ["No structured takeaways in this older report."],
