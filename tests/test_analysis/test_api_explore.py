@@ -57,7 +57,7 @@ def test_explore_accepts_in_memory_records_and_skips_persistence_by_default(monk
     assert result.ok is True
     assert result.out_dir is None
     assert result.hypotheses == [
-        {"statement": "Temperature drives yield.", "basis": "b", "test_design": "t"}
+        {"statement": "Temperature drives yield.", "plain_statement": "", "basis": "b", "test_design": "t"}
     ]
     assert "2 rows" in result.report.observations[0]
 
@@ -83,7 +83,7 @@ def test_explore_persists_artifacts_only_when_out_is_given(tmp_path, monkeypatch
     saved = json.loads((out_dir / "exploratory_report.json").read_text())
     assert saved["ok"] is True
     assert saved["hypotheses"] == [
-        {"statement": "Temperature drives yield.", "basis": "b", "test_design": "t"}
+        {"statement": "Temperature drives yield.", "plain_statement": "", "basis": "b", "test_design": "t"}
     ]
 
 

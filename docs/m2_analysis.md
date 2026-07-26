@@ -73,9 +73,17 @@ evalvitals_explore_output/
 Each M3 hypothesis in `exploratory_report.json["hypotheses"]` has:
 
 ```json
-{"statement": "...", "basis": "which M2 takeaway(s) this is grounded in",
+{"statement": "...", "plain_statement": "the same claim in one jargon-free, everyday sentence",
+ "basis": "which M2 takeaway(s) this is grounded in",
  "test_design": "what evidence would confirm or refute it"}
 ```
+
+Both M2 takeaways and M3 hypotheses carry a plain-language headline
+(`takeaways[i].plain_title`, `hypotheses[i].plain_statement`) alongside the
+precise technical line (`title`/`statement`) — the dashboard shows the plain
+version first and the technical wording underneath as a secondary detail.
+This is host-checked (no stats jargon/acronyms/symbols); a violation triggers
+one bounded rewrite before the report is returned.
 
 ## Dashboard
 

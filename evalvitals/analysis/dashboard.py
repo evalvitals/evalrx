@@ -22,6 +22,25 @@ from typing import Any, Sequence
 
 from evalvitals.reporting.compiler import compile_diagnostic_report
 
+# Native Streamlit widgets (text_input/selectbox focus rings, tab underline,
+# etc.) otherwise render in Streamlit's default red (#FF4B4B) while the
+# custom cards in dashboard_app.py's injected CSS use this accent blue — a
+# visible two-brand clash. These mirror the light-mode --ev-* CSS variables
+# so native and custom chrome read as one product. Only the theming keys
+# stable since Streamlit's original theming API are used (no `--theme.light.*`
+# / `--theme.dark.*` split, which needs a newer Streamlit than this package's
+# declared `streamlit>=1.30` floor guarantees) — the injected CSS's own
+# `prefers-color-scheme` dark mode still re-tints the custom cards
+# independently of this static native-widget theme.
+_THEME_FLAGS = [
+    "--theme.base", "light",
+    "--theme.primaryColor", "#2a78d6",
+    "--theme.backgroundColor", "#f9f9f7",
+    "--theme.secondaryBackgroundColor", "#fcfcfb",
+    "--theme.textColor", "#0b0b0b",
+    "--theme.font", "sans serif",
+]
+
 
 def launch_dashboard(run_dir: str | Path, *, port: int | None = None) -> int:
     """Launch the Streamlit dashboard app for a single explore/loop run dir."""
@@ -42,6 +61,7 @@ def launch_dashboard(run_dir: str | Path, *, port: int | None = None) -> int:
     # Product chrome, not a debug tool: no "Deploy" button/hamburger menu, no
     # phone-home usage stats.
     cmd += ["--client.toolbarMode", "minimal", "--browser.gatherUsageStats", "false"]
+    cmd += _THEME_FLAGS
     cmd += ["--", str(run_dir)]
     return subprocess.call(cmd)
 
@@ -79,6 +99,8 @@ def launch_upload_app(
     cmd = [sys.executable, "-m", "streamlit", "run", str(app_path)]
     if port is not None:
         cmd += ["--server.port", str(port)]
+    cmd += ["--client.toolbarMode", "minimal", "--browser.gatherUsageStats", "false"]
+    cmd += _THEME_FLAGS
     cmd += ["--", str(workspace), "--backend", backend, "--timeout-sec", str(int(timeout_sec))]
     if model:
         cmd += ["--model", model]

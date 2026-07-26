@@ -293,6 +293,80 @@ def test_standalone_dashboard_renders_unlinked_serialized_plot_path(tmp_path):
     assert any("Supporting exploratory material (not a conclusion)" in e.label for e in at.expander)
 
 
+def test_standalone_dashboard_renders_plain_title_as_headline_with_technical_detail(tmp_path):
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "takeaways": [{
+            "plain_title": "Small objects trip up the model far more often.",
+            "title": "Small objects fail far more often (18% vs 4%, AUC 0.71).",
+            "chart_names": [], "table_names": [], "analysis": "x", "caveat": "",
+        }],
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert 'ev-takeaway-title">Small objects trip up the model far more often.' in blob
+    assert "Technical detail: Small objects fail far more often (18% vs 4%, AUC 0.71)." in blob
+
+
+def test_standalone_dashboard_keeps_a_takeaway_with_only_plain_title(tmp_path):
+    """A takeaway with plain_title but no technical 'title' must not be
+    silently dropped — plain_title alone is a real finding."""
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "takeaways": [{
+            "plain_title": "Cases with the flag set almost always fail.",
+            "chart_names": [], "table_names": [], "analysis": "x", "caveat": "",
+        }],
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert "Cases with the flag set almost always fail." in blob
+    assert "no structured takeaways" not in blob.lower()
+
+
+def test_standalone_dashboard_renders_plain_question_as_page_headline(tmp_path):
+    """The page's <h1> is the report's biggest, most prominent text — it must
+    not be the raw research question verbatim when a plain restatement
+    exists (the technical one still shown, demoted)."""
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "question": (
+            "What predicts hallucination failures (label=fail)? Compare "
+            "attention_entropy/focus_share DISTRIBUTIONS (violin/ECDF) between "
+            "FAIL and PASS; signals are collinear."
+        ),
+        "plain_question": "Why does the model imagine objects that aren't in the picture?",
+        "ok": True,
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    html = "".join(str(m.value) for m in at.markdown if isinstance(m.value, str))
+    assert "<h1>Why does the model imagine objects that aren&#x27;t in the picture?</h1>" in html
+    assert "Original question:" in html
+    assert "collinear" in html  # the technical wording is demoted, not deleted
+
+
+def test_standalone_dashboard_falls_back_to_raw_question_without_plain_question(tmp_path):
+    """Older reports never had plain_question — must still render the raw
+    question as the headline, with no dangling 'Original question:' line."""
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "question": "What predicts yield?",
+        "ok": True,
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    html = "".join(str(m.value) for m in at.markdown if isinstance(m.value, str))
+    assert "<h1>What predicts yield?</h1>" in html
+    assert "Original question:" not in html
+
+
 def test_standalone_dashboard_falls_back_gracefully_with_no_takeaways(tmp_path):
     (tmp_path / "fused_report.json").write_text(json.dumps({
         "observations": ["No structured takeaways in this older report."],

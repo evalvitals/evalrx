@@ -523,6 +523,7 @@ def _render_problem_setting(
     if story:
         fallback_question = _run_lifecycle(story).get("protocol_description") or fallback_question
     question = str(report.get("question") or fallback_question)
+    plain_question = str(report.get("plain_question") or "").strip()
     signals = _candidate_signals(report)
     charts = [c for c in report.get("charts", []) if isinstance(c, dict)]
 
@@ -576,11 +577,17 @@ def _render_problem_setting(
         _render_stage_map(active={"M1"})
     _render_storyboard_panel(storyboard, "problem_setting")
     if not _has_storyboard_panel(storyboard, "problem_setting"):
+        question_technical_line = (
+            f'<div class="ev-path">Original question: {_html_escape(question)}</div>'
+            if plain_question and question.strip() and question.strip() != plain_question
+            else ""
+        )
         st.markdown(
             f"""
             <div class="ev-report-answer">
               <div class="ev-brief-label">User question</div>
-              <div class="ev-report-answer-text">{_html_escape(question)}</div>
+              <div class="ev-report-answer-text">{_html_escape(plain_question or question)}</div>
+              {question_technical_line}
             </div>
             """,
             unsafe_allow_html=True,
@@ -1199,7 +1206,10 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
             for caveat in caveats:
                 st.markdown(f"- {caveat}")
 
-    takeaways = [t for t in report.get("takeaways") or [] if isinstance(t, dict) and t.get("title")]
+    takeaways = [
+        t for t in report.get("takeaways") or []
+        if isinstance(t, dict) and (t.get("title") or t.get("plain_title"))
+    ]
     if not takeaways:
         st.info(
             "No structured takeaways were recorded for this report — showing the "
@@ -1217,13 +1227,21 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
 
     for i, takeaway in enumerate(takeaways, start=1):
         with st.container(border=True):
+            title = str(takeaway.get("title", ""))
+            plain_title = str(takeaway.get("plain_title") or "").strip()
+            headline = plain_title or title
             st.markdown(
                 '<div class="ev-takeaway-head">'
                 f'<div class="ev-takeaway-badge">{i}</div>'
-                f'<div class="ev-takeaway-title">{_html_escape(str(takeaway.get("title", "")))}</div>'
+                f'<div class="ev-takeaway-title">{_html_escape(headline)}</div>'
                 "</div>",
                 unsafe_allow_html=True,
             )
+            if plain_title and title.strip() and title.strip() != plain_title:
+                st.markdown(
+                    f'<div class="ev-signal-test">Technical detail: {_html_escape(title)}</div>',
+                    unsafe_allow_html=True,
+                )
             chart_names = [str(x) for x in takeaway.get("chart_names") or []]
             table_names = [str(x) for x in takeaway.get("table_names") or []]
             found_charts = []
@@ -1501,6 +1519,13 @@ def _render_standalone_hypotheses(report: dict[str, Any], turn_dir: Path) -> Non
 def _render_standalone_hypothesis_card(
     h: dict[str, Any], verdict: dict[str, Any] | None = None
 ) -> None:
+    statement = str(h.get("statement") or "").strip()
+    plain_statement = str(h.get("plain_statement") or "").strip()
+    headline = plain_statement or statement
+    technical_line = (
+        f'<div class="ev-signal-test">Technical detail: {_html_escape(statement)}</div>'
+        if plain_statement and statement and statement != plain_statement else ""
+    )
     basis = str(h.get("basis") or "").strip()
     test_design = str(h.get("test_design") or "").strip()
     basis_line = f'<div class="ev-signal-body">based on: {_html_escape(basis)}</div>' if basis else ""
@@ -1526,7 +1551,8 @@ def _render_standalone_hypothesis_card(
     st.markdown(
         f"""
         <div class="ev-signal">
-          <div class="ev-signal-title">{_html_escape(str(h.get('statement', '')))} {badge}</div>
+          <div class="ev-signal-title">{_html_escape(headline)} {badge}</div>
+          {technical_line}
           {basis_line}
           {test_line}
           {reasoning_line}
@@ -2865,13 +2891,21 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
     status = "finished" if ok else "failed"
     status_class = "ev-pill-ok" if ok else "ev-pill-fail"
     question = str(report.get("question") or "Exploratory analysis")
+    plain_question = str(report.get("plain_question") or "").strip()
+    headline = plain_question or question
+    technical_line = (
+        f'<div class="ev-path">Original question: {_html_escape(question)}</div>'
+        if plain_question and question.strip() and question.strip() != plain_question
+        else ""
+    )
 
     st.markdown(
         f"""
         <div class="ev-header">
           <div>
             <div class="ev-kicker">Exploratory Data Analysis</div>
-            <h1>{_html_escape(question)}</h1>
+            <h1>{_html_escape(headline)}</h1>
+            {technical_line}
             <div class="ev-path">{_html_escape(str(root))}</div>
           </div>
           <div class="ev-header-right">
