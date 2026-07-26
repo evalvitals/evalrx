@@ -60,7 +60,7 @@ from evalvitals.core.tool import Tool, ToolCall
 from evalvitals.models import Agent, RuntimeConfig, compose, load, load_model, wrap
 from evalvitals.specs import get_spec, list_specs
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
     "load",
     "load_config",
