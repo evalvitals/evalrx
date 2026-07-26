@@ -68,10 +68,13 @@ def test_renders_png_for_each_kind(tmp_path):
 
 def test_nature_style_loaded_from_vendored_skill():
     # The host render style is sourced from the vendored nature-figure skill:
-    # the palette (blue_main) and the spines-off rcParams.
+    # the palette (blue_main) and the spines-off rcParams. The skill's palette
+    # values are synced to the dataviz-validated palette, so spec PNGs share
+    # one palette with agent figures and host plotly charts.
     style_mod._NATURE_STYLE_CACHE = None
     style = style_mod.load_nature_style()
-    assert style["colors"][0] == "#0F4D92"            # PALETTE["blue_main"]
+    assert style["colors"][0] == "#2a78d6"            # PALETTE["blue_main"]
+    assert "#0F4D92" not in style["colors"]           # pre-sync blue retired
     assert style["rc"]["axes.spines.right"] is False
     assert style["rc"]["axes.spines.top"] is False
     assert style["rc"]["legend.frameon"] is False

@@ -67,7 +67,8 @@ def skills_hint(cli_config: "CliAgentConfig | None") -> str:
             "violin/ECDF/heatmap/forest/paired-slope -- never a mean as a bar) and "
             "the palette: FAIL/PASS semantic hues, a categorical series order for "
             "non-outcome dimensions, and single-hue ramps for ordered dimensions "
-            "(e.g. model sizes)"
+            "(e.g. model sizes). When any other skill suggests a specific chart "
+            "type or color, eval-chart-style's policy and palette take precedence"
         )
     if "nature-figure" in style:
         roles.append("`nature-figure` adds publication-grade matplotlib polish")

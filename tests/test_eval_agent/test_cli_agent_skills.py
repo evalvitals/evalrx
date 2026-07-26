@@ -149,6 +149,8 @@ def test_skills_hint_stages_analysis_before_figures():
     # the styling stage names only the styling skills
     styling = hint[hint.index("FIGURE STYLING"):]
     assert "/eval-chart-style" in styling and "/nature-figure" in styling
+    # arbitration: chart-type/palette conflicts resolve to eval-chart-style
+    assert "take precedence" in styling
     assert "/outcome-driver-analysis" not in styling
 
 

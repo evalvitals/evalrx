@@ -1,0 +1,6067 @@
+{
+ "model": "qwen3-vl-2b-instruct",
+ "prompt_template": "Is there a {obj} in the image? Please answer Yes or No.",
+ "seed": 42,
+ "decoding": {
+  "do_sample": false,
+  "max_new_tokens": 8
+ },
+ "pope_commit": "08d957b917e5a378a2f99d35b6293c536a66298b",
+ "versions": {
+  "transformers": "4.57.6",
+  "torch": "2.6.0+cu124",
+  "dtype": "bfloat16"
+ },
+ "source": "deco_pope/data/cases/qwen3-vl-2b-instruct.json (hallucination slice)",
+ "subset": "hallucination = adversarial-absent answered 'Yes'; controls = correct rejections + present-object detections (no-free-lunch)",
+ "yields": {
+  "explore": {
+   "fail": 21,
+   "pass": 96
+  },
+  "validate": {
+   "fail": 20,
+   "pass": 64
+  }
+ },
+ "n_hallucination": 41,
+ "n_correct_reject": 80,
+ "n_present_detect": 80,
+ "cases": [
+  {
+   "image_id": 210789,
+   "file_name": "COCO_val2014_000000210789.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6729,
+   "focus_share": 0.4364,
+   "center_offset": 0.4038,
+   "edge_mass": 0.3175,
+   "top1_share": 0.1722,
+   "max_relative_weight": 132.9733,
+   "mean_relative_weight": 4.0208
+  },
+  {
+   "image_id": 458338,
+   "file_name": "COCO_val2014_000000458338.jpg",
+   "object": "bus",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8395,
+   "focus_share": 0.2916,
+   "center_offset": 0.2355,
+   "edge_mass": 0.1831,
+   "top1_share": 0.1073,
+   "max_relative_weight": 39.8177,
+   "mean_relative_weight": 2.3186
+  },
+  {
+   "image_id": 353180,
+   "file_name": "COCO_val2014_000000353180.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7458,
+   "focus_share": 0.3389,
+   "center_offset": 0.3834,
+   "edge_mass": 0.292,
+   "top1_share": 0.1087,
+   "max_relative_weight": 111.5628,
+   "mean_relative_weight": 3.9492
+  },
+  {
+   "image_id": 157084,
+   "file_name": "COCO_val2014_000000157084.jpg",
+   "object": "bottle",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6145,
+   "focus_share": 0.5518,
+   "center_offset": 0.1129,
+   "edge_mass": 0.0416,
+   "top1_share": 0.1712,
+   "max_relative_weight": 821.574,
+   "mean_relative_weight": 18.4524
+  },
+  {
+   "image_id": 42190,
+   "file_name": "COCO_val2014_000000042190.jpg",
+   "object": "skis",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7149,
+   "focus_share": 0.3328,
+   "center_offset": 0.3233,
+   "edge_mass": 0.0718,
+   "top1_share": 0.0831,
+   "max_relative_weight": 99.196,
+   "mean_relative_weight": 4.5897
+  },
+  {
+   "image_id": 7320,
+   "file_name": "COCO_val2014_000000007320.jpg",
+   "object": "chair",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7458,
+   "focus_share": 0.4301,
+   "center_offset": 0.3274,
+   "edge_mass": 0.4288,
+   "top1_share": 0.2056,
+   "max_relative_weight": 142.7575,
+   "mean_relative_weight": 3.6165
+  },
+  {
+   "image_id": 564336,
+   "file_name": "COCO_val2014_000000564336.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.5852,
+   "focus_share": 0.5663,
+   "center_offset": 0.0316,
+   "edge_mass": 0.0313,
+   "top1_share": 0.2856,
+   "max_relative_weight": 723.9261,
+   "mean_relative_weight": 11.5197
+  },
+  {
+   "image_id": 387098,
+   "file_name": "COCO_val2014_000000387098.jpg",
+   "object": "bowl",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7401,
+   "focus_share": 0.3581,
+   "center_offset": 0.2025,
+   "edge_mass": 0.0414,
+   "top1_share": 0.1312,
+   "max_relative_weight": 254.2301,
+   "mean_relative_weight": 6.4574
+  },
+  {
+   "image_id": 114710,
+   "file_name": "COCO_val2014_000000114710.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6435,
+   "focus_share": 0.3525,
+   "center_offset": 0.6001,
+   "edge_mass": 0.1824,
+   "top1_share": 0.1066,
+   "max_relative_weight": 187.4465,
+   "mean_relative_weight": 6.7645
+  },
+  {
+   "image_id": 167110,
+   "file_name": "COCO_val2014_000000167110.jpg",
+   "object": "truck",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8485,
+   "focus_share": 0.1797,
+   "center_offset": 0.0878,
+   "edge_mass": 0.2371,
+   "top1_share": 0.0467,
+   "max_relative_weight": 29.3241,
+   "mean_relative_weight": 2.4155
+  },
+  {
+   "image_id": 288042,
+   "file_name": "COCO_val2014_000000288042.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8155,
+   "focus_share": 0.2315,
+   "center_offset": 0.1811,
+   "edge_mass": 0.2724,
+   "top1_share": 0.0581,
+   "max_relative_weight": 46.0566,
+   "mean_relative_weight": 2.6434
+  },
+  {
+   "image_id": 87435,
+   "file_name": "COCO_val2014_000000087435.jpg",
+   "object": "bicycle",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6199,
+   "focus_share": 0.5994,
+   "center_offset": 0.395,
+   "edge_mass": 0.149,
+   "top1_share": 0.2041,
+   "max_relative_weight": 261.0565,
+   "mean_relative_weight": 5.8149
+  },
+  {
+   "image_id": 567886,
+   "file_name": "COCO_val2014_000000567886.jpg",
+   "object": "bear",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.879,
+   "focus_share": 0.1432,
+   "center_offset": 0.065,
+   "edge_mass": 0.1004,
+   "top1_share": 0.0314,
+   "max_relative_weight": 15.4147,
+   "mean_relative_weight": 2.5549
+  },
+  {
+   "image_id": 539251,
+   "file_name": "COCO_val2014_000000539251.jpg",
+   "object": "bottle",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7123,
+   "focus_share": 0.4176,
+   "center_offset": 0.4611,
+   "edge_mass": 0.5373,
+   "top1_share": 0.1534,
+   "max_relative_weight": 182.6399,
+   "mean_relative_weight": 4.9607
+  },
+  {
+   "image_id": 327771,
+   "file_name": "COCO_val2014_000000327771.jpg",
+   "object": "potted plant",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8648,
+   "focus_share": 0.1471,
+   "center_offset": 0.2277,
+   "edge_mass": 0.2477,
+   "top1_share": 0.0356,
+   "max_relative_weight": 15.7026,
+   "mean_relative_weight": 1.5249
+  },
+  {
+   "image_id": 358255,
+   "file_name": "COCO_val2014_000000358255.jpg",
+   "object": "bear",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7932,
+   "focus_share": 0.2523,
+   "center_offset": 0.3477,
+   "edge_mass": 0.1723,
+   "top1_share": 0.0643,
+   "max_relative_weight": 70.6875,
+   "mean_relative_weight": 7.8541
+  },
+  {
+   "image_id": 506483,
+   "file_name": "COCO_val2014_000000506483.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6715,
+   "focus_share": 0.4838,
+   "center_offset": 0.4,
+   "edge_mass": 0.1053,
+   "top1_share": 0.2118,
+   "max_relative_weight": 132.1672,
+   "mean_relative_weight": 2.3999
+  },
+  {
+   "image_id": 249720,
+   "file_name": "COCO_val2014_000000249720.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7471,
+   "focus_share": 0.4306,
+   "center_offset": 0.1808,
+   "edge_mass": 0.0922,
+   "top1_share": 0.1702,
+   "max_relative_weight": 96.2745,
+   "mean_relative_weight": 3.5352
+  },
+  {
+   "image_id": 378873,
+   "file_name": "COCO_val2014_000000378873.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8604,
+   "focus_share": 0.1748,
+   "center_offset": 0.3395,
+   "edge_mass": 0.337,
+   "top1_share": 0.0394,
+   "max_relative_weight": 20.7597,
+   "mean_relative_weight": 2.0248
+  },
+  {
+   "image_id": 11241,
+   "file_name": "COCO_val2014_000000011241.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9355,
+   "focus_share": 0.0963,
+   "center_offset": 0.1465,
+   "edge_mass": 0.1846,
+   "top1_share": 0.026,
+   "max_relative_weight": 13.0071,
+   "mean_relative_weight": 1.9216
+  },
+  {
+   "image_id": 463522,
+   "file_name": "COCO_val2014_000000463522.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6407,
+   "focus_share": 0.4964,
+   "center_offset": 0.4376,
+   "edge_mass": 0.1505,
+   "top1_share": 0.1851,
+   "max_relative_weight": 214.5044,
+   "mean_relative_weight": 3.8628
+  },
+  {
+   "image_id": 309371,
+   "file_name": "COCO_val2014_000000309371.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6227,
+   "focus_share": 0.4481,
+   "center_offset": 0.6261,
+   "edge_mass": 0.307,
+   "top1_share": 0.181,
+   "max_relative_weight": 345.6626,
+   "mean_relative_weight": 5.6172
+  },
+  {
+   "image_id": 108189,
+   "file_name": "COCO_val2014_000000108189.jpg",
+   "object": "bowl",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7846,
+   "focus_share": 0.2865,
+   "center_offset": 0.4288,
+   "edge_mass": 0.4104,
+   "top1_share": 0.0749,
+   "max_relative_weight": 34.3959,
+   "mean_relative_weight": 1.5316
+  },
+  {
+   "image_id": 246199,
+   "file_name": "COCO_val2014_000000246199.jpg",
+   "object": "bowl",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.842,
+   "focus_share": 0.2488,
+   "center_offset": 0.16,
+   "edge_mass": 0.2933,
+   "top1_share": 0.0812,
+   "max_relative_weight": 74.0493,
+   "mean_relative_weight": 3.509
+  },
+  {
+   "image_id": 245448,
+   "file_name": "COCO_val2014_000000245448.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8884,
+   "focus_share": 0.1626,
+   "center_offset": 0.1605,
+   "edge_mass": 0.2918,
+   "top1_share": 0.0432,
+   "max_relative_weight": 24.7567,
+   "mean_relative_weight": 1.9083
+  },
+  {
+   "image_id": 349936,
+   "file_name": "COCO_val2014_000000349936.jpg",
+   "object": "bottle",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7811,
+   "focus_share": 0.2907,
+   "center_offset": 0.3626,
+   "edge_mass": 0.1478,
+   "top1_share": 0.1031,
+   "max_relative_weight": 122.0226,
+   "mean_relative_weight": 3.9432
+  },
+  {
+   "image_id": 196462,
+   "file_name": "COCO_val2014_000000196462.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9438,
+   "focus_share": 0.0706,
+   "center_offset": 0.1545,
+   "edge_mass": 0.297,
+   "top1_share": 0.0176,
+   "max_relative_weight": 6.1047,
+   "mean_relative_weight": 1.1538
+  },
+  {
+   "image_id": 356424,
+   "file_name": "COCO_val2014_000000356424.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.5512,
+   "focus_share": 0.637,
+   "center_offset": 0.2242,
+   "edge_mass": 0.0457,
+   "top1_share": 0.3291,
+   "max_relative_weight": 837.598,
+   "mean_relative_weight": 8.4834
+  },
+  {
+   "image_id": 452297,
+   "file_name": "COCO_val2014_000000452297.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9351,
+   "focus_share": 0.1032,
+   "center_offset": 0.076,
+   "edge_mass": 0.2699,
+   "top1_share": 0.0318,
+   "max_relative_weight": 9.1473,
+   "mean_relative_weight": 1.1079
+  },
+  {
+   "image_id": 125524,
+   "file_name": "COCO_val2014_000000125524.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7606,
+   "focus_share": 0.3275,
+   "center_offset": 0.1804,
+   "edge_mass": 0.1822,
+   "top1_share": 0.1219,
+   "max_relative_weight": 120.5132,
+   "mean_relative_weight": 3.8019
+  },
+  {
+   "image_id": 304819,
+   "file_name": "COCO_val2014_000000304819.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8279,
+   "focus_share": 0.1836,
+   "center_offset": 0.048,
+   "edge_mass": 0.0897,
+   "top1_share": 0.0557,
+   "max_relative_weight": 65.5925,
+   "mean_relative_weight": 3.924
+  },
+  {
+   "image_id": 549390,
+   "file_name": "COCO_val2014_000000549390.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7106,
+   "focus_share": 0.3626,
+   "center_offset": 0.3745,
+   "edge_mass": 0.0692,
+   "top1_share": 0.082,
+   "max_relative_weight": 162.8009,
+   "mean_relative_weight": 7.6357
+  },
+  {
+   "image_id": 243158,
+   "file_name": "COCO_val2014_000000243158.jpg",
+   "object": "potted plant",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.727,
+   "focus_share": 0.2921,
+   "center_offset": 0.0853,
+   "edge_mass": 0.0497,
+   "top1_share": 0.1158,
+   "max_relative_weight": 296.8599,
+   "mean_relative_weight": 8.5464
+  },
+  {
+   "image_id": 325347,
+   "file_name": "COCO_val2014_000000325347.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7542,
+   "focus_share": 0.3073,
+   "center_offset": 0.2968,
+   "edge_mass": 0.1062,
+   "top1_share": 0.0797,
+   "max_relative_weight": 120.0315,
+   "mean_relative_weight": 6.842
+  },
+  {
+   "image_id": 256906,
+   "file_name": "COCO_val2014_000000256906.jpg",
+   "object": "backpack",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6882,
+   "focus_share": 0.4104,
+   "center_offset": 0.4668,
+   "edge_mass": 0.1727,
+   "top1_share": 0.101,
+   "max_relative_weight": 115.1141,
+   "mean_relative_weight": 4.3824
+  },
+  {
+   "image_id": 117527,
+   "file_name": "COCO_val2014_000000117527.jpg",
+   "object": "chair",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8519,
+   "focus_share": 0.2378,
+   "center_offset": 0.1713,
+   "edge_mass": 0.1138,
+   "top1_share": 0.1109,
+   "max_relative_weight": 90.2024,
+   "mean_relative_weight": 3.1283
+  },
+  {
+   "image_id": 390184,
+   "file_name": "COCO_val2014_000000390184.jpg",
+   "object": "cup",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6736,
+   "focus_share": 0.3971,
+   "center_offset": 0.4347,
+   "edge_mass": 0.0483,
+   "top1_share": 0.1013,
+   "max_relative_weight": 215.4439,
+   "mean_relative_weight": 8.1789
+  },
+  {
+   "image_id": 465346,
+   "file_name": "COCO_val2014_000000465346.jpg",
+   "object": "cup",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7907,
+   "focus_share": 0.2137,
+   "center_offset": 0.3779,
+   "edge_mass": 0.3195,
+   "top1_share": 0.0633,
+   "max_relative_weight": 43.3396,
+   "mean_relative_weight": 1.7113
+  },
+  {
+   "image_id": 514248,
+   "file_name": "COCO_val2014_000000514248.jpg",
+   "object": "truck",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8221,
+   "focus_share": 0.2954,
+   "center_offset": 0.2477,
+   "edge_mass": 0.1651,
+   "top1_share": 0.0864,
+   "max_relative_weight": 38.6336,
+   "mean_relative_weight": 2.3284
+  },
+  {
+   "image_id": 554002,
+   "file_name": "COCO_val2014_000000554002.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6598,
+   "focus_share": 0.4903,
+   "center_offset": 0.4892,
+   "edge_mass": 0.1822,
+   "top1_share": 0.2387,
+   "max_relative_weight": 186.3406,
+   "mean_relative_weight": 3.0023
+  },
+  {
+   "image_id": 122962,
+   "file_name": "COCO_val2014_000000122962.jpg",
+   "object": "cup",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "fail",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7507,
+   "focus_share": 0.2984,
+   "center_offset": 0.1267,
+   "edge_mass": 0.0413,
+   "top1_share": 0.0811,
+   "max_relative_weight": 243.4425,
+   "mean_relative_weight": 11.5453
+  },
+  {
+   "image_id": 238691,
+   "file_name": "COCO_val2014_000000238691.jpg",
+   "object": "skis",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8775,
+   "focus_share": 0.1411,
+   "center_offset": 0.0566,
+   "edge_mass": 0.1265,
+   "top1_share": 0.0446,
+   "max_relative_weight": 35.3095,
+   "mean_relative_weight": 2.6398
+  },
+  {
+   "image_id": 465275,
+   "file_name": "COCO_val2014_000000465275.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9112,
+   "focus_share": 0.1151,
+   "center_offset": 0.0463,
+   "edge_mass": 0.1231,
+   "top1_share": 0.0463,
+   "max_relative_weight": 26.5919,
+   "mean_relative_weight": 1.9125
+  },
+  {
+   "image_id": 544456,
+   "file_name": "COCO_val2014_000000544456.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.7723,
+   "focus_share": 0.3078,
+   "center_offset": 0.4293,
+   "edge_mass": 0.213,
+   "top1_share": 0.0773,
+   "max_relative_weight": 138.3184,
+   "mean_relative_weight": 6.8823
+  },
+  {
+   "image_id": 541783,
+   "file_name": "COCO_val2014_000000541783.jpg",
+   "object": "backpack",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6783,
+   "focus_share": 0.3763,
+   "center_offset": 0.1497,
+   "edge_mass": 0.0962,
+   "top1_share": 0.1165,
+   "max_relative_weight": 235.1358,
+   "mean_relative_weight": 7.2112
+  },
+  {
+   "image_id": 23084,
+   "file_name": "COCO_val2014_000000023084.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9237,
+   "focus_share": 0.1208,
+   "center_offset": 0.0271,
+   "edge_mass": 0.3878,
+   "top1_share": 0.035,
+   "max_relative_weight": 4.5541,
+   "mean_relative_weight": 0.6768
+  },
+  {
+   "image_id": 472143,
+   "file_name": "COCO_val2014_000000472143.jpg",
+   "object": "bird",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8785,
+   "focus_share": 0.1328,
+   "center_offset": 0.1709,
+   "edge_mass": 0.1461,
+   "top1_share": 0.0378,
+   "max_relative_weight": 27.7116,
+   "mean_relative_weight": 1.8337
+  },
+  {
+   "image_id": 252911,
+   "file_name": "COCO_val2014_000000252911.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9115,
+   "focus_share": 0.1184,
+   "center_offset": 0.2249,
+   "edge_mass": 0.2426,
+   "top1_share": 0.0315,
+   "max_relative_weight": 8.8976,
+   "mean_relative_weight": 1.0865
+  },
+  {
+   "image_id": 45685,
+   "file_name": "COCO_val2014_000000045685.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8787,
+   "focus_share": 0.1824,
+   "center_offset": 0.1109,
+   "edge_mass": 0.1883,
+   "top1_share": 0.048,
+   "max_relative_weight": 12.3046,
+   "mean_relative_weight": 1.3341
+  },
+  {
+   "image_id": 429580,
+   "file_name": "COCO_val2014_000000429580.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8882,
+   "focus_share": 0.1592,
+   "center_offset": 0.1394,
+   "edge_mass": 0.3224,
+   "top1_share": 0.0402,
+   "max_relative_weight": 11.774,
+   "mean_relative_weight": 1.0459
+  },
+  {
+   "image_id": 184338,
+   "file_name": "COCO_val2014_000000184338.jpg",
+   "object": "truck",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9192,
+   "focus_share": 0.1223,
+   "center_offset": 0.0749,
+   "edge_mass": 0.1222,
+   "top1_share": 0.0336,
+   "max_relative_weight": 21.9283,
+   "mean_relative_weight": 2.5124
+  },
+  {
+   "image_id": 433574,
+   "file_name": "COCO_val2014_000000433574.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8966,
+   "focus_share": 0.1182,
+   "center_offset": 0.2224,
+   "edge_mass": 0.245,
+   "top1_share": 0.0254,
+   "max_relative_weight": 10.6593,
+   "mean_relative_weight": 1.3968
+  },
+  {
+   "image_id": 449432,
+   "file_name": "COCO_val2014_000000449432.jpg",
+   "object": "backpack",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6463,
+   "focus_share": 0.525,
+   "center_offset": 0.1213,
+   "edge_mass": 0.0591,
+   "top1_share": 0.1722,
+   "max_relative_weight": 427.8802,
+   "mean_relative_weight": 9.5594
+  },
+  {
+   "image_id": 467176,
+   "file_name": "COCO_val2014_000000467176.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.819,
+   "focus_share": 0.225,
+   "center_offset": 0.107,
+   "edge_mass": 0.1706,
+   "top1_share": 0.0532,
+   "max_relative_weight": 41.2588,
+   "mean_relative_weight": 2.981
+  },
+  {
+   "image_id": 299074,
+   "file_name": "COCO_val2014_000000299074.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7238,
+   "focus_share": 0.3636,
+   "center_offset": 0.0849,
+   "edge_mass": 0.0284,
+   "top1_share": 0.133,
+   "max_relative_weight": 346.6121,
+   "mean_relative_weight": 8.69
+  },
+  {
+   "image_id": 381895,
+   "file_name": "COCO_val2014_000000381895.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8795,
+   "focus_share": 0.2371,
+   "center_offset": 0.2198,
+   "edge_mass": 0.2157,
+   "top1_share": 0.0905,
+   "max_relative_weight": 12.4165,
+   "mean_relative_weight": 0.8571
+  },
+  {
+   "image_id": 283412,
+   "file_name": "COCO_val2014_000000283412.jpg",
+   "object": "dog",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9496,
+   "focus_share": 0.0854,
+   "center_offset": 0.081,
+   "edge_mass": 0.1897,
+   "top1_share": 0.0207,
+   "max_relative_weight": 9.9299,
+   "mean_relative_weight": 1.8465
+  },
+  {
+   "image_id": 17708,
+   "file_name": "COCO_val2014_000000017708.jpg",
+   "object": "handbag",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8472,
+   "focus_share": 0.226,
+   "center_offset": 0.1021,
+   "edge_mass": 0.1615,
+   "top1_share": 0.0639,
+   "max_relative_weight": 36.9047,
+   "mean_relative_weight": 1.9249
+  },
+  {
+   "image_id": 405205,
+   "file_name": "COCO_val2014_000000405205.jpg",
+   "object": "truck",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8039,
+   "focus_share": 0.3218,
+   "center_offset": 0.2137,
+   "edge_mass": 0.4101,
+   "top1_share": 0.1053,
+   "max_relative_weight": 39.2134,
+   "mean_relative_weight": 1.6846
+  },
+  {
+   "image_id": 353096,
+   "file_name": "COCO_val2014_000000353096.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9228,
+   "focus_share": 0.1502,
+   "center_offset": 0.1251,
+   "edge_mass": 0.2663,
+   "top1_share": 0.0499,
+   "max_relative_weight": 6.9855,
+   "mean_relative_weight": 0.7947
+  },
+  {
+   "image_id": 499105,
+   "file_name": "COCO_val2014_000000499105.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8923,
+   "focus_share": 0.1634,
+   "center_offset": 0.104,
+   "edge_mass": 0.202,
+   "top1_share": 0.0531,
+   "max_relative_weight": 13.6677,
+   "mean_relative_weight": 1.3398
+  },
+  {
+   "image_id": 283168,
+   "file_name": "COCO_val2014_000000283168.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9428,
+   "focus_share": 0.1194,
+   "center_offset": 0.0442,
+   "edge_mass": 0.322,
+   "top1_share": 0.0324,
+   "max_relative_weight": 2.9424,
+   "mean_relative_weight": 0.568
+  },
+  {
+   "image_id": 421455,
+   "file_name": "COCO_val2014_000000421455.jpg",
+   "object": "dog",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7824,
+   "focus_share": 0.3262,
+   "center_offset": 0.1259,
+   "edge_mass": 0.0895,
+   "top1_share": 0.121,
+   "max_relative_weight": 67.9867,
+   "mean_relative_weight": 2.9253
+  },
+  {
+   "image_id": 396338,
+   "file_name": "COCO_val2014_000000396338.jpg",
+   "object": "skis",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8984,
+   "focus_share": 0.1156,
+   "center_offset": 0.0912,
+   "edge_mass": 0.1351,
+   "top1_share": 0.026,
+   "max_relative_weight": 10.7054,
+   "mean_relative_weight": 1.5842
+  },
+  {
+   "image_id": 23084,
+   "file_name": "COCO_val2014_000000023084.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8975,
+   "focus_share": 0.1495,
+   "center_offset": 0.0973,
+   "edge_mass": 0.2116,
+   "top1_share": 0.0346,
+   "max_relative_weight": 7.2852,
+   "mean_relative_weight": 1.0971
+  },
+  {
+   "image_id": 405205,
+   "file_name": "COCO_val2014_000000405205.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.917,
+   "focus_share": 0.1262,
+   "center_offset": 0.1065,
+   "edge_mass": 0.2323,
+   "top1_share": 0.0344,
+   "max_relative_weight": 7.3345,
+   "mean_relative_weight": 0.9652
+  },
+  {
+   "image_id": 376959,
+   "file_name": "COCO_val2014_000000376959.jpg",
+   "object": "chair",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8748,
+   "focus_share": 0.1896,
+   "center_offset": 0.159,
+   "edge_mass": 0.2382,
+   "top1_share": 0.0545,
+   "max_relative_weight": 44.504,
+   "mean_relative_weight": 2.7232
+  },
+  {
+   "image_id": 214244,
+   "file_name": "COCO_val2014_000000214244.jpg",
+   "object": "backpack",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8622,
+   "focus_share": 0.1602,
+   "center_offset": 0.2001,
+   "edge_mass": 0.1259,
+   "top1_share": 0.0406,
+   "max_relative_weight": 34.8011,
+   "mean_relative_weight": 3.2968
+  },
+  {
+   "image_id": 287305,
+   "file_name": "COCO_val2014_000000287305.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8612,
+   "focus_share": 0.1886,
+   "center_offset": 0.107,
+   "edge_mass": 0.2114,
+   "top1_share": 0.0464,
+   "max_relative_weight": 33.8853,
+   "mean_relative_weight": 3.0402
+  },
+  {
+   "image_id": 273450,
+   "file_name": "COCO_val2014_000000273450.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9191,
+   "focus_share": 0.0771,
+   "center_offset": 0.1628,
+   "edge_mass": 0.2085,
+   "top1_share": 0.0166,
+   "max_relative_weight": 9.8207,
+   "mean_relative_weight": 1.5532
+  },
+  {
+   "image_id": 288639,
+   "file_name": "COCO_val2014_000000288639.jpg",
+   "object": "sink",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8838,
+   "focus_share": 0.1334,
+   "center_offset": 0.2178,
+   "edge_mass": 0.2579,
+   "top1_share": 0.0326,
+   "max_relative_weight": 21.3528,
+   "mean_relative_weight": 2.1802
+  },
+  {
+   "image_id": 287035,
+   "file_name": "COCO_val2014_000000287035.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9259,
+   "focus_share": 0.1313,
+   "center_offset": 0.126,
+   "edge_mass": 0.2624,
+   "top1_share": 0.0337,
+   "max_relative_weight": 6.1011,
+   "mean_relative_weight": 0.943
+  },
+  {
+   "image_id": 199764,
+   "file_name": "COCO_val2014_000000199764.jpg",
+   "object": "backpack",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7368,
+   "focus_share": 0.3862,
+   "center_offset": 0.2098,
+   "edge_mass": 0.0616,
+   "top1_share": 0.0911,
+   "max_relative_weight": 159.8372,
+   "mean_relative_weight": 6.7463
+  },
+  {
+   "image_id": 39516,
+   "file_name": "COCO_val2014_000000039516.jpg",
+   "object": "cup",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9016,
+   "focus_share": 0.1751,
+   "center_offset": 0.1511,
+   "edge_mass": 0.221,
+   "top1_share": 0.0682,
+   "max_relative_weight": 18.2563,
+   "mean_relative_weight": 1.0296
+  },
+  {
+   "image_id": 33270,
+   "file_name": "COCO_val2014_000000033270.jpg",
+   "object": "tv",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.5991,
+   "focus_share": 0.5829,
+   "center_offset": 0.4073,
+   "edge_mass": 0.0433,
+   "top1_share": 0.2555,
+   "max_relative_weight": 487.5574,
+   "mean_relative_weight": 7.34
+  },
+  {
+   "image_id": 478736,
+   "file_name": "COCO_val2014_000000478736.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9217,
+   "focus_share": 0.0933,
+   "center_offset": 0.0626,
+   "edge_mass": 0.1924,
+   "top1_share": 0.0285,
+   "max_relative_weight": 14.8585,
+   "mean_relative_weight": 1.7382
+  },
+  {
+   "image_id": 273450,
+   "file_name": "COCO_val2014_000000273450.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9118,
+   "focus_share": 0.1046,
+   "center_offset": 0.159,
+   "edge_mass": 0.1731,
+   "top1_share": 0.0319,
+   "max_relative_weight": 17.2503,
+   "mean_relative_weight": 1.4209
+  },
+  {
+   "image_id": 554328,
+   "file_name": "COCO_val2014_000000554328.jpg",
+   "object": "baseball bat",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9043,
+   "focus_share": 0.1267,
+   "center_offset": 0.1205,
+   "edge_mass": 0.1536,
+   "top1_share": 0.0378,
+   "max_relative_weight": 21.6909,
+   "mean_relative_weight": 1.7929
+  },
+  {
+   "image_id": 102439,
+   "file_name": "COCO_val2014_000000102439.jpg",
+   "object": "tv",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9325,
+   "focus_share": 0.1208,
+   "center_offset": 0.0622,
+   "edge_mass": 0.2485,
+   "top1_share": 0.0307,
+   "max_relative_weight": 8.2093,
+   "mean_relative_weight": 1.3906
+  },
+  {
+   "image_id": 302405,
+   "file_name": "COCO_val2014_000000302405.jpg",
+   "object": "skis",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9218,
+   "focus_share": 0.1314,
+   "center_offset": 0.1624,
+   "edge_mass": 0.2912,
+   "top1_share": 0.0399,
+   "max_relative_weight": 9.9671,
+   "mean_relative_weight": 1.3025
+  },
+  {
+   "image_id": 433574,
+   "file_name": "COCO_val2014_000000433574.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9295,
+   "focus_share": 0.0786,
+   "center_offset": 0.0809,
+   "edge_mass": 0.1915,
+   "top1_share": 0.0177,
+   "max_relative_weight": 7.7977,
+   "mean_relative_weight": 1.4685
+  },
+  {
+   "image_id": 525667,
+   "file_name": "COCO_val2014_000000525667.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9257,
+   "focus_share": 0.1041,
+   "center_offset": 0.1031,
+   "edge_mass": 0.2809,
+   "top1_share": 0.0279,
+   "max_relative_weight": 8.7353,
+   "mean_relative_weight": 1.0453
+  },
+  {
+   "image_id": 122962,
+   "file_name": "COCO_val2014_000000122962.jpg",
+   "object": "pizza",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7348,
+   "focus_share": 0.327,
+   "center_offset": 0.1786,
+   "edge_mass": 0.0365,
+   "top1_share": 0.1217,
+   "max_relative_weight": 362.148,
+   "mean_relative_weight": 11.4436
+  },
+  {
+   "image_id": 184338,
+   "file_name": "COCO_val2014_000000184338.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9342,
+   "focus_share": 0.0914,
+   "center_offset": 0.0622,
+   "edge_mass": 0.1527,
+   "top1_share": 0.0206,
+   "max_relative_weight": 10.4921,
+   "mean_relative_weight": 1.9544
+  },
+  {
+   "image_id": 12333,
+   "file_name": "COCO_val2014_000000012333.jpg",
+   "object": "chair",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8983,
+   "focus_share": 0.1268,
+   "center_offset": 0.1613,
+   "edge_mass": 0.1915,
+   "top1_share": 0.0365,
+   "max_relative_weight": 24.4655,
+   "mean_relative_weight": 2.5813
+  },
+  {
+   "image_id": 414516,
+   "file_name": "COCO_val2014_000000414516.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9057,
+   "focus_share": 0.1068,
+   "center_offset": 0.1927,
+   "edge_mass": 0.2597,
+   "top1_share": 0.0272,
+   "max_relative_weight": 11.0779,
+   "mean_relative_weight": 1.3577
+  },
+  {
+   "image_id": 281028,
+   "file_name": "COCO_val2014_000000281028.jpg",
+   "object": "chair",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8157,
+   "focus_share": 0.2137,
+   "center_offset": 0.2742,
+   "edge_mass": 0.1021,
+   "top1_share": 0.0824,
+   "max_relative_weight": 131.3132,
+   "mean_relative_weight": 5.3142
+  },
+  {
+   "image_id": 498374,
+   "file_name": "COCO_val2014_000000498374.jpg",
+   "object": "bottle",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8723,
+   "focus_share": 0.1462,
+   "center_offset": 0.0815,
+   "edge_mass": 0.1557,
+   "top1_share": 0.0431,
+   "max_relative_weight": 32.9408,
+   "mean_relative_weight": 2.5473
+  },
+  {
+   "image_id": 528905,
+   "file_name": "COCO_val2014_000000528905.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8252,
+   "focus_share": 0.2247,
+   "center_offset": 0.2566,
+   "edge_mass": 0.1835,
+   "top1_share": 0.0668,
+   "max_relative_weight": 50.9862,
+   "mean_relative_weight": 2.936
+  },
+  {
+   "image_id": 303099,
+   "file_name": "COCO_val2014_000000303099.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9159,
+   "focus_share": 0.1493,
+   "center_offset": 0.1566,
+   "edge_mass": 0.3403,
+   "top1_share": 0.0382,
+   "max_relative_weight": 6.0514,
+   "mean_relative_weight": 0.8247
+  },
+  {
+   "image_id": 125572,
+   "file_name": "COCO_val2014_000000125572.jpg",
+   "object": "truck",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7159,
+   "focus_share": 0.4143,
+   "center_offset": 0.4797,
+   "edge_mass": 0.148,
+   "top1_share": 0.1427,
+   "max_relative_weight": 162.4798,
+   "mean_relative_weight": 4.3805
+  },
+  {
+   "image_id": 511341,
+   "file_name": "COCO_val2014_000000511341.jpg",
+   "object": "skis",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9111,
+   "focus_share": 0.0984,
+   "center_offset": 0.1147,
+   "edge_mass": 0.221,
+   "top1_share": 0.0282,
+   "max_relative_weight": 11.4651,
+   "mean_relative_weight": 1.1283
+  },
+  {
+   "image_id": 302405,
+   "file_name": "COCO_val2014_000000302405.jpg",
+   "object": "snowboard",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8677,
+   "focus_share": 0.1955,
+   "center_offset": 0.2908,
+   "edge_mass": 0.2907,
+   "top1_share": 0.0473,
+   "max_relative_weight": 19.7321,
+   "mean_relative_weight": 2.1741
+  },
+  {
+   "image_id": 573796,
+   "file_name": "COCO_val2014_000000573796.jpg",
+   "object": "cup",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9058,
+   "focus_share": 0.1393,
+   "center_offset": 0.0459,
+   "edge_mass": 0.19,
+   "top1_share": 0.0385,
+   "max_relative_weight": 12.4719,
+   "mean_relative_weight": 1.2462
+  },
+  {
+   "image_id": 15738,
+   "file_name": "COCO_val2014_000000015738.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8851,
+   "focus_share": 0.1491,
+   "center_offset": 0.093,
+   "edge_mass": 0.199,
+   "top1_share": 0.0419,
+   "max_relative_weight": 24.0313,
+   "mean_relative_weight": 2.2059
+  },
+  {
+   "image_id": 468997,
+   "file_name": "COCO_val2014_000000468997.jpg",
+   "object": "dog",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9103,
+   "focus_share": 0.099,
+   "center_offset": 0.1624,
+   "edge_mass": 0.178,
+   "top1_share": 0.0322,
+   "max_relative_weight": 19.1473,
+   "mean_relative_weight": 1.9817
+  },
+  {
+   "image_id": 573796,
+   "file_name": "COCO_val2014_000000573796.jpg",
+   "object": "knife",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8087,
+   "focus_share": 0.2373,
+   "center_offset": 0.1165,
+   "edge_mass": 0.0791,
+   "top1_share": 0.0686,
+   "max_relative_weight": 71.9079,
+   "mean_relative_weight": 4.0319
+  },
+  {
+   "image_id": 15738,
+   "file_name": "COCO_val2014_000000015738.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8934,
+   "focus_share": 0.1316,
+   "center_offset": 0.1365,
+   "edge_mass": 0.2655,
+   "top1_share": 0.0343,
+   "max_relative_weight": 10.1987,
+   "mean_relative_weight": 1.1443
+  },
+  {
+   "image_id": 125524,
+   "file_name": "COCO_val2014_000000125524.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8267,
+   "focus_share": 0.2281,
+   "center_offset": 0.1794,
+   "edge_mass": 0.3153,
+   "top1_share": 0.0644,
+   "max_relative_weight": 35.7338,
+   "mean_relative_weight": 2.1337
+  },
+  {
+   "image_id": 300876,
+   "file_name": "COCO_val2014_000000300876.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9357,
+   "focus_share": 0.0709,
+   "center_offset": 0.139,
+   "edge_mass": 0.1824,
+   "top1_share": 0.0152,
+   "max_relative_weight": 6.4236,
+   "mean_relative_weight": 1.1085
+  },
+  {
+   "image_id": 348469,
+   "file_name": "COCO_val2014_000000348469.jpg",
+   "object": "bird",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7029,
+   "focus_share": 0.3776,
+   "center_offset": 0.2305,
+   "edge_mass": 0.0474,
+   "top1_share": 0.1475,
+   "max_relative_weight": 534.4125,
+   "mean_relative_weight": 12.9399
+  },
+  {
+   "image_id": 235541,
+   "file_name": "COCO_val2014_000000235541.jpg",
+   "object": "cow",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8742,
+   "focus_share": 0.1976,
+   "center_offset": 0.0656,
+   "edge_mass": 0.1542,
+   "top1_share": 0.0444,
+   "max_relative_weight": 25.4135,
+   "mean_relative_weight": 2.201
+  },
+  {
+   "image_id": 265719,
+   "file_name": "COCO_val2014_000000265719.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8801,
+   "focus_share": 0.1617,
+   "center_offset": 0.2495,
+   "edge_mass": 0.237,
+   "top1_share": 0.0722,
+   "max_relative_weight": 37.4854,
+   "mean_relative_weight": 1.7303
+  },
+  {
+   "image_id": 170077,
+   "file_name": "COCO_val2014_000000170077.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9059,
+   "focus_share": 0.1341,
+   "center_offset": 0.1106,
+   "edge_mass": 0.3548,
+   "top1_share": 0.0544,
+   "max_relative_weight": 18.7182,
+   "mean_relative_weight": 1.1468
+  },
+  {
+   "image_id": 73182,
+   "file_name": "COCO_val2014_000000073182.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9095,
+   "focus_share": 0.1036,
+   "center_offset": 0.1007,
+   "edge_mass": 0.1815,
+   "top1_share": 0.0238,
+   "max_relative_weight": 12.48,
+   "mean_relative_weight": 2.021
+  },
+  {
+   "image_id": 265472,
+   "file_name": "COCO_val2014_000000265472.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9416,
+   "focus_share": 0.1302,
+   "center_offset": 0.1099,
+   "edge_mass": 0.4023,
+   "top1_share": 0.0304,
+   "max_relative_weight": 3.2927,
+   "mean_relative_weight": 0.564
+  },
+  {
+   "image_id": 544456,
+   "file_name": "COCO_val2014_000000544456.jpg",
+   "object": "backpack",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6961,
+   "focus_share": 0.4482,
+   "center_offset": 0.5095,
+   "edge_mass": 0.2647,
+   "top1_share": 0.1091,
+   "max_relative_weight": 284.9318,
+   "mean_relative_weight": 10.0486
+  },
+  {
+   "image_id": 390157,
+   "file_name": "COCO_val2014_000000390157.jpg",
+   "object": "cup",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8817,
+   "focus_share": 0.1239,
+   "center_offset": 0.2074,
+   "edge_mass": 0.2655,
+   "top1_share": 0.0303,
+   "max_relative_weight": 21.9386,
+   "mean_relative_weight": 2.4154
+  },
+  {
+   "image_id": 303971,
+   "file_name": "COCO_val2014_000000303971.jpg",
+   "object": "tv",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8859,
+   "focus_share": 0.1425,
+   "center_offset": 0.2268,
+   "edge_mass": 0.1861,
+   "top1_share": 0.0398,
+   "max_relative_weight": 25.0478,
+   "mean_relative_weight": 2.4196
+  },
+  {
+   "image_id": 235203,
+   "file_name": "COCO_val2014_000000235203.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9202,
+   "focus_share": 0.1065,
+   "center_offset": 0.188,
+   "edge_mass": 0.1959,
+   "top1_share": 0.0304,
+   "max_relative_weight": 12.2979,
+   "mean_relative_weight": 1.3494
+  },
+  {
+   "image_id": 102906,
+   "file_name": "COCO_val2014_000000102906.jpg",
+   "object": "traffic light",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7967,
+   "focus_share": 0.2783,
+   "center_offset": 0.1095,
+   "edge_mass": 0.2936,
+   "top1_share": 0.1387,
+   "max_relative_weight": 195.2493,
+   "mean_relative_weight": 5.4134
+  },
+  {
+   "image_id": 470699,
+   "file_name": "COCO_val2014_000000470699.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9163,
+   "focus_share": 0.1753,
+   "center_offset": 0.0857,
+   "edge_mass": 0.3641,
+   "top1_share": 0.0497,
+   "max_relative_weight": 4.4446,
+   "mean_relative_weight": 0.559
+  },
+  {
+   "image_id": 392364,
+   "file_name": "COCO_val2014_000000392364.jpg",
+   "object": "car",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.828,
+   "focus_share": 0.1961,
+   "center_offset": 0.2548,
+   "edge_mass": 0.2114,
+   "top1_share": 0.0885,
+   "max_relative_weight": 109.491,
+   "mean_relative_weight": 3.8676
+  },
+  {
+   "image_id": 301575,
+   "file_name": "COCO_val2014_000000301575.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8756,
+   "focus_share": 0.132,
+   "center_offset": 0.2801,
+   "edge_mass": 0.3102,
+   "top1_share": 0.0331,
+   "max_relative_weight": 21.4303,
+   "mean_relative_weight": 1.9031
+  },
+  {
+   "image_id": 13348,
+   "file_name": "COCO_val2014_000000013348.jpg",
+   "object": "truck",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7729,
+   "focus_share": 0.2669,
+   "center_offset": 0.1839,
+   "edge_mass": 0.1218,
+   "top1_share": 0.0566,
+   "max_relative_weight": 61.2702,
+   "mean_relative_weight": 4.166
+  },
+  {
+   "image_id": 436127,
+   "file_name": "COCO_val2014_000000436127.jpg",
+   "object": "chair",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9309,
+   "focus_share": 0.0686,
+   "center_offset": 0.1137,
+   "edge_mass": 0.2033,
+   "top1_share": 0.0196,
+   "max_relative_weight": 8.603,
+   "mean_relative_weight": 1.0957
+  },
+  {
+   "image_id": 418471,
+   "file_name": "COCO_val2014_000000418471.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8763,
+   "focus_share": 0.1504,
+   "center_offset": 0.2337,
+   "edge_mass": 0.1583,
+   "top1_share": 0.0501,
+   "max_relative_weight": 35.2811,
+   "mean_relative_weight": 2.3489
+  },
+  {
+   "image_id": 510138,
+   "file_name": "COCO_val2014_000000510138.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.913,
+   "focus_share": 0.1515,
+   "center_offset": 0.1246,
+   "edge_mass": 0.3129,
+   "top1_share": 0.0452,
+   "max_relative_weight": 18.2645,
+   "mean_relative_weight": 1.0097
+  },
+  {
+   "image_id": 142774,
+   "file_name": "COCO_val2014_000000142774.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8298,
+   "focus_share": 0.2285,
+   "center_offset": 0.1636,
+   "edge_mass": 0.113,
+   "top1_share": 0.0636,
+   "max_relative_weight": 59.1887,
+   "mean_relative_weight": 3.1002
+  },
+  {
+   "image_id": 575755,
+   "file_name": "COCO_val2014_000000575755.jpg",
+   "object": "cup",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.7788,
+   "focus_share": 0.3474,
+   "center_offset": 0.3142,
+   "edge_mass": 0.2068,
+   "top1_share": 0.1563,
+   "max_relative_weight": 55.2706,
+   "mean_relative_weight": 1.3598
+  },
+  {
+   "image_id": 21327,
+   "file_name": "COCO_val2014_000000021327.jpg",
+   "object": "tv",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8911,
+   "focus_share": 0.1582,
+   "center_offset": 0.0315,
+   "edge_mass": 0.2581,
+   "top1_share": 0.0628,
+   "max_relative_weight": 25.943,
+   "mean_relative_weight": 1.5895
+  },
+  {
+   "image_id": 120792,
+   "file_name": "COCO_val2014_000000120792.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9265,
+   "focus_share": 0.092,
+   "center_offset": 0.1642,
+   "edge_mass": 0.2352,
+   "top1_share": 0.0251,
+   "max_relative_weight": 9.1008,
+   "mean_relative_weight": 1.2081
+  },
+  {
+   "image_id": 565941,
+   "file_name": "COCO_val2014_000000565941.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9217,
+   "focus_share": 0.1196,
+   "center_offset": 0.1959,
+   "edge_mass": 0.3149,
+   "top1_share": 0.0326,
+   "max_relative_weight": 6.6312,
+   "mean_relative_weight": 1.0589
+  },
+  {
+   "image_id": 366141,
+   "file_name": "COCO_val2014_000000366141.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9015,
+   "focus_share": 0.1174,
+   "center_offset": 0.1256,
+   "edge_mass": 0.1268,
+   "top1_share": 0.0299,
+   "max_relative_weight": 20.2414,
+   "mean_relative_weight": 2.255
+  },
+  {
+   "image_id": 465418,
+   "file_name": "COCO_val2014_000000465418.jpg",
+   "object": "traffic light",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8415,
+   "focus_share": 0.205,
+   "center_offset": 0.2947,
+   "edge_mass": 0.1993,
+   "top1_share": 0.0729,
+   "max_relative_weight": 41.1252,
+   "mean_relative_weight": 2.1696
+  },
+  {
+   "image_id": 131018,
+   "file_name": "COCO_val2014_000000131018.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9171,
+   "focus_share": 0.1066,
+   "center_offset": 0.1791,
+   "edge_mass": 0.2241,
+   "top1_share": 0.0289,
+   "max_relative_weight": 13.1745,
+   "mean_relative_weight": 1.5172
+  },
+  {
+   "image_id": 105732,
+   "file_name": "COCO_val2014_000000105732.jpg",
+   "object": "backpack",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6839,
+   "focus_share": 0.3596,
+   "center_offset": 0.5078,
+   "edge_mass": 0.1717,
+   "top1_share": 0.0785,
+   "max_relative_weight": 202.3611,
+   "mean_relative_weight": 8.5932
+  },
+  {
+   "image_id": 246928,
+   "file_name": "COCO_val2014_000000246928.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9253,
+   "focus_share": 0.1229,
+   "center_offset": 0.064,
+   "edge_mass": 0.2188,
+   "top1_share": 0.0341,
+   "max_relative_weight": 10.8791,
+   "mean_relative_weight": 1.2253
+  },
+  {
+   "image_id": 458325,
+   "file_name": "COCO_val2014_000000458325.jpg",
+   "object": "car",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8554,
+   "focus_share": 0.198,
+   "center_offset": 0.2268,
+   "edge_mass": 0.1277,
+   "top1_share": 0.0709,
+   "max_relative_weight": 63.642,
+   "mean_relative_weight": 3.454
+  },
+  {
+   "image_id": 551908,
+   "file_name": "COCO_val2014_000000551908.jpg",
+   "object": "bowl",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9498,
+   "focus_share": 0.0878,
+   "center_offset": 0.0519,
+   "edge_mass": 0.2355,
+   "top1_share": 0.0238,
+   "max_relative_weight": 5.4687,
+   "mean_relative_weight": 0.8856
+  },
+  {
+   "image_id": 100238,
+   "file_name": "COCO_val2014_000000100238.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.937,
+   "focus_share": 0.0885,
+   "center_offset": 0.1158,
+   "edge_mass": 0.1659,
+   "top1_share": 0.0212,
+   "max_relative_weight": 9.332,
+   "mean_relative_weight": 1.4688
+  },
+  {
+   "image_id": 54025,
+   "file_name": "COCO_val2014_000000054025.jpg",
+   "object": "truck",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8063,
+   "focus_share": 0.2873,
+   "center_offset": 0.102,
+   "edge_mass": 0.1676,
+   "top1_share": 0.1163,
+   "max_relative_weight": 70.5914,
+   "mean_relative_weight": 2.3355
+  },
+  {
+   "image_id": 396338,
+   "file_name": "COCO_val2014_000000396338.jpg",
+   "object": "backpack",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.5913,
+   "focus_share": 0.6197,
+   "center_offset": 0.1008,
+   "edge_mass": 0.0717,
+   "top1_share": 0.1857,
+   "max_relative_weight": 378.9376,
+   "mean_relative_weight": 7.8502
+  },
+  {
+   "image_id": 458325,
+   "file_name": "COCO_val2014_000000458325.jpg",
+   "object": "truck",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8287,
+   "focus_share": 0.165,
+   "center_offset": 0.0263,
+   "edge_mass": 0.1038,
+   "top1_share": 0.0381,
+   "max_relative_weight": 58.6965,
+   "mean_relative_weight": 5.9306
+  },
+  {
+   "image_id": 279499,
+   "file_name": "COCO_val2014_000000279499.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8518,
+   "focus_share": 0.1643,
+   "center_offset": 0.0516,
+   "edge_mass": 0.2336,
+   "top1_share": 0.0456,
+   "max_relative_weight": 35.6288,
+   "mean_relative_weight": 3.0078
+  },
+  {
+   "image_id": 550514,
+   "file_name": "COCO_val2014_000000550514.jpg",
+   "object": "surfboard",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9093,
+   "focus_share": 0.1053,
+   "center_offset": 0.1881,
+   "edge_mass": 0.1294,
+   "top1_share": 0.0287,
+   "max_relative_weight": 19.1334,
+   "mean_relative_weight": 2.2254
+  },
+  {
+   "image_id": 526368,
+   "file_name": "COCO_val2014_000000526368.jpg",
+   "object": "laptop",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "explore",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9447,
+   "focus_share": 0.0837,
+   "center_offset": 0.0468,
+   "edge_mass": 0.186,
+   "top1_share": 0.0211,
+   "max_relative_weight": 6.8584,
+   "mean_relative_weight": 1.0815
+  },
+  {
+   "image_id": 204100,
+   "file_name": "COCO_val2014_000000204100.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8876,
+   "focus_share": 0.2036,
+   "center_offset": 0.1565,
+   "edge_mass": 0.2445,
+   "top1_share": 0.0618,
+   "max_relative_weight": 8.3536,
+   "mean_relative_weight": 0.939
+  },
+  {
+   "image_id": 524979,
+   "file_name": "COCO_val2014_000000524979.jpg",
+   "object": "baseball glove",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.6784,
+   "focus_share": 0.381,
+   "center_offset": 0.5561,
+   "edge_mass": 0.172,
+   "top1_share": 0.0968,
+   "max_relative_weight": 266.3562,
+   "mean_relative_weight": 11.4653
+  },
+  {
+   "image_id": 18918,
+   "file_name": "COCO_val2014_000000018918.jpg",
+   "object": "bottle",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8592,
+   "focus_share": 0.1446,
+   "center_offset": 0.0375,
+   "edge_mass": 0.0949,
+   "top1_share": 0.0372,
+   "max_relative_weight": 37.1249,
+   "mean_relative_weight": 3.3261
+  },
+  {
+   "image_id": 472375,
+   "file_name": "COCO_val2014_000000472375.jpg",
+   "object": "dog",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9199,
+   "focus_share": 0.0903,
+   "center_offset": 0.104,
+   "edge_mass": 0.1525,
+   "top1_share": 0.0303,
+   "max_relative_weight": 19.5719,
+   "mean_relative_weight": 1.7903
+  },
+  {
+   "image_id": 69196,
+   "file_name": "COCO_val2014_000000069196.jpg",
+   "object": "skis",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.888,
+   "focus_share": 0.1015,
+   "center_offset": 0.2052,
+   "edge_mass": 0.1365,
+   "top1_share": 0.0268,
+   "max_relative_weight": 19.3341,
+   "mean_relative_weight": 2.2504
+  },
+  {
+   "image_id": 245642,
+   "file_name": "COCO_val2014_000000245642.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9207,
+   "focus_share": 0.096,
+   "center_offset": 0.0538,
+   "edge_mass": 0.1817,
+   "top1_share": 0.0264,
+   "max_relative_weight": 15.0018,
+   "mean_relative_weight": 1.8957
+  },
+  {
+   "image_id": 71738,
+   "file_name": "COCO_val2014_000000071738.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8101,
+   "focus_share": 0.2536,
+   "center_offset": 0.388,
+   "edge_mass": 0.3936,
+   "top1_share": 0.084,
+   "max_relative_weight": 54.6448,
+   "mean_relative_weight": 2.5014
+  },
+  {
+   "image_id": 8749,
+   "file_name": "COCO_val2014_000000008749.jpg",
+   "object": "pizza",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9431,
+   "focus_share": 0.0766,
+   "center_offset": 0.0935,
+   "edge_mass": 0.1374,
+   "top1_share": 0.0186,
+   "max_relative_weight": 11.0288,
+   "mean_relative_weight": 2.2747
+  },
+  {
+   "image_id": 379162,
+   "file_name": "COCO_val2014_000000379162.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9344,
+   "focus_share": 0.0967,
+   "center_offset": 0.0661,
+   "edge_mass": 0.266,
+   "top1_share": 0.0246,
+   "max_relative_weight": 6.6344,
+   "mean_relative_weight": 1.0361
+  },
+  {
+   "image_id": 468169,
+   "file_name": "COCO_val2014_000000468169.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8938,
+   "focus_share": 0.1658,
+   "center_offset": 0.0916,
+   "edge_mass": 0.1947,
+   "top1_share": 0.0552,
+   "max_relative_weight": 24.8871,
+   "mean_relative_weight": 2.0507
+  },
+  {
+   "image_id": 80022,
+   "file_name": "COCO_val2014_000000080022.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9245,
+   "focus_share": 0.1046,
+   "center_offset": 0.0446,
+   "edge_mass": 0.402,
+   "top1_share": 0.0228,
+   "max_relative_weight": 4.1905,
+   "mean_relative_weight": 0.7068
+  },
+  {
+   "image_id": 123017,
+   "file_name": "COCO_val2014_000000123017.jpg",
+   "object": "bowl",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.5172,
+   "focus_share": 0.6239,
+   "center_offset": 0.2032,
+   "edge_mass": 0.0352,
+   "top1_share": 0.4167,
+   "max_relative_weight": 1869.2334,
+   "mean_relative_weight": 14.9544
+  },
+  {
+   "image_id": 61507,
+   "file_name": "COCO_val2014_000000061507.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9087,
+   "focus_share": 0.1082,
+   "center_offset": 0.1825,
+   "edge_mass": 0.2574,
+   "top1_share": 0.0272,
+   "max_relative_weight": 13.3544,
+   "mean_relative_weight": 1.6361
+  },
+  {
+   "image_id": 32610,
+   "file_name": "COCO_val2014_000000032610.jpg",
+   "object": "backpack",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8422,
+   "focus_share": 0.192,
+   "center_offset": 0.2456,
+   "edge_mass": 0.0976,
+   "top1_share": 0.0535,
+   "max_relative_weight": 57.1708,
+   "mean_relative_weight": 4.1112
+  },
+  {
+   "image_id": 388983,
+   "file_name": "COCO_val2014_000000388983.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9399,
+   "focus_share": 0.1035,
+   "center_offset": 0.0362,
+   "edge_mass": 0.3634,
+   "top1_share": 0.0238,
+   "max_relative_weight": 2.7767,
+   "mean_relative_weight": 0.6067
+  },
+  {
+   "image_id": 280734,
+   "file_name": "COCO_val2014_000000280734.jpg",
+   "object": "pizza",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9439,
+   "focus_share": 0.0845,
+   "center_offset": 0.0532,
+   "edge_mass": 0.1338,
+   "top1_share": 0.025,
+   "max_relative_weight": 12.1576,
+   "mean_relative_weight": 1.8717
+  },
+  {
+   "image_id": 313162,
+   "file_name": "COCO_val2014_000000313162.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9367,
+   "focus_share": 0.0695,
+   "center_offset": 0.1195,
+   "edge_mass": 0.2619,
+   "top1_share": 0.017,
+   "max_relative_weight": 3.203,
+   "mean_relative_weight": 0.5209
+  },
+  {
+   "image_id": 154846,
+   "file_name": "COCO_val2014_000000154846.jpg",
+   "object": "pizza",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9142,
+   "focus_share": 0.1149,
+   "center_offset": 0.1396,
+   "edge_mass": 0.222,
+   "top1_share": 0.0287,
+   "max_relative_weight": 22.7287,
+   "mean_relative_weight": 3.0489
+  },
+  {
+   "image_id": 100215,
+   "file_name": "COCO_val2014_000000100215.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.918,
+   "focus_share": 0.1209,
+   "center_offset": 0.0571,
+   "edge_mass": 0.364,
+   "top1_share": 0.0279,
+   "max_relative_weight": 4.2759,
+   "mean_relative_weight": 0.7978
+  },
+  {
+   "image_id": 579415,
+   "file_name": "COCO_val2014_000000579415.jpg",
+   "object": "traffic light",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7549,
+   "focus_share": 0.321,
+   "center_offset": 0.2159,
+   "edge_mass": 0.1823,
+   "top1_share": 0.0904,
+   "max_relative_weight": 144.7581,
+   "mean_relative_weight": 5.7173
+  },
+  {
+   "image_id": 408757,
+   "file_name": "COCO_val2014_000000408757.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9078,
+   "focus_share": 0.1266,
+   "center_offset": 0.0973,
+   "edge_mass": 0.3305,
+   "top1_share": 0.0289,
+   "max_relative_weight": 6.9621,
+   "mean_relative_weight": 1.0035
+  },
+  {
+   "image_id": 511622,
+   "file_name": "COCO_val2014_000000511622.jpg",
+   "object": "bowl",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7894,
+   "focus_share": 0.303,
+   "center_offset": 0.1981,
+   "edge_mass": 0.0837,
+   "top1_share": 0.0841,
+   "max_relative_weight": 145.8605,
+   "mean_relative_weight": 5.7841
+  },
+  {
+   "image_id": 391735,
+   "file_name": "COCO_val2014_000000391735.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9265,
+   "focus_share": 0.1156,
+   "center_offset": 0.0305,
+   "edge_mass": 0.2479,
+   "top1_share": 0.0302,
+   "max_relative_weight": 8.0039,
+   "mean_relative_weight": 1.0191
+  },
+  {
+   "image_id": 79446,
+   "file_name": "COCO_val2014_000000079446.jpg",
+   "object": "sink",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8156,
+   "focus_share": 0.1903,
+   "center_offset": 0.271,
+   "edge_mass": 0.1111,
+   "top1_share": 0.0515,
+   "max_relative_weight": 39.5126,
+   "mean_relative_weight": 3.6913
+  },
+  {
+   "image_id": 501652,
+   "file_name": "COCO_val2014_000000501652.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8908,
+   "focus_share": 0.1777,
+   "center_offset": 0.207,
+   "edge_mass": 0.2536,
+   "top1_share": 0.0585,
+   "max_relative_weight": 21.0406,
+   "mean_relative_weight": 1.1989
+  },
+  {
+   "image_id": 201148,
+   "file_name": "COCO_val2014_000000201148.jpg",
+   "object": "traffic light",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.5862,
+   "focus_share": 0.6172,
+   "center_offset": 0.3262,
+   "edge_mass": 0.098,
+   "top1_share": 0.1883,
+   "max_relative_weight": 364.2744,
+   "mean_relative_weight": 8.7922
+  },
+  {
+   "image_id": 472375,
+   "file_name": "COCO_val2014_000000472375.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.912,
+   "focus_share": 0.1141,
+   "center_offset": 0.1327,
+   "edge_mass": 0.2274,
+   "top1_share": 0.0398,
+   "max_relative_weight": 16.3855,
+   "mean_relative_weight": 1.1415
+  },
+  {
+   "image_id": 288576,
+   "file_name": "COCO_val2014_000000288576.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8538,
+   "focus_share": 0.2009,
+   "center_offset": 0.0747,
+   "edge_mass": 0.1412,
+   "top1_share": 0.0896,
+   "max_relative_weight": 42.237,
+   "mean_relative_weight": 1.8125
+  },
+  {
+   "image_id": 462805,
+   "file_name": "COCO_val2014_000000462805.jpg",
+   "object": "backpack",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.903,
+   "focus_share": 0.1219,
+   "center_offset": 0.2012,
+   "edge_mass": 0.2666,
+   "top1_share": 0.0307,
+   "max_relative_weight": 11.8232,
+   "mean_relative_weight": 1.2852
+  },
+  {
+   "image_id": 108189,
+   "file_name": "COCO_val2014_000000108189.jpg",
+   "object": "sandwich",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8938,
+   "focus_share": 0.1205,
+   "center_offset": 0.0654,
+   "edge_mass": 0.1073,
+   "top1_share": 0.0287,
+   "max_relative_weight": 28.7751,
+   "mean_relative_weight": 3.3474
+  },
+  {
+   "image_id": 236865,
+   "file_name": "COCO_val2014_000000236865.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9084,
+   "focus_share": 0.1181,
+   "center_offset": 0.0861,
+   "edge_mass": 0.2571,
+   "top1_share": 0.0428,
+   "max_relative_weight": 14.283,
+   "mean_relative_weight": 1.1123
+  },
+  {
+   "image_id": 542145,
+   "file_name": "COCO_val2014_000000542145.jpg",
+   "object": "sink",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8078,
+   "focus_share": 0.2391,
+   "center_offset": 0.1652,
+   "edge_mass": 0.0604,
+   "top1_share": 0.0854,
+   "max_relative_weight": 70.0708,
+   "mean_relative_weight": 4.2744
+  },
+  {
+   "image_id": 337502,
+   "file_name": "COCO_val2014_000000337502.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9285,
+   "focus_share": 0.1075,
+   "center_offset": 0.021,
+   "edge_mass": 0.3494,
+   "top1_share": 0.0333,
+   "max_relative_weight": 7.022,
+   "mean_relative_weight": 0.8103
+  },
+  {
+   "image_id": 300368,
+   "file_name": "COCO_val2014_000000300368.jpg",
+   "object": "knife",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8444,
+   "focus_share": 0.2412,
+   "center_offset": 0.0119,
+   "edge_mass": 0.1015,
+   "top1_share": 0.0726,
+   "max_relative_weight": 75.88,
+   "mean_relative_weight": 3.4819
+  },
+  {
+   "image_id": 65001,
+   "file_name": "COCO_val2014_000000065001.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9124,
+   "focus_share": 0.117,
+   "center_offset": 0.1501,
+   "edge_mass": 0.183,
+   "top1_share": 0.0283,
+   "max_relative_weight": 10.3421,
+   "mean_relative_weight": 1.2191
+  },
+  {
+   "image_id": 211674,
+   "file_name": "COCO_val2014_000000211674.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.875,
+   "focus_share": 0.1506,
+   "center_offset": 0.1514,
+   "edge_mass": 0.1639,
+   "top1_share": 0.0428,
+   "max_relative_weight": 29.2693,
+   "mean_relative_weight": 2.6303
+  },
+  {
+   "image_id": 473199,
+   "file_name": "COCO_val2014_000000473199.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9141,
+   "focus_share": 0.1253,
+   "center_offset": 0.145,
+   "edge_mass": 0.2311,
+   "top1_share": 0.0516,
+   "max_relative_weight": 21.4506,
+   "mean_relative_weight": 1.3851
+  },
+  {
+   "image_id": 447787,
+   "file_name": "COCO_val2014_000000447787.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9444,
+   "focus_share": 0.0913,
+   "center_offset": 0.0714,
+   "edge_mass": 0.2655,
+   "top1_share": 0.0228,
+   "max_relative_weight": 7.0233,
+   "mean_relative_weight": 1.1853
+  },
+  {
+   "image_id": 579415,
+   "file_name": "COCO_val2014_000000579415.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9157,
+   "focus_share": 0.0885,
+   "center_offset": 0.0644,
+   "edge_mass": 0.2133,
+   "top1_share": 0.0216,
+   "max_relative_weight": 11.759,
+   "mean_relative_weight": 1.9433
+  },
+  {
+   "image_id": 401398,
+   "file_name": "COCO_val2014_000000401398.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9062,
+   "focus_share": 0.1071,
+   "center_offset": 0.1768,
+   "edge_mass": 0.2204,
+   "top1_share": 0.0246,
+   "max_relative_weight": 11.0638,
+   "mean_relative_weight": 1.608
+  },
+  {
+   "image_id": 332025,
+   "file_name": "COCO_val2014_000000332025.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9352,
+   "focus_share": 0.0975,
+   "center_offset": 0.1413,
+   "edge_mass": 0.2613,
+   "top1_share": 0.0267,
+   "max_relative_weight": 8.5131,
+   "mean_relative_weight": 0.8849
+  },
+  {
+   "image_id": 314992,
+   "file_name": "COCO_val2014_000000314992.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9529,
+   "focus_share": 0.073,
+   "center_offset": 0.0457,
+   "edge_mass": 0.2042,
+   "top1_share": 0.0167,
+   "max_relative_weight": 5.5274,
+   "mean_relative_weight": 1.2711
+  },
+  {
+   "image_id": 447787,
+   "file_name": "COCO_val2014_000000447787.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9206,
+   "focus_share": 0.1216,
+   "center_offset": 0.1768,
+   "edge_mass": 0.3003,
+   "top1_share": 0.0428,
+   "max_relative_weight": 15.278,
+   "mean_relative_weight": 1.3716
+  },
+  {
+   "image_id": 383185,
+   "file_name": "COCO_val2014_000000383185.jpg",
+   "object": "banana",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8036,
+   "focus_share": 0.2846,
+   "center_offset": 0.3792,
+   "edge_mass": 0.263,
+   "top1_share": 0.0682,
+   "max_relative_weight": 34.7221,
+   "mean_relative_weight": 3.1829
+  },
+  {
+   "image_id": 281766,
+   "file_name": "COCO_val2014_000000281766.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9253,
+   "focus_share": 0.1055,
+   "center_offset": 0.0538,
+   "edge_mass": 0.3067,
+   "top1_share": 0.0268,
+   "max_relative_weight": 8.2369,
+   "mean_relative_weight": 1.183
+  },
+  {
+   "image_id": 44801,
+   "file_name": "COCO_val2014_000000044801.jpg",
+   "object": "traffic light",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7932,
+   "focus_share": 0.3351,
+   "center_offset": 0.2913,
+   "edge_mass": 0.1556,
+   "top1_share": 0.0922,
+   "max_relative_weight": 48.8435,
+   "mean_relative_weight": 3.3094
+  },
+  {
+   "image_id": 485485,
+   "file_name": "COCO_val2014_000000485485.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9173,
+   "focus_share": 0.0949,
+   "center_offset": 0.1027,
+   "edge_mass": 0.2257,
+   "top1_share": 0.0221,
+   "max_relative_weight": 5.5284,
+   "mean_relative_weight": 0.835
+  },
+  {
+   "image_id": 462805,
+   "file_name": "COCO_val2014_000000462805.jpg",
+   "object": "snowboard",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9227,
+   "focus_share": 0.0844,
+   "center_offset": 0.1903,
+   "edge_mass": 0.1401,
+   "top1_share": 0.0198,
+   "max_relative_weight": 13.6503,
+   "mean_relative_weight": 2.3029
+  },
+  {
+   "image_id": 44801,
+   "file_name": "COCO_val2014_000000044801.jpg",
+   "object": "backpack",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.7849,
+   "focus_share": 0.3451,
+   "center_offset": 0.1279,
+   "edge_mass": 0.109,
+   "top1_share": 0.0993,
+   "max_relative_weight": 60.2998,
+   "mean_relative_weight": 3.795
+  },
+  {
+   "image_id": 156704,
+   "file_name": "COCO_val2014_000000156704.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9108,
+   "focus_share": 0.0988,
+   "center_offset": 0.2374,
+   "edge_mass": 0.1524,
+   "top1_share": 0.0216,
+   "max_relative_weight": 11.6214,
+   "mean_relative_weight": 2.0739
+  },
+  {
+   "image_id": 239347,
+   "file_name": "COCO_val2014_000000239347.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8916,
+   "focus_share": 0.1756,
+   "center_offset": 0.1069,
+   "edge_mass": 0.2332,
+   "top1_share": 0.0648,
+   "max_relative_weight": 22.2446,
+   "mean_relative_weight": 1.1439
+  },
+  {
+   "image_id": 218224,
+   "file_name": "COCO_val2014_000000218224.jpg",
+   "object": "truck",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7017,
+   "focus_share": 0.4334,
+   "center_offset": 0.4622,
+   "edge_mass": 0.3391,
+   "top1_share": 0.1507,
+   "max_relative_weight": 117.1335,
+   "mean_relative_weight": 3.5321
+  },
+  {
+   "image_id": 156704,
+   "file_name": "COCO_val2014_000000156704.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9133,
+   "focus_share": 0.1032,
+   "center_offset": 0.198,
+   "edge_mass": 0.2144,
+   "top1_share": 0.0258,
+   "max_relative_weight": 9.4365,
+   "mean_relative_weight": 1.4074
+  },
+  {
+   "image_id": 391735,
+   "file_name": "COCO_val2014_000000391735.jpg",
+   "object": "traffic light",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8986,
+   "focus_share": 0.1646,
+   "center_offset": 0.2192,
+   "edge_mass": 0.2655,
+   "top1_share": 0.0454,
+   "max_relative_weight": 18.0561,
+   "mean_relative_weight": 1.5293
+  },
+  {
+   "image_id": 190788,
+   "file_name": "COCO_val2014_000000190788.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9306,
+   "focus_share": 0.1049,
+   "center_offset": 0.1067,
+   "edge_mass": 0.2466,
+   "top1_share": 0.0298,
+   "max_relative_weight": 10.0886,
+   "mean_relative_weight": 1.128
+  },
+  {
+   "image_id": 155131,
+   "file_name": "COCO_val2014_000000155131.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8804,
+   "focus_share": 0.1494,
+   "center_offset": 0.1944,
+   "edge_mass": 0.1589,
+   "top1_share": 0.0414,
+   "max_relative_weight": 29.2969,
+   "mean_relative_weight": 2.3591
+  },
+  {
+   "image_id": 288576,
+   "file_name": "COCO_val2014_000000288576.jpg",
+   "object": "car",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8998,
+   "focus_share": 0.1533,
+   "center_offset": 0.127,
+   "edge_mass": 0.2429,
+   "top1_share": 0.041,
+   "max_relative_weight": 12.197,
+   "mean_relative_weight": 1.1453
+  },
+  {
+   "image_id": 298633,
+   "file_name": "COCO_val2014_000000298633.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.9074,
+   "focus_share": 0.1057,
+   "center_offset": 0.0621,
+   "edge_mass": 0.2252,
+   "top1_share": 0.0327,
+   "max_relative_weight": 12.2806,
+   "mean_relative_weight": 1.4463
+  },
+  {
+   "image_id": 38645,
+   "file_name": "COCO_val2014_000000038645.jpg",
+   "object": "person",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8941,
+   "focus_share": 0.1368,
+   "center_offset": 0.1331,
+   "edge_mass": 0.3599,
+   "top1_share": 0.0509,
+   "max_relative_weight": 13.1093,
+   "mean_relative_weight": 0.8579
+  },
+  {
+   "image_id": 217397,
+   "file_name": "COCO_val2014_000000217397.jpg",
+   "object": "person",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.8968,
+   "focus_share": 0.1423,
+   "center_offset": 0.1311,
+   "edge_mass": 0.2168,
+   "top1_share": 0.0415,
+   "max_relative_weight": 20.9402,
+   "mean_relative_weight": 1.6808
+  },
+  {
+   "image_id": 189694,
+   "file_name": "COCO_val2014_000000189694.jpg",
+   "object": "toilet",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.8924,
+   "focus_share": 0.1067,
+   "center_offset": 0.306,
+   "edge_mass": 0.2572,
+   "top1_share": 0.0252,
+   "max_relative_weight": 12.3248,
+   "mean_relative_weight": 1.6334
+  },
+  {
+   "image_id": 358255,
+   "file_name": "COCO_val2014_000000358255.jpg",
+   "object": "teddy bear",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.7943,
+   "focus_share": 0.2728,
+   "center_offset": 0.2904,
+   "edge_mass": 0.1155,
+   "top1_share": 0.0708,
+   "max_relative_weight": 92.8152,
+   "mean_relative_weight": 9.363
+  },
+  {
+   "image_id": 346707,
+   "file_name": "COCO_val2014_000000346707.jpg",
+   "object": "dining table",
+   "pope_label": "no",
+   "probe_type": "adversarial",
+   "observed": "No",
+   "pred": "no",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "out_token_ids": [
+    902,
+    2152,
+    2308,
+    2753
+   ],
+   "attention_entropy": 0.9141,
+   "focus_share": 0.1792,
+   "center_offset": 0.1653,
+   "edge_mass": 0.4094,
+   "top1_share": 0.0509,
+   "max_relative_weight": 5.1339,
+   "mean_relative_weight": 0.6301
+  },
+  {
+   "image_id": 551881,
+   "file_name": "COCO_val2014_000000551881.jpg",
+   "object": "handbag",
+   "pope_label": "yes",
+   "probe_type": "present",
+   "observed": "Yes",
+   "pred": "yes",
+   "label": "pass",
+   "split": "validate",
+   "gt_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "out_token_ids": [
+    7414,
+    9454,
+    9693,
+    9834
+   ],
+   "attention_entropy": 0.5079,
+   "focus_share": 0.6875,
+   "center_offset": 0.1775,
+   "edge_mass": 0.0231,
+   "top1_share": 0.1796,
+   "max_relative_weight": 1049.3152,
+   "mean_relative_weight": 19.4785
+  }
+ ],
+ "attention_extraction": {
+  "analyzer": "relative_attention (MLLMs Know Where to Look)",
+  "coverage": "201/201",
+  "note": "full-batch extraction, no max_cases cap"
+ }
+}

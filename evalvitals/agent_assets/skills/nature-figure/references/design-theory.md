@@ -50,41 +50,44 @@ Semantic: blue = proposed method, green = positive variants, red/pink = baseline
 For dense multi-panel figures, however, **family consistency beats maximal hue separation**.
 
 ```python
+# Values synced to the CVD-validated EvalVitals dataviz palette (family
+# semantics unchanged; see the notice in README.md). Ramps and the 5
+# chromatic series slots were re-validated with the dataviz checker.
 PALETTE = {
     # Proposed / key method
-    "blue_main":      "#0F4D92",   # deep blue — hero method
-    "blue_secondary": "#3775BA",   # medium blue — second author method
+    "blue_main":      "#2a78d6",   # blue — hero method (categorical slot 1)
+    "blue_secondary": "#6da7ec",   # medium blue — second author method
 
-    # Positive / improvement shades (light → dark)
-    "green_1": "#DDF3DE",
-    "green_2": "#AADCA9",
-    "green_3": "#8BCF8B",
+    # Positive / improvement shades (light → dark, validated ordinal ramp)
+    "green_1": "#7ec07e",
+    "green_2": "#4ca74b",
+    "green_3": "#008300",
 
-    # Baseline / contrast shades (light → dark)
-    "red_1":      "#F6CFCB",
-    "red_2":      "#E9A6A1",
-    "red_strong": "#B64342",
+    # Baseline / contrast shades (light → dark, validated ordinal ramp)
+    "red_1":      "#ee9999",
+    "red_2":      "#e97675",
+    "red_strong": "#e34948",
 
-    # Neutral support
-    "neutral_light": "#CFCECE",
-    "neutral_mid":   "#767676",
-    "neutral_dark":  "#4D4D4D",
-    "neutral_black": "#272727",
+    # Neutral support (ink ladder)
+    "neutral_light": "#c3c2b7",
+    "neutral_mid":   "#898781",
+    "neutral_dark":  "#52514e",
+    "neutral_black": "#0b0b0b",
 
     # Accent / callout (use sparingly)
-    "gold":   "#FFD700",
-    "teal":   "#42949E",
-    "violet": "#9A4D8E",
-    "magenta":"#EA84DD",
+    "gold":   "#eda100",
+    "teal":   "#1baf7a",
+    "violet": "#4a3aa7",
+    "magenta":"#e87ba4",
 }
 
 DEFAULT_COLOR_ORDER = [
-    "#0F4D92",   # blue_main
-    "#8BCF8B",   # green_3
-    "#B64342",   # red_strong
-    "#42949E",   # teal
-    "#9A4D8E",   # violet
-    "#CFCECE",   # neutral_light
+    "#2a78d6",   # blue_main
+    "#008300",   # green_3
+    "#e34948",   # red_strong
+    "#1baf7a",   # teal
+    "#4a3aa7",   # violet
+    "#898781",   # neutral_mid — reference/background series only
 ]
 ```
 

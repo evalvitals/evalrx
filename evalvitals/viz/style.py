@@ -19,7 +19,10 @@ NATURE_RC_FALLBACK: dict[str, Any] = {
     "pdf.fonttype": 42,
     "svg.fonttype": "none",
 }
-NATURE_COLORS_FALLBACK = ["#0F4D92", "#8BCF8B", "#B64342", "#42949E", "#9A4D8E", "#CFCECE"]
+# Mirrors the bundled nature-figure skill's DEFAULT_COLORS, whose values are
+# synced to the CVD-validated dataviz palette (see that skill's README notice)
+# — one palette across agent PNGs, host plotly charts, and these spec PNGs.
+NATURE_COLORS_FALLBACK = ["#2a78d6", "#008300", "#e34948", "#1baf7a", "#4a3aa7", "#898781"]
 SCREEN_RC: dict[str, Any] = {
     "font.size": 9.0,
     "axes.titlesize": 11.0,

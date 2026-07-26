@@ -86,7 +86,11 @@ uneven: 2B ≫ 8B > 4B); after collinearity pruning only focus_share,
 center_offset, mean_relative_weight and edge_mass carry independent signal.
 `data_2b_attn/` is the smaller 2B-only variant whose attention scalars were
 transplanted from the diagnosis-loop's frozen M1 state (32/201 coverage —
-useful mainly as an informative-missingness case study).
+useful mainly as an informative-missingness case study). `data_attn_2b/` is
+the **full-coverage 2B-only slice** of `data_attn_full/` (201/201 cases with
+attention scalars, single checkpoint) — use it to run M2/M3 without the
+cross-checkpoint dimension, e.g. as a workbench upload (`data_attn_2b.zip`
+ships alongside for exactly that).
 
 ## Held-out hypothesis pipeline (propose → test → fix → one report)
 
