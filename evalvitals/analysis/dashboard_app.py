@@ -84,7 +84,7 @@ def render_explore_report(root: Path, turn: dict[str, Any]) -> None:
     report = turn["report"]
 
     _render_header(root, turn, report)
-    _render_top_metrics(report)
+    _render_top_metrics(report, turn_dir)
 
     confirm = _load_sibling_json(turn_dir, "confirm_report.json")
     fix_report = _load_sibling_json(turn_dir, "fix_report.json")
@@ -681,7 +681,9 @@ def _render_problem_setting(
         )
         for label, count in stages:
             st.markdown(f"- **{label}:** {count}")
-        st.caption(f"Run directory: {root}")
+        # The run directory is already one click away under "Provenance";
+        # repeating it here put an absolute home path in the middle of the
+        # page, where any screenshot or screen-share carries it along.
 
 
 def _render_stage_map(*, active: set[str]) -> None:
@@ -2886,6 +2888,36 @@ def _render_explore_tables_legacy(uniq: list[Path]) -> None:
                 st.dataframe(df, width="stretch", height=240)
 
 
+def _count_records(root: Path) -> int | None:
+    """Row count from the bundle's records.json when the profile omits it."""
+    try:
+        data = json.loads((root / "records.json").read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return len(data) if isinstance(data, list) else None
+
+
+def _verdict_metric(report: dict[str, Any]) -> tuple[str, Any, str]:
+    """Lead tile: what the run actually concluded.
+
+    This is the number the whole pipeline exists to produce, so it goes first.
+    An explore-only run legitimately confirms nothing — that renders as
+    "0/N confirmed", not as a missing tile.
+    """
+    adj = report.get("adjudication") or {}
+    n_cand = adj.get("n_candidates")
+    if not isinstance(n_cand, int) or n_cand <= 0:
+        return ("Confirmed", None, "no candidates adjudicated")
+    n_rej = adj.get("n_rejected") or 0
+    method = str(adj.get("method") or "—")
+    split = str(adj.get("split") or "")
+    alpha = adj.get("alpha")
+    caption = f"{method} · α={alpha}" if alpha is not None else method
+    if split:
+        caption += f" · {split.replace('_', '-')}"
+    return ("Confirmed", f"{n_rej}/{n_cand}", caption)
+
+
 def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> None:
     ok = bool(report.get("ok"))
     status = "finished" if ok else "failed"
@@ -2893,10 +2925,8 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
     question = str(report.get("question") or "Exploratory analysis")
     plain_question = str(report.get("plain_question") or "").strip()
     headline = plain_question or question
-    technical_line = (
-        f'<div class="ev-path">Original question: {_html_escape(question)}</div>'
-        if plain_question and question.strip() and question.strip() != plain_question
-        else ""
+    has_technical = bool(
+        plain_question and question.strip() and question.strip() != plain_question
     )
 
     st.markdown(
@@ -2905,8 +2935,6 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
           <div>
             <div class="ev-kicker">Exploratory Data Analysis</div>
             <h1>{_html_escape(headline)}</h1>
-            {technical_line}
-            <div class="ev-path">{_html_escape(str(root))}</div>
           </div>
           <div class="ev-header-right">
             <span class="ev-pill {status_class}">{status}</span>
@@ -2916,22 +2944,40 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
         """,
         unsafe_allow_html=True,
     )
+    # The verbatim prompt and the on-disk location are provenance, not headline
+    # material: keep them one click away so the hero stays readable — and so a
+    # screen-share or screenshot does not broadcast the operator's home path.
+    if has_technical or root is not None:
+        with st.expander("Provenance — exact question and source path", expanded=False):
+            if has_technical:
+                st.markdown("**Question as asked**")
+                st.code(question, language=None)
+            st.caption(f"Bundle: `{root}`")
 
 
-def _render_top_metrics(report: dict[str, Any]) -> None:
+def _render_top_metrics(report: dict[str, Any], root: Path | None = None) -> None:
     profile = report.get("data_profile") or {}
-    columns = profile.get("columns") or {}
+    # NB: `profile.get("columns") or {}` would turn a missing profile into an
+    # empty dict and render a bare "0 profiled fields", which reads as broken.
+    # Keep None as None so the tile is dropped instead.
+    columns = profile.get("columns")
     observations = report.get("observations") or []
     signals = report.get("candidate_signals") or []
     charts = report.get("charts") or []
     plots = report.get("plots") or []
+    hypotheses = report.get("hypotheses") or []
+
+    rows = profile.get("loaded_rows", profile.get("n_rows"))
+    if rows is None and root is not None:
+        rows = _count_records(root)
 
     raw_metrics = [
-        ("Rows", profile.get("loaded_rows", profile.get("n_rows")), "records sampled"),
+        _verdict_metric(report),
+        ("Rows", rows, "cases analysed"),
         ("Columns", len(columns) if isinstance(columns, dict) else None, "profiled fields"),
-        ("Signals", len(signals), "candidate follow-ups"),
-        ("Charts", len(charts) + len(plots), "visual artifacts"),
-        ("Attempts", report.get("attempts", 0), "agent/code runs"),
+        ("Signals", len(signals), "candidate drivers"),
+        ("Hypotheses", len(hypotheses) or None, "proposed, not validated"),
+        ("Charts", len(charts) + len(plots), "figures generated"),
         ("Notes", len(observations), "observations"),
     ]
     # Drop tiles this report never populated (None) instead of showing a bare
@@ -2941,14 +2987,17 @@ def _render_top_metrics(report: dict[str, Any]) -> None:
         return
 
     cols = st.columns(len(metrics))
-    for col, (label, value, caption) in zip(cols, metrics, strict=False):
+    for idx, (col, (label, value, caption)) in enumerate(zip(cols, metrics, strict=False)):
+        # The verdict tile is emitted first by construction; when adjudication
+        # produced nothing it is dropped and this simply never fires.
+        lead = " ev-metric-lead" if idx == 0 and label == "Confirmed" else ""
         with col:
             st.markdown(
                 f"""
-                <div class="ev-metric-card">
-                  <div class="ev-metric-label">{label}</div>
-                  <div class="ev-metric-value">{value}</div>
-                  <div class="ev-metric-caption">{caption}</div>
+                <div class="ev-metric-card{lead}">
+                  <div class="ev-metric-label">{_html_escape(label)}</div>
+                  <div class="ev-metric-value">{_html_escape(value)}</div>
+                  <div class="ev-metric-caption">{_html_escape(caption)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -3434,6 +3483,15 @@ def _inject_css() -> None:
           color: var(--ev-muted);
           font-size: 0.78rem;
         }
+        /* The adjudicated verdict is the point of the whole run: give it the
+           weight of a headline rather than letting it read as one count
+           among many. */
+        .ev-metric-card.ev-metric-lead {
+          background: linear-gradient(180deg, rgba(10,123,188,0.09), rgba(10,123,188,0.02));
+          border-color: rgba(10,123,188,0.42);
+        }
+        .ev-metric-lead .ev-metric-label { color: #0a7bbc; }
+        .ev-metric-lead .ev-metric-value { font-size: 2.15rem; }
         .ev-brief-grid {
           display: grid;
           gap: 0.75rem;
