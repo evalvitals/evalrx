@@ -1,0 +1,8 @@
+signal,display_name,univariate_or_per_sd,or_lo,or_hi,wald_p,aic,aic_gain_vs_null
+attention_entropy,Attention entropy,0.258,0.188,0.355,4.87e-17,370.2,103.1
+focus_share,Attention focus share,3.775,2.774,5.138,2.98e-17,370.4,102.9
+log10_max_relative_weight,Maximum relative attention (log10),3.263,2.434,4.373,2.57e-15,390.1,83.1
+top1_share,Top-1 patch share,3.139,2.275,4.332,3.4e-12,405.7,67.5
+center_offset,Center offset,2.056,1.617,2.615,4.07e-09,435.7,37.6
+mean_relative_weight,Mean relative attention,1.884,1.473,2.411,4.65e-07,445.2,28.1
+edge_mass,Edge mass,0.633,0.499,0.802,0.000157,459.8,13.5

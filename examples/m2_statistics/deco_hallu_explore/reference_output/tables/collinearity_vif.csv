@@ -1,0 +1,8 @@
+signal,display_name,vif,collinearity_flag
+attention_entropy,Attention entropy,19.55,high (>=5)
+focus_share,Attention focus share,20.66,high (>=5)
+center_offset,Center offset,1.93,low
+edge_mass,Edge mass,1.74,low
+top1_share,Top-1 patch share,6.22,high (>=5)
+log10_max_relative_weight,Maximum relative attention (log10),7.16,high (>=5)
+mean_relative_weight,Mean relative attention,3.55,moderate

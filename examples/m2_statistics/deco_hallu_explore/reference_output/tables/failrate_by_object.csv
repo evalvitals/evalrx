@@ -1,0 +1,13 @@
+object,cases,fails,hallucination_rate
+potted plant,11,9,0.8182
+handbag,37,28,0.7568
+bottle,9,5,0.5556
+truck,10,5,0.5
+bowl,14,6,0.4286
+backpack,10,4,0.4
+cup,24,8,0.3333
+dining table,48,11,0.2292
+car,105,22,0.2095
+person,47,9,0.1915
+traffic light,8,1,0.125
+skis,11,1,0.0909

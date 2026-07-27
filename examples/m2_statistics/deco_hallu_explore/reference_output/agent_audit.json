@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "attempts": [
+    {
+      "schema_version": 1,
+      "provider": "claude_code",
+      "skills_requested": [
+        "eval-chart-style",
+        "evalvitals-report-ui",
+        "nature-figure",
+        "outcome-driver-analysis"
+      ],
+      "skills_installed": [
+        "eval-chart-style",
+        "evalvitals-report-ui",
+        "nature-figure",
+        "outcome-driver-analysis"
+      ],
+      "skills_invoked": [
+        "outcome-driver-analysis",
+        "eval-chart-style",
+        "evalvitals-report-ui",
+        "nature-figure"
+      ],
+      "skill_observability": "native_skill_events",
+      "evidence": [
+        {
+          "skill": "outcome-driver-analysis",
+          "kind": "native_skill_invocation",
+          "detail": "Claude Code Skill tool invocation"
+        },
+        {
+          "skill": "eval-chart-style",
+          "kind": "native_skill_invocation",
+          "detail": "Claude Code Skill tool invocation"
+        },
+        {
+          "skill": "evalvitals-report-ui",
+          "kind": "native_skill_invocation",
+          "detail": "Claude Code Skill tool invocation"
+        },
+        {
+          "skill": "nature-figure",
+          "kind": "native_skill_invocation",
+          "detail": "Claude Code Skill tool invocation"
+        }
+      ],
+      "execution": {
+        "status": "completed",
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_sec": 864.298,
+        "produced_files": [
+          "analysis.py"
+        ],
+        "error": "",
+        "stderr": ""
+      }
+    }
+  ]
+}

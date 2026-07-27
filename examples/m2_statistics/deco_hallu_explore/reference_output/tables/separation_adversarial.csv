@@ -1,0 +1,8 @@
+signal,display_name,alias,scope,n_fail,n_pass,median_fail,median_pass,auc,auc_lo,auc_hi,separation,rank_biserial,cohens_d,mannwhitney_p,direction,ci_excludes_null
+focus_share,Attention focus share,Focus share,adversarial_only,126,240,0.2912,0.1394,0.822,0.775,0.866,0.644,0.644,1.277,4.1e-24,higher in FAIL,True
+attention_entropy,Attention entropy,Entropy,adversarial_only,126,240,0.794,0.9011,0.179,0.132,0.229,0.642,-0.642,-1.267,5.76e-24,lower in FAIL,True
+top1_share,Top-1 patch share,Top-1 share,adversarial_only,126,240,0.0926,0.0388,0.803,0.752,0.848,0.607,0.607,0.946,1.44e-21,higher in FAIL,True
+max_relative_weight,Maximum relative attention,Max rel.wt,adversarial_only,126,240,131.0078,30.9948,0.791,0.743,0.837,0.583,0.583,0.424,5.07e-20,higher in FAIL,True
+mean_relative_weight,Mean relative attention,Mean rel.wt,adversarial_only,126,240,5.6602,2.8544,0.724,0.675,0.775,0.449,0.449,0.631,1.7e-12,higher in FAIL,True
+center_offset,Center offset,Center off.,adversarial_only,126,240,0.221,0.1452,0.672,0.611,0.732,0.343,0.343,0.729,6.73e-08,higher in FAIL,True
+edge_mass,Edge mass,Edge mass,adversarial_only,126,240,0.1617,0.2102,0.354,0.293,0.417,0.292,-0.292,-0.431,4.32e-06,lower in FAIL,True

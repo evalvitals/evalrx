@@ -1,0 +1,13 @@
+pair,signal_a,signal_b,spearman_rho,abs_rho
+Focus share vs Top-1 share,focus_share,top1_share,0.965,0.965
+Entropy vs Focus share,attention_entropy,focus_share,-0.945,0.945
+Max rel.wt (log) vs Mean rel.wt,log10_max_relative_weight,mean_relative_weight,0.908,0.908
+Entropy vs Top-1 share,attention_entropy,top1_share,-0.898,0.898
+Entropy vs Max rel.wt (log),attention_entropy,log10_max_relative_weight,-0.86,0.86
+Focus share vs Max rel.wt (log),focus_share,log10_max_relative_weight,0.827,0.827
+Top-1 share vs Max rel.wt (log),top1_share,log10_max_relative_weight,0.825,0.825
+Entropy vs Mean rel.wt,attention_entropy,mean_relative_weight,-0.66,0.66
+Focus share vs Mean rel.wt,focus_share,mean_relative_weight,0.606,0.606
+Top-1 share vs Mean rel.wt,top1_share,mean_relative_weight,0.564,0.564
+Entropy vs Center off.,attention_entropy,center_offset,-0.563,0.563
+Edge mass vs Max rel.wt (log),edge_mass,log10_max_relative_weight,-0.524,0.524
