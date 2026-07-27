@@ -2918,6 +2918,33 @@ def _verdict_metric(report: dict[str, Any]) -> tuple[str, Any, str]:
     return ("Confirmed", f"{n_rej}/{n_cand}", caption)
 
 
+def _verdict_sentence(report: dict[str, Any]) -> tuple[str, str]:
+    """The run's outcome as a sentence, plus a tone class.
+
+    Answering "so what happened?" in words belongs above the evidence, not
+    inside a tile the reader has to decode. Confirming nothing is a real,
+    reportable outcome here — it gets a plain statement, not a warning.
+    """
+    adj = report.get("adjudication") or {}
+    n_cand = adj.get("n_candidates")
+    if not isinstance(n_cand, int) or n_cand <= 0:
+        return ("No candidate signals were adjudicated in this run.", "ev-verdict-neutral")
+    n_rej = adj.get("n_rejected") or 0
+    split = str(adj.get("split") or "")
+    noun = "signal" if n_cand == 1 else "signals"
+    held_out = split == "holdout"
+    if n_rej == 0:
+        return (
+            f"Nothing confirmed — 0 of {n_cand} candidate {noun} cleared adjudication.",
+            "ev-verdict-null",
+        )
+    where = "on held-out rows" if held_out else "in-sample only"
+    return (
+        f"{n_rej} of {n_cand} candidate {noun} confirmed, {where}.",
+        "ev-verdict-ok" if held_out else "ev-verdict-partial",
+    )
+
+
 def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> None:
     ok = bool(report.get("ok"))
     status = "finished" if ok else "failed"
@@ -2928,17 +2955,17 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
     has_technical = bool(
         plain_question and question.strip() and question.strip() != plain_question
     )
+    verdict_text, verdict_class = _verdict_sentence(report)
 
     st.markdown(
         f"""
         <div class="ev-header">
           <div>
-            <div class="ev-kicker">Exploratory Data Analysis</div>
+            <div class="ev-kicker">Exploratory Data Analysis
+              <span class="ev-pill {status_class}">{status}</span>
+            </div>
             <h1>{_html_escape(headline)}</h1>
-          </div>
-          <div class="ev-header-right">
-            <span class="ev-pill {status_class}">{status}</span>
-            <span class="ev-pill">{_html_escape(str(turn["name"]))}</span>
+            <div class="ev-verdict-line {verdict_class}">{_html_escape(verdict_text)}</div>
           </div>
         </div>
         """,
@@ -3335,6 +3362,141 @@ def _inject_css() -> None:
             --ev-shadow: 0 1px 2px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.32);
             --ev-shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
           }
+        }
+        /* ---- Type scale -------------------------------------------------
+           Tracking is size-specific: large text reads too loose as it grows
+           and needs negative tracking, body sits near zero, small caps-y
+           labels need a positive bump to stay legible. Leading moves
+           inversely to size. Weight/size/leading are set together as one
+           step, never size alone. */
+        :root {
+          --ev-track-display: -0.022em;
+          --ev-track-title: -0.015em;
+          --ev-track-body: 0em;
+          --ev-track-label: 0.04em;
+          --ev-lead-display: 1.08;
+          --ev-lead-title: 1.2;
+          --ev-lead-body: 1.55;
+          /* Materials. Bigger surfaces read as thicker: more blur, deeper
+             shadow. Shadows are layered (contact + ambient) rather than one
+             soft blur, which is what keeps an edge crisp against the page. */
+          --ev-material-thin: saturate(180%) blur(12px);
+          --ev-material-thick: saturate(180%) blur(24px);
+          --ev-surface-veil: rgba(255, 255, 255, 0.72);
+          --ev-hairline: rgba(255, 255, 255, 0.5);
+          --ev-shadow-lifted:
+            0 0 0 0.5px rgba(16, 24, 40, 0.04),
+            0 1px 2px rgba(16, 24, 40, 0.06),
+            0 8px 24px -8px rgba(16, 24, 40, 0.12);
+          --ev-ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+          --ev-dur-fast: 110ms;
+          --ev-dur: 220ms;
+        }
+        @media (prefers-color-scheme: dark) {
+          :root {
+            --ev-surface-veil: rgba(26, 26, 25, 0.72);
+            --ev-hairline: rgba(255, 255, 255, 0.08);
+            --ev-shadow-lifted:
+              0 0 0 0.5px rgba(0, 0, 0, 0.5),
+              0 1px 2px rgba(0, 0, 0, 0.4),
+              0 8px 24px -8px rgba(0, 0, 0, 0.6);
+          }
+        }
+        /* System font first: it already ships optical sizing, tracking tables
+           and legibility tuning that a webfont would have to re-earn. */
+        html, body, [data-testid="stAppViewContainer"] {
+          font-synthesis-weight: none;
+          -webkit-font-smoothing: antialiased;
+          text-rendering: optimizeLegibility;
+        }
+        .ev-header h1 {
+          letter-spacing: var(--ev-track-display);
+          line-height: var(--ev-lead-display);
+          font-weight: 680;
+        }
+        .ev-report-answer-text, .ev-brief-value {
+          letter-spacing: var(--ev-track-title);
+          line-height: var(--ev-lead-title);
+        }
+        .ev-kicker, .ev-metric-label, .ev-brief-label {
+          letter-spacing: var(--ev-track-label);
+        }
+        /* The verdict sentence sits directly under the headline: the reader
+           should learn the outcome before reaching any evidence. Colour
+           carries tone, but the sentence stands alone without it. */
+        .ev-verdict-line {
+          margin-top: 0.65rem;
+          font-size: 0.98rem;
+          font-weight: 600;
+          letter-spacing: var(--ev-track-body);
+          line-height: 1.45;
+          padding-left: 0.7rem;
+          border-left: 3px solid currentColor;
+        }
+        .ev-verdict-ok { color: var(--ev-ok); }
+        .ev-verdict-partial { color: var(--ev-accent-dark); }
+        .ev-verdict-null { color: var(--ev-text-secondary); }
+        .ev-verdict-neutral { color: var(--ev-muted); }
+        .ev-kicker .ev-pill { margin-left: 0.5rem; vertical-align: middle; }
+        /* Numbers are the payload of this UI: lock them to tabular figures so
+           a column of metrics aligns digit-for-digit instead of shimmering. */
+        .ev-metric-value {
+          font-variant-numeric: tabular-nums;
+          letter-spacing: var(--ev-track-title);
+        }
+        /* ---- Materials --------------------------------------------------
+           Chrome floats above content as a translucent layer rather than
+           sitting in the flow behind a hard divider. */
+        [data-testid="stSidebar"] {
+          background: var(--ev-surface-veil) !important;
+          backdrop-filter: var(--ev-material-thick);
+          -webkit-backdrop-filter: var(--ev-material-thick);
+          border-right: 1px solid var(--ev-hairline);
+        }
+        .ev-metric-card {
+          transition:
+            transform var(--ev-dur) var(--ev-ease-out),
+            box-shadow var(--ev-dur) var(--ev-ease-out);
+        }
+        .ev-metric-card:hover {
+          transform: translateY(-1px);
+          box-shadow: var(--ev-shadow-lifted);
+        }
+        .ev-metric-card.ev-metric-lead {
+          box-shadow: var(--ev-shadow-lifted);
+        }
+        /* ---- Response ---------------------------------------------------
+           Feedback lands on pointer-DOWN, not on release: waiting for the
+           click to complete is the single most common way an interface reads
+           as laggy. */
+        .stButton > button, [data-baseweb="tab"] {
+          transition: transform var(--ev-dur-fast) var(--ev-ease-out),
+                      background-color var(--ev-dur-fast) var(--ev-ease-out);
+        }
+        .stButton > button:active { transform: scale(0.975); }
+        [data-baseweb="tab"]:active { transform: scale(0.99); }
+        /* ---- Accessibility ----------------------------------------------
+           Reduced motion means gentler feedback, not absent feedback; the
+           transforms go, the colour response stays. */
+        @media (prefers-reduced-motion: reduce) {
+          .ev-metric-card, .stButton > button, [data-baseweb="tab"] {
+            transition: none !important;
+            transform: none !important;
+          }
+        }
+        @media (prefers-reduced-transparency: reduce) {
+          [data-testid="stSidebar"] {
+            background: var(--ev-panel) !important;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+          }
+        }
+        @media (prefers-contrast: more) {
+          .ev-metric-card, .ev-brief-card {
+            border-color: var(--ev-text) !important;
+            background: var(--ev-panel-elevated) !important;
+          }
+          .ev-metric-caption, .ev-metric-label { color: var(--ev-text-secondary) !important; }
         }
         /* Product chrome, not a debug tool: hamburger menu/Deploy button/Stop
            indicator, footer "Made with Streamlit" badge, and the top toolbar
