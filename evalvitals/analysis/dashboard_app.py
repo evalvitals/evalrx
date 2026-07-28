@@ -1373,21 +1373,34 @@ def _render_unlinked_exploratory_material(
                 details += f" Why this form: {rationale}"
             st.caption(details)
 
-        for idx, chart in enumerate(charts):
-            name = str(chart.get("name") or "")
-            st.markdown(f"**{display_name(name) if name else 'Unnamed chart'}**")
-            _context(name)
-            _render_chart_card(chart, turn_dir, heading_level="caption", key_prefix=f"orphan_chart_{idx}")
-            _render_visual_explanation(report, name=name, chart=chart)
-        for idx, path in enumerate(plots):
-            # ``_plot_lookup`` deliberately retains the report's serialized
-            # string path.  Do not assume a Path here: agent-authored reports
-            # may also contain a Path-like object or another JSON scalar.
-            name = Path(str(path)).stem
-            st.markdown(f"**{display_name(name)}**")
-            _context(name)
-            _render_plot_card(path, turn_dir)
-            _render_visual_explanation(report, name=name)
+        # Unreferenced visuals still belong on the same grid as everything
+        # else — rendering them full-bleed made an audit-only chart the largest
+        # thing on the page.
+        for start in range(0, len(charts), 2):
+            orphan_cols = st.columns(2)
+            for offset, chart in enumerate(charts[start:start + 2]):
+                with orphan_cols[offset]:
+                    idx = start + offset
+                    name = str(chart.get("name") or "")
+                    st.markdown(f"**{display_name(name) if name else 'Unnamed chart'}**")
+                    _context(name)
+                    _render_chart_card(
+                        chart, turn_dir, heading_level="caption", key_prefix=f"orphan_chart_{idx}"
+                    )
+                    _render_visual_explanation(report, name=name, chart=chart)
+        for start in range(0, len(plots), 2):
+            plot_cols = st.columns(2)
+            for offset, path in enumerate(plots[start:start + 2]):
+                with plot_cols[offset]:
+                    # ``_plot_lookup`` deliberately retains the report's
+                    # serialized string path. Do not assume a Path here:
+                    # agent-authored reports may also contain a Path-like
+                    # object or another JSON scalar.
+                    name = Path(str(path)).stem
+                    st.markdown(f"**{display_name(name)}**")
+                    _context(name)
+                    _render_plot_card(path, turn_dir)
+                    _render_visual_explanation(report, name=name)
         for name, source in tables.items():
             st.markdown(f"**{display_name(name)}**")
             _context(name)
@@ -2416,14 +2429,19 @@ def _render_evidence_panel(
         if charts and explore_dir is not None:
             if reading:
                 st.caption(reading)
+            # Two-up, matching every other chart surface — a supporting figure
+            # rendered full-bleed here would tower over the identical figure
+            # shown half-width one tab away.
+            ev_cols = st.columns(2)
             for idx, chart in enumerate(charts[:2]):
-                _render_chart_card(
-                    chart,
-                    explore_dir,
-                    heading_level="caption",
-                    prefer_rendered_artifact=False,
-                    key_prefix=f"evidence_{row['raw_signal']}_{idx}",
-                )
+                with ev_cols[idx % 2]:
+                    _render_chart_card(
+                        chart,
+                        explore_dir,
+                        heading_level="caption",
+                        prefer_rendered_artifact=False,
+                        key_prefix=f"evidence_{row['raw_signal']}_{idx}",
+                    )
         else:
             st.caption("Held-out effect estimate and confidence interval above.")
 
@@ -3062,14 +3080,22 @@ def _render_chart_grid(
 ) -> None:
     if not charts:
         return
-    cols = st.columns(columns)
-    for idx, chart in enumerate(charts):
-        with cols[idx % columns]:
-            _render_chart_card(chart, turn_dir, key_prefix=f"{key_prefix}{idx}")
-            if report is not None:
-                _render_visual_explanation(
-                    report, name=str(chart.get("name") or chart.get("title") or ""), chart=chart
-                )
+    # One st.columns() per ROW, not one for the whole grid. A single set of
+    # columns makes each column an independent stack, so a tall figure in the
+    # left column pushes everything below it out of step with the right — the
+    # masonry effect that makes a long gallery unreadable. Fresh columns per
+    # pair keeps rows aligned.
+    for start in range(0, len(charts), columns):
+        row = charts[start:start + columns]
+        cols = st.columns(columns)
+        for offset, chart in enumerate(row):
+            with cols[offset]:
+                idx = start + offset
+                _render_chart_card(chart, turn_dir, key_prefix=f"{key_prefix}{idx}")
+                if report is not None:
+                    _render_visual_explanation(
+                        report, name=str(chart.get("name") or chart.get("title") or ""), chart=chart
+                    )
 
 
 def _render_charts_and_plots(report: dict[str, Any], turn_dir: Path) -> None:
@@ -3086,11 +3112,12 @@ def _render_charts_and_plots(report: dict[str, Any], turn_dir: Path) -> None:
 
     if plots:
         st.markdown("### Generated Figures")
-        plot_cols = st.columns(2)
-        for idx, item in enumerate(plots):
-            with plot_cols[idx % 2]:
-                _render_plot_card(item, turn_dir)
-                _render_visual_explanation(report, name=Path(str(item)).stem)
+        for start in range(0, len(plots), 2):
+            plot_cols = st.columns(2)
+            for offset, item in enumerate(plots[start:start + 2]):
+                with plot_cols[offset]:
+                    _render_plot_card(item, turn_dir)
+                    _render_visual_explanation(report, name=Path(str(item)).stem)
 
 
 def _render_chart_card(
@@ -3645,6 +3672,31 @@ def _inject_css() -> None:
           color: var(--ev-muted);
           font-size: 0.78rem;
         }
+        /* ---- uniform figure box ------------------------------------------
+           Agent-authored figures arrive at whatever aspect ratio the analysis
+           chose — a 7-panel violin grid next to a single bar chart. Rendering
+           each at its native ratio makes a gallery of 23 look like debris.
+           Every figure now gets an identical frame and is fitted inside it,
+           so the page reads as a grid instead of a pile. */
+        [data-testid="stImage"] img {
+          width: 100%;
+          aspect-ratio: 16 / 10;
+          object-fit: contain;
+          background: var(--ev-panel-elevated);
+          border: 1px solid var(--ev-border);
+          border-radius: var(--ev-radius-sm);
+          padding: 0.4rem;
+        }
+        /* Titles of different lengths would otherwise start the images of a
+           row at different heights. */
+        .ev-card-title, .ev-card-subtitle {
+          min-height: 2.6em;
+          display: flex;
+          align-items: flex-end;
+          margin-bottom: 0.35rem;
+        }
+        /* Give each cell in a chart row the same vertical rhythm. */
+        [data-testid="stColumn"] [data-testid="stImage"] { margin-bottom: 0.25rem; }
         /* The adjudicated verdict is the point of the whole run: give it the
            weight of a headline rather than letting it read as one count
            among many. */
