@@ -3676,16 +3676,32 @@ def _inject_css() -> None:
            Agent-authored figures arrive at whatever aspect ratio the analysis
            chose — a 7-panel violin grid next to a single bar chart. Rendering
            each at its native ratio makes a gallery of 23 look like debris.
-           Every figure now gets an identical frame and is fitted inside it,
-           so the page reads as a grid instead of a pile. */
+           Every figure gets an identical frame and is fitted inside it.
+
+           The frame lives on the WRAPPER, not the <img>: border and padding on
+           the image itself inset the picture from the column edge while the
+           title stayed flush, leaving every caption 7px adrift of the figure
+           it labels. */
+        [data-testid="stImage"] {
+          background: var(--ev-panel-elevated);
+          border: 1px solid var(--ev-border);
+          border-radius: var(--ev-radius-sm);
+          /* No horizontal padding: the picture's left edge must sit on the
+             same vertical as the caption above it. */
+          padding: 0.45rem 0;
+          margin-bottom: 0.3rem;
+        }
         [data-testid="stImage"] img {
           width: 100%;
           aspect-ratio: 16 / 10;
           object-fit: contain;
-          background: var(--ev-panel-elevated);
-          border: 1px solid var(--ev-border);
-          border-radius: var(--ev-radius-sm);
-          padding: 0.4rem;
+          /* A figure narrower than 16:10 is pillarboxed by `contain`, which
+             centres it and drifts it right of the caption. Pin it left. */
+          object-position: left center;
+          background: none;
+          border: 0;
+          padding: 0;
+          border-radius: 0;
         }
         /* Titles of different lengths would otherwise start the images of a
            row at different heights. */
@@ -3695,8 +3711,31 @@ def _inject_css() -> None:
           align-items: flex-end;
           margin-bottom: 0.35rem;
         }
-        /* Give each cell in a chart row the same vertical rhythm. */
-        [data-testid="stColumn"] [data-testid="stImage"] { margin-bottom: 0.25rem; }
+        /* ---- two panels, visibly two --------------------------------------
+           Side-by-side figures with no boundary read as one continuous field,
+           so the eye cannot tell where the left cell ends and the right
+           begins. Any column that holds a figure becomes a card. Scoped with
+           :has() so metric rows, forms and the sidebar are untouched. */
+        [data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
+          gap: 1.15rem;
+          margin-bottom: 1.15rem;
+        }
+        [data-testid="stColumn"]:has([data-testid="stImage"]) {
+          background: var(--ev-panel);
+          border: 1px solid var(--ev-border);
+          border-radius: var(--ev-radius);
+          padding: 0.95rem 1.05rem 0.6rem;
+          box-shadow: var(--ev-shadow);
+        }
+        /* Inside a card the figure frame would be a second border around the
+           same thing. It also has to disappear entirely: a figure wider than
+           16:10 is letterboxed, and a contrasting frame turns that spare space
+           into grey bands above and below the picture. */
+        [data-testid="stColumn"]:has([data-testid="stImage"]) [data-testid="stImage"] {
+          border-color: transparent;
+          background: transparent;
+          padding: 0;
+        }
         /* The adjudicated verdict is the point of the whole run: give it the
            weight of a headline rather than letting it read as one count
            among many. */
@@ -4129,8 +4168,11 @@ def _inject_css() -> None:
         div[data-testid="stTabs"] button[aria-selected="true"] {
           color: var(--ev-accent-dark);
         }
+        /* stImage is deliberately absent here — its frame is defined once, in
+           the uniform-figure-box block above. Restating it later at higher
+           specificity is what knocked every figure 7px out of line with its
+           own title. */
         div[data-testid="stDataFrame"],
-        div[data-testid="stImage"],
         div[data-testid="stVegaLiteChart"] {
           background: var(--ev-panel);
           border: 1px solid var(--ev-border);
