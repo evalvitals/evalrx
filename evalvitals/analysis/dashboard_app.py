@@ -2939,21 +2939,12 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
     title = plain_question or _short_report_title(question)
     subtitle = _header_subtitle(report)
 
-    technical_line = (
-        f'<div class="ev-path">Original question: {_html_escape(question)}</div>'
-        if plain_question
-        and question.strip()
-        and question.strip() != plain_question
-        else ""
-    )
-
     st.markdown(
         f"""
         <div class="ev-header">
           <div>
             <div class="ev-kicker">Exploratory Data Analysis</div>
             <h1>{_html_escape(title)}</h1>
-            {technical_line}
             <div class="ev-path">{_html_escape(subtitle)}</div>
           </div>
           <div class="ev-header-right">
@@ -2964,6 +2955,17 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
         """,
         unsafe_allow_html=True,
     )
+    with st.expander("View full research question and run details", expanded=False):
+        st.markdown("**Full research question**")
+        st.markdown(_html_escape(question))
+        st.markdown("**Run directory**")
+        st.code(str(root), language="text")
+        st.markdown("**Report details**")
+        st.json({
+            "status": status,
+            "report": turn["name"],
+            "report_type": "exploratory_report.json / fused_report.json",
+        })
 
 def _render_top_metrics(report: dict[str, Any]) -> None:
     profile = report.get("data_profile") or {}
