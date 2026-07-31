@@ -7,7 +7,9 @@ Guarded on streamlit/pandas (the optional dashboard extras).
 from __future__ import annotations
 
 import json
+import pickle
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -158,7 +160,7 @@ def test_standalone_dashboard_hypotheses_tab_falls_back_gracefully_when_absent(t
         "1 Problem Setting",
         "2 Exploratory Analysis",
         "3 Hypotheses",
-        "4 Held-out Verdicts",
+        "4 Validation results",
         "5 Fix",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
@@ -167,6 +169,48 @@ def test_standalone_dashboard_hypotheses_tab_falls_back_gracefully_when_absent(t
     # an expander (not the tab's primary content anymore)
     assert "Suggested next steps" in blob
     assert "Hypotheses & Artifacts" not in blob
+
+
+def test_standalone_dashboard_uses_reader_friendly_header_and_details_expander(tmp_path):
+    full_question = (
+        "What predicts hallucination failures (label=fail) in this VLM "
+        "object-presence probe? Compare attention-geometry scalars across "
+        "three checkpoints and freeze threshold-explicit recipes."
+    )
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "ok": True,
+        "question": full_question,
+        "observations": ["77 of 221 adversarial cases failed."],
+        "candidate_signals": [{"name": "attention_entropy_low"}],
+        "charts": [{"name": "failrate_by_attention_entropy"}],
+        "attempts": 1,
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    assert [t.label for t in at.tabs] == [
+        "1 Problem Setting",
+        "2 Exploratory Analysis",
+        "3 Hypotheses",
+        "4 Validation results",
+        "5 Fix",
+    ]
+    header_html = next(str(m.value) for m in at.markdown if 'class="ev-header"' in str(m.value))
+    assert "Hallucination failure patterns" in header_html
+    assert full_question not in header_html
+    assert str(tmp_path) not in header_html
+    assert any("View full research question and run details" in e.label for e in at.expander)
+    assert full_question in " ".join(str(m.value) for m in at.markdown)
+    assert str(tmp_path) in " ".join(str(c.value) for c in at.code)
+
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert "Candidate patterns" in blob
+    assert "Findings" in blob
+    assert "How to interpret this analysis" in blob
+    assert 'ev-metric-label">Columns</div>' not in blob
+    assert 'ev-metric-label">Rows</div>' not in blob
+    assert 'ev-metric-value">-</div>' not in blob
 
 
 def test_standalone_dashboard_renders_m3_hypotheses_with_no_verdict(tmp_path):
@@ -611,12 +655,12 @@ def test_hypotheses_tab_shows_multiple_hypotheses_and_how_each_was_derived(tmp_p
     assert "HYPOTHESIS: language-prior hallucination" in texts
 
 
-def test_stale_case_matrix_never_silently_replaces_this_runs_own_charts(tmp_path, monkeypatch):
+def test_stale_case_matrix_never_silently_replaces_this_runs_own_charts(tmp_path):
     """A case matrix reconstructed from m1_state.pkl is a separate artifact from a
     specific attention-probe pipeline — if an output dir is reused across runs, a
     stale pickle must not silently stand in for (or hide) this run's own explorer
     charts, and it must be clearly labeled as a distinct, possibly-mismatched source."""
-    import pandas as pd
+    pytest.importorskip("plotly", reason="case-matrix charts require Plotly dashboard extras")
 
     _build_loop_run(tmp_path)
     # This run's own group-stats/fail-rate tables (distinct signal name).
@@ -629,20 +673,26 @@ def test_stale_case_matrix_never_silently_replaces_this_runs_own_charts(tmp_path
     )
 
     # A stale/unrelated case matrix (different signal, from a different pipeline).
-    fake_matrix = pd.DataFrame({
-        "case_id": [f"c{i}" for i in range(6)],
-        "label": ["FAIL", "PASS", "FAIL", "PASS", "FAIL", "PASS"],
-        "is_fail": [1, 0, 1, 0, 1, 0],
-        "model_yes": [1, 0, 1, 0, 1, 0],
-        "truth_yes": [1, 0, 0, 1, 1, 0],
-        "attn_max": [0.9, 0.1, 0.8, 0.2, 0.7, 0.3],
-    })
-    monkeypatch.setattr(
-        "evalvitals.analysis.eval_case_matrix.load_case_matrix", lambda root: fake_matrix
-    )
-    monkeypatch.setattr(
-        "evalvitals.analysis.eval_case_matrix.continuous_signals", lambda df: ["attn_max"]
-    )
+    # Write the real pickle-shaped artifact instead of monkeypatching: AppTest
+    # executes dashboard_app.py as a script, so module-level monkeypatches do not
+    # reliably cross that file-run boundary.
+    cases = [
+        SimpleNamespace(id=f"c{i}", label=label, observed=observed, expected=expected)
+        for i, (label, observed, expected) in enumerate([
+            ("FAIL", "yes", "yes"),
+            ("PASS", "no", "no"),
+            ("FAIL", "yes", "no"),
+            ("PASS", "no", "yes"),
+            ("FAIL", "yes", "yes"),
+            ("PASS", "no", "no"),
+        ])
+    ]
+    relative_attention = SimpleNamespace(findings={"per_case": [
+        {"id": f"c{i}", "max_relative_weight": v}
+        for i, v in enumerate([0.9, 0.1, 0.8, 0.2, 0.7, 0.3])
+    ]})
+    with (tmp_path / "m1_state.pkl").open("wb") as fh:
+        pickle.dump({"cases": cases, "probe_results": {"relative_attention": relative_attention}}, fh)
 
     at = _run_app(tmp_path)
 
@@ -833,7 +883,7 @@ def test_explore_dashboard_renders_holdout_verdicts_and_fix(tmp_path):
     assert not at.exception
     assert [t.label for t in at.tabs] == [
         "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Held-out Verdicts", "5 Fix",
+        "4 Validation results", "5 Fix",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
     # tab 3 stays the pure proposal view; verdict badges live in tab 4 only
@@ -859,7 +909,7 @@ def test_explore_dashboard_without_pipeline_artifacts_greys_out_tabs(tmp_path):
     assert not at.exception
     assert [t.label for t in at.tabs] == [
         "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Held-out Verdicts", "5 Fix",
+        "4 Validation results", "5 Fix",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
     assert blob.count("not available for this run") == 2
