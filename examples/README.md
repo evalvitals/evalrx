@@ -4,6 +4,9 @@ Examples are grouped by the layer they exercise:
 
 - `analyzer_demos/` — single analyzer or analysis demos. These run one diagnostic
   capability directly, without the M1-M5 diagnosis loop.
+- `agent_demos/` — agent-under-test demos: a VLM drives the tool-calling
+  `Agent` loop (visual tools like `image_zoom_in`) and the run is captured as
+  a serialized `Trajectory` for trajectory-level diagnosis.
 - `m2_statistics/` — standalone M2 (exploratory analysis) + M3 (hypothesis
   proposal) examples via `evalvitals explore`, outside the loop.
 - `diagnosis_loops/` — full diagnosis-loop examples (`AutoDiagnoseLoop`,
@@ -21,6 +24,7 @@ cd examples/m2_statistics/deco_hallu_explore && bash run_web.sh           # ONE 
                                                                           # to start a new M2+M3 run, plus the script outputs
                                                                           # above attached read-only in the same sidebar
 cd examples/diagnosis_loops/qwen_loop_agy && docker compose up
+cd examples/agent_demos/visual_zoom_agent && python run.py --device cuda:0  # minimal VLM tool-loop trajectory
 ```
 
 The `deco_hallu_explore` example has three runnable variants: the raw probe

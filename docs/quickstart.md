@@ -125,6 +125,29 @@ provides the channel, but it's granted only when the model's chat template
 renders tools (`spec.tool_calling`, verified against the template at load).
 So `compose(non_tool_model, "hf_local", want={TOOL_CALLS})` fails up front.
 
+**Multimodal agents.** The same loop runs vision cases end-to-end: give the
+case an image and it enters the first user message; a tool that returns a
+`ToolResult` with `images` gets them re-injected as a new message, so the
+model can *look at* what its tool produced. `evalvitals.models.tools` ships
+subject-side visual tools (deterministic, model-agnostic schemas):
+
+```python
+from evalvitals import Capability, compose, RuntimeConfig
+from evalvitals.core.case import FailureCase, Inputs
+from evalvitals.models.agent import Agent
+from evalvitals.models.tools import zoom_in_tool
+
+vlm = compose("qwen3-vl-2b-instruct", "hf_local",
+              runtime=RuntimeConfig(device="cuda:0"),
+              want={Capability.GENERATE, Capability.TOOL_CALLS})
+agent = Agent(vlm, tools=[zoom_in_tool(image, save_dir="outputs/images")],
+              system="Zoom into the relevant region before answering.")
+traj = agent.run(FailureCase(inputs=Inputs(prompt="What does the sign say?", image=image)))
+json.dump(traj.to_dict(), open("trajectory.json", "w"))   # serializable end-to-end
+```
+
+Runnable version: `examples/agent_demos/visual_zoom_agent/run.py`.
+
 ## Standalone M2 Explore
 
 If you already have result logs and want M2 to analyze them without writing

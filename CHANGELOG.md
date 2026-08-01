@@ -6,6 +6,41 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Multimodal agent tool loop: image cases, image-returning tools, serialized trajectories
+
+First step of agent-under-test diagnosis (a VLM that calls visual tools to
+solve a task, with the run captured for trajectory analysis). The existing
+backend-agnostic `Agent` loop + `Trajectory` schema stay the skeleton — no
+external agent framework is introduced; frameworks remain potential *subjects*
+adapted in via `Trajectory.from_records`.
+
+- `Agent.run` is now multimodal end-to-end: `case.inputs.image` enters the
+  first user message as a transformers-style content block, and a tool result
+  carrying images gets them re-injected as a follow-up user message — the
+  model *sees* what its tool produced (the o3 / Qwen3-VL-demo zoom mechanism).
+- New `ToolResult(text, images, meta)` (`evalvitals.core.tool`): model-visible
+  text, re-injectable images, host-only meta recorded on the trajectory step.
+  Plain return values keep working; errors keep the standard
+  `"[tool error in ...]"` envelope (what `ignored_obs` matches).
+- `HFLocalModel.chat()` gains a VLM path: content-block images are collected
+  across the whole conversation and routed through the processor, so
+  placeholder tokens line up with pixels; tool schemas still render via the
+  chat template (Hermes text parsing, no server needed).
+- Trajectories serialize: `Step.to_dict()` / `Trajectory.to_dict()`, and
+  `FailureCase.to_dict()` now includes the trajectory. Images degrade to
+  `"<image WxH>"` descriptors — trajectories reference media, never embed it.
+- New `evalvitals.models.tools` package (subject-side tools; deterministic,
+  model-agnostic schemas): `zoom_in_tool` crops a bbox, upscales it (LANCZOS,
+  short side → 672, ≤4x) and returns it as a new image. Accepts fractional
+  coordinates but auto-detects pixel and Qwen-style 0-1000-grid boxes,
+  recording `coord_mode` on the step — the convention the model actually used
+  is evidence, not noise.
+- New example `examples/agent_demos/visual_zoom_agent/`: the minimal
+  trajectory on a real checkpoint (Qwen3-VL-2B, one COCO image). The first
+  recorded run already exhibits a diagnosable failure — three consecutive
+  identical zoom calls, flagged by the existing `LoopDetector` when fed the
+  reloaded trajectory.
+
 ### Added — Plain-language headlines for M2 takeaways and M3 hypotheses
 
 Reader feedback: `exploratory_report.json`'s takeaway/hypothesis headlines
