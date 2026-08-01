@@ -29,6 +29,7 @@ class FakeChatHandle(Model):
         self.capabilities = caps
         self._script = list(script)
         self._i = 0
+        self.seen_messages: list = []  # snapshot of the history at each chat() call
 
     def generate(self, inputs, **kwargs) -> str:
         return "noop"
@@ -37,6 +38,7 @@ class FakeChatHandle(Model):
         raise NotImplementedError
 
     def chat(self, messages, tools=None) -> ChatTurn:
+        self.seen_messages.append([dict(m) for m in messages])
         turn = self._script[min(self._i, len(self._script) - 1)]
         self._i += 1
         return turn
@@ -151,3 +153,86 @@ def test_agent_runs_on_api_handle_with_chat_fn():
 def test_codec_for_routes_local_to_qwen():
     handle = FakeChatHandle([ChatTurn(text="x")])
     assert isinstance(codec_for(handle), QwenToolCodec)
+
+
+# ----------------------------------------------------------------------
+# Multimodal loop — image cases and image-bearing tool results
+# ----------------------------------------------------------------------
+def _image_blocks(message):
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [b for b in content if isinstance(b, dict) and b.get("type") == "image"]
+
+
+def test_case_image_goes_into_user_content_blocks():
+    from evalvitals.core.case import FailureCase, Inputs
+
+    sentinel = object()
+    handle = FakeChatHandle([ChatTurn(text="an answer")])
+    traj = Agent(handle, tools=[_add_tool()]).run(
+        FailureCase(inputs=Inputs(prompt="what is this?", image=sentinel))
+    )
+    user_msg = handle.seen_messages[0][0]
+    blocks = _image_blocks(user_msg)
+    assert len(blocks) == 1 and blocks[0]["image"] is sentinel
+    assert {"type": "text", "text": "what is this?"} in user_msg["content"]
+    assert traj.goal == "what is this?"
+    assert traj.steps[0].span["has_image"] is True
+
+
+def test_text_only_case_keeps_plain_string_content():
+    handle = FakeChatHandle([ChatTurn(text="ok")])
+    Agent(handle, tools=[_add_tool()]).run("just text")
+    assert handle.seen_messages[0][0]["content"] == "just text"
+
+
+def _crop_tool(sentinel):
+    from evalvitals.core.tool import ToolResult
+
+    return Tool(
+        name="crop",
+        description="crop",
+        parameters={"type": "object", "properties": {}},
+        fn=lambda: ToolResult(text="cropped it", images=[sentinel], meta={"k": "v"}),
+    )
+
+
+def test_toolresult_images_are_reinjected_as_a_user_message():
+    sentinel = object()
+    handle = FakeChatHandle([
+        ChatTurn(text='<tool_call>{"name": "crop", "arguments": {}}</tool_call>'),
+        ChatTurn(text="done"),
+    ])
+    Agent(handle, tools=[_crop_tool(sentinel)]).run("zoom please")
+    history = handle.seen_messages[1]  # what the model saw on turn 2
+    assert history[-1]["role"] == "user"
+    blocks = _image_blocks(history[-1])
+    assert len(blocks) == 1 and blocks[0]["image"] is sentinel
+    assert history[-2] == {"role": "tool", "content": "cropped it"}  # text-only observation
+
+
+def test_toolresult_observation_is_recorded_structured():
+    sentinel = object()
+    handle = FakeChatHandle([
+        ChatTurn(text='<tool_call>{"name": "crop", "arguments": {}}</tool_call>'),
+        ChatTurn(text="done"),
+    ])
+    traj = Agent(handle, tools=[_crop_tool(sentinel)]).run("zoom please")
+    assert traj.steps[2].observation == {"text": "cropped it", "n_images": 1, "meta": {"k": "v"}}
+
+
+def test_collect_message_images_orders_across_messages():
+    from evalvitals.models.backends.hf_local import _collect_message_images
+
+    class FakeImg:
+        size, mode = (2, 2), "RGB"  # PIL-like so it passes through unopened
+
+    a, b = FakeImg(), FakeImg()
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": [{"type": "image", "image": a}, {"type": "text", "text": "q"}]},
+        {"role": "assistant", "content": "calling tool"},
+        {"role": "user", "content": [{"type": "image", "image": b}, {"type": "text", "text": "crop"}]},
+    ]
+    assert _collect_message_images(messages) == [a, b]

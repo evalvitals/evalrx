@@ -52,6 +52,27 @@ class ToolCall:
 
 
 @dataclass
+class ToolResult:
+    """A structured tool return value: model-visible text + optional artifacts.
+
+    ``text`` is what goes back to the model as the tool observation; ``images``
+    (PIL images or paths) are re-injected into the conversation as a follow-up
+    multimodal message so vision models can look at what the tool produced
+    (zoom crops, annotated views).  ``meta`` is host-side detail (saved paths,
+    coordinate mode, timings) recorded on the trajectory step, never shown to
+    the model.  Tools may still return a plain value; ``str()`` is the
+    observation either way.
+    """
+
+    text: str = ""
+    images: list = field(default_factory=list)
+    meta: dict = field(default_factory=dict)
+
+    def __str__(self) -> str:
+        return self.text
+
+
+@dataclass
 class ChatTurn:
     """One model turn in an agent loop: assistant text + optional native tool calls.
 

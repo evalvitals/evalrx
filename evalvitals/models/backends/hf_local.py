@@ -81,6 +81,36 @@ def _populate_vision_extras(
             extras["image_spatial_shape"] = (h // merge, w // merge)
 
 
+def _resolve_image(obj: Any) -> Any:
+    """Return a PIL image for *obj* (PIL passes through; str/Path is opened)."""
+    if hasattr(obj, "size") and hasattr(obj, "mode"):  # already PIL-like
+        return obj
+    from PIL import Image
+
+    return Image.open(obj).convert("RGB")
+
+
+def _collect_message_images(messages: list) -> list:
+    """Extract images from chat messages in appearance order.
+
+    Messages follow the transformers content-block convention: ``content`` is a
+    plain string OR a list of blocks, where an image block is
+    ``{"type": "image", "image": <PIL | path>}``.  The block order across the
+    whole conversation must match the ``images=`` list handed to the processor.
+    """
+    images: list = []
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "image":
+                img = block.get("image")
+                if img is not None:
+                    images.append(_resolve_image(img))
+    return images
+
+
 def _format_vlm_input(processor: Any, tok: Any, prompt: str, image: Any) -> "tuple[str, list]":
     """Build the formatted text string and image list for the VLM processor.
 
@@ -303,6 +333,12 @@ class HFLocalModel(Model):
         transformers' ``apply_chat_template(tools=...)`` accepts OpenAI-format tool
         schemas and renders them into the prompt; the model emits the call as text
         which the (Qwen/Hermes) codec parses out — so ``raw_tool_calls`` is None.
+
+        Multimodal: messages may carry transformers-style content blocks
+        (``{"type": "image", "image": ...}``); on a VLM the images are routed
+        through the processor so each block's placeholder tokens line up with
+        its pixels — this is what lets the agent loop feed tool-returned crops
+        back to the model.
         """
         import torch
 
@@ -310,11 +346,27 @@ class HFLocalModel(Model):
             raise CapabilityError(analyzer="chat", model=repr(self), missing={Capability.TOOL_CALLS})
         model, processor = self._loaded
         tok = getattr(processor, "tokenizer", processor)
-        text = tok.apply_chat_template(
-            messages, tools=tools, add_generation_prompt=True, tokenize=False,
-            **self.spec.chat_template_kwargs,  # e.g. {"enable_thinking": False} for Qwen3
-        )
-        enc = tok(text, return_tensors="pt").to(next(model.parameters()).device)
+        images = _collect_message_images(messages) if self.spec.is_vlm else []
+        if images:
+            try:
+                text = processor.apply_chat_template(
+                    messages, tools=tools, add_generation_prompt=True, tokenize=False,
+                    **self.spec.chat_template_kwargs,
+                )
+            except TypeError:  # older processors don't take tools= — same jinja template lives on the tokenizer
+                text = tok.apply_chat_template(
+                    messages, tools=tools, add_generation_prompt=True, tokenize=False,
+                    **self.spec.chat_template_kwargs,
+                )
+            enc = processor(text=[text], images=images, return_tensors="pt")
+            enc.pop("token_type_ids", None)  # some VLM processors emit this; generate() rejects it
+            enc = enc.to(next(model.parameters()).device)
+        else:
+            text = tok.apply_chat_template(
+                messages, tools=tools, add_generation_prompt=True, tokenize=False,
+                **self.spec.chat_template_kwargs,  # e.g. {"enable_thinking": False} for Qwen3
+            )
+            enc = tok(text, return_tensors="pt").to(next(model.parameters()).device)
         with torch.no_grad():
             out = model.generate(**enc, max_new_tokens=self.runtime.max_new_tokens)
         gen = tok.decode(out[0][enc["input_ids"].shape[1]:], skip_special_tokens=True)

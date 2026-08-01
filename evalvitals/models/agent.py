@@ -25,8 +25,35 @@ from evalvitals.core.case import (
     StepRole,
     Trajectory,
 )
-from evalvitals.core.tool import Tool, ToolCall
+from evalvitals.core.tool import Tool, ToolCall, ToolResult
 from evalvitals.models.toolcodec import ToolCallCodec, codec_for
+
+
+def _user_content(case: FailureCase) -> "str | list":
+    """Build the first user message's content: plain text, or content blocks
+    (transformers-style ``{"type": "image", "image": ...}``) when the case
+    carries an image — the multimodal chat convention every ``Model.chat``
+    implementation speaks (hf_local consumes it natively; API adapters convert
+    image blocks to their wire format).
+    """
+    image = case.inputs.image
+    if image is None:
+        return case.inputs.prompt
+    return [
+        {"type": "image", "image": image},
+        {"type": "text", "text": case.inputs.prompt},
+    ]
+
+
+def _observation_record(observation: Any) -> Any:
+    """What lands in ``Step.observation`` — structured for :class:`ToolResult`
+    (text + image count + host meta), the raw value otherwise."""
+    if isinstance(observation, ToolResult):
+        record: dict = {"text": observation.text, "n_images": len(observation.images)}
+        if observation.meta:
+            record["meta"] = observation.meta
+        return record
+    return observation
 
 
 class ToolExecutor:
@@ -133,7 +160,13 @@ class Agent:
         self.capabilities = handle.capabilities
 
     def run(self, data: Any) -> Trajectory:
-        """Drive the tool loop to completion and return a :class:`Trajectory`."""
+        """Drive the tool loop to completion and return a :class:`Trajectory`.
+
+        Multimodal cases work end-to-end: ``case.inputs.image`` goes into the
+        first user message as a content block, and a :class:`ToolResult` whose
+        ``images`` are non-empty gets them re-injected as a follow-up user
+        message — so the model *sees* what its tool produced (zoom crops etc.).
+        """
         case = _as_case(data)
         goal = case.inputs.prompt
         encoded = self.codec.encode(self.tools)
@@ -141,9 +174,16 @@ class Agent:
         messages: list[dict] = []
         if self.system:
             messages.append({"role": "system", "content": self.system})
-        messages.append({"role": "user", "content": goal})
+        messages.append({"role": "user", "content": _user_content(case)})
 
-        steps: list[Step] = [Step(idx=0, role=StepRole.USER, content=goal)]
+        steps: list[Step] = [
+            Step(
+                idx=0,
+                role=StepRole.USER,
+                content=goal,
+                span={"has_image": case.inputs.image is not None},
+            )
+        ]
         final_answer: Optional[str] = None
         terminated = "max_turns"
 
@@ -173,11 +213,23 @@ class Agent:
                     idx=len(steps),
                     role=StepRole.TOOL,
                     content=call.name,
-                    observation=observation,
+                    observation=_observation_record(observation),
                     span={"turn": turn},
                 )
             )
-            messages.append(self.codec.tool_message(call, observation))
+            messages.append(self.codec.tool_message(call, str(observation)))
+            images = observation.images if isinstance(observation, ToolResult) else []
+            if images:
+                blocks: list = [{"type": "image", "image": im} for im in images]
+                blocks.append(
+                    {
+                        "type": "text",
+                        "text": f"The image{'s' if len(images) > 1 else ''} above "
+                        f"{'were' if len(images) > 1 else 'was'} returned by the "
+                        f"{call.name!r} tool call.",
+                    }
+                )
+                messages.append({"role": "user", "content": blocks})
 
         return Trajectory(
             sample_id=case.id,
