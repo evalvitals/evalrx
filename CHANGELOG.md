@@ -6,6 +6,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Agent-aware M2/M3: hypotheses that point at fixable causes
+
+The statistical machinery needed no structural change for agent trajectories
+(leak isolation, categorical recipes and the held-out flow all apply as-is —
+`failure_mode == "FM-LOOP"` compiles to a testable 0/1 recipe today). What
+changed is the guidance layer:
+
+- M3 is now agent-aware: when the exploratory report references
+  trajectory-column families, `HypothesisAgent` appends a hint steering
+  hypotheses toward INTERVENABLE causes — prompt wording, tool descriptions,
+  tool subsets, loop policy (the black-box fix surface) — and spelling out
+  the column-family semantics (`shap_outcome_*` = causal attribution,
+  `success_rate` = stability not capability, `failure_mode` = judge label to
+  verify, `total_*` = cost). TEST lines may propose interventions, not just
+  observational splits.
+- `trajectory_records.AGENT_QUESTION_TEMPLATE` — the standard M2 question
+  for agent records, pinned by test to the flattener's actual columns.
+- The interventional probes' caveats now travel with their findings:
+  held-out verification must RE-RUN `reliability_probe`/`tool_shap` on the
+  held-out cases (never reuse exploration-set values), and
+  `tool_shap.baseline_pass` is sanity, not signal.
+
 ### Added — Agent scale path, perception tools, and four new M1 information sources
 
 Second wave of agent-under-test diagnosis: run agents at batch scale on any

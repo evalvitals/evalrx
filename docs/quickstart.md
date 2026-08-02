@@ -196,6 +196,17 @@ held-out rows re-test every recipe verbatim (e-BH, `split_label="held_out"`)
 while an LLM judge grades each hypothesis — `confirm_report.json` lands next
 to the report and fills the dashboard's *Held-out Verdicts* tab.
 
+**Agent-trajectory records.** Rows produced by
+`evalvitals.analysis.trajectory_records` flow through explore unchanged; use
+`trajectory_records.AGENT_QUESTION_TEMPLATE` as the question (it declares the
+column-family semantics — causal `shap_outcome_*`, stability `success_rate`,
+judge-assigned `failure_mode`, cost columns — and steers hypotheses toward
+the black-box fix surface). One held-out caveat is unique to agents: columns
+from the *interventional* probes (`reliability_probe`, `tool_shap`) must be
+**re-run on the held-out cases** (k repetitions / subset ablations there) —
+reusing exploration-set values would test nothing. Budget for it: held-out
+confirmation of these columns costs the same per case as exploration did.
+
 Open the saved output as a dashboard:
 
 ```bash
