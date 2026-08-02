@@ -7,14 +7,16 @@ REPO="$(cd ../../.. && pwd)"
 
 BACKEND="${BACKEND:-claude_code}"
 HOLDOUT="${HOLDOUT:-0.4}"
-OUT="${OUT:-outputs/explore}"
+RECORDS="${RECORDS:-outputs/records.json}"
+OUT="${OUT:-$(dirname "$RECORDS")/explore}"
+MODEL_DESC="${MODEL_DESC:-Qwen3-VL-2B}"
 
 TEMPLATE="$("$REPO/.venv/bin/python" -c 'from evalvitals.analysis.trajectory_records import AGENT_QUESTION_TEMPLATE as t; print(t)')"
-QUESTION="The agent under test is Qwen3-VL-2B solving VTC-Bench 'counting' questions \
+QUESTION="The agent under test is ${MODEL_DESC} solving VTC-Bench 'counting' questions \
 (four-way multiple choice, dense small-object counting) with image_zoom_in and \
 image_detect tools under a ~1MP per-view resolution budget. ${TEMPLATE}"
 
-exec "$REPO/.venv/bin/python" -m evalvitals.cli explore outputs/records.json \
+exec "$REPO/.venv/bin/python" -m evalvitals.cli explore "$RECORDS" \
   -q "$QUESTION" \
   --outcome-col label \
   --backend "$BACKEND" \

@@ -39,6 +39,8 @@ class FakeChatHandle(Model):
 
     def chat(self, messages, tools=None) -> ChatTurn:
         self.seen_messages.append([dict(m) for m in messages])
+        self.seen_tools = getattr(self, "seen_tools", [])
+        self.seen_tools.append(tools)
         turn = self._script[min(self._i, len(self._script) - 1)]
         self._i += 1
         return turn
@@ -220,6 +222,65 @@ def test_toolresult_observation_is_recorded_structured():
     ])
     traj = Agent(handle, tools=[_crop_tool(sentinel)]).run("zoom please")
     assert traj.steps[2].observation == {"text": "cropped it", "n_images": 1, "meta": {"k": "v"}}
+
+
+# ----------------------------------------------------------------------
+# Loop-policy options (candidate L2 fixes shipped as configuration)
+# ----------------------------------------------------------------------
+_CALL = '<tool_call>{"name": "add", "arguments": {"a": 1, "b": 1}}</tool_call>'
+
+
+def _counting_tool(counter):
+    return Tool(name="add", description="add",
+                parameters={"type": "object", "properties": {}},
+                fn=lambda **kw: counter.append(1) or "2")
+
+
+def test_block_repeat_calls_skips_executor_and_nudges():
+    from evalvitals.core.case import StepRole as SR
+
+    executed: list = []
+    handle = FakeChatHandle([ChatTurn(text=_CALL), ChatTurn(text=_CALL), ChatTurn(text="done")])
+    traj = Agent(handle, [_counting_tool(executed)], block_repeat_calls=True).run("go")
+    assert len(executed) == 1  # second identical call never reached the executor
+    tool_steps = [s for s in traj.steps if s.role is SR.TOOL]
+    assert str(tool_steps[0].observation) == "2"
+    assert str(tool_steps[1].observation).startswith("[repeat blocked]")
+    assert tool_steps[1].span["repeat_blocked"] is True
+    assert traj.final_answer == "done"
+
+
+def test_different_args_are_not_blocked():
+    executed: list = []
+    other = '<tool_call>{"name": "add", "arguments": {"a": 2, "b": 2}}</tool_call>'
+    handle = FakeChatHandle([ChatTurn(text=_CALL), ChatTurn(text=other), ChatTurn(text="done")])
+    Agent(handle, [_counting_tool(executed)], block_repeat_calls=True).run("go")
+    assert len(executed) == 2
+
+
+def test_repeats_execute_normally_when_policy_off():
+    executed: list = []
+    handle = FakeChatHandle([ChatTurn(text=_CALL), ChatTurn(text=_CALL), ChatTurn(text="done")])
+    Agent(handle, [_counting_tool(executed)]).run("go")
+    assert len(executed) == 2
+
+
+def test_force_final_answer_asks_once_more_without_tools():
+    handle = FakeChatHandle([ChatTurn(text=_CALL), ChatTurn(text=_CALL),
+                             ChatTurn(text="the answer is B")])
+    traj = Agent(handle, [_add_tool()], max_turns=2, force_final_answer=True).run("q")
+    assert traj.metrics["terminated"] == "forced_final"
+    assert traj.final_answer == "the answer is B"
+    assert handle.seen_tools[-1] is None          # the forced turn carries no tools
+    assert handle.seen_messages[-1][-1]["role"] == "user"  # the nudge message
+    assert traj.steps[-1].span["forced_final"] is True
+
+
+def test_forced_final_not_triggered_when_answer_exists():
+    handle = FakeChatHandle([ChatTurn(text="immediate answer")])
+    traj = Agent(handle, [_add_tool()], force_final_answer=True).run("q")
+    assert traj.metrics["terminated"] == "final"
+    assert len(handle.seen_tools) == 1
 
 
 def test_collect_message_images_orders_across_messages():

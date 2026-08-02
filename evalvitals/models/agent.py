@@ -128,8 +128,38 @@ def _as_case(data: Any) -> FailureCase:
     raise TypeError(f"Agent.run expects str | Inputs | FailureCase, got {type(data).__name__}")
 
 
+# Loop-policy nudges (L2 scaffold messages, not stage prompts).
+_REPEAT_NUDGE = (
+    "[repeat blocked] You already made this exact tool call; the result would "
+    "be identical to what you already received. Choose DIFFERENT arguments or "
+    "give your final answer now."
+)
+_FINAL_NUDGE = (
+    "You have used your entire tool budget. Based on everything you have "
+    "already seen, give your final answer NOW as plain text."
+)
+
+
+def _call_signature(call: ToolCall) -> "tuple[str, str]":
+    import json
+
+    return call.name, json.dumps(call.args or {}, sort_keys=True, default=str)
+
+
 class Agent:
-    """A tool-calling agent composed over a model handle (any backend)."""
+    """A tool-calling agent composed over a model handle (any backend).
+
+    Loop-policy options (both default OFF — they are candidate L2 fixes, made
+    available as configuration so a validated repair is deployable):
+
+    * ``block_repeat_calls`` — a tool call identical to the immediately
+      preceding one is not executed; the model gets a nudge observation
+      instead (repeated identical calls return identical results and only
+      burn budget).
+    * ``force_final_answer`` — when ``max_turns`` runs out without a final
+      answer, ask once more WITHOUT tools so the run ends with an answer
+      instead of an empty trajectory (``terminated="forced_final"``).
+    """
 
     requires = frozenset({Capability.GENERATE, Capability.TOOL_CALLS})
 
@@ -142,6 +172,8 @@ class Agent:
         executor: Optional[ToolExecutor] = None,
         max_turns: int = 10,
         system: Optional[str] = None,
+        block_repeat_calls: bool = False,
+        force_final_answer: bool = False,
     ) -> None:
         missing = self.requires - set(getattr(handle, "capabilities", frozenset()))
         if missing:
@@ -156,6 +188,8 @@ class Agent:
         self.executor = executor or ToolExecutor(self.tools)
         self.max_turns = max_turns
         self.system = system
+        self.block_repeat_calls = block_repeat_calls
+        self.force_final_answer = force_final_answer
         # An Agent still exposes the underlying model's capabilities (pure-model
         # analysis remains available on self.handle).
         self.capabilities = handle.capabilities
@@ -187,6 +221,7 @@ class Agent:
         ]
         final_answer: Optional[str] = None
         terminated = "max_turns"
+        prev_sig: "Optional[tuple[str, str]]" = None
 
         turn = 0
         for turn in range(1, self.max_turns + 1):
@@ -213,14 +248,20 @@ class Agent:
                 terminated = "final"
                 break
 
-            observation = self.executor.execute(call)
+            sig = _call_signature(call)
+            blocked = self.block_repeat_calls and sig == prev_sig
+            prev_sig = sig
+            observation: Any = _REPEAT_NUDGE if blocked else self.executor.execute(call)
+            tool_span: dict = {"turn": turn}
+            if blocked:
+                tool_span["repeat_blocked"] = True
             steps.append(
                 Step(
                     idx=len(steps),
                     role=StepRole.TOOL,
                     content=call.name,
                     observation=_observation_record(observation),
-                    span={"turn": turn},
+                    span=tool_span,
                 )
             )
             messages.append(self.codec.tool_message(call, str(observation)))
@@ -236,6 +277,17 @@ class Agent:
                     }
                 )
                 messages.append({"role": "user", "content": blocks})
+
+        if self.force_final_answer and final_answer is None:
+            messages.append({"role": "user", "content": _FINAL_NUDGE})
+            t0 = time.perf_counter()
+            chat = self.handle.chat(messages, tools=None)  # no tools: the reply IS the answer
+            span = {"forced_final": True, "latency_ms": round((time.perf_counter() - t0) * 1000, 1)}
+            if chat.usage:
+                span.update(chat.usage)
+            final_answer = self.codec.final_text(chat)
+            steps.append(Step(idx=len(steps), role=StepRole.ACTOR, content=chat.text, span=span))
+            terminated = "forced_final"
 
         metrics: dict = {
             "n_steps": len(steps),
@@ -274,6 +326,7 @@ def run_batch(
     codec: Optional[ToolCallCodec] = None,
     concurrency: int = 4,
     on_result: "Optional[Callable[[FailureCase, Trajectory], None]]" = None,
+    agent_kwargs: Optional[dict] = None,
 ) -> list[Trajectory]:
     """Run the tool loop over many cases — the M1-scale batch driver.
 
@@ -305,7 +358,8 @@ def run_batch(
     def _one(case: FailureCase) -> Trajectory:
         try:
             agent = Agent(
-                handle, tools_factory(case), codec=codec, max_turns=max_turns, system=system
+                handle, tools_factory(case), codec=codec, max_turns=max_turns, system=system,
+                **(agent_kwargs or {}),
             )
             trajectory = agent.run(case)
         except Exception as exc:  # keep the batch alive; the error IS the observation
