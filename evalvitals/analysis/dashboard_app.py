@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -1502,17 +1503,17 @@ def _render_standalone_hypotheses(report: dict[str, Any], turn_dir: Path) -> Non
         for h in hypotheses:
             _render_standalone_hypothesis_card(h)
     else:
-        st.info(
-            "No hypotheses were recorded for this report. Re-run with the CLI's M3 step "
-            "enabled (on by default; pass --no-hypotheses to skip it), or the exploratory "
-            "findings above may have been too thin to propose one from."
+        st.info("No formal hypotheses were recorded for this report.")
+        st.markdown(
+            "Review the candidate signals below as possible follow-ups, or rerun the "
+            "analysis with hypothesis generation enabled."
         )
 
     signals = _candidate_signals(report)
     tests = report.get("recommended_confirmatory_tests") or []
-    with st.expander("Candidate signals, suggested next steps, and raw artifacts", expanded=False):
+    with st.expander("Candidate signals — possible follow-ups, not validated hypotheses", expanded=False):
         if signals:
-            st.markdown("#### Candidate signals (optional follow-up)")
+            st.markdown("#### Candidate signals — possible follow-ups, not validated hypotheses")
             st.dataframe(_signals_dataframe(signals), width="stretch", hide_index=True)
         if tests:
             st.markdown("#### Suggested next steps")
@@ -1520,7 +1521,7 @@ def _render_standalone_hypotheses(report: dict[str, Any], turn_dir: Path) -> Non
                 st.markdown(f"- {item}")
         if not signals and not tests:
             st.caption("No candidate signals or suggested next steps were recorded.")
-        _render_artifacts(report, turn_dir)
+    _render_artifacts(report, turn_dir)
 
 
 def _render_standalone_hypothesis_card(
@@ -3179,17 +3180,55 @@ def _render_tables(report: dict[str, Any], turn_dir: Path) -> None:
     st.dataframe(df, width="stretch", height=520)
 
 
+def _source_preview(source: str, *, max_lines: int = 40, max_chars: int = 4000) -> tuple[str, bool]:
+    """Return a print-friendly source preview and whether anything was omitted."""
+    if not source:
+        return "", False
+    lines = source.splitlines()
+    by_lines = "\n".join(lines[:max_lines])
+    preview = by_lines[:max_chars]
+    omitted = len(lines) > max_lines or len(by_lines) > max_chars or len(source) > len(preview)
+    return preview, omitted
+
+
+def _artifact_widget_key(prefix: str, turn_dir: Path) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", str(turn_dir)).strip("_")
+    return f"{prefix}_{slug[-80:] or 'run'}"
+
+
 def _render_artifacts(report: dict[str, Any], turn_dir: Path) -> None:
-    st.markdown("### Run Artifacts")
-    with st.expander("Generated analysis.py", expanded=True):
-        code = report.get("code") or _read_text(turn_dir / "analysis.py")
-        st.code(code or "", language="python")
-    with st.expander("stdout"):
-        st.text(_read_text(turn_dir / "stdout.txt") or report.get("stdout", ""))
-    with st.expander("stderr"):
-        st.text(_read_text(turn_dir / "stderr.txt") or report.get("stderr", ""))
-    with st.expander("Raw JSON report"):
-        st.json(report)
+    with st.expander("Run artifacts and developer details", expanded=False):
+        st.caption(
+            "Technical artifacts are available for audit and reproduction. "
+            "They are collapsed by default so the report stays focused on the scientific content."
+        )
+
+        code = report.get("code") or _read_text(turn_dir / "analysis.py") or ""
+        preview, omitted = _source_preview(str(code))
+        st.markdown("#### Generated analysis.py preview")
+        if preview:
+            st.caption("Preview only — first 40 lines or 4,000 characters, whichever comes first.")
+            st.code(preview, language="python")
+            if omitted:
+                st.caption("Full source is available below or as a download.")
+            st.download_button(
+                "Download analysis.py",
+                data=str(code),
+                file_name="analysis.py",
+                mime="text/x-python",
+                key=_artifact_widget_key("download_analysis", turn_dir),
+            )
+            if st.checkbox("View full source", value=False, key=_artifact_widget_key("view_source", turn_dir)):
+                st.code(str(code), language="python")
+        else:
+            st.caption("No generated analysis.py source was saved for this report.")
+
+        with st.expander("stdout", expanded=False):
+            st.text(_read_text(turn_dir / "stdout.txt") or report.get("stdout", ""))
+        with st.expander("stderr", expanded=False):
+            st.text(_read_text(turn_dir / "stderr.txt") or report.get("stderr", ""))
+        with st.expander("Raw JSON report", expanded=False):
+            st.json(report)
 
 
 def _turn_label(turn: dict[str, Any]) -> str:

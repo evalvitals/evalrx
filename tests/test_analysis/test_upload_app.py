@@ -345,6 +345,42 @@ def test_finished_run_renders_explore_tabs(tmp_path):
     assert blob.count("not available for this run") == 2
 
 
+def test_finished_upload_run_uses_non_speculative_hypothesis_empty_state(tmp_path):
+    run = _build_finished_run(tmp_path)
+    out = run / "output"
+    source = "\n".join(f"line_{i} = {i}" for i in range(80)) + "\nFULL_SOURCE_SENTINEL = True\n"
+    (out / "analysis.py").write_text(source, encoding="utf-8")
+    (out / "exploratory_report.json").write_text(json.dumps({
+        "ok": True,
+        "question": "what drives FAIL?",
+        "observations": ["all failures adversarial"],
+        "hypotheses": [],
+        "candidate_signals": [{"name": "focus_share_high"}],
+        "recommended_confirmatory_tests": ["Re-test this signal on held-out rows."],
+        "charts": [], "plots": [], "tables": {},
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+    radio = at.sidebar.radio[0]
+    radio.set_value(run.name)
+    at.run()
+
+    assert not at.exception
+    info = " ".join(str(i.value) for i in at.info)
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert "No formal hypotheses were recorded for this report." in info
+    assert "M3 step enabled" not in info
+    assert "too thin" not in info
+    assert "Candidate signals — possible follow-ups, not validated hypotheses" in blob
+    assert "Candidate signals — possible follow-ups, not validated hypotheses" in [
+        e.label for e in at.expander
+    ]
+    assert "Run artifacts and developer details" in [e.label for e in at.expander]
+    assert "Generated analysis.py preview" in blob
+    assert any("line_0 = 0" in str(c.value) for c in at.code)
+    assert not any("FULL_SOURCE_SENTINEL" in str(c.value) for c in at.code)
+
+
 def test_attached_local_dir_renders_in_sidebar_and_body(tmp_path):
     """--attach lists an existing explore output next to uploads (read-only)
     and renders it with the same unified five-tab layout."""

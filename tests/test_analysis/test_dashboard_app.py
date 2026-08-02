@@ -146,6 +146,10 @@ def test_loop_dashboard_renders_analysis_panel_without_error(tmp_path):
 
 
 def test_standalone_dashboard_hypotheses_tab_falls_back_gracefully_when_absent(tmp_path):
+    source = "\n".join(f"line_{i} = {i}" for i in range(80)) + "\nFULL_SOURCE_SENTINEL = True\n"
+    (tmp_path / "analysis.py").write_text(source, encoding="utf-8")
+    (tmp_path / "stdout.txt").write_text("STDOUT_SENTINEL", encoding="utf-8")
+    (tmp_path / "stderr.txt").write_text("STDERR_SENTINEL", encoding="utf-8")
     (tmp_path / "fused_report.json").write_text(json.dumps({
         "summary": "M2-only exploratory analysis.",
         "observations": ["Candidate pattern surfaced for review."],
@@ -164,11 +168,37 @@ def test_standalone_dashboard_hypotheses_tab_falls_back_gracefully_when_absent(t
         "5 Fix",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
-    assert any("No hypotheses were recorded" in str(i.value) for i in at.info)
-    # candidate signals / suggested next steps still exist, just demoted into
-    # an expander (not the tab's primary content anymore)
+    info = " ".join(str(i.value) for i in at.info)
+    assert "No formal hypotheses were recorded for this report." in info
+    assert "M3 step enabled" not in info
+    assert "too thin" not in info
+    assert "disabled" not in info.lower()
+    assert "Review the candidate signals below as possible follow-ups" in blob
+    assert "Candidate signals — possible follow-ups, not validated hypotheses" in blob
+    assert any(
+        e.label == "Candidate signals — possible follow-ups, not validated hypotheses"
+        for e in at.expander
+    )
     assert "Suggested next steps" in blob
+    assert blob.index("Review the candidate signals below") < blob.index("Generated analysis.py preview")
     assert "Hypotheses & Artifacts" not in blob
+    assert any(e.label == "Run artifacts and developer details" for e in at.expander)
+    assert any(e.label == "stdout" for e in at.expander)
+    assert any(e.label == "stderr" for e in at.expander)
+    assert any(e.label == "Raw JSON report" for e in at.expander)
+    assert any(b.label == "Download analysis.py" for b in at.download_button)
+    assert any(c.label == "View full source" and c.value is False for c in at.checkbox)
+    assert "Preview only" in " ".join(str(c.value) for c in at.caption)
+    assert any("line_0 = 0" in str(c.value) for c in at.code)
+    assert not any("FULL_SOURCE_SENTINEL" in str(c.value) for c in at.code)
+    assert "STDOUT_SENTINEL" in " ".join(str(t.value) for t in at.text)
+    assert "STDERR_SENTINEL" in " ".join(str(t.value) for t in at.text)
+
+    at.checkbox[0].set_value(True)
+    at.run()
+
+    assert not at.exception
+    assert any("FULL_SOURCE_SENTINEL" in str(c.value) for c in at.code)
 
 
 def test_standalone_dashboard_uses_reader_friendly_header_and_details_expander(tmp_path):
@@ -234,6 +264,7 @@ def test_standalone_dashboard_renders_m3_hypotheses_with_no_verdict(tmp_path):
     assert "Higher temperature accelerates the reaction, raising yield." in blob
     assert "Run a controlled temperature-ramp experiment holding pressure fixed." in blob
     assert "Catalyst B underperforms due to a side reaction." in blob
+    assert not any("No formal hypotheses were recorded" in str(i.value) for i in at.info)
     # proposal only — no support/tested verdict pill, since there's no
     # confirm/M4/M5 phase wired up for the standalone tool
     assert 'ev-pill" style="border-color' not in blob
