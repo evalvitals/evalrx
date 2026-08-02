@@ -148,6 +148,30 @@ json.dump(traj.to_dict(), open("trajectory.json", "w"))   # serializable end-to-
 
 Runnable version: `examples/agent_demos/visual_zoom_agent/run.py`.
 
+**Scale path.** For batch probing, serve the open checkpoint with vLLM and use
+the built-in OpenAI-compatible client — no dependency injection needed:
+
+```bash
+vllm serve Qwen/Qwen3-VL-2B-Instruct --port 8901 \
+    --enable-auto-tool-choice --tool-call-parser hermes
+```
+
+```python
+from evalvitals.models.agent import run_batch
+from evalvitals.models.backends import openai_runtime
+
+vlm = compose("qwen3-vl-2b-instruct", "api",
+              runtime=openai_runtime(base_url="http://localhost:8901/v1"))
+trajs = run_batch(vlm, cases, tools_factory=lambda c: [zoom_in_tool(c.inputs.image)],
+                  system=SYSTEM, concurrency=8)   # threads; error-stub per failed case
+```
+
+Every turn records latency and token usage on the step's ``span``; the
+trajectory flattener (`evalvitals.analysis.trajectory_records`) turns finished
+runs into `records.json` rows that `evalvitals explore` consumes directly.
+Closed models: the same `openai_runtime` against an OpenAI endpoint, or
+`GeminiModel` (native function calling) for Gemini.
+
 ## Standalone M2 Explore
 
 If you already have result logs and want M2 to analyze them without writing

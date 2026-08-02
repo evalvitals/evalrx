@@ -6,6 +6,56 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Agent scale path, perception tools, and four new M1 information sources
+
+Second wave of agent-under-test diagnosis: run agents at batch scale on any
+backend, and make M1 emit *interventional* evidence (cost, reliability, tool
+attribution, failure taxonomy) — not just single-run observations.
+
+- Built-in OpenAI-compatible client (`evalvitals.models.backends.openai_compat`):
+  `openai_runtime(base_url=...)` wires `compose(key, "api")` to any
+  OpenAI-compatible endpoint — a local `vllm serve` (verified end-to-end with
+  Qwen3-VL + the hermes tool parser), OpenAI, or a gateway. Content-block
+  images become data URLs; sampling defaults to `temperature=0`.
+- `run_batch(handle, cases, tools_factory=..., concurrency=N)` — the M1-scale
+  batch driver: per-case tool binding, threaded for API handles (local
+  backends forced sequential), one failed case yields an error-stub
+  trajectory instead of killing the batch.
+- `GeminiModel.chat()` — native Gemini function calling (deliberately not the
+  OpenAI-compat bridge), inline-PNG images, `tool_call_style="native"` routes
+  it to the OpenAI codec. `generate()` now actually sends the image.
+- New perception tools (`evalvitals.models.tools`): `image_ocr` (easyocr
+  default engine, region support) and `image_detect` (open-vocabulary
+  Grounding DINO; detections come back as fractional boxes PLUS an annotated
+  image the model can look at). Engines are injectable and lazily built.
+- Cost accounting end-to-end: every agent turn records `latency_ms` /
+  `prompt_tokens` / `completion_tokens` on the step span (all three chat
+  backends fill usage), totals land in trajectory metrics and as
+  `total_*`/`mean_turn_latency_ms` record columns.
+- Trajectory→records bridge (`evalvitals.analysis.trajectory_records`):
+  flattens trajectories into `records.json` rows (loop volume, per-tool call
+  counts, error rates, repeated-call structure, images returned, termination,
+  cost) that `evalvitals explore` and `build_stats_input_from_records`
+  consume unchanged; `Step.from_dict` / `Trajectory.from_dict` reload
+  persisted runs.
+- Three new M1 analyzers (AGENT priority list is now seven deep):
+  - `reliability_probe` — re-runs each case k times (injected runner) and
+    reports pass@k vs pass^k, flakiness, answer agreement, and trajectory
+    variance: capability failures and stability failures are different
+    diagnoses.
+  - `tool_shap` — AgentSHAP-style Shapley attribution over TOOL SUBSETS, with
+    the value function changed for diagnosis: primary = outcome flip under an
+    injected grader, secondary = answer similarity to the all-tools baseline.
+    Exact for kits of ≤4 tools (all 2^N subsets), Monte-Carlo beyond. Also
+    reports `no_tools_pass`/`tools_needed` — whether tools matter at all.
+  - `trajectory_rubric` — LLM-judged failure-mode code (compact MAST-inspired
+    taxonomy for single-agent tool loops) plus five 0-2 rubric dimensions;
+    stamps `Step.failure_mode` at the judged first-error step.
+- Analyzer selection is now data-aware: trajectory-carrying cases flip
+  `StrategyProbe.detect_kind` to AGENT even for VLM handles (fixes the
+  image-wins rule hiding agent analyzers), threaded through ProbeAgent; the
+  four existing agent analyzers now declare text+image modalities.
+
 ### Added — Multimodal agent tool loop: image cases, image-returning tools, serialized trajectories
 
 First step of agent-under-test diagnosis (a VLM that calls visual tools to
