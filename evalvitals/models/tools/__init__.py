@@ -14,6 +14,7 @@ are diagnosed, not just executed:
   on the trajectory step.
 """
 
+from evalvitals.models.tools.perception import detect_tool, ocr_tool
 from evalvitals.models.tools.visual import zoom_in_tool
 
-__all__ = ["zoom_in_tool"]
+__all__ = ["zoom_in_tool", "ocr_tool", "detect_tool"]

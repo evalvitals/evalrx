@@ -369,8 +369,10 @@ class HFLocalModel(Model):
             enc = tok(text, return_tensors="pt").to(next(model.parameters()).device)
         with torch.no_grad():
             out = model.generate(**enc, max_new_tokens=self.runtime.max_new_tokens)
-        gen = tok.decode(out[0][enc["input_ids"].shape[1]:], skip_special_tokens=True)
-        return ChatTurn(text=gen, raw_tool_calls=None)
+        n_in = enc["input_ids"].shape[1]
+        gen = tok.decode(out[0][n_in:], skip_special_tokens=True)
+        usage = {"prompt_tokens": int(n_in), "completion_tokens": int(out.shape[1] - n_in)}
+        return ChatTurn(text=gen, raw_tool_calls=None, usage=usage)
 
     def _encode_vlm(self, inputs, model, processor):
         """Encode an (image/video, text) input for a VLM and build its TokenTypeMap.

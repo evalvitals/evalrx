@@ -38,7 +38,7 @@ class LoopDetector(Analyzer):
 
     name = "loop_detect"
     requires = frozenset()  # pure heuristic over Trajectory — no model needed
-    applies_to_modalities = frozenset({"text"})
+    applies_to_modalities = frozenset({"text", "image"})  # trajectory analysis is modality-agnostic
 
     def __init__(self, min_repeats: int = 2) -> None:
         super().__init__(min_repeats=min_repeats)

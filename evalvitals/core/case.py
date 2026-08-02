@@ -148,6 +148,23 @@ class Step:
             "judge_confidence": self.judge_confidence,
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "Step":
+        """Inverse of :meth:`to_dict` (descriptor strings stay strings)."""
+        role = d.get("role", StepRole.ACTOR)
+        return cls(
+            idx=int(d.get("idx", 0)),
+            role=StepRole(role) if not isinstance(role, StepRole) else role,
+            content=d.get("content"),
+            agent_id=d.get("agent_id", "main"),
+            tool_call=d.get("tool_call"),
+            observation=d.get("observation"),
+            span=d.get("span") or {},
+            is_first_error=d.get("is_first_error"),
+            failure_mode=d.get("failure_mode"),
+            judge_confidence=d.get("judge_confidence"),
+        )
+
 
 @dataclass
 class Trajectory:
@@ -178,6 +195,20 @@ class Trajectory:
             "outcome": self.outcome.value,
             "metrics": _json_safe(self.metrics),
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Trajectory":
+        """Inverse of :meth:`to_dict` — reload a persisted trajectory."""
+        outcome = d.get("outcome", Label.UNKNOWN)
+        return cls(
+            sample_id=d.get("sample_id", ""),
+            goal=d.get("goal", ""),
+            steps=[Step.from_dict(s) for s in d.get("steps") or []],
+            final_answer=d.get("final_answer"),
+            ground_truth=d.get("ground_truth"),
+            outcome=Label(outcome) if not isinstance(outcome, Label) else outcome,
+            metrics=d.get("metrics") or {},
+        )
 
     @classmethod
     def from_records(

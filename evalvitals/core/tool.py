@@ -80,8 +80,13 @@ class ChatTurn:
     ``[{"id","function":{"name","arguments"}}]``) when the backend does native
     tool-calling; it is ``None`` for template-based backends, where the call is
     embedded in ``text`` and the codec parses it out.
+
+    ``usage`` carries per-turn accounting when the backend reports it
+    (``{"prompt_tokens": ..., "completion_tokens": ...}``); the agent loop
+    copies it into the step's ``span`` so trajectories carry cost evidence.
     """
 
     text: str = ""
     raw_tool_calls: Optional[list] = None
     finish_reason: Optional[str] = None
+    usage: Optional[dict] = None

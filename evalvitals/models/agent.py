@@ -14,7 +14,8 @@ Torch-free.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+import time
+from typing import Any, Callable, Iterable, Optional
 
 from evalvitals.core.capability import Capability, CapabilityError
 from evalvitals.core.case import (
@@ -189,15 +190,20 @@ class Agent:
 
         turn = 0
         for turn in range(1, self.max_turns + 1):
+            t0 = time.perf_counter()
             chat = self.handle.chat(messages, tools=encoded)
+            latency_ms = round((time.perf_counter() - t0) * 1000, 1)
             call = self.codec.decode(chat)
+            span: dict = {"turn": turn, "latency_ms": latency_ms}
+            if chat.usage:
+                span.update(chat.usage)
             steps.append(
                 Step(
                     idx=len(steps),
                     role=StepRole.ACTOR,
                     content=chat.text,
                     tool_call=call.to_dict() if call else None,
-                    span={"turn": turn},
+                    span=span,
                 )
             )
             messages.append(self.codec.assistant_message(chat, call))
@@ -231,6 +237,19 @@ class Agent:
                 )
                 messages.append({"role": "user", "content": blocks})
 
+        metrics: dict = {
+            "n_steps": len(steps),
+            "n_turns": turn,
+            "n_tool_calls": sum(1 for s in steps if s.tool_call),
+            "terminated": terminated,
+            "total_latency_ms": round(
+                sum(s.span.get("latency_ms", 0.0) for s in steps if s.role is StepRole.ACTOR), 1
+            ),
+        }
+        for key in ("prompt_tokens", "completion_tokens"):
+            total = sum(int(s.span.get(key) or 0) for s in steps if s.role is StepRole.ACTOR)
+            if total:
+                metrics[f"total_{key}"] = total
         return Trajectory(
             sample_id=case.id,
             goal=goal,
@@ -238,13 +257,70 @@ class Agent:
             final_answer=final_answer,
             ground_truth=case.expected,
             outcome=Label.UNKNOWN,  # correctness is a separate analyzer's job
-            metrics={
-                "n_steps": len(steps),
-                "n_turns": turn,
-                "n_tool_calls": sum(1 for s in steps if s.tool_call),
-                "terminated": terminated,
-            },
+            metrics=metrics,
         )
 
     def __repr__(self) -> str:
         return f"Agent(handle={self.handle!r}, tools={[t.name for t in self.tools]}, codec={self.codec.name})"
+
+
+def run_batch(
+    handle,
+    cases: Iterable[Any],
+    *,
+    tools_factory: "Callable[[FailureCase], Iterable[Tool]]",
+    system: Optional[str] = None,
+    max_turns: int = 10,
+    codec: Optional[ToolCallCodec] = None,
+    concurrency: int = 4,
+    on_result: "Optional[Callable[[FailureCase, Trajectory], None]]" = None,
+) -> list[Trajectory]:
+    """Run the tool loop over many cases — the M1-scale batch driver.
+
+    *tools_factory* builds the per-case tool set (visual tools bind to the
+    case's image, so each case needs its own instances).  Concurrency uses
+    threads and is only safe for API-backed handles (HTTP is reentrant); for
+    local backends the loop is forced sequential — one GPU forward at a time.
+
+    A case whose run raises (endpoint down, tool crash outside the executor
+    envelope) yields a stub trajectory with ``metrics["terminated"] == "error"``
+    instead of killing the batch; ``on_result`` fires per finished case (e.g.
+    incremental JSONL persistence).  Results keep the input order.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from evalvitals.models.backends.api import APIModel
+
+    normalized = [_as_case(c) for c in cases]
+    if concurrency > 1 and not isinstance(handle, APIModel):
+        import warnings
+
+        warnings.warn(
+            f"run_batch: {type(handle).__name__} is not an API handle; forcing "
+            "concurrency=1 (local backends are not thread-safe).",
+            stacklevel=2,
+        )
+        concurrency = 1
+
+    def _one(case: FailureCase) -> Trajectory:
+        try:
+            agent = Agent(
+                handle, tools_factory(case), codec=codec, max_turns=max_turns, system=system
+            )
+            trajectory = agent.run(case)
+        except Exception as exc:  # keep the batch alive; the error IS the observation
+            trajectory = Trajectory(
+                sample_id=case.id,
+                goal=case.inputs.prompt,
+                steps=[Step(idx=0, role=StepRole.USER, content=case.inputs.prompt)],
+                ground_truth=case.expected,
+                metrics={"terminated": "error", "error": repr(exc)},
+            )
+        if on_result is not None:
+            on_result(case, trajectory)
+        return trajectory
+
+    if concurrency <= 1:
+        return [_one(c) for c in normalized]
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        return list(pool.map(_one, normalized))

@@ -14,6 +14,11 @@ from evalvitals.models.backends.api import (
 )
 from evalvitals.models.backends.base import Backend, RuntimeConfig
 from evalvitals.models.backends.hf_local import HFLocalBackend, HFLocalModel
+from evalvitals.models.backends.openai_compat import (
+    openai_chat_fn,
+    openai_generate_fn,
+    openai_runtime,
+)
 from evalvitals.models.backends.vllm_offline import VLLMOfflineBackend
 
 #: name -> backend class.  Plain dict (no import-side-effect decorator).
@@ -34,5 +39,8 @@ __all__ = [
     "call_vision_api_generate_fn",
     "call_vision_api_chat_fn",
     "parse_openai_logprobs",
+    "openai_chat_fn",
+    "openai_generate_fn",
+    "openai_runtime",
     "BACKENDS",
 ]
