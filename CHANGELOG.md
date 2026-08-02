@@ -6,6 +6,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — vtcbench_diagnosis example: the first end-to-end agent diagnosis
+
+`examples/agent_demos/vtcbench_diagnosis/` runs one VTC-Bench task (default:
+counting, 85 four-way MC cases) through the whole agent arc: vLLM-served
+Qwen3-VL with zoom+detect under a ~1MP per-view budget → MC grading (a run
+that never answers IS a failure) → the full M1 probe set → `records.json` →
+`evalvitals explore` with a 0.6/0.4 held-out confirm.
+
+First recorded run (Qwen3-VL-2B): 81% fail. In-sample, loop-share signals
+looked strong (AUC ≈ 0.75–0.80) — held-out kept only 3 of 7 frozen recipes:
+*budget_exhausted*/*empty_answer* (every run that used all turns without
+answering failed; held-out fail 1.00 vs 0.76) and *single_tool_only* (sign
+FLIPPED on held-out — more tool use predicts failure, consistent with the
+negative tool-Shapley mass). The tool-description-gap hypothesis came back
+`not_testable` with the judge explicitly demanding the intervention test —
+the M4 handoff the agent-aware M3 hint exists to produce. Practical notes
+captured in the scripts: counting originals exceed a 16k context in vision
+tokens (serve with `--mm-processor-kwargs '{"max_pixels": ...}'`), and the
+explore CLI's default `--timeout-sec 120` truncates real analyses.
+
 ### Added — Agent-aware M2/M3: hypotheses that point at fixable causes
 
 The statistical machinery needed no structural change for agent trajectories

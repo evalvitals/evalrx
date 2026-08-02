@@ -25,6 +25,10 @@ cd examples/m2_statistics/deco_hallu_explore && bash run_web.sh           # ONE 
                                                                           # above attached read-only in the same sidebar
 cd examples/diagnosis_loops/qwen_loop_agy && docker compose up
 cd examples/agent_demos/visual_zoom_agent && python run.py --device cuda:0  # minimal VLM tool-loop trajectory
+cd examples/agent_demos/vtcbench_diagnosis && python run_m1.py && bash run_explore.sh
+                                                                          # full agent diagnosis on a VTC-Bench task:
+                                                                          # batch + probes -> records -> explore with
+                                                                          # held-out confirm (needs a vllm serve endpoint)
 ```
 
 The `deco_hallu_explore` example has three runnable variants: the raw probe
