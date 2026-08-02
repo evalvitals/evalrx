@@ -6,6 +6,25 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Loop-policy options + the M4 paired fix experiment (inconclusive, correctly)
+
+The two held-out-confirmed causes became deployable configuration:
+`Agent(block_repeat_calls=True)` refuses an identical consecutive tool call
+(nudge observation, `span["repeat_blocked"]`), and
+`Agent(force_final_answer=True)` spends one toolless turn to force an answer
+when the budget runs out (`terminated="forced_final"`);
+`run_batch(agent_kwargs=...)` passes them through. `run_m4.py` pairs three
+fix arms against the recorded baseline with anytime-valid e-values and e-BH
+across the family, plus no-free-lunch accounting.
+
+Recorded verdict on Qwen3-VL-2B counting: every arm moves the right way
+(16→18/20/21 of 85, monotone dose-response, mechanisms demonstrably engaged
+— 37 forced finals, 93+ blocked repeats, 7/22 empty-answer cases recovered)
+and **e-BH rejects none of it**. The loop was the symptom; the capability is
+the cause. The run ends inconclusive and recommends escalation (bigger
+checkpoint, or a scaffold that counts detector boxes itself) instead of
+shipping a prompt tweak as a win.
+
 ### Added — vtcbench_diagnosis example: the first end-to-end agent diagnosis
 
 `examples/agent_demos/vtcbench_diagnosis/` runs one VTC-Bench task (default:
