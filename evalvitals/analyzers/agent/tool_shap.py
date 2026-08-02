@@ -210,7 +210,12 @@ class ToolShap(Analyzer):
                 + "shap_outcome_* attributes PASSING to each tool (needs a gradable "
                 "expected answer); shap_answer_* attributes the produced answer "
                 "(similarity to the all-tools baseline) and is defined even without "
-                "labels. Deterministic runners are assumed: each subset is run once."
+                "labels. Deterministic runners are assumed: each subset is run once. "
+                "These are INTERVENTIONAL columns: held-out verification must "
+                "RE-RUN the subset ablation on the held-out cases — never reuse "
+                "exploration-set values. baseline_pass mechanically tracks the "
+                "case label when labels come from the same runner config; treat "
+                "it as sanity, not as a candidate signal."
             ),
         }
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)

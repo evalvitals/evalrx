@@ -157,7 +157,9 @@ class ReliabilityProbe(Analyzer):
                     else ""
                 )
                 + "pass@k measures capability, pass^k reliability; the gap is the "
-                "instability mass."
+                "instability mass. These are INTERVENTIONAL columns: held-out "
+                "verification must RE-RUN the k repetitions on the held-out "
+                "cases — never reuse exploration-set values."
             ),
         }
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)

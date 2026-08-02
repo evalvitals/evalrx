@@ -125,6 +125,19 @@ def test_cost_columns_default_to_zero_without_usage():
     assert f["total_latency_ms"] == 0.0 and f["total_prompt_tokens"] == 0
 
 
+def test_agent_question_template_names_real_column_families():
+    from evalvitals.analysis.trajectory_records import AGENT_QUESTION_TEMPLATE
+
+    feature_cols = set(trajectory_features(_traj()))
+    for named in ("n_tool_calls", "max_consecutive_repeat", "repeated_call_frac",
+                  "tool_error_rate", "total_completion_tokens", "total_latency_ms"):
+        assert named in AGENT_QUESTION_TEMPLATE and named in feature_cols
+    # probe-produced families + the fixability framing
+    for phrase in ("shap_outcome_", "success_rate", "failure_mode",
+                   "not ground truth", "fixable causes"):
+        assert phrase in AGENT_QUESTION_TEMPLATE
+
+
 def test_serialization_roundtrip_preserves_features():
     t = _traj()
     reloaded = Trajectory.from_dict(t.to_dict())

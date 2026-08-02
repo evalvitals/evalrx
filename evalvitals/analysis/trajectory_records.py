@@ -39,6 +39,25 @@ from evalvitals.core.case import FailureCase, Label, StepRole, Trajectory
 
 _ERROR_MARKERS = ("[tool error", "[error")
 
+#: The standard M2 question for agent-trajectory records.  It declares the
+#: column-family semantics up front so the analysis treats each family for
+#: what it is (causal attribution vs stability vs judge labels vs cost) and
+#: steers explanations toward the black-box fix surface (prompt/tool changes).
+#: Use as-is or as a skeleton; the workbench and docs reference it.
+AGENT_QUESTION_TEMPLATE = (
+    "What predicts failures (label=fail) in this agent run? Records are one row "
+    "per case with trajectory features: tool-use volume (n_tool_calls, "
+    "n_calls_<tool>), loop structure (max_consecutive_repeat, "
+    "repeated_call_frac), tool errors (tool_error_rate), cost "
+    "(total_completion_tokens, total_latency_ms), stability from repeated runs "
+    "(success_rate, flaky, pass_at_k vs pass_all_k), causal tool attribution "
+    "from subset ablation (shap_outcome_<tool>, no_tools_pass), and a "
+    "judge-assigned failure_mode (a hypothesis label, not ground truth). "
+    "Compare FAIL vs PASS, say which signal families carry independent "
+    "information, and prefer explanations that point at fixable causes — "
+    "prompt wording, tool descriptions, tool availability, or loop policy."
+)
+
 
 def _observation_text(observation: Any) -> str:
     if isinstance(observation, dict):
