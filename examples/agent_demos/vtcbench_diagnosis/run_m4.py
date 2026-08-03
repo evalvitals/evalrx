@@ -58,14 +58,20 @@ def main() -> None:
     ap.add_argument("--detect-device", default="cuda:2")
     ap.add_argument("--alpha", type=float, default=0.05)
     ap.add_argument("--out", default=os.path.join(HERE, "outputs"))
+    ap.add_argument("--arms", default="L1_tool_desc,L2_loop_policy,L1_plus_L2",
+                    help="comma-separated subset of fix arms to run (replication runs "
+                         "typically test one pre-registered arm)")
     args = ap.parse_args()
 
     # -- baseline: the recorded M1 run (paired by doc_id) --------------
     records = json.load(open(os.path.join(args.out, "records.json")))
     baseline = {r["doc_id"]: r["label"] == "pass" for r in records}
-    holdout_ids = {
-        r["doc_id"] for r in json.load(open(os.path.join(args.out, "explore", "holdout_records.json")))
-    }
+    holdout_path = os.path.join(args.out, "explore", "holdout_records.json")
+    holdout_ids = (
+        {r["doc_id"] for r in json.load(open(holdout_path))}
+        if os.path.exists(holdout_path)
+        else set()  # no explore ran for this batch — skip the slice read-out
+    )
     cases = load_cases(args.task, None)
     cases = [c for c in cases if c.metadata["doc_id"] in baseline]
     success_base = [baseline[c.metadata["doc_id"]] for c in cases]
@@ -90,6 +96,11 @@ def main() -> None:
         "L1_plus_L2":     dict(tools_factory=warned_tools,
                                agent_kwargs={"block_repeat_calls": True, "force_final_answer": True}),
     }
+    selected = [a.strip() for a in args.arms.split(",") if a.strip()]
+    unknown = [a for a in selected if a not in arms]
+    if unknown:
+        raise SystemExit(f"unknown arm(s): {unknown}; choose from {list(arms)}")
+    arms = {name: arms[name] for name in selected}
 
     report: dict = {"n": len(cases), "baseline_pass": sum(success_base), "alpha": args.alpha,
                     "arms": {}}
