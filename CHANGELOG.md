@@ -6,6 +6,32 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Escalation results: 2B/4B/8B on vtcbench counting
+
+Rerunning the full M1→M4 arc at 4B and 8B (`run_m1.py --model ... --out
+outputs_<tag>`, parametrized `run_explore.sh`, `run_m4.py`) turned the single
+diagnosis into a scaling study:
+
+- **The capability wall is flat** — pass 16/16/18 of 85; mean k-rerun success
+  rate 0.26/0.25/0.22. Dense counting does not yield to 2B→8B scaling.
+- **The failure phenotype migrates**: identical-repeat loops at 2B (has_loop
+  54/85, 93 policy-blocked repeats) → varied tool churn that never concludes
+  at 4B (has_loop 8/85, zero repeats to block, 30 empty answers) →
+  perception/reasoning-limited at 8B. The held-out-confirmed invariant at
+  every scale is the budget-exhaustion family.
+- **Fix efficacy tracks the phenotype**: the L1 description warning only
+  helps where identical repeats exist (+0.024 at 2B, ≤0 after); the L2
+  forced-answer policy GROWS with capability — +0.047 → +0.094 → **+0.141 at
+  8B (30/85 vs 18, 17 fixed / 5 broken, e = 6.92)** — rescued turns convert
+  to correct answers only when the model has actually seen enough.
+- **Nothing ships**: e-BH rejects none at any scale (the anytime-valid bar is
+  e ≥ 20; the 8B L2 arm would clear a classical McNemar at p ≈ 0.008). The
+  recorded recommendation is independent replication — e-values multiply
+  across batches.
+
+Operational note: an 8B tool-shap conversation exceeded a 32k serve window;
+8B runs use `--max-model-len 49152` and the precompute now stubs failed runs.
+
 ### Added — Loop-policy options + the M4 paired fix experiment (inconclusive, correctly)
 
 The two held-out-confirmed causes became deployable configuration:
