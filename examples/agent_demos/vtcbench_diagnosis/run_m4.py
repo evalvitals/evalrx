@@ -64,6 +64,15 @@ def main() -> None:
     args = ap.parse_args()
 
     # -- baseline: the recorded M1 run (paired by doc_id) --------------
+    # Fix arms only mean something against the UNFIXED agent; refuse a baseline
+    # that was recorded with the (now default) loop policy already on.
+    cfg_path = os.path.join(args.out, "run_config.json")
+    if os.path.exists(cfg_path) and json.load(open(cfg_path)).get("loop_policy"):
+        raise SystemExit(
+            f"{cfg_path} says the recorded baseline already ran WITH the loop "
+            "policy (the validated default). Re-record it first:\n"
+            f"  run_m1.py --task {args.task} --out {args.out} --no-loop-policy"
+        )
     records = json.load(open(os.path.join(args.out, "records.json")))
     baseline = {r["doc_id"]: r["label"] == "pass" for r in records}
     holdout_path = os.path.join(args.out, "explore", "holdout_records.json")

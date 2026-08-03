@@ -110,11 +110,27 @@ def main() -> None:
     ap.add_argument("--max-turns", type=int, default=6)
     ap.add_argument("--detect-device", default="cuda:2")
     ap.add_argument("--out", default=os.path.join(HERE, "outputs"))
+    ap.add_argument(
+        "--no-loop-policy", action="store_true",
+        help="disable the VALIDATED default loop policy (block_repeat_calls + "
+             "force_final_answer) to reproduce the unfixed baseline — required "
+             "for run_m4.py fix comparisons",
+    )
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    # L2 loop policy is the example's recommended default: validated across six
+    # independent VTC batches (combined e ~ 1.6e10; see README / CHANGELOG).
+    agent_kwargs = (
+        {} if args.no_loop_policy
+        else {"block_repeat_calls": True, "force_final_answer": True}
+    )
 
     cases = load_cases(args.task, args.limit)
-    print(f"[0] {len(cases)} MC cases for task={args.task!r}")
+    policy = "OFF (unfixed baseline)" if args.no_loop_policy else "ON (validated default)"
+    print(f"[0] {len(cases)} MC cases for task={args.task!r} | loop policy {policy}")
+    with open(os.path.join(args.out, "run_config.json"), "w") as f:
+        json.dump({"task": args.task, "model": args.model, "max_turns": args.max_turns,
+                   "loop_policy": not args.no_loop_policy}, f, indent=1)
 
     engine = default_detect_engine(device=args.detect_device)
     vlm = compose(args.model, "api",
@@ -133,7 +149,8 @@ def main() -> None:
     # -- stage 1: base batch + grading ---------------------------------
     t0 = time.time()
     trajs = run_batch(vlm, cases, tools_factory=tools_for, system=SYSTEM,
-                      max_turns=args.max_turns, concurrency=args.concurrency)
+                      max_turns=args.max_turns, concurrency=args.concurrency,
+                      agent_kwargs=agent_kwargs)
     n_pass = 0
     for case, traj in zip(cases, trajs):
         case.trajectory = traj
@@ -164,7 +181,8 @@ def main() -> None:
     t0 = time.time()
     reps = [c for c in probe_cases for _ in range(args.k)]
     rep_trajs = run_batch(vlm_t, reps, tools_factory=tools_for, system=SYSTEM,
-                          max_turns=args.max_turns, concurrency=args.concurrency)
+                          max_turns=args.max_turns, concurrency=args.concurrency,
+                          agent_kwargs=agent_kwargs)
     rel_cache: dict[str, list] = {}
     for case, traj in zip(reps, rep_trajs):
         rel_cache.setdefault(case.id, []).append(traj)
@@ -182,7 +200,7 @@ def main() -> None:
         case, names = pair
         try:
             return Agent(vlm, tools_for(case, names), system=SYSTEM,
-                         max_turns=args.max_turns).run(case)
+                         max_turns=args.max_turns, **agent_kwargs).run(case)
         except Exception as exc:  # e.g. context overflow — a failed run, not a dead batch
             from evalvitals.core.case import Step, StepRole, Trajectory
             return Trajectory(
