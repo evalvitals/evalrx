@@ -6,6 +6,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — L2 loop policy VALIDATED by cross-task replication (the loop's first shipped fix)
+
+The pre-registered `L2_loop_policy` arm (block identical repeats + force a
+final answer) ran on five further VTC-Bench tasks at 2B — independent batches,
+one arm, no peeking. It replicated in every one:
+
+| task | n | baseline→L2 pass | effect | e |
+|---|---|---|---|---|
+| counting | 85 | 16→20 | +0.047 | 0.48 |
+| chart | 100 | 1→23 | +0.220 | 27962 |
+| color | 90 | 8→15 | +0.078 | 0.97 |
+| math (MC subset) | 66 | 3→14 | +0.167 | 19.5 |
+| measure | 105 | 7→26 | +0.181 | 1381 |
+| spatial | 44 | 6→17 | +0.250 | 45.0 |
+
+E-values multiply across independent batches: combined e ≈ 1.6×10¹⁰ ≫ 20 —
+the anytime-valid bar is cleared and the fix is validated. Two lessons the
+process itself taught: the diagnosis task (counting) was the fix's WEAKEST
+batch — a single-task read would have under-sold a real repair — and the 2B
+failure structure found on counting (loop until the budget dies, answer
+nothing) is family-wide: fail rates 0.81–0.99, empty-answer shares up to 80%,
+judge modes led by FM-LOOP almost everywhere.
+
 ### Added — Escalation results: 2B/4B/8B on vtcbench counting
 
 Rerunning the full M1→M4 arc at 4B and 8B (`run_m1.py --model ... --out
