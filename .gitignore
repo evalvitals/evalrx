@@ -223,6 +223,7 @@ __marimo__/
 runs/
 evalvitals_chat_output/
 examples/**/outputs/
+examples/**/outputs_*/
 # web upload workbench workspaces (`evalvitals web` / run_web.sh)
 evalvitals_web_runs/
 examples/**/web_runs/

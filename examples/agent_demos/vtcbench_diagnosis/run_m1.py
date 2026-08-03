@@ -180,8 +180,16 @@ def main() -> None:
 
     def _run_pair(pair):
         case, names = pair
-        return Agent(vlm, tools_for(case, names), system=SYSTEM,
-                     max_turns=args.max_turns).run(case)
+        try:
+            return Agent(vlm, tools_for(case, names), system=SYSTEM,
+                         max_turns=args.max_turns).run(case)
+        except Exception as exc:  # e.g. context overflow — a failed run, not a dead batch
+            from evalvitals.core.case import Step, StepRole, Trajectory
+            return Trajectory(
+                sample_id=case.id, goal=case.inputs.prompt,
+                steps=[Step(idx=0, role=StepRole.USER, content=case.inputs.prompt)],
+                metrics={"terminated": "error", "error": repr(exc)[:200]},
+            )
 
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         pair_trajs = list(pool.map(_run_pair, pairs))
