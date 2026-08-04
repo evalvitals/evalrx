@@ -201,6 +201,8 @@ adapted in via `Trajectory.from_records`.
   identical zoom calls, flagged by the existing `LoopDetector` when fed the
   reloaded trajectory.
 
+## [0.1.1] — 2026-07-26
+
 ### Added — Plain-language headlines for M2 takeaways and M3 hypotheses
 
 Reader feedback: `exploratory_report.json`'s takeaway/hypothesis headlines
@@ -893,6 +895,6 @@ different implementation module. `evalvitals.eval_agent.loop` now contains only
 - CI: GitHub Actions matrix (Python 3.10/3.11/3.12) with ruff + mypy + pytest.
 - PyPI trusted publishing (OIDC) release workflow.
 
-## [0.1.0] — unreleased
+## [0.1.0] — 2026-07-10
 
 Initial alpha. Core contracts (`Model`, `Analyzer`, `Result`, `FailureCase`, registry, pipeline, experiment).
