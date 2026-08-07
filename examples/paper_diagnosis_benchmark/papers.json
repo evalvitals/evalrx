@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "benchmark": "five-paper-diagnosis",
+  "description": "A deliberately diverse paper corpus for stress-testing EvalVitals diagnosis and repair recommendations.",
+  "papers": [
+    {
+      "id": "truthfulqa",
+      "title": "TruthfulQA: Measuring How Models Mimic Human Falsehoods",
+      "year": 2021,
+      "source_url": "https://arxiv.org/abs/2109.07958",
+      "pdf_url": "https://arxiv.org/pdf/2109.07958",
+      "diagnosis_axis": "model factuality and benchmark-validity failure",
+      "expected_stress_test": "Separate a model-behaviour diagnosis from a benchmark or scoring artefact. A repair must be checked for truthfulness and helpfulness trade-offs."
+    },
+    {
+      "id": "helm",
+      "title": "Holistic Evaluation of Language Models",
+      "year": 2022,
+      "source_url": "https://arxiv.org/abs/2211.09110",
+      "pdf_url": "https://arxiv.org/pdf/2211.09110",
+      "diagnosis_axis": "multi-metric model health and evaluation coverage",
+      "expected_stress_test": "Do not collapse robustness, fairness, efficiency, calibration, and task accuracy into one health score or one proposed fix."
+    },
+    {
+      "id": "selfcheckgpt",
+      "title": "SelfCheckGPT: Zero-Resource Black-Box Hallucination Detection for Generative Large Language Models",
+      "year": 2023,
+      "source_url": "https://arxiv.org/abs/2303.08896",
+      "pdf_url": "https://arxiv.org/pdf/2303.08896",
+      "diagnosis_axis": "black-box hallucination detection",
+      "expected_stress_test": "Make uncertainty and sampling assumptions explicit; do not claim that disagreement alone identifies the causal source of a hallucination."
+    },
+    {
+      "id": "halueval",
+      "title": "HaluEval: A Large-Scale Hallucination Evaluation Benchmark for Large Language Models",
+      "year": 2023,
+      "source_url": "https://arxiv.org/abs/2305.11747",
+      "pdf_url": "https://arxiv.org/pdf/2305.11747",
+      "diagnosis_axis": "synthetic-versus-real failure distribution shift",
+      "expected_stress_test": "Check whether a proposed repair transfers across hallucination types and whether generated benchmark cases create a shortcut."
+    },
+    {
+      "id": "agentbench",
+      "title": "AgentBench: Evaluating LLMs as Agents",
+      "year": 2023,
+      "source_url": "https://arxiv.org/abs/2308.03688",
+      "pdf_url": "https://arxiv.org/pdf/2308.03688",
+      "diagnosis_axis": "agent trajectory, environment, and tool-use failure",
+      "expected_stress_test": "Distinguish planning, tool-use, observation, and environment failures before recommending a prompt or scaffold repair."
+    }
+  ]
+}

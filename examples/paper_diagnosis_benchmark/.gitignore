@@ -1,0 +1,7 @@
+# Downloaded source material. PDFs can be large and may carry source-specific
+# redistribution terms, so users fetch them locally from the canonical URLs.
+data/
+
+# Derived text records and all EvalVitals analysis artifacts.
+outputs/
+__pycache__/

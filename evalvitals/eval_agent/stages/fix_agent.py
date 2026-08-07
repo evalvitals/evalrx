@@ -23,6 +23,9 @@ candidate.
 
 Executors by tier:
 
+* **L0** — runtime configuration: bounded decoding controls such as
+  ``max_tokens``. Only proposed from explicit execution telemetry, never from
+  an LLM's guess about a response being short.
 * **L1** — prompt transforms (judge-proposed templates).
 * **L2 declarative** — catalog-tool pipelines (:mod:`fix_tools`): cheap,
   deterministic, validated first.
@@ -249,7 +252,8 @@ class FixAgent:
     Args:
         judge:            LLM proposing candidates (deterministic defaults
                           when ``None`` or unparseable).
-        max_tier:         Highest allowed intervention tier (input, default L2).
+        max_tier:         Highest allowed intervention tier (runtime config,
+                          prompt, scaffold, …; default L2).
         score_fn:         ``(case, output) -> bool | None``; defaults to the
                           rubric scorer shared with prompt_contrast.
         run_logger:       Optional RunLogger — records the outcome as a
@@ -288,6 +292,10 @@ class FixAgent:
                           strategies within the SAME tier (no tier escalation).
                           Stops early on the first validated fix or when a
                           round adds no new candidate.
+        max_judge_candidates: Maximum candidates to request and validate for
+                          each judge-proposed tier. Defaults to three. Lower
+                          this for a bounded screening experiment; doing so is
+                          also reflected in the multiplicity correction.
     """
 
     def __init__(
@@ -305,6 +313,7 @@ class FixAgent:
         alpha: float = 0.05,
         run_context: "Any | None" = None,
         max_repair_rounds: int = 1,
+        max_judge_candidates: int = _MAX_JUDGE_CANDIDATES,
     ) -> None:
         self._judge = judge
         self.max_tier = parse_tier(max_tier)
@@ -322,6 +331,7 @@ class FixAgent:
         self._baseline_repeats = max(1, int(baseline_repeats))
         self._alpha = float(alpha)
         self.max_repair_rounds = max(1, int(max_repair_rounds))
+        self.max_judge_candidates = max(1, int(max_judge_candidates))
         self._last_repair_prompt = ""
         self._last_usage: dict | None = None
 
@@ -358,7 +368,7 @@ class FixAgent:
         baseline, unstable = self._baseline(model, data)
         if not any(v is not None for v in baseline.values()):
             logger.warning("FixAgent: no scorable case (no rubrics); nothing to validate")
-            outcome.recommendation = self._recommend(routed_tiers, reason_prefix=(
+            outcome.recommendation = self._recommend(routed_tiers, model=model, reason_prefix=(
                 "no case carries a scoring rubric, so no fix can be validated"
             ))
             self._emit(outcome)
@@ -437,9 +447,26 @@ class FixAgent:
                 }
             else:
                 outcome.recommendation = self._no_fix_recommendation(
-                    outcome.attempted, routed_tiers, data)
+                    outcome.attempted, routed_tiers, data, model)
         self._emit(outcome)
         return outcome
+
+    def validate_candidate(
+        self,
+        model: "Model",
+        data: "CaseBatch",
+        candidate: FixCandidate,
+    ) -> FixValidation:
+        """Confirm one pre-selected candidate on an untouched batch.
+
+        Candidate selection must happen before this method is called. Unlike
+        :meth:`propose_and_validate`, this method never consults the judge and
+        validates exactly one pre-registered candidate, so no best-of-N
+        selection correction is needed on the confirmation split.
+        """
+        data = self._validation_subset(data)
+        baseline, unstable = self._baseline(model, data)
+        return self._validate(candidate, model, data, baseline, unstable)
 
     def _ebh_survivors(self, tested: "list[FixValidation]") -> "set[int]":
         """id()s of validations whose e-value survives e-BH across the family.
@@ -462,6 +489,7 @@ class FixAgent:
         attempted: "list[FixValidation]",
         routed_tiers: "list[FixTier]",
         data: "CaseBatch",
+        model: "Model",
     ) -> "dict[str, Any] | None":
         """Decide what 'no candidate validated' actually means.
 
@@ -497,22 +525,30 @@ class FixAgent:
         n_fail = sum(1 for c in data if getattr(c.label, "value", None) == "fail")
         ceiling = evalue_bernoulli(n_fail, n_fail, p0=0.5) if n_fail > 0 else 1.0
         promising = [v for v in executed if (v.n_fixed - v.n_broken) > 0 and not v.reject]
-        if promising and ceiling < 1.0 / self._alpha:
-            best = max(promising, key=lambda v: (v.n_fixed - v.n_broken, v.effect or 0.0))
+        if ceiling < 1.0 / self._alpha:
             need = self._min_failures_for_power()
+            evidence = ""
+            if promising:
+                best = max(
+                    promising,
+                    key=lambda v: (v.n_fixed - v.n_broken, v.effect or 0.0),
+                )
+                evidence = (
+                    f" {best.candidate.name!r} already helps net "
+                    f"{best.n_fixed - best.n_broken} case(s);"
+                )
             return {
                 "recommend_tier": None,
                 "action": "gather_more_failures",
                 "reason": (
                     f"underpowered by design: only {n_fail} failure case(s) — even a "
                     f"perfect fix tops out at e={ceiling:.1f} (< {1.0 / self._alpha:.0f} "
-                    f"needed). {best.candidate.name!r} already helps net "
-                    f"{best.n_fixed - best.n_broken} case(s); collect >= {need} failing "
+                    f"needed).{evidence} collect >= {need} failing "
                     "cases and re-validate before escalating the tier."
                 ),
             }
 
-        rec = self._recommend(routed_tiers)
+        rec = self._recommend(routed_tiers, model=model)
         if never_ran and rec is not None:
             rec["reason"] += (
                 f" (caveat: {len(never_ran)} candidate(s) never executed: "
@@ -596,7 +632,11 @@ class FixAgent:
             if getattr(getattr(c, "label", None), "value", None) == "fail"
         )[: 1000] or "- (none)"
 
-        candidates = self._l1_candidates(hyp_lines, examples, prior_text, prior_names)
+        candidates: "list[FixCandidate]" = []
+        if self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
+            candidates += self._l0_candidates(data, prior_names)
+        if self.max_tier >= FixTier.L1_PROMPT:
+            candidates += self._l1_candidates(hyp_lines, examples, prior_text, prior_names)
         if self.max_tier >= FixTier.L2_SCAFFOLD:
             candidates += self._l2_candidates(hyp_lines, examples, prior_text, prior_names)
             if self.codegen_available:
@@ -606,6 +646,60 @@ class FixAgent:
         if self.max_tier >= FixTier.L4_PARAMETERS:
             candidates += self._l4_candidates(hyp_lines)
         return candidates
+
+    def _l0_candidates(
+        self, data: "CaseBatch", prior_names: "frozenset[str]" = frozenset()
+    ) -> "list[FixCandidate]":
+        """Propose a bounded decoding repair only from recorded telemetry.
+
+        A short answer is not proof of truncation.  We require a backend to
+        record ``metadata['finish_reason'] == 'length'`` and the baseline
+        ``metadata['generation_config']['max_tokens']`` for at least one
+        failing case. This makes the candidate useful for any OpenAI-style or
+        local backend while preventing prompt-specific guesswork.
+        """
+        caps: "list[int]" = []
+        policy_caps: "list[int]" = []
+        for case in data:
+            if getattr(getattr(case, "label", None), "value", None) != "fail":
+                continue
+            meta = getattr(case, "metadata", {}) or {}
+            if str(meta.get("finish_reason", "")).lower() != "length":
+                continue
+            config = meta.get("generation_config") or {}
+            try:
+                cap = int(config.get("max_tokens"))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if 1 <= cap < 8192:
+                caps.append(cap)
+            policy = meta.get("generation_policy") or {}
+            try:
+                policy_cap = int(policy.get("max_tokens_cap"))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if cap < policy_cap <= 8192:
+                policy_caps.append(policy_cap)
+        if not caps or "increase_max_tokens" in prior_names:
+            return []
+        # A single, auditable policy: use the deployment's explicit safe cap
+        # when present; otherwise double the observed cap. Use the maximum seen
+        # cap so a mixed batch never *reduces* any case's decode budget.
+        old_cap = max(caps)
+        new_cap = max(policy_caps) if policy_caps else min(8192, old_cap * 2)
+        if new_cap <= old_cap:
+            return []
+        spec = PipelineSpec(
+            name="increase_max_tokens",
+            generation_kwargs={"max_tokens": new_cap},
+        )
+        return [FixCandidate(
+            tier=FixTier.L0_RUNTIME_CONFIG,
+            name=spec.name,
+            kind="spec",
+            source="telemetry",
+            payload=spec.to_dict(),
+        )]
 
     @staticmethod
     def _signature(candidate: FixCandidate) -> "tuple[str, str]":
@@ -635,7 +729,7 @@ class FixAgent:
         prior_names: "frozenset[str]" = frozenset(),
     ) -> "list[FixCandidate]":
         proposals = self._ask_judge(_L1_PROMPT.format(
-            hypotheses=hyp_lines, examples=examples, k=_MAX_JUDGE_CANDIDATES) + prior_text)
+            hypotheses=hyp_lines, examples=examples, k=self.max_judge_candidates) + prior_text)
         out: "list[FixCandidate]" = []
         for p in proposals:
             template = str(p.get("prompt_template", ""))
@@ -651,7 +745,7 @@ class FixAgent:
                 payload={"prompt_template": (
                     "Examine the image carefully, including small, subtle and "
                     "low-contrast regions, before answering. {prompt}")})]
-        return out[:_MAX_JUDGE_CANDIDATES]
+        return out[:self.max_judge_candidates]
 
     def _l2_candidates(
         self,
@@ -661,7 +755,7 @@ class FixAgent:
         prior_names: "frozenset[str]" = frozenset(),
     ) -> "list[FixCandidate]":
         proposals = self._ask_judge(_L2_PROMPT.format(
-            hypotheses=hyp_lines, examples=examples, k=_MAX_JUDGE_CANDIDATES,
+            hypotheses=hyp_lines, examples=examples, k=self.max_judge_candidates,
             catalog=catalog_text()) + prior_text)
         out: "list[FixCandidate]" = []
         for p in proposals:
@@ -749,7 +843,7 @@ class FixAgent:
                                    {"tool": "sharpen", "params": {"factor": 2.0}}]).to_dict()),
             ]
             out = [c for c in defaults if c.name not in prior_names]
-        return out[:_MAX_JUDGE_CANDIDATES]
+        return out[:self.max_judge_candidates]
 
     def _l2_coded_candidate(
         self, hyp_lines: str, examples: str, model: "Model", prior_text: str = ""
@@ -951,7 +1045,7 @@ class FixAgent:
             return []
         out: "list[FixCandidate]" = []
         for p in self._ask_judge(_L3_PROMPT.format(
-                hypotheses=hyp_lines, catalog=catalog, k=_MAX_JUDGE_CANDIDATES) + prior_text):
+                hypotheses=hyp_lines, catalog=catalog, k=self.max_judge_candidates) + prior_text):
             prim = INTERNALS_PRIMITIVES.get(str(p.get("primitive", "")))
             if prim is None or prim.tier > self.max_tier or not prim.available(model):
                 continue
@@ -972,7 +1066,7 @@ class FixAgent:
                     out.append(FixCandidate(
                         tier=prim.tier, name=name, kind="primitive", source="default",
                         payload={"primitive": name, "params": params}))
-        return out[:_MAX_JUDGE_CANDIDATES]
+        return out[:self.max_judge_candidates]
 
     def _l4_candidates(self, hyp_lines: str) -> "list[FixCandidate]":
         """L4 recipe — recorded for the escalation decision; executor is TODO."""
@@ -1311,7 +1405,11 @@ class FixAgent:
     # -- recommendation + logging ------------------------------------------
 
     def _recommend(
-        self, routed: "list[FixTier]", reason_prefix: str = ""
+        self,
+        routed: "list[FixTier]",
+        *,
+        model: "Model | None" = None,
+        reason_prefix: str = "",
     ) -> "dict[str, Any] | None":
         above = sorted(t for t in routed if t > self.max_tier)
         if above:
@@ -1328,9 +1426,36 @@ class FixAgent:
             )
         else:
             return None  # already at L4 — nothing above to recommend
+        skipped: "list[str]" = []
+        while model is not None and target in {
+            FixTier.L3A_INTERNALS_READ, FixTier.L3B_INTERNALS_WRITE,
+        } and not self._tier_available(target, model):
+            skipped.append(target.label)
+            if target >= FixTier.L4_PARAMETERS:
+                return None
+            target = FixTier(target + 1)
+        if skipped:
+            reason += (
+                f"; skipped unsupported tier(s) {', '.join(skipped)} for this model "
+                f"and routed to {target.describe()}"
+            )
         if reason_prefix:
             reason = f"{reason_prefix}; {reason}"
         return {"recommend_tier": target.label, "reason": reason}
+
+    @staticmethod
+    def _tier_available(tier: FixTier, model: "Model") -> bool:
+        """Whether an invasive tier has a usable executor for this model."""
+        if tier == FixTier.L3A_INTERNALS_READ:
+            from evalvitals.core.capability import Capability
+
+            return Capability.ATTENTION in getattr(model, "capabilities", frozenset())
+        if tier == FixTier.L3B_INTERNALS_WRITE:
+            return any(
+                primitive.tier == tier and primitive.available(model)
+                for primitive in INTERNALS_PRIMITIVES.values()
+            )
+        return True
 
     def _emit(self, outcome: FixOutcome) -> None:
         if self.run_logger is None:

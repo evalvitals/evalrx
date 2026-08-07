@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "benchmark": "five-paper-intervention-pilot",
+  "protocol": "This is a small, frozen transfer evaluation. It compares an original paper-style prompt/scaffold with EvalVitals-generated L1/L2 candidates on the same target model; it is not a claim of exact reproduction of the paper's reported scale or model.",
+  "papers": [
+    {
+      "id": "zero_shot_cot",
+      "title": "Large Language Models are Zero-Shot Reasoners",
+      "year": 2022,
+      "paper_url": "https://arxiv.org/abs/2205.11916",
+      "dataset": "openai/gsm8k",
+      "config": "main",
+      "split": "test",
+      "method_family": "L1 prompt: append a chain-of-thought instruction",
+      "paper_method": "zero-shot chain of thought"
+    },
+    {
+      "id": "self_consistency",
+      "title": "Self-Consistency Improves Chain of Thought Reasoning in Language Models",
+      "year": 2022,
+      "paper_url": "https://arxiv.org/abs/2203.11171",
+      "dataset": "openai/gsm8k",
+      "config": "main",
+      "split": "test",
+      "method_family": "L2 scaffold: sample diverse reasoning paths and aggregate answers",
+      "paper_method": "self-consistency"
+    },
+    {
+      "id": "least_to_most",
+      "title": "Least-to-Most Prompting Enables Complex Reasoning in Large Language Models",
+      "year": 2022,
+      "paper_url": "https://arxiv.org/abs/2205.10625",
+      "dataset": "openai/gsm8k",
+      "config": "main",
+      "split": "test",
+      "method_family": "L2 scaffold: decompose a problem, then solve using the subproblems",
+      "paper_method": "least-to-most prompting"
+    },
+    {
+      "id": "self_refine",
+      "title": "Self-Refine: Iterative Refinement with Self-Feedback",
+      "year": 2023,
+      "paper_url": "https://arxiv.org/abs/2303.17651",
+      "dataset": "openai/gsm8k",
+      "config": "main",
+      "split": "test",
+      "method_family": "L2 scaffold: draft, self-feedback, and revision",
+      "paper_method": "self-refine"
+    },
+    {
+      "id": "cove",
+      "title": "Chain-of-Verification Reduces Hallucination in Large Language Models",
+      "year": 2023,
+      "paper_url": "https://arxiv.org/abs/2309.11495",
+      "dataset": "truthful_qa",
+      "config": "multiple_choice",
+      "split": "validation",
+      "method_family": "L2 scaffold: draft, independent verification questions, final response",
+      "paper_method": "chain of verification",
+      "evaluation_note": "The public TruthfulQA multiple-choice slice is a transfer evaluation for this hallucination-reduction method, not the paper's original long-form generation protocol."
+    }
+  ]
+}

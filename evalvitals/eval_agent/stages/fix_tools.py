@@ -14,6 +14,7 @@ environment that loads images for a VLM already has it.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -531,12 +532,25 @@ class PipelineSpec:
         image_ops:       Tool applications, in order (see :data:`IMAGE_TOOLS`).
         prompt_template: Must contain ``{prompt}``; identity by default.
         n_samples:       Model calls per case (majority vote when > 1).
+        generation_kwargs: Safe, backend-neutral decoding overrides. This is
+                           deliberately part of the serialized candidate: a
+                           length stop is an execution-health failure, not a
+                           prompt failure.
+        strategy:        A reviewed multi-call scaffold. ``direct`` is the
+                         normal one-call path; the other choices encode common
+                         general-purpose reasoning patterns without arbitrary
+                         code execution.
+        output_key_pattern: Optional safe regex (one capture group) used to
+                         aggregate structured final answers across samples.
     """
 
     name: str
     image_ops: "list[dict[str, Any]]" = field(default_factory=list)
     prompt_template: str = "{prompt}"
     n_samples: int = 1
+    generation_kwargs: "dict[str, Any]" = field(default_factory=dict)
+    strategy: str = "direct"
+    output_key_pattern: str = ""
 
     @classmethod
     def from_dict(cls, d: "dict[str, Any]") -> "PipelineSpec | None":
@@ -554,12 +568,74 @@ class PipelineSpec:
             n_samples = max(1, int(d.get("n_samples", 1)))
         except (TypeError, ValueError):
             n_samples = 1
+        generation_kwargs = _safe_generation_kwargs(d.get("generation_kwargs"))
+        strategy = str(d.get("strategy", "direct")).strip().lower()
+        if strategy not in _SCAFFOLD_STRATEGIES:
+            strategy = "direct"
+        pattern = _safe_output_key_pattern(d.get("output_key_pattern"))
         return cls(name=name, image_ops=ops, prompt_template=template,
-                   n_samples=min(n_samples, 5))
+                   n_samples=min(n_samples, 5), generation_kwargs=generation_kwargs,
+                   strategy=strategy, output_key_pattern=pattern)
 
     def to_dict(self) -> "dict[str, Any]":
         return {"name": self.name, "image_ops": self.image_ops,
-                "prompt_template": self.prompt_template, "n_samples": self.n_samples}
+                "prompt_template": self.prompt_template, "n_samples": self.n_samples,
+                "generation_kwargs": self.generation_kwargs, "strategy": self.strategy,
+                "output_key_pattern": self.output_key_pattern}
+
+
+_SCAFFOLD_STRATEGIES = frozenset({
+    "direct", "least_to_most", "self_refine", "chain_of_verification",
+})
+
+
+def _safe_output_key_pattern(value: Any) -> str:
+    """Accept one bounded capture regex for evaluator-declared answer formats."""
+    pattern = str(value or "").strip()
+    if not pattern or len(pattern) > 256:
+        return ""
+    try:
+        compiled = re.compile(pattern, flags=re.IGNORECASE | re.DOTALL)
+    except re.error:
+        return ""
+    return pattern if compiled.groups >= 1 else ""
+
+
+def _safe_generation_kwargs(value: Any) -> "dict[str, Any]":
+    """Keep only portable, bounded decoding controls from a candidate spec.
+
+    The model adapter owns its provider-specific API.  Repair candidates may
+    only tune controls that are safe to replay and audit; this avoids a judge
+    smuggling arbitrary provider arguments or callbacks into ``generate``.
+    """
+    raw = value if isinstance(value, dict) else {}
+    out: "dict[str, Any]" = {}
+    try:
+        max_tokens = int(raw.get("max_tokens"))
+        if 1 <= max_tokens <= 8192:
+            out["max_tokens"] = max_tokens
+    except (TypeError, ValueError):
+        pass
+    try:
+        temperature = float(raw.get("temperature"))
+        if 0.0 <= temperature <= 2.0:
+            out["temperature"] = temperature
+    except (TypeError, ValueError):
+        pass
+    try:
+        top_p = float(raw.get("top_p"))
+        if 0.0 < top_p <= 1.0:
+            out["top_p"] = top_p
+    except (TypeError, ValueError):
+        pass
+    stop = raw.get("stop")
+    if isinstance(stop, str) and len(stop) <= 128:
+        out["stop"] = stop
+    elif isinstance(stop, list) and len(stop) <= 4 and all(
+        isinstance(item, str) and len(item) <= 128 for item in stop
+    ):
+        out["stop"] = list(stop)
+    return out
 
 
 def spec_changes_input(spec: PipelineSpec, case: "FailureCase") -> bool:
@@ -573,7 +649,12 @@ def spec_changes_input(spec: PipelineSpec, case: "FailureCase") -> bool:
     "control".  This is the structural half of an applicability predicate; an
     explicit :attr:`FixCandidate.predicate` overrides it.
     """
-    if spec.prompt_template.strip() != "{prompt}":
+    if (
+        spec.prompt_template.strip() != "{prompt}"
+        or spec.generation_kwargs
+        or spec.strategy != "direct"
+        or spec.n_samples > 1
+    ):
         return True
     if not spec.image_ops:
         return False
@@ -600,10 +681,14 @@ def run_pipeline(
     spec: PipelineSpec,
     score_fn: "Callable[[FailureCase, str], Optional[bool]]",
 ) -> "Optional[bool]":
-    """Execute *spec* on one case; majority vote over scored samples.
+    """Execute *spec* on one case; aggregate outputs before host-side scoring.
 
-    Returns ``None`` when the case cannot be scored (no rubric / all calls
-    failed) — mirroring prompt_contrast's unscored semantics.
+    Multiple samples vote on an evaluator-declared final-answer key when one is
+    available, otherwise on normalized final text. The scoring rubric is
+    applied *after* aggregation, so a pipeline cannot use the hidden gold
+    answer to select its preferred sample. Reviewed multi-call strategies are
+    prompt-only and keep the underlying model unchanged. Returns ``None`` when
+    the case cannot be scored (no rubric / all calls failed).
     """
     from evalvitals.core.case import Inputs
 
@@ -612,18 +697,72 @@ def run_pipeline(
     image = getattr(inp, "image", None) if inp is not None else None
     if spec.image_ops:
         image = apply_image_ops(image, spec.image_ops, case=case)
-    new_inputs = Inputs(prompt=spec.prompt_template.format(prompt=prompt), image=image)
+    base_prompt = spec.prompt_template.format(prompt=prompt)
 
-    votes: "list[bool]" = []
-    for _ in range(spec.n_samples):
+    def generate(text: str) -> str:
         try:
-            output = str(model.generate(new_inputs))
+            return str(model.generate(
+                Inputs(prompt=text, image=image), **spec.generation_kwargs
+            ))
         except Exception as exc:
             logger.debug("run_pipeline: generate failed on %s: %s", case.id, exc)
-            continue
-        score = score_to_bool(score_fn(case, output))
-        if score is not None:
-            votes.append(score)
-    if not votes:
+            return ""
+
+    if spec.strategy == "least_to_most":
+        decomposition = generate(
+            "Break the following task into the smallest useful subproblems. "
+            "Do not answer the task yet.\n\n" + base_prompt
+        )
+        outputs = [generate(
+            "Solve the original task using the decomposition. Give only the final "
+            "answer required by the task.\n\nOriginal task:\n"
+            f"{base_prompt}\n\nDecomposition:\n{decomposition}"
+        )]
+    elif spec.strategy == "self_refine":
+        draft = generate(base_prompt)
+        feedback = generate(
+            "Check the attempted answer for factual, reasoning, arithmetic, and "
+            "instruction-following errors. Give concise correction advice only.\n\n"
+            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
+        )
+        outputs = [generate(
+            "Produce a corrected final answer to the original task using the "
+            "feedback. Do not discuss the revision process.\n\n"
+            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nFeedback:\n{feedback}"
+        )]
+    elif spec.strategy == "chain_of_verification":
+        draft = generate(base_prompt)
+        checks = generate(
+            "List short, independent checks needed to verify this attempted answer. "
+            "Do not answer the original task yet.\n\n"
+            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
+        )
+        outputs = [generate(
+            "Answer the original task after applying the independent verification "
+            "checks. Give only the final answer required by the task.\n\n"
+            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nChecks:\n{checks}"
+        )]
+    else:
+        outputs = [generate(base_prompt) for _ in range(spec.n_samples)]
+    outputs = [output for output in outputs if output]
+    if not outputs:
         return None
-    return sum(votes) * 2 >= len(votes)  # majority, ties -> True
+    # Keep the first original response for the winning normalized key; stable
+    # tie-breaking avoids injecting a score-dependent preference.
+    pattern = spec.output_key_pattern or str(
+        (getattr(case, "metadata", {}) or {}).get("output_key_pattern", "")
+    )
+    try:
+        key_re = re.compile(pattern, flags=re.IGNORECASE | re.DOTALL) if pattern else None
+    except re.error:
+        key_re = None
+    grouped: "dict[str, list[str]]" = {}
+    for output in outputs:
+        matches = list(key_re.finditer(output)) if key_re is not None else []
+        key = (
+            matches[-1].group(1).strip().lower()
+            if matches and matches[-1].lastindex else re.sub(r"\s+", " ", output.strip().lower())
+        )
+        grouped.setdefault(key, []).append(output)
+    winner = max(grouped.values(), key=len)[0]
+    return score_to_bool(score_fn(case, winner))

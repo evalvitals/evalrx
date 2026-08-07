@@ -864,7 +864,7 @@ class VLDiagnoseLoop:
         recommendation when nothing validates.
 
         When ``auto_escalate=True`` the agent steps through the intervention
-        ladder L2 → L3a → L3b, stopping as soon as a candidate validates.
+        ladder L0/L1/L2 → L3a → L3b, stopping as soon as a candidate validates.
         Each escalation round receives the full history of prior failed
         attempts so the judge can generate fundamentally different strategies
         rather than repeating what already failed.
@@ -874,7 +874,7 @@ class VLDiagnoseLoop:
                             falling back to the last cycle's proposals).
             data:           Original case batch (validated with paired McNemar
                             against the unmodified baseline).
-            max_tier:       Ceiling tier: "L1", "L2", "L3a", "L3b", "L4".
+            max_tier:       Ceiling tier: "L0", "L1", "L2", "L3a", "L3b", "L4".
                             Defaults to L3b when ``auto_escalate=True``, or the
                             agent's configured tier otherwise.
             fix_agent:      Per-call override of :attr:`fix_agent`.

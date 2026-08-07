@@ -26,11 +26,12 @@ from evalvitals.eval_agent.hypothesis import Hypothesis
 
 
 def test_tier_parse_and_order():
+    assert parse_tier("L0") is FixTier.L0_RUNTIME_CONFIG
     assert parse_tier("L1") is FixTier.L1_PROMPT
     assert parse_tier("l3a") is FixTier.L3A_INTERNALS_READ
     assert parse_tier("L3") is FixTier.L3A_INTERNALS_READ  # bare L3 = read side
     assert parse_tier(FixTier.L4_PARAMETERS) is FixTier.L4_PARAMETERS
-    assert FixTier.L1_PROMPT < FixTier.L2_SCAFFOLD < FixTier.L3A_INTERNALS_READ
+    assert FixTier.L0_RUNTIME_CONFIG < FixTier.L1_PROMPT < FixTier.L2_SCAFFOLD < FixTier.L3A_INTERNALS_READ
     assert FixTier.L3B_INTERNALS_WRITE < FixTier.L4_PARAMETERS
     assert FixTier.L3B_INTERNALS_WRITE.label == "L3b"
     with pytest.raises(ValueError, match="unknown fix tier"):
@@ -43,6 +44,10 @@ def _hyp(statement: str, mode: str = "", design: str = "") -> Hypothesis:
 
 
 def test_routing_by_mechanism_keywords():
+    tier, _ = route_min_tier(_hyp(
+        "responses hit the configured max_tokens completion limit", mode="truncation"))
+    assert tier is FixTier.L0_RUNTIME_CONFIG
+
     tier, why = route_min_tier(_hyp(
         "pathologies smaller than one patch are destroyed by downsampling",
         mode="resolution_limit"))
@@ -283,6 +288,68 @@ def test_pipeline_spec_validation():
     assert spec.n_samples == 5  # capped
 
 
+def test_pipeline_passes_bounded_generation_kwargs():
+    from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+
+    case = FailureCase(id="decode", inputs=Inputs(prompt="q"), expected="yes")
+
+    class DecodeBudgetModel:
+        def generate(self, inputs, **kwargs):
+            return "yes" if kwargs.get("max_tokens") == 512 else "no"
+
+    spec = PipelineSpec.from_dict({
+        "name": "more_budget",
+        "generation_kwargs": {"max_tokens": 512, "bad": "dropped"},
+    })
+    assert spec is not None
+    assert spec.generation_kwargs == {"max_tokens": 512}
+    assert run_pipeline(DecodeBudgetModel(), case, spec, _label_score) is True
+
+
+def test_pipeline_self_refine_is_a_label_blind_reviewed_multicall_strategy():
+    from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+
+    case = FailureCase(id="review", inputs=Inputs(prompt="What is 2 + 2?"), expected="yes")
+
+    class SequencedModel:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        def generate(self, inputs, **kwargs):
+            self.prompts.append(inputs.prompt)
+            return ("draft", "feedback", "yes")[len(self.prompts) - 1]
+
+    model = SequencedModel()
+    spec = PipelineSpec(name="review", strategy="self_refine")
+    assert run_pipeline(model, case, spec, _label_score) is True
+    assert len(model.prompts) == 3
+    assert "yes" not in "\n".join(model.prompts).lower()  # expected label never enters prompts
+
+
+def test_pipeline_votes_on_task_declared_output_key_not_hidden_score():
+    from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+
+    case = FailureCase(
+        id="structured",
+        inputs=Inputs(prompt="Return a number"),
+        expected="yes",
+        metadata={"output_key_pattern": r"FINAL:\s*(\d+)"},
+    )
+
+    class Samples:
+        def __init__(self):
+            self.outputs = iter(["work FINAL: 4", "another FINAL: 4", "FINAL: 9"])
+
+        def generate(self, inputs, **kwargs):
+            return next(self.outputs)
+
+    def four_is_correct(case, output):
+        return "FINAL: 4" in output
+
+    spec = PipelineSpec(name="vote", n_samples=3)
+    assert run_pipeline(Samples(), case, spec, four_is_correct) is True
+
+
 # ── fake models ───────────────────────────────────────────────────────────────
 
 
@@ -321,6 +388,19 @@ class HopelessModel(Model):
 
     def generate(self, inputs, **kwargs):
         return "No."
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class DecodeBudgetSensitiveModel(Model):
+    """Generic decode-health fixture: only a larger recorded budget completes."""
+
+    capabilities = frozenset({Capability.GENERATE})
+    modalities = frozenset({"text"})
+
+    def generate(self, inputs, **kwargs):
+        return "Yes." if int(kwargs.get("max_tokens", 64)) >= 128 else "No."
 
     def forward(self, inputs, capture, spec=None):
         raise NotImplementedError
@@ -379,6 +459,49 @@ def test_l1_judge_candidate_validates_and_fixes():
     # max_tier=L1 -> no L2 candidates were attempted
     assert all(v.candidate.tier is FixTier.L1_PROMPT for v in out.attempted)
     assert out.repair_rounds == 1  # single-shot by default
+
+
+def test_l0_telemetry_candidate_repairs_decode_budget_without_prompt_guessing():
+    """A recorded length stop permits a general runtime fix, not an LLM hunch."""
+    yes = {"all_of": ["yes"], "none_of": ["no"]}
+    batch = CaseBatch([
+        FailureCase(
+            id=f"decode_{i}",
+            inputs=Inputs(prompt=f"Solve item {i}"),
+            expected=yes,
+            label=Label.FAIL,
+            metadata={
+                "finish_reason": "length",
+                "generation_config": {"max_tokens": 64},
+            },
+        )
+        for i in range(16)
+    ])
+    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+        DecodeBudgetSensitiveModel(), batch,
+        [_hyp("generation was truncated at the configured token budget", mode="truncation")],
+    )
+    assert out.fixed is True
+    assert out.best is not None
+    assert out.best.candidate.tier is FixTier.L0_RUNTIME_CONFIG
+    assert out.best.candidate.payload["generation_kwargs"] == {"max_tokens": 128}
+    assert out.best.n_fixed == 16 and out.best.n_broken == 0
+
+    confirmation = FixAgent(score_fn=_label_score).validate_candidate(
+        DecodeBudgetSensitiveModel(), batch, out.best.candidate
+    )
+    assert confirmation.fixed is True
+    assert confirmation.n_fixed == 16 and confirmation.n_broken == 0
+
+
+def test_l0_refuses_to_infer_truncation_without_finish_reason_telemetry():
+    batch = _gold_yes_batch(8)
+    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+        DecodeBudgetSensitiveModel(), batch,
+        [_hyp("the answer seems short", mode="truncation")],
+    )
+    assert out.fixed is False
+    assert out.attempted == []
 
 
 class FeedbackDrivenJudge(Model):
@@ -485,7 +608,7 @@ def test_l2_pipeline_candidate_fixes_zoom_sensitive_model():
 # ── FixAgent: unfixable -> recommendation, no auto-escalation ────────────────
 
 
-def test_unfixable_recommends_routed_tier_above_max():
+def test_unfixable_routed_tier_is_skipped_when_model_cannot_execute_it():
     pytest.importorskip("PIL")
     agent = FixAgent(judge=None, max_tier="L2")  # defaults only
     out = agent.propose_and_validate(
@@ -493,21 +616,23 @@ def test_unfixable_recommends_routed_tier_above_max():
         [_hyp("suppress the attention sink on structural tokens")])
     assert out.fixed is False and out.best is None
     assert out.recommendation is not None
-    assert out.recommendation["recommend_tier"] == "L3b"
+    assert out.recommendation["recommend_tier"] == "L4"
     assert "beyond the allowed L2" in out.recommendation["reason"]
+    assert "skipped unsupported tier(s) L3b" in out.recommendation["reason"]
     # routing recorded per hypothesis
     assert out.routed[0]["min_tier"] == "L3b"
 
 
-def test_unfixable_with_low_routes_recommends_next_tier():
+def test_unfixable_skips_internals_unavailable_on_black_box_model():
     pytest.importorskip("PIL")
     agent = FixAgent(judge=None, max_tier="L2")
     out = agent.propose_and_validate(
         HopelessModel(), _gold_yes_batch(image=_img()),
         [_hyp("the prompt phrasing is fine but answers are wrong")])
     assert out.fixed is False
-    assert out.recommendation["recommend_tier"] == "L3a"  # next above L2
+    assert out.recommendation["recommend_tier"] == "L4"
     assert "no candidate within L2" in out.recommendation["reason"]
+    assert "skipped unsupported tier(s) L3a, L3b" in out.recommendation["reason"]
 
 
 def test_at_l4_no_higher_recommendation():

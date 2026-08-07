@@ -65,8 +65,9 @@ stages/ (M1–M5 implementation):
   surgery.py           M4 — SurgeryAgent: correlate / param-sweep / ExperimentWriter
                               → InterventionResult (SUPPORTED / REFUTED / INCONCLUSIVE)
   experiment_writer.py M4 — multi-phase LLM/CLI agent writes + executes fix scripts
-  fix_tiers.py         Fix — FixTier intervention-space ladder (L1 prompt /
-                              L2 scaffold / L3a read / L3b write / L4 params)
+  fix_tiers.py         Fix — FixTier intervention-space ladder (L0 runtime /
+                              L1 prompt / L2 scaffold / L3a read / L3b write /
+                              L4 params)
                               + hypothesis -> minimum-tier routing
   fix_tools.py         Fix — L2 tool catalog (zoom/contrast/equalize/upscale)
                               + PipelineSpec executor around the unchanged model
