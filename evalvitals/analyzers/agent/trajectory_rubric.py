@@ -25,10 +25,10 @@ import json
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
+from evalvitals.analyzers.agent.first_error_judge import _render
 from evalvitals.core.analyzer import Analyzer
 from evalvitals.core.registry import register_analyzer
 from evalvitals.core.result import Result
-from evalvitals.analyzers.agent.first_error_judge import _render
 
 if TYPE_CHECKING:
     from evalvitals.core.case import CaseBatch

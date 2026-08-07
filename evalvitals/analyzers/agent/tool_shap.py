@@ -35,10 +35,10 @@ import random
 import statistics
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from evalvitals.analyzers.agent.reliability import default_grader
 from evalvitals.core.analyzer import Analyzer
 from evalvitals.core.registry import register_analyzer
 from evalvitals.core.result import Result
-from evalvitals.analyzers.agent.reliability import default_grader
 
 if TYPE_CHECKING:
     from evalvitals.core.case import CaseBatch, FailureCase, Trajectory
