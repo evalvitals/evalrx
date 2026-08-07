@@ -39,7 +39,7 @@ class CounterfactualReplay(Analyzer):
 
     name = "counterfactual"
     requires = frozenset({Capability.TOOL_CALLS})
-    applies_to_modalities = frozenset({"text"})
+    applies_to_modalities = frozenset({"text", "image"})  # trajectory analysis is modality-agnostic
 
     def __init__(self, rerun_fn: Callable, n_replays: int = 3) -> None:
         super().__init__(rerun_fn=rerun_fn, n_replays=n_replays)

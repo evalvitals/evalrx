@@ -1,0 +1,8 @@
+metric,value
+model AUC (in-sample),0.838
+pseudo R2 (McFadden),0.276
+Hosmer-Lemeshow chi2 (8 groups),2.25
+HL p-value,0.895
+n cases,366.0
+n FAIL,126.0
+max VIF,20.66

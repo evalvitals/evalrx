@@ -6,6 +6,201 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — L2 loop policy VALIDATED by cross-task replication (the loop's first shipped fix)
+
+The pre-registered `L2_loop_policy` arm (block identical repeats + force a
+final answer) ran on five further VTC-Bench tasks at 2B — independent batches,
+one arm, no peeking. It replicated in every one:
+
+| task | n | baseline→L2 pass | effect | e |
+|---|---|---|---|---|
+| counting | 85 | 16→20 | +0.047 | 0.48 |
+| chart | 100 | 1→23 | +0.220 | 27962 |
+| color | 90 | 8→15 | +0.078 | 0.97 |
+| math (MC subset) | 66 | 3→14 | +0.167 | 19.5 |
+| measure | 105 | 7→26 | +0.181 | 1381 |
+| spatial | 44 | 6→17 | +0.250 | 45.0 |
+
+E-values multiply across independent batches: combined e ≈ 1.6×10¹⁰ ≫ 20 —
+the anytime-valid bar is cleared and the fix is validated. Two lessons the
+process itself taught: the diagnosis task (counting) was the fix's WEAKEST
+batch — a single-task read would have under-sold a real repair — and the 2B
+failure structure found on counting (loop until the budget dies, answer
+nothing) is family-wide: fail rates 0.81–0.99, empty-answer shares up to 80%,
+judge modes led by FM-LOOP almost everywhere.
+
+### Added — Escalation results: 2B/4B/8B on vtcbench counting
+
+Rerunning the full M1→M4 arc at 4B and 8B (`run_m1.py --model ... --out
+outputs_<tag>`, parametrized `run_explore.sh`, `run_m4.py`) turned the single
+diagnosis into a scaling study:
+
+- **The capability wall is flat** — pass 16/16/18 of 85; mean k-rerun success
+  rate 0.26/0.25/0.22. Dense counting does not yield to 2B→8B scaling.
+- **The failure phenotype migrates**: identical-repeat loops at 2B (has_loop
+  54/85, 93 policy-blocked repeats) → varied tool churn that never concludes
+  at 4B (has_loop 8/85, zero repeats to block, 30 empty answers) →
+  perception/reasoning-limited at 8B. The held-out-confirmed invariant at
+  every scale is the budget-exhaustion family.
+- **Fix efficacy tracks the phenotype**: the L1 description warning only
+  helps where identical repeats exist (+0.024 at 2B, ≤0 after); the L2
+  forced-answer policy GROWS with capability — +0.047 → +0.094 → **+0.141 at
+  8B (30/85 vs 18, 17 fixed / 5 broken, e = 6.92)** — rescued turns convert
+  to correct answers only when the model has actually seen enough.
+- **Nothing ships**: e-BH rejects none at any scale (the anytime-valid bar is
+  e ≥ 20; the 8B L2 arm would clear a classical McNemar at p ≈ 0.008). The
+  recorded recommendation is independent replication — e-values multiply
+  across batches.
+
+Operational note: an 8B tool-shap conversation exceeded a 32k serve window;
+8B runs use `--max-model-len 49152` and the precompute now stubs failed runs.
+
+### Added — Loop-policy options + the M4 paired fix experiment (inconclusive, correctly)
+
+The two held-out-confirmed causes became deployable configuration:
+`Agent(block_repeat_calls=True)` refuses an identical consecutive tool call
+(nudge observation, `span["repeat_blocked"]`), and
+`Agent(force_final_answer=True)` spends one toolless turn to force an answer
+when the budget runs out (`terminated="forced_final"`);
+`run_batch(agent_kwargs=...)` passes them through. `run_m4.py` pairs three
+fix arms against the recorded baseline with anytime-valid e-values and e-BH
+across the family, plus no-free-lunch accounting.
+
+Recorded verdict on Qwen3-VL-2B counting: every arm moves the right way
+(16→18/20/21 of 85, monotone dose-response, mechanisms demonstrably engaged
+— 37 forced finals, 93+ blocked repeats, 7/22 empty-answer cases recovered)
+and **e-BH rejects none of it**. The loop was the symptom; the capability is
+the cause. The run ends inconclusive and recommends escalation (bigger
+checkpoint, or a scaffold that counts detector boxes itself) instead of
+shipping a prompt tweak as a win.
+
+### Added — vtcbench_diagnosis example: the first end-to-end agent diagnosis
+
+`examples/agent_demos/vtcbench_diagnosis/` runs one VTC-Bench task (default:
+counting, 85 four-way MC cases) through the whole agent arc: vLLM-served
+Qwen3-VL with zoom+detect under a ~1MP per-view budget → MC grading (a run
+that never answers IS a failure) → the full M1 probe set → `records.json` →
+`evalvitals explore` with a 0.6/0.4 held-out confirm.
+
+First recorded run (Qwen3-VL-2B): 81% fail. In-sample, loop-share signals
+looked strong (AUC ≈ 0.75–0.80) — held-out kept only 3 of 7 frozen recipes:
+*budget_exhausted*/*empty_answer* (every run that used all turns without
+answering failed; held-out fail 1.00 vs 0.76) and *single_tool_only* (sign
+FLIPPED on held-out — more tool use predicts failure, consistent with the
+negative tool-Shapley mass). The tool-description-gap hypothesis came back
+`not_testable` with the judge explicitly demanding the intervention test —
+the M4 handoff the agent-aware M3 hint exists to produce. Practical notes
+captured in the scripts: counting originals exceed a 16k context in vision
+tokens (serve with `--mm-processor-kwargs '{"max_pixels": ...}'`), and the
+explore CLI's default `--timeout-sec 120` truncates real analyses.
+
+### Added — Agent-aware M2/M3: hypotheses that point at fixable causes
+
+The statistical machinery needed no structural change for agent trajectories
+(leak isolation, categorical recipes and the held-out flow all apply as-is —
+`failure_mode == "FM-LOOP"` compiles to a testable 0/1 recipe today). What
+changed is the guidance layer:
+
+- M3 is now agent-aware: when the exploratory report references
+  trajectory-column families, `HypothesisAgent` appends a hint steering
+  hypotheses toward INTERVENABLE causes — prompt wording, tool descriptions,
+  tool subsets, loop policy (the black-box fix surface) — and spelling out
+  the column-family semantics (`shap_outcome_*` = causal attribution,
+  `success_rate` = stability not capability, `failure_mode` = judge label to
+  verify, `total_*` = cost). TEST lines may propose interventions, not just
+  observational splits.
+- `trajectory_records.AGENT_QUESTION_TEMPLATE` — the standard M2 question
+  for agent records, pinned by test to the flattener's actual columns.
+- The interventional probes' caveats now travel with their findings:
+  held-out verification must RE-RUN `reliability_probe`/`tool_shap` on the
+  held-out cases (never reuse exploration-set values), and
+  `tool_shap.baseline_pass` is sanity, not signal.
+
+### Added — Agent scale path, perception tools, and four new M1 information sources
+
+Second wave of agent-under-test diagnosis: run agents at batch scale on any
+backend, and make M1 emit *interventional* evidence (cost, reliability, tool
+attribution, failure taxonomy) — not just single-run observations.
+
+- Built-in OpenAI-compatible client (`evalvitals.models.backends.openai_compat`):
+  `openai_runtime(base_url=...)` wires `compose(key, "api")` to any
+  OpenAI-compatible endpoint — a local `vllm serve` (verified end-to-end with
+  Qwen3-VL + the hermes tool parser), OpenAI, or a gateway. Content-block
+  images become data URLs; sampling defaults to `temperature=0`.
+- `run_batch(handle, cases, tools_factory=..., concurrency=N)` — the M1-scale
+  batch driver: per-case tool binding, threaded for API handles (local
+  backends forced sequential), one failed case yields an error-stub
+  trajectory instead of killing the batch.
+- `GeminiModel.chat()` — native Gemini function calling (deliberately not the
+  OpenAI-compat bridge), inline-PNG images, `tool_call_style="native"` routes
+  it to the OpenAI codec. `generate()` now actually sends the image.
+- New perception tools (`evalvitals.models.tools`): `image_ocr` (easyocr
+  default engine, region support) and `image_detect` (open-vocabulary
+  Grounding DINO; detections come back as fractional boxes PLUS an annotated
+  image the model can look at). Engines are injectable and lazily built.
+- Cost accounting end-to-end: every agent turn records `latency_ms` /
+  `prompt_tokens` / `completion_tokens` on the step span (all three chat
+  backends fill usage), totals land in trajectory metrics and as
+  `total_*`/`mean_turn_latency_ms` record columns.
+- Trajectory→records bridge (`evalvitals.analysis.trajectory_records`):
+  flattens trajectories into `records.json` rows (loop volume, per-tool call
+  counts, error rates, repeated-call structure, images returned, termination,
+  cost) that `evalvitals explore` and `build_stats_input_from_records`
+  consume unchanged; `Step.from_dict` / `Trajectory.from_dict` reload
+  persisted runs.
+- Three new M1 analyzers (AGENT priority list is now seven deep):
+  - `reliability_probe` — re-runs each case k times (injected runner) and
+    reports pass@k vs pass^k, flakiness, answer agreement, and trajectory
+    variance: capability failures and stability failures are different
+    diagnoses.
+  - `tool_shap` — AgentSHAP-style Shapley attribution over TOOL SUBSETS, with
+    the value function changed for diagnosis: primary = outcome flip under an
+    injected grader, secondary = answer similarity to the all-tools baseline.
+    Exact for kits of ≤4 tools (all 2^N subsets), Monte-Carlo beyond. Also
+    reports `no_tools_pass`/`tools_needed` — whether tools matter at all.
+  - `trajectory_rubric` — LLM-judged failure-mode code (compact MAST-inspired
+    taxonomy for single-agent tool loops) plus five 0-2 rubric dimensions;
+    stamps `Step.failure_mode` at the judged first-error step.
+- Analyzer selection is now data-aware: trajectory-carrying cases flip
+  `StrategyProbe.detect_kind` to AGENT even for VLM handles (fixes the
+  image-wins rule hiding agent analyzers), threaded through ProbeAgent; the
+  four existing agent analyzers now declare text+image modalities.
+
+### Added — Multimodal agent tool loop: image cases, image-returning tools, serialized trajectories
+
+First step of agent-under-test diagnosis (a VLM that calls visual tools to
+solve a task, with the run captured for trajectory analysis). The existing
+backend-agnostic `Agent` loop + `Trajectory` schema stay the skeleton — no
+external agent framework is introduced; frameworks remain potential *subjects*
+adapted in via `Trajectory.from_records`.
+
+- `Agent.run` is now multimodal end-to-end: `case.inputs.image` enters the
+  first user message as a transformers-style content block, and a tool result
+  carrying images gets them re-injected as a follow-up user message — the
+  model *sees* what its tool produced (the o3 / Qwen3-VL-demo zoom mechanism).
+- New `ToolResult(text, images, meta)` (`evalvitals.core.tool`): model-visible
+  text, re-injectable images, host-only meta recorded on the trajectory step.
+  Plain return values keep working; errors keep the standard
+  `"[tool error in ...]"` envelope (what `ignored_obs` matches).
+- `HFLocalModel.chat()` gains a VLM path: content-block images are collected
+  across the whole conversation and routed through the processor, so
+  placeholder tokens line up with pixels; tool schemas still render via the
+  chat template (Hermes text parsing, no server needed).
+- Trajectories serialize: `Step.to_dict()` / `Trajectory.to_dict()`, and
+  `FailureCase.to_dict()` now includes the trajectory. Images degrade to
+  `"<image WxH>"` descriptors — trajectories reference media, never embed it.
+- New `evalvitals.models.tools` package (subject-side tools; deterministic,
+  model-agnostic schemas): `zoom_in_tool` crops a bbox, upscales it (LANCZOS,
+  short side → 672, ≤4x) and returns it as a new image. Accepts fractional
+  coordinates but auto-detects pixel and Qwen-style 0-1000-grid boxes,
+  recording `coord_mode` on the step — the convention the model actually used
+  is evidence, not noise.
+- New example `examples/agent_demos/visual_zoom_agent/`: the minimal
+  trajectory on a real checkpoint (Qwen3-VL-2B, one COCO image). The first
+  recorded run already exhibits a diagnosable failure — three consecutive
+  identical zoom calls, flagged by the existing `LoopDetector` when fed the
+  reloaded trajectory.
+
 ## [0.1.1] — 2026-07-26
 
 ### Added — Plain-language headlines for M2 takeaways and M3 hypotheses

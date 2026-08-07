@@ -1,0 +1,4 @@
+catalyst,n_batches,mean_yield_pct,sd_yield_pct,median_yield_pct
+A,11,70.24,5.73,70.8
+B,9,65.34,7.56,65.0
+C,10,72.21,6.28,71.95

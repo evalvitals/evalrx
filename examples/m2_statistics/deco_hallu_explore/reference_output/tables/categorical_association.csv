@@ -1,0 +1,5 @@
+variable,levels,cramers_v,chi2_p
+checkpoint,3,0.069,0.414
+object,23,0.514,2.29e-11
+split,2,0.005,0.925
+pope_label,1,,

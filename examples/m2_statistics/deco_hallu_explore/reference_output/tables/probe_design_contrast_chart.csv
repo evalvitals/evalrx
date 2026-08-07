@@ -1,0 +1,15 @@
+signal_probe,signal,probe,median
+Entropy – Absent-object probe,attention_entropy,Absent-object probe,0.8749
+Focus share – Absent-object probe,focus_share,Absent-object probe,0.1749
+Center off. – Absent-object probe,center_offset,Absent-object probe,0.1629
+Edge mass – Absent-object probe,edge_mass,Absent-object probe,0.1942
+Top-1 share – Absent-object probe,top1_share,Absent-object probe,0.0508
+Max rel.wt – Absent-object probe,max_relative_weight,Absent-object probe,55.4023
+Mean rel.wt – Absent-object probe,mean_relative_weight,Absent-object probe,3.8773
+Entropy – Present-object probe,attention_entropy,Present-object probe,0.8766
+Focus share – Present-object probe,focus_share,Present-object probe,0.1716
+Center off. – Present-object probe,center_offset,Present-object probe,0.1522
+Edge mass – Present-object probe,edge_mass,Present-object probe,0.1594
+Top-1 share – Present-object probe,top1_share,Present-object probe,0.0522
+Max rel.wt – Present-object probe,max_relative_weight,Present-object probe,55.8448
+Mean rel.wt – Present-object probe,mean_relative_weight,Present-object probe,4.1951

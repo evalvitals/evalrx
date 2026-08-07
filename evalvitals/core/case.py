@@ -84,6 +84,35 @@ class StepRole(str, Enum):
     SYSTEM = "system"
 
 
+def _json_safe(value: Any) -> Any:
+    """Best-effort conversion of *value* into something ``json.dumps`` accepts.
+
+    Rich objects degrade to descriptors instead of raising: images (anything
+    with ``.size`` + ``.mode``, i.e. PIL) become ``"<image WxH>"`` — trajectories
+    reference media, they never embed pixels.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_json_safe(v) for v in value]
+    if hasattr(value, "size") and hasattr(value, "mode"):  # PIL.Image, without importing PIL
+        try:
+            w, h = value.size
+            return f"<image {w}x{h}>"
+        except Exception:  # pragma: no cover - exotic size attrs
+            return "<image>"
+    if hasattr(value, "to_dict"):
+        try:
+            return _json_safe(value.to_dict())
+        except Exception:  # pragma: no cover - defensive
+            return str(value)
+    return str(value)
+
+
 @dataclass
 class Step:
     """One atomic step in an agent trajectory.
@@ -104,6 +133,38 @@ class Step:
     failure_mode: Optional[str] = None     # MAST code, e.g. "FM-2.4"
     judge_confidence: Optional[float] = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-safe dict (images and rich objects degrade to descriptors)."""
+        return {
+            "idx": self.idx,
+            "role": self.role.value,
+            "content": _json_safe(self.content),
+            "agent_id": self.agent_id,
+            "tool_call": _json_safe(self.tool_call),
+            "observation": _json_safe(self.observation),
+            "span": _json_safe(self.span),
+            "is_first_error": self.is_first_error,
+            "failure_mode": self.failure_mode,
+            "judge_confidence": self.judge_confidence,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Step":
+        """Inverse of :meth:`to_dict` (descriptor strings stay strings)."""
+        role = d.get("role", StepRole.ACTOR)
+        return cls(
+            idx=int(d.get("idx", 0)),
+            role=StepRole(role) if not isinstance(role, StepRole) else role,
+            content=d.get("content"),
+            agent_id=d.get("agent_id", "main"),
+            tool_call=d.get("tool_call"),
+            observation=d.get("observation"),
+            span=d.get("span") or {},
+            is_first_error=d.get("is_first_error"),
+            failure_mode=d.get("failure_mode"),
+            judge_confidence=d.get("judge_confidence"),
+        )
+
 
 @dataclass
 class Trajectory:
@@ -122,6 +183,32 @@ class Trajectory:
 
     def __iter__(self) -> Iterator[Step]:
         return iter(self.steps)
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-safe dict — the on-disk trajectory format (``trajectory.json``)."""
+        return {
+            "sample_id": self.sample_id,
+            "goal": self.goal,
+            "steps": [s.to_dict() for s in self.steps],
+            "final_answer": _json_safe(self.final_answer),
+            "ground_truth": _json_safe(self.ground_truth),
+            "outcome": self.outcome.value,
+            "metrics": _json_safe(self.metrics),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Trajectory":
+        """Inverse of :meth:`to_dict` — reload a persisted trajectory."""
+        outcome = d.get("outcome", Label.UNKNOWN)
+        return cls(
+            sample_id=d.get("sample_id", ""),
+            goal=d.get("goal", ""),
+            steps=[Step.from_dict(s) for s in d.get("steps") or []],
+            final_answer=d.get("final_answer"),
+            ground_truth=d.get("ground_truth"),
+            outcome=Label(outcome) if not isinstance(outcome, Label) else outcome,
+            metrics=d.get("metrics") or {},
+        )
 
     @classmethod
     def from_records(
@@ -202,12 +289,13 @@ class FailureCase:
             "id": self.id,
             "inputs": {
                 "prompt": self.inputs.prompt,
-                "image": self.inputs.image,
-                "audio": self.inputs.audio,
-                "video": self.inputs.video,
+                "image": _json_safe(self.inputs.image),
+                "audio": _json_safe(self.inputs.audio),
+                "video": _json_safe(self.inputs.video),
             },
             "expected": self.expected,
             "observed": self.observed,
+            "trajectory": self.trajectory.to_dict() if self.trajectory else None,
             "label": self.label.value,
             "tags": sorted(self.tags),
             "provenance": {

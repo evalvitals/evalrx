@@ -1,0 +1,8 @@
+signal,display_name,alias,scope,n_fail,n_pass,median_fail,median_pass,auc,auc_lo,auc_hi,separation,rank_biserial,cohens_d,mannwhitney_p,direction,ci_excludes_null
+focus_share,Attention focus share,Focus share,all_cases,126,480,0.2912,0.1509,0.774,0.728,0.816,0.548,0.548,0.984,2.87e-21,higher in FAIL,True
+top1_share,Top-1 patch share,Top-1 share,all_cases,126,480,0.0926,0.044,0.765,0.722,0.808,0.529,0.529,0.839,5.77e-20,higher in FAIL,True
+attention_entropy,Attention entropy,Entropy,all_cases,126,480,0.794,0.8885,0.237,0.191,0.284,0.527,-0.527,-0.948,8.4e-20,lower in FAIL,True
+max_relative_weight,Maximum relative attention,Max rel.wt,all_cases,126,480,131.0078,41.7127,0.741,0.694,0.786,0.483,0.483,0.427,6.94e-17,higher in FAIL,True
+mean_relative_weight,Mean relative attention,Mean rel.wt,all_cases,126,480,5.6602,3.7961,0.671,0.619,0.718,0.342,0.342,0.544,3.36e-09,higher in FAIL,True
+center_offset,Center offset,Center off.,all_cases,126,480,0.221,0.1493,0.652,0.596,0.71,0.304,0.304,0.617,1.45e-07,higher in FAIL,True
+edge_mass,Edge mass,Edge mass,all_cases,126,480,0.1617,0.1832,0.43,0.37,0.494,0.141,-0.141,-0.141,0.0149,lower in FAIL,True

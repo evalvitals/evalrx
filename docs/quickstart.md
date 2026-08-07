@@ -125,6 +125,53 @@ provides the channel, but it's granted only when the model's chat template
 renders tools (`spec.tool_calling`, verified against the template at load).
 So `compose(non_tool_model, "hf_local", want={TOOL_CALLS})` fails up front.
 
+**Multimodal agents.** The same loop runs vision cases end-to-end: give the
+case an image and it enters the first user message; a tool that returns a
+`ToolResult` with `images` gets them re-injected as a new message, so the
+model can *look at* what its tool produced. `evalvitals.models.tools` ships
+subject-side visual tools (deterministic, model-agnostic schemas):
+
+```python
+from evalvitals import Capability, compose, RuntimeConfig
+from evalvitals.core.case import FailureCase, Inputs
+from evalvitals.models.agent import Agent
+from evalvitals.models.tools import zoom_in_tool
+
+vlm = compose("qwen3-vl-2b-instruct", "hf_local",
+              runtime=RuntimeConfig(device="cuda:0"),
+              want={Capability.GENERATE, Capability.TOOL_CALLS})
+agent = Agent(vlm, tools=[zoom_in_tool(image, save_dir="outputs/images")],
+              system="Zoom into the relevant region before answering.")
+traj = agent.run(FailureCase(inputs=Inputs(prompt="What does the sign say?", image=image)))
+json.dump(traj.to_dict(), open("trajectory.json", "w"))   # serializable end-to-end
+```
+
+Runnable version: `examples/agent_demos/visual_zoom_agent/run.py`.
+
+**Scale path.** For batch probing, serve the open checkpoint with vLLM and use
+the built-in OpenAI-compatible client — no dependency injection needed:
+
+```bash
+vllm serve Qwen/Qwen3-VL-2B-Instruct --port 8901 \
+    --enable-auto-tool-choice --tool-call-parser hermes
+```
+
+```python
+from evalvitals.models.agent import run_batch
+from evalvitals.models.backends import openai_runtime
+
+vlm = compose("qwen3-vl-2b-instruct", "api",
+              runtime=openai_runtime(base_url="http://localhost:8901/v1"))
+trajs = run_batch(vlm, cases, tools_factory=lambda c: [zoom_in_tool(c.inputs.image)],
+                  system=SYSTEM, concurrency=8)   # threads; error-stub per failed case
+```
+
+Every turn records latency and token usage on the step's ``span``; the
+trajectory flattener (`evalvitals.analysis.trajectory_records`) turns finished
+runs into `records.json` rows that `evalvitals explore` consumes directly.
+Closed models: the same `openai_runtime` against an OpenAI endpoint, or
+`GeminiModel` (native function calling) for Gemini.
+
 ## Standalone M2 Explore
 
 If you already have result logs and want M2 to analyze them without writing
@@ -148,6 +195,17 @@ explorer is told to freeze threshold-explicit recipes, and after M3 the
 held-out rows re-test every recipe verbatim (e-BH, `split_label="held_out"`)
 while an LLM judge grades each hypothesis — `confirm_report.json` lands next
 to the report and fills the dashboard's *Held-out Verdicts* tab.
+
+**Agent-trajectory records.** Rows produced by
+`evalvitals.analysis.trajectory_records` flow through explore unchanged; use
+`trajectory_records.AGENT_QUESTION_TEMPLATE` as the question (it declares the
+column-family semantics — causal `shap_outcome_*`, stability `success_rate`,
+judge-assigned `failure_mode`, cost columns — and steers hypotheses toward
+the black-box fix surface). One held-out caveat is unique to agents: columns
+from the *interventional* probes (`reliability_probe`, `tool_shap`) must be
+**re-run on the held-out cases** (k repetitions / subset ablations there) —
+reusing exploration-set values would test nothing. Budget for it: held-out
+confirmation of these columns costs the same per case as exploration did.
 
 Open the saved output as a dashboard:
 

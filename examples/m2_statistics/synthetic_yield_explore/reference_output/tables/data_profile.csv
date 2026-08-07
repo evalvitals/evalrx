@@ -1,0 +1,6 @@
+column,dtype,n_missing,pct_missing,n_unique,top_values,rarest_n,mean,sd,min,max,n_iqr_outliers,skew
+batch_id,str,0,0.0,30,b0=1; b1=1; b2=1; b3=1; b4=1,1.0,,,,,,
+temperature,float64,0,0.0,29,,,194.737,31.358,154.6,248.5,0.0,0.371
+pressure,float64,0,0.0,28,,,4.352,0.848,3.03,5.99,0.0,0.095
+catalyst,str,0,0.0,3,A=11; C=10; B=9,9.0,,,,,,
+yield_pct,float64,0,0.0,28,,,69.427,6.888,53.8,80.9,0.0,-0.158

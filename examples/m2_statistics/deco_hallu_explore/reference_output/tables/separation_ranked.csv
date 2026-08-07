@@ -1,0 +1,8 @@
+signal_label,display_name,signal,separation,auc,auc_lo,auc_hi,direction,n_fail,n_pass
+Focus share,Attention focus share,focus_share,0.644,0.822,0.775,0.866,higher in FAIL,126,240
+Entropy,Attention entropy,attention_entropy,0.642,0.179,0.132,0.229,lower in FAIL,126,240
+Top-1 share,Top-1 patch share,top1_share,0.607,0.803,0.752,0.848,higher in FAIL,126,240
+Max rel.wt,Maximum relative attention,max_relative_weight,0.583,0.791,0.743,0.837,higher in FAIL,126,240
+Mean rel.wt,Mean relative attention,mean_relative_weight,0.449,0.724,0.675,0.775,higher in FAIL,126,240
+Center off.,Center offset,center_offset,0.343,0.672,0.611,0.732,higher in FAIL,126,240
+Edge mass,Edge mass,edge_mass,0.292,0.354,0.293,0.417,lower in FAIL,126,240

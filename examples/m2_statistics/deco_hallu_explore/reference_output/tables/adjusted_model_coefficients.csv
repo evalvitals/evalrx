@@ -1,0 +1,10 @@
+term,signal,display_name,kind,odds_ratio_per_sd,or_lo,or_hi,wald_p_robust,lrt_chi2,lrt_p,ci_excludes_1,abs_log_or
+z_log10_max_relative_weight,log10_max_relative_weight,Maximum relative attention (log10),attention signal,4.752,1.73,13.05,0.0025,11.33,0.000761,True,1.5585655820603437
+z_focus_share,focus_share,Attention focus share,attention signal,4.339,1.25,15.054,0.0208,6.09,0.0136,True,1.4676439068162137
+z_top1_share,top1_share,Top-1 patch share,attention signal,0.354,0.188,0.666,0.00127,10.86,0.000983,True,1.0384583658483626
+ck_4B,ck_4B,Checkpoint 4B (vs 2B),checkpoint (fixed effect),0.405,0.123,1.336,0.138,2.39,0.122,False,0.9038682118755978
+z_mean_relative_weight,mean_relative_weight,Mean relative attention,attention signal,0.547,0.332,0.901,0.0178,4.95,0.0261,True,0.6033064765601558
+ck_8B,ck_8B,Checkpoint 8B (vs 2B),checkpoint (fixed effect),0.563,0.264,1.197,0.136,1.95,0.163,False,0.5744756508424468
+z_edge_mass,edge_mass,Edge mass,attention signal,1.043,0.699,1.556,0.838,0.05,0.821,False,0.042101176018635326
+z_center_offset,center_offset,Center offset,attention signal,1.039,0.669,1.615,0.864,0.04,0.834,False,0.03825871211709027
+z_attention_entropy,attention_entropy,Attention entropy,attention signal,1.035,0.264,4.066,0.961,0.0,0.96,False,0.03440142671733232
