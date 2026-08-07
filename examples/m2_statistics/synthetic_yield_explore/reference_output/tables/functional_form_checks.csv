@@ -1,0 +1,4 @@
+form,r2,delta_r2_vs_full,term_p_value
+additive model (reported),0.8618,0.0,
++ temperature^2 (curvature),0.8663,0.0045,0.38
++ temperature x pressure (interaction),0.867,0.0052,0.3431

@@ -308,18 +308,19 @@ def test_upload_page_renders_form(tmp_path):
 def test_mode_selection_drives_split_slider(tmp_path):
     at = _run_app(tmp_path)
     mode = next(r for r in at.radio if r.label == "Analysis mode")
-    # default: explore only, whole dataset (1:0)
-    assert mode.value == "Explore only (M2 + M3)"
-    slider = at.slider[0]
-    assert slider.value == 1.0
-
-    mode.set_value("Explore + held-out verification")
-    at.run()
-    assert not at.exception
+    # Verification is the default: a run that confirms nothing is the weaker
+    # product, so the user opts OUT of holding data back rather than opting in.
+    assert mode.value == "Explore + held-out verification"
     slider = at.slider[0]
     assert slider.value == 0.6  # 0.6 : 0.4 default in verification mode
     blob = " ".join(str(m.value) for m in at.caption)
     assert "60%" in blob and "40%" in blob
+
+    mode.set_value("Explore only (M2 + M3)")
+    at.run()
+    assert not at.exception
+    slider = at.slider[0]
+    assert slider.value == 1.0  # explore-only analyses everything in-sample
 
 
 def test_finished_run_renders_explore_tabs(tmp_path):
@@ -327,9 +328,12 @@ def test_finished_run_renders_explore_tabs(tmp_path):
     at = _run_app(tmp_path)
     assert not at.exception
     # the sidebar lists the run: AppTest's .options carry the format_func'd
-    # display labels, while set_value takes the raw option (the run name)
+    # display labels (a human-readable name, not the storage directory), while
+    # set_value takes the raw option (the run name)
+    from evalvitals.analysis.upload_app import _pretty_name
+
     radio = at.sidebar.radio[0]
-    label = next(o for o in radio.options if str(o).endswith(run.name))
+    label = next(o for o in radio.options if str(o).endswith(_pretty_name(run.name)))
     assert "🟢" in label  # exit 0 + report present -> shown as done
     radio.set_value(run.name)
     at.run()
@@ -365,8 +369,10 @@ def test_attached_local_dir_renders_in_sidebar_and_body(tmp_path):
     at.run()
     assert not at.exception
 
+    from evalvitals.analysis.upload_app import _pretty_name
+
     radio = at.sidebar.radio[0]
-    label = next(o for o in radio.options if str(o).endswith(local.name))
+    label = next(o for o in radio.options if str(o).endswith(_pretty_name(local)))
     assert label.startswith("📁")
     radio.set_value(f"@{local}")
     at.run()
@@ -375,7 +381,12 @@ def test_attached_local_dir_renders_in_sidebar_and_body(tmp_path):
         "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
         "4 Held-out Verdicts", "5 Fix",
     ]
-    assert any("attached results directory" in str(c.value) for c in at.caption)
+    # The on-disk location is provenance, not chrome: it must not be printed
+    # beside the title where a screenshot or screen-share would carry it. It
+    # survives only inside the collapsed provenance disclosure.
+    assert any("read-only" in str(c.value) for c in at.caption)
+    leaked = [str(c.value) for c in at.caption if str(local) in str(c.value)]
+    assert leaked and all(t.startswith("Bundle:") for t in leaked), leaked
     blob = " ".join(str(m.value) for m in at.markdown)
     assert blob.count("not available for this run") == 2
 

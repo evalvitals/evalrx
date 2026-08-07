@@ -25,6 +25,9 @@ from evalvitals.analyzers.agent.counterfactual import CounterfactualReplay
 from evalvitals.analyzers.agent.first_error_judge import FirstErrorJudge
 from evalvitals.analyzers.agent.ignored_obs import IgnoredObservationDetector
 from evalvitals.analyzers.agent.loop_detect import LoopDetector
+from evalvitals.analyzers.agent.reliability import ReliabilityProbe
+from evalvitals.analyzers.agent.tool_shap import ToolShap
+from evalvitals.analyzers.agent.trajectory_rubric import TrajectoryRubricJudge
 from evalvitals.analyzers.attention.rollout import AttentionRolloutAnalyzer
 from evalvitals.analyzers.attention.sink import AttentionSinkAnalyzer
 from evalvitals.analyzers.attention.summary import AttentionAnalyzer
@@ -156,6 +159,42 @@ _SKIPPED_REASON: dict[str, str] = {
 }
 
 
+# ── scripted runners for the intervention probes (stateless: safe to re-run) ──
+def _graded_batch() -> CaseBatch:
+    return CaseBatch([FailureCase(inputs=Inputs(prompt="Is there a dog?"), expected="yes")])
+
+
+def _mini_traj(answer: str, tools: list[str]) -> Trajectory:
+    steps = [Step(idx=0, role=StepRole.USER, content="Is there a dog?")]
+    for i, name in enumerate(tools):
+        steps.append(Step(idx=len(steps), role=StepRole.ACTOR,
+                          tool_call={"name": name, "args": {"i": i}}, span={"turn": i + 1}))
+        steps.append(Step(idx=len(steps), role=StepRole.TOOL, content=name, observation="ok"))
+    steps.append(Step(idx=len(steps), role=StepRole.ACTOR, content=answer))
+    return Trajectory(sample_id="r0", goal="Is there a dog?", steps=steps, final_answer=answer,
+                      metrics={"terminated": "final", "n_tool_calls": len(tools)})
+
+
+def _scripted_runs_fn(case, k):
+    # 2 passes + 1 fail with differing tool sequences: flaky, diverse, gradable.
+    return [_mini_traj("Yes, a dog.", ["zoom"]),
+            _mini_traj("Yes, a dog.", ["zoom"]),
+            _mini_traj("No dog visible.", ["zoom", "zoom"])][:k]
+
+
+def _scripted_run_with_tools(case, tool_names):
+    # Passing depends ONLY on zoom being available -> exact Shapley is knowable.
+    return _mini_traj("yes, a dog." if "zoom" in tool_names else "no.", list(tool_names))
+
+
+_RUBRIC_JUDGE = ScriptedFakeModel(
+    answers=['{"failure_mode": "FM-LOOP", "rubric": {"grounding": 1, "tool_choice": 2, '
+             '"tool_args": 1, "evidence_use": 0, "answer_quality": 1}, '
+             '"first_error_step": 3, "rationale": "repeats the same call"}'],
+    capabilities={Capability.GENERATE},
+)
+
+
 # ── suite 2: (analyzer, model, data) triples for runnable analyzers ────────────
 # Each call to _traj_batch() / _pope_batch() / _chair_batch() creates a fresh
 # CaseBatch so tests are isolated even if an analyzer mutates its input cases.
@@ -185,6 +224,10 @@ _RUNNABLE: list[tuple[Any, Any, Any]] = [
     (FirstErrorJudge(),              _JUDGE_MODEL, _traj_batch()),
     (CounterfactualReplay(rerun_fn=lambda traj, idx, seed: True, n_replays=2),
                                      _FULL, _traj_batch()),
+    (TrajectoryRubricJudge(judge=_RUBRIC_JUDGE), None, _traj_batch()),
+    (ReliabilityProbe(runs_fn=_scripted_runs_fn, k=3), None, _graded_batch()),
+    (ToolShap(run_with_tools=_scripted_run_with_tools, tool_names=["zoom", "detect"]),
+                                     None, _graded_batch()),
     # hallucination — GENERATE-based; modality filtering is in registry discovery,
     # not in _check_capabilities, so a text FakeModel reaches _run correctly.
     (POPEAnalyzer(), ScriptedFakeModel(
@@ -236,6 +279,16 @@ _EXPECTED_FINDING_KEYS: dict[str, set[str]] = {
     "ignored_obs": {"n_trajectories", "n_with_ignored_obs", "per_case"},
     "first_error_judge": {"n_trajectories", "judge", "per_case", "_caveat"},
     "counterfactual": {"n_trajectories", "per_case", "_caveat"},
+    "trajectory_rubric": {
+        "n_trajectories", "n_judged", "judge", "mode_counts", "per_case", "_caveat",
+    },
+    "reliability_probe": {
+        "n_trajectories", "k", "n_graded_cases", "mean_success_rate", "frac_flaky",
+        "per_case", "_caveat",
+    },
+    "tool_shap": {
+        "n_trajectories", "tool_names", "exact", "runs_per_case", "per_case", "_caveat",
+    },
     "pope": {"n", "unparsed", "accuracy", "precision", "recall", "f1", "yes_rate"},
     "chair": {"n", "chair_i", "chair_s"},
     "prompt_contrast": {"n_cases", "n_strategies", "n_unscored", "by_strategy"},
@@ -345,6 +398,35 @@ def _check_counterfactual(f: dict[str, Any]) -> None:
     assert _between(f["per_case"][0]["most_influential_step"]["flip_rate"], 0, 1)
 
 
+def _check_trajectory_rubric(f: dict[str, Any]) -> None:
+    assert f["n_judged"] == 1
+    entry = f["per_case"][0]
+    assert entry["failure_mode"] == "FM-LOOP"
+    assert entry["rubric_evidence_use"] == 0 and entry["rubric_tool_choice"] == 2
+    assert entry["first_error_step"] == 3
+    assert f["mode_counts"] == {"FM-LOOP": 1}
+
+
+def _check_reliability_probe(f: dict[str, Any]) -> None:
+    assert f["n_trajectories"] == 1
+    entry = f["per_case"][0]
+    assert entry["n_runs"] == 3 and entry["n_pass"] == 2
+    assert entry["pass_at_k"] == 1 and entry["pass_all_k"] == 0 and entry["flaky"] == 1
+    assert _between(entry["answer_agreement"], 0, 1)
+    assert entry["n_tool_calls_std"] > 0  # the fail run used a different sequence
+
+
+def _check_tool_shap(f: dict[str, Any]) -> None:
+    assert f["exact"] is True and f["runs_per_case"] == 4  # 2 tools -> 2^2 subsets
+    entry = f["per_case"][0]
+    # passing depends only on zoom -> exact Shapley puts ALL outcome mass on it
+    assert entry["shap_outcome_zoom"] == 1.0
+    assert entry["shap_outcome_detect"] == 0.0
+    assert entry["baseline_pass"] == 1 and entry["no_tools_pass"] == 0
+    assert entry["tools_needed"] == 1
+    assert entry["shap_answer_zoom"] > entry["shap_answer_detect"]
+
+
 def _check_pope(f: dict[str, Any]) -> None:
     assert f["n"] == 2
     assert f["unparsed"] == 0
@@ -384,6 +466,9 @@ _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
     "ignored_obs": _check_ignored_obs,
     "first_error_judge": _check_first_error_judge,
     "counterfactual": _check_counterfactual,
+    "trajectory_rubric": _check_trajectory_rubric,
+    "reliability_probe": _check_reliability_probe,
+    "tool_shap": _check_tool_shap,
     "pope": _check_pope,
     "chair": _check_chair,
     "prompt_contrast": _check_prompt_contrast,
@@ -410,6 +495,11 @@ _CLASS_FACTORIES: dict[str, Callable[[], Any]] = {
         n_replays=2,
     ),
     "chair": lambda: CHAIRAnalyzer(object_vocab=["dog", "cat"]),
+    "reliability_probe": lambda: ReliabilityProbe(runs_fn=lambda case, k: [], k=2),
+    "tool_shap": lambda: ToolShap(
+        run_with_tools=lambda case, names: None, tool_names=["a"]
+    ),
+    "trajectory_rubric": lambda: TrajectoryRubricJudge(judge=_RUBRIC_JUDGE),
 }
 
 

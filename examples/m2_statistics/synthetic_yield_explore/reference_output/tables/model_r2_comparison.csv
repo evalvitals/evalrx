@@ -1,0 +1,4 @@
+model,r2
+temperature only,0.818
+all numeric factors,0.83
+all factors + catalyst,0.862

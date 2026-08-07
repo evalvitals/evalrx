@@ -1,0 +1,8 @@
+signal,display_name,pooled_auc,auc_min_checkpoint,auc_max_checkpoint,direction_consistent,sign_flip_across_checkpoints
+attention_entropy,Attention entropy,0.179,0.102,0.276,True,False
+focus_share,Attention focus share,0.822,0.738,0.888,True,False
+center_offset,Center offset,0.672,0.603,0.784,True,False
+edge_mass,Edge mass,0.354,0.34,0.412,True,False
+top1_share,Top-1 patch share,0.803,0.716,0.871,True,False
+max_relative_weight,Maximum relative attention,0.791,0.688,0.908,True,False
+mean_relative_weight,Mean relative attention,0.724,0.654,0.903,True,False

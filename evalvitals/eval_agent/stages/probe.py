@@ -15,10 +15,18 @@ Usage::
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from evalvitals.core.capability import Capability
 from evalvitals.core.registry import registry
+
+
+def _carries_trajectories(data: Any) -> bool:
+    """True when *data* (CaseBatch / iterable of cases) has any trajectory-carrying case."""
+    try:
+        return any(getattr(c, "trajectory", None) is not None for c in data)
+    except TypeError:
+        return False
 
 if TYPE_CHECKING:
     from evalvitals.core.model import Model
@@ -70,7 +78,9 @@ _PRIORITY: dict[str, list[str]] = {
     ],
     ModelKind.AGENT: [
         "loop_detect", "ignored_obs",             # behavioral heuristics
-        "first_error_judge", "counterfactual",
+        "first_error_judge", "trajectory_rubric", # LLM-judge localisation + classification
+        "counterfactual", "reliability_probe",    # re-run probes: step perturbation, pass@k
+        "tool_shap",                              # re-run probe: tool-subset Shapley
     ],
     ModelKind.LLM: [
         "attention", "logit_lens",                # interpretability
@@ -118,12 +128,18 @@ class StrategyProbe:
     def __init__(self, priority_override: dict[str, list[str]] | None = None) -> None:
         self._priority = priority_override or _PRIORITY
 
-    def detect_kind(self, model: "Model") -> ModelKind:
-        """Infer VLM / AGENT / LLM from the model's capabilities and modalities.
+    def detect_kind(self, model: "Model", data: Any = None) -> ModelKind:
+        """Infer VLM / AGENT / LLM from the data shape, capabilities and modalities.
 
-        Image modality takes priority over TOOL_CALLS so that VLMs that also
-        support tool use (e.g. Qwen3-VL) are treated as VLMs, not agents.
+        Trajectory-carrying *data* is the definitive agent signal and wins
+        outright: a VLM that drove a tool loop should get the AGENT analyzer
+        priority (loop detection, first-error attribution), not the VLM one.
+        Without trajectories, image modality takes priority over TOOL_CALLS so
+        that VLMs that merely *support* tool use (e.g. Qwen3-VL) are treated
+        as VLMs, not agents.
         """
+        if data is not None and _carries_trajectories(data):
+            return ModelKind.AGENT
         if "image" in getattr(model, "modalities", frozenset({"text"})):
             return ModelKind.VLM
         if Capability.TOOL_CALLS in getattr(model, "capabilities", frozenset()):
@@ -135,6 +151,7 @@ class StrategyProbe:
         model: "Model",
         max_analyzers: int | None = None,
         hint_failure_modes: list[str] | None = None,
+        data: Any = None,
     ) -> list[str]:
         """Return compatible analyzer names ranked by diagnostic priority.
 
@@ -144,13 +161,16 @@ class StrategyProbe:
             hint_failure_modes: Failure-mode tags from outstanding M3 hypotheses.
                                 Analyzers that match a hint are promoted to the
                                 front of the ranked list for focused follow-up.
+            data:               The case batch about to be probed, when available.
+                                Trajectory-carrying cases flip the ranking to the
+                                AGENT priority list (see :meth:`detect_kind`).
 
         Returns:
             Ordered list of registered analyzer names.  Hint-matched items
             come first, then the standard priority-list items, then remaining
             compatible analyzers sorted alphabetically.
         """
-        kind = self.detect_kind(model)
+        kind = self.detect_kind(model, data)
         compatible = set(registry.analyzers.names_compatible_with(model))
         priority = self._priority.get(kind, [])
 

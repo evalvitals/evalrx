@@ -1,0 +1,8 @@
+signal,display_name,kruskal_H,p_value,epsilon_sq,median_2B,median_4B,median_8B,spearman_vs_size
+mean_relative_weight,Mean relative attention,133.435,1.06e-29,0.362,1.6334,6.5169,3.6088,0.277
+max_relative_weight,Maximum relative attention,65.168,7.06e-15,0.174,18.2645,96.9712,62.3618,0.252
+edge_mass,Edge mass,15.703,0.000389,0.038,0.2274,0.1896,0.176,-0.206
+focus_share,Attention focus share,8.438,0.0147,0.018,0.1446,0.1748,0.204,0.151
+top1_share,Top-1 patch share,8.661,0.0132,0.018,0.0406,0.0536,0.0612,0.152
+attention_entropy,Attention entropy,5.119,0.0773,0.009,0.8934,0.879,0.8584,-0.118
+center_offset,Center offset,5.447,0.0657,0.009,0.1501,0.1585,0.1875,0.116

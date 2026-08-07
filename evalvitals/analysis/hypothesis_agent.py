@@ -26,8 +26,36 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from evalvitals.analysis.plain_language import jargon_violation
+from evalvitals.analysis.prompts.hypothesis_agent import (
+    AGENT_COLUMN_MARKERS as _AGENT_COLUMN_MARKERS,
+)
+from evalvitals.analysis.prompts.hypothesis_agent import (
+    AGENT_TRAJECTORY_HINT as _AGENT_TRAJECTORY_HINT,
+)
 from evalvitals.analysis.prompts.hypothesis_agent import PLAIN_REPAIR_PROMPT as _PLAIN_REPAIR_PROMPT
 from evalvitals.analysis.prompts.hypothesis_agent import PROPOSE_PROMPT as _PROPOSE_PROMPT
+
+
+def _is_agent_report(report: dict) -> bool:
+    """True when the exploratory report shows agent-trajectory column families.
+
+    Detection scans the question, takeaway titles/analysis, and candidate
+    signal names/rationales for the marker substrings — the same places the
+    propose prompt quotes, so the hint fires exactly when the model will see
+    trajectory columns.
+    """
+    pieces: list[str] = [str(report.get("question") or "")]
+    for t in report.get("takeaways") or []:
+        if isinstance(t, dict):
+            pieces.append(str(t.get("title", "")))
+            pieces.append(str(t.get("analysis", "")))
+    for s in report.get("candidate_signals") or []:
+        if isinstance(s, dict):
+            pieces.append(str(s.get("name", "")))
+            pieces.append(str(s.get("display_name", "")))
+            pieces.append(str(s.get("rationale", "")))
+    text = " ".join(pieces)
+    return any(marker in text for marker in _AGENT_COLUMN_MARKERS)
 
 if TYPE_CHECKING:
     from evalvitals.agent_runtime.cli_types import CliAgentConfig
@@ -109,6 +137,8 @@ class HypothesisAgent:
             observations_text=observations_text,
             signals_text=signals_text,
         )
+        if _is_agent_report(report):
+            prompt += "\n\n" + _AGENT_TRAJECTORY_HINT
         try:
             raw = self._generate(prompt)
         except Exception as exc:  # noqa: BLE001

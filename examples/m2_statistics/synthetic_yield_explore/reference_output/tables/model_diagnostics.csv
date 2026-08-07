@@ -1,0 +1,2 @@
+n_rows,r2,adj_r2,residual_sd,f_stat,f_p_value,shapiro_w,shapiro_p,breusch_pagan_p,max_vif,n_cooks_above_4_over_n
+30,0.862,0.84,2.757,38.98,0.0,0.979,0.7851,0.1655,1.56,2

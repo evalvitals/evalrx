@@ -29,6 +29,7 @@ class FakeChatHandle(Model):
         self.capabilities = caps
         self._script = list(script)
         self._i = 0
+        self.seen_messages: list = []  # snapshot of the history at each chat() call
 
     def generate(self, inputs, **kwargs) -> str:
         return "noop"
@@ -37,6 +38,9 @@ class FakeChatHandle(Model):
         raise NotImplementedError
 
     def chat(self, messages, tools=None) -> ChatTurn:
+        self.seen_messages.append([dict(m) for m in messages])
+        self.seen_tools = getattr(self, "seen_tools", [])
+        self.seen_tools.append(tools)
         turn = self._script[min(self._i, len(self._script) - 1)]
         self._i += 1
         return turn
@@ -151,3 +155,145 @@ def test_agent_runs_on_api_handle_with_chat_fn():
 def test_codec_for_routes_local_to_qwen():
     handle = FakeChatHandle([ChatTurn(text="x")])
     assert isinstance(codec_for(handle), QwenToolCodec)
+
+
+# ----------------------------------------------------------------------
+# Multimodal loop — image cases and image-bearing tool results
+# ----------------------------------------------------------------------
+def _image_blocks(message):
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [b for b in content if isinstance(b, dict) and b.get("type") == "image"]
+
+
+def test_case_image_goes_into_user_content_blocks():
+    from evalvitals.core.case import FailureCase, Inputs
+
+    sentinel = object()
+    handle = FakeChatHandle([ChatTurn(text="an answer")])
+    traj = Agent(handle, tools=[_add_tool()]).run(
+        FailureCase(inputs=Inputs(prompt="what is this?", image=sentinel))
+    )
+    user_msg = handle.seen_messages[0][0]
+    blocks = _image_blocks(user_msg)
+    assert len(blocks) == 1 and blocks[0]["image"] is sentinel
+    assert {"type": "text", "text": "what is this?"} in user_msg["content"]
+    assert traj.goal == "what is this?"
+    assert traj.steps[0].span["has_image"] is True
+
+
+def test_text_only_case_keeps_plain_string_content():
+    handle = FakeChatHandle([ChatTurn(text="ok")])
+    Agent(handle, tools=[_add_tool()]).run("just text")
+    assert handle.seen_messages[0][0]["content"] == "just text"
+
+
+def _crop_tool(sentinel):
+    from evalvitals.core.tool import ToolResult
+
+    return Tool(
+        name="crop",
+        description="crop",
+        parameters={"type": "object", "properties": {}},
+        fn=lambda: ToolResult(text="cropped it", images=[sentinel], meta={"k": "v"}),
+    )
+
+
+def test_toolresult_images_are_reinjected_as_a_user_message():
+    sentinel = object()
+    handle = FakeChatHandle([
+        ChatTurn(text='<tool_call>{"name": "crop", "arguments": {}}</tool_call>'),
+        ChatTurn(text="done"),
+    ])
+    Agent(handle, tools=[_crop_tool(sentinel)]).run("zoom please")
+    history = handle.seen_messages[1]  # what the model saw on turn 2
+    assert history[-1]["role"] == "user"
+    blocks = _image_blocks(history[-1])
+    assert len(blocks) == 1 and blocks[0]["image"] is sentinel
+    assert history[-2] == {"role": "tool", "content": "cropped it"}  # text-only observation
+
+
+def test_toolresult_observation_is_recorded_structured():
+    sentinel = object()
+    handle = FakeChatHandle([
+        ChatTurn(text='<tool_call>{"name": "crop", "arguments": {}}</tool_call>'),
+        ChatTurn(text="done"),
+    ])
+    traj = Agent(handle, tools=[_crop_tool(sentinel)]).run("zoom please")
+    assert traj.steps[2].observation == {"text": "cropped it", "n_images": 1, "meta": {"k": "v"}}
+
+
+# ----------------------------------------------------------------------
+# Loop-policy options (candidate L2 fixes shipped as configuration)
+# ----------------------------------------------------------------------
+_CALL = '<tool_call>{"name": "add", "arguments": {"a": 1, "b": 1}}</tool_call>'
+
+
+def _counting_tool(counter):
+    return Tool(name="add", description="add",
+                parameters={"type": "object", "properties": {}},
+                fn=lambda **kw: counter.append(1) or "2")
+
+
+def test_block_repeat_calls_skips_executor_and_nudges():
+    from evalvitals.core.case import StepRole as SR
+
+    executed: list = []
+    handle = FakeChatHandle([ChatTurn(text=_CALL), ChatTurn(text=_CALL), ChatTurn(text="done")])
+    traj = Agent(handle, [_counting_tool(executed)], block_repeat_calls=True).run("go")
+    assert len(executed) == 1  # second identical call never reached the executor
+    tool_steps = [s for s in traj.steps if s.role is SR.TOOL]
+    assert str(tool_steps[0].observation) == "2"
+    assert str(tool_steps[1].observation).startswith("[repeat blocked]")
+    assert tool_steps[1].span["repeat_blocked"] is True
+    assert traj.final_answer == "done"
+
+
+def test_different_args_are_not_blocked():
+    executed: list = []
+    other = '<tool_call>{"name": "add", "arguments": {"a": 2, "b": 2}}</tool_call>'
+    handle = FakeChatHandle([ChatTurn(text=_CALL), ChatTurn(text=other), ChatTurn(text="done")])
+    Agent(handle, [_counting_tool(executed)], block_repeat_calls=True).run("go")
+    assert len(executed) == 2
+
+
+def test_repeats_execute_normally_when_policy_off():
+    executed: list = []
+    handle = FakeChatHandle([ChatTurn(text=_CALL), ChatTurn(text=_CALL), ChatTurn(text="done")])
+    Agent(handle, [_counting_tool(executed)]).run("go")
+    assert len(executed) == 2
+
+
+def test_force_final_answer_asks_once_more_without_tools():
+    handle = FakeChatHandle([ChatTurn(text=_CALL), ChatTurn(text=_CALL),
+                             ChatTurn(text="the answer is B")])
+    traj = Agent(handle, [_add_tool()], max_turns=2, force_final_answer=True).run("q")
+    assert traj.metrics["terminated"] == "forced_final"
+    assert traj.final_answer == "the answer is B"
+    assert handle.seen_tools[-1] is None          # the forced turn carries no tools
+    assert handle.seen_messages[-1][-1]["role"] == "user"  # the nudge message
+    assert traj.steps[-1].span["forced_final"] is True
+
+
+def test_forced_final_not_triggered_when_answer_exists():
+    handle = FakeChatHandle([ChatTurn(text="immediate answer")])
+    traj = Agent(handle, [_add_tool()], force_final_answer=True).run("q")
+    assert traj.metrics["terminated"] == "final"
+    assert len(handle.seen_tools) == 1
+
+
+def test_collect_message_images_orders_across_messages():
+    from evalvitals.models.backends.hf_local import _collect_message_images
+
+    class FakeImg:
+        size, mode = (2, 2), "RGB"  # PIL-like so it passes through unopened
+
+    a, b = FakeImg(), FakeImg()
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": [{"type": "image", "image": a}, {"type": "text", "text": "q"}]},
+        {"role": "assistant", "content": "calling tool"},
+        {"role": "user", "content": [{"type": "image", "image": b}, {"type": "text", "text": "crop"}]},
+    ]
+    assert _collect_message_images(messages) == [a, b]

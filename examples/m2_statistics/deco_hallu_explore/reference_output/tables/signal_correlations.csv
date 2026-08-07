@@ -1,0 +1,8 @@
+,attention_entropy,focus_share,center_offset,edge_mass,top1_share,log10_max_relative_weight,mean_relative_weight
+attention_entropy,1.0,-0.945,-0.563,0.447,-0.898,-0.86,-0.66
+focus_share,-0.945,1.0,0.507,-0.358,0.965,0.827,0.606
+center_offset,-0.563,0.507,1.0,0.023,0.461,0.436,0.324
+edge_mass,0.447,-0.358,0.023,1.0,-0.339,-0.524,-0.522
+top1_share,-0.898,0.965,0.461,-0.339,1.0,0.825,0.564
+log10_max_relative_weight,-0.86,0.827,0.436,-0.524,0.825,1.0,0.908
+mean_relative_weight,-0.66,0.606,0.324,-0.522,0.564,0.908,1.0

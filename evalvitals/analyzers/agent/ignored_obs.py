@@ -30,7 +30,7 @@ class IgnoredObservationDetector(Analyzer):
 
     name = "ignored_obs"
     requires = frozenset()
-    applies_to_modalities = frozenset({"text"})
+    applies_to_modalities = frozenset({"text", "image"})  # trajectory analysis is modality-agnostic
 
     DEFAULT_MARKERS = ("error", "not found", "failed", "no result", "none", "invalid", "empty", "exception")
 

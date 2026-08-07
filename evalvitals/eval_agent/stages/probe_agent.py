@@ -208,6 +208,7 @@ class ProbeAgent:
                 model,
                 max_analyzers=self.max_analyzers,
                 hint_failure_modes=hint_failure_modes or None,
+                data=data,
             )
             rationale = _static_rationale(names, hint_failure_modes)
         names, filtered = self._filter_applicable_names(names, model, data)
@@ -329,10 +330,10 @@ class ProbeAgent:
         """
         assert self.judge is not None  # caller guarantees this
 
-        kind = self.selector.detect_kind(model)
+        kind = self.selector.detect_kind(model, data)
         catalog = get_analyzer_catalog(model)
         if not catalog:
-            return self._static_fallback(model), "no analyzers available"
+            return self._static_fallback(model, data), "no analyzers available"
 
         max_n = self.max_analyzers if self.max_analyzers is not None else len(catalog)
 
@@ -411,10 +412,10 @@ class ProbeAgent:
                 raw = self.judge.generate(prompt)
         except Exception as exc:
             logger.warning("ProbeAgent LLM selection failed (%s) — using static fallback", exc)
-            return self._static_fallback(model), "static fallback (LLM call failed)"
+            return self._static_fallback(model, data), "static fallback (LLM call failed)"
 
         self.last_selection_raw = str(raw)
-        return self._parse_llm_response(str(raw), set(catalog), max_n, model)
+        return self._parse_llm_response(str(raw), set(catalog), max_n, model, data)
 
     def _parse_llm_response(
         self,
@@ -422,6 +423,7 @@ class ProbeAgent:
         valid_names: set[str],
         max_n: int,
         model: "Model",
+        data: "CaseBatch | None" = None,
     ) -> tuple[list[str], str]:
         """Extract analyzer names and rationale from the LLM JSON response.
 
@@ -436,21 +438,21 @@ class ProbeAgent:
         # from an unparseable one — surface that so the fallback is diagnosable.
         if not cleaned:
             logger.warning("ProbeAgent: LLM returned an empty response — using static fallback")
-            return self._static_fallback(model), "static fallback (LLM returned empty response)"
+            return self._static_fallback(model, data), "static fallback (LLM returned empty response)"
 
         # Use a non-greedy search that stops at the first closing brace so we
         # don't accidentally span multiple JSON objects.
         match = re.search(r"\{[^{}]*\}", cleaned)
         if match:
             try:
-                data = json.loads(match.group())
+                payload = json.loads(match.group())
                 # Normalise to lowercase so the LLM can return "POPE" or "Pope"
                 names = [
-                    n.lower() for n in data.get("analyzers", [])
+                    n.lower() for n in payload.get("analyzers", [])
                     if n.lower() in valid_names
                 ]
-                rationale = str(data.get("rationale", "LLM-selected"))
-                need = data.get("need_custom")
+                rationale = str(payload.get("rationale", "LLM-selected"))
+                need = payload.get("need_custom")
                 if isinstance(need, str) and need.strip():
                     self._last_need_custom = need.strip()
                 if names:
@@ -466,10 +468,10 @@ class ProbeAgent:
             return found[:max_n], "LLM-selected (text-extracted)"
 
         logger.warning("ProbeAgent: could not parse LLM response — using static fallback")
-        return self._static_fallback(model), "static fallback (LLM parse failed)"
+        return self._static_fallback(model, data), "static fallback (LLM parse failed)"
 
-    def _static_fallback(self, model: "Model") -> list[str]:
-        return self.selector.select(model, max_analyzers=self.max_analyzers)
+    def _static_fallback(self, model: "Model", data: "CaseBatch | None" = None) -> list[str]:
+        return self.selector.select(model, max_analyzers=self.max_analyzers, data=data)
 
     def _filter_applicable_names(
         self,
@@ -508,7 +510,7 @@ class ProbeAgent:
 
         # Backfill from the static selector so one bad LLM choice does not leave
         # M1 empty when other compatible analyzers can run.
-        for name in self.selector.select(model, max_analyzers=None):
+        for name in self.selector.select(model, max_analyzers=None, data=data):
             _consider(name)
             if len(selected) >= max_n:
                 break
@@ -736,9 +738,9 @@ class ProbeAgent:
             )
             return None
 
-    def detect_kind(self, model: "Model") -> ModelKind:
+    def detect_kind(self, model: "Model", data: "CaseBatch | None" = None) -> ModelKind:
         """Delegate to the inner :class:`~evalvitals.eval_agent.probe.StrategyProbe`."""
-        return self.selector.detect_kind(model)
+        return self.selector.detect_kind(model, data)
 
 
 def _clip(text: str, max_chars: int) -> str:

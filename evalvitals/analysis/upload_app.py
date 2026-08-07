@@ -637,12 +637,12 @@ def main() -> None:
         if v == new_label:
             return v
         if v.startswith("@"):
-            return f"📁 {_STATE_ICONS.get(local_states.get(v, 'stale'), '⚪')} {Path(v[1:]).name}"
-        return f"{_STATE_ICONS.get(states.get(v, 'stale'), '⚪')} {v}"
+            return f"📁 {_STATE_ICONS.get(local_states.get(v, 'stale'), '⚪')} {_pretty_name(Path(v[1:]))}"
+        return f"{_STATE_ICONS.get(states.get(v, 'stale'), '⚪')} {_pretty_name(v)}"
 
     st.sidebar.markdown('<div class="ev-sidebar-title">EvalVitals</div>',
                         unsafe_allow_html=True)
-    st.sidebar.caption(str(workspace))
+    st.sidebar.caption("Investigate why your eval failed — and prove the fix")
     # Streamlit forbids changing a widget key after the widget has been
     # instantiated in the current run.  A just-created thread therefore sets
     # this pending value; it is consumed before constructing the radio on the
@@ -657,7 +657,6 @@ def main() -> None:
         format_func=_label,
     )
     st.sidebar.markdown("---")
-    st.sidebar.metric("Runs", len(runs) + len(attached))
 
     if choice == new_label:
         _render_new_analysis(st, workspace, args, new_label)
@@ -685,13 +684,14 @@ def _render_new_analysis(st: Any, workspace: Path, args: argparse.Namespace,
 
     mode_label = st.radio(
         "Analysis mode",
-        ["Explore only (M2 + M3)", "Explore + held-out verification"],
+        ["Explore + held-out verification", "Explore only (M2 + M3)"],
         horizontal=True,
-        help="Explore only: exploratory analysis and proposed hypotheses — the "
-             "Held-out Verdicts and Fix tabs stay greyed. With verification: "
-             "part of the rows is held out BEFORE exploration, then the frozen "
-             "recipes and hypotheses are re-tested on it (e-BH + LLM judge) — "
-             "the Held-out Verdicts tab fills in.",
+        help="Verification (recommended): part of the rows is held out BEFORE "
+             "exploration, then the frozen recipes and hypotheses are re-tested "
+             "on rows the explorer never saw (e-BH + LLM judge) — the Held-out "
+             "Verdicts tab fills in. Explore only: exploratory analysis and "
+             "proposed hypotheses, with nothing confirmed; the Held-out "
+             "Verdicts and Fix tabs stay greyed.",
     )
     verify = mode_label.startswith("Explore +")
     if verify:
@@ -715,22 +715,26 @@ def _render_new_analysis(st: Any, workspace: Path, args: argparse.Namespace,
             + ("" if explore_share < 1.0 else " — all rows analysed in-sample")
         )
 
-    col1, col2, col3, col4 = st.columns(4)
-    outcome_col = col1.text_input(
+    outcome_col = st.text_input(
         "Outcome column", value="label",
         help="Name of the pass/fail (or target) column. Leave empty to "
              "auto-detect by name heuristics, or fall back to unsupervised EDA. "
              "Held-out verification needs it to stratify the split and grade "
              "signals.",
     )
-    backend = col2.selectbox(
-        "Coding-agent backend", list(BACKENDS), index=list(BACKENDS).index(args.backend),
-        format_func=_backend_label,
-    )
-    model = col3.text_input("Model (optional)", value=args.model,
-                            help="Backend-specific model id, e.g. claude-opus-4-8.")
-    timeout_sec = col4.number_input("Timeout (sec)", min_value=60, max_value=7200,
-                                    value=int(args.timeout_sec), step=60)
+    # Backend / model / timeout are operator knobs, not part of asking a
+    # question. Keeping them collapsed makes the primary form four fields
+    # instead of seven without taking the controls away.
+    with st.expander("Advanced — engine settings", expanded=False):
+        col2, col3, col4 = st.columns(3)
+        backend = col2.selectbox(
+            "Coding-agent backend", list(BACKENDS), index=list(BACKENDS).index(args.backend),
+            format_func=_backend_label,
+        )
+        model = col3.text_input("Model (optional)", value=args.model,
+                                help="Backend-specific model id, e.g. claude-opus-4-8.")
+        timeout_sec = col4.number_input("Timeout (sec)", min_value=60, max_value=7200,
+                                        value=int(args.timeout_sec), step=60)
 
     if st.button("Start analysis", type="primary", disabled=uploaded is None):
         payload = uploaded.getvalue()
@@ -762,13 +766,35 @@ def _render_new_analysis(st: Any, workspace: Path, args: argparse.Namespace,
         st.rerun()
 
 
+_GENERIC_DIR_NAMES = {"outputs", "output", "reference_output", "results", "run", "runs"}
+
+
+def _pretty_name(raw: str | Path) -> str:
+    """Directory names are how runs are stored, not how they should read.
+
+    ``outputs_attn_full`` -> ``Attn Full``; a trailing upload timestamp
+    (``data_attn_2b_20260726_145427``) is dropped so the list stays scannable.
+    A bundle stored under a generic folder (``<example>/reference_output``)
+    takes the example's name instead, so two such bundles do not both render
+    as the same word.
+    """
+    path = Path(raw)
+    name = path.name
+    if name.lower() in _GENERIC_DIR_NAMES and path.parent.name:
+        name = path.parent.name
+    name = re.sub(r"_\d{8}_\d{6}$", "", name.strip())
+    name = re.sub(r"^(outputs?|evalvitals)[_-]*", "", name) or name
+    name = name.replace("_", " ").replace("-", " ").strip()
+    return name.title() if name else str(raw)
+
+
 def _render_local(st: Any, dapp: Any, path: Path) -> None:
     """Render an attached (read-only) result directory — an explore output or
     a loop run — with the same views `evalvitals dashboard` would use."""
     from evalvitals.analysis.dashboard import load_run
 
-    st.markdown(f"## 📁 {path.name}")
-    st.caption(f"attached results directory · {path}")
+    st.markdown(f"## 📁 {_pretty_name(path)}")
+    st.caption("Reference result · read-only")
 
     session = load_run(path)
     if session.get("kind") == "loop" and session.get("story"):
