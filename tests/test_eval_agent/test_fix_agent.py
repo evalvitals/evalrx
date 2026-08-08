@@ -21,6 +21,7 @@ from evalvitals.eval_agent import (
     route_min_tier,
 )
 from evalvitals.eval_agent.hypothesis import Hypothesis
+from evalvitals.eval_agent.stages.fix_agent import FixCandidate
 
 # ── tiers ─────────────────────────────────────────────────────────────────────
 
@@ -31,7 +32,12 @@ def test_tier_parse_and_order():
     assert parse_tier("l3a") is FixTier.L3A_INTERNALS_READ
     assert parse_tier("L3") is FixTier.L3A_INTERNALS_READ  # bare L3 = read side
     assert parse_tier(FixTier.L4_PARAMETERS) is FixTier.L4_PARAMETERS
-    assert FixTier.L0_RUNTIME_CONFIG < FixTier.L1_PROMPT < FixTier.L2_SCAFFOLD < FixTier.L3A_INTERNALS_READ
+    assert (
+        FixTier.L0_RUNTIME_CONFIG
+        < FixTier.L1_PROMPT
+        < FixTier.L2_SCAFFOLD
+        < FixTier.L3A_INTERNALS_READ
+    )
     assert FixTier.L3B_INTERNALS_WRITE < FixTier.L4_PARAMETERS
     assert FixTier.L3B_INTERNALS_WRITE.label == "L3b"
     with pytest.raises(ValueError, match="unknown fix tier"):
@@ -39,34 +45,41 @@ def test_tier_parse_and_order():
 
 
 def _hyp(statement: str, mode: str = "", design: str = "") -> Hypothesis:
-    return Hypothesis(statement=statement, target_model="m",
-                      predicted_failure_mode=mode, test_design=design)
+    return Hypothesis(
+        statement=statement, target_model="m", predicted_failure_mode=mode, test_design=design
+    )
 
 
 def test_routing_by_mechanism_keywords():
-    tier, _ = route_min_tier(_hyp(
-        "responses hit the configured max_tokens completion limit", mode="truncation"))
+    tier, _ = route_min_tier(
+        _hyp("responses hit the configured max_tokens completion limit", mode="truncation")
+    )
     assert tier is FixTier.L0_RUNTIME_CONFIG
 
-    tier, why = route_min_tier(_hyp(
-        "pathologies smaller than one patch are destroyed by downsampling",
-        mode="resolution_limit"))
+    tier, why = route_min_tier(
+        _hyp(
+            "pathologies smaller than one patch are destroyed by downsampling",
+            mode="resolution_limit",
+        )
+    )
     assert tier is FixTier.L2_SCAFFOLD and "resolution" in why
 
-    tier, why = route_min_tier(_hyp(
-        "a training-free crop/enhance scaffold should magnify the small text"))
+    tier, why = route_min_tier(
+        _hyp("a training-free crop/enhance scaffold should magnify the small text")
+    )
     assert tier is FixTier.L2_SCAFFOLD and "train" not in why
 
-    tier, _ = route_min_tier(_hyp(
-        "suppress the attention sink on structural tokens", mode="attention_sink"))
+    tier, _ = route_min_tier(
+        _hyp("suppress the attention sink on structural tokens", mode="attention_sink")
+    )
     assert tier is FixTier.L3B_INTERNALS_WRITE  # write verbs beat bare "attention"
 
-    tier, _ = route_min_tier(_hyp(
-        "attention mass never reaches the image region", mode="attention_dispersion"))
+    tier, _ = route_min_tier(
+        _hyp("attention mass never reaches the image region", mode="attention_dispersion")
+    )
     assert tier is FixTier.L3A_INTERNALS_READ
 
-    tier, _ = route_min_tier(_hyp(
-        "the model relies on a finding frequency prior from training"))
+    tier, _ = route_min_tier(_hyp("the model relies on a finding frequency prior from training"))
     assert tier is FixTier.L4_PARAMETERS
 
     tier, why = route_min_tier(_hyp("the model answers too tersely"))
@@ -120,10 +133,13 @@ def test_apply_image_ops_skips_unknown_and_loads_paths(tmp_path):
 
     path = tmp_path / "x.png"
     _img().save(path)
-    out = apply_image_ops(str(path), [
-        {"tool": "no_such_tool", "params": {}},
-        {"tool": "upscale", "params": {"factor": 2.0}},
-    ])
+    out = apply_image_ops(
+        str(path),
+        [
+            {"tool": "no_such_tool", "params": {}},
+            {"tool": "upscale", "params": {"factor": 2.0}},
+        ],
+    )
     assert out.size == (128, 96)
 
 
@@ -278,11 +294,13 @@ def test_pipeline_spec_validation():
     from evalvitals.eval_agent.stages.fix_tools import PipelineSpec
 
     assert PipelineSpec.from_dict({"name": "x", "prompt_template": "no placeholder"}) is None
-    spec = PipelineSpec.from_dict({
-        "name": "zoom", "image_ops": [{"tool": "zoom_center", "params": {"factor": 2}},
-                                      {"tool": "bogus"}],
-        "n_samples": 99,
-    })
+    spec = PipelineSpec.from_dict(
+        {
+            "name": "zoom",
+            "image_ops": [{"tool": "zoom_center", "params": {"factor": 2}}, {"tool": "bogus"}],
+            "n_samples": 99,
+        }
+    )
     assert spec is not None
     assert [op["tool"] for op in spec.image_ops] == ["zoom_center"]  # bogus dropped
     assert spec.n_samples == 5  # capped
@@ -297,10 +315,12 @@ def test_pipeline_passes_bounded_generation_kwargs():
         def generate(self, inputs, **kwargs):
             return "yes" if kwargs.get("max_tokens") == 512 else "no"
 
-    spec = PipelineSpec.from_dict({
-        "name": "more_budget",
-        "generation_kwargs": {"max_tokens": 512, "bad": "dropped"},
-    })
+    spec = PipelineSpec.from_dict(
+        {
+            "name": "more_budget",
+            "generation_kwargs": {"max_tokens": 512, "bad": "dropped"},
+        }
+    )
     assert spec is not None
     assert spec.generation_kwargs == {"max_tokens": 512}
     assert run_pipeline(DecodeBudgetModel(), case, spec, _label_score) is True
@@ -406,6 +426,132 @@ class DecodeBudgetSensitiveModel(Model):
         raise NotImplementedError
 
 
+class VCDSensitiveModel(Model):
+    """Binary VLM fixture: only its contrastive decoder repairs the answer."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.LOGPROBS})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_vcd(self, inputs, **kwargs):
+        return "Yes."
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class ICDSensitiveModel(Model):
+    """Binary VLM fixture: only instruction contrastive decoding repairs it."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.LOGPROBS})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_instruction_cd(self, inputs, **kwargs):
+        return "Yes."
+
+    def paper_method_fidelity(self, method):
+        return "exact" if method == "icd" else "unavailable"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class ViCropSensitiveModel(Model):
+    """LLaVA-style fixture repaired only by the native ViCrop executor."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.ATTENTION})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_vicrop(self, inputs, **kwargs):
+        assert kwargs == {"layer": 14}
+        return "Yes."
+
+    def paper_method_fidelity(self, method):
+        return "native_selector_specialization" if method == "vicrop" else "unavailable"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class PAISensitiveModel(Model):
+    """LLaVA-style fixture repaired by PAI's image-attention branch."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.ATTENTION})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_pai(self, inputs, **kwargs):
+        assert kwargs == {
+            "alpha": 0.2,
+            "guidance_scale": 2.0,
+            "start_layer": 2,
+            "end_layer": 32,
+        }
+        return "Yes."
+
+    def paper_method_fidelity(self, method):
+        return "native_attention_cfg_specialization" if method == "pai" else "unavailable"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class VisualSearchSensitiveModel(Model):
+    """Image fixture where only a question-guided crop returns the answer."""
+
+    capabilities = frozenset({Capability.GENERATE})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_visual_search(self, inputs, **kwargs):
+        return "Yes."
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class DetectorVisualSearchSensitiveModel(Model):
+    """Image fixture where only detector-guided visual search repairs it."""
+
+    capabilities = frozenset({Capability.GENERATE})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_detector_visual_search(self, inputs, **kwargs):
+        return "Yes."
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class FrozenBaselineModel(Model):
+    capabilities = frozenset({Capability.GENERATE})
+
+    def __init__(self):
+        self.calls = 0
+
+    def generate(self, inputs, **kwargs):
+        self.calls += 1
+        return "No."
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
 class ScriptedJudge(Model):
     capabilities = frozenset({Capability.GENERATE})
     modalities = frozenset({"text"})
@@ -424,11 +570,17 @@ class ScriptedJudge(Model):
 
 def _gold_yes_batch(n: int = 8, image=None) -> CaseBatch:
     yes = {"all_of": ["yes"], "none_of": ["no"]}
-    return CaseBatch([
-        FailureCase(id=f"c{i}", inputs=Inputs(prompt=f"Is there a lesion {i}?", image=image),
-                    expected=yes, label=Label.FAIL)
-        for i in range(n)
-    ])
+    return CaseBatch(
+        [
+            FailureCase(
+                id=f"c{i}",
+                inputs=Inputs(prompt=f"Is there a lesion {i}?", image=image),
+                expected=yes,
+                label=Label.FAIL,
+            )
+            for i in range(n)
+        ]
+    )
 
 
 def _label_score(case, observed):
@@ -445,12 +597,19 @@ def _label_score(case, observed):
 
 
 def test_l1_judge_candidate_validates_and_fixes():
-    judge = ScriptedJudge(json.dumps([
-        {"name": "careful", "prompt_template": "Look very carefully. {prompt}"},
-    ]))
+    judge = ScriptedJudge(
+        json.dumps(
+            [
+                {"name": "careful", "prompt_template": "Look very carefully. {prompt}"},
+            ]
+        )
+    )
     agent = FixAgent(judge=judge, max_tier="L1")
-    out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(),
-                                     [_hyp("the prompt phrasing underspecifies the task")])
+    out = agent.propose_and_validate(
+        BaselineFailsModel(),
+        _gold_yes_batch(),
+        [_hyp("the prompt phrasing underspecifies the task")],
+    )
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.tier is FixTier.L1_PROMPT
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
@@ -461,24 +620,42 @@ def test_l1_judge_candidate_validates_and_fixes():
     assert out.repair_rounds == 1  # single-shot by default
 
 
+def test_image_l1_candidates_start_with_visual_grounding_control():
+    """A visual benchmark must not depend solely on a judge's narrow prompt."""
+    batch = _gold_yes_batch(image=_img())
+    batch[0].metadata["failure_axis"] = "scene text"
+    candidates = FixAgent(max_tier="L1")._propose(
+        [_hyp("small text is sometimes missed")],
+        batch,
+        HopelessModel(),
+    )
+
+    assert candidates[0].name == "visual_grounding"
+    assert "visible evidence" in candidates[0].payload["prompt_template"]
+    assert FixAgent()._strategy(candidates[0])(BaselineFailsModel(), batch[0]) is True
+
+
 def test_l0_telemetry_candidate_repairs_decode_budget_without_prompt_guessing():
     """A recorded length stop permits a general runtime fix, not an LLM hunch."""
     yes = {"all_of": ["yes"], "none_of": ["no"]}
-    batch = CaseBatch([
-        FailureCase(
-            id=f"decode_{i}",
-            inputs=Inputs(prompt=f"Solve item {i}"),
-            expected=yes,
-            label=Label.FAIL,
-            metadata={
-                "finish_reason": "length",
-                "generation_config": {"max_tokens": 64},
-            },
-        )
-        for i in range(16)
-    ])
+    batch = CaseBatch(
+        [
+            FailureCase(
+                id=f"decode_{i}",
+                inputs=Inputs(prompt=f"Solve item {i}"),
+                expected=yes,
+                label=Label.FAIL,
+                metadata={
+                    "finish_reason": "length",
+                    "generation_config": {"max_tokens": 64},
+                },
+            )
+            for i in range(16)
+        ]
+    )
     out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
-        DecodeBudgetSensitiveModel(), batch,
+        DecodeBudgetSensitiveModel(),
+        batch,
         [_hyp("generation was truncated at the configured token budget", mode="truncation")],
     )
     assert out.fixed is True
@@ -494,10 +671,151 @@ def test_l0_telemetry_candidate_repairs_decode_budget_without_prompt_guessing():
     assert confirmation.n_fixed == 16 and confirmation.n_broken == 0
 
 
+def test_l0_vcd_candidate_repairs_binary_visual_grounding():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+
+    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+        VCDSensitiveModel(), batch, [_hyp("language priors override visual evidence")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "vcd_diffusion_noise"
+    assert out.best.n_fixed == 8 and out.best.n_broken == 0
+
+
+def test_l0_icd_candidate_repairs_binary_visual_grounding():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+
+    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+        ICDSensitiveModel(), batch, [_hyp("instruction priors override visual evidence")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "icd_instruction_disturbance"
+    assert out.best.n_fixed == 8 and out.best.n_broken == 0
+
+
+def test_l3a_vicrop_candidate_repairs_small_visual_detail():
+    batch = _gold_yes_batch(n=16, image=_img())
+    out = FixAgent(judge=None, max_tier="L3a", allow_codegen=False).propose_and_validate(
+        ViCropSensitiveModel(), batch, [_hyp("small visual detail is below input resolution")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "vicrop_relative_attention"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
+    assert out.best.n_fixed == 16 and out.best.n_broken == 0
+
+
+def test_l3a_vicrop_is_not_proposed_for_an_unrelated_mechanism():
+    batch = _gold_yes_batch(n=16, image=_img())
+    candidates = FixAgent(judge=None, max_tier="L3a", allow_codegen=False)._propose(
+        [_hyp("language priors override visible evidence")], batch, ViCropSensitiveModel()
+    )
+
+    assert "vicrop_relative_attention" not in {candidate.name for candidate in candidates}
+
+
+def test_l3b_pai_candidate_repairs_object_hallucination():
+    batch = _gold_yes_batch(n=16, image=_img())
+    out = FixAgent(judge=None, max_tier="L3b", allow_codegen=False).propose_and_validate(
+        PAISensitiveModel(), batch, [_hyp("object hallucination follows language priors")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "pai_image_attention"
+    assert out.best.candidate.tier is FixTier.L3B_INTERNALS_WRITE
+    assert out.best.n_fixed == 16 and out.best.n_broken == 0
+
+
+def test_candidate_allowlist_freezes_a_paper_candidate():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+
+    out = FixAgent(
+        judge=None,
+        max_tier="L0",
+        candidate_allowlist={"icd_instruction_disturbance_question"},
+    ).propose_and_validate(
+        ICDSensitiveModel(), batch, [_hyp("instruction priors override visual evidence")]
+    )
+
+    assert out.fixed is True
+    assert [attempt.candidate.name for attempt in out.attempted] == [
+        "icd_instruction_disturbance_question"
+    ]
+
+
+def test_l2_visual_search_candidate_repairs_image_case():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+
+    out = FixAgent(judge=None, max_tier="L2", max_judge_candidates=1).propose_and_validate(
+        VisualSearchSensitiveModel(), batch, [_hyp("missed local visual detail")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "guided_visual_search_consensus"
+
+
+def test_l2_detector_visual_search_candidate_repairs_image_case():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+
+    out = FixAgent(judge=None, max_tier="L2", max_judge_candidates=1).propose_and_validate(
+        DetectorVisualSearchSensitiveModel(), batch, [_hyp("missed local visual detail")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None
+    assert out.best.candidate.name == "detector_visual_search_consensus"
+
+
+def test_paper_methods_only_skips_generic_visual_prompt_candidate():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+
+    out = FixAgent(
+        judge=None, max_tier="L2", max_judge_candidates=1, paper_methods_only=True
+    ).propose_and_validate(
+        DetectorVisualSearchSensitiveModel(), batch, [_hyp("missed local visual detail")]
+    )
+
+    assert out.fixed is True
+    assert [item.candidate.name for item in out.attempted] == ["detector_visual_search_consensus"]
+
+
+def test_validation_uses_frozen_observed_baseline_without_regeneration():
+    batch = _gold_yes_batch(n=8)
+    for case in batch:
+        case.observed = "Yes."
+    model = FrozenBaselineModel()
+    candidate = FixCandidate(
+        tier=FixTier.L1_PROMPT,
+        name="wrapped",
+        kind="template",
+        payload={"prompt_template": "Answer the task. {prompt}"},
+    )
+
+    result = FixAgent(judge=None).validate_candidate(model, batch, candidate)
+
+    assert result.n_baseline_correct == 8
+    assert model.calls == 8  # candidate only; frozen baseline added no calls
+
+
 def test_l0_refuses_to_infer_truncation_without_finish_reason_telemetry():
     batch = _gold_yes_batch(8)
     out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
-        DecodeBudgetSensitiveModel(), batch,
+        DecodeBudgetSensitiveModel(),
+        batch,
         [_hyp("the answer seems short", mode="truncation")],
     )
     assert out.fixed is False
@@ -520,11 +838,11 @@ class FeedbackDrivenJudge(Model):
         has_fb = "PRIOR ATTEMPTS THAT DID NOT WORK" in prompt and "broke" in prompt
         self.saw_feedback.append(has_fb)
         if has_fb:  # round 2+: propose the template that actually works
-            return json.dumps([{"name": "careful_v2",
-                                 "prompt_template": "Look very carefully. {prompt}"}])
-        self.rounds += 1            # round 1: a template that fixes nothing
-        return json.dumps([{"name": "polite",
-                            "prompt_template": "Please answer. {prompt}"}])
+            return json.dumps(
+                [{"name": "careful_v2", "prompt_template": "Look very carefully. {prompt}"}]
+            )
+        self.rounds += 1  # round 1: a template that fixes nothing
+        return json.dumps([{"name": "polite", "prompt_template": "Please answer. {prompt}"}])
 
     def forward(self, inputs, capture, spec=None):
         raise NotImplementedError
@@ -536,10 +854,12 @@ def test_feedback_round_one_fails_round_two_fixes():
     judge = FeedbackDrivenJudge()
     agent = FixAgent(judge=judge, max_tier="L1", max_repair_rounds=3)
     out = agent.propose_and_validate(
-        BaselineFailsModel(), _gold_yes_batch(16),
-        [_hyp("the prompt phrasing underspecifies the task")])
+        BaselineFailsModel(),
+        _gold_yes_batch(16),
+        [_hyp("the prompt phrasing underspecifies the task")],
+    )
     assert out.fixed is True
-    assert out.repair_rounds == 2            # stopped as soon as round 2 validated
+    assert out.repair_rounds == 2  # stopped as soon as round 2 validated
     assert out.recommendation is None
     assert out.best is not None and out.best.candidate.name == "careful_v2"
     # round 1's failed candidate is still recorded, and round 2 DID see feedback
@@ -553,22 +873,24 @@ def test_single_round_does_not_retry_on_failure():
     judge = FeedbackDrivenJudge()
     agent = FixAgent(judge=judge, max_tier="L1", max_repair_rounds=1)
     out = agent.propose_and_validate(
-        BaselineFailsModel(), _gold_yes_batch(),
-        [_hyp("the prompt phrasing underspecifies the task")])
+        BaselineFailsModel(),
+        _gold_yes_batch(),
+        [_hyp("the prompt phrasing underspecifies the task")],
+    )
     assert out.fixed is False
     assert out.repair_rounds == 1
-    assert out.recommendation is not None   # nothing validated -> recommend raise
-    assert judge.saw_feedback == [False]    # judge consulted exactly once, no feedback
+    assert out.recommendation is not None  # nothing validated -> recommend raise
+    assert judge.saw_feedback == [False]  # judge consulted exactly once, no feedback
 
 
 def test_repair_round_stops_when_no_new_candidate():
     """A judge that keeps proposing the SAME failing candidate is deduped, so
     the round loop stops early instead of re-validating identical work."""
-    judge = ScriptedJudge(json.dumps([
-        {"name": "polite", "prompt_template": "Please answer. {prompt}"}]))
+    judge = ScriptedJudge(
+        json.dumps([{"name": "polite", "prompt_template": "Please answer. {prompt}"}])
+    )
     agent = FixAgent(judge=judge, max_tier="L1", max_repair_rounds=3)
-    out = agent.propose_and_validate(
-        BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
+    out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
     assert out.fixed is False
     # round 1 validated the one distinct candidate; round 2 re-proposed it,
     # got deduped to zero new candidates, and the loop stopped at round 2.
@@ -577,12 +899,19 @@ def test_repair_round_stops_when_no_new_candidate():
 
 
 def test_fix_agent_accepts_label_returning_scorer():
-    judge = ScriptedJudge(json.dumps([
-        {"name": "careful", "prompt_template": "Look very carefully. {prompt}"},
-    ]))
+    judge = ScriptedJudge(
+        json.dumps(
+            [
+                {"name": "careful", "prompt_template": "Look very carefully. {prompt}"},
+            ]
+        )
+    )
     agent = FixAgent(judge=judge, max_tier="L1", score_fn=_label_score)
-    out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(),
-                                     [_hyp("the prompt phrasing underspecifies the task")])
+    out = agent.propose_and_validate(
+        BaselineFailsModel(),
+        _gold_yes_batch(),
+        [_hyp("the prompt phrasing underspecifies the task")],
+    )
     assert out.fixed is True
     assert out.best is not None
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
@@ -591,18 +920,29 @@ def test_fix_agent_accepts_label_returning_scorer():
 
 def test_l2_pipeline_candidate_fixes_zoom_sensitive_model():
     pytest.importorskip("PIL")
-    judge = ScriptedJudge(json.dumps([
-        {"name": "upscale2x",
-         "image_ops": [{"tool": "upscale", "params": {"factor": 2.0}}],
-         "prompt_template": "{prompt}", "n_samples": 1},
-    ]))
+    judge = ScriptedJudge(
+        json.dumps(
+            [
+                {
+                    "name": "upscale2x",
+                    "image_ops": [{"tool": "upscale", "params": {"factor": 2.0}}],
+                    "prompt_template": "{prompt}",
+                    "n_samples": 1,
+                },
+            ]
+        )
+    )
     agent = FixAgent(judge=judge, max_tier="L2")
     out = agent.propose_and_validate(
-        ZoomSensitiveModel(), _gold_yes_batch(image=_img()),
-        [_hyp("small findings are destroyed by downsampling", mode="resolution_limit")])
+        ZoomSensitiveModel(),
+        _gold_yes_batch(image=_img()),
+        [_hyp("small findings are destroyed by downsampling", mode="resolution_limit")],
+    )
     assert out.fixed is True
     assert out.best.candidate.name == "upscale2x"
     assert out.best.candidate.tier is FixTier.L2_SCAFFOLD
+    assert out.best.n_baseline_correct == 0
+    assert out.best.n_candidate_correct == 8
 
 
 # ── FixAgent: unfixable -> recommendation, no auto-escalation ────────────────
@@ -612,8 +952,10 @@ def test_unfixable_routed_tier_is_skipped_when_model_cannot_execute_it():
     pytest.importorskip("PIL")
     agent = FixAgent(judge=None, max_tier="L2")  # defaults only
     out = agent.propose_and_validate(
-        HopelessModel(), _gold_yes_batch(image=_img()),
-        [_hyp("suppress the attention sink on structural tokens")])
+        HopelessModel(),
+        _gold_yes_batch(image=_img()),
+        [_hyp("suppress the attention sink on structural tokens")],
+    )
     assert out.fixed is False and out.best is None
     assert out.recommendation is not None
     assert out.recommendation["recommend_tier"] == "L4"
@@ -627,8 +969,10 @@ def test_unfixable_skips_internals_unavailable_on_black_box_model():
     pytest.importorskip("PIL")
     agent = FixAgent(judge=None, max_tier="L2")
     out = agent.propose_and_validate(
-        HopelessModel(), _gold_yes_batch(image=_img()),
-        [_hyp("the prompt phrasing is fine but answers are wrong")])
+        HopelessModel(),
+        _gold_yes_batch(image=_img()),
+        [_hyp("the prompt phrasing is fine but answers are wrong")],
+    )
     assert out.fixed is False
     assert out.recommendation["recommend_tier"] == "L4"
     assert "no candidate within L2" in out.recommendation["reason"]
@@ -637,8 +981,9 @@ def test_unfixable_skips_internals_unavailable_on_black_box_model():
 
 def test_at_l4_no_higher_recommendation():
     agent = FixAgent(judge=None, max_tier="L4")
-    out = agent.propose_and_validate(HopelessModel(), _gold_yes_batch(),
-                                     [_hyp("requires retraining on new data")])
+    out = agent.propose_and_validate(
+        HopelessModel(), _gold_yes_batch(), [_hyp("requires retraining on new data")]
+    )
     assert out.fixed is False and out.recommendation is None
 
 
@@ -648,8 +993,7 @@ def test_at_l4_no_higher_recommendation():
 def test_garbage_judge_falls_back_to_defaults():
     pytest.importorskip("PIL")
     agent = FixAgent(judge=ScriptedJudge("I refuse to answer in JSON."), max_tier="L2")
-    out = agent.propose_and_validate(HopelessModel(), _gold_yes_batch(image=_img()),
-                                     [_hyp("x")])
+    out = agent.propose_and_validate(HopelessModel(), _gold_yes_batch(image=_img()), [_hyp("x")])
     sources = {v.candidate.source for v in out.attempted}
     assert sources == {"default"}
     tiers = {v.candidate.tier for v in out.attempted}
@@ -679,8 +1023,9 @@ def test_broken_cases_counted_and_net_negative_not_fixed():
         def forward(self, inputs, capture, spec=None):
             raise NotImplementedError
 
-    judge = ScriptedJudge(json.dumps([
-        {"name": "careful", "prompt_template": "Look very carefully. {prompt}"}]))
+    judge = ScriptedJudge(
+        json.dumps([{"name": "careful", "prompt_template": "Look very carefully. {prompt}"}])
+    )
     agent = FixAgent(judge=judge, max_tier="L1")
     out = agent.propose_and_validate(InvertModel(), _gold_yes_batch(), [_hyp("x")])
     v = out.attempted[0]
@@ -691,8 +1036,9 @@ def test_broken_cases_counted_and_net_negative_not_fixed():
 def test_outcome_serializes_and_logs(tmp_path):
     from evalvitals.eval_agent import RunLogger
 
-    judge = ScriptedJudge(json.dumps([
-        {"name": "careful", "prompt_template": "Look carefully. {prompt}"}]))
+    judge = ScriptedJudge(
+        json.dumps([{"name": "careful", "prompt_template": "Look carefully. {prompt}"}])
+    )
     logger = RunLogger(tmp_path / "logs")
     agent = FixAgent(judge=judge, max_tier="L1", run_logger=logger)
     out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
@@ -718,38 +1064,49 @@ def test_run_fix_on_loop_report():
     h = _hyp("prompt phrasing underspecifies the task")
     h.status = HypothesisStatus.SUPPORTED
     report = VLDiagnoseReport(
-        cycles=1, stopped_by="max_cycles",
-        verified_hypotheses=[HypothesisTestResult(
-            hypothesis=h, status=HypothesisStatus.SUPPORTED,
-            test_name="fail_rate_comparison", effect_size=0.5,
-            is_consistent_with_protocol=True, confidence=0.8, verdict="ok")],
+        cycles=1,
+        stopped_by="max_cycles",
+        verified_hypotheses=[
+            HypothesisTestResult(
+                hypothesis=h,
+                status=HypothesisStatus.SUPPORTED,
+                test_name="fail_rate_comparison",
+                effect_size=0.5,
+                is_consistent_with_protocol=True,
+                confidence=0.8,
+                verdict="ok",
+            )
+        ],
     )
-    judge = ScriptedJudge(json.dumps([
-        {"name": "careful", "prompt_template": "Look very carefully. {prompt}"}]))
+    judge = ScriptedJudge(
+        json.dumps([{"name": "careful", "prompt_template": "Look very carefully. {prompt}"}])
+    )
     # Constructor injection — symmetric with every other stage agent.
-    loop = VLDiagnoseLoop(model=BaselineFailsModel(),
-                          protocol=ExperimentProtocol(description="d"),
-                          fix_agent=FixAgent(judge=judge, max_tier="L1"))
+    loop = VLDiagnoseLoop(
+        model=BaselineFailsModel(),
+        protocol=ExperimentProtocol(description="d"),
+        fix_agent=FixAgent(judge=judge, max_tier="L1"),
+    )
     assert loop.fix_agent.max_tier is FixTier.L1_PROMPT
     out = loop.run_fix(report, _gold_yes_batch())
     assert out.fixed is True
     assert report.fix_outcome is out
 
     # Per-call max_tier override + per-call agent override still work.
-    out2 = loop.run_fix(report, _gold_yes_batch(), max_tier="L2",
-                        fix_agent=FixAgent(judge=judge, max_tier="L1"))
+    out2 = loop.run_fix(
+        report, _gold_yes_batch(), max_tier="L2", fix_agent=FixAgent(judge=judge, max_tier="L1")
+    )
     assert out2.max_tier is FixTier.L2_SCAFFOLD
 
     # Default construction (no injection) builds a judge-less FixAgent.
-    bare = VLDiagnoseLoop(model=BaselineFailsModel(),
-                          protocol=ExperimentProtocol(description="d"))
+    bare = VLDiagnoseLoop(model=BaselineFailsModel(), protocol=ExperimentProtocol(description="d"))
     assert bare.fix_agent is not None and bare.fix_agent._judge is None
 
 
 # ── L2 coded pipelines (bridged model access) ────────────────────────────────
 
 
-_UPSCALE_PIPELINE = '''
+_UPSCALE_PIPELINE = """
 import json
 cases = json.load(open("fix_cases.json"))["cases"]
 out = []
@@ -757,7 +1114,7 @@ for c in cases:
     ans = model_generate(c["id"], image_ops=[{"tool": "upscale", "params": {"factor": 2.0}}])
     out.append({"sample_id": c["id"], "output": ans})
 print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
-'''
+"""
 
 
 def test_cases_payload_never_leaks_labels_or_rubrics():
@@ -776,8 +1133,9 @@ def test_coded_pipeline_bridge_round_trip(tmp_path):
     )
 
     cases = _gold_yes_batch(n=3, image=_img())
-    result = run_coded_pipeline(_UPSCALE_PIPELINE, ZoomSensitiveModel(), cases,
-                                workdir=tmp_path, timeout_sec=30)
+    result = run_coded_pipeline(
+        _UPSCALE_PIPELINE, ZoomSensitiveModel(), cases, workdir=tmp_path, timeout_sec=30
+    )
     assert result.ok and result.n_calls == 3
     scores = score_outputs(result, cases, _default_score)
     assert all(scores[c.id] is True for c in cases)  # upscale repairs every case
@@ -797,16 +1155,21 @@ def test_score_outputs_coerces_label_scores():
 
 
 def test_coded_pipeline_call_budget_kills_runaway(tmp_path):
-    runaway = '''
+    runaway = """
 while True:
     model_generate("c0")
-'''
+"""
     result = __import__(
         "evalvitals.eval_agent.stages.fix_pipeline",
         fromlist=["run_coded_pipeline"],
-    ).run_coded_pipeline(runaway, HopelessModel(), _gold_yes_batch(n=2),
-                         workdir=__import__("tempfile").mkdtemp(),
-                         timeout_sec=30, max_calls=5)
+    ).run_coded_pipeline(
+        runaway,
+        HopelessModel(),
+        _gold_yes_batch(n=2),
+        workdir=__import__("tempfile").mkdtemp(),
+        timeout_sec=30,
+        max_calls=5,
+    )
     assert result.ok is False
     assert "budget exhausted" in result.error
 
@@ -814,11 +1177,17 @@ while True:
 def test_coded_pipeline_missing_marker_and_crash(tmp_path):
     from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
 
-    r1 = run_coded_pipeline('print("nothing")', HopelessModel(),
-                            _gold_yes_batch(n=1), workdir=tmp_path, timeout_sec=20)
+    r1 = run_coded_pipeline(
+        'print("nothing")', HopelessModel(), _gold_yes_batch(n=1), workdir=tmp_path, timeout_sec=20
+    )
     assert r1.ok is False and "FIX_PIPELINE_RESULT_JSON" in r1.error
-    r2 = run_coded_pipeline("this is not python", HopelessModel(),
-                            _gold_yes_batch(n=1), workdir=tmp_path, timeout_sec=20)
+    r2 = run_coded_pipeline(
+        "this is not python",
+        HopelessModel(),
+        _gold_yes_batch(n=1),
+        workdir=tmp_path,
+        timeout_sec=20,
+    )
     assert r2.ok is False
 
 
@@ -842,11 +1211,14 @@ def test_fix_agent_coded_candidate_fixes_and_logs(tmp_path):
     from evalvitals.eval_agent import RunLogger
 
     logger = RunLogger(tmp_path / "logs")
-    agent = FixAgent(judge=CodeWritingJudge(), max_tier="L2", run_logger=logger,
-                     exec_timeout_sec=30)
+    agent = FixAgent(
+        judge=CodeWritingJudge(), max_tier="L2", run_logger=logger, exec_timeout_sec=30
+    )
     out = agent.propose_and_validate(
-        ZoomSensitiveModel(), _gold_yes_batch(16, image=_img()),
-        [_hyp("small findings are destroyed by downsampling", mode="resolution_limit")])
+        ZoomSensitiveModel(),
+        _gold_yes_batch(16, image=_img()),
+        [_hyp("small findings are destroyed by downsampling", mode="resolution_limit")],
+    )
     coded = [v for v in out.attempted if v.candidate.kind == "code"]
     assert len(coded) == 1 and coded[0].candidate.source == "judge"
     assert coded[0].fixed is True and out.fixed is True
@@ -862,8 +1234,7 @@ def test_fix_agent_coded_candidate_fixes_and_logs(tmp_path):
 def test_fix_agent_codegen_gate():
     pytest.importorskip("PIL")
     agent = FixAgent(judge=CodeWritingJudge(), max_tier="L2", allow_codegen=False)
-    out = agent.propose_and_validate(HopelessModel(), _gold_yes_batch(image=_img()),
-                                     [_hyp("x")])
+    out = agent.propose_and_validate(HopelessModel(), _gold_yes_batch(image=_img()), [_hyp("x")])
     assert all(v.candidate.kind != "code" for v in out.attempted)
     # L1-only tier never attempts coded pipelines either
     agent2 = FixAgent(judge=CodeWritingJudge(), max_tier="L1")
@@ -881,20 +1252,24 @@ def test_bridge_rejects_unknown_image_tool(tmp_path):
     from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
 
     bad_pipeline = (
-        'import json\n'
+        "import json\n"
         'cases = json.load(open("fix_cases.json"))["cases"]\n'
-        'out = []\n'
-        'for c in cases:\n'
-        '    try:\n'
+        "out = []\n"
+        "for c in cases:\n"
+        "    try:\n"
         '        a = model_generate(c["id"], image_ops=[{"tool": "model_attend"}])\n'
-        '    except RuntimeError as e:\n'
+        "    except RuntimeError as e:\n"
         '        a = "ERR:" + str(e)\n'
         '    out.append({"sample_id": c["id"], "output": a})\n'
         'print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))\n'
     )
-    res = run_coded_pipeline(bad_pipeline, ZoomSensitiveModel(),
-                             _gold_yes_batch(n=1, image=_img()),
-                             workdir=tmp_path, timeout_sec=20)
+    res = run_coded_pipeline(
+        bad_pipeline,
+        ZoomSensitiveModel(),
+        _gold_yes_batch(n=1, image=_img()),
+        workdir=tmp_path,
+        timeout_sec=20,
+    )
     assert res.ok  # produced the result line
     out = next(iter(res.outputs.values()))
     assert out.startswith("ERR:") and "unknown tool" in out.lower()
@@ -931,8 +1306,10 @@ def test_never_executed_candidate_does_not_force_escalation(tmp_path):
     # candidate and that its validation has n_pairs == 0.
     agent = FixAgent(judge=_AlwaysCrashCodeJudge(), max_tier="L2", exec_timeout_sec=20)
     out = agent.propose_and_validate(
-        HopelessModel(), _gold_yes_batch(image=_img()),
-        [_hyp("downsampling destroys small findings", mode="resolution_limit")])
+        HopelessModel(),
+        _gold_yes_batch(image=_img()),
+        [_hyp("downsampling destroys small findings", mode="resolution_limit")],
+    )
     coded = [v for v in out.attempted if v.candidate.kind == "code"]
     assert coded and coded[0].n_pairs == 0
     assert coded[0].exec_error  # the crash is recorded, not silently dropped
@@ -975,19 +1352,21 @@ class AttnCropVLM(Model):
 
         from evalvitals.core.model import Trace
 
-        h, w = 3, 4                      # patch grid
-        seq = 2 + h * w + 1              # 2 structural + 12 image + 1 query
+        h, w = 3, 4  # patch grid
+        seq = 2 + h * w + 1  # 2 structural + 12 image + 1 query
         row = torch.full((seq,), 0.01)
-        row[2] = 0.8                     # peak at image patch (0, 0)
+        row[2] = 0.8  # peak at image patch (0, 0)
         layer = torch.zeros(1, seq, seq)
         layer[:, -1, :] = row
         mask = torch.zeros(seq, dtype=torch.bool)
-        mask[2:2 + h * w] = True
-        return Trace(tokens=["t"] * seq, token_ids=list(range(seq)),
-                     provided={Capability.ATTENTION},
-                     attentions=[layer.clone() for _ in range(2)],
-                     extras={"image_token_mask": mask,
-                             "image_spatial_shape": (h, w)})
+        mask[2 : 2 + h * w] = True
+        return Trace(
+            tokens=["t"] * seq,
+            token_ids=list(range(seq)),
+            provided={Capability.ATTENTION},
+            attentions=[layer.clone() for _ in range(2)],
+            extras={"image_token_mask": mask, "image_spatial_shape": (h, w)},
+        )
 
 
 def test_attention_heatmap_backs_model_attend():
@@ -1039,13 +1418,20 @@ def test_l3a_read_is_authored_not_a_canned_primitive():
     a primitive: (a) no primitive candidate is proposed, and (b) the coded
     candidate is tagged L3a with enable_attend=True."""
     pytest.importorskip("PIL")
-    cases = CaseBatch([
-        FailureCase(id=f"c{i}", inputs=Inputs(prompt="bright?", image=_bright_corner_img()),
-                    expected={"all_of": ["yes"], "none_of": ["no"]}, label=Label.FAIL)
-        for i in range(8)
-    ])
-    hyp = _hyp("attention is on the finding but the answer ignores it",
-               mode="attention_mislocalization")
+    cases = CaseBatch(
+        [
+            FailureCase(
+                id=f"c{i}",
+                inputs=Inputs(prompt="bright?", image=_bright_corner_img()),
+                expected={"all_of": ["yes"], "none_of": ["no"]},
+                label=Label.FAIL,
+            )
+            for i in range(8)
+        ]
+    )
+    hyp = _hyp(
+        "attention is on the finding but the answer ignores it", mode="attention_mislocalization"
+    )
 
     # (a) no codegen at L3a: the only registered primitive is the L3b write one,
     # which is out of tier -> NO primitive candidate is attempted.
@@ -1073,8 +1459,9 @@ def test_visual_embedding_boost_hook_scales_image_tokens():
     from evalvitals.eval_agent.stages.fix_internals import visual_embedding_boost
 
     emb = torch.nn.Embedding(10, 4)
-    hf = types.SimpleNamespace(config=types.SimpleNamespace(image_token_id=7),
-                               get_input_embeddings=lambda: emb)
+    hf = types.SimpleNamespace(
+        config=types.SimpleNamespace(image_token_id=7), get_input_embeddings=lambda: emb
+    )
     model = types.SimpleNamespace(_hf=(hf, None))
     ids = torch.tensor([[1, 7, 7, 2]])
     base = emb(ids).detach().clone()
@@ -1082,8 +1469,8 @@ def test_visual_embedding_boost_hook_scales_image_tokens():
         boosted = emb(ids).detach()
     after = emb(ids).detach()
     assert torch.allclose(boosted[0, 1], base[0, 1] * 2.0)
-    assert torch.allclose(boosted[0, 0], base[0, 0])      # non-image untouched
-    assert torch.allclose(after, base)                     # hook removed
+    assert torch.allclose(boosted[0, 0], base[0, 0])  # non-image untouched
+    assert torch.allclose(after, base)  # hook removed
 
 
 def test_boost_unavailable_yields_none_scores():
@@ -1103,15 +1490,21 @@ def test_boost_unavailable_yields_none_scores():
 
 
 def test_l4_recipe_recorded_not_executed():
-    judge = ScriptedJudge(json.dumps({
-        "dataset_recipe": "synthesise small-lesion radiographs with paired labels",
-        "method": "lora", "target": "vision_encoder",
-        "eval_protocol": "held-out McNemar + regression battery",
-        "rationale": "resolution ceiling is parameter-bound",
-    }))
+    judge = ScriptedJudge(
+        json.dumps(
+            {
+                "dataset_recipe": "synthesise small-lesion radiographs with paired labels",
+                "method": "lora",
+                "target": "vision_encoder",
+                "eval_protocol": "held-out McNemar + regression battery",
+                "rationale": "resolution ceiling is parameter-bound",
+            }
+        )
+    )
     agent = FixAgent(judge=judge, max_tier="L4", allow_codegen=False)
-    out = agent.propose_and_validate(HopelessModel(), _gold_yes_batch(),
-                                     [_hyp("requires retraining", mode="prior")])
+    out = agent.propose_and_validate(
+        HopelessModel(), _gold_yes_batch(), [_hyp("requires retraining", mode="prior")]
+    )
     ft = [v for v in out.attempted if v.candidate.kind == "finetune_spec"]
     assert len(ft) == 1
     assert "TODO" in ft[0].summary and ft[0].fixed is False
@@ -1123,7 +1516,7 @@ def test_l4_recipe_recorded_not_executed():
 # ── bridged model_attend (coded L3a) ─────────────────────────────────────────
 
 
-_ATTEND_PIPELINE = '''
+_ATTEND_PIPELINE = """
 import json
 cases = json.load(open("fix_cases.json"))["cases"]
 out = []
@@ -1138,7 +1531,7 @@ for c in cases:
     ans = model_generate(c["id"], image_ops=[{"tool": "crop_region", "params": {"box": box}}])
     out.append({"sample_id": c["id"], "output": ans})
 print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
-'''
+"""
 
 
 # ── defect 1: applicability predicate / conditional fixes ────────────────────
@@ -1152,9 +1545,12 @@ def test_predicate_scopes_validation_to_applicable_cases():
     agent = FixAgent(judge=None, max_tier="L1")
     data = _gold_yes_batch(n=4)
     cand = FixCandidate(
-        tier=FixTier.L1_PROMPT, name="careful_subset", kind="template",
+        tier=FixTier.L1_PROMPT,
+        name="careful_subset",
+        kind="template",
         payload={"prompt_template": "Look carefully. {prompt}"},
-        predicate=lambda c: c.id in {"c0", "c1"})
+        predicate=lambda c: c.id in {"c0", "c1"},
+    )
     model = BaselineFailsModel()
     baseline, unstable = agent._baseline(model, data)
     v = agent._validate(cand, model, data, baseline, unstable)
@@ -1168,7 +1564,8 @@ def test_spec_noop_cases_are_not_applicable():
     from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, spec_changes_input
 
     spec = PipelineSpec.from_dict(
-        {"name": "crop", "image_ops": [{"tool": "crop_case_bbox", "params": {}}]})
+        {"name": "crop", "image_ops": [{"tool": "crop_case_bbox", "params": {}}]}
+    )
     no_bbox = FailureCase(id="x", inputs=Inputs(prompt="q", image=_img()), metadata={})
     assert spec_changes_input(spec, no_bbox) is False  # crop is a no-op here
 
@@ -1177,8 +1574,10 @@ def test_spec_noop_cases_are_not_applicable():
         for x in range(80, 84):
             img.putpixel((x, y), (20, 20, 20))
     with_bbox = FailureCase(
-        id="y", inputs=Inputs(prompt="q", image=img),
-        metadata={"answer_bbox_xyxy_norm": [0.8, 0.1, 0.84, 0.14]})
+        id="y",
+        inputs=Inputs(prompt="q", image=img),
+        metadata={"answer_bbox_xyxy_norm": [0.8, 0.1, 0.84, 0.14]},
+    )
     assert spec_changes_input(spec, with_bbox) is True
 
 
@@ -1218,8 +1617,11 @@ def test_baseline_repeats_flag_and_drop_unstable_cases():
     from evalvitals.eval_agent.stages.fix_agent import FixCandidate
 
     cand = FixCandidate(
-        tier=FixTier.L1_PROMPT, name="careful", kind="template",
-        payload={"prompt_template": "Look carefully. {prompt}"})
+        tier=FixTier.L1_PROMPT,
+        name="careful",
+        kind="template",
+        payload={"prompt_template": "Look carefully. {prompt}"},
+    )
     v = agent._validate(cand, model, data, baseline, unstable)
     # c0 is noise -> dropped, not counted as fixed or broken; only c1 is judged.
     assert v.n_unstable == 1 and v.n_pairs == 1
@@ -1232,11 +1634,11 @@ def test_baseline_repeats_flag_and_drop_unstable_cases():
 def test_underpowered_run_recommends_gathering_failures():
     """With too few failures, even a flawless fix cannot reach significance;
     the recommendation must say 'gather more failures', not 'escalate tier'."""
-    judge = ScriptedJudge(json.dumps([
-        {"name": "careful", "prompt_template": "Look carefully. {prompt}"}]))
+    judge = ScriptedJudge(
+        json.dumps([{"name": "careful", "prompt_template": "Look carefully. {prompt}"}])
+    )
     agent = FixAgent(judge=judge, max_tier="L1")
-    out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(n=3),
-                                     [_hyp("x")])
+    out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(n=3), [_hyp("x")])
     v = out.attempted[0]
     assert v.n_fixed == 3 and v.n_broken == 0
     assert v.verdict == "partial" and v.fixed is False  # net-positive, not sig
@@ -1247,11 +1649,11 @@ def test_underpowered_run_recommends_gathering_failures():
 
 def test_well_powered_run_still_certifies_fix():
     """Same fix, enough failures (8): e-value clears the gate -> certified."""
-    judge = ScriptedJudge(json.dumps([
-        {"name": "careful", "prompt_template": "Look carefully. {prompt}"}]))
+    judge = ScriptedJudge(
+        json.dumps([{"name": "careful", "prompt_template": "Look carefully. {prompt}"}])
+    )
     agent = FixAgent(judge=judge, max_tier="L1")
-    out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(n=8),
-                                     [_hyp("x")])
+    out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(n=8), [_hyp("x")])
     assert out.fixed is True and out.best.verdict == "fixed"
 
 
@@ -1273,16 +1675,17 @@ class _MixedModel(Model):
         idx = int(m.group(1)) if m else 0
         careful = "carefully" in p
         if idx % 2 == 0:
-            return "Yes." if careful else "No."   # careful fixes evens
-        return "No." if careful else "Yes."        # careful breaks odds
+            return "Yes." if careful else "No."  # careful fixes evens
+        return "No." if careful else "Yes."  # careful breaks odds
 
     def forward(self, inputs, capture, spec=None):
         raise NotImplementedError
 
 
 def test_heterogeneous_outcome_emits_refine_signal():
-    judge = ScriptedJudge(json.dumps([
-        {"name": "careful", "prompt_template": "Look carefully. {prompt}"}]))
+    judge = ScriptedJudge(
+        json.dumps([{"name": "careful", "prompt_template": "Look carefully. {prompt}"}])
+    )
     agent = FixAgent(judge=judge, max_tier="L1")
     out = agent.propose_and_validate(_MixedModel(), _gold_yes_batch(n=4), [_hyp("x")])
     v = out.attempted[0]
@@ -1301,19 +1704,36 @@ def test_bridged_attend_enables_coded_l3a(tmp_path):
         score_outputs,
     )
 
-    cases = CaseBatch([
-        FailureCase(id=f"c{i}", inputs=Inputs(prompt="bright?", image=_bright_corner_img()),
-                    expected={"all_of": ["yes"], "none_of": ["no"]}, label=Label.FAIL)
-        for i in range(2)
-    ])
-    ok = run_coded_pipeline(_ATTEND_PIPELINE, AttnCropVLM(), cases,
-                            workdir=tmp_path / "on", timeout_sec=30, enable_attend=True)
+    cases = CaseBatch(
+        [
+            FailureCase(
+                id=f"c{i}",
+                inputs=Inputs(prompt="bright?", image=_bright_corner_img()),
+                expected={"all_of": ["yes"], "none_of": ["no"]},
+                label=Label.FAIL,
+            )
+            for i in range(2)
+        ]
+    )
+    ok = run_coded_pipeline(
+        _ATTEND_PIPELINE,
+        AttnCropVLM(),
+        cases,
+        workdir=tmp_path / "on",
+        timeout_sec=30,
+        enable_attend=True,
+    )
     assert ok.ok
     assert all(v is True for v in score_outputs(ok, cases, _default_score).values())
     # Disabled -> model_attend errors -> pipeline crashes -> no result.
-    off = run_coded_pipeline(_ATTEND_PIPELINE, AttnCropVLM(), cases,
-                             workdir=tmp_path / "off", timeout_sec=30,
-                             enable_attend=False)
+    off = run_coded_pipeline(
+        _ATTEND_PIPELINE,
+        AttnCropVLM(),
+        cases,
+        workdir=tmp_path / "off",
+        timeout_sec=30,
+        enable_attend=False,
+    )
     assert off.ok is False
 
 
@@ -1330,12 +1750,19 @@ def test_declarative_candidate_gets_record_and_result_but_no_workspace(tmp_path)
     from evalvitals.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
-    judge = ScriptedJudge(json.dumps([
-        {"name": "careful", "prompt_template": "Look very carefully. {prompt}"},
-    ]))
+    judge = ScriptedJudge(
+        json.dumps(
+            [
+                {"name": "careful", "prompt_template": "Look very carefully. {prompt}"},
+            ]
+        )
+    )
     agent = FixAgent(judge=judge, max_tier="L1", run_logger=ctx.logger, run_context=ctx)
-    out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(),
-                                     [_hyp("the prompt phrasing underspecifies the task")])
+    out = agent.propose_and_validate(
+        BaselineFailsModel(),
+        _gold_yes_batch(),
+        [_hyp("the prompt phrasing underspecifies the task")],
+    )
     assert out.fixed is True
     trial = out.best.candidate.trial
     assert trial is not None
@@ -1354,12 +1781,13 @@ def test_deduped_candidate_in_round_two_leaves_no_trial_folder(tmp_path):
     from evalvitals.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
-    judge = ScriptedJudge(json.dumps([
-        {"name": "polite", "prompt_template": "Please answer. {prompt}"}]))
-    agent = FixAgent(judge=judge, max_tier="L1", max_repair_rounds=3,
-                     run_logger=ctx.logger, run_context=ctx)
-    out = agent.propose_and_validate(
-        BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
+    judge = ScriptedJudge(
+        json.dumps([{"name": "polite", "prompt_template": "Please answer. {prompt}"}])
+    )
+    agent = FixAgent(
+        judge=judge, max_tier="L1", max_repair_rounds=3, run_logger=ctx.logger, run_context=ctx
+    )
+    out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
     assert out.repair_rounds == 1
     assert sum(1 for v in out.attempted if v.candidate.name == "polite") == 1
 
@@ -1409,7 +1837,7 @@ class MarkerSensitiveModel(Model):
         raise NotImplementedError
 
 
-_NOOP_CODE_PIPELINE = '''
+_NOOP_CODE_PIPELINE = """
 import json
 cases = json.load(open("fix_cases.json"))["cases"]
 out = []
@@ -1417,9 +1845,9 @@ for c in cases:
     ans = model_generate(c["id"])
     out.append({"sample_id": c["id"], "output": ans})
 print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
-'''
+"""
 
-_MARKER_CODE_PIPELINE = '''
+_MARKER_CODE_PIPELINE = """
 import json
 cases = json.load(open("fix_cases.json"))["cases"]
 out = []
@@ -1427,7 +1855,7 @@ for c in cases:
     ans = model_generate(c["id"], prompt="SECRET_MARKER " + c["prompt"])
     out.append({"sample_id": c["id"], "output": ans})
 print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
-'''
+"""
 
 
 def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
@@ -1435,12 +1863,19 @@ def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     from evalvitals.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
-    agent = FixAgent(judge=TwoVersionCodeJudge(), max_tier="L2",
-                     run_logger=ctx.logger, run_context=ctx,
-                     exec_timeout_sec=30, max_repair_rounds=2)
+    agent = FixAgent(
+        judge=TwoVersionCodeJudge(),
+        max_tier="L2",
+        run_logger=ctx.logger,
+        run_context=ctx,
+        exec_timeout_sec=30,
+        max_repair_rounds=2,
+    )
     out = agent.propose_and_validate(
-        MarkerSensitiveModel(), _gold_yes_batch(16, image=_img()),
-        [_hyp("the model never sees the marker it needs", mode="prompt_gap")])
+        MarkerSensitiveModel(),
+        _gold_yes_batch(16, image=_img()),
+        [_hyp("the model never sees the marker it needs", mode="prompt_gap")],
+    )
 
     coded = [v for v in out.attempted if v.candidate.kind == "code"]
     assert len(coded) == 2

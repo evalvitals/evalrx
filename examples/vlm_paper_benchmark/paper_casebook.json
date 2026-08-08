@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "admission_rule": "A paper case must name a failure mechanism, a public benchmark/data source, a proposed repair, and the model access needed to reproduce that repair. A black-box endpoint may run the diagnosis and safe controls, but must report an unavailable paper method rather than relabel a different intervention as a reproduction.",
+  "cases": [
+    {
+      "id": "mllms_know",
+      "paper_url": "https://arxiv.org/abs/2502.17422",
+      "title": "MLLMs Know Where to Look",
+      "dataset_case": "mllms_know_textvqa_small",
+      "failure_slice": "TextVQA answer box area S < 0.005",
+      "mechanism": "the model can localize the small detail but cannot perceive it at the input resolution",
+      "paper_repair": "ViCrop: relative-attention, gradient-weighted attention, or input-gradient localization; provide original image plus crop",
+      "minimum_tier": "L3a",
+      "requires": ["attention or gradients", "multi-image/token concatenation"],
+      "black_box_status": "chat-completions endpoint: human-CROP oracle only; hf_local LLaVA: automated relative-attention ViCrop L3a route"
+    },
+    {
+      "id": "vstar",
+      "paper_url": "https://arxiv.org/abs/2312.14135",
+      "code_url": "https://github.com/penghao-wu/vstar",
+      "title": "V*: Guided Visual Search as a Core Mechanism in Multimodal LLMs",
+      "dataset_case": "vstar_bench",
+      "dataset_url": "https://huggingface.co/datasets/craigwu/vstar_bench",
+      "failure_slice": "high-resolution, visually crowded questions in V*Bench",
+      "mechanism": "the model lacks question-guided visual search over the relevant detail",
+      "paper_repair": "SEAL: LLM-guided visual search and targeted visual querying",
+      "minimum_tier": "L2",
+      "requires": ["multi-step image crops", "optional trained visual-search components"],
+      "black_box_status": "candidate crops are runnable; trained SEAL is not a black-box reproduction"
+    },
+    {
+      "id": "vcd",
+      "paper_url": "https://arxiv.org/abs/2311.16922",
+      "code_url": "https://github.com/DAMO-NLP-SG/VCD",
+      "title": "Mitigating Object Hallucinations through Visual Contrastive Decoding",
+      "dataset_case": "pope",
+      "failure_slice": "POPE object-presence questions",
+      "mechanism": "language priors and statistical bias override visual evidence",
+      "paper_repair": "contrast logits from original and distorted visual inputs during decoding",
+      "minimum_tier": "L0",
+      "requires": ["per-token logits", "controlled distorted-image forward pass"],
+      "black_box_status": "prompt/crop controls runnable; exact VCD unavailable without logits"
+    },
+    {
+      "id": "opera",
+      "paper_url": "https://arxiv.org/abs/2311.17911",
+      "code_url": "https://github.com/shikiw/OPERA",
+      "title": "OPERA: Over-Trust Penalty and Retrospection-Allocation",
+      "dataset_case": "pope",
+      "failure_slice": "object hallucination under image-token neglect",
+      "mechanism": "decoding over-trusts a few summary tokens and neglects image tokens",
+      "paper_repair": "attention-derived logit penalty with beam-search rollback/reallocation",
+      "minimum_tier": "L3a",
+      "requires": ["self-attention", "logits", "custom beam search"],
+      "black_box_status": "not reproducible through a chat-completions endpoint"
+    },
+    {
+      "id": "pai",
+      "paper_url": "https://arxiv.org/abs/2407.21771",
+      "code_url": "https://github.com/LALBJ/PAI",
+      "title": "Paying More Attention to Image",
+      "dataset_case": "pope",
+      "failure_slice": "POPE object-presence questions affected by language-prior hallucination",
+      "mechanism": "the generated token under-attends to the image-token interval during decoding",
+      "paper_repair": "increase the pre-softmax attention scores from the final generated token to image tokens; the full method additionally uses classifier-free guidance",
+      "minimum_tier": "L3b",
+      "requires": ["LLaVA eager self-attention", "contiguous image-token positions", "temporary forward patch"],
+      "black_box_status": "not reproducible through a chat-completions endpoint; hf_local LLaVA runs the released attention boost and image-free CFG cache as a native architecture specialization"
+    },
+    {
+      "id": "ifcd",
+      "paper_url": "https://arxiv.org/abs/2502.01056",
+      "title": "Internal Fact-based Contrastive Decoding",
+      "dataset_case": "pope",
+      "failure_slice": "POPE and MME object hallucination",
+      "mechanism": "representation perturbation amplifies language-biased hallucination logits",
+      "paper_repair": "contrast normal and internally disturbed output distributions at decoding time",
+      "minimum_tier": "L3a",
+      "requires": ["internal representation intervention", "per-token logits"],
+      "black_box_status": "not reproducible through a chat-completions endpoint"
+    },
+    {
+      "id": "icd",
+      "paper_url": "https://arxiv.org/abs/2403.18715",
+      "code_url": "https://github.com/PostMindLab/ICD",
+      "title": "Mitigating Hallucinations in Large Vision-Language Models with Instruction Contrastive Decoding",
+      "dataset_case": "pope",
+      "failure_slice": "POPE object-presence questions susceptible to language priors",
+      "mechanism": "a disturbance instruction amplifies hallucinated concepts in the multimodal alignment path",
+      "paper_repair": "contrast normal and disturbance-instruction logits during decoding",
+      "minimum_tier": "L0",
+      "requires": ["per-token logits", "architecture-native disturbed condition"],
+      "black_box_status": "not reproducible through a chat-completions endpoint; hf_local provides an explicitly labelled decoder-input adaptation for Q-Former-free VLMs"
+    }
+  ]
+}

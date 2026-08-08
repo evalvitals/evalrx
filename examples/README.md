@@ -15,6 +15,9 @@ Examples are grouped by the layer they exercise:
   corpus: download PDFs locally, extract evidence records, then use the public
   `evalvitals explore` interface to surface framework gaps and unsafe repair
   recommendations. PDFs and generated reports are gitignored.
+- `vlm_paper_benchmark/` — six image-bearing VLM papers (including TextVQA,
+  V*Bench and POPE), with a deterministic local-data adapter for visual
+  detect → fix experiments. Images and reports are gitignored.
 
 Run each example from its own directory, for example:
 

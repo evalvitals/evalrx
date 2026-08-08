@@ -113,6 +113,34 @@ _add(ModelSpec(
     caveats=("small smoke-test VLM checkpoint; single .model layout; DeepStack",),
 ))
 _add(ModelSpec(
+    key="llava-1.5-7b-hf", family="llava", model_type="llava",
+    hf_repo="llava-hf/llava-1.5-7b-hf", auto_class="AutoModelForImageTextToText",
+    processor_class="AutoProcessor", min_transformers="4.36.0",
+    module_paths=ModulePaths(decoder_layers="language_model.model.layers", vision_tower="vision_tower"),
+    vision=VisionSpec(
+        image_token_id_attr="image_token_index", grid_source="fixed", fixed_tokens_per_tile=576
+    ),
+    caveats=(
+        "reference architecture for ViCrop's LLaVA experiments — https://arxiv.org/abs/2502.17422",
+        "CLIP ViT-L/14 at 336px yields a 24x24 image-patch grid",
+    ),
+))
+_add(ModelSpec(
+    key="instructblip-vicuna-7b", family="instructblip", model_type="instructblip",
+    hf_repo="Salesforce/instructblip-vicuna-7b",
+    auto_class="InstructBlipForConditionalGeneration", processor_class="InstructBlipProcessor",
+    min_transformers="4.46.0",
+    module_paths=ModulePaths(decoder_layers="language_model.model.layers", vision_tower="vision_model"),
+    # InstructBLIP fuses visual queries into embeddings; its decoder input_ids
+    # have no image-placeholder token block.  The backend treats its token map
+    # as text-only while still declaring image support.
+    vision=VisionSpec(grid_source="fixed"),
+    caveats=(
+        "reference Q-Former architecture for ICD's instruction-disturbance route",
+        "ICD alters qformer_input_ids only; the decoder prompt remains unchanged",
+    ),
+))
+_add(ModelSpec(
     key="qwen2.5-vl-7b-instruct", family="qwen2_5_vl", model_type="qwen2_5_vl",
     hf_repo="Qwen/Qwen2.5-VL-7B-Instruct", auto_class="AutoModelForImageTextToText",
     processor_class="AutoProcessor", min_transformers="4.49.0", tool_calling=True,
