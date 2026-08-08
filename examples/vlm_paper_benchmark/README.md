@@ -532,14 +532,18 @@ Rerunning both cases once, pre-registered at the same split sizes as the
 runs directly above (so the two are comparable), with the fixed budget:
 
 **MMMU**: judge-authored candidates now appear (`source: "judge"` instead
-of `"default"`) — `force_visual_grounding`, `explicit_data_reference`,
-`visual_grounding_enhance`, `diagram_focus_zoom`, `table_extraction_sharpen`,
-plus a real coded L3a pipeline. None produce a positive or significant
-effect (`e≤1.33`, several net-negative). This is a genuinely new test — the
-judge had never once produced a real proposal on this paper before, only
-silent defaults — and it still comes back null. That closes the
-"stronger-judge-would-help-MMMU" hypothesis on evidence rather than leaving
-it as an unresolved infrastructure gap.
+of `"default"`). Two L1 candidates — `force_visual_grounding` and
+`explicit_data_reference` — actually validated, and neither produces a
+positive or significant effect (`e=1.00` and `e=1.00`, one net-negative on
+raw counts). The other three — `visual_grounding_enhance`,
+`diagram_focus_zoom`, `table_extraction_sharpen` — plus the coded L3a
+pipeline were proposed by the judge but never validated at all: same
+"no applicable scorable pair" / "never executed" failure as ChartQA's L2
+candidates below, the second execution-contract bug, not a null result.
+So this closes the "stronger-judge-would-help-MMMU" hypothesis only for the
+two candidates that actually ran — real evidence for those two, not for
+the other four, which remain untested pending the contract fix named
+below.
 
 **ChartQA**: two real judge L1 candidates appear —
 `add_context_and_specify_calculation` (3 fixed / 6 broken, e=0.61) and
