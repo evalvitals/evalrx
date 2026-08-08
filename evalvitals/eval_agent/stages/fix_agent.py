@@ -736,7 +736,13 @@ class FixAgent:
             )
         if self.max_tier >= FixTier.L2_SCAFFOLD:
             candidates += self._l2_candidates(
-                hyp_lines, examples, prior_text, prior_names, has_images=has_images, model=model
+                hyp_lines,
+                examples,
+                prior_text,
+                prior_names,
+                has_images=has_images,
+                model=model,
+                tasks=tasks,
             )
             if self.codegen_available:
                 candidates += self._l2_coded_candidate(hyp_lines, examples, model, prior_text)
@@ -1055,6 +1061,7 @@ class FixAgent:
         *,
         has_images: bool = False,
         model: "Model | None" = None,
+        tasks: "set[str] | None" = None,
     ) -> "list[FixCandidate]":
         proposals = (
             []
@@ -1212,6 +1219,34 @@ class FixAgent:
             # that actually touch the image instead of burning a candidate on a
             # structural no-op.
             defaults = image_defaults if has_images else text_defaults
+            # self_refine/least_to_most were only ever offered for text-only
+            # cases, even though run_pipeline already threads the case image
+            # through every call of a multi-call strategy (fix_tools.py) --
+            # nothing about them is text-specific. On a binary/grounding task
+            # (yes_no) the image transforms above are the right first lever;
+            # on a genuine multi-step reasoning task (multiple_choice,
+            # exact_or_numeric -- MMMU, ChartQA) a purely visual transform
+            # cannot fix a reasoning error the model makes after it has
+            # already seen the image correctly, so offer self_refine there
+            # too, prioritised ahead of the sharpen/crop family for that task
+            # shape.
+            # Positive allowlist, not "anything that isn't yes_no": unknown or
+            # missing task metadata (common in unit tests and some non-VLM
+            # integrations) must not silently opt into this branch.
+            reasoning_task = bool(
+                tasks and tasks & {"multiple_choice", "exact_or_numeric", "vqa_consensus"}
+            )
+            if has_images and reasoning_task and "self_refine" not in prior_names:
+                defaults = [
+                    FixCandidate(
+                        tier=FixTier.L2_SCAFFOLD,
+                        name="self_refine",
+                        source="default",
+                        payload=PipelineSpec(
+                            name="self_refine", prompt_template="{prompt}", strategy="self_refine"
+                        ).to_dict(),
+                    )
+                ] + defaults
             if has_images:
                 if (
                     model is not None
@@ -1257,6 +1292,7 @@ class FixAgent:
                         )
                     )
                 preferred = [
+                    "self_refine",
                     "detector_visual_search_consensus",
                     "guided_visual_search_consensus",
                     "salient_crop",
