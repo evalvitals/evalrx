@@ -441,19 +441,27 @@ this document). The capability-ceiling explanation is falsified for this
 model — Qwen3-VL responds to prompt/scaffold intervention where LLaVA
 didn't move at all.
 
-None of the seven reach significance (`e < 1` for most; `self_consistency_5`
-sits exactly at `e=1.00`). That's not a tuning gap — it's `n=16` selection
-pairs, the maximum this split allows, because MMMU Accounting is capped at
-30 usable items total in this manifest's source pool. No subject model
-changes that; it's a property of the paper's own data availability, not the
-algorithm or the model under test. `self_consistency_5`'s asymmetric 1/0
-result is worth recording as the closest thing to a lead in this case, but
-per this document's own standard (a discovery-sample number is not a
-result until it survives an independent confirmation), it is reported here
-as directionally promising and unconfirmed, not as a fix — there is no
-more held-out MMMU Accounting data left in this manifest to confirm it
-against, so this closes as an honest "underpowered, and provably so" rather
-than another draw at a fifth held-out sample.
+None of the seven reach significance, and read correctly, none is even
+directionally positive by e-value: `e=1.00` is the null, not weak evidence
+for — `self_consistency_5` and `visual_embedding_boost` sit exactly there,
+and `visual_grounding`/`self_refine`/the two L1 table candidates sit at
+`e=0.67`, which is mild evidence *against*. What changed versus LLaVA isn't
+that any candidate produced a positive signal — it's that outcomes moved at
+all instead of freezing to a byte-identical pattern under every
+intervention. That is a real, different finding (a live-but-underpowered
+model vs. a dead one), and it doesn't need to be dressed up as a lead.
+
+The `n=16` selection pairs is the maximum `papers.json`'s pinned split
+allows: `mmmu_accounting` is declared against MMMU's official
+`config="Accounting", split="validation"`, which is genuinely 30 items on
+the source (verified directly against the HF dataset builder, not assumed).
+A `test` split for the same config does exist with 380 items and populated
+answers in this HF mirror, but using it would mean evaluating against a
+split the paper itself doesn't report results on — the same
+fidelity-to-the-paper's-own-setup discipline that kept POPE/HALLUCINOGEN's
+architecture-specific methods off Qwen3-VL applies here too. So this closes
+as "underpowered by the paper's own declared split, and now verified as
+such," not "no more data exists anywhere."
 
 **ChartQA, `--model qwen3-vl-8b-instruct` as both subject and judge,
 `--max-tier L2`, n=256, unpinned.** This is the direct test of the other
