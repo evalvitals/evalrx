@@ -254,27 +254,59 @@ allowlist (`multiple_choice` / `exact_or_numeric` / `vqa_consensus`, not
 silently opt in) now offers `self_refine` first for that task shape; POPE's
 `yes_no` ladder is untouched.
 
+## Two last genuinely-untried levers, both closed out negative
+
+Two candidates had never actually been tested, as opposed to re-tested:
+`self_refine` on ChartQA (the code did not exist for the n=256 run, and the
+n=421 scaling run pinned the allowlist to the two ViCrop names, filtering it
+out), and the gated VCD/ICD candidates on `pope_random` — a POPE condition
+this project had never downloaded or touched, so a genuinely fresh pool
+rather than another split of an already-used one.
+
+**ChartQA / `self_refine`: a clean null.** n=160, 2 fixed / 2 broken,
+effect=0, e=0.53 — the 3-step draft/critique/revise chain does not help
+chart arithmetic errors either. Chart-reading failures on this model do not
+respond to reasoning-refinement any better than to image transforms.
+
+**`pope_random` / gated VCD and ICD: the safety property replicates a
+12th and 13th time; net benefit stays out of reach for a different
+reason.** Both gated candidates showed **0 broken** again (VCD: 2 fixed / 0
+broken, n=4; ICD: 1 fixed / 0 broken, n=3) — the safety property now holds
+across 12 independent gated runs, 3 papers, 3 model architectures, and 5
+distinct data pools, with zero exceptions. But `pope_random`'s false-Yes
+coverage (12%/19% of failures) is the *lowest* seen across all POPE
+conditions — the "random" condition is the easy control, so it simply has
+few hallucination failures of any kind at n=400, gated or not. This was a
+fair, uncontaminated third look at the net-benefit question; it came back
+too underpowered to answer it either way, which is itself the honest
+result, not a reason to try a fourth pool.
+
 ## Where this leaves the five benchmark cases
 
 | Case | Status |
 | --- | --- |
 | MLLMs Know / TextVQA small-detail | **Works** — ViCrop validated (+15.94pp, e=207,678 on an independent 207-case confirmation) |
-| POPE (adversarial + popular) | Suppressive methods made **safe** (0 broken in 10/10 gated runs); net benefit found once (e=182,361) but did not independently replicate |
+| POPE (adversarial + popular + random) | Suppressive methods made **safe** (0 broken in 12/12 gated runs across all 3 POPE conditions); net benefit found once (e=182,361) but did not independently replicate |
 | HALLUCINOGEN | Structural mismatch — 1-vs-47 false-Yes/false-No means no suppressive method (all five papers) has an eligible population, gated or not |
-| ChartQA | Initial ViCrop lead did not survive a larger, independent sample |
+| ChartQA | ViCrop and `self_refine` — the two most relevant levers in this toolkit — both non-effects on an independent sample |
 | MMMU (Accounting) | Five levers, zero outcome changes — capability-limited, not lever-limited |
 
 One of five works end-to-end. What changed this session is *how* the other
 four fail: every negative above now has a mechanism, a number, and (for
-POPE/ChartQA) a documented non-replication pattern, rather than "we tried
-one thing and it didn't work." Closing the remaining four would need
-something this environment doesn't currently have: a stronger judge/subject
-model (for MMMU and for candidate proposal quality generally), a
-`pope_popular` source pool that isn't already substantially touched, an MMMU
-config with more than 30 usable items, or an *augmenting* (not suppressive)
-repair method for HALLUCINOGEN's false-No-dominated failures — none of
-which is a tuning problem this repo's contamination discipline permits
-solving by re-running against held-out data until a number passes.
+POPE/ChartQA) a documented non-replication or clean-null pattern on
+genuinely independent data, rather than "we tried one thing and it didn't
+work." The one property that *did* generalize cleanly across every
+condition tested is safety: a per-case gate computed only from each case's
+own baseline answer converts a suppressive repair from actively harmful to
+never-worse, with zero exceptions in twelve independent tries. Closing the
+remaining four on net benefit would need something this environment
+doesn't currently have: a stronger judge/subject model (for MMMU and for
+candidate proposal quality generally), a `pope_popular` source pool that
+isn't already substantially touched, an MMMU config with more than 30
+usable items, or an *augmenting* (not suppressive) repair method for
+HALLUCINOGEN's false-No-dominated failures — none of which is a tuning
+problem this repo's contamination discipline permits solving by re-running
+against held-out data until a number passes.
 
 The manifest pins the source, split, scoring family and expected failure axis
 in [`papers.json`](papers.json). It stores no data. The downloader uses a
