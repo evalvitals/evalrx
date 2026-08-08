@@ -360,7 +360,19 @@ class HFLocalModel(Model):
             prompt = self._as_prompt(inputs)
             enc = self._encode(prompt)
         enc.pop("token_type_ids", None)  # some VLM processors emit this; generate() rejects it
-        max_new = kwargs.pop("max_new_tokens", self.runtime.max_new_tokens)
+        # "max_tokens" is the OpenAI-style name FixAgent's judge-proposed L2
+        # PipelineSpecs use (see fix_tools._safe_generation_kwargs and the
+        # _L2_PROMPT schema); transformers' generate() only recognises
+        # max_new_tokens and raises ValueError on an unrecognised kwarg
+        # rather than ignoring it, so every call in a judge-proposed
+        # pipeline silently failed (caught by run_pipeline's per-call
+        # try/except) and every case came back unscoreable. max_new_tokens
+        # wins if a caller passes both.
+        max_new = kwargs.pop("max_new_tokens", None)
+        if max_new is None:
+            max_new = kwargs.pop("max_tokens", self.runtime.max_new_tokens)
+        else:
+            kwargs.pop("max_tokens", None)
         with torch.no_grad():
             out = model.generate(**enc, max_new_tokens=max_new, **kwargs)
         new = out[0][enc["input_ids"].shape[1] :]

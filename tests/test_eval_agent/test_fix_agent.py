@@ -1346,6 +1346,41 @@ def test_coded_pipeline_missing_marker_and_crash(tmp_path):
     assert r2.ok is False
 
 
+def test_coded_pipeline_recovers_result_without_literal_marker_prefix(tmp_path):
+    """A judge sometimes emits the right JSON payload but drops the exact
+    ``FIX_PIPELINE_RESULT_JSON=`` prefix the prompt asked for (observed with
+    qwen3-vl-8b-instruct: valid ``{"per_case": [...]}"" via bare ``print()``,
+    no prefix). That is a compliance slip, not a content error, and should
+    not be indistinguishable from a pipeline that produced nothing at all."""
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    cases = _gold_yes_batch(n=2)
+    unprefixed = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = [{"sample_id": c["id"], "output": "Yes."} for c in cases]
+print(json.dumps({"per_case": out}))
+"""
+    result = run_coded_pipeline(unprefixed, HopelessModel(), cases, workdir=tmp_path, timeout_sec=20)
+    assert result.ok is True
+    assert all(result.outputs[c.id] == "Yes." for c in cases)
+
+
+def test_coded_pipeline_unrelated_stdout_still_fails(tmp_path):
+    """The recovery fallback only accepts a line that actually parses as
+    ``{"per_case": [...]}"" — noise on stdout must not be mistaken for it."""
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    noisy = """
+print("starting up")
+print('{"status": "done"}')
+"""
+    result = run_coded_pipeline(
+        noisy, HopelessModel(), _gold_yes_batch(n=1), workdir=tmp_path, timeout_sec=20
+    )
+    assert result.ok is False and "FIX_PIPELINE_RESULT_JSON" in result.error
+
+
 class CodeWritingJudge(Model):
     """Garbage for JSON proposals; real pipeline code for the code prompt."""
 

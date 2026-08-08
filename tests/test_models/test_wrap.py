@@ -233,3 +233,38 @@ def test_hf_local_generate_uses_vlm_encoder_for_image_inputs(monkeypatch):
     out = m.generate(Inputs(prompt="what is here?", image=object()))
     assert called["vlm"] is True
     assert out == "t99"
+
+
+def test_hf_local_generate_treats_max_tokens_as_max_new_tokens_alias():
+    """FixAgent's judge-proposed L2 PipelineSpecs carry ``generation_kwargs``
+    with an OpenAI-style ``max_tokens`` key (see fix_tools._safe_generation_kwargs
+    and the _L2_PROMPT schema). transformers' generate() only recognises
+    max_new_tokens and raises ValueError on any other kwarg it doesn't
+    recognise, rather than ignoring it — so every judge-proposed L2 pipeline
+    silently produced zero output on the HF-local backend. This is a
+    regression test for aliasing max_tokens -> max_new_tokens."""
+    m = evalvitals.wrap(FakeCausalLM(), FakeTokenizer())
+
+    class RecordingModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.param = nn.Parameter(torch.zeros(1))
+            self.captured: "dict | None" = None
+
+        def generate(self, **kwargs):
+            self.captured = kwargs
+            return torch.tensor([[1, 2, 99]])
+
+    recorder = RecordingModel()
+    m._hf = (recorder, FakeTokenizer())
+
+    out = m.generate(Inputs(prompt="hi there"), max_tokens=30, temperature=0.1)
+    assert recorder.captured["max_new_tokens"] == 30
+    assert "max_tokens" not in recorder.captured
+    assert out == "t99"
+
+    # max_new_tokens wins and the stray max_tokens is dropped, not forwarded.
+    out2 = m.generate(Inputs(prompt="hi there"), max_new_tokens=7, max_tokens=999)
+    assert recorder.captured["max_new_tokens"] == 7
+    assert "max_tokens" not in recorder.captured
+    assert out2 == "t99"
