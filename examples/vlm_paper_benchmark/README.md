@@ -50,6 +50,37 @@ labelled by fidelity rather than silently upgraded into general reproductions:
 An `hf_local` backend is required before ViCrop, OPERA or IFCD can be called a
 paper-method match.
 
+## Does the generic auto-fix ladder itself run cleanly on these cases?
+
+Every table above pins `--only-paper-candidate` to reproduce one specific
+paper method. That answers "does this paper's method transfer" but not
+"does auto-fix, run without a pinned candidate, work end-to-end on this
+paper's failure cases." The latter is a separate check: with no candidate
+allowlist, `FixAgent` proposes its own L1 (prompt)/L2 (image transform)/L3
+(internals, mechanism-gated) ladder, validates every candidate with a paired
+e-value/McNemar test, applies e-BH multiplicity correction across the
+family, and must reach a recommendation — validated fix, or an honest
+escalate/gather-more-data verdict — without silently dropping a tier or
+crashing. Every paper case in the casebook was run this way (LLaVA-1.5-7B,
+`--max-tier` L3a/L3b, no `--only-paper-candidate`):
+
+| Paper case | n (sel/confirm) | Candidates tried | Verdict |
+| --- | --- | --- | --- |
+| POPE adversarial | 160/72 | prompt grounding, 3 image transforms, embedding boost | none validated; `zoom_equalize` REJECTED H0 in the **harmful** direction (e=118.4); recommend L4 |
+| POPE popular | 160/72 | same ladder | none validated; `zoom_equalize` again a validated regression (e=39.5); recommend L4 |
+| V*Bench | 100/75 | prompt grounding, 3 image transforms, ViCrop + ViCrop-guard | none validated (best partial effect +0.05, e<1); recommend escalate to L3b |
+| ChartQA | 160/72 | prompt grounding, image transforms, ViCrop + ViCrop-guard | none validated; recommend L4 |
+| MMMU (Accounting) | 16/8 (dataset caps at 30 total) | full ladder | every candidate `no_effect` (identical answers); recommend L4 — consistent with genuine domain-reasoning failures rather than a perception/prompt-fixable defect |
+
+None of these validated a fix — and that is the expected, honest outcome
+given the paper-method table above already showed the underlying paper
+routes don't transfer on this slice either. The thing being checked here is
+narrower: the loop always reached a real verdict through the full tier
+ladder (never `never_ran`, never an unexplained skip), and it caught a
+statistically real harmful transform (`zoom_equalize` on POPE) that a
+less careful pipeline would have missed. `MMMU`/`ChartQA` previously had
+zero and smoke-only runs respectively; both now have a real run.
+
 The automatic VCD route is additionally direction-gated: it is proposed only
 when labelled binary diagnosis evidence is dominated by false `Yes` answers
 (the object-hallucination direction the paper addresses). A slice dominated by
@@ -159,6 +190,15 @@ CUDA_VISIBLE_DEVICES=4 python run_hf_autofix.py pope --model llava-1.5-7b-hf \
 CUDA_VISIBLE_DEVICES=4 python run_hf_autofix.py mllms_know_textvqa_small \
   --model llava-1.5-7b-hf --max-tier L3a --limit 96 --diagnosis-cases 16 \
   --selection-cases 48 --only-paper-candidate vicrop_relative_attention
+
+# Omitting --only-paper-candidate runs the unpinned ladder instead: FixAgent
+# proposes its own L1/L2/L3 candidates (mechanism-gated, no paper method
+# forced) and validates all of them. This is the check in the table above —
+# any paper id works, including chartqa/mmmu_accounting, whose hypothesis is
+# now read from papers.json's failure_axis rather than a hardcoded guess.
+CUDA_VISIBLE_DEVICES=4 python run_hf_autofix.py mmmu_accounting \
+  --model llava-1.5-7b-hf --max-tier L3b --limit 30 --diagnosis-cases 6 \
+  --selection-cases 16 --allow-adapted-paper-methods
 
 # ViCrop on its published LLaVA-1.5 architecture: task-relative attention,
 # adaptive multiscale crop, then original+crop answer.  Layer 14 is the

@@ -17,6 +17,7 @@ from pathlib import Path
 from run_autofix import (
     OUT,
     PAPER_IDS,
+    PAPER_SPECS,
     diagnostic_split,
     evaluate,
     exclude_seen_rows,
@@ -230,20 +231,32 @@ def main() -> int:
     # for a read-only internal paper method such as ViCrop; the candidate
     # allowlist then freezes the paper route and prevents broad prompt/crop
     # screening from being mistaken for that method.
+    #
+    # The two local-visual-search papers keep hand-tuned statements: their
+    # exact wording is what trips FixAgent's ``vicrop_mechanism`` keyword
+    # gate (validated on mllms_know_textvqa_small, README +15.94pp). Do not
+    # derive these from ``failure_axis`` — "small answer-region scene-text
+    # perception" does not contain "resolution"/"small detail"/"tiny" and
+    # would silently stop proposing ViCrop.
     local_visual_search_papers = {"mllms_know_textvqa_small", "vstar_bench"}
-    hypothesis_text = (
-        "Small answer-bearing visual details may be below the input resolution."
-        if args.paper in local_visual_search_papers
-        else "Object-presence errors may be driven by language priors rather than pixels."
-    )
+    if args.paper in local_visual_search_papers:
+        hypothesis_text = "Small answer-bearing visual details may be below the input resolution."
+        predicted_failure_mode = "small visual detail"
+    else:
+        # Every other paper: derive the hypothesis from papers.json's own
+        # ``failure_axis`` rather than a blanket "object hallucination" guess.
+        # That default used to be fed to chartqa/mmmu_accounting too, which
+        # mis-frames a chart-reading or expert-reasoning failure as language-
+        # prior hallucination and steers L1/L2 candidate generation off-topic.
+        failure_axis = PAPER_SPECS[args.paper].get(
+            "failure_axis", "object hallucination and visual grounding"
+        )
+        hypothesis_text = f"Observed failures may trace to {failure_axis}."
+        predicted_failure_mode = failure_axis
     hypothesis = Hypothesis(
         statement=hypothesis_text,
         target_model=args.model,
-        predicted_failure_mode=(
-            "small visual detail"
-            if args.paper in local_visual_search_papers
-            else "object hallucination"
-        ),
+        predicted_failure_mode=predicted_failure_mode,
         metadata={"fix_tier": args.max_tier},
     )
     agent = FixAgent(
