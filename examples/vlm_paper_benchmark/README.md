@@ -205,6 +205,77 @@ kept (harmless, correct infrastructure for a stronger local judge) but the
 `model_self_diagnosis` field in a report should not be read as a working
 diagnosis stage on this model.
 
+## Two more targeted, pre-registered attempts — both genuine non-effects
+
+**ChartQA / ViCrop did not survive scaling.** The unpinned generic ladder's
+n=160 run showed a positive-direction, non-significant signal for both
+ViCrop variants (`vicrop_relative_attention` 5 fixed / 1 broken, e=1.52;
+`vicrop_consensus_guard` 3 fixed / 0 broken, e=2.00 — the same
+clean-safety shape as the POPE gated candidates). That looked like a lead
+worth scaling, so both were pinned together and re-run once, pre-registered,
+on the larger pre-existing disjoint `chartqa_holdout_512` sample
+(n=330 selection, vs. n=160 before):
+
+| n (selection) | `vicrop_relative_attention` | `vicrop_consensus_guard` |
+| --- | --- | --- |
+| 160 | 5 fixed / 1 broken, e=1.52 | 3 fixed / 0 broken, e=2.00 |
+| 330 | 19 fixed / 12 broken, e=0.48 | 13 fixed / 8 broken, e=0.47 |
+
+Both effect size and safety got *worse* at the larger, independent sample —
+e dropped below 1 and broken counts rose sharply. This is the same
+big-then-null non-replication shape as the POPE/ICD result, not an
+underpowering problem: the n=160 signal was noise. ChartQA is reported as a
+genuine non-effect for the ViCrop family, not "needs more data."
+
+**MMMU (Accounting): five different repair levers, zero outcome changes.**
+The earlier MMMU run used `--max-tokens 8` — nowhere near enough budget for
+a multi-step reasoning aid — so before concluding anything, `self_refine`
+was unblocked for image reasoning tasks (see below) and the run repeated
+with `--max-tokens 128` (baseline numbers in this run are **not** comparable
+to the earlier n=30 report — different decode budget). Result: `n_pairs=16`
+for every candidate, and `n_baseline_correct == n_candidate_correct` with
+`n_fixed=0, n_broken=0` for **all five** — `visual_grounding`, `self_refine`
+(3-call draft/critique/revise chain), `salient_crop`, `upscale_sharpen`,
+`visual_embedding_boost`. Not just matching totals — the exact same 16-case
+right/wrong pattern under every intervention. Baseline outputs are
+single-letter (`'B'`, `'A'`, ...), confirming the model commits to one
+answer regardless of prompt framing, image transform, or an explicit
+reasoning chain. This reads as a genuine capability ceiling of
+`llava-1.5-7b-hf` on expert accounting reasoning, not a lever we're missing
+— which is exactly what the framework's own recommendation says:
+`recommend_tier: L4` (parameter space — fine-tuning — not prompt/decoding).
+
+**`self_refine`/`least_to_most` were unblocked for image reasoning tasks in
+the process.** They were hardcoded to text-only cases even though their
+executor (`run_pipeline` in `fix_tools.py`) already threads the case image
+through every call — nothing about them is text-specific. A positive
+allowlist (`multiple_choice` / `exact_or_numeric` / `vqa_consensus`, not
+"anything that isn't `yes_no`" — missing/unknown task metadata must not
+silently opt in) now offers `self_refine` first for that task shape; POPE's
+`yes_no` ladder is untouched.
+
+## Where this leaves the five benchmark cases
+
+| Case | Status |
+| --- | --- |
+| MLLMs Know / TextVQA small-detail | **Works** — ViCrop validated (+15.94pp, e=207,678 on an independent 207-case confirmation) |
+| POPE (adversarial + popular) | Suppressive methods made **safe** (0 broken in 10/10 gated runs); net benefit found once (e=182,361) but did not independently replicate |
+| HALLUCINOGEN | Structural mismatch — 1-vs-47 false-Yes/false-No means no suppressive method (all five papers) has an eligible population, gated or not |
+| ChartQA | Initial ViCrop lead did not survive a larger, independent sample |
+| MMMU (Accounting) | Five levers, zero outcome changes — capability-limited, not lever-limited |
+
+One of five works end-to-end. What changed this session is *how* the other
+four fail: every negative above now has a mechanism, a number, and (for
+POPE/ChartQA) a documented non-replication pattern, rather than "we tried
+one thing and it didn't work." Closing the remaining four would need
+something this environment doesn't currently have: a stronger judge/subject
+model (for MMMU and for candidate proposal quality generally), a
+`pope_popular` source pool that isn't already substantially touched, an MMMU
+config with more than 30 usable items, or an *augmenting* (not suppressive)
+repair method for HALLUCINOGEN's false-No-dominated failures — none of
+which is a tuning problem this repo's contamination discipline permits
+solving by re-running against held-out data until a number passes.
+
 The manifest pins the source, split, scoring family and expected failure axis
 in [`papers.json`](papers.json). It stores no data. The downloader uses a
 deterministic reservoir sample, writes decoded images and records below
