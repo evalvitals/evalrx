@@ -52,8 +52,10 @@ from evalvitals.specs import get_spec
 PAPER_CANDIDATE_NAMES = frozenset(
     {
         "vcd_diffusion_noise",
+        "vcd_diffusion_noise_gated_false_yes",
         "icd_instruction_disturbance",
         "icd_instruction_disturbance_question",
+        "icd_instruction_disturbance_gated_false_yes",
         "opera_overtrust_binary",
         "ifcd_truthx_contrast",
         "vicrop_relative_attention",
@@ -85,25 +87,113 @@ def source_pope_prompt(row: dict[str, object]) -> str:
     return str(row["question"]) + " Please answer this question with one word."
 
 
+_CANDIDATE_PROMPT_CONTRACTS: dict[str, tuple[str, object]] = {
+    "vcd_diffusion_noise": ("vcd_pope_question_plus_one_word", source_pope_prompt),
+    "vcd_diffusion_noise_gated_false_yes": (
+        "vcd_pope_question_plus_one_word",
+        source_pope_prompt,
+    ),
+    "icd_instruction_disturbance": ("pope_raw_question", lambda row: str(row["question"])),
+    "icd_instruction_disturbance_question": (
+        "pope_raw_question",
+        lambda row: str(row["question"]),
+    ),
+    "icd_instruction_disturbance_gated_false_yes": (
+        "pope_raw_question",
+        lambda row: str(row["question"]),
+    ),
+    "opera_overtrust_binary": ("pope_raw_question", lambda row: str(row["question"])),
+    "ifcd_truthx_contrast": ("pope_raw_question", lambda row: str(row["question"])),
+    "pai_image_attention": ("pope_raw_question", lambda row: str(row["question"])),
+}
+
+
 def paper_prompt_contract(candidate_names: list[str]) -> tuple[str, object]:
-    """Return the evaluator prompt contract for one frozen POPE paper method."""
-    if len(candidate_names) != 1:
+    """Return the evaluator prompt contract shared by the pinned candidates.
+
+    A gated candidate (e.g. ``vcd_diffusion_noise_gated_false_yes``) uses the
+    exact same released prompt contract as its ungated sibling -- only its
+    per-case applicability differs -- so pinning both together to compare
+    them under one selection run is legitimate; pinning candidates whose
+    *prompt contracts* differ (e.g. VCD with ICD) is not, since that would
+    silently average two different task setups into one report.
+    """
+    contracts = {}
+    for name in candidate_names:
+        if name not in _CANDIDATE_PROMPT_CONTRACTS:
+            raise SystemExit(f"--paper-prompt has no source prompt contract for {name}")
+        contract_name, prompt_fn = _CANDIDATE_PROMPT_CONTRACTS[name]
+        contracts[contract_name] = prompt_fn
+    if len(contracts) != 1:
         raise SystemExit(
-            "--paper-prompt requires exactly one --only-paper-candidate because "
-            "VCD, ICD, OPERA, IFCD, and PAI use different released POPE prompt contracts"
+            "--paper-prompt requires every --only-paper-candidate to share one "
+            "released prompt contract; got: " + ", ".join(sorted(contracts))
         )
-    name = candidate_names[0]
-    if name == "vcd_diffusion_noise":
-        return "vcd_pope_question_plus_one_word", source_pope_prompt
-    if name in {
-        "icd_instruction_disturbance",
-        "icd_instruction_disturbance_question",
-        "opera_overtrust_binary",
-        "ifcd_truthx_contrast",
-        "pai_image_attention",
-    }:
-        return "pope_raw_question", lambda row: str(row["question"])
-    raise SystemExit(f"--paper-prompt has no source prompt contract for {name}")
+    (contract_name, prompt_fn), = contracts.items()
+    return contract_name, prompt_fn
+
+
+def diagnose_hf(
+    model: HFLocalModel, baseline_probe: dict[str, object], diagnosis_rows: list[dict[str, object]]
+) -> str | None:
+    """Ask the model itself to infer a failure mechanism from real failures.
+
+    Mirrors ``run_autofix.py``'s ``diagnose()``: without this, the runner
+    only ever fed FixAgent a hand-written one-line hypothesis, and no
+    judge was wired in either (see ``_JudgeModel`` below) -- so every prior
+    run proposed the same fixed default candidates regardless of what the
+    diagnosis split actually showed. Returns ``None`` (caller keeps its
+    prior text) when there is nothing to diagnose or the call errors out;
+    this must never raise and abort an expensive validated run.
+    """
+    cases_by_id = {case["id"]: case for case in baseline_probe["cases"]}
+    failures = [
+        (row, cases_by_id[row["id"]])
+        for row in diagnosis_rows
+        if row["id"] in cases_by_id and not cases_by_id[row["id"]]["correct"]
+    ]
+    if not failures:
+        return None
+    failure_rows = [
+        {"question": str(row["question"])[:280], "output": str(case["output"])[:280]}
+        for row, case in failures[:8]
+    ]
+    representative, _ = failures[0]
+    try:
+        text = model.generate(
+            Inputs(
+                "Infer one narrow visual failure mechanism from these incorrect "
+                "image-question responses. The attached image is the first "
+                "failure: inspect it to ground the diagnosis. Do not propose a "
+                "fix or mention unavailable hidden model state.\n\n"
+                + json.dumps(failure_rows, ensure_ascii=False),
+                representative["image"],
+            ),
+            max_new_tokens=200,
+        )
+    except Exception as exc:  # noqa: BLE001 - diagnosis is best-effort, never fatal
+        print(f"diagnose_hf: model call failed, keeping prior hypothesis: {exc}")
+        return None
+    return text.strip()[:1200] or None
+
+
+class _JudgeModel:
+    """Gives FixAgent's L1/L2 judge calls a longer decode budget than the
+    short yes/no/option-letter evaluation calls need, without loading a
+    second copy of the weights. ``FixAgent._ask_judge`` calls
+    ``judge.generate(prompt)`` with no override, so with no wrapper the
+    judge would inherit whatever ``--max-tokens`` was set for scoring
+    (e.g. 8 for POPE) -- nowhere near enough to return a JSON candidate
+    list, so it would silently truncate and fail to parse every time.
+    """
+
+    def __init__(self, model: HFLocalModel, max_new_tokens: int = 320) -> None:
+        self._model = model
+        self._max_new_tokens = max_new_tokens
+
+    def generate(self, inputs: object, **kwargs: object) -> str:
+        kwargs.setdefault("max_new_tokens", self._max_new_tokens)
+        return self._model.generate(inputs, **kwargs)
 
 
 def main() -> int:
@@ -200,7 +290,10 @@ def main() -> int:
         if args.paper_prompt
         else ("evalvitals_task_prompt", task_prompt)
     )
-    vcd_sampling_control = args.only_paper_candidate == ["vcd_diffusion_noise"]
+    vcd_sampling_control = bool(args.only_paper_candidate) and set(args.only_paper_candidate) <= {
+        "vcd_diffusion_noise",
+        "vcd_diffusion_noise_gated_false_yes",
+    }
 
     def baseline_generate(row: dict[str, object]) -> str:
         model_inputs = Inputs(prompt_fn(row), row["image"])
@@ -249,6 +342,7 @@ def main() -> int:
     # perception" does not contain "resolution"/"small detail"/"tiny" and
     # would silently stop proposing ViCrop.
     local_visual_search_papers = {"mllms_know_textvqa_small", "vstar_bench"}
+    diagnosis_text: str | None = None
     if args.paper in local_visual_search_papers:
         hypothesis_text = "Small answer-bearing visual details may be below the input resolution."
         predicted_failure_mode = "small visual detail"
@@ -263,13 +357,29 @@ def main() -> int:
         )
         hypothesis_text = f"Observed failures may trace to {failure_axis}."
         predicted_failure_mode = failure_axis
+        # Real diagnosis (mirrors run_autofix.py's diagnose()): ask the model
+        # itself to inspect actual diagnosis-split failures, rather than
+        # relying only on the paper's pre-registered failure_axis. This is
+        # diagnosis-split-only -- it never looks at selection/confirmation
+        # cases -- so appending it to the hypothesis is not tuning.
+        diagnosis_text = diagnose_hf(model, baseline_probe, diagnosis_rows)
+        if diagnosis_text:
+            hypothesis_text = f"{hypothesis_text} Model self-diagnosis: {diagnosis_text}"
     hypothesis = Hypothesis(
         statement=hypothesis_text,
         target_model=args.model,
         predicted_failure_mode=predicted_failure_mode,
         metadata={"fix_tier": args.max_tier},
     )
+    # judge=_JudgeModel(model): without this, FixAgent's L1 (prompt) and L2
+    # (scaffold) tiers never call an LLM at all -- _ask_judge returns []
+    # immediately when judge is None -- so every unpinned run so far proposed
+    # only the fixed deterministic defaults (visual_grounding /
+    # salient_crop / upscale_sharpen / zoom_equalize) regardless of what the
+    # diagnosis said. run_autofix.py's black-box runner already does this
+    # (judge=model); the HF runner never did.
     agent = FixAgent(
+        judge=_JudgeModel(model),
         max_tier=args.max_tier,
         score_fn=score_case,
         max_validation_cases=0,
@@ -308,6 +418,7 @@ def main() -> int:
         "prompt_contract": prompt_contract,
         "baseline_decoding": "vcd_clean_temperature_one_sampling" if vcd_sampling_control else "default_generate",
         "allow_adapted_paper_methods": args.allow_adapted_paper_methods,
+        "model_self_diagnosis": diagnosis_text,
         "only_paper_candidates": args.only_paper_candidate,
         "ifcd_checkpoint": args.ifcd_checkpoint,
         "ifcd_checkpoint_sha256": ifcd_checkpoint_sha256,

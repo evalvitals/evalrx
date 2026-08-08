@@ -1714,6 +1714,29 @@ def test_predicate_scopes_validation_to_applicable_cases():
     assert v.coverage == 0.5  # repaired 2 of the 4 failures it was scoped to
 
 
+def test_signature_distinguishes_candidates_sharing_kind_and_payload():
+    """Two candidates that share kind+payload but differ only by name/predicate
+    (e.g. a paper method and its per-case-gated sibling) must not collide in
+    the round's dedup ``seen`` set — that would silently drop the gated
+    variant as an 'already seen' duplicate of the ungated one."""
+    from evalvitals.eval_agent.stages.fix_agent import FixCandidate
+
+    agent = FixAgent(judge=None, max_tier="L0")
+    payload = {"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"}
+    ungated = FixCandidate(
+        tier=FixTier.L0_RUNTIME_CONFIG, name="icd_instruction_disturbance", kind="icd",
+        payload=payload,
+    )
+    gated = FixCandidate(
+        tier=FixTier.L0_RUNTIME_CONFIG,
+        name="icd_instruction_disturbance_gated_false_yes",
+        kind="icd",
+        payload=payload,
+        predicate=lambda c: True,
+    )
+    assert agent._signature(ungated) != agent._signature(gated)
+
+
 def test_spec_noop_cases_are_not_applicable():
     PIL = pytest.importorskip("PIL")
     from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, spec_changes_input

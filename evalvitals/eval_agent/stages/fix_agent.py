@@ -101,6 +101,11 @@ logger = logging.getLogger(__name__)
 _MAX_JUDGE_CANDIDATES = 3
 _EXAMPLE_PROMPTS = 3
 
+def _binary_answer(value: Any) -> "str | None":
+    match = re.search(r"\b(yes|no)\b", str(value).lower())
+    return match.group(1) if match else None
+
+
 def _binary_hallucination_direction(data: "CaseBatch") -> "tuple[bool, int, int]":
     """Return whether binary evidence supports a false-``Yes`` repair.
 
@@ -109,22 +114,36 @@ def _binary_hallucination_direction(data: "CaseBatch") -> "tuple[bool, int, int]
     expected/observed answers. If it can, do not deploy a suppressive repair
     into a false-negative dominant slice; otherwise preserve generic support.
     """
-
-    def binary(value: Any) -> "str | None":
-        match = re.search(r"\b(yes|no)\b", str(value).lower())
-        return match.group(1) if match else None
-
     false_yes = false_no = 0
     for case in data:
         if getattr(getattr(case, "label", None), "value", None) != "fail":
             continue
-        expected = binary(getattr(case, "expected", None))
-        observed = binary(getattr(case, "observed", None))
+        expected = _binary_answer(getattr(case, "expected", None))
+        observed = _binary_answer(getattr(case, "observed", None))
         if expected == "no" and observed == "yes":
             false_yes += 1
         elif expected == "yes" and observed == "no":
             false_no += 1
     return (false_yes + false_no == 0 or false_yes >= false_no, false_yes, false_no)
+
+
+def _false_yes_predicate(case: Any) -> bool:
+    """Per-case gate: baseline asserted the object, gold says it isn't there.
+
+    VCD/ICD/OPERA/PAI/IFCD are all *suppressive* -- they push the decoded
+    answer away from asserting an object the image doesn't support. That is
+    the right direction only on this per-case subpopulation. Unlike
+    :func:`_binary_hallucination_direction` (a whole-batch go/no-go gate),
+    this is meant to be attached to a :class:`FixCandidate` as its
+    ``predicate`` so the *same* candidate can be run gated (touching only
+    these cases) alongside its ungated sibling. Computed from ``expected``/
+    ``observed`` on the baseline already recorded for this case -- never
+    from a later selection/confirmation outcome.
+    """
+    return (
+        _binary_answer(getattr(case, "expected", None)) == "no"
+        and _binary_answer(getattr(case, "observed", None)) == "yes"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -428,7 +447,7 @@ class FixAgent:
         # any prior_attempts carried over from an earlier escalation tier) and
         # ask for DIFFERENT candidates within the same tier (never escalating).
         # Stop on first validated fix or when a round adds no new candidate.
-        seen: "set[tuple[str, str]]" = set()
+        seen: "set[tuple[str, str, str]]" = set()
         for round_idx in range(self.max_repair_rounds):
             combined_prior = list(prior_attempts or []) + outcome.attempted
             prior_text = self._format_prior(combined_prior) if combined_prior else ""
@@ -831,6 +850,32 @@ class FixAgent:
                     payload=vcd_payload,
                 )
             )
+        # Gated sibling (defect 3's refine_signal, operationalised): VCD is a
+        # *suppressive* repair -- it is the right direction only on cases
+        # where the baseline asserted an object the image doesn't support
+        # (false-Yes). Proposing this alongside the ungated candidate lets a
+        # near-cancelling whole-slice result (helps false-Yes cases, hurts
+        # false-No ones -- exactly the "heterogeneous_failure_mode" pattern
+        # every POPE report already surfaces) resolve into a real, narrower
+        # fix instead of a null. The predicate reads each case's own
+        # already-recorded baseline expected/observed -- never a selection or
+        # confirmation outcome -- so this is a candidate design choice, not a
+        # post-hoc tuning of which cases to report.
+        if (
+            tasks == {"yes_no"}
+            and supports_vcd
+            and "vcd_diffusion_noise_gated_false_yes" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="vcd_diffusion_noise_gated_false_yes",
+                    kind="vcd",
+                    source="conditional_default",
+                    payload={"alpha": 1.0, "beta": 0.1, "noise_step": 999},
+                    predicate=_false_yes_predicate,
+                )
+            )
         # ICD (Wang et al., ACL 2024) has the same binary, token-level
         # admission requirements but its negative condition is an instruction
         # disturbance rather than a corrupted image.  A backend can expose an
@@ -875,14 +920,42 @@ class FixAgent:
                         payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "question"},
                     )
                 )
+        # Gated sibling, same rationale as VCD's above: ICD is also
+        # suppressive, so restrict it to the per-case false-Yes subset rather
+        # than requiring the whole slice to be false-Yes dominant.
+        if (
+            tasks == {"yes_no"}
+            and supports_logprobs
+            and callable(getattr(model, "generate_instruction_cd", None))
+            and (
+                icd_fidelity in {"exact", "native_binary_specialization"}
+                or (icd_fidelity == "adapted" and self._allow_adapted_paper_methods)
+            )
+            and "icd_instruction_disturbance_gated_false_yes" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="icd_instruction_disturbance_gated_false_yes",
+                    kind="icd",
+                    source="conditional_default",
+                    payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"},
+                    predicate=_false_yes_predicate,
+                )
+            )
         return out
 
     @staticmethod
-    def _signature(candidate: FixCandidate) -> "tuple[str, str]":
+    def _signature(candidate: FixCandidate) -> "tuple[str, str, str]":
         """Identity of a candidate, to skip re-validating an identical one.
 
         Coded pipelines carry fresh source each round, so they never collide;
-        templates / specs / primitives dedup on their defining payload.
+        templates / specs / primitives dedup on their defining payload. The
+        candidate's ``name`` is always part of the signature: two candidates
+        can share a kind and payload while differing only in ``predicate``
+        (for example a paper method and its per-case-gated sibling, see
+        ``_false_yes_predicate``) -- that is a different candidate, not a
+        duplicate, and must not be silently dropped by the round's dedup set.
         """
         p = candidate.payload
         if candidate.kind == "template":
@@ -899,7 +972,7 @@ class FixAgent:
             key = json.dumps(
                 {k: v for k, v in p.items() if k != "exec_error"}, sort_keys=True, default=str
             )
-        return (candidate.kind, key)
+        return (candidate.kind, candidate.name, key)
 
     def _l1_candidates(
         self,
