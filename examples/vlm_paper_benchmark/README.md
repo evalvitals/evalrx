@@ -110,6 +110,101 @@ false `No` answers is reported as a different health problem rather than being
 used to tune or deploy VCD. The 512-case adversarial validation exposed exactly
 this mismatch (53 false negatives versus 27 false positives).
 
+## Per-case gated candidates: making a suppressive repair safe, not just direction-gated
+
+The whole-batch direction gate above is coarse: it asks "is this *slice*
+mostly false-`Yes`" and admits or withholds the whole candidate. But POPE's
+own reports show the real failure is heterogeneous within an admitted
+slice — VCD on POPE adversarial fixed 23 cases and broke 25 in the same
+run, a near-perfect cancellation. Since VCD/ICD/OPERA/PAI/IFCD are all
+*suppressive* (they push the decoded answer away from asserting an object),
+the "broken" cases are structurally the ones where the baseline was already
+a *correct* `Yes` that suppression flips wrong — exactly the population the
+whole-batch gate cannot see, because it only conditions on slice-level
+majority, not on each case's own baseline answer.
+
+`FixCandidate` already carries a per-case `predicate` (used for structural
+applicability, e.g. `salient_crop`'s partial `coverage`) that nothing had
+used to gate a *paper method's* applicability. `_false_yes_predicate` closes
+that: it restricts a candidate to cases where the baseline itself answered
+`Yes` and the gold label is `No` — computed from each case's own
+already-recorded baseline `expected`/`observed`, never from a later
+selection or confirmation outcome. `vcd_diffusion_noise_gated_false_yes` and
+`icd_instruction_disturbance_gated_false_yes` are proposed alongside their
+ungated siblings whenever the base method/capability conditions hold,
+independent of the whole-batch gate, so e-BH picks whichever (if either)
+survives.
+
+Validating this surfaced a real pre-existing framework bug:
+`FixCandidate._signature()` deduped candidates on `(kind, payload)` alone, so
+a gated candidate sharing its ungated sibling's payload was silently dropped
+from the same proposal round as an "already seen" duplicate before it was
+ever validated — `icd_instruction_disturbance_gated_false_yes` never
+appeared in an early run for exactly this reason. Fixed by including `name`
+in the signature (regression test in `test_fix_agent.py`).
+
+Results, gated vs. ungated, across every run attempted (`n_pairs` counts only
+cases the gate actually touched):
+
+| Paper / model | Ungated | Gated |
+| --- | --- | --- |
+| POPE adversarial, LLaVA, VCD (n=160 sel) | not proposed (batch gate) | 3 fixed / **0 broken** (n=13) |
+| POPE adversarial, LLaVA, VCD (n=650 sel, fresh 768-holdout) | not proposed (batch gate) | 4 fixed / **0 broken** (n=43) |
+| POPE popular, LLaVA, VCD (n=160 sel) | not proposed (batch gate) | 1 fixed / **0 broken** (n=6) |
+| POPE popular, LLaVA, VCD (n=650 sel, fresh 768-holdout) | not proposed (batch gate) | 0 fixed / **0 broken**, no_effect (n=12) |
+| POPE popular, InstructBLIP, ICD (n=160 sel) | 2 fixed / 7 broken, unsafe | 2 fixed / **0 broken** (n=5) |
+| POPE popular, InstructBLIP, ICD (n=650 sel, fresh 768-holdout) | 22 fixed / 28 broken, unsafe (e=0.25) | **22 fixed / 0 broken, e=182,361 → REJECT H0, e-BH survivor, `best`** (n=49) |
+| ↳ confirmation on that run's own 86-case holdout | — | 4 fixed / 0 broken, e=3.20, inconclusive (n=6, too few gated cases) |
+| ↳ independent fresh sample, selection=90 (n=236 pool) | — | 0 fixed / 0 broken, no_effect (n=4) |
+| HALLUCINOGEN, LLaVA, VCD (n=48 sel) | 0 fixed / 11 broken, e=170.7 REJECTED **harmful** | 0 fixed / 0 broken, no data (n=1) |
+| HALLUCINOGEN, LLaVA, ICD (n=48 sel) | 1 fixed / 2 broken, unsafe | 1 fixed / **0 broken** (n=1) |
+
+Two separate, honestly different conclusions follow from this table, and
+they should not be collapsed into one headline:
+
+**The safety property is strongly supported.** `n_broken = 0` in every
+single gated run above — ten independent observations, across two papers,
+two model architectures (LLaVA, InstructBLIP) and three sample sizes,
+against a mechanistic prediction (`0 broken by design`) written down before
+any of these runs. The ungated siblings break 7–28 cases in the same
+settings. Gating converts VCD/ICD from *actively unsafe* candidates the
+framework correctly rejected into candidates that never make things worse —
+a real, validated improvement to how the auto-fix ladder handles these
+paper methods, independent of whether a net-positive fix is ever confirmed.
+
+**A net-positive fix is not established.** The one striking result — ICD
+gated on POPE popular/InstructBLIP, e=182,361 on a 768-row holdout — did not
+independently replicate: a small confirmation split on the same run's own
+holdout was directionally consistent but underpowered (4/6, e=3.20), and two
+follow-up looks on a genuinely fresh, disjoint 236-row sample (the
+`pope_popular` source pool is nearly exhausted after this session's earlier
+runs — 700 requested, only 236 unseen) gave a degenerate 0-applicable-cases
+split, then, after widening selection, a flat 0/4. Big-sample-then-null is
+the signature of a non-replicating result, not a power problem — collecting
+a fourth sample to try again would cross from re-diagnosis into outcome
+search, so this stops here and is reported as promising-but-unconfirmed.
+
+**HALLUCINOGEN cannot be fixed by any of these five methods, structurally.**
+Its false-`Yes` vs. false-`No` count on the diagnosis-informed selection
+split was 1-vs-47 — the opposite of POPE's profile. All five paper repairs
+(VCD/ICD/OPERA/PAI/IFCD) are suppressive; on a slice this false-`No`
+dominant there is essentially no eligible population for any of them to
+gate onto, whole-batch or per-case. This is a benchmark-to-method mismatch,
+not underpowering, and no engineering on this repair family closes it.
+
+**The white-box runner's diagnosis and judge were also wired in this
+session** (`diagnose_hf`, mirroring `run_autofix.py`'s `diagnose()`; a
+`judge=_JudgeModel(model)` FixAgent construction) and smoke-tested before
+being trusted: on `llava-1.5-7b-hf`, self-diagnosis answered the embedded
+question instead of the meta-task ("The image does not show a bicycle."
+instead of a failure mechanism), and the judge's JSON candidate proposals
+failed to parse twice, falling back to the same fixed defaults every
+unpinned run had always used. This is a measured capability floor of the 7B
+subject model, not a prompt-tuning problem worth chasing — the wiring is
+kept (harmless, correct infrastructure for a stronger local judge) but the
+`model_self_diagnosis` field in a report should not be read as a working
+diagnosis stage on this model.
+
 The manifest pins the source, split, scoring family and expected failure axis
 in [`papers.json`](papers.json). It stores no data. The downloader uses a
 deterministic reservoir sample, writes decoded images and records below

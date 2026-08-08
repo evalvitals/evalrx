@@ -378,6 +378,17 @@ def main() -> int:
     # salient_crop / upscale_sharpen / zoom_equalize) regardless of what the
     # diagnosis said. run_autofix.py's black-box runner already does this
     # (judge=model); the HF runner never did.
+    #
+    # Measured, not assumed: on llava-1.5-7b-hf this is currently a no-op.
+    # A smoke test showed the judge's JSON proposals fail to parse (falls
+    # back to the same defaults, logged as a warning) and its free-text
+    # self-diagnosis answered the embedded question instead of doing the
+    # meta-task ("The image does not show a bicycle." instead of a failure
+    # mechanism) -- a capability floor of the 7B subject model, not a prompt
+    # or wiring bug. Left in rather than reverted because it is correct
+    # infrastructure for a stronger local judge (e.g. a Qwen-VL judge
+    # instance decoupled from the model under test); harmless overhead on a
+    # model too weak to use it.
     agent = FixAgent(
         judge=_JudgeModel(model),
         max_tier=args.max_tier,
