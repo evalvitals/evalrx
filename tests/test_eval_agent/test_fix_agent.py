@@ -1738,22 +1738,24 @@ def test_signature_distinguishes_candidates_sharing_kind_and_payload():
 
 
 def test_self_refine_offered_for_image_reasoning_tasks_not_yes_no():
-    """self_refine/least_to_most were only ever proposed for text-only cases,
-    even though run_pipeline already threads the case image through every
-    call -- nothing about them is text-specific. A multi-step reasoning task
-    (multiple_choice/exact_or_numeric/vqa_consensus) with an image should get
-    self_refine, prioritised first; a binary/grounding task (yes_no) should
-    not, so the proven image-transform ladder is not diluted there."""
+    """self_refine/self_consistency_5/least_to_most were only ever proposed
+    for text-only cases, even though run_pipeline already threads the case
+    image through every call -- nothing about them is text-specific. A
+    multi-step reasoning task (multiple_choice/exact_or_numeric/
+    vqa_consensus) with an image should get self_refine and
+    self_consistency_5, prioritised first; a binary/grounding task (yes_no)
+    should get neither, so the proven image-transform ladder is not diluted
+    there."""
     agent = FixAgent(judge=None, max_tier="L2")
     out = agent._l2_candidates(
         "- some hypothesis", "", has_images=True, model=None, tasks={"multiple_choice"}
     )
-    assert out and out[0].name == "self_refine"
+    assert [c.name for c in out[:2]] == ["self_refine", "self_consistency_5"]
 
     out_yn = agent._l2_candidates(
         "- some hypothesis", "", has_images=True, model=None, tasks={"yes_no"}
     )
-    assert "self_refine" not in {c.name for c in out_yn}
+    assert {"self_refine", "self_consistency_5"}.isdisjoint(c.name for c in out_yn)
 
 
 def test_spec_noop_cases_are_not_applicable():

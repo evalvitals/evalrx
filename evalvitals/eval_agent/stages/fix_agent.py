@@ -1236,17 +1236,45 @@ class FixAgent:
             reasoning_task = bool(
                 tasks and tasks & {"multiple_choice", "exact_or_numeric", "vqa_consensus"}
             )
-            if has_images and reasoning_task and "self_refine" not in prior_names:
-                defaults = [
-                    FixCandidate(
-                        tier=FixTier.L2_SCAFFOLD,
-                        name="self_refine",
-                        source="default",
-                        payload=PipelineSpec(
-                            name="self_refine", prompt_template="{prompt}", strategy="self_refine"
-                        ).to_dict(),
+            if has_images and reasoning_task:
+                # self_refine (deterministic, single path, critique-then-revise)
+                # and self_consistency (stochastic, multiple independent paths,
+                # majority vote) target different failure shapes: self_refine
+                # helps when the model's first pass missed something a second
+                # look would catch; self_consistency helps when greedy decoding
+                # is stuck on one answer but the model's distribution actually
+                # has support elsewhere. Majority-vote aggregation already
+                # exists in run_pipeline (fix_tools.py, n_samples > 1) but had
+                # never been registered as a default candidate for any task.
+                reasoning_defaults = []
+                if "self_refine" not in prior_names:
+                    reasoning_defaults.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name="self_refine",
+                            source="default",
+                            payload=PipelineSpec(
+                                name="self_refine",
+                                prompt_template="{prompt}",
+                                strategy="self_refine",
+                            ).to_dict(),
+                        )
                     )
-                ] + defaults
+                if "self_consistency_5" not in prior_names:
+                    reasoning_defaults.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name="self_consistency_5",
+                            source="default",
+                            payload=PipelineSpec(
+                                name="self_consistency_5",
+                                prompt_template="{prompt}",
+                                n_samples=5,
+                                generation_kwargs={"do_sample": True, "temperature": 0.7},
+                            ).to_dict(),
+                        )
+                    )
+                defaults = reasoning_defaults + defaults
             if has_images:
                 if (
                     model is not None
@@ -1293,6 +1321,7 @@ class FixAgent:
                     )
                 preferred = [
                     "self_refine",
+                    "self_consistency_5",
                     "detector_visual_search_consensus",
                     "guided_visual_search_consensus",
                     "salient_crop",
