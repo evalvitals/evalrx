@@ -1676,7 +1676,7 @@ def test_boost_unavailable_yields_none_scores():
     assert set(scores.values()) == {None}
 
 
-# ── L4: defined, executor TODO ───────────────────────────────────────────────
+# ── L4: recipe dataclass + v1 LoRA executor ──────────────────────────────────
 
 
 def test_l4_recipe_recorded_not_executed():
@@ -1701,6 +1701,191 @@ def test_l4_recipe_recorded_not_executed():
     assert ft[0].candidate.payload["target"] == "vision_encoder"
     assert out.fixed is False
     assert out.recommendation is None  # already at the top tier
+
+
+def test_l4_not_executed_without_finetune_pool():
+    """target='llm'/method='lora' is the executable shape, but FixAgent was
+    not given a finetune_pool -- must stay recorded-not-executed, not attempt
+    training against the validation batch itself (that would be leakage)."""
+    pytest.importorskip("peft")
+    judge = ScriptedJudge(
+        json.dumps(
+            {
+                "dataset_recipe": "irrelevant -- never interpreted",
+                "method": "lora",
+                "target": "llm",
+                "rationale": "text-only reasoning gap",
+            }
+        )
+    )
+    agent = FixAgent(judge=judge, max_tier="L4", allow_codegen=False)  # no finetune_pool
+    out = agent.propose_and_validate(
+        HopelessModel(), _gold_yes_batch(), [_hyp("requires retraining", mode="prior")]
+    )
+    ft = [v for v in out.attempted if v.candidate.kind == "finetune_spec"]
+    assert len(ft) == 1
+    assert ft[0].fixed is False
+    assert "finetune_pool" in ft[0].summary
+
+
+class _TinyWordTokenizer:
+    """Fixed-vocabulary word tokenizer -- deterministic ids, real decode, no
+    chat template (exercises run_lora_repair's plain-concatenation fallback
+    path). Consistent prefix ids for a shared prompt prefix is what makes
+    the SFT label-masking boundary correct in the test below."""
+
+    vocab = {
+        "<pad>": 0, "<bos>": 1, "<eos>": 2, "<unk>": 3,
+        "classify": 4, "alpha": 5, "beta": 6, "yes": 7, "no": 8,
+    }
+    inv_vocab = {v: k for k, v in vocab.items()}
+    vocab_size = 16
+
+    def __call__(self, text, return_tensors="pt"):
+        import torch
+
+        ids = [self.vocab.get(w, self.vocab["<unk>"]) for w in text.strip().lower().split()]
+        ids = ids or [self.vocab["<unk>"]]
+        input_ids = torch.tensor([ids], dtype=torch.long)
+        return {"input_ids": input_ids, "attention_mask": torch.ones_like(input_ids)}
+
+    def decode(self, ids, skip_special_tokens=True):
+        words = []
+        for i in ids:
+            w = self.inv_vocab.get(int(i), "<unk>")
+            if skip_special_tokens and w in ("<pad>", "<bos>", "<eos>"):
+                continue
+            words.append(w)
+        return " ".join(words)
+
+
+def _tiny_llama():
+    """Real, from-scratch (no download) causal LM with genuine q_proj/k_proj/
+    v_proj/o_proj naming -- the exact target_modules run_lora_repair's
+    text-only fallback targets -- so this test exercises real PEFT injection
+    and real gradient training, not a mock."""
+    import torch
+    from transformers import LlamaConfig, LlamaForCausalLM
+
+    torch.manual_seed(0)
+    cfg = LlamaConfig(
+        vocab_size=_TinyWordTokenizer.vocab_size, hidden_size=16, intermediate_size=32,
+        num_hidden_layers=2, num_attention_heads=2, num_key_value_heads=2,
+        max_position_embeddings=32, pad_token_id=0, bos_token_id=1, eos_token_id=2,
+    )
+    return LlamaForCausalLM(cfg)
+
+
+def _classify_case(word: str, target: str, label: Label) -> FailureCase:
+    return FailureCase(
+        inputs=Inputs(prompt=f"classify {word}"), expected=target, label=label,
+    )
+
+
+def _contains_score(case: FailureCase, output: str):
+    return str(case.expected).strip().lower() in str(output).strip().lower()
+
+
+def test_l4_lora_repair_trains_fixes_held_out_cases_and_restores_weights():
+    """End-to-end L4 executor test against a real (tiny, from-scratch) causal
+    LM: FixAgent is given a diagnosis-only finetune_pool distinct from the
+    validation batch. Checks, in order: (1) before training the model does
+    not already say the target word (the task is genuinely unlearned, not a
+    freebie); (2) after L4 executes, held-out validation cases -- same
+    prompt/target association as the pool, but case ids never in
+    finetune_pool -- are fixed: proof real gradient training happened and
+    the effect is visible on cases the executor never trained on directly,
+    not that generalization to an unseen *prompt* was tested (it wasn't:
+    every val case shares its prompt text with a training example); (3) a
+    control prompt never touched by training round-trips to byte-identical
+    output before vs. after -- proof the LoRA adapter was fully unloaded and
+    the base weights were restored, not merely "probably fine"."""
+    pytest.importorskip("peft")
+    from evalvitals.core.spec import ModelSpec
+    from evalvitals.models.backends.base import RuntimeConfig
+    from evalvitals.models.backends.hf_local import HFLocalModel
+
+    spec = ModelSpec(key="tiny-llama-test", family="fake", model_type="fake_llm", hf_repo="")
+    model = HFLocalModel(spec, RuntimeConfig(device="cpu", dtype="float32", max_new_tokens=3))
+    llama = _tiny_llama()
+    tok = _TinyWordTokenizer()
+    model._hf = (llama, tok)
+
+    control_prompt = Inputs(prompt="classify beta")
+    baseline_control = model.generate(control_prompt)
+
+    # The untrained model must not already answer "yes" to "classify alpha" --
+    # otherwise a later match wouldn't demonstrate training did anything.
+    baseline_alpha = model.generate(Inputs(prompt="classify alpha"))
+    assert "yes" not in baseline_alpha.lower()
+
+    train_pool = CaseBatch([
+        _classify_case("alpha", "yes", Label.FAIL),
+        _classify_case("alpha", "yes", Label.FAIL),
+        _classify_case("beta", "no", Label.PASS),
+        _classify_case("beta", "no", Label.PASS),
+    ])
+    # Held out: same prompt/target association, but DIFFERENT case ids that
+    # never appear in train_pool -- this is what "generalizes" is checked on.
+    # Multiple copies because a single paired case can never clear an
+    # e-value significance gate (n=1 is inherently uninformative) -- that is
+    # the McNemar/e-value machinery working correctly elsewhere in this
+    # file, not something this test needs to re-prove; it just needs enough
+    # pairs for a real, consistent effect to be visible as `out.fixed`.
+    val_batch = CaseBatch([_classify_case("alpha", "yes", Label.FAIL) for _ in range(8)])
+
+    agent = FixAgent(
+        judge=None, max_tier="L4", allow_codegen=False, score_fn=_contains_score,
+        finetune_pool=train_pool,
+    )
+    out = agent.propose_and_validate(model, val_batch, [_hyp("requires retraining", mode="prior")])
+
+    ft = [v for v in out.attempted if v.candidate.kind == "finetune_spec"]
+    assert len(ft) == 1
+    assert ft[0].candidate.payload.get("exec_error", "") == ""
+    assert ft[0].n_fixed == 8 and ft[0].n_broken == 0  # every held-out case now scores correct
+    assert out.fixed is True
+
+    # Restoration: an untouched control prompt reproduces the exact
+    # pre-training output -- the adapter left no residue on the base model.
+    restored_control = model.generate(control_prompt)
+    assert restored_control == baseline_control
+
+
+def test_l4_lora_repair_zero_matching_layers_does_not_crash(monkeypatch):
+    """peft.get_peft_model() itself raises when target_modules matches zero
+    layers on the given architecture -- and it raises BEFORE injecting
+    anything, outside any try/finally the executor controls. That must
+    become one candidate's LoraRepairResult(ok=False, ...), never an
+    uncaught exception that aborts the whole FixAgent run."""
+    pytest.importorskip("peft")
+    from evalvitals.core.spec import ModelSpec
+    from evalvitals.eval_agent.stages import fix_internals
+    from evalvitals.models.backends.base import RuntimeConfig
+    from evalvitals.models.backends.hf_local import HFLocalModel
+
+    spec = ModelSpec(key="tiny-llama-test", family="fake", model_type="fake_llm", hf_repo="")
+    model = HFLocalModel(spec, RuntimeConfig(device="cpu", dtype="float32", max_new_tokens=3))
+    model._hf = (_tiny_llama(), _TinyWordTokenizer())
+    monkeypatch.setattr(
+        fix_internals, "_lora_target_modules", lambda hf_model: "this_will_never_match_anything"
+    )
+
+    train_pool = CaseBatch([_classify_case("alpha", "yes", Label.FAIL)])
+    val_batch = CaseBatch([_classify_case("alpha", "yes", Label.FAIL)])
+    agent = FixAgent(
+        judge=None, max_tier="L4", allow_codegen=False, score_fn=_contains_score,
+        finetune_pool=train_pool,
+    )
+    out = agent.propose_and_validate(model, val_batch, [_hyp("requires retraining", mode="prior")])
+
+    ft = [v for v in out.attempted if v.candidate.kind == "finetune_spec"]
+    assert len(ft) == 1
+    assert ft[0].fixed is False
+    assert "no matching linear layers" in ft[0].candidate.payload.get("exec_error", "")
+    # the model must still be usable -- get_peft_model failing must not have
+    # left it half-mutated
+    assert model.generate(Inputs(prompt="classify alpha"))
 
 
 # ── bridged model_attend (coded L3a) ─────────────────────────────────────────

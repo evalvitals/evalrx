@@ -41,9 +41,15 @@ Executors by tier:
 * **L3b** — internals write (:mod:`fix_internals`): pre-audited intervention
   primitives (v1: visual embedding boost via a forward hook) — the judge
   selects and parameterises; never free codegen against the model handle.
-* **L4** — parameter space: **defined, executor TODO** — the judge writes a
-  :class:`~.fix_internals.FinetuneSpec` recipe which is recorded (never
-  executed) so an escalation decision has something concrete to act on.
+* **L4** — parameter space (:mod:`fix_internals`): the judge writes a
+  :class:`~.fix_internals.FinetuneSpec` recipe. v1's executor
+  (:func:`~.fix_internals.run_lora_repair`) runs exactly one shape —
+  ``method="lora"`` on ``target="llm"``, trained on ``finetune_pool`` (a
+  caller-supplied diagnosis-only :class:`CaseBatch`, never the validation
+  split) and validated through this same paired machinery. Every other
+  recipe shape, or no ``finetune_pool`` at all, is recorded but not
+  executed, so the escalation decision always has something concrete to
+  act on either way.
 
 A *fixed* verdict means: paired McNemar rejects with positive net effect —
 the candidate repairs significantly more cases than it breaks.
@@ -70,6 +76,7 @@ from evalvitals.eval_agent.stages.fix_internals import (
     INTERNALS_PRIMITIVES,
     FinetuneSpec,
     primitives_catalog_text,
+    run_lora_repair,
 )
 from evalvitals.eval_agent.stages.fix_pipeline import (
     CodedPipelineResult,
@@ -350,6 +357,15 @@ class FixAgent:
                           each judge-proposed tier. Defaults to three. Lower
                           this for a bounded screening experiment; doing so is
                           also reflected in the multiplicity correction.
+        finetune_pool:    Diagnosis-split-only cases available for L4's LoRA
+                          executor to train on — MUST be disjoint from
+                          whatever batch is passed to
+                          :meth:`propose_and_validate` (never the selection
+                          or confirmation split; training and validating on
+                          the same cases is leakage, not a fix). ``None``
+                          (default) means L4 candidates are recorded but not
+                          executed, same as before this executor existed.
+                          See :func:`~.fix_internals.run_lora_repair`.
     """
 
     def __init__(
@@ -371,8 +387,10 @@ class FixAgent:
         allow_adapted_paper_methods: bool = False,
         paper_methods_only: bool = False,
         candidate_allowlist: "Iterable[str] | None" = None,
+        finetune_pool: "CaseBatch | None" = None,
     ) -> None:
         self._judge = judge
+        self._finetune_pool = finetune_pool
         self.max_tier = parse_tier(max_tier)
         self._score = score_fn or _default_score
         self.run_logger = run_logger
@@ -2122,6 +2140,11 @@ class FixAgent:
         if candidate.kind == "code":
             result = self._run_coded(candidate, model, data)
             return score_outputs(result, data, self._score)
+        if candidate.kind == "finetune_spec":
+            result = run_lora_repair(model, self._finetune_pool, data, candidate.payload, self._score)
+            if isinstance(candidate.payload, dict):
+                candidate.payload["exec_error"] = "" if result.ok else result.error
+            return result.scores
         strategy = self._strategy(candidate)
         return {case.id: strategy(model, case) for case in data}
 
@@ -2227,12 +2250,6 @@ class FixAgent:
         unstable: "set[str] | None" = None,
     ) -> FixValidation:
         v = FixValidation(candidate=candidate)
-        if candidate.kind == "finetune_spec":
-            v.verdict = "not_executed"
-            v.summary = (
-                "L4 executor TODO — fine-tune recipe recorded, not executed (see candidate payload)"
-            )
-            return v
         unstable = unstable or set()
         scores = self._candidate_scores(candidate, model, data)
         if isinstance(candidate.payload, dict):

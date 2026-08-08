@@ -77,7 +77,9 @@ stages/ (M1–M5 implementation):
                               bridged model access (model_generate/model_attend)
   fix_internals.py     Fix — L3a attention-guided crop, L3b intervention
                               primitives (visual embedding boost); L4
-                              FinetuneSpec (defined, executor TODO)
+                              FinetuneSpec + run_lora_repair (v1: LoRA on
+                              target="llm" only, trained on a caller-supplied
+                              finetune_pool; other recipe shapes recorded only)
   hypothesis_tester.py M5 — HypothesisTester: statistical test + protocol consistency;
                               stopping_criteria_met() drives the VLDiagnoseLoop exit
 """

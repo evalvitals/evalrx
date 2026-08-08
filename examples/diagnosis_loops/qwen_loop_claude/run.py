@@ -623,8 +623,10 @@ def main() -> None:
              "L1 prompt / L2 scaffold pipelines+tools (default) / L3a internals "
              "read (attention-guided crop, bridged model_attend) / L3b internals "
              "write (visual embedding boost hook) / L4 fine-tune recipe (recorded "
-             "only; executor TODO). No auto-escalation — when nothing within the "
-             "tier validates, the run prints a recommendation to raise it.",
+             "only in this example — its LoRA executor needs a finetune_pool this "
+             "CLI does not wire up; see FixAgent(finetune_pool=...)). No "
+             "auto-escalation — when nothing within the tier validates, the run "
+             "prints a recommendation to raise it.",
     )
     parser.add_argument(
         "--analysis-only", action="store_true",
