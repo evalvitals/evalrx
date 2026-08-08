@@ -61,8 +61,13 @@ allowlist, `FixAgent` proposes its own L1 (prompt)/L2 (image transform)/L3
 e-value/McNemar test, applies e-BH multiplicity correction across the
 family, and must reach a recommendation — validated fix, or an honest
 escalate/gather-more-data verdict — without silently dropping a tier or
-crashing. Every paper case in the casebook was run this way (LLaVA-1.5-7B,
-`--max-tier` L3a/L3b, no `--only-paper-candidate`):
+crashing. Every yes_no/multiple_choice/exact-numeric dataset case reachable
+through `run_hf_autofix.py` was run this way (LLaVA-1.5-7B, `--max-tier`
+L3a/L3b, no `--only-paper-candidate`); `pope_random` (a hallucination
+control condition, no distinct repair method) was not, and V*'s own SEAL
+route needs `generate_visual_search`, which is a black-box (`run_autofix.py`)
+capability `HFLocalModel` does not implement — vstar's L2 tier below
+correctly fell back to generic image transforms instead:
 
 | Paper case | n (sel/confirm) | Candidates tried | Verdict |
 | --- | --- | --- | --- |

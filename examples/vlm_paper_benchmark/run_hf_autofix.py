@@ -5,6 +5,16 @@ This intentionally shares the frozen-data protocol and scorer with
 ``run_autofix.py`` while loading an ``HFLocalModel`` directly.  It is the
 execution route for methods such as VCD and ICD that require model logits
 rather than an OpenAI-compatible endpoint approximation.
+
+``FixAgent`` defaults to ``max_repair_rounds=1``, which this runner never
+overrides.  That is not a truncated loop: one round already proposes
+candidates across every tier up to ``--max-tier`` in a single pass, so an
+unpinned run explores the full L1/L2/L3 ladder in round 1.  A
+``--only-paper-candidate`` run pinning one name will always show
+``repair_rounds: 1`` in its report for a different reason -- round 2 would
+re-propose that same paper-default candidate, the dedup set drops it as
+already-seen, and the loop stops with no new candidate.  Neither case is a
+wiring bug.
 """
 
 from __future__ import annotations
