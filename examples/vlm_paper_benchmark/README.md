@@ -360,7 +360,7 @@ same answer as ChartQA and POPE: safety replicates, net benefit does not.
 | POPE (adversarial + popular + random) | Suppressive methods made **safe** (0 broken in every gated run); net benefit found once (e=182,361) but did not independently replicate |
 | HALLUCINOGEN | Per-case gate found a fixable subpopulation inside a slice the whole-batch gate would discard (e=16.0 discovery sample); a pre-registered, properly powered fresh sample did not replicate it (e=5.33) — same answer as POPE and ChartQA |
 | ChartQA | ViCrop, `self_refine`, and `self_consistency_5` — every relevant lever in this toolkit — all non-effects on independent samples |
-| MMMU (Accounting) | Six levers now (added `self_consistency_5`), zero outcome changes — capability-limited, not lever-limited |
+| MMMU (Accounting) | Six levers now (added `self_consistency_5`), zero outcome changes on `llava-1.5-7b-hf` — capability-limited, not lever-limited *(see correction below: this is a property of that specific model, not the task — a stronger subject model does move outcomes, just not past this pool's power ceiling)* |
 
 One of five works end-to-end. What changed this session is *how* the other
 four fail: every negative above now has a mechanism, a number, and a
@@ -401,6 +401,130 @@ mechanism this project's five source papers don't provide. None of that is
 a tuning problem solvable by re-running against held-out data until a
 number passes, and this document now has four independent demonstrations
 of exactly what that number looks like when it's noise.
+
+## Correction: "no stronger model available" was asserted, not checked
+
+The paragraph above claims closing MMMU needs "a stronger judge/subject
+model ... something this environment doesn't currently have." That line was
+never verified before being written. `evalvitals.specs.REGISTRY` lists
+several newer VLM specs including `qwen3-vl-8b-instruct`, and it loads
+cleanly through the existing `HFLocalModel`/`get_spec` path with no code
+changes. The claim was wrong; this section replaces it with what actually
+happens when that model is used.
+
+Two runs, decided and pre-registered before either was launched, scoped
+narrowly to where a different subject/judge model is actually relevant:
+
+**MMMU (Accounting), `--model qwen3-vl-8b-instruct`, same 30-row split,
+`--max-tokens 128`, full ladder up to L3b.** This is the direct test of the
+"capability ceiling of `llava-1.5-7b-hf`" claim — if the ceiling were a
+property of the *task* (30 expert-accounting questions, not the model), a
+stronger model should show the same byte-identical zero-movement pattern
+LLaVA did. It did not:
+
+| candidate | fixed | broken | e-value | verdict |
+| --- | --- | --- | --- | --- |
+| `visual_grounding` (L1) | 2 | 1 | 0.67 | inconclusive |
+| `explicit_table_extraction` (L1) | 1 | 1 | 0.67 | inconclusive |
+| `visual_data_confirmation` (L1) | 1 | 1 | 0.67 | inconclusive |
+| `self_refine` (L2) | 2 | 1 | 0.67 | inconclusive |
+| `self_consistency_5` (L2) | 1 | 0 | 1.00 | inconclusive |
+| `salient_crop` (L2) | 0 | 0 | 1.00 | inconclusive |
+| `visual_embedding_boost` (L3b) | 0 | 0 | — | inconclusive |
+
+Every LLaVA run this session produced `n_fixed=0, n_broken=0` on **every**
+lever — the exact same 16-case right/wrong pattern regardless of
+intervention. Qwen3-VL-8B does not: five of seven candidates move at least
+one case, and `self_consistency_5` moves one case with zero broken (the
+same clean-safety shape as the gated paper-method candidates elsewhere in
+this document). The capability-ceiling explanation is falsified for this
+model — Qwen3-VL responds to prompt/scaffold intervention where LLaVA
+didn't move at all.
+
+None of the seven reach significance (`e < 1` for most; `self_consistency_5`
+sits exactly at `e=1.00`). That's not a tuning gap — it's `n=16` selection
+pairs, the maximum this split allows, because MMMU Accounting is capped at
+30 usable items total in this manifest's source pool. No subject model
+changes that; it's a property of the paper's own data availability, not the
+algorithm or the model under test. `self_consistency_5`'s asymmetric 1/0
+result is worth recording as the closest thing to a lead in this case, but
+per this document's own standard (a discovery-sample number is not a
+result until it survives an independent confirmation), it is reported here
+as directionally promising and unconfirmed, not as a fix — there is no
+more held-out MMMU Accounting data left in this manifest to confirm it
+against, so this closes as an honest "underpowered, and provably so" rather
+than another draw at a fifth held-out sample.
+
+**ChartQA, `--model qwen3-vl-8b-instruct` as both subject and judge,
+`--max-tier L2`, n=256, unpinned.** This is the direct test of the other
+half of the claim — candidate-proposal quality from a stronger judge, since
+`llava-1.5-7b-hf` measurably could not do the judge/self-diagnosis task at
+all (answered the embedded question instead of the meta-task; JSON
+proposals failed to parse).
+
+Half of that is fixed and half isn't. The free-text self-diagnosis call now
+produces a real, specific mechanism instead of a generic guess —
+Qwen3-VL's diagnosis of its own ChartQA failures: *"the model misidentifies
+the '18-29' age group as having the minimum difference ... without
+correctly calculating or comparing the actual percentage differences across
+all age groups"* — a genuine quantitative-comparison failure, correctly
+localized. But the structured part — JSON candidate proposals, code-patch
+proposals — still fails to parse, same as with LLaVA (2 unparseable
+warnings, same count as the LLaVA run). Stronger free-text diagnosis did
+not translate into usable structured output; that looks like a prompt/
+parsing-contract issue in the judge scaffold, not a raw-capability floor,
+and is worth fixing independent of any specific paper.
+
+Qwen3-VL's baseline is also just better than LLaVA's here — 73.75% on the
+n=160 selection split vs. LLaVA's lower baseline in earlier ChartQA runs —
+which changes what the generic ladder does to it:
+
+| candidate | fixed | broken | raw e-value | note |
+| --- | --- | --- | --- | --- |
+| `visual_grounding` (L1) | 3 | 10 | 2.05 | net harmful |
+| `explicit_comparison_request` (L1) | 4 | 13 | 3.06 | net harmful |
+| `self_refine` (L2) | 3 | 14 | 10.71 | net harmful, strongest signal in either run |
+| `self_consistency_5` (L2) | 1 | 3 | 0.80 | mildly net harmful |
+
+None reach the e-BH-corrected family threshold (`reject=False` for all
+four), so none are flagged as validated harm either — but the raw
+direction is consistently negative across every candidate, most sharply for
+`self_refine` (e=10.71 unadjusted). Read together with LLaVA's clean null
+on the same candidate, this reads as: a subject model that is already
+answering most of these correctly with a terse single-token/short-phrase
+response has more to lose than gain from a 3-step critique-and-revise
+chain — it second-guesses correct short answers into wrong longer ones more
+often than it fixes wrong ones. That is a real, model-dependent finding
+about when `self_refine` should even be proposed, not just another null.
+
+Neither run reopens POPE or HALLUCINOGEN. VCD/ICD/OPERA/PAI/IFCD are
+architecture-specific ports to LLaVA/InstructBLIP; running them against
+Qwen3-VL would not be those papers' methods, and this document's fidelity
+discipline treats that as a different, undeclared method rather than a
+retry. Those two cases stand as closed above.
+
+## Where this actually leaves things
+
+A different subject model is a different experiment, not another draw from
+the same one — it was run once, read once, and is reported as-is rather
+than chased into a Qwen sweep across all five papers. The corrected
+picture: one of five papers has a validated end-to-end fix
+(MLLMs Know/TextVQA); the per-case gating safety property replicated 15/15
+times with zero exceptions across two architectures; three papers
+(POPE, HALLUCINOGEN, ChartQA) have net-benefit questions that were given a
+fair, pre-registered, uncontaminated look and came back negative rather
+than left open; and MMMU's "capability ceiling" explanation, as stated
+against `llava-1.5-7b-hf`, is now known to be wrong in general — a newer
+model shows real (if underpowered, and provably so given the source pool's
+30-item cap) movement rather than a hard floor.
+
+The goal as stated requires a validated fix on all five. That result is not
+in this data, and manufacturing one would require selecting a candidate
+after seeing confirmation-split outcomes — the one thing this entire
+session's discipline was built to refuse. That refusal was upheld
+consistently across roughly twenty independent experiments; this is the
+final report of what the evidence supports, not a partial result awaiting
+one more retry.
 
 The manifest pins the source, split, scoring family and expected failure axis
 in [`papers.json`](papers.json). It stores no data. The downloader uses a
