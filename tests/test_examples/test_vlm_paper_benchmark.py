@@ -125,8 +125,33 @@ def test_hf_runner_exposes_stable_paper_candidate_names():
         sys.path.pop(0)
 
     assert "vcd_diffusion_noise" in module.PAPER_CANDIDATE_NAMES
+    assert "opera_overtrust_binary" in module.PAPER_CANDIDATE_NAMES
+    assert "ifcd_truthx_contrast" in module.PAPER_CANDIDATE_NAMES
     assert "vicrop_relative_attention" in module.PAPER_CANDIDATE_NAMES
+    assert "vicrop_consensus_guard" in module.PAPER_CANDIDATE_NAMES
     assert "pai_image_attention" in module.PAPER_CANDIDATE_NAMES
+
+
+def test_hf_runner_artifact_fingerprint_is_content_based(tmp_path):
+    path = tmp_path / "truthx.pt"
+    path.write_bytes(b"truthx-artifact")
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "examples"
+        / "vlm_paper_benchmark"
+        / "run_hf_autofix.py"
+    )
+    sys.path.insert(0, str(module_path.parent))
+    try:
+        spec = importlib.util.spec_from_file_location("vlm_paper_hf_artifact", module_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.pop(0)
+
+    assert module.artifact_sha256(str(path)) == "7de136df4bf15852d15b937690e893f6f3b8373e56f73821a578650b0d5aa2d1"
+    assert module.artifact_sha256(None) is None
 
 
 def test_vcd_source_pope_prompt_keeps_the_released_one_word_instruction():
@@ -152,6 +177,12 @@ def test_vcd_source_pope_prompt_keeps_the_released_one_word_instruction():
     assert contract == "vcd_pope_question_plus_one_word"
     assert prompt({"question": "Is there a bicycle?"}).endswith("one word.")
     contract, prompt = module.paper_prompt_contract(["pai_image_attention"])
+    assert contract == "pope_raw_question"
+    assert prompt({"question": "Is there a bicycle?"}) == "Is there a bicycle?"
+    contract, prompt = module.paper_prompt_contract(["opera_overtrust_binary"])
+    assert contract == "pope_raw_question"
+    assert prompt({"question": "Is there a bicycle?"}) == "Is there a bicycle?"
+    contract, prompt = module.paper_prompt_contract(["ifcd_truthx_contrast"])
     assert contract == "pope_raw_question"
     assert prompt({"question": "Is there a bicycle?"}) == "Is there a bicycle?"
 

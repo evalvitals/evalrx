@@ -52,7 +52,7 @@
       "paper_repair": "attention-derived logit penalty with beam-search rollback/reallocation",
       "minimum_tier": "L3a",
       "requires": ["self-attention", "logits", "custom beam search"],
-      "black_box_status": "not reproducible through a chat-completions endpoint"
+      "black_box_status": "not reproducible through a chat-completions endpoint; hf_local provides only the one-token POPE penalty specialization, not the full beam rollback"
     },
     {
       "id": "pai",
@@ -77,7 +77,7 @@
       "paper_repair": "contrast normal and internally disturbed output distributions at decoding time",
       "minimum_tier": "L3a",
       "requires": ["internal representation intervention", "per-token logits"],
-      "black_box_status": "not reproducible through a chat-completions endpoint"
+      "black_box_status": "not reproducible through a chat-completions endpoint; hf_local supports an explicit-checkpoint TruthX adaptation only, with provenance retained in the local report"
     },
     {
       "id": "icd",

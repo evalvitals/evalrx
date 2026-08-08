@@ -17,8 +17,8 @@ papers and their public datasets:
 The dataset table above is a regression surface; it is not sufficient evidence
 that our repair rediscovered a paper's method. The curated
 [`literature_matrix.json`](literature_matrix.json) records eleven source papers:
-four diagnostic benchmarks and six repair-method papers.  The narrower
-[`paper_casebook.json`](paper_casebook.json) contains the six repair papers whose
+four diagnostic benchmarks and seven repair-method papers. The narrower
+[`paper_casebook.json`](paper_casebook.json) contains the seven repair papers whose
 failure mechanism and intervention are explicit:
 
 | Case | Failure slice | Paper repair | Access needed for an exact comparison |
@@ -33,11 +33,29 @@ failure mechanism and intervention are explicit:
 
 The casebook is an execution contract, not a claim that every method is already
 implemented. The runner provides a label-free black-box V* control (locate →
-crop → re-ask) and a one-token binary VCD control when the endpoint exposes
-logprobs. These are explicitly marked as method-family controls rather than
-claims of reproducing trained SEAL or an internal tensor implementation. An
-`hf_local` backend is required before ViCrop, OPERA or IFCD can be called a
+crop → re-ask). The white-box runner has executable routes for VCD, native ICD,
+PAI, ViCrop, and an explicitly limited OPERA binary specialization. These are
+labelled by fidelity rather than silently upgraded into general reproductions:
+
+| Method | Current route | Observed status |
+| --- | --- | --- |
+| ViCrop | LLaVA relative-attention crop + original/crop answer | independently positive on the TextVQA small-detail holdout (+15.94 pp, 38 fixed / 5 broken) |
+| VCD | released tensor corruption and per-token contrastive sampler | source-aligned POPE evaluation: a 160-case partial signal did not transfer—adversarial 432/512 → 430/512 (23 fixed / 25 broken), popular 453/512 → 454/512 (25 / 24); rejected |
+| ICD | native InstructBLIP binary disturbance specialization | POPE popular 460/512 → 448/512 (11 fixed / 23 broken); rejected |
+| PAI | LLaVA image-attention boost + CFG cache | executed on POPE; unsafe/no improvement on the tested slice; false-Yes direction gated |
+| OPERA | LLaVA first-token over-trust penalty, POPE binary only | executed on 160 frozen POPE cases; unsafe (133/160 → 132/160, 0 fixed / 1 broken); full beam rollback unsupported |
+| V* | label-free visual-search control | exploratory only; trained SEAL is not claimed |
+| IFCD | explicit-checkpoint TruthX contrastive decoder, adapted HF hook boundary | public Vicuna artifact executed on POPE; unsafe (133/160 → 130/160, 0 fixed / 3 broken) |
+
+An `hf_local` backend is required before ViCrop, OPERA or IFCD can be called a
 paper-method match.
+
+The automatic VCD route is additionally direction-gated: it is proposed only
+when labelled binary diagnosis evidence is dominated by false `Yes` answers
+(the object-hallucination direction the paper addresses). A slice dominated by
+false `No` answers is reported as a different health problem rather than being
+used to tune or deploy VCD. The 512-case adversarial validation exposed exactly
+this mismatch (53 false negatives versus 27 false positives).
 
 The manifest pins the source, split, scoring family and expected failure axis
 in [`papers.json`](papers.json). It stores no data. The downloader uses a
@@ -96,10 +114,11 @@ cannot silently degrade into a prompt trick:
 
 ```bash
 # VCD uses the released tensor-space corruption, plausibility cutoff, and
-# per-token multinomial sampler. The local runner seeds each image's diffusion
-# noise deterministically, so split membership rather than loop order controls
-# the paired comparison. ICD is only admitted when a backend declares a native
-# disturbance path (Qwen's text-prefix ICD remains adapted).
+# per-token multinomial sampler. POPE uses the paper's T=999 (rather than the
+# T=500 used for MME/LLaVA-Bench). Its clean control uses the same per-image,
+# temperature-one sampler, so it is not a greedy-vs-sampled comparison. ICD is
+# only admitted when a backend declares a native disturbance path (Qwen's
+# text-prefix ICD remains adapted).
 CUDA_VISIBLE_DEVICES=4 python run_hf_autofix.py pope --model llava-1.5-7b-hf --limit 256 \
   --diagnosis-cases 24 --selection-cases 160 --max-tokens 8 --paper-prompt \
   --only-paper-candidate vcd_diffusion_noise
@@ -117,6 +136,23 @@ CUDA_VISIBLE_DEVICES=4 python run_hf_autofix.py pope --model instructblip-vicuna
 CUDA_VISIBLE_DEVICES=4 python run_hf_autofix.py pope --model llava-1.5-7b-hf \
   --max-tier L3b --limit 256 --diagnosis-cases 24 --selection-cases 160 \
   --max-tokens 16 --paper-prompt --only-paper-candidate pai_image_attention
+
+# OPERA's exact general decoder needs its own attention-aware beam search. For
+# POPE's one-token binary answer, this route reproduces its first-token
+# over-trust penalty only; reports retain that specialization label and never
+# claim the rollback branch was run.
+CUDA_VISIBLE_DEVICES=4 python run_hf_autofix.py pope --model llava-1.5-7b-hf \
+  --max-tier L3a --limit 256 --diagnosis-cases 24 --selection-cases 160 \
+  --max-tokens 1 --paper-prompt --only-paper-candidate opera_overtrust_binary
+
+# IFCD requires a TruthX editor artifact. The public Vicuna artifact is
+# ignored local data and only an architecture adaptation: it is never called
+# an exact reproduction of IFCD's MSCOCO-trained editor.
+CUDA_VISIBLE_DEVICES=4 python run_hf_autofix.py pope --model llava-1.5-7b-hf \
+  --max-tier L3b --limit 256 --diagnosis-cases 24 --selection-cases 160 \
+  --max-tokens 1 --paper-prompt --allow-adapted-paper-methods \
+  --ifcd-checkpoint data/truthx/vicuna-7b-v1.5.fold1.pt \
+  --only-paper-candidate ifcd_truthx_contrast
 
 # The same FixAgent route can freeze the paper-native L3a ViCrop candidate.
 # Use an independent local TextVQA sample for confirmation after selection.

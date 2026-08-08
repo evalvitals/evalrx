@@ -15,7 +15,7 @@
       "paper_url": "https://arxiv.org/abs/2311.16922",
       "role": "repair method",
       "dataset_case": "pope",
-      "execution": "released tensor-space corruption, plausibility cutoff, and per-token multinomial sampler; diffusion noise is seeded per image so frozen validation is order-independent"
+      "execution": "released tensor-space corruption, plausibility cutoff, and per-token multinomial sampler; POPE uses the paper's T=999 and a clean temperature-one sampling control with the same per-image seed"
     },
     {
       "id": "opera",
@@ -23,7 +23,7 @@
       "paper_url": "https://arxiv.org/abs/2311.17911",
       "role": "repair method",
       "dataset_case": "pope",
-      "execution": "requires architecture-specific attention-aware beam search"
+      "execution": "LLaVA POPE binary specialization of the paper's first-token over-trust penalty; full multi-token beam rollback remains an explicit unsupported route"
     },
     {
       "id": "pai",
@@ -84,7 +84,7 @@
       "paper_url": "https://arxiv.org/abs/2502.01056",
       "role": "repair method",
       "dataset_case": "pope",
-      "execution": "requires internal-representation intervention"
+      "execution": "explicit-artifact TruthX contrastive decoder on LLaVA; public Vicuna artifact uses a modern HF post-o_proj hook and is marked adapted, never an exact MSCOCO-editor reproduction"
     }
   ]
 }

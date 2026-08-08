@@ -101,6 +101,32 @@ logger = logging.getLogger(__name__)
 _MAX_JUDGE_CANDIDATES = 3
 _EXAMPLE_PROMPTS = 3
 
+def _binary_hallucination_direction(data: "CaseBatch") -> "tuple[bool, int, int]":
+    """Return whether binary evidence supports a false-``Yes`` repair.
+
+    VCD, ICD, OPERA, PAI, and IFCD suppress answers that assert an object
+    unsupported by the image. A labelled adapter exposes this direction through
+    expected/observed answers. If it can, do not deploy a suppressive repair
+    into a false-negative dominant slice; otherwise preserve generic support.
+    """
+
+    def binary(value: Any) -> "str | None":
+        match = re.search(r"\b(yes|no)\b", str(value).lower())
+        return match.group(1) if match else None
+
+    false_yes = false_no = 0
+    for case in data:
+        if getattr(getattr(case, "label", None), "value", None) != "fail":
+            continue
+        expected = binary(getattr(case, "expected", None))
+        observed = binary(getattr(case, "observed", None))
+        if expected == "no" and observed == "yes":
+            false_yes += 1
+        elif expected == "yes" and observed == "no":
+            false_no += 1
+    return (false_yes + false_no == 0 or false_yes >= false_no, false_yes, false_no)
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -116,7 +142,9 @@ class FixCandidate:
         kind:        ``"template"`` (L1) | ``"spec"`` (L2 declarative) |
                      ``"code"`` (L2 agent-written pipeline) | ``"vcd"``
                      (L0 contrastive decoding through an opt-in backend) |
-                     ``"visual_search"`` (L2 question-guided crop through an
+                     ``"opera"`` (L3a attention-over-trust penalty for a
+                     one-token binary decision) | ``"ifcd"`` (L3b paired
+                     TruthX internal edits) | ``"visual_search"`` (L2 question-guided crop through an
                      opt-in backend).
         payload:     Kind-specific — template: ``{"prompt_template": ...}``;
                      spec: a :class:`~.fix_tools.PipelineSpec` dict;
@@ -675,6 +703,10 @@ class FixAgent:
         has_images = any(
             getattr(getattr(case, "inputs", None), "image", None) is not None for case in data
         )
+        tasks = {
+            str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data
+        }
+        binary_hallucination_supported, _, _ = _binary_hallucination_direction(data)
 
         candidates: "list[FixCandidate]" = []
         if self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
@@ -691,7 +723,13 @@ class FixAgent:
                 candidates += self._l2_coded_candidate(hyp_lines, examples, model, prior_text)
         if self.max_tier >= FixTier.L3A_INTERNALS_READ:
             candidates += self._l3_candidates(
-                hyp_lines, model, prior_text, prior_names, has_images=has_images
+                hyp_lines,
+                model,
+                prior_text,
+                prior_names,
+                has_images=has_images,
+                tasks=tasks,
+                binary_hallucination_supported=binary_hallucination_supported,
             )
         if self.max_tier >= FixTier.L4_PARAMETERS:
             candidates += self._l4_candidates(hyp_lines)
@@ -770,13 +808,19 @@ class FixAgent:
             model is not None and Capability.LOGPROBS in getattr(model, "capabilities", frozenset())
         )
         supports_vcd = supports_logprobs and callable(getattr(model, "generate_vcd", None))
-        if tasks == {"yes_no"} and supports_vcd and "vcd_diffusion_noise" not in prior_names:
-            # DAMO-NLP-SG/VCD's released POPE LLaVA evaluator fixes
-            # alpha=1, beta=0.1 and noise_step=500.
+        hallucination_direction_supported, _, _ = _binary_hallucination_direction(data)
+        if (
+            tasks == {"yes_no"}
+            and supports_vcd
+            and hallucination_direction_supported
+            and "vcd_diffusion_noise" not in prior_names
+        ):
+            # VCD appendix A fixes POPE's total diffusion steps at 999
+            # (MME/LLaVA-Bench use 500), with alpha=1 and beta=0.1.
             vcd_payload = {
                 "alpha": 1.0,
                 "beta": 0.1,
-                "noise_step": 500,
+                "noise_step": 999,
             }
             out.append(
                 FixCandidate(
@@ -797,6 +841,7 @@ class FixAgent:
         if (
             tasks == {"yes_no"}
             and supports_logprobs
+            and hallucination_direction_supported
             and callable(getattr(model, "generate_instruction_cd", None))
             and (
                 icd_fidelity in {"exact", "native_binary_specialization"}
@@ -1382,20 +1427,66 @@ class FixAgent:
         prior_names: "frozenset[str]" = frozenset(),
         *,
         has_images: bool = False,
+        tasks: "set[str] | None" = None,
+        binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
         """Judge-parameterised configs of the pre-audited internals primitives."""
         out: "list[FixCandidate]" = []
+
+        def finalize(options: "list[FixCandidate]") -> "list[FixCandidate]":
+            # A frozen experiment may request a later catalogued candidate.
+            # Apply that allowlist before the ordinary proposal cap; otherwise
+            # an unrelated earlier default can silently erase the requested
+            # paper route before ``_propose`` gets a chance to filter it.
+            if self._candidate_allowlist is not None:
+                options = [c for c in options if c.name in self._candidate_allowlist]
+            return options[: self.max_judge_candidates]
+        # OPERA's first decoding branch evaluates each likely next token with
+        # its image attention and penalises candidates that neglect the image.
+        # POPE asks for a one-token Yes/No answer, so the paper's later
+        # retrospection/rollback branch has no opportunity to trigger.  Keep
+        # this route explicitly scoped to that binary specialization rather
+        # than presenting it as OPERA's general-purpose beam decoder.
+        paper_fidelity = getattr(model, "paper_method_fidelity", None)
+        opera_fidelity = paper_fidelity("opera") if callable(paper_fidelity) else "unavailable"
+        diagnosis = hyp_lines.lower()
+        hallucination_mechanism = any(
+            signal in diagnosis
+            for signal in (
+                "hallucination",
+                "language prior",
+                "object presence",
+                "object hallucination",
+                "image-token neglect",
+            )
+        )
+        if (
+            has_images
+            and tasks == {"yes_no"}
+            and hallucination_mechanism
+            and binary_hallucination_supported
+            and callable(getattr(model, "generate_opera_binary", None))
+            and opera_fidelity == "native_binary_specialization"
+            and "opera_overtrust_binary" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3A_INTERNALS_READ,
+                    name="opera_overtrust_binary",
+                    kind="opera",
+                    source="paper_default_binary_specialization",
+                    payload={"num_attn_candidates": 5, "penalty_weight": 1.0},
+                )
+            )
         # ViCrop (MLLMs Know Where to Look, ICLR 2025) is a read-only,
         # architecture-native paper route: task/general attention ratio,
         # adaptive crop, and an original+crop answer.  It must not be proposed
         # for a model whose vision/attention contract differs from LLaVA.
-        paper_fidelity = getattr(model, "paper_method_fidelity", None)
         vicrop_fidelity = paper_fidelity("vicrop") if callable(paper_fidelity) else "unavailable"
         # ViCrop is a resolution/local-detail repair, not a generic image
         # transform.  Keep it tied to the diagnosed mechanism so an L3a run
         # for object hallucination or chart reasoning does not spend a paper
         # candidate on an unsupported failure mode.
-        diagnosis = hyp_lines.lower()
         vicrop_mechanism = any(
             signal in diagnosis
             for signal in ("small visual", "small detail", "local detail", "resolution", "tiny")
@@ -1440,19 +1531,36 @@ class FixAgent:
         # classifier-free-guidance cache; the source's pinned LLaVA stack is
         # still recorded as an architecture specialization.
         pai_fidelity = paper_fidelity("pai") if callable(paper_fidelity) else "unavailable"
-        hallucination_mechanism = any(
-            signal in diagnosis
-            for signal in (
-                "hallucination",
-                "language prior",
-                "object presence",
-                "object hallucination",
+        # IFCD needs a trained TruthX representation editor. The available
+        # public Vicuna artifact is useful for a controlled transfer trial,
+        # but it is not IFCD's MSCOCO-trained editor, so it is opt-in through
+        # ``allow_adapted_paper_methods`` and never passed off as native.
+        ifcd_fidelity = paper_fidelity("ifcd") if callable(paper_fidelity) else "unavailable"
+        if (
+            self.max_tier >= FixTier.L3B_INTERNALS_WRITE
+            and has_images
+            and tasks == {"yes_no"}
+            and hallucination_mechanism
+            and binary_hallucination_supported
+            and callable(getattr(model, "generate_ifcd", None))
+            and ifcd_fidelity == "adapted_truthx_artifact"
+            and self._allow_adapted_paper_methods
+            and "ifcd_truthx_contrast" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3B_INTERNALS_WRITE,
+                    name="ifcd_truthx_contrast",
+                    kind="ifcd",
+                    source="paper_adapted_truthx_artifact",
+                    payload={"alpha": 0.1, "beta": 0.1, "edit_strength": 0.5, "top_layers": 15},
+                )
             )
-        )
         if (
             self.max_tier >= FixTier.L3B_INTERNALS_WRITE
             and has_images
             and hallucination_mechanism
+            and (tasks != {"yes_no"} or binary_hallucination_supported)
             and callable(getattr(model, "generate_pai", None))
             and pai_fidelity == "native_attention_cfg_specialization"
             and "pai_image_attention" not in prior_names
@@ -1475,7 +1583,7 @@ class FixAgent:
         if not catalog:
             if not out:
                 logger.info("FixAgent: no L3 primitive is available for %r", model)
-            return out[: self.max_judge_candidates]
+            return finalize(out)
         for p in self._ask_judge(
             _L3_PROMPT.format(hypotheses=hyp_lines, catalog=catalog, k=self.max_judge_candidates)
             + prior_text
@@ -1511,7 +1619,7 @@ class FixAgent:
                             payload={"primitive": name, "params": params},
                         )
                     )
-        return out[: self.max_judge_candidates]
+        return finalize(out)
 
     def _l4_candidates(self, hyp_lines: str) -> "list[FixCandidate]":
         """L4 recipe — recorded for the escalation decision; executor is TODO."""
@@ -1714,6 +1822,46 @@ class FixAgent:
                     return None
 
             return vicrop
+        if candidate.kind == "vicrop_consensus":
+
+            def vicrop_consensus(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_vicrop = getattr(model, "generate_vicrop_consensus")
+                    output = generate_vicrop(
+                        case.inputs,
+                        baseline_answer=str(getattr(case, "observed", "")),
+                        **candidate.payload,
+                    )
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("ViCrop consensus generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return vicrop_consensus
+        if candidate.kind == "opera":
+
+            def opera(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_opera = getattr(model, "generate_opera_binary")
+                    output = generate_opera(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("OPERA binary generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return opera
+        if candidate.kind == "ifcd":
+
+            def ifcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_ifcd = getattr(model, "generate_ifcd")
+                    output = generate_ifcd(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("IFCD generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return ifcd
         if candidate.kind == "pai":
 
             def pai(model: "Model", case: "FailureCase") -> "Optional[bool]":

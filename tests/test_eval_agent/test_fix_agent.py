@@ -481,6 +481,15 @@ class ViCropSensitiveModel(Model):
         raise NotImplementedError
 
 
+class ViCropConsensusSensitiveModel(ViCropSensitiveModel):
+    """LLaVA-style fixture repaired only by the ViCrop safety guard."""
+
+    def generate_vicrop_consensus(self, inputs, *, baseline_answer, **kwargs):
+        assert baseline_answer == "No."
+        assert kwargs == {"layer": 14}
+        return "Yes."
+
+
 class PAISensitiveModel(Model):
     """LLaVA-style fixture repaired by PAI's image-attention branch."""
 
@@ -501,6 +510,46 @@ class PAISensitiveModel(Model):
 
     def paper_method_fidelity(self, method):
         return "native_attention_cfg_specialization" if method == "pai" else "unavailable"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class OPERASensitiveModel(Model):
+    """LLaVA-style fixture repaired by OPERA's binary attention penalty."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.ATTENTION})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_opera_binary(self, inputs, **kwargs):
+        assert kwargs == {"num_attn_candidates": 5, "penalty_weight": 1.0}
+        return "Yes."
+
+    def paper_method_fidelity(self, method):
+        return "native_binary_specialization" if method == "opera" else "unavailable"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class IFCDSensitiveModel(Model):
+    """LLaVA-style fixture repaired only by an opted-in TruthX IFCD route."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.HIDDEN_STATES})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_ifcd(self, inputs, **kwargs):
+        assert kwargs == {"alpha": 0.1, "beta": 0.1, "edit_strength": 0.5, "top_layers": 15}
+        return "Yes."
+
+    def paper_method_fidelity(self, method):
+        return "adapted_truthx_artifact" if method == "ifcd" else "unavailable"
 
     def forward(self, inputs, capture, spec=None):
         raise NotImplementedError
@@ -683,6 +732,48 @@ def test_l0_vcd_candidate_repairs_binary_visual_grounding():
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "vcd_diffusion_noise"
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
+    assert out.best.candidate.payload["noise_step"] == 999
+
+
+def test_l0_vcd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.expected = "Yes"
+        case.observed = "No"
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
+    )
+
+    assert "vcd_diffusion_noise" not in {candidate.name for candidate in candidates}
+
+
+def test_l0_icd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.expected = "Yes"
+        case.observed = "No"
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("instruction priors override visual evidence")], batch, ICDSensitiveModel()
+    )
+
+    candidate_names = {candidate.name for candidate in candidates}
+    assert "icd_instruction_disturbance" not in candidate_names
+    assert "icd_instruction_disturbance_question" not in candidate_names
+
+
+def test_l0_vcd_is_proposed_when_false_yes_hallucinations_dominate():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.expected = "No"
+        case.observed = "Yes"
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
+    )
+
+    assert "vcd_diffusion_noise" in {candidate.name for candidate in candidates}
 
 
 def test_l0_icd_candidate_repairs_binary_visual_grounding():
@@ -708,6 +799,25 @@ def test_l3a_vicrop_candidate_repairs_small_visual_detail():
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "vicrop_relative_attention"
     assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
+
+
+def test_l3a_vicrop_consensus_guard_can_be_frozen_for_safe_transfer():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.observed = "No."
+    out = FixAgent(
+        judge=None,
+        max_tier="L3a",
+        allow_codegen=False,
+        candidate_allowlist=["vicrop_consensus_guard"],
+    ).propose_and_validate(
+        ViCropConsensusSensitiveModel(),
+        batch,
+        [_hyp("small visual detail is below input resolution")],
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "vicrop_consensus_guard"
     assert out.best.n_fixed == 16 and out.best.n_broken == 0
 
 
@@ -718,6 +828,51 @@ def test_l3a_vicrop_is_not_proposed_for_an_unrelated_mechanism():
     )
 
     assert "vicrop_relative_attention" not in {candidate.name for candidate in candidates}
+
+
+def test_l3a_opera_binary_candidate_repairs_object_hallucination():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+    out = FixAgent(judge=None, max_tier="L3a", allow_codegen=False).propose_and_validate(
+        OPERASensitiveModel(), batch, [_hyp("object hallucination follows language priors")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "opera_overtrust_binary"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
+
+
+def test_l3a_opera_binary_is_not_proposed_for_non_binary_tasks():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "multiple_choice"
+    candidates = FixAgent(judge=None, max_tier="L3a", allow_codegen=False)._propose(
+        [_hyp("object hallucination follows language priors")], batch, OPERASensitiveModel()
+    )
+
+    assert "opera_overtrust_binary" not in {candidate.name for candidate in candidates}
+
+
+def test_l3b_ifcd_requires_explicit_adapted_method_opt_in():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+    hypotheses = [_hyp("object hallucination follows language priors")]
+    no_opt_in = FixAgent(judge=None, max_tier="L3b", allow_codegen=False)._propose(
+        hypotheses, batch, IFCDSensitiveModel()
+    )
+    assert "ifcd_truthx_contrast" not in {candidate.name for candidate in no_opt_in}
+
+    out = FixAgent(
+        judge=None,
+        max_tier="L3b",
+        allow_codegen=False,
+        allow_adapted_paper_methods=True,
+        candidate_allowlist=["ifcd_truthx_contrast"],
+    ).propose_and_validate(IFCDSensitiveModel(), batch, hypotheses)
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "ifcd_truthx_contrast"
 
 
 def test_l3b_pai_candidate_repairs_object_hallucination():

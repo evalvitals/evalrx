@@ -10,7 +10,9 @@ rather than an OpenAI-compatible endpoint approximation.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+from pathlib import Path
 
 from run_autofix import (
     OUT,
@@ -41,10 +43,24 @@ PAPER_CANDIDATE_NAMES = frozenset(
         "vcd_diffusion_noise",
         "icd_instruction_disturbance",
         "icd_instruction_disturbance_question",
+        "opera_overtrust_binary",
+        "ifcd_truthx_contrast",
         "vicrop_relative_attention",
+        "vicrop_consensus_guard",
         "pai_image_attention",
     }
 )
+
+
+def artifact_sha256(path: str | None) -> str | None:
+    """Fingerprint a local method artifact without copying it into a report."""
+    if not path:
+        return None
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def source_pope_prompt(row: dict[str, object]) -> str:
@@ -63,7 +79,7 @@ def paper_prompt_contract(candidate_names: list[str]) -> tuple[str, object]:
     if len(candidate_names) != 1:
         raise SystemExit(
             "--paper-prompt requires exactly one --only-paper-candidate because "
-            "VCD, ICD, and PAI use different released POPE prompt contracts"
+            "VCD, ICD, OPERA, IFCD, and PAI use different released POPE prompt contracts"
         )
     name = candidate_names[0]
     if name == "vcd_diffusion_noise":
@@ -71,6 +87,8 @@ def paper_prompt_contract(candidate_names: list[str]) -> tuple[str, object]:
     if name in {
         "icd_instruction_disturbance",
         "icd_instruction_disturbance_question",
+        "opera_overtrust_binary",
+        "ifcd_truthx_contrast",
         "pai_image_attention",
     }:
         return "pope_raw_question", lambda row: str(row["question"])
@@ -106,6 +124,13 @@ def main() -> int:
         help="include methods marked architecture-adapted (never call their result an exact reproduction)",
     )
     parser.add_argument(
+        "--ifcd-checkpoint",
+        help=(
+            "local TruthX checkpoint for the adapted IFCD route; keep it under "
+            "the ignored data/ directory and record its provenance in the report"
+        ),
+    )
+    parser.add_argument(
         "--only-paper-candidate",
         action="append",
         default=[],
@@ -127,6 +152,11 @@ def main() -> int:
         choices = ", ".join(sorted(PAPER_CANDIDATE_NAMES))
         unknown = ", ".join(sorted(unknown_candidates))
         raise SystemExit(f"unknown paper candidate(s): {unknown}; choices: {choices}")
+    if "ifcd_truthx_contrast" in args.only_paper_candidate and not args.ifcd_checkpoint:
+        raise SystemExit("ifcd_truthx_contrast requires --ifcd-checkpoint")
+    if args.ifcd_checkpoint and not Path(args.ifcd_checkpoint).is_file():
+        raise SystemExit(f"--ifcd-checkpoint does not exist: {args.ifcd_checkpoint}")
+    ifcd_checkpoint_sha256 = artifact_sha256(args.ifcd_checkpoint)
     split = args.diagnosis_cases + args.selection_cases
     if args.diagnosis_cases < 1 or args.selection_cases < 8 or split >= args.limit:
         raise SystemExit("need diagnosis >=1, selection >=8 and a non-empty confirmation split")
@@ -146,7 +176,12 @@ def main() -> int:
     probe_rows, confirm_rows = rows[:split], rows[split:]
     model = HFLocalModel(
         get_spec(args.model),
-        RuntimeConfig(device=args.device, dtype="bfloat16", max_new_tokens=args.max_tokens),
+        RuntimeConfig(
+            device=args.device,
+            dtype="bfloat16",
+            max_new_tokens=args.max_tokens,
+            engine_kwargs={"ifcd_checkpoint": args.ifcd_checkpoint} if args.ifcd_checkpoint else {},
+        ),
     )
     model.load()
     prompt_contract, prompt_fn = (
@@ -154,8 +189,18 @@ def main() -> int:
         if args.paper_prompt
         else ("evalvitals_task_prompt", task_prompt)
     )
+    vcd_sampling_control = args.only_paper_candidate == ["vcd_diffusion_noise"]
+
+    def baseline_generate(row: dict[str, object]) -> str:
+        model_inputs = Inputs(prompt_fn(row), row["image"])
+        return (
+            model.generate_vcd_baseline(model_inputs)
+            if vcd_sampling_control
+            else model.generate(model_inputs)
+        )
+
     baseline_probe = evaluate(
-        probe_rows, lambda row: model.generate(Inputs(prompt_fn(row), row["image"]))
+        probe_rows, baseline_generate
     )
     diagnosis_rows, selection_rows = diagnostic_split(
         probe_rows, baseline_probe, args.diagnosis_cases
@@ -179,9 +224,7 @@ def main() -> int:
     }
     baseline_selection["correct"] = sum(case["correct"] for case in baseline_selection["cases"])
     baseline_selection["accuracy"] = baseline_selection["correct"] / len(selection_rows)
-    baseline_confirm = evaluate(
-        confirm_rows, lambda row: model.generate(Inputs(prompt_fn(row), row["image"]))
-    )
+    baseline_confirm = evaluate(confirm_rows, baseline_generate)
 
     # Default to L0 for decoding papers.  A caller can explicitly request L3a
     # for a read-only internal paper method such as ViCrop; the candidate
@@ -240,8 +283,11 @@ def main() -> int:
         "method": "paper-method candidates over HF-local internals/decoding",
         "max_tier": args.max_tier,
         "prompt_contract": prompt_contract,
+        "baseline_decoding": "vcd_clean_temperature_one_sampling" if vcd_sampling_control else "default_generate",
         "allow_adapted_paper_methods": args.allow_adapted_paper_methods,
         "only_paper_candidates": args.only_paper_candidate,
+        "ifcd_checkpoint": args.ifcd_checkpoint,
+        "ifcd_checkpoint_sha256": ifcd_checkpoint_sha256,
         "data_dir": source_dir,
         "exclude_data_dirs": args.exclude_data_dir,
         "n_excluded_as_previously_seen": n_excluded,
