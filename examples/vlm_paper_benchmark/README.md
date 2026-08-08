@@ -551,12 +551,8 @@ below.
 than net-harmful like every other candidate tried on this model). Neither
 is significant. The three L2 image-tool candidates and the coded pipeline
 all report "no applicable scorable pair" / "never executed" — a second,
-different bug surfaced by fixing the first one: the judge's L2 proposals
-reference image-tool names or emit a final `print()` that don't exactly
-match the execution contract (the required tool catalog / the literal
-result-marker line), so the host-side validator silently drops every case
-rather than running them. That is real, identified, unfixed — named here
-as the next concrete lead, not attempted this session.
+different bug surfaced by fixing the first one, investigated below rather
+than left as future work.
 
 Net effect of this fix: real judge-authored candidates now exist for these
 two papers for the first time in the project's history, and the net-benefit
@@ -564,6 +560,84 @@ question was answered on them, not worked around by falling back to
 defaults. It does not change either paper's status — both remain
 non-significant — but it is a genuine algorithmic bug found and fixed
 within this session's scope, not another draw from an already-sampled pool.
+
+## Two more bugs behind "no applicable scorable pair" — found, fixed, re-verified
+
+The L2 spec candidates (image-tool pipelines) and the coded pipeline both
+reported `n_pairs=0` above ("no applicable scorable pair" / "never
+executed"). That looked like a second judge-quality ceiling. It wasn't —
+it was two more call-site bugs, both diagnosed by reproducing the exact
+failing candidate against the real model rather than guessing:
+
+**L2 spec candidates: a kwarg name mismatch.** `_L2_PROMPT`'s schema and
+`fix_tools._safe_generation_kwargs` both use the OpenAI-style key
+`max_tokens` for a candidate's decoding budget. `HFLocalModel.generate()`
+only recognised `max_new_tokens` and — critically — `transformers.generate()`
+raises `ValueError: The following model_kwargs are not used by the model:
+['max_tokens']` on an unrecognised kwarg rather than ignoring it. That
+exception was caught silently by `run_pipeline`'s per-call try/except
+(`return ""` on failure), so *every* model call inside *every*
+judge-proposed L2 pipeline failed, on every case, on both LLaVA and
+Qwen3-VL, for the whole session. Reproduced directly:
+`model.generate(inputs, max_tokens=30, ...)` raised the exact `ValueError`
+above before the fix. `HFLocalModel.generate()` now aliases `max_tokens` to
+`max_new_tokens` (the latter wins if a caller passes both).
+
+**Coded pipelines: marker non-compliance.** `_L2_CODE_PROMPT` requires the
+pipeline's last stdout line to be exactly `FIX_PIPELINE_RESULT_JSON=<json>`.
+A judge-written pipeline sometimes produces the right payload —
+`{"per_case": [...]}"` via a bare `print(json.dumps(...))` — but drops the
+literal prefix; reproduced directly against `qwen3-vl-8b-instruct`, whose
+generated code did exactly this. `run_coded_pipeline` now falls back to
+scanning the last unmarked stdout lines for one that parses as
+`{"per_case": [...]}"` when no marker line is found, recovering a pipeline
+that got the content right and the formatting wrong. Stdout noise that
+doesn't match that shape still fails exactly as before (regression-tested).
+
+Rerunning MMMU and ChartQA once more, pre-registered at the same split
+sizes, with both fixes applied:
+
+**MMMU: `n_pairs` went from 0 to 16 on every L2/L3a candidate** — the
+verification the fix needed. `coded_pipeline` executed cleanly
+(`exec_error: ""`). Once visible, one candidate produced this project's
+first-ever significant result on MMMU: **`table_zoom_sharpen`
+(`zoom_center(2x)` + `sharpen(2x)`), effect=-0.50, e=28.44, `reject: true`
+— validated harm**, baseline 10/16 correct collapsing to 2/16. The
+mechanism is legible: MMMU accounting tables span the full frame, and
+`zoom_center` keeps only the central half, cropping away the row/column
+headers and totals the answer depends on — a judge proposing a
+center-crop tool on full-frame tabular images is proposing the wrong tool
+for this image class, which is feedback about candidate quality, not about
+MMMU's difficulty. `fixed = reject AND effect > 0`, so this candidate was
+correctly never promoted to `best` — the first time this project's safety
+gate has actually been exercised by a *significant* result on this paper
+rather than an inconclusive one. `visual_embedding_boost` (2 fixed / 0
+broken, e not significant) keeps the same clean-safety shape seen
+elsewhere; the two L1 candidates from the previous rerun are unchanged
+(`e=1.00`, no evidence either way).
+
+**ChartQA: `n_pairs` went from 0 to 160** on the one L2 candidate the judge
+proposed this round (`chart_type_correction`: 3 fixed / 3 broken, e=0.0,
+exact null). No coded pipeline was attempted this round — the judge wrote
+syntactically invalid Python this time (`ast.parse` rejected it, same
+syntax gate as always, a different and unrelated failure mode from the
+marker issue). The L1 candidate (`force_bar_chart_reference`: 4 fixed / 2
+broken, e=0.0125) is effectively null. Nothing here is a positive draw
+worth chasing: this is the fourth time this exact n=160 selection split has
+been run against this model this session (LLaVA, Qwen3-VL defaults,
+Qwen3-VL judge L1s, now Qwen3-VL judge L2s), so even a favourable-looking
+number on it would be a reused-pool artifact, not evidence — none of these
+numbers are favourable enough to raise that question anyway.
+
+Three real defects found and fixed in this stretch — decode-budget
+truncation, a kwarg name mismatch, and marker non-compliance — all
+regression-tested without GPU (`test_hf_local_generate_treats_max_tokens_as_max_new_tokens_alias`,
+`test_coded_pipeline_recovers_result_without_literal_marker_prefix`,
+`test_coded_pipeline_unrelated_stdout_still_fails`). None of them changes
+any paper's status. What they change is that "the judge can't produce
+usable candidates" is no longer an open question for this project — it
+could, on both papers it was tested on, and the resulting candidates were
+genuinely evaluated rather than silently dropped.
 
 ## Where this actually leaves things
 
