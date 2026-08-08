@@ -1,6 +1,6 @@
 # VLM paper health benchmark
 
-This example tests the visual branch of EvalVitals on six image-bearing VLM
+This example tests the visual branch of EvalVitals on seven image-bearing VLM
 papers and their public datasets:
 
 | Paper | Dataset | Failure axis |
@@ -11,14 +11,16 @@ papers and their public datasets:
 | POPE | `lmms-lab/POPE` `Full/{adversarial,popular,random}` | condition-specific object hallucination |
 | HALLUCINOGEN | `MM-Hallu/HALLUCINOGEN` | contextual/counterfactual hallucination |
 | MMMU | `MMMU/MMMU` Accounting | visual expert reasoning |
+| DC² / HR-Bench (AAAI 2025) | `DreamMr/HR-Bench` `hrbench_4k` | 4K high-resolution fine-grained perception |
 
 ## Mechanism-defined paper casebook
 
 The dataset table above is a regression surface; it is not sufficient evidence
 that our repair rediscovered a paper's method. The curated
-[`literature_matrix.json`](literature_matrix.json) records eleven source papers:
-four diagnostic benchmarks and six repair-method papers.  The narrower
-[`paper_casebook.json`](paper_casebook.json) contains the six repair papers whose
+[`literature_matrix.json`](literature_matrix.json) records sixteen source papers:
+four diagnostic benchmarks and twelve repair-method papers (V* and DC² also
+introduce their own benchmarks).  The narrower
+[`paper_casebook.json`](paper_casebook.json) contains the twelve repair papers whose
 failure mechanism and intervention are explicit:
 
 | Case | Failure slice | Paper repair | Access needed for an exact comparison |
@@ -30,6 +32,11 @@ failure mechanism and intervention are explicit:
 | OPERA | image-token neglect hallucination | attention-aware decoding/rollback | attention, logits, custom beam search |
 | IFCD | POPE/MME language-biased hallucination | internally disturbed contrastive decoding | representation access and logits |
 | PAI | POPE image-token under-attention | image-attention boost + CFG | LLaVA eager attention; CFG cache path for full method |
+| DyFo (CVPR 2025) | V*Bench/POPE fine-grained focus | MCTS focus search with expert tools + answer voting | black-box crops + local grounding/segmentation experts |
+| DC² (AAAI 2025) | HR-Bench 4K high-resolution perception | divide/conquer/combine describe-then-answer loop | black-box crops and chat calls only |
+| RAP (ICML 2025) | high-resolution diluted evidence | retrieved crops + spatial layout + RE-Search | black-box; exact RE-Search wants token logprobs |
+| API (ECCV 2024) | under-attended answer regions | aux-model attention heatmap overlaid on the image | black-box target + local CLIP/LLaVA scorer |
+| CCoT (CVPR 2024) | ignored compositional structure | scene-graph-then-answer prompt scaffold | black-box, prompt only |
 
 The casebook is an execution contract, not a claim that every method is already
 implemented. The runner provides a label-free black-box V* control (locate →
@@ -38,6 +45,20 @@ logprobs. These are explicitly marked as method-family controls rather than
 claims of reproducing trained SEAL or an internal tensor implementation. An
 `hf_local` backend is required before ViCrop, OPERA or IFCD can be called a
 paper-method match.
+
+The last five casebook rows (DyFo, DC², RAP, API, CCoT) come from a 2026-08
+survey of ICML/NeurIPS/ICLR/CVPR/ICCV/ECCV/AAAI main-conference repair papers
+(Oct 2023 – Aug 2026) with official code, each venue claim verified against
+proceedings/OpenReview/CVF evidence. They were selected because they are
+training-free, black-box runnable (minimum tier L2), and land on data surfaces
+this example already pins — which makes them the cheapest next paper-method
+candidates to implement. None of the five is implemented yet; the casebook rows
+define what running them would mean. CCoT is additionally useful as a
+discriminant-validity control: on slices diagnosed as perception-limited, a
+prompt-only scaffold should not be selected as the winning fix. The remaining
+survey tiers — hf_local-native decoding/attention methods, mechanism-gap rows,
+and training-based upper bounds — are catalogued in
+[`potential_papers.md`](potential_papers.md).
 
 The manifest pins the source, split, scoring family and expected failure axis
 in [`papers.json`](papers.json). It stores no data. The downloader uses a
@@ -62,6 +83,10 @@ python download_benchmarks.py --per-paper 96
 
 # Faster schema/download smoke test for one source.
 python download_benchmarks.py --paper pope --per-paper 24 --scan-rows 300
+
+# HR-Bench ships base64-encoded 4K JPEGs; a 96-image PNG sample is large
+# (roughly 2 GB below data/), so fetch it separately and size to taste.
+python download_benchmarks.py --paper hrbench_4k --per-paper 48 --scan-rows 400
 ```
 
 The next runner consumes these frozen images using an OpenAI-compatible VLM
