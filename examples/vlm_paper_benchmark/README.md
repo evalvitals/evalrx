@@ -511,17 +511,70 @@ Qwen3-VL would not be those papers' methods, and this document's fidelity
 discipline treats that as a different, undeclared method rather than a
 retry. Those two cases stand as closed above.
 
+## The judge's structured-output failure was a decode-budget bug, not capability
+
+The two paragraphs above named "JSON candidate proposals fail to parse" as
+a real, unfixed limitation and left it as future work. It turned out to be
+one call site, one number. `_JudgeModel` (the wrapper that gives FixAgent's
+judge calls a longer decode budget than the short scoring calls need) was
+set to `max_new_tokens=320`. Reproducing the exact L1/L2 judge prompts
+directly against `qwen3-vl-8b-instruct` showed the L1 prompt-template array
+fits easily (~50 tokens), but the L2 pipeline-spec array (image_ops +
+generation_kwargs + strategy per candidate) and the L2 code-writing prompt
+(~80-line Python pipeline) both got cut off mid-object/mid-function at
+320 — exactly what `_ask_judge`'s and `_write_l2_coded`'s parse gates were
+reporting as "unparseable judge proposal" / "judge code failed to parse".
+Raising the budget to 900 (measured to close both, not guessed) fixed it:
+0 unparseable warnings on both the ChartQA and MMMU reruns, versus 2 on
+every run before it, this session included.
+
+Rerunning both cases once, pre-registered at the same split sizes as the
+runs directly above (so the two are comparable), with the fixed budget:
+
+**MMMU**: judge-authored candidates now appear (`source: "judge"` instead
+of `"default"`) — `force_visual_grounding`, `explicit_data_reference`,
+`visual_grounding_enhance`, `diagram_focus_zoom`, `table_extraction_sharpen`,
+plus a real coded L3a pipeline. None produce a positive or significant
+effect (`e≤1.33`, several net-negative). This is a genuinely new test — the
+judge had never once produced a real proposal on this paper before, only
+silent defaults — and it still comes back null. That closes the
+"stronger-judge-would-help-MMMU" hypothesis on evidence rather than leaving
+it as an unresolved infrastructure gap.
+
+**ChartQA**: two real judge L1 candidates appear —
+`add_context_and_specify_calculation` (3 fixed / 6 broken, e=0.61) and
+`force_numeric_comparison` (2 fixed / 2 broken, e=0.53, net-neutral rather
+than net-harmful like every other candidate tried on this model). Neither
+is significant. The three L2 image-tool candidates and the coded pipeline
+all report "no applicable scorable pair" / "never executed" — a second,
+different bug surfaced by fixing the first one: the judge's L2 proposals
+reference image-tool names or emit a final `print()` that don't exactly
+match the execution contract (the required tool catalog / the literal
+result-marker line), so the host-side validator silently drops every case
+rather than running them. That is real, identified, unfixed — named here
+as the next concrete lead, not attempted this session.
+
+Net effect of this fix: real judge-authored candidates now exist for these
+two papers for the first time in the project's history, and the net-benefit
+question was answered on them, not worked around by falling back to
+defaults. It does not change either paper's status — both remain
+non-significant — but it is a genuine algorithmic bug found and fixed
+within this session's scope, not another draw from an already-sampled pool.
+
 ## Where this actually leaves things
 
 A different subject model is a different experiment, not another draw from
 the same one — it was run once, read once, and is reported as-is rather
-than chased into a Qwen sweep across all five papers. The corrected
-picture: one of five papers has a validated end-to-end fix
+than chased into a Qwen sweep across all five papers. The judge decode-
+budget fix is real infrastructure, applied once and re-tested once on the
+two papers it's relevant to, not iterated until a number passed. The
+corrected picture: one of five papers has a validated end-to-end fix
 (MLLMs Know/TextVQA); the per-case gating safety property replicated 15/15
 times with zero exceptions across two architectures; three papers
 (POPE, HALLUCINOGEN, ChartQA) have net-benefit questions that were given a
 fair, pre-registered, uncontaminated look and came back negative rather
-than left open; and MMMU's "capability ceiling" explanation, as stated
+than left open, now including a from-a-real-judge look for ChartQA; and
+MMMU's "capability ceiling" explanation, as stated
 against `llava-1.5-7b-hf`, is now known to be wrong in general — a newer
 model shows real (if underpowered, and provably so given the source pool's
 30-item cap) movement rather than a hard floor.

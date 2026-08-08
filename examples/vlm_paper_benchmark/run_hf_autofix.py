@@ -185,9 +185,22 @@ class _JudgeModel:
     judge would inherit whatever ``--max-tokens`` was set for scoring
     (e.g. 8 for POPE) -- nowhere near enough to return a JSON candidate
     list, so it would silently truncate and fail to parse every time.
+
+    320 (the original budget here) turned out to still be too small: it was
+    measured directly against qwen3-vl-8b-instruct's actual L1/L2 judge
+    outputs. The L1 prompt-template array is short and fits easily (~50
+    output tokens observed), but the L2 pipeline-spec array (k proposals,
+    each with image_ops/generation_kwargs/strategy/output_key_pattern) and
+    the L2 code-writing prompt (~80-line Python pipeline) both got cut off
+    mid-object/mid-function at 320, which is exactly what
+    ``_ask_judge``/``_write_l2_coded``'s syntax gates report as "unparseable
+    judge proposal" / "judge code failed to parse" -- a decode-budget bug,
+    not a model-capability floor. 900 was measured to close both cleanly
+    (full JSON array parsed, full syntactically-valid pipeline) on the same
+    prompts that truncated at 320.
     """
 
-    def __init__(self, model: HFLocalModel, max_new_tokens: int = 320) -> None:
+    def __init__(self, model: HFLocalModel, max_new_tokens: int = 900) -> None:
         self._model = model
         self._max_new_tokens = max_new_tokens
 
