@@ -1758,6 +1758,25 @@ def test_self_refine_offered_for_image_reasoning_tasks_not_yes_no():
     assert {"self_refine", "self_consistency_5"}.isdisjoint(c.name for c in out_yn)
 
 
+def test_assertive_grounding_offered_only_on_false_no_dominant_slice():
+    """assertive_grounding is the dual of the direction gate that withholds
+    VCD/ICD/etc. on a false-No-dominant slice: those methods are suppressive
+    (wrong direction for under-claiming), so offer a prompt that accepts
+    partial evidence instead. Must not appear when the slice is false-Yes
+    dominant (or balanced) -- that's exactly the population the suppressive
+    methods already handle."""
+    agent = FixAgent(judge=None, max_tier="L1")
+    out_false_no = agent._l1_candidates(
+        "- h", "", has_images=True, tasks={"yes_no"}, binary_hallucination_supported=False
+    )
+    assert "assertive_grounding" in {c.name for c in out_false_no}
+
+    out_false_yes = agent._l1_candidates(
+        "- h", "", has_images=True, tasks={"yes_no"}, binary_hallucination_supported=True
+    )
+    assert "assertive_grounding" not in {c.name for c in out_false_yes}
+
+
 def test_spec_noop_cases_are_not_applicable():
     PIL = pytest.importorskip("PIL")
     from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, spec_changes_input

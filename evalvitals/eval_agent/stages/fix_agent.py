@@ -732,7 +732,13 @@ class FixAgent:
             candidates += self._l0_candidates(data, prior_names, model=model)
         if self.max_tier >= FixTier.L1_PROMPT and not self._paper_methods_only:
             candidates += self._l1_candidates(
-                hyp_lines, examples, prior_text, prior_names, has_images=has_images
+                hyp_lines,
+                examples,
+                prior_text,
+                prior_names,
+                has_images=has_images,
+                tasks=tasks,
+                binary_hallucination_supported=binary_hallucination_supported,
             )
         if self.max_tier >= FixTier.L2_SCAFFOLD:
             candidates += self._l2_candidates(
@@ -988,6 +994,8 @@ class FixAgent:
         prior_names: "frozenset[str]" = frozenset(),
         *,
         has_images: bool = False,
+        tasks: "set[str] | None" = None,
+        binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
         proposals = self._ask_judge(
             _L1_PROMPT.format(hypotheses=hyp_lines, examples=examples, k=self.max_judge_candidates)
@@ -1034,6 +1042,40 @@ class FixAgent:
                         )
                     },
                 ),
+            )
+        # Dual of the direction gate that withholds VCD/ICD/OPERA/PAI/IFCD on
+        # a false-No-dominant slice (_binary_hallucination_direction): those
+        # methods are all suppressive (push away from asserting an object),
+        # which is the wrong direction for under-claiming. This is the
+        # opposite-direction lever within our own framework -- a prompt that
+        # asks the model to accept partial/ambiguous visual evidence rather
+        # than requiring certainty before answering Yes. It is scoped to the
+        # same batch-level diagnosis signal (never a specific case's outcome)
+        # and only proposed for binary tasks where the direction is not
+        # false-Yes-dominant, so it is never offered alongside (and diluting)
+        # the already-validated false-Yes-side candidates.
+        if (
+            has_images
+            and tasks == {"yes_no"}
+            and not binary_hallucination_supported
+            and "assertive_grounding" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L1_PROMPT,
+                    name="assertive_grounding",
+                    kind="template",
+                    source="default",
+                    payload={
+                        "prompt_template": (
+                            "Inspect the image for {failure_axis}. If there is plausible visual "
+                            "evidence for the object or attribute in the question -- even if "
+                            "partial, small, or ambiguous -- answer Yes. Only answer No if you "
+                            "are confident no such evidence is present anywhere in the "
+                            "image.\n\n{prompt}"
+                        )
+                    },
+                )
             )
         if not out and not has_structural_proposal and "attend_carefully" not in prior_names:
             out = [
