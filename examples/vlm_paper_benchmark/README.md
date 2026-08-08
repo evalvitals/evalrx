@@ -71,15 +71,32 @@ crashing. Every paper case in the casebook was run this way (LLaVA-1.5-7B,
 | V*Bench | 100/75 | prompt grounding, 3 image transforms, ViCrop + ViCrop-guard | none validated (best partial effect +0.05, e<1); recommend escalate to L3b |
 | ChartQA | 160/72 | prompt grounding, image transforms, ViCrop + ViCrop-guard | none validated; recommend L4 |
 | MMMU (Accounting) | 16/8 (dataset caps at 30 total) | full ladder | every candidate `no_effect` (identical answers); recommend L4 — consistent with genuine domain-reasoning failures rather than a perception/prompt-fixable defect |
+| HALLUCINOGEN | 48/32 | VCD, ICD, prompt grounding, 3 image transforms, OPERA, PAI | none validated; `vcd_diffusion_noise` REJECTED H0 **harmful** (e=170.7); underpowered-by-design (`gather_more_failures`, only 1 diagnosis failure crossed the e-value ceiling) |
+| TextVQA small-detail (`mllms_know_textvqa_small`), n=315/83 | 200/83 | prompt grounding, 3 image transforms, ViCrop + ViCrop-guard | **selection validated**: both ViCrop variants REJECT H0 (e=229 and e=2940); e-BH survivors=both; `best=vicrop_consensus_guard`. Confirmation on an independent 83-case split then re-validated it (+13.25pp, 13 fixed/2 broken) but landed just under this run's significance bar (e=19.5) — an honest near-miss, not a false pass |
 
-None of these validated a fix — and that is the expected, honest outcome
-given the paper-method table above already showed the underlying paper
-routes don't transfer on this slice either. The thing being checked here is
+Every earlier row in this table hit `"confirmation": {"skipped": "no
+selection candidate"}` because nothing survived selection — which meant
+the confirmation half of the loop (`selection.best` → `validate_candidate`
+on a disjoint split → verdict) had never actually run in any unpinned
+report. The TextVQA row above is the one paper case where the unpinned
+ladder itself (not a pinned `--only-paper-candidate`) surfaces a real
+positive signal, so it is the case that exercises that branch. It did:
+selection cleared both the per-candidate gate and e-BH, `validate_candidate`
+re-ran cleanly on 83 held-out images, and the report recorded a real
+(if, at this sample size, inconclusive) effect rather than crashing or
+silently short-circuiting.
+
+None of the other rows validated a fix — the expected, honest outcome given
+the paper-method table above already showed the underlying paper routes
+don't transfer on this slice either. The thing being checked here is
 narrower: the loop always reached a real verdict through the full tier
-ladder (never `never_ran`, never an unexplained skip), and it caught a
-statistically real harmful transform (`zoom_equalize` on POPE) that a
-less careful pipeline would have missed. `MMMU`/`ChartQA` previously had
-zero and smoke-only runs respectively; both now have a real run.
+ladder (never `never_ran`, never an unexplained skip), it caught two
+statistically real harmful candidates (`zoom_equalize` on POPE,
+`vcd_diffusion_noise` on HALLUCINOGEN) that a less careful pipeline would
+have missed, and it correctly refused to promote either regression to
+`best` (`fixed` requires both `reject` and a positive effect). `MMMU`,
+`ChartQA` and `HALLUCINOGEN` previously had zero or smoke-only runs; all
+three now have a real run.
 
 The automatic VCD route is additionally direction-gated: it is proposed only
 when labelled binary diagnosis evidence is dominated by false `Yes` answers
