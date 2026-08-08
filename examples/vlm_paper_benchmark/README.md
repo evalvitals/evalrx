@@ -329,51 +329,78 @@ fair, uncontaminated third look at the net-benefit question; it came back
 too underpowered to answer it either way, which is itself the honest
 result, not a reason to try a fourth pool.
 
+## The HALLUCINOGEN near miss, confirmed negative on a pre-registered fresh sample
+
+e=16.0 against a ~20 threshold was close enough to warrant exactly one more
+look, sized *before* touching any new data: at the n=500 run's observed
+rate (4.86% of all cases gate-eligible, 41.2% fixed among those touched,
+0/0 broken), a fresh, disjoint n=450 selection should yield roughly a dozen
+fixed cases and comfortably clear the bar. Downloaded 900 new rows
+(`hallucinogen_confirm_900`, 780 unseen after excluding the already-touched
+base sample), pinned to `vcd_diffusion_noise_gated_false_yes` only (its ICD
+sibling was accidentally left off this run's `--only-paper-candidate` list
+— an oversight, not a result of looking at anything; VCD alone already
+settles the question, since ICD has tracked VCD's direction and magnitude
+in every comparable run this session).
+
+Result: **27 gate-eligible cases touched, 5 fixed, 0 broken, e=5.33** — down
+from e=16.0, not up. The gate-eligible rate held (6.0% vs. 4.86%) but the
+fix rate roughly halved (18.5% vs. 41.2%). This is the same big-sample-
+then-independent-null pattern already seen twice this session (ChartQA
+ViCrop, POPE-popular ICD): the discovery-sample number was the high draw,
+not the population rate. `n_broken=0` held for a 16th consecutive
+observation. HALLUCINOGEN's net-benefit question is now closed with the
+same answer as ChartQA and POPE: safety replicates, net benefit does not.
+
 ## Where this leaves the five benchmark cases
 
 | Case | Status |
 | --- | --- |
 | MLLMs Know / TextVQA small-detail | **Works** — ViCrop validated (+15.94pp, e=207,678 on an independent 207-case confirmation) |
 | POPE (adversarial + popular + random) | Suppressive methods made **safe** (0 broken in every gated run); net benefit found once (e=182,361) but did not independently replicate |
-| HALLUCINOGEN | Per-case gate found a fixable subpopulation (7 fixed / 0 broken) inside a slice the whole-batch gate would discard; e=16.0 vs. ~20 needed — a genuine near miss, correctly withheld, not chased further |
+| HALLUCINOGEN | Per-case gate found a fixable subpopulation inside a slice the whole-batch gate would discard (e=16.0 discovery sample); a pre-registered, properly powered fresh sample did not replicate it (e=5.33) — same answer as POPE and ChartQA |
 | ChartQA | ViCrop, `self_refine`, and `self_consistency_5` — every relevant lever in this toolkit — all non-effects on independent samples |
 | MMMU (Accounting) | Six levers now (added `self_consistency_5`), zero outcome changes — capability-limited, not lever-limited |
 
 One of five works end-to-end. What changed this session is *how* the other
-four fail: every negative above now has a mechanism, a number, and (for
-POPE/ChartQA/HALLUCINOGEN) a documented non-replication, clean-null, or
-near-miss pattern on genuinely independent data — including one correction
-to an earlier misread (HALLUCINOGEN was never a direction mismatch; a
-48-case sample with only one failure looked like one).
+four fail: every negative above now has a mechanism, a number, and a
+documented non-replication or clean-null pattern on genuinely independent
+data — including one correction to an earlier misread (HALLUCINOGEN was
+never a direction mismatch; a 48-case sample with only one failure looked
+like one) and one near miss that was given a fair, pre-registered second
+look and came back negative rather than left as an open question.
 
 The property that *did* generalize cleanly across every condition tested,
 every paper, every architecture, is safety: a per-case gate computed only
 from each case's own already-recorded baseline answer converts a
 suppressive repair from actively harmful to never-worse, with **zero
-exceptions across 14 independent gated-candidate validations** (POPE ×3
-conditions, HALLUCINOGEN; LLaVA and InstructBLIP). Its clearest single
-demonstration is HALLUCINOGEN: the whole-batch gate would have written that
-slice off entirely, and the per-case gate found a real, safe, near-
-significant fix inside it anyway.
+exceptions across 15 independent gated-candidate validations** (POPE ×3
+conditions, HALLUCINOGEN ×2 samples; LLaVA and InstructBLIP). Its clearest
+single demonstration is HALLUCINOGEN: the whole-batch gate would have
+written that slice off entirely, and the per-case gate found a real, safe
+(if ultimately not significant) fix inside it anyway — on *both* samples.
 
-This session also went through three consecutive rounds of "one more
-legitimate, pre-registered lever" after first concluding four-of-five
-negative — gated candidates, then ChartQA/`pope_random` scaling, then
-`self_consistency_5`/`assertive_grounding`/a HALLUCINOGEN re-look. Each
-round produced real engineering (a dedup bug fix, `self_refine` and
+This session went through four consecutive rounds of "one more legitimate,
+pre-registered lever" after first concluding four-of-five negative: gated
+candidates, then ChartQA/`pope_random` scaling, then
+`self_consistency_5`/`assertive_grounding`, then a properly powered
+HALLUCINOGEN confirmatory sample sized before being looked at. Each round
+produced real engineering (a dedup bug fix, `self_refine` and
 `self_consistency_5` unblocked for image tasks, `assertive_grounding` as
-the direction gate's dual, a corrected HALLUCINOGEN diagnosis) and, bar the
-one near miss, zero net movement on the five-way scoreboard. That pattern
-is itself the answer: closing the remaining four on net benefit needs
-something this environment doesn't currently have — a stronger judge/
-subject model (for MMMU and for candidate-proposal quality generally), a
-`pope_popular` source pool that isn't already substantially touched, an
-MMMU config with more than 30 usable items, or roughly 4 more points of
-e-value on the HALLUCINOGEN gated candidate from a properly powered,
-*pre-registered-before-looking* fresh sample. None of that is a tuning
-problem this repo's contamination discipline permits solving by re-running
-against held-out data until a number passes, and re-running the same
-levers again here would not be re-diagnosis, it would be search.
+the direction gate's dual, a corrected HALLUCINOGEN diagnosis) and zero net
+movement on the five-way scoreboard. Four independent non-replications on
+four different held-out samples (POPE-popular ICD, ChartQA ViCrop,
+HALLUCINOGEN VCD ×1) is no longer "underpowered" — it is the signal that
+this model/toolkit combination's positive draws are sampling noise on top
+of a true effect too small (or absent) to matter at this scale. Closing the
+remaining four needs something this environment doesn't currently have — a
+stronger judge/subject model (for MMMU and for candidate-proposal quality
+generally), a `pope_popular` source pool that isn't already substantially
+touched, an MMMU config with more than 30 usable items, or a repair
+mechanism this project's five source papers don't provide. None of that is
+a tuning problem solvable by re-running against held-out data until a
+number passes, and this document now has four independent demonstrations
+of exactly what that number looks like when it's noise.
 
 The manifest pins the source, split, scoring family and expected failure axis
 in [`papers.json`](papers.json). It stores no data. The downloader uses a
