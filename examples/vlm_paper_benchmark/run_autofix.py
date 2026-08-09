@@ -16,6 +16,7 @@ import io
 import json
 import math
 import mimetypes
+import os
 import random
 import re
 from pathlib import Path
@@ -32,8 +33,8 @@ from evalvitals.eval_agent.stages.fix_agent import FixAgent
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 OUT = ROOT / "outputs"
-MODEL_ID = "gpt-qwen3-vl-8b"
-BASE_URL = "http://127.0.0.1:8010/v1"
+MODEL_ID = os.environ.get("AUTOFIX_MODEL_ID", "gpt-qwen3-vl-8b")
+BASE_URL = os.environ.get("AUTOFIX_BASE_URL", "http://127.0.0.1:8010/v1")
 PAPER_IDS = tuple(item["id"] for item in json.loads((ROOT / "papers.json").read_text())["papers"])
 PAPER_SPECS = {
     item["id"]: item for item in json.loads((ROOT / "papers.json").read_text())["papers"]
