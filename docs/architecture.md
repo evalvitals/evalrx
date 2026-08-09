@@ -654,7 +654,10 @@ L2   scaffold space     agent-designed pipelines around the unchanged model
 L3a  internals (read)   read attention/logits to guide scaffold actions
 L3b  internals (write)  modify the forward pass (attention reweighting,
                          sink suppression, activation steering)
-L4   parameter space    fine-tune recipe — recorded, executor not yet implemented
+L4   parameter space    fine-tune recipe — v1 executes LoRA on the language
+                         model, trained on a caller-supplied diagnosis-only
+                         pool; other recipe shapes (sft/full, vision_encoder/
+                         projector) are recorded, not yet executed
 ```
 
 Every candidate is validated against the unmodified baseline with paired

@@ -481,6 +481,15 @@ class ViCropSensitiveModel(Model):
         raise NotImplementedError
 
 
+class ViCropConsensusSensitiveModel(ViCropSensitiveModel):
+    """LLaVA-style fixture repaired only by the ViCrop safety guard."""
+
+    def generate_vicrop_consensus(self, inputs, *, baseline_answer, **kwargs):
+        assert baseline_answer == "No."
+        assert kwargs == {"layer": 14}
+        return "Yes."
+
+
 class PAISensitiveModel(Model):
     """LLaVA-style fixture repaired by PAI's image-attention branch."""
 
@@ -501,6 +510,46 @@ class PAISensitiveModel(Model):
 
     def paper_method_fidelity(self, method):
         return "native_attention_cfg_specialization" if method == "pai" else "unavailable"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class OPERASensitiveModel(Model):
+    """LLaVA-style fixture repaired by OPERA's binary attention penalty."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.ATTENTION})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_opera_binary(self, inputs, **kwargs):
+        assert kwargs == {"num_attn_candidates": 5, "penalty_weight": 1.0}
+        return "Yes."
+
+    def paper_method_fidelity(self, method):
+        return "native_binary_specialization" if method == "opera" else "unavailable"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+class IFCDSensitiveModel(Model):
+    """LLaVA-style fixture repaired only by an opted-in TruthX IFCD route."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.HIDDEN_STATES})
+    modalities = frozenset({"text", "image"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_ifcd(self, inputs, **kwargs):
+        assert kwargs == {"alpha": 0.1, "beta": 0.1, "edit_strength": 0.5, "top_layers": 15}
+        return "Yes."
+
+    def paper_method_fidelity(self, method):
+        return "adapted_truthx_artifact" if method == "ifcd" else "unavailable"
 
     def forward(self, inputs, capture, spec=None):
         raise NotImplementedError
@@ -683,6 +732,48 @@ def test_l0_vcd_candidate_repairs_binary_visual_grounding():
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "vcd_diffusion_noise"
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
+    assert out.best.candidate.payload["noise_step"] == 999
+
+
+def test_l0_vcd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.expected = "Yes"
+        case.observed = "No"
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
+    )
+
+    assert "vcd_diffusion_noise" not in {candidate.name for candidate in candidates}
+
+
+def test_l0_icd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.expected = "Yes"
+        case.observed = "No"
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("instruction priors override visual evidence")], batch, ICDSensitiveModel()
+    )
+
+    candidate_names = {candidate.name for candidate in candidates}
+    assert "icd_instruction_disturbance" not in candidate_names
+    assert "icd_instruction_disturbance_question" not in candidate_names
+
+
+def test_l0_vcd_is_proposed_when_false_yes_hallucinations_dominate():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.expected = "No"
+        case.observed = "Yes"
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
+    )
+
+    assert "vcd_diffusion_noise" in {candidate.name for candidate in candidates}
 
 
 def test_l0_icd_candidate_repairs_binary_visual_grounding():
@@ -708,6 +799,25 @@ def test_l3a_vicrop_candidate_repairs_small_visual_detail():
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "vicrop_relative_attention"
     assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
+
+
+def test_l3a_vicrop_consensus_guard_can_be_frozen_for_safe_transfer():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.observed = "No."
+    out = FixAgent(
+        judge=None,
+        max_tier="L3a",
+        allow_codegen=False,
+        candidate_allowlist=["vicrop_consensus_guard"],
+    ).propose_and_validate(
+        ViCropConsensusSensitiveModel(),
+        batch,
+        [_hyp("small visual detail is below input resolution")],
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "vicrop_consensus_guard"
     assert out.best.n_fixed == 16 and out.best.n_broken == 0
 
 
@@ -718,6 +828,51 @@ def test_l3a_vicrop_is_not_proposed_for_an_unrelated_mechanism():
     )
 
     assert "vicrop_relative_attention" not in {candidate.name for candidate in candidates}
+
+
+def test_l3a_opera_binary_candidate_repairs_object_hallucination():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+    out = FixAgent(judge=None, max_tier="L3a", allow_codegen=False).propose_and_validate(
+        OPERASensitiveModel(), batch, [_hyp("object hallucination follows language priors")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "opera_overtrust_binary"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
+
+
+def test_l3a_opera_binary_is_not_proposed_for_non_binary_tasks():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "multiple_choice"
+    candidates = FixAgent(judge=None, max_tier="L3a", allow_codegen=False)._propose(
+        [_hyp("object hallucination follows language priors")], batch, OPERASensitiveModel()
+    )
+
+    assert "opera_overtrust_binary" not in {candidate.name for candidate in candidates}
+
+
+def test_l3b_ifcd_requires_explicit_adapted_method_opt_in():
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+    hypotheses = [_hyp("object hallucination follows language priors")]
+    no_opt_in = FixAgent(judge=None, max_tier="L3b", allow_codegen=False)._propose(
+        hypotheses, batch, IFCDSensitiveModel()
+    )
+    assert "ifcd_truthx_contrast" not in {candidate.name for candidate in no_opt_in}
+
+    out = FixAgent(
+        judge=None,
+        max_tier="L3b",
+        allow_codegen=False,
+        allow_adapted_paper_methods=True,
+        candidate_allowlist=["ifcd_truthx_contrast"],
+    ).propose_and_validate(IFCDSensitiveModel(), batch, hypotheses)
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "ifcd_truthx_contrast"
 
 
 def test_l3b_pai_candidate_repairs_object_hallucination():
@@ -1191,6 +1346,41 @@ def test_coded_pipeline_missing_marker_and_crash(tmp_path):
     assert r2.ok is False
 
 
+def test_coded_pipeline_recovers_result_without_literal_marker_prefix(tmp_path):
+    """A judge sometimes emits the right JSON payload but drops the exact
+    ``FIX_PIPELINE_RESULT_JSON=`` prefix the prompt asked for (observed with
+    qwen3-vl-8b-instruct: valid ``{"per_case": [...]}"" via bare ``print()``,
+    no prefix). That is a compliance slip, not a content error, and should
+    not be indistinguishable from a pipeline that produced nothing at all."""
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    cases = _gold_yes_batch(n=2)
+    unprefixed = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = [{"sample_id": c["id"], "output": "Yes."} for c in cases]
+print(json.dumps({"per_case": out}))
+"""
+    result = run_coded_pipeline(unprefixed, HopelessModel(), cases, workdir=tmp_path, timeout_sec=20)
+    assert result.ok is True
+    assert all(result.outputs[c.id] == "Yes." for c in cases)
+
+
+def test_coded_pipeline_unrelated_stdout_still_fails(tmp_path):
+    """The recovery fallback only accepts a line that actually parses as
+    ``{"per_case": [...]}"" — noise on stdout must not be mistaken for it."""
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    noisy = """
+print("starting up")
+print('{"status": "done"}')
+"""
+    result = run_coded_pipeline(
+        noisy, HopelessModel(), _gold_yes_batch(n=1), workdir=tmp_path, timeout_sec=20
+    )
+    assert result.ok is False and "FIX_PIPELINE_RESULT_JSON" in result.error
+
+
 class CodeWritingJudge(Model):
     """Garbage for JSON proposals; real pipeline code for the code prompt."""
 
@@ -1486,7 +1676,7 @@ def test_boost_unavailable_yields_none_scores():
     assert set(scores.values()) == {None}
 
 
-# ── L4: defined, executor TODO ───────────────────────────────────────────────
+# ── L4: recipe dataclass + v1 LoRA executor ──────────────────────────────────
 
 
 def test_l4_recipe_recorded_not_executed():
@@ -1511,6 +1701,191 @@ def test_l4_recipe_recorded_not_executed():
     assert ft[0].candidate.payload["target"] == "vision_encoder"
     assert out.fixed is False
     assert out.recommendation is None  # already at the top tier
+
+
+def test_l4_not_executed_without_finetune_pool():
+    """target='llm'/method='lora' is the executable shape, but FixAgent was
+    not given a finetune_pool -- must stay recorded-not-executed, not attempt
+    training against the validation batch itself (that would be leakage)."""
+    pytest.importorskip("peft")
+    judge = ScriptedJudge(
+        json.dumps(
+            {
+                "dataset_recipe": "irrelevant -- never interpreted",
+                "method": "lora",
+                "target": "llm",
+                "rationale": "text-only reasoning gap",
+            }
+        )
+    )
+    agent = FixAgent(judge=judge, max_tier="L4", allow_codegen=False)  # no finetune_pool
+    out = agent.propose_and_validate(
+        HopelessModel(), _gold_yes_batch(), [_hyp("requires retraining", mode="prior")]
+    )
+    ft = [v for v in out.attempted if v.candidate.kind == "finetune_spec"]
+    assert len(ft) == 1
+    assert ft[0].fixed is False
+    assert "finetune_pool" in ft[0].summary
+
+
+class _TinyWordTokenizer:
+    """Fixed-vocabulary word tokenizer -- deterministic ids, real decode, no
+    chat template (exercises run_lora_repair's plain-concatenation fallback
+    path). Consistent prefix ids for a shared prompt prefix is what makes
+    the SFT label-masking boundary correct in the test below."""
+
+    vocab = {
+        "<pad>": 0, "<bos>": 1, "<eos>": 2, "<unk>": 3,
+        "classify": 4, "alpha": 5, "beta": 6, "yes": 7, "no": 8,
+    }
+    inv_vocab = {v: k for k, v in vocab.items()}
+    vocab_size = 16
+
+    def __call__(self, text, return_tensors="pt"):
+        import torch
+
+        ids = [self.vocab.get(w, self.vocab["<unk>"]) for w in text.strip().lower().split()]
+        ids = ids or [self.vocab["<unk>"]]
+        input_ids = torch.tensor([ids], dtype=torch.long)
+        return {"input_ids": input_ids, "attention_mask": torch.ones_like(input_ids)}
+
+    def decode(self, ids, skip_special_tokens=True):
+        words = []
+        for i in ids:
+            w = self.inv_vocab.get(int(i), "<unk>")
+            if skip_special_tokens and w in ("<pad>", "<bos>", "<eos>"):
+                continue
+            words.append(w)
+        return " ".join(words)
+
+
+def _tiny_llama():
+    """Real, from-scratch (no download) causal LM with genuine q_proj/k_proj/
+    v_proj/o_proj naming -- the exact target_modules run_lora_repair's
+    text-only fallback targets -- so this test exercises real PEFT injection
+    and real gradient training, not a mock."""
+    import torch
+    from transformers import LlamaConfig, LlamaForCausalLM
+
+    torch.manual_seed(0)
+    cfg = LlamaConfig(
+        vocab_size=_TinyWordTokenizer.vocab_size, hidden_size=16, intermediate_size=32,
+        num_hidden_layers=2, num_attention_heads=2, num_key_value_heads=2,
+        max_position_embeddings=32, pad_token_id=0, bos_token_id=1, eos_token_id=2,
+    )
+    return LlamaForCausalLM(cfg)
+
+
+def _classify_case(word: str, target: str, label: Label) -> FailureCase:
+    return FailureCase(
+        inputs=Inputs(prompt=f"classify {word}"), expected=target, label=label,
+    )
+
+
+def _contains_score(case: FailureCase, output: str):
+    return str(case.expected).strip().lower() in str(output).strip().lower()
+
+
+def test_l4_lora_repair_trains_fixes_held_out_cases_and_restores_weights():
+    """End-to-end L4 executor test against a real (tiny, from-scratch) causal
+    LM: FixAgent is given a diagnosis-only finetune_pool distinct from the
+    validation batch. Checks, in order: (1) before training the model does
+    not already say the target word (the task is genuinely unlearned, not a
+    freebie); (2) after L4 executes, held-out validation cases -- same
+    prompt/target association as the pool, but case ids never in
+    finetune_pool -- are fixed: proof real gradient training happened and
+    the effect is visible on cases the executor never trained on directly,
+    not that generalization to an unseen *prompt* was tested (it wasn't:
+    every val case shares its prompt text with a training example); (3) a
+    control prompt never touched by training round-trips to byte-identical
+    output before vs. after -- proof the LoRA adapter was fully unloaded and
+    the base weights were restored, not merely "probably fine"."""
+    pytest.importorskip("peft")
+    from evalvitals.core.spec import ModelSpec
+    from evalvitals.models.backends.base import RuntimeConfig
+    from evalvitals.models.backends.hf_local import HFLocalModel
+
+    spec = ModelSpec(key="tiny-llama-test", family="fake", model_type="fake_llm", hf_repo="")
+    model = HFLocalModel(spec, RuntimeConfig(device="cpu", dtype="float32", max_new_tokens=3))
+    llama = _tiny_llama()
+    tok = _TinyWordTokenizer()
+    model._hf = (llama, tok)
+
+    control_prompt = Inputs(prompt="classify beta")
+    baseline_control = model.generate(control_prompt)
+
+    # The untrained model must not already answer "yes" to "classify alpha" --
+    # otherwise a later match wouldn't demonstrate training did anything.
+    baseline_alpha = model.generate(Inputs(prompt="classify alpha"))
+    assert "yes" not in baseline_alpha.lower()
+
+    train_pool = CaseBatch([
+        _classify_case("alpha", "yes", Label.FAIL),
+        _classify_case("alpha", "yes", Label.FAIL),
+        _classify_case("beta", "no", Label.PASS),
+        _classify_case("beta", "no", Label.PASS),
+    ])
+    # Held out: same prompt/target association, but DIFFERENT case ids that
+    # never appear in train_pool -- this is what "generalizes" is checked on.
+    # Multiple copies because a single paired case can never clear an
+    # e-value significance gate (n=1 is inherently uninformative) -- that is
+    # the McNemar/e-value machinery working correctly elsewhere in this
+    # file, not something this test needs to re-prove; it just needs enough
+    # pairs for a real, consistent effect to be visible as `out.fixed`.
+    val_batch = CaseBatch([_classify_case("alpha", "yes", Label.FAIL) for _ in range(8)])
+
+    agent = FixAgent(
+        judge=None, max_tier="L4", allow_codegen=False, score_fn=_contains_score,
+        finetune_pool=train_pool,
+    )
+    out = agent.propose_and_validate(model, val_batch, [_hyp("requires retraining", mode="prior")])
+
+    ft = [v for v in out.attempted if v.candidate.kind == "finetune_spec"]
+    assert len(ft) == 1
+    assert ft[0].candidate.payload.get("exec_error", "") == ""
+    assert ft[0].n_fixed == 8 and ft[0].n_broken == 0  # every held-out case now scores correct
+    assert out.fixed is True
+
+    # Restoration: an untouched control prompt reproduces the exact
+    # pre-training output -- the adapter left no residue on the base model.
+    restored_control = model.generate(control_prompt)
+    assert restored_control == baseline_control
+
+
+def test_l4_lora_repair_zero_matching_layers_does_not_crash(monkeypatch):
+    """peft.get_peft_model() itself raises when target_modules matches zero
+    layers on the given architecture -- and it raises BEFORE injecting
+    anything, outside any try/finally the executor controls. That must
+    become one candidate's LoraRepairResult(ok=False, ...), never an
+    uncaught exception that aborts the whole FixAgent run."""
+    pytest.importorskip("peft")
+    from evalvitals.core.spec import ModelSpec
+    from evalvitals.eval_agent.stages import fix_internals
+    from evalvitals.models.backends.base import RuntimeConfig
+    from evalvitals.models.backends.hf_local import HFLocalModel
+
+    spec = ModelSpec(key="tiny-llama-test", family="fake", model_type="fake_llm", hf_repo="")
+    model = HFLocalModel(spec, RuntimeConfig(device="cpu", dtype="float32", max_new_tokens=3))
+    model._hf = (_tiny_llama(), _TinyWordTokenizer())
+    monkeypatch.setattr(
+        fix_internals, "_lora_target_modules", lambda hf_model: "this_will_never_match_anything"
+    )
+
+    train_pool = CaseBatch([_classify_case("alpha", "yes", Label.FAIL)])
+    val_batch = CaseBatch([_classify_case("alpha", "yes", Label.FAIL)])
+    agent = FixAgent(
+        judge=None, max_tier="L4", allow_codegen=False, score_fn=_contains_score,
+        finetune_pool=train_pool,
+    )
+    out = agent.propose_and_validate(model, val_batch, [_hyp("requires retraining", mode="prior")])
+
+    ft = [v for v in out.attempted if v.candidate.kind == "finetune_spec"]
+    assert len(ft) == 1
+    assert ft[0].fixed is False
+    assert "no matching linear layers" in ft[0].candidate.payload.get("exec_error", "")
+    # the model must still be usable -- get_peft_model failing must not have
+    # left it half-mutated
+    assert model.generate(Inputs(prompt="classify alpha"))
 
 
 # ── bridged model_attend (coded L3a) ─────────────────────────────────────────
@@ -1557,6 +1932,69 @@ def test_predicate_scopes_validation_to_applicable_cases():
     assert v.n_applicable == 2 and v.n_fixed == 2 and v.n_broken == 0
     assert set(v.fixed_cases) == {"c0", "c1"}
     assert v.coverage == 0.5  # repaired 2 of the 4 failures it was scoped to
+
+
+def test_signature_distinguishes_candidates_sharing_kind_and_payload():
+    """Two candidates that share kind+payload but differ only by name/predicate
+    (e.g. a paper method and its per-case-gated sibling) must not collide in
+    the round's dedup ``seen`` set — that would silently drop the gated
+    variant as an 'already seen' duplicate of the ungated one."""
+    from evalvitals.eval_agent.stages.fix_agent import FixCandidate
+
+    agent = FixAgent(judge=None, max_tier="L0")
+    payload = {"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"}
+    ungated = FixCandidate(
+        tier=FixTier.L0_RUNTIME_CONFIG, name="icd_instruction_disturbance", kind="icd",
+        payload=payload,
+    )
+    gated = FixCandidate(
+        tier=FixTier.L0_RUNTIME_CONFIG,
+        name="icd_instruction_disturbance_gated_false_yes",
+        kind="icd",
+        payload=payload,
+        predicate=lambda c: True,
+    )
+    assert agent._signature(ungated) != agent._signature(gated)
+
+
+def test_self_refine_offered_for_image_reasoning_tasks_not_yes_no():
+    """self_refine/self_consistency_5/least_to_most were only ever proposed
+    for text-only cases, even though run_pipeline already threads the case
+    image through every call -- nothing about them is text-specific. A
+    multi-step reasoning task (multiple_choice/exact_or_numeric/
+    vqa_consensus) with an image should get self_refine and
+    self_consistency_5, prioritised first; a binary/grounding task (yes_no)
+    should get neither, so the proven image-transform ladder is not diluted
+    there."""
+    agent = FixAgent(judge=None, max_tier="L2")
+    out = agent._l2_candidates(
+        "- some hypothesis", "", has_images=True, model=None, tasks={"multiple_choice"}
+    )
+    assert [c.name for c in out[:2]] == ["self_refine", "self_consistency_5"]
+
+    out_yn = agent._l2_candidates(
+        "- some hypothesis", "", has_images=True, model=None, tasks={"yes_no"}
+    )
+    assert {"self_refine", "self_consistency_5"}.isdisjoint(c.name for c in out_yn)
+
+
+def test_assertive_grounding_offered_only_on_false_no_dominant_slice():
+    """assertive_grounding is the dual of the direction gate that withholds
+    VCD/ICD/etc. on a false-No-dominant slice: those methods are suppressive
+    (wrong direction for under-claiming), so offer a prompt that accepts
+    partial evidence instead. Must not appear when the slice is false-Yes
+    dominant (or balanced) -- that's exactly the population the suppressive
+    methods already handle."""
+    agent = FixAgent(judge=None, max_tier="L1")
+    out_false_no = agent._l1_candidates(
+        "- h", "", has_images=True, tasks={"yes_no"}, binary_hallucination_supported=False
+    )
+    assert "assertive_grounding" in {c.name for c in out_false_no}
+
+    out_false_yes = agent._l1_candidates(
+        "- h", "", has_images=True, tasks={"yes_no"}, binary_hallucination_supported=True
+    )
+    assert "assertive_grounding" not in {c.name for c in out_false_yes}
 
 
 def test_spec_noop_cases_are_not_applicable():

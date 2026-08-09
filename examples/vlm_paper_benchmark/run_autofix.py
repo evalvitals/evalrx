@@ -174,7 +174,7 @@ class VLMEndpoint(Model):
         return max(values) if values else -100.0
 
     def generate_vcd(
-        self, inputs: Any, *, alpha: float = 0.5, beta: float = 0.1, noise_step: int = 500
+        self, inputs: Any, *, alpha: float = 0.5, beta: float = 0.1, noise_step: int = 999
     ) -> str:
         """VCD for a binary answer: contrast original/noised first-token logits.
 

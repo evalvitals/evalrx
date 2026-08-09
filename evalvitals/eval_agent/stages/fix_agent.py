@@ -41,9 +41,15 @@ Executors by tier:
 * **L3b** — internals write (:mod:`fix_internals`): pre-audited intervention
   primitives (v1: visual embedding boost via a forward hook) — the judge
   selects and parameterises; never free codegen against the model handle.
-* **L4** — parameter space: **defined, executor TODO** — the judge writes a
-  :class:`~.fix_internals.FinetuneSpec` recipe which is recorded (never
-  executed) so an escalation decision has something concrete to act on.
+* **L4** — parameter space (:mod:`fix_internals`): the judge writes a
+  :class:`~.fix_internals.FinetuneSpec` recipe. v1's executor
+  (:func:`~.fix_internals.run_lora_repair`) runs exactly one shape —
+  ``method="lora"`` on ``target="llm"``, trained on ``finetune_pool`` (a
+  caller-supplied diagnosis-only :class:`CaseBatch`, never the validation
+  split) and validated through this same paired machinery. Every other
+  recipe shape, or no ``finetune_pool`` at all, is recorded but not
+  executed, so the escalation decision always has something concrete to
+  act on either way.
 
 A *fixed* verdict means: paired McNemar rejects with positive net effect —
 the candidate repairs significantly more cases than it breaks.
@@ -70,6 +76,7 @@ from evalvitals.eval_agent.stages.fix_internals import (
     INTERNALS_PRIMITIVES,
     FinetuneSpec,
     primitives_catalog_text,
+    run_lora_repair,
 )
 from evalvitals.eval_agent.stages.fix_pipeline import (
     CodedPipelineResult,
@@ -101,6 +108,51 @@ logger = logging.getLogger(__name__)
 _MAX_JUDGE_CANDIDATES = 3
 _EXAMPLE_PROMPTS = 3
 
+def _binary_answer(value: Any) -> "str | None":
+    match = re.search(r"\b(yes|no)\b", str(value).lower())
+    return match.group(1) if match else None
+
+
+def _binary_hallucination_direction(data: "CaseBatch") -> "tuple[bool, int, int]":
+    """Return whether binary evidence supports a false-``Yes`` repair.
+
+    VCD, ICD, OPERA, PAI, and IFCD suppress answers that assert an object
+    unsupported by the image. A labelled adapter exposes this direction through
+    expected/observed answers. If it can, do not deploy a suppressive repair
+    into a false-negative dominant slice; otherwise preserve generic support.
+    """
+    false_yes = false_no = 0
+    for case in data:
+        if getattr(getattr(case, "label", None), "value", None) != "fail":
+            continue
+        expected = _binary_answer(getattr(case, "expected", None))
+        observed = _binary_answer(getattr(case, "observed", None))
+        if expected == "no" and observed == "yes":
+            false_yes += 1
+        elif expected == "yes" and observed == "no":
+            false_no += 1
+    return (false_yes + false_no == 0 or false_yes >= false_no, false_yes, false_no)
+
+
+def _false_yes_predicate(case: Any) -> bool:
+    """Per-case gate: baseline asserted the object, gold says it isn't there.
+
+    VCD/ICD/OPERA/PAI/IFCD are all *suppressive* -- they push the decoded
+    answer away from asserting an object the image doesn't support. That is
+    the right direction only on this per-case subpopulation. Unlike
+    :func:`_binary_hallucination_direction` (a whole-batch go/no-go gate),
+    this is meant to be attached to a :class:`FixCandidate` as its
+    ``predicate`` so the *same* candidate can be run gated (touching only
+    these cases) alongside its ungated sibling. Computed from ``expected``/
+    ``observed`` on the baseline already recorded for this case -- never
+    from a later selection/confirmation outcome.
+    """
+    return (
+        _binary_answer(getattr(case, "expected", None)) == "no"
+        and _binary_answer(getattr(case, "observed", None)) == "yes"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -116,7 +168,9 @@ class FixCandidate:
         kind:        ``"template"`` (L1) | ``"spec"`` (L2 declarative) |
                      ``"code"`` (L2 agent-written pipeline) | ``"vcd"``
                      (L0 contrastive decoding through an opt-in backend) |
-                     ``"visual_search"`` (L2 question-guided crop through an
+                     ``"opera"`` (L3a attention-over-trust penalty for a
+                     one-token binary decision) | ``"ifcd"`` (L3b paired
+                     TruthX internal edits) | ``"visual_search"`` (L2 question-guided crop through an
                      opt-in backend).
         payload:     Kind-specific — template: ``{"prompt_template": ...}``;
                      spec: a :class:`~.fix_tools.PipelineSpec` dict;
@@ -303,6 +357,15 @@ class FixAgent:
                           each judge-proposed tier. Defaults to three. Lower
                           this for a bounded screening experiment; doing so is
                           also reflected in the multiplicity correction.
+        finetune_pool:    Diagnosis-split-only cases available for L4's LoRA
+                          executor to train on — MUST be disjoint from
+                          whatever batch is passed to
+                          :meth:`propose_and_validate` (never the selection
+                          or confirmation split; training and validating on
+                          the same cases is leakage, not a fix). ``None``
+                          (default) means L4 candidates are recorded but not
+                          executed, same as before this executor existed.
+                          See :func:`~.fix_internals.run_lora_repair`.
     """
 
     def __init__(
@@ -324,8 +387,10 @@ class FixAgent:
         allow_adapted_paper_methods: bool = False,
         paper_methods_only: bool = False,
         candidate_allowlist: "Iterable[str] | None" = None,
+        finetune_pool: "CaseBatch | None" = None,
     ) -> None:
         self._judge = judge
+        self._finetune_pool = finetune_pool
         self.max_tier = parse_tier(max_tier)
         self._score = score_fn or _default_score
         self.run_logger = run_logger
@@ -400,7 +465,7 @@ class FixAgent:
         # any prior_attempts carried over from an earlier escalation tier) and
         # ask for DIFFERENT candidates within the same tier (never escalating).
         # Stop on first validated fix or when a round adds no new candidate.
-        seen: "set[tuple[str, str]]" = set()
+        seen: "set[tuple[str, str, str]]" = set()
         for round_idx in range(self.max_repair_rounds):
             combined_prior = list(prior_attempts or []) + outcome.attempted
             prior_text = self._format_prior(combined_prior) if combined_prior else ""
@@ -675,23 +740,45 @@ class FixAgent:
         has_images = any(
             getattr(getattr(case, "inputs", None), "image", None) is not None for case in data
         )
+        tasks = {
+            str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data
+        }
+        binary_hallucination_supported, _, _ = _binary_hallucination_direction(data)
 
         candidates: "list[FixCandidate]" = []
         if self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
             candidates += self._l0_candidates(data, prior_names, model=model)
         if self.max_tier >= FixTier.L1_PROMPT and not self._paper_methods_only:
             candidates += self._l1_candidates(
-                hyp_lines, examples, prior_text, prior_names, has_images=has_images
+                hyp_lines,
+                examples,
+                prior_text,
+                prior_names,
+                has_images=has_images,
+                tasks=tasks,
+                binary_hallucination_supported=binary_hallucination_supported,
             )
         if self.max_tier >= FixTier.L2_SCAFFOLD:
             candidates += self._l2_candidates(
-                hyp_lines, examples, prior_text, prior_names, has_images=has_images, model=model
+                hyp_lines,
+                examples,
+                prior_text,
+                prior_names,
+                has_images=has_images,
+                model=model,
+                tasks=tasks,
             )
             if self.codegen_available:
                 candidates += self._l2_coded_candidate(hyp_lines, examples, model, prior_text)
         if self.max_tier >= FixTier.L3A_INTERNALS_READ:
             candidates += self._l3_candidates(
-                hyp_lines, model, prior_text, prior_names, has_images=has_images
+                hyp_lines,
+                model,
+                prior_text,
+                prior_names,
+                has_images=has_images,
+                tasks=tasks,
+                binary_hallucination_supported=binary_hallucination_supported,
             )
         if self.max_tier >= FixTier.L4_PARAMETERS:
             candidates += self._l4_candidates(hyp_lines)
@@ -770,13 +857,19 @@ class FixAgent:
             model is not None and Capability.LOGPROBS in getattr(model, "capabilities", frozenset())
         )
         supports_vcd = supports_logprobs and callable(getattr(model, "generate_vcd", None))
-        if tasks == {"yes_no"} and supports_vcd and "vcd_diffusion_noise" not in prior_names:
-            # DAMO-NLP-SG/VCD's released POPE LLaVA evaluator fixes
-            # alpha=1, beta=0.1 and noise_step=500.
+        hallucination_direction_supported, _, _ = _binary_hallucination_direction(data)
+        if (
+            tasks == {"yes_no"}
+            and supports_vcd
+            and hallucination_direction_supported
+            and "vcd_diffusion_noise" not in prior_names
+        ):
+            # VCD appendix A fixes POPE's total diffusion steps at 999
+            # (MME/LLaVA-Bench use 500), with alpha=1 and beta=0.1.
             vcd_payload = {
                 "alpha": 1.0,
                 "beta": 0.1,
-                "noise_step": 500,
+                "noise_step": 999,
             }
             out.append(
                 FixCandidate(
@@ -785,6 +878,32 @@ class FixAgent:
                     kind="vcd",
                     source="paper_default",
                     payload=vcd_payload,
+                )
+            )
+        # Gated sibling (defect 3's refine_signal, operationalised): VCD is a
+        # *suppressive* repair -- it is the right direction only on cases
+        # where the baseline asserted an object the image doesn't support
+        # (false-Yes). Proposing this alongside the ungated candidate lets a
+        # near-cancelling whole-slice result (helps false-Yes cases, hurts
+        # false-No ones -- exactly the "heterogeneous_failure_mode" pattern
+        # every POPE report already surfaces) resolve into a real, narrower
+        # fix instead of a null. The predicate reads each case's own
+        # already-recorded baseline expected/observed -- never a selection or
+        # confirmation outcome -- so this is a candidate design choice, not a
+        # post-hoc tuning of which cases to report.
+        if (
+            tasks == {"yes_no"}
+            and supports_vcd
+            and "vcd_diffusion_noise_gated_false_yes" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="vcd_diffusion_noise_gated_false_yes",
+                    kind="vcd",
+                    source="conditional_default",
+                    payload={"alpha": 1.0, "beta": 0.1, "noise_step": 999},
+                    predicate=_false_yes_predicate,
                 )
             )
         # ICD (Wang et al., ACL 2024) has the same binary, token-level
@@ -797,6 +916,7 @@ class FixAgent:
         if (
             tasks == {"yes_no"}
             and supports_logprobs
+            and hallucination_direction_supported
             and callable(getattr(model, "generate_instruction_cd", None))
             and (
                 icd_fidelity in {"exact", "native_binary_specialization"}
@@ -830,14 +950,42 @@ class FixAgent:
                         payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "question"},
                     )
                 )
+        # Gated sibling, same rationale as VCD's above: ICD is also
+        # suppressive, so restrict it to the per-case false-Yes subset rather
+        # than requiring the whole slice to be false-Yes dominant.
+        if (
+            tasks == {"yes_no"}
+            and supports_logprobs
+            and callable(getattr(model, "generate_instruction_cd", None))
+            and (
+                icd_fidelity in {"exact", "native_binary_specialization"}
+                or (icd_fidelity == "adapted" and self._allow_adapted_paper_methods)
+            )
+            and "icd_instruction_disturbance_gated_false_yes" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="icd_instruction_disturbance_gated_false_yes",
+                    kind="icd",
+                    source="conditional_default",
+                    payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"},
+                    predicate=_false_yes_predicate,
+                )
+            )
         return out
 
     @staticmethod
-    def _signature(candidate: FixCandidate) -> "tuple[str, str]":
+    def _signature(candidate: FixCandidate) -> "tuple[str, str, str]":
         """Identity of a candidate, to skip re-validating an identical one.
 
         Coded pipelines carry fresh source each round, so they never collide;
-        templates / specs / primitives dedup on their defining payload.
+        templates / specs / primitives dedup on their defining payload. The
+        candidate's ``name`` is always part of the signature: two candidates
+        can share a kind and payload while differing only in ``predicate``
+        (for example a paper method and its per-case-gated sibling, see
+        ``_false_yes_predicate``) -- that is a different candidate, not a
+        duplicate, and must not be silently dropped by the round's dedup set.
         """
         p = candidate.payload
         if candidate.kind == "template":
@@ -854,7 +1002,7 @@ class FixAgent:
             key = json.dumps(
                 {k: v for k, v in p.items() if k != "exec_error"}, sort_keys=True, default=str
             )
-        return (candidate.kind, key)
+        return (candidate.kind, candidate.name, key)
 
     def _l1_candidates(
         self,
@@ -864,6 +1012,8 @@ class FixAgent:
         prior_names: "frozenset[str]" = frozenset(),
         *,
         has_images: bool = False,
+        tasks: "set[str] | None" = None,
+        binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
         proposals = self._ask_judge(
             _L1_PROMPT.format(hypotheses=hyp_lines, examples=examples, k=self.max_judge_candidates)
@@ -911,6 +1061,40 @@ class FixAgent:
                     },
                 ),
             )
+        # Dual of the direction gate that withholds VCD/ICD/OPERA/PAI/IFCD on
+        # a false-No-dominant slice (_binary_hallucination_direction): those
+        # methods are all suppressive (push away from asserting an object),
+        # which is the wrong direction for under-claiming. This is the
+        # opposite-direction lever within our own framework -- a prompt that
+        # asks the model to accept partial/ambiguous visual evidence rather
+        # than requiring certainty before answering Yes. It is scoped to the
+        # same batch-level diagnosis signal (never a specific case's outcome)
+        # and only proposed for binary tasks where the direction is not
+        # false-Yes-dominant, so it is never offered alongside (and diluting)
+        # the already-validated false-Yes-side candidates.
+        if (
+            has_images
+            and tasks == {"yes_no"}
+            and not binary_hallucination_supported
+            and "assertive_grounding" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L1_PROMPT,
+                    name="assertive_grounding",
+                    kind="template",
+                    source="default",
+                    payload={
+                        "prompt_template": (
+                            "Inspect the image for {failure_axis}. If there is plausible visual "
+                            "evidence for the object or attribute in the question -- even if "
+                            "partial, small, or ambiguous -- answer Yes. Only answer No if you "
+                            "are confident no such evidence is present anywhere in the "
+                            "image.\n\n{prompt}"
+                        )
+                    },
+                )
+            )
         if not out and not has_structural_proposal and "attend_carefully" not in prior_names:
             out = [
                 FixCandidate(
@@ -937,6 +1121,7 @@ class FixAgent:
         *,
         has_images: bool = False,
         model: "Model | None" = None,
+        tasks: "set[str] | None" = None,
     ) -> "list[FixCandidate]":
         proposals = (
             []
@@ -1094,6 +1279,62 @@ class FixAgent:
             # that actually touch the image instead of burning a candidate on a
             # structural no-op.
             defaults = image_defaults if has_images else text_defaults
+            # self_refine/least_to_most were only ever offered for text-only
+            # cases, even though run_pipeline already threads the case image
+            # through every call of a multi-call strategy (fix_tools.py) --
+            # nothing about them is text-specific. On a binary/grounding task
+            # (yes_no) the image transforms above are the right first lever;
+            # on a genuine multi-step reasoning task (multiple_choice,
+            # exact_or_numeric -- MMMU, ChartQA) a purely visual transform
+            # cannot fix a reasoning error the model makes after it has
+            # already seen the image correctly, so offer self_refine there
+            # too, prioritised ahead of the sharpen/crop family for that task
+            # shape.
+            # Positive allowlist, not "anything that isn't yes_no": unknown or
+            # missing task metadata (common in unit tests and some non-VLM
+            # integrations) must not silently opt into this branch.
+            reasoning_task = bool(
+                tasks and tasks & {"multiple_choice", "exact_or_numeric", "vqa_consensus"}
+            )
+            if has_images and reasoning_task:
+                # self_refine (deterministic, single path, critique-then-revise)
+                # and self_consistency (stochastic, multiple independent paths,
+                # majority vote) target different failure shapes: self_refine
+                # helps when the model's first pass missed something a second
+                # look would catch; self_consistency helps when greedy decoding
+                # is stuck on one answer but the model's distribution actually
+                # has support elsewhere. Majority-vote aggregation already
+                # exists in run_pipeline (fix_tools.py, n_samples > 1) but had
+                # never been registered as a default candidate for any task.
+                reasoning_defaults = []
+                if "self_refine" not in prior_names:
+                    reasoning_defaults.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name="self_refine",
+                            source="default",
+                            payload=PipelineSpec(
+                                name="self_refine",
+                                prompt_template="{prompt}",
+                                strategy="self_refine",
+                            ).to_dict(),
+                        )
+                    )
+                if "self_consistency_5" not in prior_names:
+                    reasoning_defaults.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name="self_consistency_5",
+                            source="default",
+                            payload=PipelineSpec(
+                                name="self_consistency_5",
+                                prompt_template="{prompt}",
+                                n_samples=5,
+                                generation_kwargs={"do_sample": True, "temperature": 0.7},
+                            ).to_dict(),
+                        )
+                    )
+                defaults = reasoning_defaults + defaults
             if has_images:
                 if (
                     model is not None
@@ -1139,6 +1380,8 @@ class FixAgent:
                         )
                     )
                 preferred = [
+                    "self_refine",
+                    "self_consistency_5",
                     "detector_visual_search_consensus",
                     "guided_visual_search_consensus",
                     "salient_crop",
@@ -1382,20 +1625,66 @@ class FixAgent:
         prior_names: "frozenset[str]" = frozenset(),
         *,
         has_images: bool = False,
+        tasks: "set[str] | None" = None,
+        binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
         """Judge-parameterised configs of the pre-audited internals primitives."""
         out: "list[FixCandidate]" = []
+
+        def finalize(options: "list[FixCandidate]") -> "list[FixCandidate]":
+            # A frozen experiment may request a later catalogued candidate.
+            # Apply that allowlist before the ordinary proposal cap; otherwise
+            # an unrelated earlier default can silently erase the requested
+            # paper route before ``_propose`` gets a chance to filter it.
+            if self._candidate_allowlist is not None:
+                options = [c for c in options if c.name in self._candidate_allowlist]
+            return options[: self.max_judge_candidates]
+        # OPERA's first decoding branch evaluates each likely next token with
+        # its image attention and penalises candidates that neglect the image.
+        # POPE asks for a one-token Yes/No answer, so the paper's later
+        # retrospection/rollback branch has no opportunity to trigger.  Keep
+        # this route explicitly scoped to that binary specialization rather
+        # than presenting it as OPERA's general-purpose beam decoder.
+        paper_fidelity = getattr(model, "paper_method_fidelity", None)
+        opera_fidelity = paper_fidelity("opera") if callable(paper_fidelity) else "unavailable"
+        diagnosis = hyp_lines.lower()
+        hallucination_mechanism = any(
+            signal in diagnosis
+            for signal in (
+                "hallucination",
+                "language prior",
+                "object presence",
+                "object hallucination",
+                "image-token neglect",
+            )
+        )
+        if (
+            has_images
+            and tasks == {"yes_no"}
+            and hallucination_mechanism
+            and binary_hallucination_supported
+            and callable(getattr(model, "generate_opera_binary", None))
+            and opera_fidelity == "native_binary_specialization"
+            and "opera_overtrust_binary" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3A_INTERNALS_READ,
+                    name="opera_overtrust_binary",
+                    kind="opera",
+                    source="paper_default_binary_specialization",
+                    payload={"num_attn_candidates": 5, "penalty_weight": 1.0},
+                )
+            )
         # ViCrop (MLLMs Know Where to Look, ICLR 2025) is a read-only,
         # architecture-native paper route: task/general attention ratio,
         # adaptive crop, and an original+crop answer.  It must not be proposed
         # for a model whose vision/attention contract differs from LLaVA.
-        paper_fidelity = getattr(model, "paper_method_fidelity", None)
         vicrop_fidelity = paper_fidelity("vicrop") if callable(paper_fidelity) else "unavailable"
         # ViCrop is a resolution/local-detail repair, not a generic image
         # transform.  Keep it tied to the diagnosed mechanism so an L3a run
         # for object hallucination or chart reasoning does not spend a paper
         # candidate on an unsupported failure mode.
-        diagnosis = hyp_lines.lower()
         vicrop_mechanism = any(
             signal in diagnosis
             for signal in ("small visual", "small detail", "local detail", "resolution", "tiny")
@@ -1440,19 +1729,36 @@ class FixAgent:
         # classifier-free-guidance cache; the source's pinned LLaVA stack is
         # still recorded as an architecture specialization.
         pai_fidelity = paper_fidelity("pai") if callable(paper_fidelity) else "unavailable"
-        hallucination_mechanism = any(
-            signal in diagnosis
-            for signal in (
-                "hallucination",
-                "language prior",
-                "object presence",
-                "object hallucination",
+        # IFCD needs a trained TruthX representation editor. The available
+        # public Vicuna artifact is useful for a controlled transfer trial,
+        # but it is not IFCD's MSCOCO-trained editor, so it is opt-in through
+        # ``allow_adapted_paper_methods`` and never passed off as native.
+        ifcd_fidelity = paper_fidelity("ifcd") if callable(paper_fidelity) else "unavailable"
+        if (
+            self.max_tier >= FixTier.L3B_INTERNALS_WRITE
+            and has_images
+            and tasks == {"yes_no"}
+            and hallucination_mechanism
+            and binary_hallucination_supported
+            and callable(getattr(model, "generate_ifcd", None))
+            and ifcd_fidelity == "adapted_truthx_artifact"
+            and self._allow_adapted_paper_methods
+            and "ifcd_truthx_contrast" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3B_INTERNALS_WRITE,
+                    name="ifcd_truthx_contrast",
+                    kind="ifcd",
+                    source="paper_adapted_truthx_artifact",
+                    payload={"alpha": 0.1, "beta": 0.1, "edit_strength": 0.5, "top_layers": 15},
+                )
             )
-        )
         if (
             self.max_tier >= FixTier.L3B_INTERNALS_WRITE
             and has_images
             and hallucination_mechanism
+            and (tasks != {"yes_no"} or binary_hallucination_supported)
             and callable(getattr(model, "generate_pai", None))
             and pai_fidelity == "native_attention_cfg_specialization"
             and "pai_image_attention" not in prior_names
@@ -1475,7 +1781,7 @@ class FixAgent:
         if not catalog:
             if not out:
                 logger.info("FixAgent: no L3 primitive is available for %r", model)
-            return out[: self.max_judge_candidates]
+            return finalize(out)
         for p in self._ask_judge(
             _L3_PROMPT.format(hypotheses=hyp_lines, catalog=catalog, k=self.max_judge_candidates)
             + prior_text
@@ -1511,7 +1817,7 @@ class FixAgent:
                             payload={"primitive": name, "params": params},
                         )
                     )
-        return out[: self.max_judge_candidates]
+        return finalize(out)
 
     def _l4_candidates(self, hyp_lines: str) -> "list[FixCandidate]":
         """L4 recipe — recorded for the escalation decision; executor is TODO."""
@@ -1714,6 +2020,46 @@ class FixAgent:
                     return None
 
             return vicrop
+        if candidate.kind == "vicrop_consensus":
+
+            def vicrop_consensus(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_vicrop = getattr(model, "generate_vicrop_consensus")
+                    output = generate_vicrop(
+                        case.inputs,
+                        baseline_answer=str(getattr(case, "observed", "")),
+                        **candidate.payload,
+                    )
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("ViCrop consensus generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return vicrop_consensus
+        if candidate.kind == "opera":
+
+            def opera(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_opera = getattr(model, "generate_opera_binary")
+                    output = generate_opera(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("OPERA binary generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return opera
+        if candidate.kind == "ifcd":
+
+            def ifcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_ifcd = getattr(model, "generate_ifcd")
+                    output = generate_ifcd(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("IFCD generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return ifcd
         if candidate.kind == "pai":
 
             def pai(model: "Model", case: "FailureCase") -> "Optional[bool]":
@@ -1794,6 +2140,11 @@ class FixAgent:
         if candidate.kind == "code":
             result = self._run_coded(candidate, model, data)
             return score_outputs(result, data, self._score)
+        if candidate.kind == "finetune_spec":
+            result = run_lora_repair(model, self._finetune_pool, data, candidate.payload, self._score)
+            if isinstance(candidate.payload, dict):
+                candidate.payload["exec_error"] = "" if result.ok else result.error
+            return result.scores
         strategy = self._strategy(candidate)
         return {case.id: strategy(model, case) for case in data}
 
@@ -1899,12 +2250,6 @@ class FixAgent:
         unstable: "set[str] | None" = None,
     ) -> FixValidation:
         v = FixValidation(candidate=candidate)
-        if candidate.kind == "finetune_spec":
-            v.verdict = "not_executed"
-            v.summary = (
-                "L4 executor TODO — fine-tune recipe recorded, not executed (see candidate payload)"
-            )
-            return v
         unstable = unstable or set()
         scores = self._candidate_scores(candidate, model, data)
         if isinstance(candidate.payload, dict):

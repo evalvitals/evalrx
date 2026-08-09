@@ -88,6 +88,7 @@ def test_hf_vcd_processor_contrasts_clean_and_noisy_scores_each_step():
 
 
 def test_hf_instruction_cd_contrasts_disturbed_first_token(monkeypatch):
+    pytest.importorskip("PIL")
     spec = ModelSpec(
         key="fake-vlm", family="fake", model_type="fake_vlm", hf_repo="",
         auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
@@ -122,6 +123,7 @@ def test_hf_instruction_cd_contrasts_disturbed_first_token(monkeypatch):
 
 
 def test_hf_instructblip_icd_disturbs_only_qformer(monkeypatch):
+    pytest.importorskip("PIL")
     spec = ModelSpec(
         key="fake-instructblip", family="instructblip", model_type="instructblip", hf_repo="",
         auto_class="InstructBlipForConditionalGeneration", processor_class="InstructBlipProcessor",

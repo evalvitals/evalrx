@@ -48,12 +48,16 @@ model — each rung buys causal reach and costs deployability:
 | **L2** | Scaffolds around an unchanged model — multi-call, tools, aggregation | ✅ |
 | **L3a** | Read internals — attention-guided cropping, contrastive decoding | ✅ |
 | **L3b** | Write internals — attention reweighting, activation steering | ✅ |
-| **L4** | **Parameter space — build a dataset, fine-tune, re-test** | ⏳ recipe written, executor not built |
+| **L4** | **Parameter space — build a dataset, fine-tune, re-test** | ✅ LoRA on the LLM only; other recipe shapes recorded, not yet executed |
 
 Escalation is never automatic. The ceiling is yours to set (default L2); when
 every candidate at that ceiling fails paired validation, the loop *recommends*
-raising it rather than climbing on its own. At L4 the system currently writes a
-complete fine-tune recipe and stops — see
+raising it rather than climbing on its own. At L4 the system always writes a
+complete fine-tune recipe; it *executes* the one shape v1 supports —
+LoRA on the language model, trained on a diagnosis-only pool you pass as
+`FixAgent(finetune_pool=...)`, and validated through the same paired McNemar
++ e-value machinery as every other tier — see
+[`fix_internals.py`](evalvitals/eval_agent/stages/fix_internals.py) and
 [`fix_tiers.py`](evalvitals/eval_agent/stages/fix_tiers.py).
 
 **L3b and L4 only exist for open weights.** You cannot modify a forward pass or

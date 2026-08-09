@@ -7,8 +7,15 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def _load_runner():
+    # run_autofix.py does `from openai import OpenAI` at module level (it's an
+    # `api`-extra client, not core) -- every test that loads it must skip
+    # cleanly rather than hard-fail when openai isn't installed (e.g. CI's
+    # lean `[dev]` + torch-only matrix).
+    pytest.importorskip("openai")
     path = (
         Path(__file__).resolve().parents[2] / "examples" / "vlm_paper_benchmark" / "run_autofix.py"
     )
@@ -34,6 +41,10 @@ def _load_downloader():
 
 
 def _load_vicrop():
+    # run_hf_vicrop.py does `from run_autofix import ...` at module level,
+    # which transitively hits the same `from openai import OpenAI` guarded in
+    # _load_runner() above.
+    pytest.importorskip("openai")
     path = (
         Path(__file__).resolve().parents[2]
         / "examples"
@@ -43,6 +54,25 @@ def _load_vicrop():
     sys.path.insert(0, str(path.parent))
     try:
         spec = importlib.util.spec_from_file_location("vlm_paper_vicrop", path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.pop(0)
+
+
+def _load_hf_runner(module_name: str = "vlm_paper_hf"):
+    # run_hf_autofix.py does `from run_autofix import (...)` at module level,
+    # which transitively hits the same `from openai import OpenAI` guarded in
+    # _load_runner() above -- same skip-cleanly requirement applies here.
+    pytest.importorskip("openai")
+    path = (
+        Path(__file__).resolve().parents[2] / "examples" / "vlm_paper_benchmark" / "run_hf_autofix.py"
+    )
+    sys.path.insert(0, str(path.parent))
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, path)
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
         spec.loader.exec_module(module)
@@ -109,41 +139,27 @@ def test_make_cases_can_preserve_a_paper_prompt_contract():
 
 
 def test_hf_runner_exposes_stable_paper_candidate_names():
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "examples"
-        / "vlm_paper_benchmark"
-        / "run_hf_autofix.py"
-    )
-    sys.path.insert(0, str(path.parent))
-    try:
-        spec = importlib.util.spec_from_file_location("vlm_paper_hf", path)
-        module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(module)
-    finally:
-        sys.path.pop(0)
+    module = _load_hf_runner("vlm_paper_hf")
 
     assert "vcd_diffusion_noise" in module.PAPER_CANDIDATE_NAMES
+    assert "opera_overtrust_binary" in module.PAPER_CANDIDATE_NAMES
+    assert "ifcd_truthx_contrast" in module.PAPER_CANDIDATE_NAMES
     assert "vicrop_relative_attention" in module.PAPER_CANDIDATE_NAMES
+    assert "vicrop_consensus_guard" in module.PAPER_CANDIDATE_NAMES
     assert "pai_image_attention" in module.PAPER_CANDIDATE_NAMES
 
 
+def test_hf_runner_artifact_fingerprint_is_content_based(tmp_path):
+    path = tmp_path / "truthx.pt"
+    path.write_bytes(b"truthx-artifact")
+    module = _load_hf_runner("vlm_paper_hf_artifact")
+
+    assert module.artifact_sha256(str(path)) == "7de136df4bf15852d15b937690e893f6f3b8373e56f73821a578650b0d5aa2d1"
+    assert module.artifact_sha256(None) is None
+
+
 def test_vcd_source_pope_prompt_keeps_the_released_one_word_instruction():
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "examples"
-        / "vlm_paper_benchmark"
-        / "run_hf_autofix.py"
-    )
-    sys.path.insert(0, str(path.parent))
-    try:
-        spec = importlib.util.spec_from_file_location("vlm_paper_hf_prompt", path)
-        module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(module)
-    finally:
-        sys.path.pop(0)
+    module = _load_hf_runner("vlm_paper_hf_prompt")
 
     assert module.source_pope_prompt({"question": "Is there a bicycle?"}) == (
         "Is there a bicycle? Please answer this question with one word."
@@ -154,14 +170,24 @@ def test_vcd_source_pope_prompt_keeps_the_released_one_word_instruction():
     contract, prompt = module.paper_prompt_contract(["pai_image_attention"])
     assert contract == "pope_raw_question"
     assert prompt({"question": "Is there a bicycle?"}) == "Is there a bicycle?"
+    contract, prompt = module.paper_prompt_contract(["opera_overtrust_binary"])
+    assert contract == "pope_raw_question"
+    assert prompt({"question": "Is there a bicycle?"}) == "Is there a bicycle?"
+    contract, prompt = module.paper_prompt_contract(["ifcd_truthx_contrast"])
+    assert contract == "pope_raw_question"
+    assert prompt({"question": "Is there a bicycle?"}) == "Is there a bicycle?"
 
 
-def test_paper_casebook_has_seven_mechanism_defined_cases():
+def test_paper_casebook_has_mechanism_defined_cases():
     root = Path(__file__).resolve().parents[2] / "examples" / "vlm_paper_benchmark"
     casebook = json.loads((root / "paper_casebook.json").read_text())
     cases = casebook["cases"]
 
-    assert len(cases) == 7
+    assert len(cases) >= 12
+    assert {
+        "mllms_know", "vstar", "vcd", "opera", "pai", "ifcd", "icd",
+        "dyfo", "dc2", "rap", "api_prompting", "ccot",
+    } <= {case["id"] for case in cases}
     for case in cases:
         assert {"paper_url", "dataset_case", "mechanism", "paper_repair", "requires"} <= set(case)
         assert case["requires"]
@@ -193,6 +219,7 @@ def test_vicrop_sliding_window_prefers_relative_attention_peak():
 
 
 def test_library_vicrop_crop_accepts_a_path(tmp_path):
+    pytest.importorskip("PIL")
     from PIL import Image
 
     from evalvitals.models.paper_methods.vicrop import crop_from_box

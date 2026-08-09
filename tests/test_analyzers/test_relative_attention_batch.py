@@ -138,6 +138,7 @@ def _labeled_batch_with_real_images() -> CaseBatch:
 
 def test_overlay_anchors_each_map_on_its_recorded_case():
     pytest.importorskip("PIL")
+    pytest.importorskip("matplotlib")  # overlay() colormaps the heatmap
     from PIL import Image
 
     res = RelativeAttentionAnalyzer().run(AttnVLM(), _labeled_batch_with_real_images())
@@ -163,6 +164,7 @@ def test_overlay_resolves_a_real_file_path_string(tmp_path):
     decode it the same way the model's own forward pass does."""
     pytest.importorskip("PIL")
     pytest.importorskip("transformers")
+    pytest.importorskip("matplotlib")  # overlay() colormaps the heatmap
     from PIL import Image
 
     img_path = tmp_path / "case.png"
@@ -185,6 +187,7 @@ def test_overlay_none_for_unknown_or_1d_map():
 
 
 def test_save_overlay_writes_a_real_png(tmp_path):
+    pytest.importorskip("matplotlib")  # save_overlay() colormaps the heatmap
     res = RelativeAttentionAnalyzer().run(AttnVLM(), _labeled_batch_with_real_images())
     path = tmp_path / "overlay.png"
     assert res.save_overlay("spatial_map", path) is True
@@ -192,6 +195,7 @@ def test_save_overlay_writes_a_real_png(tmp_path):
 
 
 def test_image_overlays_writes_one_file_per_available_map(tmp_path):
+    pytest.importorskip("matplotlib")  # image_overlays() colormaps each heatmap
     res = RelativeAttentionAnalyzer().run(AttnVLM(), _labeled_batch_with_real_images())
     paths = res.image_overlays(tmp_path, "c0_relative_attention")
     names = {p.name for p in paths}
