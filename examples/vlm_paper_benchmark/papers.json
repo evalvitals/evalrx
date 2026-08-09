@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "protocol": "Five public VLM papers with image-bearing benchmark data. The runner samples each dataset deterministically, diagnoses on one split, selects an auto-fix on another, and confirms exactly one locked candidate on held-out images.",
+  "protocol": "Public VLM papers with image-bearing benchmark data. The runner samples each dataset deterministically, diagnoses on one split, selects an auto-fix on another, and confirms exactly one locked candidate on held-out images.",
   "papers": [
     {
       "id": "mllms_know_textvqa_small",
@@ -101,6 +101,22 @@
       "answer_fields": ["label", "answer"],
       "image_fields": ["image"],
       "failure_axis": "counterfactual and contextual visual hallucination"
+    },
+    {
+      "id": "hrbench_4k",
+      "title": "Divide, Conquer and Combine: A Training-Free Framework for High-Resolution Image Perception in Multimodal Large Language Models",
+      "year": 2025,
+      "paper_url": "https://arxiv.org/abs/2408.15556",
+      "dataset": "DreamMr/HR-Bench",
+      "config": "hrbench_version_split",
+      "split": "hrbench_4k",
+      "task": "multiple_choice",
+      "question_fields": ["question"],
+      "answer_fields": ["answer"],
+      "image_fields": ["image"],
+      "option_letter_fields": ["A", "B", "C", "D"],
+      "failure_axis": "4K high-resolution fine-grained perception (single- and cross-instance)",
+      "paper_method": "DC2: recursively divide the image into patches, describe each patch, then answer from the aggregated descriptions plus the full image; RAP (ICML 2025) retrieves and spatially re-lays out query-relevant crops on the same benchmark"
     },
     {
       "id": "mmmu_accounting",

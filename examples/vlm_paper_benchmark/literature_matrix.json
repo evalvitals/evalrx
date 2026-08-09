@@ -85,6 +85,46 @@
       "role": "repair method",
       "dataset_case": "pope",
       "execution": "explicit-artifact TruthX contrastive decoder on LLaVA; public Vicuna artifact uses a modern HF post-o_proj hook and is marked adapted, never an exact MSCOCO-editor reproduction"
+    },
+    {
+      "id": "dyfo",
+      "title": "DyFo: A Training-Free Dynamic Focus Visual Search for Enhancing LMMs in Fine-Grained Visual Understanding",
+      "paper_url": "https://arxiv.org/abs/2504.14920",
+      "role": "repair method",
+      "dataset_case": "vstar_bench",
+      "execution": "black-box MCTS over focus regions: the LMM and external grounding/segmentation experts propose and score zoomed sub-views, answers aggregated by voting; runnable end-to-end against a chat endpoint plus local expert tools"
+    },
+    {
+      "id": "dc2",
+      "title": "Divide, Conquer and Combine: A Training-Free Framework for High-Resolution Image Perception in Multimodal Large Language Models",
+      "paper_url": "https://arxiv.org/abs/2408.15556",
+      "role": "repair method plus benchmark",
+      "dataset_case": "hrbench_4k",
+      "execution": "black-box divide (recursive patching) / conquer (per-patch description) / combine (aggregated descriptions plus full image re-ask) loop; pure crop-and-chat, no model internals"
+    },
+    {
+      "id": "rap",
+      "title": "Retrieval-Augmented Perception: High-Resolution Image Perception Meets Visual RAG",
+      "paper_url": "https://arxiv.org/abs/2503.01222",
+      "role": "repair method",
+      "dataset_case": "hrbench_4k",
+      "execution": "external retriever scores query-relevant crops, a spatial-awareness layout re-assembles them, and Retrieved-Exploration Search adaptively picks the crop count; the exact RE-Search confidence signal wants token logprobs — a verbalized-confidence substitute must be labelled adapted"
+    },
+    {
+      "id": "api_prompting",
+      "title": "API: Attention Prompting on Image for Large Vision-Language Models",
+      "paper_url": "https://arxiv.org/abs/2409.17143",
+      "role": "repair method",
+      "dataset_case": "mllms_know_textvqa_small",
+      "execution": "an auxiliary CLIP/LLaVA model computes a text-query-conditioned attention heatmap that is overlaid as a soft mask on the input image before querying the target VLM; the target stays black-box — the overlay counterpart of ViCrop's crop"
+    },
+    {
+      "id": "ccot",
+      "title": "Compositional Chain-of-Thought Prompting for Large Multimodal Models",
+      "paper_url": "https://arxiv.org/abs/2311.17076",
+      "role": "repair method",
+      "dataset_case": "mmmu_accounting",
+      "execution": "prompt-only two-step scaffold: generate a scene graph for image plus question, then answer with the scene graph in context; also serves as a discriminant-validity control — it should not win on perception-limited slices"
     }
   ]
 }

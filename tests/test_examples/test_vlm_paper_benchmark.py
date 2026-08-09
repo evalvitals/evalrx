@@ -178,12 +178,16 @@ def test_vcd_source_pope_prompt_keeps_the_released_one_word_instruction():
     assert prompt({"question": "Is there a bicycle?"}) == "Is there a bicycle?"
 
 
-def test_paper_casebook_has_seven_mechanism_defined_cases():
+def test_paper_casebook_has_mechanism_defined_cases():
     root = Path(__file__).resolve().parents[2] / "examples" / "vlm_paper_benchmark"
     casebook = json.loads((root / "paper_casebook.json").read_text())
     cases = casebook["cases"]
 
-    assert len(cases) == 7
+    assert len(cases) >= 12
+    assert {
+        "mllms_know", "vstar", "vcd", "opera", "pai", "ifcd", "icd",
+        "dyfo", "dc2", "rap", "api_prompting", "ccot",
+    } <= {case["id"] for case in cases}
     for case in cases:
         assert {"paper_url", "dataset_case", "mechanism", "paper_repair", "requires"} <= set(case)
         assert case["requires"]

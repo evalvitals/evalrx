@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
+import io
 import itertools
 import json
 import random
@@ -60,8 +62,13 @@ def decoded_images(row: dict[str, Any], fields: Iterable[str]) -> list[Any]:
                 continue
             if isinstance(value, Image.Image):
                 images.append(value.convert("RGB"))
-            else:
+                continue
+            try:
                 images.append(Image.open(value).convert("RGB"))
+            except (OSError, TypeError, ValueError):
+                # some sources (e.g. HR-Bench) ship images as base64 strings
+                payload = io.BytesIO(base64.b64decode(value, validate=True))
+                images.append(Image.open(payload).convert("RGB"))
     except Exception:
         return []
     return images
@@ -303,9 +310,14 @@ def records_for_paper(
             left, top, right, bottom = oracle_bbox
             if (right - left) * (bottom - top) >= float(spec["max_bbox_area_frac"]):
                 continue
+        options = normalize_options(first_value(row, ("options", "choices")))
+        if not options and spec.get("option_letter_fields"):
+            letters = [str(row.get(field) or "").strip() for field in spec["option_letter_fields"]]
+            if not all(letters):
+                continue  # a missing lettered option would shift the answer mapping
+            options = letters
         image_name = f"{len(records):05d}.png"
         image.save(image_dir / image_name, format="PNG")
-        options = normalize_options(first_value(row, ("options", "choices")))
         records.append(
             {
                 "id": f"{spec['id']}-{source_index}",

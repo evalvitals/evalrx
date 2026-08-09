@@ -91,6 +91,71 @@
       "minimum_tier": "L0",
       "requires": ["per-token logits", "architecture-native disturbed condition"],
       "black_box_status": "not reproducible through a chat-completions endpoint; hf_local provides an explicitly labelled decoder-input adaptation for Q-Former-free VLMs"
+    },
+    {
+      "id": "dyfo",
+      "paper_url": "https://arxiv.org/abs/2504.14920",
+      "code_url": "https://github.com/PKU-ICST-MIPL/DyFo_CVPR2025",
+      "title": "DyFo: A Training-Free Dynamic Focus Visual Search for Enhancing LMMs in Fine-Grained Visual Understanding",
+      "dataset_case": "vstar_bench",
+      "failure_slice": "V*Bench and POPE fine-grained questions where the relevant detail needs focus adjustment",
+      "mechanism": "without explicit visual search the model never focuses on the question-relevant region",
+      "paper_repair": "Monte Carlo Tree Search over focus regions: the LMM and external visual experts bidirectionally propose and score zoomed sub-views; answers from focused views are aggregated by voting",
+      "minimum_tier": "L2",
+      "requires": ["multi-step image crops", "external grounding/segmentation experts", "answer voting"],
+      "black_box_status": "fully runnable against a chat endpoint plus local expert tools; a trained-component-free sibling of the V* search family"
+    },
+    {
+      "id": "dc2",
+      "paper_url": "https://arxiv.org/abs/2408.15556",
+      "code_url": "https://github.com/DreamMr/HR-Bench",
+      "title": "Divide, Conquer and Combine: A Training-Free Framework for High-Resolution Image Perception in Multimodal Large Language Models",
+      "dataset_case": "hrbench_4k",
+      "failure_slice": "HR-Bench 4K/8K high-resolution fine-grained perception",
+      "mechanism": "downsampling to the model's input resolution destroys the fine-grained evidence the question asks about",
+      "paper_repair": "recursively divide the image into patches (merging visually similar ones), have the model describe each patch, then answer from the aggregated descriptions plus the full image",
+      "minimum_tier": "L2",
+      "requires": ["image cropping", "multiple chat calls per question"],
+      "black_box_status": "fully runnable black-box; the purest crop/describe/re-ask loop in the casebook, so it doubles as the cheapest paper-method integration test"
+    },
+    {
+      "id": "rap",
+      "paper_url": "https://arxiv.org/abs/2503.01222",
+      "code_url": "https://github.com/DreamMr/RAP",
+      "title": "Retrieval-Augmented Perception: High-Resolution Image Perception Meets Visual RAG",
+      "dataset_case": "hrbench_4k",
+      "failure_slice": "high-resolution images where the answer-bearing evidence occupies a small fraction of the pixels",
+      "mechanism": "encoding the full image at once dilutes query-relevant regions in the visual front end",
+      "paper_repair": "retrieve query-relevant crops with an external scorer, re-assemble them with a spatial-awareness layout, and adaptively choose the number of crops via Retrieved-Exploration Search",
+      "minimum_tier": "L2",
+      "requires": ["external crop retriever", "spatial layout re-assembly", "confidence signal for RE-Search"],
+      "black_box_status": "crop retrieval and layout are black-box; exact RE-Search wants token logprobs — with a verbalized-confidence substitute the search variant must be recorded as adapted"
+    },
+    {
+      "id": "api_prompting",
+      "paper_url": "https://arxiv.org/abs/2409.17143",
+      "code_url": "https://github.com/yu-rp/apiprompting",
+      "title": "API: Attention Prompting on Image for Large Vision-Language Models",
+      "dataset_case": "mllms_know_textvqa_small",
+      "failure_slice": "questions whose answer region the model under-attends at input time",
+      "mechanism": "nothing steers the target model toward the question-relevant region of the image",
+      "paper_repair": "an auxiliary model (CLIP or LLaVA-1.5) computes a text-query-conditioned attention heatmap that is overlaid as a soft mask on the image before querying the target model",
+      "minimum_tier": "L2",
+      "requires": ["auxiliary CLIP/LLaVA heatmap model", "image-space mask overlay"],
+      "black_box_status": "target VLM stays black-box; the auxiliary heatmap model runs locally — the overlay counterpart of ViCrop's crop, so the pair separates 'better view' from 'steered view'"
+    },
+    {
+      "id": "ccot",
+      "paper_url": "https://arxiv.org/abs/2311.17076",
+      "code_url": "https://github.com/chancharikmitra/CCoT",
+      "title": "Compositional Chain-of-Thought Prompting for Large Multimodal Models",
+      "dataset_case": "mmmu_accounting",
+      "failure_slice": "compositional questions where object/attribute/relation structure is ignored",
+      "mechanism": "the model answers from surface features without extracting the compositional structure of the scene",
+      "paper_repair": "two-step zero-shot prompting: first generate a scene graph for the image and question, then answer with the scene graph in context",
+      "minimum_tier": "L2",
+      "requires": ["prompt-only scaffold", "two chat calls per question"],
+      "black_box_status": "fully runnable black-box; also a discriminant-validity control — a diagnosis of perception-limited failure should NOT select a prompt-only scaffold as the winning fix"
     }
   ]
 }
