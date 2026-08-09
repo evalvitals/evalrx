@@ -23,6 +23,9 @@ candidate.
 
 Executors by tier:
 
+* **L0** — runtime configuration: bounded decoding controls such as
+  ``max_tokens``. Only proposed from explicit execution telemetry, never from
+  an LLM's guess about a response being short.
 * **L1** — prompt transforms (judge-proposed templates).
 * **L2 declarative** — catalog-tool pipelines (:mod:`fix_tools`): cheap,
   deterministic, validated first.
@@ -38,9 +41,15 @@ Executors by tier:
 * **L3b** — internals write (:mod:`fix_internals`): pre-audited intervention
   primitives (v1: visual embedding boost via a forward hook) — the judge
   selects and parameterises; never free codegen against the model handle.
-* **L4** — parameter space: **defined, executor TODO** — the judge writes a
-  :class:`~.fix_internals.FinetuneSpec` recipe which is recorded (never
-  executed) so an escalation decision has something concrete to act on.
+* **L4** — parameter space (:mod:`fix_internals`): the judge writes a
+  :class:`~.fix_internals.FinetuneSpec` recipe. v1's executor
+  (:func:`~.fix_internals.run_lora_repair`) runs exactly one shape —
+  ``method="lora"`` on ``target="llm"``, trained on ``finetune_pool`` (a
+  caller-supplied diagnosis-only :class:`CaseBatch`, never the validation
+  split) and validated through this same paired machinery. Every other
+  recipe shape, or no ``finetune_pool`` at all, is recorded but not
+  executed, so the escalation decision always has something concrete to
+  act on either way.
 
 A *fixed* verdict means: paired McNemar rejects with positive net effect —
 the candidate repairs significantly more cases than it breaks.
@@ -52,7 +61,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional
 
 from evalvitals.analyzers.perturbation.prompt_contrast import _default_score
 from evalvitals.eval_agent.prompts.fix_agent import (
@@ -67,6 +76,7 @@ from evalvitals.eval_agent.stages.fix_internals import (
     INTERNALS_PRIMITIVES,
     FinetuneSpec,
     primitives_catalog_text,
+    run_lora_repair,
 )
 from evalvitals.eval_agent.stages.fix_pipeline import (
     CodedPipelineResult,
@@ -98,9 +108,55 @@ logger = logging.getLogger(__name__)
 _MAX_JUDGE_CANDIDATES = 3
 _EXAMPLE_PROMPTS = 3
 
+def _binary_answer(value: Any) -> "str | None":
+    match = re.search(r"\b(yes|no)\b", str(value).lower())
+    return match.group(1) if match else None
+
+
+def _binary_hallucination_direction(data: "CaseBatch") -> "tuple[bool, int, int]":
+    """Return whether binary evidence supports a false-``Yes`` repair.
+
+    VCD, ICD, OPERA, PAI, and IFCD suppress answers that assert an object
+    unsupported by the image. A labelled adapter exposes this direction through
+    expected/observed answers. If it can, do not deploy a suppressive repair
+    into a false-negative dominant slice; otherwise preserve generic support.
+    """
+    false_yes = false_no = 0
+    for case in data:
+        if getattr(getattr(case, "label", None), "value", None) != "fail":
+            continue
+        expected = _binary_answer(getattr(case, "expected", None))
+        observed = _binary_answer(getattr(case, "observed", None))
+        if expected == "no" and observed == "yes":
+            false_yes += 1
+        elif expected == "yes" and observed == "no":
+            false_no += 1
+    return (false_yes + false_no == 0 or false_yes >= false_no, false_yes, false_no)
+
+
+def _false_yes_predicate(case: Any) -> bool:
+    """Per-case gate: baseline asserted the object, gold says it isn't there.
+
+    VCD/ICD/OPERA/PAI/IFCD are all *suppressive* -- they push the decoded
+    answer away from asserting an object the image doesn't support. That is
+    the right direction only on this per-case subpopulation. Unlike
+    :func:`_binary_hallucination_direction` (a whole-batch go/no-go gate),
+    this is meant to be attached to a :class:`FixCandidate` as its
+    ``predicate`` so the *same* candidate can be run gated (touching only
+    these cases) alongside its ungated sibling. Computed from ``expected``/
+    ``observed`` on the baseline already recorded for this case -- never
+    from a later selection/confirmation outcome.
+    """
+    return (
+        _binary_answer(getattr(case, "expected", None)) == "no"
+        and _binary_answer(getattr(case, "observed", None)) == "yes"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class FixCandidate:
@@ -110,7 +166,12 @@ class FixCandidate:
         tier:        Intervention space the candidate lives in.
         name:        Short identifier.
         kind:        ``"template"`` (L1) | ``"spec"`` (L2 declarative) |
-                     ``"code"`` (L2 agent-written pipeline).
+                     ``"code"`` (L2 agent-written pipeline) | ``"vcd"``
+                     (L0 contrastive decoding through an opt-in backend) |
+                     ``"opera"`` (L3a attention-over-trust penalty for a
+                     one-token binary decision) | ``"ifcd"`` (L3b paired
+                     TruthX internal edits) | ``"visual_search"`` (L2 question-guided crop through an
+                     opt-in backend).
         payload:     Kind-specific — template: ``{"prompt_template": ...}``;
                      spec: a :class:`~.fix_tools.PipelineSpec` dict;
                      code: ``{"code": "<python source>"}``.
@@ -148,6 +209,8 @@ class FixValidation:
 
     candidate: FixCandidate
     n_pairs: int = 0
+    n_baseline_correct: int = 0  # among the paired, applicable cases
+    n_candidate_correct: int = 0  # among the paired, applicable cases
     n_fixed: int = 0
     n_broken: int = 0
     fixed_cases: "list[str]" = field(default_factory=list)
@@ -157,9 +220,9 @@ class FixValidation:
     fixed: bool = False
     summary: str = ""
     # Applicability + noise accounting (defects 1 & 2).
-    n_applicable: int = 0          # cases the candidate actually touched
+    n_applicable: int = 0  # cases the candidate actually touched
     coverage: "float | None" = None  # applicable FAILs / total FAILs in subset
-    n_unstable: int = 0            # cases dropped as baseline-unstable (noise)
+    n_unstable: int = 0  # cases dropped as baseline-unstable (noise)
     e_value: "float | None" = None
     # Coarse verdict (defect 4): fixed | partial | unsafe | regressed |
     # no_effect | not_executed.  Richer than the boolean ``fixed`` for triage.
@@ -211,10 +274,10 @@ class FixOutcome:
                     "payload": v.candidate.payload,
                     # Self-contained attempt folder (see RunContext.new_trial) —
                     # None when no RunContext is in play (legacy flat layout).
-                    "trial_root": (
-                        str(v.candidate.trial.root) if v.candidate.trial else None
-                    ),
+                    "trial_root": (str(v.candidate.trial.root) if v.candidate.trial else None),
                     "n_pairs": v.n_pairs,
+                    "n_baseline_correct": v.n_baseline_correct,
+                    "n_candidate_correct": v.n_candidate_correct,
                     "n_fixed": v.n_fixed,
                     "n_broken": v.n_broken,
                     "fixed_cases": v.fixed_cases,
@@ -243,13 +306,15 @@ class FixOutcome:
 # Agent
 # ---------------------------------------------------------------------------
 
+
 class FixAgent:
     """Propose and validate tiered fixes for the loop's verified hypotheses.
 
     Args:
         judge:            LLM proposing candidates (deterministic defaults
                           when ``None`` or unparseable).
-        max_tier:         Highest allowed intervention tier (input, default L2).
+        max_tier:         Highest allowed intervention tier (runtime config,
+                          prompt, scaffold, …; default L2).
         score_fn:         ``(case, output) -> bool | None``; defaults to the
                           rubric scorer shared with prompt_contrast.
         run_logger:       Optional RunLogger — records the outcome as a
@@ -288,6 +353,19 @@ class FixAgent:
                           strategies within the SAME tier (no tier escalation).
                           Stops early on the first validated fix or when a
                           round adds no new candidate.
+        max_judge_candidates: Maximum candidates to request and validate for
+                          each judge-proposed tier. Defaults to three. Lower
+                          this for a bounded screening experiment; doing so is
+                          also reflected in the multiplicity correction.
+        finetune_pool:    Diagnosis-split-only cases available for L4's LoRA
+                          executor to train on — MUST be disjoint from
+                          whatever batch is passed to
+                          :meth:`propose_and_validate` (never the selection
+                          or confirmation split; training and validating on
+                          the same cases is leakage, not a fix). ``None``
+                          (default) means L4 candidates are recorded but not
+                          executed, same as before this executor existed.
+                          See :func:`~.fix_internals.run_lora_repair`.
     """
 
     def __init__(
@@ -305,8 +383,14 @@ class FixAgent:
         alpha: float = 0.05,
         run_context: "Any | None" = None,
         max_repair_rounds: int = 1,
+        max_judge_candidates: int = _MAX_JUDGE_CANDIDATES,
+        allow_adapted_paper_methods: bool = False,
+        paper_methods_only: bool = False,
+        candidate_allowlist: "Iterable[str] | None" = None,
+        finetune_pool: "CaseBatch | None" = None,
     ) -> None:
         self._judge = judge
+        self._finetune_pool = finetune_pool
         self.max_tier = parse_tier(max_tier)
         self._score = score_fn or _default_score
         self.run_logger = run_logger
@@ -322,6 +406,14 @@ class FixAgent:
         self._baseline_repeats = max(1, int(baseline_repeats))
         self._alpha = float(alpha)
         self.max_repair_rounds = max(1, int(max_repair_rounds))
+        self.max_judge_candidates = max(1, int(max_judge_candidates))
+        self._allow_adapted_paper_methods = bool(allow_adapted_paper_methods)
+        self._paper_methods_only = bool(paper_methods_only)
+        self._candidate_allowlist = (
+            frozenset(str(name) for name in candidate_allowlist)
+            if candidate_allowlist is not None
+            else None
+        )
         self._last_repair_prompt = ""
         self._last_usage: dict | None = None
 
@@ -348,19 +440,23 @@ class FixAgent:
         for h in hypotheses:
             tier, why = route_min_tier(h)
             routed_tiers.append(tier)
-            outcome.routed.append({
-                "hypothesis": getattr(h, "statement", str(h))[:160],
-                "min_tier": tier.label,
-                "rationale": why,
-            })
+            outcome.routed.append(
+                {
+                    "hypothesis": getattr(h, "statement", str(h))[:160],
+                    "min_tier": tier.label,
+                    "rationale": why,
+                }
+            )
 
         data = self._validation_subset(data)
         baseline, unstable = self._baseline(model, data)
         if not any(v is not None for v in baseline.values()):
             logger.warning("FixAgent: no scorable case (no rubrics); nothing to validate")
-            outcome.recommendation = self._recommend(routed_tiers, reason_prefix=(
-                "no case carries a scoring rubric, so no fix can be validated"
-            ))
+            outcome.recommendation = self._recommend(
+                routed_tiers,
+                model=model,
+                reason_prefix=("no case carries a scoring rubric, so no fix can be validated"),
+            )
             self._emit(outcome)
             return outcome
 
@@ -369,13 +465,11 @@ class FixAgent:
         # any prior_attempts carried over from an earlier escalation tier) and
         # ask for DIFFERENT candidates within the same tier (never escalating).
         # Stop on first validated fix or when a round adds no new candidate.
-        seen: "set[tuple[str, str]]" = set()
+        seen: "set[tuple[str, str, str]]" = set()
         for round_idx in range(self.max_repair_rounds):
             combined_prior = list(prior_attempts or []) + outcome.attempted
             prior_text = self._format_prior(combined_prior) if combined_prior else ""
-            prior_names: "frozenset[str]" = frozenset(
-                v.candidate.name for v in combined_prior
-            )
+            prior_names: "frozenset[str]" = frozenset(v.candidate.name for v in combined_prior)
             new_candidates: "list[FixCandidate]" = []
             for candidate in self._propose(hypotheses, data, model, prior_text, prior_names):
                 sig = self._signature(candidate)
@@ -384,8 +478,9 @@ class FixAgent:
                 seen.add(sig)
                 new_candidates.append(candidate)
             if not new_candidates:
-                logger.info("FixAgent: repair round %d produced no NEW candidate; stopping",
-                            round_idx + 1)
+                logger.info(
+                    "FixAgent: repair round %d produced no NEW candidate; stopping", round_idx + 1
+                )
                 break
             round_fixed = False
             for candidate in new_candidates:
@@ -396,7 +491,8 @@ class FixAgent:
                 # burns a folder for nothing.
                 if candidate.trial is None and self._run_context is not None:
                     candidate.trial = self._run_context.new_trial(
-                        "fixes", f"{candidate.tier.label}_{candidate.name}")
+                        "fixes", f"{candidate.tier.label}_{candidate.name}"
+                    )
                 validation = self._validate(candidate, model, data, baseline, unstable)
                 outcome.attempted.append(validation)
                 round_fixed = round_fixed or validation.fixed
@@ -404,9 +500,13 @@ class FixAgent:
             if round_fixed:
                 break
             if round_idx + 1 < self.max_repair_rounds:
-                logger.info("FixAgent: repair round %d validated no fix; feeding "
-                            "%d failed attempt(s) back for round %d",
-                            round_idx + 1, len(new_candidates), round_idx + 2)
+                logger.info(
+                    "FixAgent: repair round %d validated no fix; feeding "
+                    "%d failed attempt(s) back for round %d",
+                    round_idx + 1,
+                    len(new_candidates),
+                    round_idx + 2,
+                )
 
         outcome.refine_signal = self._refine_signal(outcome.attempted, data)
         # Multiplicity control over the candidate family (best-of-N): every
@@ -416,8 +516,7 @@ class FixAgent:
         # is a winner only if it is BOTH individually `fixed` AND an e-BH survivor.
         tested = [v for v in outcome.attempted if v.e_value is not None]
         survivors = self._ebh_survivors(tested)
-        outcome.ebh_survivors = sorted(
-            v.candidate.name for v in tested if id(v) in survivors)
+        outcome.ebh_survivors = sorted(v.candidate.name for v in tested if id(v) in survivors)
         winners = [v for v in outcome.attempted if v.fixed and id(v) in survivors]
         if winners:
             outcome.best = max(winners, key=lambda v: (v.effect or 0.0, -v.n_broken))
@@ -433,13 +532,32 @@ class FixAgent:
                         f"({names}) but did NOT survive e-BH FDR across the "
                         f"{len(tested)}-candidate family — best-of-N multiplicity, "
                         "not a validated fix. Gather more failing cases (more "
-                        "power per candidate) or propose fewer, stronger candidates."),
+                        "power per candidate) or propose fewer, stronger candidates."
+                    ),
                 }
             else:
                 outcome.recommendation = self._no_fix_recommendation(
-                    outcome.attempted, routed_tiers, data)
+                    outcome.attempted, routed_tiers, data, model
+                )
         self._emit(outcome)
         return outcome
+
+    def validate_candidate(
+        self,
+        model: "Model",
+        data: "CaseBatch",
+        candidate: FixCandidate,
+    ) -> FixValidation:
+        """Confirm one pre-selected candidate on an untouched batch.
+
+        Candidate selection must happen before this method is called. Unlike
+        :meth:`propose_and_validate`, this method never consults the judge and
+        validates exactly one pre-registered candidate, so no best-of-N
+        selection correction is needed on the confirmation split.
+        """
+        data = self._validation_subset(data)
+        baseline, unstable = self._baseline(model, data)
+        return self._validate(candidate, model, data, baseline, unstable)
 
     def _ebh_survivors(self, tested: "list[FixValidation]") -> "set[int]":
         """id()s of validations whose e-value survives e-BH across the family.
@@ -462,6 +580,7 @@ class FixAgent:
         attempted: "list[FixValidation]",
         routed_tiers: "list[FixTier]",
         data: "CaseBatch",
+        model: "Model",
     ) -> "dict[str, Any] | None":
         """Decide what 'no candidate validated' actually means.
 
@@ -483,9 +602,11 @@ class FixAgent:
                 "reason": (
                     "no candidate EXECUTED — escalating would be premature; "
                     f"fix candidate execution and retry within {self.max_tier.label}. "
-                    "Failures: " + "; ".join(
+                    "Failures: "
+                    + "; ".join(
                         f"{v.candidate.name}: {(v.exec_error or v.summary)[:120]}"
-                        for v in never_ran[:3])
+                        for v in never_ran[:3]
+                    )
                 ),
             }
 
@@ -497,26 +618,36 @@ class FixAgent:
         n_fail = sum(1 for c in data if getattr(c.label, "value", None) == "fail")
         ceiling = evalue_bernoulli(n_fail, n_fail, p0=0.5) if n_fail > 0 else 1.0
         promising = [v for v in executed if (v.n_fixed - v.n_broken) > 0 and not v.reject]
-        if promising and ceiling < 1.0 / self._alpha:
-            best = max(promising, key=lambda v: (v.n_fixed - v.n_broken, v.effect or 0.0))
+        if ceiling < 1.0 / self._alpha:
             need = self._min_failures_for_power()
+            evidence = ""
+            if promising:
+                best = max(
+                    promising,
+                    key=lambda v: (v.n_fixed - v.n_broken, v.effect or 0.0),
+                )
+                evidence = (
+                    f" {best.candidate.name!r} already helps net "
+                    f"{best.n_fixed - best.n_broken} case(s);"
+                )
             return {
                 "recommend_tier": None,
                 "action": "gather_more_failures",
                 "reason": (
                     f"underpowered by design: only {n_fail} failure case(s) — even a "
                     f"perfect fix tops out at e={ceiling:.1f} (< {1.0 / self._alpha:.0f} "
-                    f"needed). {best.candidate.name!r} already helps net "
-                    f"{best.n_fixed - best.n_broken} case(s); collect >= {need} failing "
+                    f"needed).{evidence} collect >= {need} failing "
                     "cases and re-validate before escalating the tier."
                 ),
             }
 
-        rec = self._recommend(routed_tiers)
+        rec = self._recommend(routed_tiers, model=model)
         if never_ran and rec is not None:
             rec["reason"] += (
                 f" (caveat: {len(never_ran)} candidate(s) never executed: "
-                + ", ".join(v.candidate.name for v in never_ran[:3]) + ")")
+                + ", ".join(v.candidate.name for v in never_ran[:3])
+                + ")"
+            )
         return rec
 
     def _min_failures_for_power(self) -> int:
@@ -572,8 +703,13 @@ class FixAgent:
         rng.shuffle(passes)
         n_fail = min(len(fails), max(cap // 2, cap - len(passes)))
         keep = fails[:n_fail] + passes[: cap - n_fail]
-        logger.info("FixAgent: validating on %d/%d cases (%d fail, %d pass)",
-                    len(keep), len(data), n_fail, len(keep) - n_fail)
+        logger.info(
+            "FixAgent: validating on %d/%d cases (%d fail, %d pass)",
+            len(keep),
+            len(data),
+            n_fail,
+            len(keep) - n_fail,
+        )
         return CaseBatch(keep)
 
     # -- candidate generation --------------------------------------------
@@ -586,46 +722,287 @@ class FixAgent:
         prior_text: str = "",
         prior_names: "frozenset[str]" = frozenset(),
     ) -> "list[FixCandidate]":
-        hyp_lines = "\n".join(
-            f"- [{getattr(h, 'predicted_failure_mode', '')}] {getattr(h, 'statement', h)}"
-            for h in hypotheses
-        ) or "- (no verified hypotheses; failures are unexplained)"
-        examples = "\n".join(
-            f"- {str(getattr(c.inputs, 'prompt', ''))[:160]}"
-            for c in list(data)
-            if getattr(getattr(c, "label", None), "value", None) == "fail"
-        )[: 1000] or "- (none)"
+        hyp_lines = (
+            "\n".join(
+                f"- [{getattr(h, 'predicted_failure_mode', '')}] {getattr(h, 'statement', h)}"
+                for h in hypotheses
+            )
+            or "- (no verified hypotheses; failures are unexplained)"
+        )
+        examples = (
+            "\n".join(
+                f"- {str(getattr(c.inputs, 'prompt', ''))[:160]}"
+                for c in list(data)
+                if getattr(getattr(c, "label", None), "value", None) == "fail"
+            )[:1000]
+            or "- (none)"
+        )
+        has_images = any(
+            getattr(getattr(case, "inputs", None), "image", None) is not None for case in data
+        )
+        tasks = {
+            str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data
+        }
+        binary_hallucination_supported, _, _ = _binary_hallucination_direction(data)
 
-        candidates = self._l1_candidates(hyp_lines, examples, prior_text, prior_names)
+        candidates: "list[FixCandidate]" = []
+        if self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
+            candidates += self._l0_candidates(data, prior_names, model=model)
+        if self.max_tier >= FixTier.L1_PROMPT and not self._paper_methods_only:
+            candidates += self._l1_candidates(
+                hyp_lines,
+                examples,
+                prior_text,
+                prior_names,
+                has_images=has_images,
+                tasks=tasks,
+                binary_hallucination_supported=binary_hallucination_supported,
+            )
         if self.max_tier >= FixTier.L2_SCAFFOLD:
-            candidates += self._l2_candidates(hyp_lines, examples, prior_text, prior_names)
+            candidates += self._l2_candidates(
+                hyp_lines,
+                examples,
+                prior_text,
+                prior_names,
+                has_images=has_images,
+                model=model,
+                tasks=tasks,
+            )
             if self.codegen_available:
                 candidates += self._l2_coded_candidate(hyp_lines, examples, model, prior_text)
         if self.max_tier >= FixTier.L3A_INTERNALS_READ:
-            candidates += self._l3_candidates(hyp_lines, model, prior_text, prior_names)
+            candidates += self._l3_candidates(
+                hyp_lines,
+                model,
+                prior_text,
+                prior_names,
+                has_images=has_images,
+                tasks=tasks,
+                binary_hallucination_supported=binary_hallucination_supported,
+            )
         if self.max_tier >= FixTier.L4_PARAMETERS:
             candidates += self._l4_candidates(hyp_lines)
+        if self._candidate_allowlist is not None:
+            candidates = [c for c in candidates if c.name in self._candidate_allowlist]
         return candidates
 
+    def _l0_candidates(
+        self,
+        data: "CaseBatch",
+        prior_names: "frozenset[str]" = frozenset(),
+        *,
+        model: "Model | None" = None,
+    ) -> "list[FixCandidate]":
+        """Propose a bounded decoding repair only from recorded telemetry.
+
+        A short answer is not proof of truncation.  We require a backend to
+        record ``metadata['finish_reason'] == 'length'`` and the baseline
+        ``metadata['generation_config']['max_tokens']`` for at least one
+        failing case. This makes the candidate useful for any OpenAI-style or
+        local backend while preventing prompt-specific guesswork.
+        """
+        caps: "list[int]" = []
+        policy_caps: "list[int]" = []
+        for case in data:
+            if getattr(getattr(case, "label", None), "value", None) != "fail":
+                continue
+            meta = getattr(case, "metadata", {}) or {}
+            if str(meta.get("finish_reason", "")).lower() != "length":
+                continue
+            config = meta.get("generation_config") or {}
+            try:
+                cap = int(config.get("max_tokens"))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if 1 <= cap < 8192:
+                caps.append(cap)
+            policy = meta.get("generation_policy") or {}
+            try:
+                policy_cap = int(policy.get("max_tokens_cap"))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if cap < policy_cap <= 8192:
+                policy_caps.append(policy_cap)
+        out: "list[FixCandidate]" = []
+        # A single, auditable policy: use the deployment's explicit safe cap
+        # when present; otherwise double the observed cap. Use the maximum seen
+        # cap so a mixed batch never *reduces* any case's decode budget.
+        if caps and "increase_max_tokens" not in prior_names:
+            old_cap = max(caps)
+            new_cap = max(policy_caps) if policy_caps else min(8192, old_cap * 2)
+            if new_cap > old_cap:
+                spec = PipelineSpec(
+                    name="increase_max_tokens",
+                    generation_kwargs={"max_tokens": new_cap},
+                )
+                out.append(
+                    FixCandidate(
+                        tier=FixTier.L0_RUNTIME_CONFIG,
+                        name=spec.name,
+                        kind="spec",
+                        source="telemetry",
+                        payload=spec.to_dict(),
+                    )
+                )
+
+        # VCD (Leng et al., CVPR 2024) is a decoding-space repair for binary
+        # visual-grounding tasks. It contrasts first-token logits from the
+        # original and a diffusion-distorted image. Do not offer it for open
+        # generation: applying a first-token approximation there would not be
+        # the paper's method. Backends opt in explicitly via ``generate_vcd``.
+        from evalvitals.core.capability import Capability
+
+        tasks = {str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data}
+        supports_logprobs = bool(
+            model is not None and Capability.LOGPROBS in getattr(model, "capabilities", frozenset())
+        )
+        supports_vcd = supports_logprobs and callable(getattr(model, "generate_vcd", None))
+        hallucination_direction_supported, _, _ = _binary_hallucination_direction(data)
+        if (
+            tasks == {"yes_no"}
+            and supports_vcd
+            and hallucination_direction_supported
+            and "vcd_diffusion_noise" not in prior_names
+        ):
+            # VCD appendix A fixes POPE's total diffusion steps at 999
+            # (MME/LLaVA-Bench use 500), with alpha=1 and beta=0.1.
+            vcd_payload = {
+                "alpha": 1.0,
+                "beta": 0.1,
+                "noise_step": 999,
+            }
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="vcd_diffusion_noise",
+                    kind="vcd",
+                    source="paper_default",
+                    payload=vcd_payload,
+                )
+            )
+        # Gated sibling (defect 3's refine_signal, operationalised): VCD is a
+        # *suppressive* repair -- it is the right direction only on cases
+        # where the baseline asserted an object the image doesn't support
+        # (false-Yes). Proposing this alongside the ungated candidate lets a
+        # near-cancelling whole-slice result (helps false-Yes cases, hurts
+        # false-No ones -- exactly the "heterogeneous_failure_mode" pattern
+        # every POPE report already surfaces) resolve into a real, narrower
+        # fix instead of a null. The predicate reads each case's own
+        # already-recorded baseline expected/observed -- never a selection or
+        # confirmation outcome -- so this is a candidate design choice, not a
+        # post-hoc tuning of which cases to report.
+        if (
+            tasks == {"yes_no"}
+            and supports_vcd
+            and "vcd_diffusion_noise_gated_false_yes" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="vcd_diffusion_noise_gated_false_yes",
+                    kind="vcd",
+                    source="conditional_default",
+                    payload={"alpha": 1.0, "beta": 0.1, "noise_step": 999},
+                    predicate=_false_yes_predicate,
+                )
+            )
+        # ICD (Wang et al., ACL 2024) has the same binary, token-level
+        # admission requirements but its negative condition is an instruction
+        # disturbance rather than a corrupted image.  A backend can expose an
+        # architecture-native method (e.g. an InstructBLIP Q-Former) or an
+        # explicitly labelled architecture-adapted implementation.
+        paper_fidelity = getattr(model, "paper_method_fidelity", None)
+        icd_fidelity = paper_fidelity("icd") if callable(paper_fidelity) else "unavailable"
+        if (
+            tasks == {"yes_no"}
+            and supports_logprobs
+            and hallucination_direction_supported
+            and callable(getattr(model, "generate_instruction_cd", None))
+            and (
+                icd_fidelity in {"exact", "native_binary_specialization"}
+                or (icd_fidelity == "adapted" and self._allow_adapted_paper_methods)
+            )
+            and "icd_instruction_disturbance" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="icd_instruction_disturbance",
+                    kind="icd",
+                    source="paper_default",
+                    payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"},
+                )
+            )
+            # The official ICD POPE runner evaluates both Q-Former conditions:
+            # disturbance alone and disturbance concatenated with the question.
+            # The latter exists only on the native Q-Former architecture; a
+            # decoder-prefix approximation would be a new, ungrounded method.
+            if (
+                icd_fidelity in {"exact", "native_binary_specialization"}
+                and "icd_instruction_disturbance_question" not in prior_names
+            ):
+                out.append(
+                    FixCandidate(
+                        tier=FixTier.L0_RUNTIME_CONFIG,
+                        name="icd_instruction_disturbance_question",
+                        kind="icd",
+                        source="paper_default",
+                        payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "question"},
+                    )
+                )
+        # Gated sibling, same rationale as VCD's above: ICD is also
+        # suppressive, so restrict it to the per-case false-Yes subset rather
+        # than requiring the whole slice to be false-Yes dominant.
+        if (
+            tasks == {"yes_no"}
+            and supports_logprobs
+            and callable(getattr(model, "generate_instruction_cd", None))
+            and (
+                icd_fidelity in {"exact", "native_binary_specialization"}
+                or (icd_fidelity == "adapted" and self._allow_adapted_paper_methods)
+            )
+            and "icd_instruction_disturbance_gated_false_yes" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="icd_instruction_disturbance_gated_false_yes",
+                    kind="icd",
+                    source="conditional_default",
+                    payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"},
+                    predicate=_false_yes_predicate,
+                )
+            )
+        return out
+
     @staticmethod
-    def _signature(candidate: FixCandidate) -> "tuple[str, str]":
+    def _signature(candidate: FixCandidate) -> "tuple[str, str, str]":
         """Identity of a candidate, to skip re-validating an identical one.
 
         Coded pipelines carry fresh source each round, so they never collide;
-        templates / specs / primitives dedup on their defining payload.
+        templates / specs / primitives dedup on their defining payload. The
+        candidate's ``name`` is always part of the signature: two candidates
+        can share a kind and payload while differing only in ``predicate``
+        (for example a paper method and its per-case-gated sibling, see
+        ``_false_yes_predicate``) -- that is a different candidate, not a
+        duplicate, and must not be silently dropped by the round's dedup set.
         """
         p = candidate.payload
         if candidate.kind == "template":
             key = str(p.get("prompt_template", ""))
         elif candidate.kind == "primitive":
-            key = json.dumps({"primitive": p.get("primitive"),
-                              "params": p.get("params")}, sort_keys=True, default=str)
+            key = json.dumps(
+                {"primitive": p.get("primitive"), "params": p.get("params")},
+                sort_keys=True,
+                default=str,
+            )
         elif candidate.kind == "code":
             key = str(p.get("code", ""))
         else:
-            key = json.dumps({k: v for k, v in p.items() if k != "exec_error"},
-                             sort_keys=True, default=str)
-        return (candidate.kind, key)
+            key = json.dumps(
+                {k: v for k, v in p.items() if k != "exec_error"}, sort_keys=True, default=str
+            )
+        return (candidate.kind, candidate.name, key)
 
     def _l1_candidates(
         self,
@@ -633,25 +1010,107 @@ class FixAgent:
         examples: str,
         prior_text: str = "",
         prior_names: "frozenset[str]" = frozenset(),
+        *,
+        has_images: bool = False,
+        tasks: "set[str] | None" = None,
+        binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
-        proposals = self._ask_judge(_L1_PROMPT.format(
-            hypotheses=hyp_lines, examples=examples, k=_MAX_JUDGE_CANDIDATES) + prior_text)
+        proposals = self._ask_judge(
+            _L1_PROMPT.format(hypotheses=hyp_lines, examples=examples, k=self.max_judge_candidates)
+            + prior_text
+        )
         out: "list[FixCandidate]" = []
+        # Some permissive judges return an L2 pipeline for the L1 request
+        # because both prompts include the same examples. Do not silently turn
+        # that into an identity L1 candidate (and an unnecessary e-BH test).
+        structural_keys = {"image_ops", "generation_kwargs", "n_samples", "strategy"}
+        has_structural_proposal = False
         for p in proposals:
             template = str(p.get("prompt_template", ""))
             name = str(p.get("name", "")).strip()
+            if structural_keys.intersection(p):
+                has_structural_proposal = True
+                continue
             if name and "{prompt}" in template:
-                out.append(FixCandidate(
-                    tier=FixTier.L1_PROMPT, name=name, kind="template",
-                    payload={"prompt_template": template}))
-        if not out and "attend_carefully" not in prior_names:
-            out = [FixCandidate(
-                tier=FixTier.L1_PROMPT, name="attend_carefully", kind="template",
-                source="default",
-                payload={"prompt_template": (
-                    "Examine the image carefully, including small, subtle and "
-                    "low-contrast regions, before answering. {prompt}")})]
-        return out[:_MAX_JUDGE_CANDIDATES]
+                out.append(
+                    FixCandidate(
+                        tier=FixTier.L1_PROMPT,
+                        name=name,
+                        kind="template",
+                        payload={"prompt_template": template},
+                    )
+                )
+        # Image tasks always receive one conservative, declarative grounding
+        # control. A judge can overfit a diagnosis split with a narrow prompt;
+        # this candidate establishes whether simply forcing visual evidence
+        # before world knowledge helps, and it is selected/validated by the
+        # same held-out procedure as every other repair.
+        if has_images and not has_structural_proposal and "visual_grounding" not in prior_names:
+            out.insert(
+                0,
+                FixCandidate(
+                    tier=FixTier.L1_PROMPT,
+                    name="visual_grounding",
+                    kind="template",
+                    source="default",
+                    payload={
+                        "prompt_template": (
+                            "Inspect the image carefully for {failure_axis}. Work from visible "
+                            "evidence, then give only the final answer requested.\n\n{prompt}"
+                        )
+                    },
+                ),
+            )
+        # Dual of the direction gate that withholds VCD/ICD/OPERA/PAI/IFCD on
+        # a false-No-dominant slice (_binary_hallucination_direction): those
+        # methods are all suppressive (push away from asserting an object),
+        # which is the wrong direction for under-claiming. This is the
+        # opposite-direction lever within our own framework -- a prompt that
+        # asks the model to accept partial/ambiguous visual evidence rather
+        # than requiring certainty before answering Yes. It is scoped to the
+        # same batch-level diagnosis signal (never a specific case's outcome)
+        # and only proposed for binary tasks where the direction is not
+        # false-Yes-dominant, so it is never offered alongside (and diluting)
+        # the already-validated false-Yes-side candidates.
+        if (
+            has_images
+            and tasks == {"yes_no"}
+            and not binary_hallucination_supported
+            and "assertive_grounding" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L1_PROMPT,
+                    name="assertive_grounding",
+                    kind="template",
+                    source="default",
+                    payload={
+                        "prompt_template": (
+                            "Inspect the image for {failure_axis}. If there is plausible visual "
+                            "evidence for the object or attribute in the question -- even if "
+                            "partial, small, or ambiguous -- answer Yes. Only answer No if you "
+                            "are confident no such evidence is present anywhere in the "
+                            "image.\n\n{prompt}"
+                        )
+                    },
+                )
+            )
+        if not out and not has_structural_proposal and "attend_carefully" not in prior_names:
+            out = [
+                FixCandidate(
+                    tier=FixTier.L1_PROMPT,
+                    name="attend_carefully",
+                    kind="template",
+                    source="default",
+                    payload={
+                        "prompt_template": (
+                            "Examine the image carefully, including small, subtle and "
+                            "low-contrast regions, before answering. {prompt}"
+                        )
+                    },
+                )
+            ]
+        return out[: self.max_judge_candidates]
 
     def _l2_candidates(
         self,
@@ -659,32 +1118,50 @@ class FixAgent:
         examples: str,
         prior_text: str = "",
         prior_names: "frozenset[str]" = frozenset(),
+        *,
+        has_images: bool = False,
+        model: "Model | None" = None,
+        tasks: "set[str] | None" = None,
     ) -> "list[FixCandidate]":
-        proposals = self._ask_judge(_L2_PROMPT.format(
-            hypotheses=hyp_lines, examples=examples, k=_MAX_JUDGE_CANDIDATES,
-            catalog=catalog_text()) + prior_text)
+        proposals = (
+            []
+            if self._paper_methods_only
+            else self._ask_judge(
+                _L2_PROMPT.format(
+                    hypotheses=hyp_lines,
+                    examples=examples,
+                    k=self.max_judge_candidates,
+                    catalog=catalog_text(),
+                )
+                + prior_text
+            )
+        )
         out: "list[FixCandidate]" = []
         for p in proposals:
             spec = PipelineSpec.from_dict(p) if isinstance(p, dict) else None
             if spec is not None:
-                out.append(FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD, name=spec.name, payload=spec.to_dict()))
+                out.append(
+                    FixCandidate(tier=FixTier.L2_SCAFFOLD, name=spec.name, payload=spec.to_dict())
+                )
         if not out:
-            defaults = [
+            image_defaults = [
                 FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD, name="answer_bbox_crop",
+                    tier=FixTier.L2_SCAFFOLD,
+                    name="answer_bbox_crop",
                     source="default",
                     payload=PipelineSpec(
                         name="answer_bbox_crop",
                         image_ops=[
-                            {"tool": "crop_case_bbox",
-                             "params": {
-                                 "bbox_key": "answer_bbox_xyxy_norm",
-                                 "padding": 0.40,
-                                 "min_size_frac": 0.12,
-                                 "sharpen_factor": 3.0,
-                                 "contrast_factor": 1.4,
-                             }},
+                            {
+                                "tool": "crop_case_bbox",
+                                "params": {
+                                    "bbox_key": "answer_bbox_xyxy_norm",
+                                    "padding": 0.40,
+                                    "min_size_frac": 0.12,
+                                    "sharpen_factor": 3.0,
+                                    "contrast_factor": 1.4,
+                                },
+                            },
                         ],
                         prompt_template=(
                             "The image may have been cropped and enhanced around "
@@ -692,64 +1169,233 @@ class FixAgent:
                             "visible text or number carefully, then answer the "
                             "question. {prompt}"
                         ),
-                    ).to_dict()),
+                    ).to_dict(),
+                ),
                 FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD, name="annotate_horizontal_band_count",
+                    tier=FixTier.L2_SCAFFOLD,
+                    name="annotate_horizontal_band_count",
                     source="default",
                     payload=PipelineSpec(
                         name="annotate_horizontal_band_count",
                         image_ops=[
-                            {"tool": "annotate_horizontal_band_count",
-                             "params": {
-                                 "min_delta": 18.0,
-                                 "color_delta": 35.0,
-                                 "min_count": 8,
-                             }},
+                            {
+                                "tool": "annotate_horizontal_band_count",
+                                "params": {
+                                    "min_delta": 18.0,
+                                    "color_delta": 35.0,
+                                    "min_count": 8,
+                                },
+                            },
                         ],
                         prompt_template=(
                             "A visual counting overlay may have been added to the "
                             "image. If a COUNT value is visible, use that value. "
                             "{prompt}"
                         ),
-                    ).to_dict()),
+                    ).to_dict(),
+                ),
                 FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD, name="separate_horizontal_bands",
+                    tier=FixTier.L2_SCAFFOLD,
+                    name="separate_horizontal_bands",
                     source="default",
                     payload=PipelineSpec(
                         name="separate_horizontal_bands",
                         image_ops=[
-                            {"tool": "separate_horizontal_bands",
-                             "params": {"min_delta": 18.0, "color_delta": 35.0}},
+                            {
+                                "tool": "separate_horizontal_bands",
+                                "params": {"min_delta": 18.0, "color_delta": 35.0},
+                            },
                         ],
                         prompt_template=(
                             "The image has been preprocessed so adjacent colored "
                             "horizontal bands, if present, are separated by gray "
                             "gaps. Count every colored band. {prompt}"
                         ),
-                    ).to_dict()),
+                    ).to_dict(),
+                ),
                 FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD, name="salient_crop", source="default",
+                    tier=FixTier.L2_SCAFFOLD,
+                    name="salient_crop",
+                    source="default",
                     payload=PipelineSpec(
                         name="salient_crop",
                         image_ops=[
-                            {"tool": "crop_salient_region",
-                             "params": {"padding": 0.04, "min_delta": 18.0}},
-                        ]).to_dict()),
+                            {
+                                "tool": "crop_salient_region",
+                                "params": {"padding": 0.04, "min_delta": 18.0},
+                            },
+                        ],
+                    ).to_dict(),
+                ),
                 FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD, name="zoom_equalize", source="default",
+                    tier=FixTier.L2_SCAFFOLD,
+                    name="zoom_equalize",
+                    source="default",
                     payload=PipelineSpec(
                         name="zoom_equalize",
-                        image_ops=[{"tool": "zoom_center", "params": {"factor": 1.6}},
-                                   {"tool": "equalize", "params": {}}]).to_dict()),
+                        image_ops=[
+                            {"tool": "zoom_center", "params": {"factor": 1.6}},
+                            {"tool": "equalize", "params": {}},
+                        ],
+                    ).to_dict(),
+                ),
                 FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD, name="upscale_sharpen", source="default",
+                    tier=FixTier.L2_SCAFFOLD,
+                    name="upscale_sharpen",
+                    source="default",
                     payload=PipelineSpec(
                         name="upscale_sharpen",
-                        image_ops=[{"tool": "upscale", "params": {"factor": 2.0}},
-                                   {"tool": "sharpen", "params": {"factor": 2.0}}]).to_dict()),
+                        image_ops=[
+                            {"tool": "upscale", "params": {"factor": 2.0}},
+                            {"tool": "sharpen", "params": {"factor": 2.0}},
+                        ],
+                    ).to_dict(),
+                ),
             ]
+            text_defaults = [
+                FixCandidate(
+                    tier=FixTier.L2_SCAFFOLD,
+                    name="self_refine",
+                    source="default",
+                    payload=PipelineSpec(
+                        name="self_refine",
+                        prompt_template="{prompt}",
+                        strategy="self_refine",
+                    ).to_dict(),
+                ),
+                FixCandidate(
+                    tier=FixTier.L2_SCAFFOLD,
+                    name="least_to_most",
+                    source="default",
+                    payload=PipelineSpec(
+                        name="least_to_most",
+                        prompt_template="{prompt}",
+                        strategy="least_to_most",
+                    ).to_dict(),
+                ),
+            ]
+            # ``crop_case_bbox`` is only applicable when an upstream evaluator
+            # supplies a bbox. For ordinary image cases, start with transforms
+            # that actually touch the image instead of burning a candidate on a
+            # structural no-op.
+            defaults = image_defaults if has_images else text_defaults
+            # self_refine/least_to_most were only ever offered for text-only
+            # cases, even though run_pipeline already threads the case image
+            # through every call of a multi-call strategy (fix_tools.py) --
+            # nothing about them is text-specific. On a binary/grounding task
+            # (yes_no) the image transforms above are the right first lever;
+            # on a genuine multi-step reasoning task (multiple_choice,
+            # exact_or_numeric -- MMMU, ChartQA) a purely visual transform
+            # cannot fix a reasoning error the model makes after it has
+            # already seen the image correctly, so offer self_refine there
+            # too, prioritised ahead of the sharpen/crop family for that task
+            # shape.
+            # Positive allowlist, not "anything that isn't yes_no": unknown or
+            # missing task metadata (common in unit tests and some non-VLM
+            # integrations) must not silently opt into this branch.
+            reasoning_task = bool(
+                tasks and tasks & {"multiple_choice", "exact_or_numeric", "vqa_consensus"}
+            )
+            if has_images and reasoning_task:
+                # self_refine (deterministic, single path, critique-then-revise)
+                # and self_consistency (stochastic, multiple independent paths,
+                # majority vote) target different failure shapes: self_refine
+                # helps when the model's first pass missed something a second
+                # look would catch; self_consistency helps when greedy decoding
+                # is stuck on one answer but the model's distribution actually
+                # has support elsewhere. Majority-vote aggregation already
+                # exists in run_pipeline (fix_tools.py, n_samples > 1) but had
+                # never been registered as a default candidate for any task.
+                reasoning_defaults = []
+                if "self_refine" not in prior_names:
+                    reasoning_defaults.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name="self_refine",
+                            source="default",
+                            payload=PipelineSpec(
+                                name="self_refine",
+                                prompt_template="{prompt}",
+                                strategy="self_refine",
+                            ).to_dict(),
+                        )
+                    )
+                if "self_consistency_5" not in prior_names:
+                    reasoning_defaults.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name="self_consistency_5",
+                            source="default",
+                            payload=PipelineSpec(
+                                name="self_consistency_5",
+                                prompt_template="{prompt}",
+                                n_samples=5,
+                                generation_kwargs={"do_sample": True, "temperature": 0.7},
+                            ).to_dict(),
+                        )
+                    )
+                defaults = reasoning_defaults + defaults
+            if has_images:
+                if (
+                    model is not None
+                    and callable(getattr(model, "generate_detector_visual_search", None))
+                    and "detector_visual_search_consensus" not in prior_names
+                ):
+                    defaults.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name="detector_visual_search_consensus",
+                            kind="detector_visual_search",
+                            source="paper_inspired_black_box",
+                            payload={"decision": "unanimous_crop_override"},
+                        )
+                    )
+                # V* (Wu et al.) establishes that question-guided visual
+                # search can repair failures caused by a missed local detail.
+                # An opt-in backend performs locate -> crop -> re-ask without
+                # access to labels.  It is deliberately distinct from the
+                # trained SEAL reproduction: endpoint users get a testable
+                # method-family control, never a false equivalence claim.
+                if (
+                    model is not None
+                    and callable(getattr(model, "generate_visual_search", None))
+                    and "guided_visual_search_consensus" not in prior_names
+                ):
+                    defaults.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name="guided_visual_search_consensus",
+                            kind="visual_search",
+                            source="paper_inspired_black_box",
+                            # SEAL is a search/query mechanism, not a single
+                            # arbitrary crop. Preserve the full scene and give the
+                            # answer pass three increasingly contextual views of
+                            # the controller-localised target.
+                            payload={
+                                "min_side": 0.10,
+                                "max_side": 0.50,
+                                "scales": [0.10, 0.25, 0.50],
+                                "decision": "unanimous_crop_override",
+                            },
+                        )
+                    )
+                preferred = [
+                    "self_refine",
+                    "self_consistency_5",
+                    "detector_visual_search_consensus",
+                    "guided_visual_search_consensus",
+                    "salient_crop",
+                    "upscale_sharpen",
+                    "zoom_equalize",
+                    "answer_bbox_crop",
+                    "annotate_horizontal_band_count",
+                    "separate_horizontal_bands",
+                ]
+                defaults.sort(key=lambda candidate: preferred.index(candidate.name))
             out = [c for c in defaults if c.name not in prior_names]
-        return out[:_MAX_JUDGE_CANDIDATES]
+        if self._paper_methods_only:
+            out = [candidate for candidate in out if candidate.source.startswith("paper_")]
+        return out[: self.max_judge_candidates]
 
     def _l2_coded_candidate(
         self, hyp_lines: str, examples: str, model: "Model", prior_text: str = ""
@@ -770,31 +1416,45 @@ class FixAgent:
 
         trial = (
             self._run_context.new_trial("fixes", "coded_pipeline")
-            if self._run_context is not None else None
+            if self._run_context is not None
+            else None
         )
         enable_attend = (
             self.max_tier >= FixTier.L3A_INTERNALS_READ
             and Capability.ATTENTION in getattr(model, "capabilities", frozenset())
         )
         attend_hint = (
-            "\n- A function  model_attend(case_id, prompt=None) -> "
-            '{\"grid\": [[float,...],...], \"shape\": [H, W]}  is ALSO defined: '
-            "the model's attention heatmap over image patches (read-only "
-            "internals). Use it e.g. to find where the model looks, then "
-            "crop_region there and re-ask."
-        ) if enable_attend else ""
+            (
+                "\n- A function  model_attend(case_id, prompt=None) -> "
+                '{"grid": [[float,...],...], "shape": [H, W]}  is ALSO defined: '
+                "the model's attention heatmap over image patches (read-only "
+                "internals). Use it e.g. to find where the model looks, then "
+                "crop_region there and re-ask."
+            )
+            if enable_attend
+            else ""
+        )
         code, source, prompt, raw = "", "", "", ""
-        base = dict(hypotheses=hyp_lines, examples=examples, catalog=catalog_text(),
-                    cases_file=CASES_FILENAME, marker=RESULT_MARKER,
-                    attend_hint=attend_hint)
+        base = dict(
+            hypotheses=hyp_lines,
+            examples=examples,
+            catalog=catalog_text(),
+            cases_file=CASES_FILENAME,
+            marker=RESULT_MARKER,
+            attend_hint=attend_hint,
+        )
         if self._cli_config is not None and self._cli_config.provider != "llm":
-            prompt = _L2_CODE_PROMPT.format(
-                fences_hint=", written to a file named pipeline.py", **base) + prior_text
+            prompt = (
+                _L2_CODE_PROMPT.format(fences_hint=", written to a file named pipeline.py", **base)
+                + prior_text
+            )
             code, raw = self._write_code_cli(prompt, trial)
             source = f"cli:{self._cli_config.provider}"
         if not code.strip() and self._judge is not None:
-            prompt = _L2_CODE_PROMPT.format(
-                fences_hint=" inside a ```python code block", **base) + prior_text
+            prompt = (
+                _L2_CODE_PROMPT.format(fences_hint=" inside a ```python code block", **base)
+                + prior_text
+            )
             try:
                 raw = str(self._judge.generate(prompt))
             except Exception as exc:
@@ -812,19 +1472,24 @@ class FixAgent:
                     logger.warning("FixAgent: judge code failed to parse; dropped")
                     code = ""
             source = "judge"
-        self._emit_codegen("coded_pipeline", prompt, source, code, raw,
-                           ok=bool(code.strip()), trial=trial)
+        self._emit_codegen(
+            "coded_pipeline", prompt, source, code, raw, ok=bool(code.strip()), trial=trial
+        )
         if not code.strip():
             return []
         tier = FixTier.L3A_INTERNALS_READ if enable_attend else FixTier.L2_SCAFFOLD
-        return [FixCandidate(tier=tier, name="coded_pipeline",
-                             kind="code",
-                             payload={"code": code, "enable_attend": enable_attend},
-                             source=source, trial=trial)]
+        return [
+            FixCandidate(
+                tier=tier,
+                name="coded_pipeline",
+                kind="code",
+                payload={"code": code, "enable_attend": enable_attend},
+                source=source,
+                trial=trial,
+            )
+        ]
 
-    def _write_code_cli(
-        self, prompt: str, trial: "Trial | None" = None
-    ) -> "tuple[str, str]":
+    def _write_code_cli(self, prompt: str, trial: "Trial | None" = None) -> "tuple[str, str]":
         from pathlib import Path
 
         from evalvitals.agent_runtime.codegen import CodegenRunner
@@ -853,9 +1518,7 @@ class FixAgent:
             from evalvitals.agent_runtime.sandbox import ExperimentSandbox
 
             workdir = (
-                self._run_context.new_workdir("fix")
-                if self._run_context is not None
-                else None
+                self._run_context.new_workdir("fix") if self._run_context is not None else None
             )
             self._sandbox = ExperimentSandbox(workdir=workdir)
         return str(self._sandbox.workdir)
@@ -877,7 +1540,7 @@ class FixAgent:
             if c.kind == "finetune_spec":
                 continue
             effect = f"effect={v.effect:+.2f}" if v.effect is not None else "did not execute"
-            broken = (f", broke {v.broken_cases[:3]}" if v.broken_cases else "")
+            broken = f", broke {v.broken_cases[:3]}" if v.broken_cases else ""
             items.append(
                 f"- [{c.tier.label}/{c.kind}] {c.name}: "
                 f"{v.n_fixed} fixed / {v.n_broken} broken ({effect}{broken})"
@@ -905,7 +1568,14 @@ class FixAgent:
         return block
 
     def _emit_codegen(
-        self, name: str, prompt: str, source: str, code: str, raw: str, *, ok: bool,
+        self,
+        name: str,
+        prompt: str,
+        source: str,
+        code: str,
+        raw: str,
+        *,
+        ok: bool,
         trial: "Trial | None" = None,
     ) -> None:
         """Log one codegen attempt; persist its prompt/code/thinking.
@@ -915,8 +1585,11 @@ class FixAgent:
         only a lean event (paths via ``extra["trial_root"]``) goes through
         :meth:`RunLogger.log_tool_codegen`, with no duplicate file copy.
         """
-        extra = ({"cli_usage": self._last_usage}
-                 if source.startswith("cli:") and self._last_usage else None)
+        extra = (
+            {"cli_usage": self._last_usage}
+            if source.startswith("cli:") and self._last_usage
+            else None
+        )
         if trial is not None:
             if prompt:
                 trial.write(f"{name}_prompt.txt", prompt)
@@ -930,9 +1603,16 @@ class FixAgent:
             return
         try:
             self.run_logger.log_tool_codegen(
-                module="fix_pipeline", name=name, need="L2 coded repair pipeline",
-                source=source, ok=ok, code=code, prompt=prompt, raw_output=raw,
-                error="" if ok else "no code produced", extra=extra,
+                module="fix_pipeline",
+                name=name,
+                need="L2 coded repair pipeline",
+                source=source,
+                ok=ok,
+                code=code,
+                prompt=prompt,
+                raw_output=raw,
+                error="" if ok else "no code produced",
+                extra=extra,
             )
         except Exception as exc:  # logging must never break the fix step
             logger.debug("FixAgent: log_tool_codegen failed: %s", exc)
@@ -943,21 +1623,180 @@ class FixAgent:
         model: "Model",
         prior_text: str = "",
         prior_names: "frozenset[str]" = frozenset(),
+        *,
+        has_images: bool = False,
+        tasks: "set[str] | None" = None,
+        binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
         """Judge-parameterised configs of the pre-audited internals primitives."""
+        out: "list[FixCandidate]" = []
+
+        def finalize(options: "list[FixCandidate]") -> "list[FixCandidate]":
+            # A frozen experiment may request a later catalogued candidate.
+            # Apply that allowlist before the ordinary proposal cap; otherwise
+            # an unrelated earlier default can silently erase the requested
+            # paper route before ``_propose`` gets a chance to filter it.
+            if self._candidate_allowlist is not None:
+                options = [c for c in options if c.name in self._candidate_allowlist]
+            return options[: self.max_judge_candidates]
+        # OPERA's first decoding branch evaluates each likely next token with
+        # its image attention and penalises candidates that neglect the image.
+        # POPE asks for a one-token Yes/No answer, so the paper's later
+        # retrospection/rollback branch has no opportunity to trigger.  Keep
+        # this route explicitly scoped to that binary specialization rather
+        # than presenting it as OPERA's general-purpose beam decoder.
+        paper_fidelity = getattr(model, "paper_method_fidelity", None)
+        opera_fidelity = paper_fidelity("opera") if callable(paper_fidelity) else "unavailable"
+        diagnosis = hyp_lines.lower()
+        hallucination_mechanism = any(
+            signal in diagnosis
+            for signal in (
+                "hallucination",
+                "language prior",
+                "object presence",
+                "object hallucination",
+                "image-token neglect",
+            )
+        )
+        if (
+            has_images
+            and tasks == {"yes_no"}
+            and hallucination_mechanism
+            and binary_hallucination_supported
+            and callable(getattr(model, "generate_opera_binary", None))
+            and opera_fidelity == "native_binary_specialization"
+            and "opera_overtrust_binary" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3A_INTERNALS_READ,
+                    name="opera_overtrust_binary",
+                    kind="opera",
+                    source="paper_default_binary_specialization",
+                    payload={"num_attn_candidates": 5, "penalty_weight": 1.0},
+                )
+            )
+        # ViCrop (MLLMs Know Where to Look, ICLR 2025) is a read-only,
+        # architecture-native paper route: task/general attention ratio,
+        # adaptive crop, and an original+crop answer.  It must not be proposed
+        # for a model whose vision/attention contract differs from LLaVA.
+        vicrop_fidelity = paper_fidelity("vicrop") if callable(paper_fidelity) else "unavailable"
+        # ViCrop is a resolution/local-detail repair, not a generic image
+        # transform.  Keep it tied to the diagnosed mechanism so an L3a run
+        # for object hallucination or chart reasoning does not spend a paper
+        # candidate on an unsupported failure mode.
+        vicrop_mechanism = any(
+            signal in diagnosis
+            for signal in ("small visual", "small detail", "local detail", "resolution", "tiny")
+        )
+        if (
+            has_images
+            and vicrop_mechanism
+            and callable(getattr(model, "generate_vicrop", None))
+            and vicrop_fidelity == "native_selector_specialization"
+            and "vicrop_relative_attention" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3A_INTERNALS_READ,
+                    name="vicrop_relative_attention",
+                    kind="vicrop",
+                    source="paper_default",
+                    payload={"layer": 14},
+                )
+            )
+        # This is a label-free deployment guard for transferring ViCrop to a
+        # new local-detail benchmark, not a claim that the paper used it.
+        if (
+            has_images
+            and vicrop_mechanism
+            and callable(getattr(model, "generate_vicrop_consensus", None))
+            and vicrop_fidelity == "native_selector_specialization"
+            and "vicrop_consensus_guard" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3A_INTERNALS_READ,
+                    name="vicrop_consensus_guard",
+                    kind="vicrop_consensus",
+                    source="safety_guard",
+                    payload={"layer": 14},
+                )
+            )
+        # PAI (ECCV 2024) is a distinct LLaVA mechanism: it changes the
+        # image-attention logits while decoding, so it is an L3b intervention.
+        # The native executor pairs the paper's attention branch with its
+        # classifier-free-guidance cache; the source's pinned LLaVA stack is
+        # still recorded as an architecture specialization.
+        pai_fidelity = paper_fidelity("pai") if callable(paper_fidelity) else "unavailable"
+        # IFCD needs a trained TruthX representation editor. The available
+        # public Vicuna artifact is useful for a controlled transfer trial,
+        # but it is not IFCD's MSCOCO-trained editor, so it is opt-in through
+        # ``allow_adapted_paper_methods`` and never passed off as native.
+        ifcd_fidelity = paper_fidelity("ifcd") if callable(paper_fidelity) else "unavailable"
+        if (
+            self.max_tier >= FixTier.L3B_INTERNALS_WRITE
+            and has_images
+            and tasks == {"yes_no"}
+            and hallucination_mechanism
+            and binary_hallucination_supported
+            and callable(getattr(model, "generate_ifcd", None))
+            and ifcd_fidelity == "adapted_truthx_artifact"
+            and self._allow_adapted_paper_methods
+            and "ifcd_truthx_contrast" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3B_INTERNALS_WRITE,
+                    name="ifcd_truthx_contrast",
+                    kind="ifcd",
+                    source="paper_adapted_truthx_artifact",
+                    payload={"alpha": 0.1, "beta": 0.1, "edit_strength": 0.5, "top_layers": 15},
+                )
+            )
+        if (
+            self.max_tier >= FixTier.L3B_INTERNALS_WRITE
+            and has_images
+            and hallucination_mechanism
+            and (tasks != {"yes_no"} or binary_hallucination_supported)
+            and callable(getattr(model, "generate_pai", None))
+            and pai_fidelity == "native_attention_cfg_specialization"
+            and "pai_image_attention" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3B_INTERNALS_WRITE,
+                    name="pai_image_attention",
+                    kind="pai",
+                    source="paper_default_attention_cfg",
+                    payload={
+                        "alpha": 0.2,
+                        "guidance_scale": 2.0,
+                        "start_layer": 2,
+                        "end_layer": 32,
+                    },
+                )
+            )
         catalog = primitives_catalog_text(model, self.max_tier)
         if not catalog:
-            logger.info("FixAgent: no L3 primitive is available for %r", model)
-            return []
-        out: "list[FixCandidate]" = []
-        for p in self._ask_judge(_L3_PROMPT.format(
-                hypotheses=hyp_lines, catalog=catalog, k=_MAX_JUDGE_CANDIDATES) + prior_text):
+            if not out:
+                logger.info("FixAgent: no L3 primitive is available for %r", model)
+            return finalize(out)
+        for p in self._ask_judge(
+            _L3_PROMPT.format(hypotheses=hyp_lines, catalog=catalog, k=self.max_judge_candidates)
+            + prior_text
+        ):
             prim = INTERNALS_PRIMITIVES.get(str(p.get("primitive", "")))
             if prim is None or prim.tier > self.max_tier or not prim.available(model):
                 continue
-            out.append(FixCandidate(
-                tier=prim.tier, name=prim.name, kind="primitive",
-                payload={"primitive": prim.name, "params": dict(p.get("params") or {})}))
+            out.append(
+                FixCandidate(
+                    tier=prim.tier,
+                    name=prim.name,
+                    kind="primitive",
+                    payload={"primitive": prim.name, "params": dict(p.get("params") or {})},
+                )
+            )
         if not out:
             # Internals-WRITE defaults only; reads (L3a) are authored by the
             # coded pipeline against model_attend(), not proposed as primitives.
@@ -969,10 +1808,16 @@ class FixAgent:
                     continue
                 prim = INTERNALS_PRIMITIVES[name]
                 if prim.tier <= self.max_tier and prim.available(model):
-                    out.append(FixCandidate(
-                        tier=prim.tier, name=name, kind="primitive", source="default",
-                        payload={"primitive": name, "params": params}))
-        return out[:_MAX_JUDGE_CANDIDATES]
+                    out.append(
+                        FixCandidate(
+                            tier=prim.tier,
+                            name=name,
+                            kind="primitive",
+                            source="default",
+                            payload={"primitive": name, "params": params},
+                        )
+                    )
+        return finalize(out)
 
     def _l4_candidates(self, hyp_lines: str) -> "list[FixCandidate]":
         """L4 recipe — recorded for the escalation decision; executor is TODO."""
@@ -984,19 +1829,25 @@ class FixAgent:
                     dataset_recipe=str(raw.get("dataset_recipe", "")),
                     method=str(raw.get("method", "lora")),
                     target=str(raw.get("target", "llm")),
-                    eval_protocol=str(raw.get("eval_protocol", "")) or
-                                  FinetuneSpec("").eval_protocol,
+                    eval_protocol=str(raw.get("eval_protocol", ""))
+                    or FinetuneSpec("").eval_protocol,
                     rationale=str(raw.get("rationale", "")),
                 )
         if spec is None or not spec.dataset_recipe:
             spec = FinetuneSpec(
                 dataset_recipe="TODO: synthesise training data generalising the "
-                               "verified failure mechanism",
+                "verified failure mechanism",
                 rationale="default skeleton — no judge recipe available",
             )
-        return [FixCandidate(tier=FixTier.L4_PARAMETERS, name="finetune_recipe",
-                             kind="finetune_spec", payload=spec.to_dict(),
-                             source="judge" if self._judge is not None else "default")]
+        return [
+            FixCandidate(
+                tier=FixTier.L4_PARAMETERS,
+                name="finetune_recipe",
+                kind="finetune_spec",
+                payload=spec.to_dict(),
+                source="judge" if self._judge is not None else "default",
+            )
+        ]
 
     def _ask_judge_object(self, prompt: str) -> "dict[str, Any]":
         """Single-JSON-object variant of :meth:`_ask_judge`."""
@@ -1007,8 +1858,9 @@ class FixAgent:
         except Exception as exc:
             logger.warning("FixAgent: judge call failed: %s", exc)
             return {}
-        match = re.search(r"\{.*\}", re.sub(r"<think>.*?</think>", "", raw,
-                                              flags=re.DOTALL), flags=re.DOTALL)
+        match = re.search(
+            r"\{.*\}", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL), flags=re.DOTALL
+        )
         if not match:
             return {}
         try:
@@ -1025,8 +1877,9 @@ class FixAgent:
         except Exception as exc:
             logger.warning("FixAgent: judge call failed: %s", exc)
             return []
-        match = re.search(r"\[.*\]", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL),
-                          flags=re.DOTALL)
+        match = re.search(
+            r"\[.*\]", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL), flags=re.DOTALL
+        )
         if not match:
             return []
         try:
@@ -1043,21 +1896,45 @@ class FixAgent:
     ) -> "tuple[dict[str, Optional[bool]], set[str]]":
         """Measure the unmodified baseline; flag noise-unstable cases.
 
-        Returns ``(scores, unstable_ids)``.  With ``baseline_repeats == 1`` the
-        behaviour is unchanged (one pass, ``unstable`` empty).  With more
-        repeats, each case's modal score is used and any case that both passed
-        and failed across repeats is reported as unstable — its baseline is
-        sampling noise, so blaming a later candidate for "breaking" it would be
-        spurious; such cases are dropped from the paired test.
+        Returns ``(scores, unstable_ids)``. When a case already carries an
+        ``observed`` output and ``baseline_repeats == 1``, that frozen baseline
+        is used directly. Re-generating it would make a supposedly paired
+        comparison depend on endpoint non-determinism and wastes one model
+        call per case. With more repeats, each case's modal fresh score is
+        used and any case that both passed and failed across repeats is
+        reported as unstable — its baseline is sampling noise, so blaming a
+        later candidate for "breaking" it would be spurious; such cases are
+        dropped from the paired test.
         """
+        if self._baseline_repeats == 1:
+            frozen: "dict[str, Optional[bool]]" = {}
+            missing = []
+            for case in data:
+                observed = getattr(case, "observed", None)
+                if observed is None:
+                    missing.append(case)
+                    continue
+                frozen[case.id] = score_to_bool(self._score(case, str(observed)))
+            if not missing:
+                return frozen, set()
+            # Preserve the frozen scores and generate only legacy cases that
+            # were constructed without an observed baseline.
+            fresh, unstable = self._baseline_fresh(model, missing)
+            frozen.update(fresh)
+            return frozen, unstable
+        return self._baseline_fresh(model, data)
+
+    def _baseline_fresh(
+        self, model: "Model", data: "CaseBatch"
+    ) -> "tuple[dict[str, Optional[bool]], set[str]]":
+        """Generate a baseline when no frozen observation is available."""
         counts: "dict[str, list[int]]" = {c.id: [0, 0] for c in data}  # [false, true]
         for _ in range(self._baseline_repeats):
             for case in data:
                 try:
                     output = str(model.generate(case.inputs))
                 except Exception as exc:
-                    logger.debug("FixAgent: baseline generate failed on %s: %s",
-                                 case.id, exc)
+                    logger.debug("FixAgent: baseline generate failed on %s: %s", case.id, exc)
                     continue
                 s = score_to_bool(self._score(case, output))
                 if s is True:
@@ -1103,8 +1980,130 @@ class FixAgent:
                 return True
         return True
 
-    def _strategy(self, candidate: FixCandidate) -> "Callable[[Model, FailureCase], Optional[bool]]":
+    def _strategy(
+        self, candidate: FixCandidate
+    ) -> "Callable[[Model, FailureCase], Optional[bool]]":
         """Compile a candidate to a per-case success function (ab_runner shape)."""
+        if candidate.kind == "vcd":
+
+            def vcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_vcd = getattr(model, "generate_vcd")
+                    output = generate_vcd(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("VCD generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return vcd
+        if candidate.kind == "icd":
+
+            def icd(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_icd = getattr(model, "generate_instruction_cd")
+                    output = generate_icd(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("ICD generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return icd
+        if candidate.kind == "vicrop":
+
+            def vicrop(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_vicrop = getattr(model, "generate_vicrop")
+                    output = generate_vicrop(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("ViCrop generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return vicrop
+        if candidate.kind == "vicrop_consensus":
+
+            def vicrop_consensus(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_vicrop = getattr(model, "generate_vicrop_consensus")
+                    output = generate_vicrop(
+                        case.inputs,
+                        baseline_answer=str(getattr(case, "observed", "")),
+                        **candidate.payload,
+                    )
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("ViCrop consensus generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return vicrop_consensus
+        if candidate.kind == "opera":
+
+            def opera(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_opera = getattr(model, "generate_opera_binary")
+                    output = generate_opera(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("OPERA binary generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return opera
+        if candidate.kind == "ifcd":
+
+            def ifcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_ifcd = getattr(model, "generate_ifcd")
+                    output = generate_ifcd(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("IFCD generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return ifcd
+        if candidate.kind == "pai":
+
+            def pai(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_pai = getattr(model, "generate_pai")
+                    output = generate_pai(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("PAI generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return pai
+        if candidate.kind == "visual_search":
+
+            def visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    search = getattr(model, "generate_visual_search")
+                    output = search(
+                        case.inputs,
+                        baseline_answer=getattr(case, "observed", None),
+                        **candidate.payload,
+                    )
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("Guided visual search failed on %s: %s", case.id, exc)
+                    return None
+
+            return visual_search
+        if candidate.kind == "detector_visual_search":
+
+            def detector_visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    search = getattr(model, "generate_detector_visual_search")
+                    output = search(
+                        case.inputs,
+                        baseline_answer=getattr(case, "observed", None),
+                        **candidate.payload,
+                    )
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("Detector visual search failed on %s: %s", case.id, exc)
+                    return None
+
+            return detector_visual_search
         if candidate.kind == "template":
             template = candidate.payload["prompt_template"]
 
@@ -1112,13 +2111,18 @@ class FixAgent:
                 from evalvitals.core.case import Inputs
 
                 inp = case.inputs
+                metadata = getattr(case, "metadata", {}) or {}
+                template_context = {str(key): value for key, value in metadata.items()}
+                template_context["prompt"] = str(getattr(inp, "prompt", ""))
+                template_context.setdefault("failure_axis", "the relevant visual evidence")
                 new_inputs = Inputs(
-                    prompt=template.format(prompt=str(getattr(inp, "prompt", ""))),
-                    image=getattr(inp, "image", None))
+                    prompt=template.format(**template_context), image=getattr(inp, "image", None)
+                )
                 try:
                     return score_to_bool(self._score(case, str(model.generate(new_inputs))))
                 except Exception:
                     return None
+
             return l1
 
         spec = PipelineSpec.from_dict(candidate.payload)
@@ -1136,6 +2140,11 @@ class FixAgent:
         if candidate.kind == "code":
             result = self._run_coded(candidate, model, data)
             return score_outputs(result, data, self._score)
+        if candidate.kind == "finetune_spec":
+            result = run_lora_repair(model, self._finetune_pool, data, candidate.payload, self._score)
+            if isinstance(candidate.payload, dict):
+                candidate.payload["exec_error"] = "" if result.ok else result.error
+            return result.scores
         strategy = self._strategy(candidate)
         return {case.id: strategy(model, case) for case in data}
 
@@ -1151,33 +2160,41 @@ class FixAgent:
         """
         workdir = self._workdir(candidate.trial)
         result = run_coded_pipeline(
-            candidate.payload["code"], model, data,
-            workdir=workdir, timeout_sec=self._exec_timeout_sec,
+            candidate.payload["code"],
+            model,
+            data,
+            workdir=workdir,
+            timeout_sec=self._exec_timeout_sec,
             enable_attend=bool(candidate.payload.get("enable_attend")),
         )
         if not result.ok and self.codegen_available:
-            logger.warning("FixAgent: coded pipeline failed (%s) — one repair round",
-                           result.error)
+            logger.warning("FixAgent: coded pipeline failed (%s) — one repair round", result.error)
             repaired, source, raw = self._repair_code(candidate, result.error)
-            self._emit_codegen("coded_pipeline_repair", self._last_repair_prompt,
-                               source, repaired, raw, ok=bool(repaired.strip()),
-                               trial=candidate.trial)
+            self._emit_codegen(
+                "coded_pipeline_repair",
+                self._last_repair_prompt,
+                source,
+                repaired,
+                raw,
+                ok=bool(repaired.strip()),
+                trial=candidate.trial,
+            )
             if repaired.strip():
                 candidate.payload["code"] = repaired
                 result = run_coded_pipeline(
-                    repaired, model, data,
-                    workdir=workdir, timeout_sec=self._exec_timeout_sec,
+                    repaired,
+                    model,
+                    data,
+                    workdir=workdir,
+                    timeout_sec=self._exec_timeout_sec,
                     enable_attend=bool(candidate.payload.get("enable_attend")),
                 )
         candidate.payload["exec_error"] = "" if result.ok else result.error
         if not result.ok:
-            logger.warning("FixAgent: coded pipeline produced no result: %s",
-                           result.error)
+            logger.warning("FixAgent: coded pipeline produced no result: %s", result.error)
         return result
 
-    def _repair_code(
-        self, candidate: FixCandidate, error: str
-    ) -> "tuple[str, str, str]":
+    def _repair_code(self, candidate: FixCandidate, error: str) -> "tuple[str, str, str]":
         """Ask the coder to fix its failed pipeline; returns (code, source, raw)."""
         from evalvitals.eval_agent.stages.fix_pipeline import (
             CASES_FILENAME,
@@ -1186,7 +2203,8 @@ class FixAgent:
 
         attend_clause = (
             " and model_attend(case_id, prompt=None)"
-            if candidate.payload.get("enable_attend") else ""
+            if candidate.payload.get("enable_attend")
+            else ""
         )
         base = _REPAIR_PROMPT_BODY.format(
             error=error[:600],
@@ -1198,11 +2216,15 @@ class FixAgent:
         )
         code, source, raw = "", "", ""
         if self._cli_config is not None and self._cli_config.provider != "llm":
-            self._last_repair_prompt = base + "\nWrite the corrected code to a file named pipeline.py."
+            self._last_repair_prompt = (
+                base + "\nWrite the corrected code to a file named pipeline.py."
+            )
             code, raw = self._write_code_cli(self._last_repair_prompt, candidate.trial)
             source = f"cli:{self._cli_config.provider}"
         if not code.strip() and self._judge is not None:
-            self._last_repair_prompt = base + "\nReturn ONLY the corrected Python code inside a ```python code block."
+            self._last_repair_prompt = (
+                base + "\nReturn ONLY the corrected Python code inside a ```python code block."
+            )
             try:
                 raw = str(self._judge.generate(self._last_repair_prompt))
             except Exception as exc:
@@ -1228,11 +2250,6 @@ class FixAgent:
         unstable: "set[str] | None" = None,
     ) -> FixValidation:
         v = FixValidation(candidate=candidate)
-        if candidate.kind == "finetune_spec":
-            v.verdict = "not_executed"
-            v.summary = ("L4 executor TODO — fine-tune recipe recorded, "
-                         "not executed (see candidate payload)")
-            return v
         unstable = unstable or set()
         scores = self._candidate_scores(candidate, model, data)
         if isinstance(candidate.payload, dict):
@@ -1269,12 +2286,17 @@ class FixAgent:
                 v.n_broken += 1
                 v.broken_cases.append(case.id)
         v.n_pairs = len(base_vec)
+        v.n_baseline_correct = sum(base_vec)
+        v.n_candidate_correct = sum(cand_vec)
         v.n_applicable = v.n_pairs
         v.coverage = (applicable_fail / n_fail) if n_fail else None
         if v.n_pairs == 0:
             v.verdict = "not_executed"
-            v.summary = (f"never executed: {v.exec_error}" if v.exec_error
-                         else "no applicable scorable pair — candidate unvalidatable")
+            v.summary = (
+                f"never executed: {v.exec_error}"
+                if v.exec_error
+                else "no applicable scorable pair — candidate unvalidatable"
+            )
             return v
         try:
             stat = compare(base_vec, cand_vec, paired=True, alpha=self._alpha)
@@ -1300,18 +2322,22 @@ class FixAgent:
         if v.fixed:
             return "fixed"
         if v.reject and (v.effect or 0.0) < 0:
-            return "regressed"          # significantly worse
+            return "regressed"  # significantly worse
         net = v.n_fixed - v.n_broken
         if net > 0:
-            return "partial"            # helped more than hurt, not significant
+            return "partial"  # helped more than hurt, not significant
         if v.n_broken > v.n_fixed:
-            return "unsafe"             # breaks more than it fixes
+            return "unsafe"  # breaks more than it fixes
         return "no_effect"
 
     # -- recommendation + logging ------------------------------------------
 
     def _recommend(
-        self, routed: "list[FixTier]", reason_prefix: str = ""
+        self,
+        routed: "list[FixTier]",
+        *,
+        model: "Model | None" = None,
+        reason_prefix: str = "",
     ) -> "dict[str, Any] | None":
         above = sorted(t for t in routed if t > self.max_tier)
         if above:
@@ -1328,9 +2354,42 @@ class FixAgent:
             )
         else:
             return None  # already at L4 — nothing above to recommend
+        skipped: "list[str]" = []
+        while (
+            model is not None
+            and target
+            in {
+                FixTier.L3A_INTERNALS_READ,
+                FixTier.L3B_INTERNALS_WRITE,
+            }
+            and not self._tier_available(target, model)
+        ):
+            skipped.append(target.label)
+            if target >= FixTier.L4_PARAMETERS:
+                return None
+            target = FixTier(target + 1)
+        if skipped:
+            reason += (
+                f"; skipped unsupported tier(s) {', '.join(skipped)} for this model "
+                f"and routed to {target.describe()}"
+            )
         if reason_prefix:
             reason = f"{reason_prefix}; {reason}"
         return {"recommend_tier": target.label, "reason": reason}
+
+    @staticmethod
+    def _tier_available(tier: FixTier, model: "Model") -> bool:
+        """Whether an invasive tier has a usable executor for this model."""
+        if tier == FixTier.L3A_INTERNALS_READ:
+            from evalvitals.core.capability import Capability
+
+            return Capability.ATTENTION in getattr(model, "capabilities", frozenset())
+        if tier == FixTier.L3B_INTERNALS_WRITE:
+            return any(
+                primitive.tier == tier and primitive.available(model)
+                for primitive in INTERNALS_PRIMITIVES.values()
+            )
+        return True
 
     def _emit(self, outcome: FixOutcome) -> None:
         if self.run_logger is None:

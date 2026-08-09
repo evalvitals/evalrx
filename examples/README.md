@@ -11,6 +11,13 @@ Examples are grouped by the layer they exercise:
   proposal) examples via `evalvitals explore`, outside the loop.
 - `diagnosis_loops/` — full diagnosis-loop examples (`AutoDiagnoseLoop`,
   `VLDiagnoseLoop`, DeCo/Qwen scenarios, and related loop demos).
+- `paper_diagnosis_benchmark/` — five research papers used as a meta-evaluation
+  corpus: download PDFs locally, extract evidence records, then use the public
+  `evalvitals explore` interface to surface framework gaps and unsafe repair
+  recommendations. PDFs and generated reports are gitignored.
+- `vlm_paper_benchmark/` — six image-bearing VLM papers (including TextVQA,
+  V*Bench and POPE), with a deterministic local-data adapter for visual
+  detect → fix experiments. Images and reports are gitignored.
 
 Run each example from its own directory, for example:
 
@@ -29,6 +36,8 @@ cd examples/agent_demos/vtcbench_diagnosis && python run_m1.py && bash run_explo
                                                                           # full agent diagnosis on a VTC-Bench task:
                                                                           # batch + probes -> records -> explore with
                                                                           # held-out confirm (needs a vllm serve endpoint)
+cd examples/paper_diagnosis_benchmark && python download_papers.py && python build_records.py
+cd examples/paper_diagnosis_benchmark && python run_benchmark.py --backend codex
 ```
 
 The `deco_hallu_explore` example has three runnable variants: the raw probe

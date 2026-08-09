@@ -27,10 +27,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install package + dev deps
-        run: pip install -e ".[dev]"
       - name: Install torch (CPU-only, for test fixtures)
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install package + dev deps
+        # local/api/data/finetune/viz are all fixture-only needs (transformers,
+        # accelerate, openai, pillow, datasets, peft, matplotlib) -- torch is
+        # already satisfied by the CPU wheel above so this step won't pull a
+        # CUDA build. Without these, every test guarded by
+        # pytest.importorskip() for one of them silently never runs in CI at
+        # all -- which is how 16+ failures and a 4-more-hidden-behind-them
+        # matplotlib gap went unnoticed.
+        run: pip install -e ".[dev,local,api,data,finetune,viz]"
       - name: Run fast unit tests
         run: pytest -m "not gpu" --cov=evalvitals --cov-report=xml -q
       - name: Upload coverage

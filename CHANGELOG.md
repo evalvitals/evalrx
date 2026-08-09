@@ -6,6 +6,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — L4 fix tier: first executable shape (LoRA on the language model)
+
+`FixAgent`'s L4 (parameter space) tier previously only recorded a
+`FinetuneSpec` recipe for a human decision. `run_lora_repair`
+(`fix_internals.py`) now executes the one recipe shape this v1 supports —
+`method="lora"` on `target="llm"` — end to end: LoRA is spliced into the
+model's underlying HF module via `peft`, trained on a caller-supplied
+diagnosis-only pool (`FixAgent(finetune_pool=...)`, never the batch being
+validated), generated against the validation batch, and unloaded again —
+validated through the exact same paired McNemar + e-value machinery as
+every other tier, so L4 is no longer a special case in the outcome. Every
+other recipe shape (`method="sft"`/`"full"`, `target="vision_encoder"`/
+`"projector"`) is still recorded, not executed, with a reason naming what's
+missing. `dataset_recipe` (free judge-written text) is deliberately never
+interpreted — training data is a fixed default (failing cases as SFT
+targets, passing cases as anti-forgetting ballast) rather than another
+judge call producing executable code. New optional dependency group
+`evalvitals[finetune]` (`peft`). See `fix_internals.py`'s module docstring
+and `FixAgent.__init__`'s `finetune_pool` parameter.
+
 ### Added — L2 loop policy VALIDATED by cross-task replication (the loop's first shipped fix)
 
 The pre-registered `L2_loop_policy` arm (block identical repeats + force a

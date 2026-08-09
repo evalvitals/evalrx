@@ -17,6 +17,8 @@ lazily so this module imports on a torch-free install.
 
 from __future__ import annotations
 
+import math
+from pathlib import Path
 from typing import Any
 
 from evalvitals.core.capability import Capability, CapabilityError
@@ -61,7 +63,7 @@ def _populate_vision_extras(
     """
     image_token_id = getattr(model_config, vision.image_token_id_attr, None)
     if image_token_id is not None:
-        extras["image_token_mask"] = (input_ids == image_token_id)
+        extras["image_token_mask"] = input_ids == image_token_id
 
     merge = int(_read_nested_attr(model_config, vision.merge_size_attr, default=1) or 1)
 
@@ -118,17 +120,22 @@ def _format_vlm_input(processor: Any, tok: Any, prompt: str, image: Any) -> "tup
     so that image placeholder tokens are inserted at the correct position.
     Returns ``(text, [image])`` or ``(prompt, [])`` when no image is given.
     """
-    apply_fn = getattr(processor, "apply_chat_template", None) or getattr(tok, "apply_chat_template", None)
+    apply_fn = getattr(processor, "apply_chat_template", None) or getattr(
+        tok, "apply_chat_template", None
+    )
     if apply_fn is None:
         return prompt, ([image] if image is not None else [])
 
     content: list = []
-    if image is not None:
-        content.append({"type": "image", "image": image})
+    images = (
+        list(image) if isinstance(image, (list, tuple)) else ([image] if image is not None else [])
+    )
+    for item in images:
+        content.append({"type": "image", "image": item})
     content.append({"type": "text", "text": prompt})
     messages = [{"role": "user", "content": content}]
     text = apply_fn(messages, tokenize=False, add_generation_prompt=True)
-    return text, ([image] if image is not None else [])
+    return text, images
 
 
 class HFLocalModel(Model):
@@ -138,13 +145,13 @@ class HFLocalModel(Model):
         self.spec = spec
         self.runtime = runtime
         self._hf = None  # (model, processor) — lazy
+        self._ifcd_editors: dict[str, Any] = {}
         caps = {
             Capability.GENERATE,
             Capability.LOGITS,
+            Capability.LOGPROBS,
             Capability.HIDDEN_STATES,
         }
-        if not spec.is_vlm:
-            caps.add(Capability.LOGPROBS)
         if spec.attn_semantics is not AttnSemantics.NONE:
             caps.add(Capability.ATTENTION)
         # TOOL_CALLS is a CONDITIONAL capability for local models: the backend
@@ -155,8 +162,57 @@ class HFLocalModel(Model):
         self.capabilities = frozenset(caps)
         self.modalities = frozenset(spec.modalities)  # text / image / audio / video, from the spec
 
+    def paper_method_fidelity(self, method: str) -> str:
+        """Declare whether a paper-method adapter is exact or architecture-adapted.
+
+        ``FixAgent`` admits architecture-native paper routes by default.  An
+        experiment may explicitly opt into ``"adapted"`` methods, but reports
+        must retain that distinction rather than treating a same-formula port
+        to a different model architecture as a paper reproduction.
+        """
+        if method == "vcd":
+            # The executor uses the released corruption, plausibility cutoff,
+            # and per-token sampler. Image-specific seeding keeps paired
+            # evaluation independent of iteration order.
+            return "per_item_seeded_sampler_specialization"
+        if method == "icd":
+            return (
+                "native_binary_specialization"
+                if self.spec.model_type == "instructblip"
+                else "adapted"
+            )
+        if method == "vicrop":
+            return (
+                "native_selector_specialization" if self.spec.model_type == "llava" else "adapted"
+            )
+        if method == "opera":
+            # This preserves OPERA's first-token over-trust penalty for POPE's
+            # binary task. Its beam rollback is not meaningful when exactly
+            # one output token is evaluated.
+            return (
+                "native_binary_specialization" if self.spec.model_type == "llava" else "unavailable"
+            )
+        if method == "ifcd":
+            checkpoint = self.runtime.engine_kwargs.get("ifcd_checkpoint")
+            if self.spec.model_type == "llava" and checkpoint and Path(str(checkpoint)).is_file():
+                # The public Vicuna TruthX artifact is compatible with
+                # LLaVA-1.5's decoder but is not the paper's MSCOCO-trained
+                # editor, and modern HF hooks after ``o_proj``. Never promote
+                # this to an exact IFCD reproduction.
+                return "adapted_truthx_artifact"
+            return "unavailable"
+        if method == "pai":
+            return (
+                "native_attention_cfg_specialization"
+                if self.spec.model_type == "llava"
+                else "unavailable"
+            )
+        return "unavailable"
+
     @classmethod
-    def from_loaded(cls, model, tokenizer, spec=None, runtime: "RuntimeConfig | None" = None) -> "HFLocalModel":
+    def from_loaded(
+        cls, model, tokenizer, spec=None, runtime: "RuntimeConfig | None" = None
+    ) -> "HFLocalModel":
         """Wrap an ALREADY-LOADED HF model + tokenizer (the ``wrap()`` on-ramp).
 
         Unlike the spec-driven path, no weights are fetched: we inject the live
@@ -231,7 +287,11 @@ class HFLocalModel(Model):
         proc_cls = getattr(transformers, self.spec.processor_class, transformers.AutoProcessor)
 
         attn_impl = self.runtime.attn_impl
-        if attn_impl is None and self.spec.eager_required_for_attn and Capability.ATTENTION in self.capabilities:
+        if (
+            attn_impl is None
+            and self.spec.eager_required_for_attn
+            and Capability.ATTENTION in self.capabilities
+        ):
             attn_impl = "eager"  # sdpa/flash return None attentions
 
         # Use `dtype` (the current transformers param; `torch_dtype` is deprecated).
@@ -245,12 +305,16 @@ class HFLocalModel(Model):
         device = self.runtime.device
         if device in (None, "auto") or isinstance(device, dict):
             # device_map path (multi-GPU / sharded) — needs accelerate
-            model = auto_cls.from_pretrained(self.spec.hf_repo, device_map=device or "auto", **kwargs)
+            model = auto_cls.from_pretrained(
+                self.spec.hf_repo, device_map=device or "auto", **kwargs
+            )
         else:
             # explicit single device ("cuda" / "cuda:0" / "cpu") — no accelerate dependency
             model = auto_cls.from_pretrained(self.spec.hf_repo, **kwargs).to(device)
         model.eval()
-        processor = proc_cls.from_pretrained(self.spec.hf_repo, trust_remote_code=self.spec.trust_remote_code)
+        processor = proc_cls.from_pretrained(
+            self.spec.hf_repo, trust_remote_code=self.spec.trust_remote_code
+        )
 
         # Verify the declared TOOL_CALLS capability against the actual template.
         if self.spec.tool_calling:
@@ -296,26 +360,45 @@ class HFLocalModel(Model):
             prompt = self._as_prompt(inputs)
             enc = self._encode(prompt)
         enc.pop("token_type_ids", None)  # some VLM processors emit this; generate() rejects it
-        max_new = kwargs.pop("max_new_tokens", self.runtime.max_new_tokens)
+        # "max_tokens" is the OpenAI-style name FixAgent's judge-proposed L2
+        # PipelineSpecs use (see fix_tools._safe_generation_kwargs and the
+        # _L2_PROMPT schema); transformers' generate() only recognises
+        # max_new_tokens and raises ValueError on an unrecognised kwarg
+        # rather than ignoring it, so every call in a judge-proposed
+        # pipeline silently failed (caught by run_pipeline's per-call
+        # try/except) and every case came back unscoreable. max_new_tokens
+        # wins if a caller passes both.
+        max_new = kwargs.pop("max_new_tokens", None)
+        if max_new is None:
+            max_new = kwargs.pop("max_tokens", self.runtime.max_new_tokens)
+        else:
+            kwargs.pop("max_tokens", None)
         with torch.no_grad():
             out = model.generate(**enc, max_new_tokens=max_new, **kwargs)
-        new = out[0][enc["input_ids"].shape[1]:]
+        new = out[0][enc["input_ids"].shape[1] :]
         return tok.decode(new, skip_special_tokens=True)
 
-    def logprobs(self, inputs: Any, max_new_tokens: int = 64, top_k: int = 5, **kwargs) -> list[TokenLogprob]:
+    def logprobs(
+        self, inputs: Any, max_new_tokens: int = 64, top_k: int = 5, **kwargs
+    ) -> list[TokenLogprob]:
         """Per-output-token logprobs via greedy generate with output_scores."""
         import torch
 
-        if self.spec.is_vlm:
-            raise NotImplementedError(f"{self.spec.key}: VLM logprobs is Stage 2 (text-only for now).")
         model, processor = self._loaded
         tok = getattr(processor, "tokenizer", processor)
-        enc = self._encode(self._as_prompt(inputs))
+        if self.spec.is_vlm:
+            enc, _, _, _ = self._encode_vlm(inputs, model, processor)
+        else:
+            enc = self._encode(self._as_prompt(inputs))
+        enc.pop("token_type_ids", None)
         n_in = enc["input_ids"].shape[1]
         with torch.no_grad():
             out = model.generate(
-                **enc, max_new_tokens=max_new_tokens, do_sample=False,
-                output_scores=True, return_dict_in_generate=True,
+                **enc,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                output_scores=True,
+                return_dict_in_generate=True,
             )
         gen_ids = out.sequences[0][n_in:].tolist()
         result: list[TokenLogprob] = []
@@ -326,6 +409,497 @@ class HFLocalModel(Model):
             top = {tok.decode([int(j)]): float(v) for v, j in zip(topk.values, topk.indices)}
             result.append(TokenLogprob(token=tok.decode([tid]), logprob=float(lp[tid]), top=top))
         return result
+
+    def _vcd_encodings(
+        self,
+        inputs: Any,
+        *,
+        noise_step: int,
+        noise_seed: int,
+    ) -> tuple[Any, dict[str, Any]]:
+        """Build clean/noisy VCD inputs at the published tensor boundary.
+
+        The VCD release calls ``add_diffusion_noise`` *after* its image
+        processor: it perturbs the model's normalized image tensor, not an RGB
+        image that will subsequently be normalized again.  Matching that
+        boundary is material; image-space noise has a different distribution.
+        A content-derived seed preserves paired-test reproducibility without
+        coupling one example's corruption to the iteration order of another.
+        """
+        import hashlib
+
+        import torch
+
+        model, processor = self._loaded
+        enc, _, _, _ = self._encode_vlm(inputs, model, processor)
+        enc.pop("token_type_ids", None)
+        pixels = enc.get("pixel_values")
+        if pixels is None:
+            raise ValueError(f"{self.spec.key}: VCD requires processor pixel_values")
+        step = max(0, min(999, int(noise_step)))
+        # This is vcd_utils/vcd_add_noise.py verbatim in numerical form.
+        betas = torch.sigmoid(torch.linspace(-6, 6, 1000, device=pixels.device))
+        betas = betas * (0.5e-2 - 1e-5) + 1e-5
+        alpha_bar = torch.cumprod(1 - betas, dim=0)[step].to(dtype=pixels.dtype)
+        digest = hashlib.sha256(pixels.detach().float().cpu().numpy().tobytes()).digest()
+        item_seed = (int(noise_seed) + int.from_bytes(digest[:8], "little")) % (2**63 - 1)
+        generator = torch.Generator(device=pixels.device).manual_seed(item_seed)
+        noise = torch.randn(
+            pixels.shape, device=pixels.device, dtype=pixels.dtype, generator=generator
+        )
+        noisy_enc = dict(enc)
+        noisy_enc["pixel_values"] = alpha_bar.sqrt() * pixels + (1 - alpha_bar).sqrt() * noise
+        return enc, noisy_enc
+
+    def _vcd_next_token_logits(
+        self,
+        inputs: Any,
+        *,
+        noise_step: int,
+        noise_seed: int,
+    ) -> tuple[Any, Any]:
+        """Return clean/noisy next-token logits for the legacy binary route."""
+        import torch
+
+        model, _ = self._loaded
+        enc, noisy_enc = self._vcd_encodings(
+            inputs, noise_step=noise_step, noise_seed=noise_seed
+        )
+        with torch.no_grad():
+            clean = model(**enc).logits[0, -1]
+            noisy = model(**noisy_enc).logits[0, -1]
+        return clean, noisy
+
+    def generate_vcd(
+        self,
+        inputs: Any,
+        *,
+        alpha: float = 0.5,
+        beta: float = 0.1,
+        noise_step: int = 500,
+        noise_seed: int = 55,
+    ) -> str:
+        """Run VCD's released contrastive formula through every output token.
+
+        The source sampler uses temperature-one multinomial sampling.  Here the
+        diffusion noise is seeded per image content, rather than a global loop
+        RNG, so a frozen selection/confirmation split remains reproducible if
+        case order changes.  That seed policy is recorded as a specialization.
+        """
+        if not self.spec.is_vlm:
+            raise ValueError("VCD visual contrast requires a VLM")
+        image = getattr(inputs, "image", None)
+        if image is None or isinstance(image, (list, tuple)):
+            raise ValueError("VCD requires one image and a binary answer task")
+        import hashlib
+
+        import torch
+        from transformers.generation.logits_process import LogitsProcessorList
+
+        model, processor = self._loaded
+        tok = getattr(processor, "tokenizer", processor)
+        clean_enc, noisy_enc = self._vcd_encodings(
+            inputs, noise_step=noise_step, noise_seed=noise_seed
+        )
+        from evalvitals.models.paper_methods.vcd import VCDLogitsProcessor
+
+        # Match the release's temperature=1, top_p=1, no-top-k multinomial
+        # branch while preventing evaluation-order-dependent randomness.
+        fingerprint = hashlib.sha256(
+            clean_enc["pixel_values"].detach().float().cpu().numpy().tobytes()
+        ).digest()
+        item_seed = (int(noise_seed) + int.from_bytes(fingerprint[:8], "little")) % (2**63 - 1)
+        processor_list = LogitsProcessorList(
+            [VCDLogitsProcessor(model, noisy_enc, alpha=alpha, beta=beta)]
+        )
+        cuda_devices = [clean_enc["input_ids"].device.index] if clean_enc["input_ids"].is_cuda else []
+        with torch.random.fork_rng(devices=cuda_devices), torch.no_grad():
+            torch.manual_seed(item_seed)
+            if clean_enc["input_ids"].is_cuda:
+                torch.cuda.manual_seed(item_seed)
+            out = model.generate(
+                **clean_enc,
+                max_new_tokens=self.runtime.max_new_tokens,
+                do_sample=True,
+                temperature=1.0,
+                top_p=1.0,
+                top_k=0,
+                use_cache=True,
+                logits_processor=processor_list,
+            )
+        return tok.decode(out[0][clean_enc["input_ids"].shape[1] :], skip_special_tokens=True)
+
+    def generate_vcd_baseline(self, inputs: Any, *, noise_seed: int = 55) -> str:
+        """Sample the clean VCD control with the candidate's per-image RNG.
+
+        VCD evaluates both arms with temperature-one multinomial sampling. A
+        greedy baseline paired with a sampled contrastive arm is not a valid
+        paper-method comparison, so the white-box runner calls this method
+        whenever it freezes the VCD candidate.
+        """
+        if not self.spec.is_vlm:
+            raise ValueError("VCD clean control requires a VLM")
+        image = getattr(inputs, "image", None)
+        if image is None or isinstance(image, (list, tuple)):
+            raise ValueError("VCD clean control requires one image")
+        import hashlib
+
+        import torch
+
+        model, processor = self._loaded
+        clean_enc, _ = self._vcd_encodings(inputs, noise_step=999, noise_seed=noise_seed)
+        fingerprint = hashlib.sha256(
+            clean_enc["pixel_values"].detach().float().cpu().numpy().tobytes()
+        ).digest()
+        item_seed = (int(noise_seed) + int.from_bytes(fingerprint[:8], "little")) % (2**63 - 1)
+        cuda_devices = [clean_enc["input_ids"].device.index] if clean_enc["input_ids"].is_cuda else []
+        with torch.random.fork_rng(devices=cuda_devices), torch.no_grad():
+            torch.manual_seed(item_seed)
+            if clean_enc["input_ids"].is_cuda:
+                torch.cuda.manual_seed(item_seed)
+            out = model.generate(
+                **clean_enc,
+                max_new_tokens=self.runtime.max_new_tokens,
+                do_sample=True,
+                temperature=1.0,
+                top_p=1.0,
+                top_k=0,
+                use_cache=True,
+            )
+        tok = getattr(processor, "tokenizer", processor)
+        return tok.decode(out[0][clean_enc["input_ids"].shape[1] :], skip_special_tokens=True)
+
+    def generate_instruction_cd(
+        self,
+        inputs: Any,
+        *,
+        alpha: float = 1.0,
+        beta: float = 0.1,
+        qformer_mode: str = "normal",
+        disturbance: str = (
+            "You are a confused objects detector to provide a fuzzy overview "
+            "or impression of the image."
+        ),
+    ) -> str:
+        """ICD for a binary visual-grounding decision.
+
+        ICD (Wang et al., ACL 2024) contrasts a normal forward pass with a
+        *disturbance-instruction* pass.  For InstructBLIP, the disturbance
+        replaces only ``qformer_input_ids`` while the decoder prompt remains
+        intact, matching the released ``normal.json`` route; ``qformer_mode``
+        can also run the released disturbed-question variant.  Decoder-only
+        VLMs such as Qwen have no Q-Former, so their text-prefix fallback is
+        explicitly architecture-adapted.
+
+        As with :meth:`generate_vcd`, this intentionally supports only a
+        one-token Yes/No task.  Applying a first-token shortcut to free-form
+        generation would not implement ICD's token-by-token sampler.
+        """
+        if not self.spec.is_vlm:
+            raise ValueError("instruction contrast requires a VLM")
+        image = getattr(inputs, "image", None)
+        if image is None or isinstance(image, (list, tuple)):
+            raise ValueError("instruction contrast requires one image and a binary answer task")
+        model, processor = self._loaded
+        tok = getattr(processor, "tokenizer", processor)
+
+        def token_id(answer: str) -> int:
+            for spelling in (" " + answer, answer):
+                encoded = tok(spelling, add_special_tokens=False)["input_ids"]
+                if len(encoded) == 1:
+                    return int(encoded[0])
+            raise ValueError(
+                f"{self.spec.key}: {answer!r} is not one token; ICD binary mode unavailable"
+            )
+
+        if self.spec.model_type == "instructblip":
+            import torch
+
+            if qformer_mode not in {"normal", "question"}:
+                raise ValueError("qformer_mode must be 'normal' or 'question'")
+            enc, _, _, _ = self._encode_vlm(inputs, model, processor)
+            clean_enc = dict(enc)
+            dirty_enc = dict(enc)
+            disturbed_qformer_prompt = str(disturbance)
+            if qformer_mode == "question":
+                disturbed_qformer_prompt += self._as_prompt(inputs)
+            qformer = processor.qformer_tokenizer(
+                disturbed_qformer_prompt, return_tensors="pt", padding="longest", truncation=True
+            ).to(next(model.parameters()).device)
+            dirty_enc["qformer_input_ids"] = qformer["input_ids"]
+            dirty_enc["qformer_attention_mask"] = qformer["attention_mask"]
+            with torch.no_grad():
+                clean = model(**clean_enc).logits[0, -1]
+                disturbed = model(**dirty_enc).logits[0, -1]
+        else:
+            clean = self.forward(inputs, capture={Capability.LOGITS}).require(Capability.LOGITS)[-1]
+            disturbed_inputs = Inputs(
+                prompt=str(disturbance) + self._as_prompt(inputs), image=image
+            )
+            disturbed = self.forward(disturbed_inputs, capture={Capability.LOGITS}).require(
+                Capability.LOGITS
+            )[-1]
+        ids = {answer: token_id(answer) for answer in ("Yes", "No")}
+        clean_scores = {answer: float(clean[token].float()) for answer, token in ids.items()}
+        disturbed_scores = {
+            answer: float(disturbed[token].float()) for answer, token in ids.items()
+        }
+        cutoff = max(clean_scores.values()) + math.log(float(beta))
+        scores = {
+            answer: (1.0 + float(alpha)) * clean_scores[answer]
+            - float(alpha) * disturbed_scores[answer]
+            for answer in ids
+            if clean_scores[answer] >= cutoff
+        }
+        return max(scores or clean_scores, key=(scores or clean_scores).get)
+
+    def generate_vicrop(self, inputs: Any, *, layer: int | float = 14) -> str:
+        """Run the architecture-native LLaVA ViCrop paper executor."""
+        if self.spec.model_type != "llava":
+            raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
+        from evalvitals.models.paper_methods.vicrop import generate
+
+        return generate(self, inputs, layer=layer)
+
+    def generate_opera_binary(
+        self,
+        inputs: Any,
+        *,
+        num_attn_candidates: int = 5,
+        penalty_weight: float = 1.0,
+    ) -> str:
+        """Run OPERA's first-token over-trust penalty for a binary VQA task.
+
+        OPERA scores each likely continuation by the image attention of the
+        *candidate token* and subtracts ``-image_attention`` from its logit.
+        This is its published early-response penalty verbatim. POPE evaluates
+        a single Yes/No token, therefore the later multi-token rollback branch
+        is intentionally out of scope and this method must stay labelled a
+        binary specialization.
+        """
+        import torch
+
+        if self.spec.model_type != "llava":
+            raise ValueError(f"{self.spec.key}: OPERA binary route is only native on LLaVA")
+        if int(num_attn_candidates) < 1:
+            raise ValueError("num_attn_candidates must be positive")
+        model, processor = self._loaded
+        enc, _, _, _ = self._encode_vlm(inputs, model, processor)
+        enc.pop("token_type_ids", None)
+        image_id = getattr(model.config, "image_token_index", None)
+        if image_id is None:
+            raise ValueError(f"{self.spec.key}: OPERA requires config.image_token_index")
+        image_positions = (enc["input_ids"][0] == int(image_id)).nonzero().flatten()
+        if image_positions.numel() == 0 or not bool(
+            (image_positions[1:] == image_positions[:-1] + 1).all()
+        ):
+            raise ValueError(f"{self.spec.key}: OPERA requires one contiguous image-token span")
+
+        with torch.no_grad():
+            prefill = model(**enc, return_dict=True, output_attentions=True, use_cache=False)
+        if not getattr(prefill, "attentions", None):
+            raise ValueError(f"{self.spec.key}: OPERA requires eager self-attention outputs")
+        raw_logits = prefill.logits[:, -1, :]
+        k = min(int(num_attn_candidates), int(raw_logits.shape[-1]))
+        candidate_scores, candidate_tokens = torch.topk(raw_logits, k, dim=-1, largest=True, sorted=True)
+        adjusted_scores = candidate_scores.clone()
+        for candidate_index in range(k):
+            candidate_enc = dict(enc)
+            candidate_enc["input_ids"] = torch.cat(
+                (enc["input_ids"], candidate_tokens[:, candidate_index : candidate_index + 1]), dim=1
+            )
+            if "attention_mask" in candidate_enc:
+                candidate_enc["attention_mask"] = torch.cat(
+                    (enc["attention_mask"], torch.ones_like(enc["attention_mask"][:, :1])), dim=1
+                )
+            with torch.no_grad():
+                candidate_output = model(
+                    **candidate_enc, return_dict=True, output_attentions=True, use_cache=False
+                )
+            attentions = getattr(candidate_output, "attentions", None)
+            if not attentions:
+                raise ValueError(f"{self.spec.key}: OPERA candidate forward returned no attentions")
+            # Reference OPERA maximises heads then sums the candidate's image
+            # attention. With one beam, selecting the adjusted top candidate
+            # is identical to its first beam-search step.
+            last_attention = attentions[-1].amax(dim=1)[:, -1, :]
+            image_attention = last_attention[:, image_positions].sum(dim=-1)
+            adjusted_scores[:, candidate_index] += float(penalty_weight) * image_attention
+        selected = candidate_tokens.gather(1, adjusted_scores.argmax(dim=-1, keepdim=True)).squeeze(1)
+        tok = getattr(processor, "tokenizer", processor)
+        return tok.decode([int(selected[0])], skip_special_tokens=True)
+
+    def generate_ifcd(
+        self,
+        inputs: Any,
+        *,
+        alpha: float = 0.1,
+        beta: float = 0.1,
+        edit_strength: float = 0.5,
+        top_layers: int = 15,
+        max_new_tokens: int | None = None,
+    ) -> str:
+        """Run an explicitly adapted TruthX-backed IFCD decoder on LLaVA.
+
+        The checkpoint path is a required runtime artifact, rather than an
+        implicit download: its provenance controls whether an experiment can
+        compare itself with IFCD's MSCOCO-trained editor.  This adapter uses
+        modern HF output hooks, so even a matching artifact remains labelled
+        adapted until its pre-``o_proj`` boundary is ported.
+        """
+        import torch
+        from transformers.generation.logits_process import LogitsProcessorList
+
+        if self.spec.model_type != "llava":
+            raise ValueError(f"{self.spec.key}: IFCD is only wired for LLaVA's Vicuna decoder")
+        checkpoint = self.runtime.engine_kwargs.get("ifcd_checkpoint")
+        if not checkpoint or not Path(str(checkpoint)).is_file():
+            raise ValueError("IFCD requires runtime.engine_kwargs['ifcd_checkpoint']")
+        model, processor = self._loaded
+        enc, _, _, _ = self._encode_vlm(inputs, model, processor)
+        enc.pop("token_type_ids", None)
+        key = f"{Path(str(checkpoint)).resolve()}:{int(top_layers)}"
+        editor = self._ifcd_editors.get(key)
+        if editor is None:
+            from evalvitals.models.paper_methods.ifcd import TruthXEditor
+
+            hidden_size = int(getattr(model.config.text_config, "hidden_size", 0) or model.config.hidden_size)
+            editor = TruthXEditor(checkpoint, hidden_size=hidden_size, top_layers=top_layers)
+            self._ifcd_editors[key] = editor
+        from evalvitals.models.paper_methods.ifcd import IFCDLogitsProcessor, truthx_editing
+
+        language_model = getattr(model, "language_model", model)
+        editor.strength = float(edit_strength)
+        processor_list = LogitsProcessorList(
+            [
+                IFCDLogitsProcessor(
+                    model,
+                    dict(enc),
+                    editor,
+                    alpha=alpha,
+                    beta=beta,
+                    edit_strength=edit_strength,
+                )
+            ]
+        )
+        with truthx_editing(language_model, editor), torch.no_grad():
+            out = model.generate(
+                **enc,
+                max_new_tokens=max_new_tokens or self.runtime.max_new_tokens,
+                do_sample=False,
+                logits_processor=processor_list,
+            )
+        tok = getattr(processor, "tokenizer", processor)
+        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+
+    def generate_vicrop_consensus(
+        self,
+        inputs: Any,
+        *,
+        baseline_answer: str,
+        layer: int | float = 14,
+    ) -> str:
+        """Use ViCrop only when independent crop and fused-view answers agree.
+
+        This is a deployment safety guard, not part of the source ViCrop
+        method. It prevents a single misleading attention crop from replacing
+        an otherwise stable baseline answer.
+        """
+        import re
+
+        if self.spec.model_type != "llava":
+            raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
+        from evalvitals.models.paper_methods.vicrop import prepare_views
+
+        image, crop, fused_prompt = prepare_views(self, inputs, layer=layer)
+        fused = self.generate(Inputs(fused_prompt, [image, crop]))
+        crop_only_prompt = (
+            "The image is a task-relative crop selected from a larger scene. "
+            "Answer only from visible evidence in this crop.\n\n"
+            + self._as_prompt(inputs)
+        )
+        crop_only = self.generate(Inputs(crop_only_prompt, crop))
+
+        def decision(text: str) -> str:
+            lowered = str(text).lower()
+            yes_no = re.search(r"\b(yes|no)\b", lowered)
+            if yes_no:
+                return yes_no.group(1)
+            choices = re.findall(r"\b([a-d])\b", lowered)
+            if choices:
+                return choices[-1]
+            return re.sub(r"\W+", "", lowered)
+
+        return fused if decision(fused) and decision(fused) == decision(crop_only) else baseline_answer
+
+    def generate_pai(
+        self,
+        inputs: Any,
+        *,
+        alpha: float = 0.2,
+        guidance_scale: float = 2.0,
+        start_layer: int = 2,
+        end_layer: int = 32,
+        max_new_tokens: int | None = None,
+    ) -> str:
+        """Run PAI's attention and classifier-free-guidance route on LLaVA.
+
+        The attention boost and the image-free classifier-free-guidance cache
+        follow the released PAI decoding path.  It remains an architecture
+        specialization because the source uses its pinned LLaVA stack.
+        """
+        import torch
+
+        if self.spec.model_type != "llava":
+            raise ValueError(f"{self.spec.key}: PAI is only native on the LLaVA executor")
+        model, processor = self._loaded
+        enc, _, _, _ = self._encode_vlm(inputs, model, processor)
+        enc.pop("token_type_ids", None)
+        image_id = getattr(model.config, "image_token_index", None)
+        if image_id is None:
+            raise ValueError(f"{self.spec.key}: PAI requires config.image_token_index")
+        positions = (enc["input_ids"][0] == int(image_id)).nonzero().flatten()
+        if positions.numel() == 0 or not bool((positions[1:] == positions[:-1] + 1).all()):
+            raise ValueError(f"{self.spec.key}: PAI requires one contiguous image-token span")
+        from transformers.generation.logits_process import LogitsProcessorList
+
+        from evalvitals.models.paper_methods.pai import (
+            PAICFGLogitsProcessor,
+            image_attention_boost,
+        )
+
+        # PAI's reference code patches the LLaMA language model, whereas HF
+        # LLaVA wraps it in ``LlavaForConditionalGeneration``.
+        language_model = getattr(model, "language_model", model)
+        unconditional_ids = torch.cat(
+            (enc["input_ids"][:, : positions[0]], enc["input_ids"][:, positions[-1] + 1 :]),
+            dim=1,
+        )
+        cfg = PAICFGLogitsProcessor(
+            model,
+            unconditional_ids,
+            guidance_scale=guidance_scale,
+            start_layer=start_layer,
+            end_layer=end_layer,
+        )
+
+        with image_attention_boost(
+            language_model,
+            image_start=int(positions[0]),
+            image_end=int(positions[-1]) + 1,
+            alpha=alpha,
+            start_layer=start_layer,
+            end_layer=end_layer,
+        ):
+            with torch.no_grad():
+                out = model.generate(
+                    **enc,
+                    max_new_tokens=max_new_tokens or self.runtime.max_new_tokens,
+                    do_sample=False,
+                    logits_processor=LogitsProcessorList([cfg]),
+                )
+        tok = getattr(processor, "tokenizer", processor)
+        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
 
     def chat(self, messages: list, tools=None) -> ChatTurn:
         """Tool-aware turn via the model's chat template.
@@ -343,19 +917,29 @@ class HFLocalModel(Model):
         import torch
 
         if Capability.TOOL_CALLS not in self.capabilities:
-            raise CapabilityError(analyzer="chat", model=repr(self), missing={Capability.TOOL_CALLS})
+            raise CapabilityError(
+                analyzer="chat", model=repr(self), missing={Capability.TOOL_CALLS}
+            )
         model, processor = self._loaded
         tok = getattr(processor, "tokenizer", processor)
         images = _collect_message_images(messages) if self.spec.is_vlm else []
         if images:
             try:
                 text = processor.apply_chat_template(
-                    messages, tools=tools, add_generation_prompt=True, tokenize=False,
+                    messages,
+                    tools=tools,
+                    add_generation_prompt=True,
+                    tokenize=False,
                     **self.spec.chat_template_kwargs,
                 )
-            except TypeError:  # older processors don't take tools= — same jinja template lives on the tokenizer
+            except (
+                TypeError
+            ):  # older processors don't take tools= — same jinja template lives on the tokenizer
                 text = tok.apply_chat_template(
-                    messages, tools=tools, add_generation_prompt=True, tokenize=False,
+                    messages,
+                    tools=tools,
+                    add_generation_prompt=True,
+                    tokenize=False,
                     **self.spec.chat_template_kwargs,
                 )
             enc = processor(text=[text], images=images, return_tensors="pt")
@@ -363,7 +947,10 @@ class HFLocalModel(Model):
             enc = enc.to(next(model.parameters()).device)
         else:
             text = tok.apply_chat_template(
-                messages, tools=tools, add_generation_prompt=True, tokenize=False,
+                messages,
+                tools=tools,
+                add_generation_prompt=True,
+                tokenize=False,
                 **self.spec.chat_template_kwargs,  # e.g. {"enable_thinking": False} for Qwen3
             )
             enc = tok(text, return_tensors="pt").to(next(model.parameters()).device)
@@ -398,20 +985,42 @@ class HFLocalModel(Model):
             content = [{"type": "image"} for _ in video] + [{"type": "text", "text": prompt}]
             images = list(video)
         elif image is not None:
-            content = [{"type": "image"}, {"type": "text", "text": prompt}]
-            images = [image]
+            images = list(image) if isinstance(image, (list, tuple)) else [image]
+            content = [{"type": "image"} for _ in images] + [{"type": "text", "text": prompt}]
         else:
             content = [{"type": "text", "text": prompt}]
             images = []
 
-        text = processor.apply_chat_template(
-            [{"role": "user", "content": content}],
-            add_generation_prompt=True, tokenize=False, **self.spec.chat_template_kwargs,
-        )
-        proc_kwargs = {"text": [text], "return_tensors": "pt"}
-        if images:
-            proc_kwargs["images"] = images
-        enc = processor(**proc_kwargs)
+        if self.spec.model_type == "instructblip":
+            if len(images) != 1:
+                raise ValueError("InstructBLIP supports exactly one image per request")
+            # InstructBLIP has no chat template or decoder image placeholder:
+            # its processor returns vision pixels plus an independent Q-Former
+            # text sequence.  The latter is what ICD perturbs.  Vicuna-based
+            # InstructBLIP expects an explicit answer turn; without it the
+            # checkpoint often terminates immediately after echoing the prompt.
+            qformer_prompt = prompt
+            decoder_prompt = f"Question: {prompt} Answer:"
+            enc = processor(images=images[0], text=decoder_prompt, return_tensors="pt")
+            # The published ICD implementation gives the Q-Former the raw
+            # question while the Vicuna decoder receives its answer template.
+            # Override the processor's coupled default to retain that split.
+            qformer = processor.qformer_tokenizer(
+                qformer_prompt, return_tensors="pt", padding="longest", truncation=True
+            )
+            enc["qformer_input_ids"] = qformer["input_ids"]
+            enc["qformer_attention_mask"] = qformer["attention_mask"]
+        else:
+            text = processor.apply_chat_template(
+                [{"role": "user", "content": content}],
+                add_generation_prompt=True,
+                tokenize=False,
+                **self.spec.chat_template_kwargs,
+            )
+            proc_kwargs = {"text": [text], "return_tensors": "pt"}
+            if images:
+                proc_kwargs["images"] = images
+            enc = processor(**proc_kwargs)
         ttm = build_token_type_map(enc["input_ids"], enc, model.config, self.spec.vision)
         enc = enc.to(next(model.parameters()).device)
         ids = enc["input_ids"][0].tolist()
@@ -464,7 +1073,10 @@ class HFLocalModel(Model):
                 )
             attentions = [_move(a.squeeze(0)) for a in _maybe_subset(outputs.attentions)]
             provided.add(Capability.ATTENTION)
-        if Capability.HIDDEN_STATES in capture and getattr(outputs, "hidden_states", None) is not None:
+        if (
+            Capability.HIDDEN_STATES in capture
+            and getattr(outputs, "hidden_states", None) is not None
+        ):
             hidden_states = [_move(h.squeeze(0)) for h in _maybe_subset(outputs.hidden_states)]
             provided.add(Capability.HIDDEN_STATES)
         if Capability.LOGITS in capture:

@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "purpose": "Literature coverage contract for model-health diagnosis and repair. Each row is a source paper, not a claim that the repository reproduces every method on every architecture.",
+  "papers": [
+    {
+      "id": "pope",
+      "title": "Evaluating Object Hallucination in Large Vision-Language Models",
+      "paper_url": "https://arxiv.org/abs/2305.10355",
+      "role": "diagnostic benchmark",
+      "dataset_case": "pope"
+    },
+    {
+      "id": "vcd",
+      "title": "Mitigating Object Hallucinations in Large Vision-Language Models through Visual Contrastive Decoding",
+      "paper_url": "https://arxiv.org/abs/2311.16922",
+      "role": "repair method",
+      "dataset_case": "pope",
+      "execution": "released tensor-space corruption, plausibility cutoff, and per-token multinomial sampler; POPE uses the paper's T=999 and a clean temperature-one sampling control with the same per-image seed"
+    },
+    {
+      "id": "opera",
+      "title": "OPERA: Alleviating Hallucination in Multi-Modal Large Language Models via Over-Trust Penalty and Retrospection-Allocation",
+      "paper_url": "https://arxiv.org/abs/2311.17911",
+      "role": "repair method",
+      "dataset_case": "pope",
+      "execution": "LLaVA POPE binary specialization of the paper's first-token over-trust penalty; full multi-token beam rollback remains an explicit unsupported route"
+    },
+    {
+      "id": "pai",
+      "title": "Paying More Attention to Image: A Training-free Method for Alleviating Hallucination in LVLMs",
+      "paper_url": "https://arxiv.org/abs/2407.21771",
+      "role": "repair method",
+      "dataset_case": "pope",
+      "execution": "LLaVA eager-attention implementation of the released image-score boost and image-free classifier-free-guidance cache; it remains a native architecture specialization because the source pins a different LLaVA stack"
+    },
+    {
+      "id": "vstar",
+      "title": "V*: Guided Visual Search as a Core Mechanism in Multimodal LLMs",
+      "paper_url": "https://arxiv.org/abs/2312.14135",
+      "role": "repair method plus benchmark",
+      "dataset_case": "vstar_bench",
+      "execution": "label-free visual-search method-family control; official trained SEAL remains separate"
+    },
+    {
+      "id": "icd",
+      "title": "Mitigating Hallucinations in Large Vision-Language Models with Instruction Contrastive Decoding",
+      "paper_url": "https://arxiv.org/abs/2403.18715",
+      "role": "repair method",
+      "dataset_case": "pope",
+      "execution": "architecture-native Q-Former disturbance on InstructBLIP, evaluated as a deterministic binary specialization; decoder-input adaptation on Q-Former-free hf_local VLMs is separately labelled adapted"
+    },
+    {
+      "id": "chartqa",
+      "title": "ChartQA: A Benchmark for Question Answering about Charts with Visual and Logical Reasoning",
+      "paper_url": "https://arxiv.org/abs/2203.10244",
+      "role": "diagnostic benchmark",
+      "dataset_case": "chartqa"
+    },
+    {
+      "id": "mmmu",
+      "title": "MMMU: A Massive Multi-discipline Multimodal Understanding and Reasoning Benchmark for Expert AGI",
+      "paper_url": "https://arxiv.org/abs/2311.16502",
+      "role": "diagnostic benchmark",
+      "dataset_case": "mmmu_accounting"
+    },
+    {
+      "id": "hallucinogen",
+      "title": "HALLUCINOGEN: A Benchmark for Evaluating Object Hallucination in Large Visual-Language Models",
+      "paper_url": "https://arxiv.org/abs/2412.20622",
+      "role": "diagnostic benchmark",
+      "dataset_case": "hallucinogen"
+    },
+    {
+      "id": "mllms_know",
+      "title": "MLLMs Know Where to Look: Training-free Perception of Small Visual Details with Multimodal LLMs",
+      "paper_url": "https://arxiv.org/abs/2502.17422",
+      "role": "repair method",
+      "dataset_case": "mllms_know_textvqa_small",
+      "execution": "LLaVA relative-attention ViCrop is an automated L3a FixAgent route with original+crop input; architecture-mismatched models remain explicitly adapted/unavailable"
+    },
+    {
+      "id": "ifcd",
+      "title": "Mitigating Hallucinations in Large Vision-Language Models with Internal Fact-based Contrastive Decoding",
+      "paper_url": "https://arxiv.org/abs/2502.01056",
+      "role": "repair method",
+      "dataset_case": "pope",
+      "execution": "explicit-artifact TruthX contrastive decoder on LLaVA; public Vicuna artifact uses a modern HF post-o_proj hook and is marked adapted, never an exact MSCOCO-editor reproduction"
+    }
+  ]
+}

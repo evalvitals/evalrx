@@ -65,8 +65,9 @@ stages/ (M1–M5 implementation):
   surgery.py           M4 — SurgeryAgent: correlate / param-sweep / ExperimentWriter
                               → InterventionResult (SUPPORTED / REFUTED / INCONCLUSIVE)
   experiment_writer.py M4 — multi-phase LLM/CLI agent writes + executes fix scripts
-  fix_tiers.py         Fix — FixTier intervention-space ladder (L1 prompt /
-                              L2 scaffold / L3a read / L3b write / L4 params)
+  fix_tiers.py         Fix — FixTier intervention-space ladder (L0 runtime /
+                              L1 prompt / L2 scaffold / L3a read / L3b write /
+                              L4 params)
                               + hypothesis -> minimum-tier routing
   fix_tools.py         Fix — L2 tool catalog (zoom/contrast/equalize/upscale)
                               + PipelineSpec executor around the unchanged model
@@ -76,7 +77,9 @@ stages/ (M1–M5 implementation):
                               bridged model access (model_generate/model_attend)
   fix_internals.py     Fix — L3a attention-guided crop, L3b intervention
                               primitives (visual embedding boost); L4
-                              FinetuneSpec (defined, executor TODO)
+                              FinetuneSpec + run_lora_repair (v1: LoRA on
+                              target="llm" only, trained on a caller-supplied
+                              finetune_pool; other recipe shapes recorded only)
   hypothesis_tester.py M5 — HypothesisTester: statistical test + protocol consistency;
                               stopping_criteria_met() drives the VLDiagnoseLoop exit
 """
