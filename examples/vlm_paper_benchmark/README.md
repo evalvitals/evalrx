@@ -58,7 +58,12 @@ discriminant-validity control: on slices diagnosed as perception-limited, a
 prompt-only scaffold should not be selected as the winning fix. The remaining
 survey tiers — hf_local-native decoding/attention methods, mechanism-gap rows,
 and training-based upper bounds — are catalogued in
-[`potential_papers.md`](potential_papers.md).
+[`potential_papers.md`](potential_papers.md). A first end-to-end test of two
+S-tier rows (DyFo on V*Bench, DC² on HR-Bench 4K) is recorded in
+[`experiments_s_tier_2026-08.md`](experiments_s_tier_2026-08.md): diagnosis
+matched the papers' mechanism in five out of five disjoint batches and the
+search-family candidate led every time, but combined evidence stopped at
+e = 13.85 < 20, so no fix was certified.
 
 The manifest pins the source, split, scoring family and expected failure axis
 in [`papers.json`](papers.json). It stores no data. The downloader uses a

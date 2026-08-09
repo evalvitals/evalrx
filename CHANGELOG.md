@@ -6,6 +6,20 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — S-tier paper-method full-arc experiment on V*Bench and HR-Bench 4K
+
+`examples/vlm_paper_benchmark` gained an HR-Bench 4K data surface (base64
+image fallback and lettered-option support in the downloader), endpoint
+overrides for `run_autofix.py` (`AUTOFIX_MODEL_ID` / `AUTOFIX_BASE_URL`), and
+a recorded five-batch experiment (`experiments_s_tier_2026-08.md`): diagnosis
+matched the DyFo/DC² failure mechanisms in every batch and
+`detector_visual_search_consensus` led all five disjoint batches
+(+40/−12 pooled), but combined anytime-valid evidence stopped at e = 13.85 < 20
+— the gate declined to certify, which is the designed honest outcome. The runs
+also surfaced that parseable judge proposals displace the paper-inspired
+default candidates (workaround: `--paper-methods-only`), filed as an upstream
+improvement candidate.
+
 ### Added — L2 loop policy VALIDATED by cross-task replication (the loop's first shipped fix)
 
 The pre-registered `L2_loop_policy` arm (block identical repeats + force a
