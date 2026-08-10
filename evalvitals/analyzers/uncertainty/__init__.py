@@ -1,5 +1,6 @@
 """Uncertainty analyzers — cheap, mostly black-box signals of model (un)certainty."""
 
+from evalvitals.analyzers.uncertainty.calibration import CalibrationAnalyzer
 from evalvitals.analyzers.uncertainty.entropy import TokenEntropyAnalyzer, UncertaintyResult
 from evalvitals.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
 from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
@@ -11,4 +12,5 @@ __all__ = [
     "LogprobEntropyAnalyzer",
     "SelfConsistencyAnalyzer",
     "VerbalizedConfidenceAnalyzer",
+    "CalibrationAnalyzer",
 ]

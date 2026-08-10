@@ -34,14 +34,20 @@ from evalvitals.analyzers.attention.summary import AttentionAnalyzer
 from evalvitals.analyzers.geometry.cka import CKAAnalyzer
 from evalvitals.analyzers.geometry.linear_probe import LinearProbeAnalyzer
 from evalvitals.analyzers.hallucination.chair import CHAIRAnalyzer
+from evalvitals.analyzers.hallucination.selfcheck import SelfCheckConsistencyAnalyzer
 from evalvitals.analyzers.hallucination.opera import OPERAAnalyzer
 from evalvitals.analyzers.hallucination.pope import POPEAnalyzer
 from evalvitals.analyzers.hallucination.vcd import VCDAnalyzer
+from evalvitals.analyzers.lens.layer_contrast import LayerContrastAnalyzer
 from evalvitals.analyzers.lens.logit_lens import LogitLensAnalyzer
 from evalvitals.analyzers.lens.tuned_lens import TunedLensAnalyzer
 from evalvitals.analyzers.patching.causal_trace import CausalTraceAnalyzer
+from evalvitals.analyzers.perturbation.context_shap import ContextShapAnalyzer
+from evalvitals.analyzers.perturbation.cot_faithfulness import CoTFaithfulnessAnalyzer
+from evalvitals.analyzers.perturbation.format_sensitivity import FormatSensitivityAnalyzer
 from evalvitals.analyzers.perturbation.mm_shap import MMShapAnalyzer
 from evalvitals.analyzers.perturbation.prompt_contrast import PromptContrastAnalyzer
+from evalvitals.analyzers.uncertainty.calibration import CalibrationAnalyzer
 from evalvitals.analyzers.uncertainty.entropy import TokenEntropyAnalyzer
 from evalvitals.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
 from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
@@ -198,6 +204,30 @@ _RUBRIC_JUDGE = ScriptedFakeModel(
 # ── suite 2: (analyzer, model, data) triples for runnable analyzers ────────────
 # Each call to _traj_batch() / _pope_batch() / _chair_batch() creates a fresh
 # CaseBatch so tests are isolated even if an analyzer mutates its input cases.
+
+def _mc_batch() -> CaseBatch:
+    """Two-option MC case; options parseable from the prompt, observed = 'A'."""
+    return CaseBatch([
+        FailureCase(
+            inputs=Inputs(prompt="What colour is the sky?\nA. red\nB. blue\nAnswer with the letter."),
+            observed="A",
+            label=Label.FAIL,
+        )
+    ])
+
+
+def _context_batch() -> CaseBatch:
+    ctx = "Alice owns a red car.\n\nBob owns a blue car."
+    return CaseBatch([
+        FailureCase(
+            inputs=Inputs(prompt=f"Context:\n{ctx}\n\nWhat colour is Alice's car?"),
+            observed="red",
+            label=Label.PASS,
+            metadata={"context": ctx},
+        )
+    ])
+
+
 _RUNNABLE: list[tuple[Any, Any, Any]] = [
     # attention
     (AttentionAnalyzer(),            _FULL, _STANDARD),
@@ -244,6 +274,28 @@ _RUNNABLE: list[tuple[Any, Any, Any]] = [
         answers=["yes"],  # repeated for every strategy call
         capabilities={Capability.GENERATE},
     ), _contrast_batch()),
+    # text probes (2026-08)
+    (SelfCheckConsistencyAnalyzer(n_samples=2), ScriptedFakeModel(
+        answers=["The sky is blue today. Paris is in France."],
+        capabilities={Capability.GENERATE},
+    ), _STANDARD),
+    (FormatSensitivityAnalyzer(n_variants=2), ScriptedFakeModel(
+        answers=["B"],  # rotated variant answers
+        capabilities={Capability.GENERATE},
+    ), _mc_batch()),
+    (CoTFaithfulnessAnalyzer(truncation_fracs=(0.5,)), ScriptedFakeModel(
+        answers=["4", "Step one holds. Step two follows.\nAnswer: 4", "Answer: 4"],
+        capabilities={Capability.GENERATE},
+    ), _mc_batch()),
+    (LayerContrastAnalyzer(max_cases=2),  _FULL, _STANDARD),
+    (ContextShapAnalyzer(n_samples=4), ScriptedFakeModel(
+        answers=["red"],
+        capabilities={Capability.GENERATE},
+    ), _context_batch()),
+    (CalibrationAnalyzer(n_bins=4, max_cases=16), ScriptedFakeModel(
+        answers=["final answer\nConfidence: 80"],
+        capabilities={Capability.GENERATE, Capability.LOGPROBS},
+    ), _LABELLED),
 ]
 _RUNNABLE_IDS = [a.name for a, _, _ in _RUNNABLE]
 
@@ -450,6 +502,57 @@ def _check_prompt_contrast(f: dict[str, Any]) -> None:
     assert f["n_fixed_by_sensitive"] == 0 and f["n_broken_by_sensitive"] == 0
 
 
+_EXPECTED_TEXT_PROBE_KEYS: dict[str, set[str]] = {
+    "selfcheck_consistency": {"n_cases", "n_samples", "gen_kwargs", "mean_inconsistency", "per_case"},
+    "format_sensitivity": {"n_cases", "n_scored", "mean_flip_rate", "modal_letter_histogram", "per_case"},
+    "cot_faithfulness": {"n_cases", "truncation_fracs", "mean_early_match_rate", "mean_cot_effect", "per_case"},
+    "layer_contrast": {"n_cases", "n_layers", "pos", "per_case"},
+    "context_shap": {"n_cases", "granularity", "n_samples", "mean_context_dependence", "per_case"},
+    "calibration": {"n_cases", "n_bins", "logprob_channel", "verbalized_channel", "per_case"},
+}
+_EXPECTED_FINDING_KEYS.update(_EXPECTED_TEXT_PROBE_KEYS)
+
+
+def _check_unit_interval(value, name):
+    assert value is None or 0.0 <= value <= 1.0, f"{name} out of [0,1]: {value}"
+
+
+def _check_selfcheck(f):
+    _check_unit_interval(f.get("mean_inconsistency"), "mean_inconsistency")
+    assert f["n_cases"] >= 1 and isinstance(f["per_case"], list)
+
+
+def _check_format_sensitivity(f):
+    _check_unit_interval(f.get("mean_flip_rate"), "mean_flip_rate")
+    for entry in f["per_case"]:
+        _check_unit_interval(entry.get("positional_bias"), "positional_bias")
+
+
+def _check_cot_faithfulness(f):
+    _check_unit_interval(f.get("mean_early_match_rate"), "mean_early_match_rate")
+    _check_unit_interval(f.get("mean_cot_effect"), "mean_cot_effect")
+
+
+def _check_layer_contrast(f):
+    assert f["n_layers"] >= 2
+    for entry in f["per_case"]:
+        assert entry["jsd_max"] >= 0.0
+        _check_unit_interval(entry.get("layer_agreement_frac"), "layer_agreement_frac")
+
+
+def _check_context_shap(f):
+    _check_unit_interval(f.get("mean_context_dependence"), "mean_context_dependence")
+    for entry in f["per_case"]:
+        if "top_chunk_share" in entry:
+            _check_unit_interval(entry["top_chunk_share"], "top_chunk_share")
+
+
+def _check_calibration(f):
+    for channel in ("logprob_channel", "verbalized_channel"):
+        _check_unit_interval(f[channel].get("ece"), f"{channel}.ece")
+    assert f["n_bins"] >= 2
+
+
 _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
     "attention": _check_attention,
     "attention_rollout": _check_attention_rollout,
@@ -472,6 +575,12 @@ _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
     "pope": _check_pope,
     "chair": _check_chair,
     "prompt_contrast": _check_prompt_contrast,
+    "selfcheck_consistency": _check_selfcheck,
+    "format_sensitivity": _check_format_sensitivity,
+    "cot_faithfulness": _check_cot_faithfulness,
+    "layer_contrast": _check_layer_contrast,
+    "context_shap": _check_context_shap,
+    "calibration": _check_calibration,
 }
 
 
