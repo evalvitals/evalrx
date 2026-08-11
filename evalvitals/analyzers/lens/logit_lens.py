@@ -5,9 +5,12 @@ plus the model's unembedding matrix (``model.unembed_weight()``).  The cheapest,
 highest-value white-box signal — build it first.
 
 Faithfulness: when the model exposes ``final_norm()`` (RMSNorm-family models —
-Llama, Qwen, ...), each layer's hidden state is normalized before unembedding,
-matching ``lm_head(norm(h_i))``; raw projection distorts trajectories on those
-models.  Findings note whether the norm was applied.
+Llama, Qwen, ...), each PREMATURE layer's hidden state is normalized before
+unembedding, matching ``lm_head(norm(h_i))``; raw projection distorts
+trajectories on those models.  The final hidden-states entry is projected
+as-is: HF backends return it already post final-norm, so re-normalising it
+would square the RMS gain and distort the reference distribution.  Findings
+note whether the norm was applied.
 
 References:
 - interpreting GPT: the logit lens — nostalgebraist (2020), LessWrong
@@ -84,9 +87,14 @@ class LogitLensAnalyzer(Analyzer):
 
             layer_logits = []
             with torch.no_grad():
-                for h in hidden:
+                for layer_index, h in enumerate(hidden):
                     vec = h[self.pos].detach().to(device)  # device-align: states may be on CPU
-                    if norm is not None:
+                    # HF backends return the FINAL hidden-states entry already
+                    # post final-norm (this analyzer requests the full stack, so
+                    # the last element IS that entry); re-normalising it would
+                    # square the RMS gain and shift the final distribution the
+                    # decision-depth columns are anchored to.
+                    if norm is not None and layer_index < len(hidden) - 1:
                         vec = norm(vec.to(norm_dtype)) if norm_dtype is not None else norm(vec)
                     layer_logits.append(vec.float() @ W.T)  # (vocab,)
 
