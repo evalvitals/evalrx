@@ -44,11 +44,17 @@ class ModelKind(str, Enum):
 _FAILURE_MODE_TO_ANALYZERS: dict[str, list[str]] = {
     "attention_sink":            ["attention_sink"],
     "attention":                 ["attention", "attention_rollout"],
-    "hallucination":             ["pope", "chair"],
+    "hallucination":             ["pope", "chair", "selfcheck_consistency"],
     "low_consistency":           ["self_consistency"],
     "unstable_generation":       ["self_consistency"],
-    "overconfidence":            ["verbalized_confidence"],
-    "miscalibrated_confidence":  ["verbalized_confidence"],
+    "overconfidence":            ["verbalized_confidence", "calibration"],
+    "miscalibrated_confidence":  ["verbalized_confidence", "calibration"],
+    "format_bias":               ["format_sensitivity"],
+    "position_bias":             ["format_sensitivity"],
+    "unfaithful_reasoning":      ["cot_faithfulness"],
+    "post_hoc_reasoning":        ["cot_faithfulness"],
+    "context_ignored":           ["context_shap"],
+    "premature_layer_divergence": ["layer_contrast"],
     "confident_inconsistency":   ["self_consistency", "verbalized_confidence"],
     "loop":                      ["loop_detect"],
     "ignored_obs":               ["ignored_obs"],
@@ -83,10 +89,16 @@ _PRIORITY: dict[str, list[str]] = {
         "tool_shap",                              # re-run probe: tool-subset Shapley
     ],
     ModelKind.LLM: [
+        "selfcheck_consistency",                  # text hallucination (black-box)
+        "format_sensitivity",                     # MC position bias vs content-tracking
+        "cot_faithfulness",                       # is the reasoning load-bearing?
+        "calibration",                            # ECE / overconfidence vs labels
         "attention", "logit_lens",                # interpretability
+        "layer_contrast",                          # DoLa/DeCo divergence signal
         "token_entropy", "logprob_entropy",
         "attention_sink", "attention_rollout",
         "prompt_contrast",                         # are failures prompt-repairable?
+        "context_shap",                            # RAG context dependence
         "cka", "self_consistency", "verbalized_confidence",
     ],
 }
