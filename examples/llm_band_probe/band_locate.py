@@ -312,10 +312,10 @@ SPECS: list[Spec] = [
          max_tokens=20480),
     # ── ch2 code: the sandbox-free path ─────────────────────────────────
     Spec("lcb_execution", "ch2-code", "livecodebench/execution-v2", split="test",
-         adapter=_adapter_lcb_execution, max_tokens=4096,
+         adapter=_adapter_lcb_execution, max_tokens=20480,
          note="exact string, NO sandbox"),
     Spec("cruxeval_output", "ch2-code", "cruxeval-org/cruxeval", split="test",
-         adapter=_adapter_cruxeval, max_tokens=4096, note="exact string, no sandbox"),
+         adapter=_adapter_cruxeval, max_tokens=20480, note="exact string, no sandbox"),
     # ── ch3 puzzles ─────────────────────────────────────────────────────
     Spec("zebralogic", "ch3-puzzle", "WildEval/ZebraLogic", config="grid_mode",
          split="test", adapter=_adapter_zebra, grader=_grade_zebra,
@@ -329,7 +329,7 @@ SPECS: list[Spec] = [
          ),
          note="25 grid sizes x exactly 40; full-grid metric"),
     Spec("enigmata_eval", "ch3-puzzle", "BytedTsinghua-SIA/Enigmata-Eval",
-         split="train", adapter=_adapter_plain("prompt", "answer"), max_tokens=4096),
+         split="train", adapter=_adapter_plain("prompt", "answer"), max_tokens=20480),
     # ── ch4 atomic reasoning ────────────────────────────────────────────
     Spec("bbh_navigate", "ch4-basic", "lukaemon/bbh", config="navigate", split="test",
          adapter=_adapter_bbh, max_tokens=4096),
@@ -344,13 +344,13 @@ SPECS: list[Spec] = [
          adapter=_adapter_musique, grader=_grade_aliases, max_tokens=4096,
          note="2/3/4-hop x answerable"),
     Spec("bamboogle", "ch4-basic", "chiayewken/bamboogle", split="test",
-         adapter=_adapter_plain("Question", "Answer"), max_tokens=4096),
+         adapter=_adapter_plain("Question", "Answer"), max_tokens=20480),
     Spec("folio", "ch4-basic", "tasksource/folio", split="validation",
-         adapter=_adapter_folio, max_tokens=4096),
+         adapter=_adapter_folio, max_tokens=20480),
     Spec("musr_murder", "ch4-basic", "TAUR-Lab/MuSR", split="murder_mysteries",
-         adapter=_adapter_musr, max_tokens=4096),
+         adapter=_adapter_musr, max_tokens=20480),
     Spec("mmlu_pro", "ch4-basic", "TIGER-Lab/MMLU-Pro", split="test",
-         adapter=_adapter_mc(("question",), "options", "answer"), max_tokens=4096),
+         adapter=_adapter_mc(("question",), "options", "answer"), max_tokens=20480),
 ]
 
 
