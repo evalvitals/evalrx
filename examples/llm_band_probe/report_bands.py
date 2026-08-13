@@ -17,7 +17,12 @@ _ORDER = {"USABLE": 0, "marginal": 1, "budget_limited": 2, "saturated": 3, "floo
 
 
 def load(paths: list[str]) -> list[dict]:
-    rows: list[dict] = []
+    """Merge sweeps, LAST file wins per dataset.
+
+    Re-running a spec at a bigger budget supersedes the earlier measurement, so
+    a plain concatenation would show both and let a stale row be read as current.
+    """
+    by_name: dict[str, dict] = {}
     for path in paths:
         with open(path) as fh:
             payload = json.load(fh)
@@ -30,8 +35,15 @@ def load(paths: list[str]) -> list[dict]:
             row["band"] = band_of(
                 row["accuracy"], *row["ci95"], row.get("no_answer_tag_rate", 0.0)
             )
-            rows.append(row)
-    return rows
+            prior = by_name.get(row["name"])
+            if prior is not None:
+                row["_superseded"] = {
+                    "accuracy": prior["accuracy"],
+                    "band": prior["band"],
+                    "no_answer_tag_rate": prior.get("no_answer_tag_rate"),
+                }
+            by_name[row["name"]] = row
+    return list(by_name.values())
 
 
 def main() -> None:
@@ -44,10 +56,15 @@ def main() -> None:
     print("-" * len(header))
     for r in rows:
         lo, hi = r["ci95"]
+        was = r.get("_superseded")
+        delta = (
+            f"  (was {was['accuracy']:.2f}/{was['no_answer_tag_rate']:.2f} {was['band']})"
+            if was else ""
+        )
         print(
             f"{r['name']:22s} {r.get('chapter', ''):11s} {r['n']:3d} "
             f"{r['accuracy']:6.3f} {f'[{lo:.2f}, {hi:.2f}]':>15s} "
-            f"{r.get('no_answer_tag_rate', 0.0):7.2f} {r['band']:14s}"
+            f"{r.get('no_answer_tag_rate', 0.0):7.2f} {r['band']:14s}{delta}"
         )
 
     usable = [r for r in rows if r["band"] == "USABLE"]
