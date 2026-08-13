@@ -68,6 +68,11 @@ class Spec:
     # Gold shapes differ enough that a single grader would silently under-report
     # (list-wrapped LaTeX, answer aliases, full grids) -> allow an override.
     grader: Optional[Callable[[str, Any], bool]] = None
+    #: Feed the grader the RAW generation instead of the extracted answer.
+    #: extract_answer is structurally single-line (the tag regex does not span
+    #: newlines), so a multi-line gold — a puzzle grid — graded on the extracted
+    #: span can only ever see its first row and scores 0 for every model.
+    grades_raw_output: bool = False
     max_tokens: int = 8192
     note: str = ""
     meta: dict = field(default_factory=dict)
@@ -217,14 +222,22 @@ def _grade_zebra(prediction: str, gold: Any) -> bool:
     return bool(want) and want <= got
 
 
+_HOUSE_HEADER = re.compile(r"house\s*[:#]?\s*(\d+)\s*[:\-]?", re.IGNORECASE)
+
+
 def _zebra_cells(text: str) -> set:
-    """Parse ``House 1: Name=Arnold, Color=white`` lines into (house, attr, value)."""
+    """Parse ``House 1: Name=Arnold, Color=white`` blocks into (house, attr, value).
+
+    Split on the house headers rather than matching a greedy body per header: a
+    greedy ``(.*)`` stops at the newline, so an answer written on ONE line loses
+    every house after the first — and no split of that already-truncated body
+    can recover them.
+    """
     cells: set = set()
-    for match in re.finditer(r"house\s*[:#]?\s*(\d+)\s*[:\-]?(.*)", text, re.IGNORECASE):
-        house, body = match.group(1), match.group(2)
-        # stop the body at the next "House <n>" so a single-line answer still parses
-        body = re.split(r"house\s*[:#]?\s*\d+", body, flags=re.IGNORECASE)[0]
-        for cell in re.split(r"[;,|]", body):
+    parts = _HOUSE_HEADER.split(str(text))
+    # split() yields [prefix, house1, body1, house2, body2, ...]
+    for house, body in zip(parts[1::2], parts[2::2]):
+        for cell in re.split(r"[;,|\n]", body):
             if "=" not in cell:
                 continue
             attr, _, value = cell.partition("=")
@@ -306,7 +319,7 @@ SPECS: list[Spec] = [
     # ── ch3 puzzles ─────────────────────────────────────────────────────
     Spec("zebralogic", "ch3-puzzle", "WildEval/ZebraLogic", config="grid_mode",
          split="test", adapter=_adapter_zebra, grader=_grade_zebra,
-         max_tokens=20480,
+         grades_raw_output=True, max_tokens=20480,
          instruction=(
              "Solve the puzzle. After your reasoning, output the full solution "
              "as one line per house in exactly this form:\n"
@@ -344,12 +357,20 @@ SPECS: list[Spec] = [
 # ----------------------------------------------------------------------
 # HF rows API
 # ----------------------------------------------------------------------
-def fetch_rows(spec: Spec, want: int, seed: int = 0, timeout: int = 60) -> list[dict]:
-    """Pull rows through the datasets-server, sampling across the whole split.
+def fetch_rows(spec: Spec, want: int, seed: int = 0, timeout: int = 60,
+               n_windows: int = 12) -> list[dict]:
+    """Pull rows through the datasets-server from windows spread over the split.
 
-    Deliberately not a plain head: many of these splits are ordered by
-    subset/difficulty, and a head sample would measure one slice while claiming
-    to measure the set.
+    Many of these splits are ordered by subset, task, or difficulty, so a head
+    sample measures one slice while claiming to measure the set. Shuffling the
+    order of 100-row pages does NOT fix that on its own: stopping as soon as
+    enough rows are collected then takes them all from whichever one or two
+    pages came first, which is still a single contiguous block.
+
+    So: draw ``n_windows`` offsets spaced across the whole split (jittered, not
+    page-aligned) and take an equal share from each. The result is a stratified
+    cluster sample — better than a head, but still clustered, which is why the
+    interval this feeds is called approximate.
     """
     params = {
         "dataset": spec.dataset,
@@ -365,26 +386,35 @@ def fetch_rows(spec: Spec, want: int, seed: int = 0, timeout: int = 60) -> list[
         return []
 
     rng = random.Random(seed)
-    # sample windows of 100 (the API page size) spread over the split
-    page = 100
-    n_pages = max(1, math.ceil(total / page))
-    order = list(range(n_pages))
-    rng.shuffle(order)
+    target = want * 3  # over-fetch: the adapter drops ungradable rows
+    windows = max(1, min(n_windows, math.ceil(total / 10)))
+    per_window = min(100, max(1, math.ceil(target / windows)))
+    stride = total / windows
+
+    offsets = []
+    for i in range(windows):
+        base = int(i * stride)
+        span = max(1, int(stride) - per_window)
+        offsets.append(min(max(0, base + rng.randrange(span)), max(0, total - 1)))
+    rng.shuffle(offsets)
 
     rows: list[dict] = []
-    for page_idx in order:
-        params["offset"] = page_idx * page
-        params["length"] = min(page, total - page_idx * page)
+    seen_offsets: set[int] = set()
+    for offset in offsets:
+        if offset in seen_offsets:
+            continue
+        seen_offsets.add(offset)
+        params["offset"] = offset
+        params["length"] = min(per_window, total - offset)
         try:
             resp = requests.get(ROWS_API, params=params, timeout=timeout)
             resp.raise_for_status()
         except requests.RequestException:
             continue
-        batch = [r["row"] for r in resp.json().get("rows", [])]
-        rng.shuffle(batch)
-        rows.extend(batch)
-        if len(rows) >= want * 3:  # over-fetch: the adapter drops ungradable rows
+        rows.extend(r["row"] for r in resp.json().get("rows", []))
+        if len(rows) >= target:
             break
+    rng.shuffle(rows)
     return rows
 
 
@@ -490,10 +520,11 @@ def run_spec(spec: Spec, n: int, concurrency: int, temperature: float) -> dict:
         output = generate(prompt, spec.max_tokens, temperature)
         predicted = extract_answer(output)
         grade = spec.grader or answer_equal
+        graded_text = output if spec.grades_raw_output else predicted
         from evalvitals.analyzers.reasoning._text import has_answer_tag
 
         return {
-            "correct": int(bool(grade(predicted, gold))),
+            "correct": int(bool(grade(graded_text, gold))),
             "empty": int(not output.strip()),
             "no_answer_tag": int(not has_answer_tag(output)),
             "chars": len(output),

@@ -105,10 +105,19 @@ class KnowledgeReasoningSplit(Analyzer):
         scored = [c for c in per_case if "deficit_class" in c]
         failed = [c for c in scored if c["baseline_correct"] == 0]
 
+        # UNKNOWN is a residual, not a class: with no gold context the open-book
+        # arm never runs and every failure the scaffolds did not rescue lands
+        # there. Dividing by all failures would then report a MEASURED 0.0 for
+        # knowledge_deficit_share when nothing was measured at all — the same
+        # trap arith_audit avoids by excluding its own UNKNOWN from the
+        # denominator.
+        classified = [c for c in failed if c["deficit_class"] != UNKNOWN]
+
         def _share(cls: str) -> Optional[float]:
             return (
-                round(sum(1 for c in failed if c["deficit_class"] == cls) / len(failed), 4)
-                if failed
+                round(sum(1 for c in classified if c["deficit_class"] == cls)
+                      / len(classified), 4)
+                if classified
                 else None
             )
 
@@ -116,6 +125,11 @@ class KnowledgeReasoningSplit(Analyzer):
             "n_cases": len(per_case),
             "n_scored": len(scored),
             "n_baseline_fail": len(failed),
+            "n_classified": len(classified),
+            "n_unclassified": len(failed) - len(classified),
+            "unclassified_share": (
+                round((len(failed) - len(classified)) / len(failed), 4) if failed else None
+            ),
             "knowledge_deficit_share": _share(KNOWLEDGE),
             "reasoning_deficit_share": _share(REASONING),
             "both_deficit_share": _share(BOTH),
@@ -124,6 +138,14 @@ class KnowledgeReasoningSplit(Analyzer):
             "open_book_gain": _gain(scored, "open_book_correct"),
             "per_case": per_case,
             "_caveat": (
+                "The three deficit shares are over CLASSIFIED failures only — "
+                "read n_classified and unclassified_share first. Separating "
+                "'knowledge' from 'both' REQUIRES gold context in "
+                "case.metadata; without it the open-book arm never runs, every "
+                "failure the scaffolds did not rescue is unclassified, and "
+                "knowledge_deficit_share is None (not 0.0). A 0.0 here means "
+                "'measured, none were knowledge deficits'; None means 'this "
+                "batch cannot answer the question'. "
                 "The arms differ in PROMPT as well as in information, so a gain "
                 "is 'this scaffold helps', not proof of where the knowledge "
                 "lives — own_facts_correct in particular re-states the question "

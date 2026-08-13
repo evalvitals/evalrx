@@ -522,3 +522,30 @@ def test_answer_equal_checks_both_ends_of_the_span():
     assert answer_equal("the answer is 18", "18")
     # and still no substring match
     assert not answer_equal("the answer is 180", "18")
+
+
+def test_knowledge_split_reports_unmeasurable_rather_than_zero():
+    """Without gold context the open-book arm never runs, so 'knowledge' cannot
+    be separated from 'both'. A 0.0 share there would read as a measurement."""
+    batch = CaseBatch([_case(f"q{i}", None, "Paris", Label.FAIL) for i in range(3)])
+    model = ScriptModel(["Answer: Lyon"])   # every arm wrong, no context available
+    f = KnowledgeReasoningSplit().run(model, batch).findings
+    assert f["n_baseline_fail"] == 3
+    assert f["n_classified"] == 0 and f["unclassified_share"] == 1.0
+    # None = "this batch cannot answer the question", not "measured zero"
+    assert f["knowledge_deficit_share"] is None
+    assert f["both_deficit_share"] is None
+
+
+def test_knowledge_split_shares_are_over_classified_failures():
+    batch = CaseBatch([
+        _case("q1", None, "Paris", Label.FAIL, metadata={"context": "The capital is Paris."}),
+        _case("q2", None, "Paris", Label.FAIL),   # no context -> unclassifiable
+    ])
+    model = ScriptModel([
+        "Answer: Lyon", "Answer: Lyon", "- a fact", "Answer: Lyon", "Answer: Paris",
+        "Answer: Lyon", "Answer: Lyon", "- a fact", "Answer: Lyon",
+    ])
+    f = KnowledgeReasoningSplit().run(model, batch).findings
+    assert f["n_classified"] == 1 and f["n_unclassified"] == 1
+    assert f["knowledge_deficit_share"] == 1.0   # 1 of 1 CLASSIFIED, not 1 of 2

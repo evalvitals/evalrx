@@ -85,3 +85,17 @@ M2 will happily attribute a harness bug to whichever mechanism is under test.
   cheapest code path here by a wide margin.
 - `MathArena/arxivmath` is mined from that month's arXiv, so its
   contamination resistance is a construction guarantee rather than a hope.
+
+## Sampling, honestly
+
+`fetch_rows` draws `n_windows` (12) offsets spaced across the whole split,
+jittered so they are not page-aligned, and takes an equal share from each.
+
+Shuffling the ORDER of 100-row pages is not enough on its own — an earlier
+version did exactly that and then stopped as soon as it had enough rows, which
+took them all from whichever one or two pages came first. On MMLU-Pro (ordered
+by category) that returned a single category; the current sampler returns eight.
+
+What this is: a stratified cluster sample. What it is not: an iid draw. The
+Wilson interval is therefore **approximate** — the design effect from clustering
+is unmodelled, so treat the band boundaries as guidance, not as a test.
