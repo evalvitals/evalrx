@@ -276,7 +276,7 @@ def _adapter_bbh(row: dict) -> Optional[tuple]:
 SPECS: list[Spec] = [
     # ── ch1 math: expected to span saturated → floor ────────────────────
     Spec("math500", "ch1-math", "HuggingFaceH4/MATH-500", split="test",
-         adapter=_adapter_plain("problem", "answer"), note="saturation check"),
+         max_tokens=20480, adapter=_adapter_plain("problem", "answer"), note="saturation check"),
     Spec("gsm_symbolic_main", "ch1-math", "apple/GSM-Symbolic", config="main",
          split="test", adapter=_adapter_gsm_symbolic, max_tokens=4096,
          note="paired-axis anchor (main/p1/p2)"),
@@ -284,18 +284,19 @@ SPECS: list[Spec] = [
          split="test", adapter=_adapter_gsm_symbolic, max_tokens=4096,
          note="hardest rung of the same axis"),
     Spec("aime_2026", "ch1-math", "MathArena/aime_2026", split="train",
-         adapter=_adapter_plain("problem", "answer"), note="frontier-saturated"),
+         max_tokens=20480, adapter=_adapter_plain("problem", "answer"), note="frontier-saturated"),
     Spec("hmmt_feb_2026", "ch1-math", "MathArena/hmmt_feb_2026", split="train",
-         adapter=_adapter_plain("problem", "answer")),
+         adapter=_adapter_plain("problem", "answer"), max_tokens=20480),
     Spec("matharena_apex", "ch1-math", "MathArena/apex-shortlist", split="train",
-         adapter=_adapter_plain("problem", "answer"), note="floor check"),
+         max_tokens=20480, adapter=_adapter_plain("problem", "answer"), note="floor check"),
     Spec("arxivmath", "ch1-math", "MathArena/arxivmath", split="train",
-         adapter=_adapter_plain("problem", "answer"),
+         adapter=_adapter_plain("problem", "answer"), max_tokens=20480,
          note="contamination-resistant by construction"),
     Spec("beyond_aime", "ch1-math", "ByteDance-Seed/BeyondAIME", split="test",
-         adapter=_adapter_plain("problem", "answer")),
+         adapter=_adapter_plain("problem", "answer"), max_tokens=20480),
     Spec("olympiadbench_math", "ch1-math", "Hothan/OlympiadBench",
-         config="OE_TO_maths_en_COMP", split="train", adapter=_adapter_olympiadbench),
+         config="OE_TO_maths_en_COMP", split="train", adapter=_adapter_olympiadbench,
+         max_tokens=20480),
     # ── ch2 code: the sandbox-free path ─────────────────────────────────
     Spec("lcb_execution", "ch2-code", "livecodebench/execution-v2", split="test",
          adapter=_adapter_lcb_execution, max_tokens=4096,
@@ -304,8 +305,16 @@ SPECS: list[Spec] = [
          adapter=_adapter_cruxeval, max_tokens=4096, note="exact string, no sandbox"),
     # ── ch3 puzzles ─────────────────────────────────────────────────────
     Spec("zebralogic", "ch3-puzzle", "WildEval/ZebraLogic", config="grid_mode",
-         split="test", adapter=_adapter_zebra, max_tokens=10240,
-         note="25 grid sizes x exactly 40"),
+         split="test", adapter=_adapter_zebra, grader=_grade_zebra,
+         max_tokens=20480,
+         instruction=(
+             "Solve the puzzle. After your reasoning, output the full solution "
+             "as one line per house in exactly this form:\n"
+             "House 1: Name=..., Color=...\nHouse 2: Name=..., Color=...\n"
+             "Use the attribute names from the puzzle. Prefix the block with "
+             "'Answer:' on its own line."
+         ),
+         note="25 grid sizes x exactly 40; full-grid metric"),
     Spec("enigmata_eval", "ch3-puzzle", "BytedTsinghua-SIA/Enigmata-Eval",
          split="train", adapter=_adapter_plain("prompt", "answer"), max_tokens=4096),
     # ── ch4 atomic reasoning ────────────────────────────────────────────
@@ -317,7 +326,7 @@ SPECS: list[Spec] = [
     Spec("bbh_word_sorting", "ch4-basic", "lukaemon/bbh", config="word_sorting",
          split="test", adapter=_adapter_bbh, max_tokens=4096),
     Spec("bbeh", "ch4-basic", "BBEH/bbeh", split="train",
-         adapter=_adapter_plain("input", "target"), max_tokens=10240),
+         adapter=_adapter_plain("input", "target"), max_tokens=20480),
     Spec("musique", "ch4-basic", "bdsaglam/musique", split="validation",
          adapter=_adapter_musique, grader=_grade_aliases, max_tokens=4096,
          note="2/3/4-hop x answerable"),
