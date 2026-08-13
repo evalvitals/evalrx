@@ -46,8 +46,17 @@ from evalvitals.analyzers.perturbation.context_shap import ContextShapAnalyzer
 from evalvitals.analyzers.perturbation.cot_faithfulness import CoTFaithfulnessAnalyzer
 from evalvitals.analyzers.perturbation.format_sensitivity import FormatSensitivityAnalyzer
 from evalvitals.analyzers.perturbation.mm_shap import MMShapAnalyzer
+from evalvitals.analyzers.perturbation.perturbation_battery import PerturbationBattery
 from evalvitals.analyzers.perturbation.prompt_contrast import PromptContrastAnalyzer
+from evalvitals.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
+from evalvitals.analyzers.reasoning.arith_audit import ArithmeticAudit
+from evalvitals.analyzers.reasoning.contamination import ContaminationProbe
+from evalvitals.analyzers.reasoning.knowledge_split import KnowledgeReasoningSplit
+from evalvitals.analyzers.reasoning.self_repair import SelfRepairAnalyzer
+from evalvitals.analyzers.reasoning.step_rollout_value import StepRolloutValueAnalyzer
+from evalvitals.analyzers.reasoning.termination_audit import TerminationAudit
 from evalvitals.analyzers.uncertainty.calibration import CalibrationAnalyzer
+from evalvitals.analyzers.uncertainty.coverage_gap import CoverageVerificationGap
 from evalvitals.analyzers.uncertainty.entropy import TokenEntropyAnalyzer
 from evalvitals.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
 from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
@@ -148,6 +157,36 @@ def _contrast_batch() -> CaseBatch:
         label=Label.FAIL,
     )
     return CaseBatch([case])
+
+
+def _reasoning_batch() -> CaseBatch:
+    """One FAIL carrying an arithmetic slip, one clean PASS — graded, so the
+    reasoning probes reach every gold-dependent column."""
+    return CaseBatch([
+        FailureCase(
+            inputs=Inputs(prompt="Alice has 5 apples and Bob gives her 3 more. How many?"),
+            observed="She has 5 + 3 = 9 apples.\nAnswer: 9",
+            expected="8",
+            label=Label.FAIL,
+        ),
+        FailureCase(
+            inputs=Inputs(prompt="Carol has 2 pears and Dan gives her 2 more. How many?"),
+            observed="She has 2 + 2 = 4 pears.\nAnswer: 4",
+            expected="4",
+            label=Label.PASS,
+        ),
+    ])
+
+
+def _long_prompt_batch() -> CaseBatch:
+    """A prompt long enough to split into two halves for the contamination probe."""
+    return CaseBatch([
+        FailureCase(
+            inputs=Inputs(prompt=" ".join(f"token{i}" for i in range(40))),
+            expected="x",
+            label=Label.PASS,
+        )
+    ])
 
 
 # ── analyzers excluded from suite 2, with documented reasons ──────────────────
@@ -296,6 +335,37 @@ _RUNNABLE: list[tuple[Any, Any, Any]] = [
         answers=["final answer\nConfidence: 80"],
         capabilities={Capability.GENERATE, Capability.LOGPROBS},
     ), _LABELLED),
+    # reasoning probes (2026-08)
+    (AnswerExtractionAudit(), None, _reasoning_batch()),
+    (TerminationAudit(), ScriptedFakeModel(
+        answers=["...and so\nAnswer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (ArithmeticAudit(), None, _reasoning_batch()),
+    (SelfRepairAnalyzer(), ScriptedFakeModel(
+        answers=["INCORRECT", "Answer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (StepRolloutValueAnalyzer(n_rollouts=2, gen_kwargs={"temperature": 0.8}), ScriptedFakeModel(
+        answers=["Answer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (KnowledgeReasoningSplit(), ScriptedFakeModel(
+        answers=["Answer: 8", "Answer: 8", "- a fact", "Answer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (ContaminationProbe(dataset_name="FakeBench", ngram=3), ScriptedFakeModel(
+        answers=["token20 token21 token22"],
+        capabilities={Capability.GENERATE},
+    ), _long_prompt_batch()),
+    (PerturbationBattery(), ScriptedFakeModel(
+        answers=["Answer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (CoverageVerificationGap(k=3, gen_kwargs={"temperature": 0.8}), ScriptedFakeModel(
+        answers=["Answer: 8", "Answer: 9", "Answer: 9"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
 ]
 _RUNNABLE_IDS = [a.name for a, _, _ in _RUNNABLE]
 
@@ -553,6 +623,100 @@ def _check_calibration(f):
     assert f["n_bins"] >= 2
 
 
+_EXPECTED_REASONING_PROBE_KEYS: dict[str, set[str]] = {
+    "answer_extraction_audit": {
+        "n_cases", "n_gradable", "n_labelled_fail", "n_extraction_suspect",
+        "suspect_rate", "per_case", "_caveat",
+    },
+    "termination_audit": {
+        "n_cases", "class_counts", "clean_rate", "truncation_rate",
+        "degenerate_rate", "per_case", "_caveat",
+    },
+    "arith_audit": {
+        "n_cases", "n_with_equations", "n_wrong_answers", "computation_slip_rate",
+        "chain_break_rate", "per_case", "_caveat",
+    },
+    "self_repair": {
+        "n_cases", "n_graded", "repair_rate", "damage_rate", "net_revision_gain",
+        "detection_accuracy", "per_case", "_caveat",
+    },
+    "step_rollout_value": {
+        "n_cases", "n_scored", "n_rollouts", "gen_kwargs", "mean_initial_value",
+        "per_case", "_caveat",
+    },
+    "knowledge_reasoning_split": {
+        "n_cases", "n_scored", "knowledge_deficit_share", "reasoning_deficit_share",
+        "decomposition_gain", "per_case", "_caveat",
+    },
+    "contamination_score": {
+        "n_cases", "n_scored", "dataset_name", "mean_guided_overlap",
+        "mean_guided_gain", "verbatim_flag_rate", "per_case", "_caveat",
+    },
+    "perturbation_battery": {
+        "n_cases", "n_scored", "perturbations", "mean_invariance_break_rate",
+        "mean_sensitivity_rate", "per_case", "_caveat",
+    },
+    "coverage_verification_gap": {
+        "n_cases", "n_scored", "k", "mean_pass_at_k", "mean_majority_correct",
+        "coverage_gap_rate", "degenerate_sampling", "per_case", "_caveat",
+    },
+}
+_EXPECTED_FINDING_KEYS.update(_EXPECTED_REASONING_PROBE_KEYS)
+
+
+def _check_answer_extraction_audit(f):
+    _check_unit_interval(f.get("suspect_rate"), "suspect_rate")
+    assert f["n_gradable"] <= f["n_cases"]
+
+
+def _check_termination_audit(f):
+    _check_unit_interval(f.get("clean_rate"), "clean_rate")
+    assert sum(f["class_counts"].values()) == f["n_cases"]
+
+
+def _check_arith_audit(f):
+    _check_unit_interval(f.get("computation_slip_rate"), "computation_slip_rate")
+    _check_unit_interval(f.get("chain_break_rate"), "chain_break_rate")
+    # the slip in the fixture (5+3=9) must be caught and must explain the answer
+    slip = [c for c in f["per_case"] if c.get("error_class") == "computation_slip"]
+    assert slip and slip[0]["slip_explains_final"] == 1
+
+
+def _check_self_repair(f):
+    _check_unit_interval(f.get("repair_rate"), "repair_rate")
+    _check_unit_interval(f.get("damage_rate"), "damage_rate")
+    # damage is the column that decides deployment: it must be reported, and the
+    # fixture carries a PASS case precisely so it is measurable
+    assert "damage_rate" in f and f["n_baseline_pass"] >= 1
+
+
+def _check_step_rollout_value(f):
+    for entry in f["per_case"]:
+        for value in entry.get("step_values", []):
+            _check_unit_interval(value, "step_value")
+
+
+def _check_knowledge_reasoning_split(f):
+    for key in ("knowledge_deficit_share", "reasoning_deficit_share"):
+        _check_unit_interval(f.get(key), key)
+
+
+def _check_contamination_score(f):
+    _check_unit_interval(f.get("mean_guided_overlap"), "mean_guided_overlap")
+    _check_unit_interval(f.get("verbatim_flag_rate"), "verbatim_flag_rate")
+
+
+def _check_perturbation_battery(f):
+    _check_unit_interval(f.get("mean_invariance_break_rate"), "mean_invariance_break_rate")
+    _check_unit_interval(f.get("mean_sensitivity_rate"), "mean_sensitivity_rate")
+
+
+def _check_coverage_verification_gap(f):
+    _check_unit_interval(f.get("mean_pass_at_k"), "mean_pass_at_k")
+    _check_unit_interval(f.get("coverage_gap_rate"), "coverage_gap_rate")
+    assert isinstance(f["degenerate_sampling"], bool)
+
+
 _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
     "attention": _check_attention,
     "attention_rollout": _check_attention_rollout,
@@ -581,6 +745,15 @@ _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
     "layer_contrast": _check_layer_contrast,
     "context_shap": _check_context_shap,
     "calibration": _check_calibration,
+    "answer_extraction_audit": _check_answer_extraction_audit,
+    "termination_audit": _check_termination_audit,
+    "arith_audit": _check_arith_audit,
+    "self_repair": _check_self_repair,
+    "step_rollout_value": _check_step_rollout_value,
+    "knowledge_reasoning_split": _check_knowledge_reasoning_split,
+    "contamination_score": _check_contamination_score,
+    "perturbation_battery": _check_perturbation_battery,
+    "coverage_verification_gap": _check_coverage_verification_gap,
 }
 
 
