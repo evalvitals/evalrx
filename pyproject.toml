@@ -141,6 +141,7 @@ addopts = "-v --tb=short"
 markers = [
     "gpu: requires CUDA GPU and cached model weights — skip with -m 'not gpu'",
     "slow: takes more than a few seconds on CPU",
+    "network: downloads a small HF processor/tokenizer config (no GPU, no weights) — skip with -m 'not network'",
 ]
 
 [tool.ruff]

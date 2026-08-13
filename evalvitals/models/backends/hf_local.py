@@ -61,7 +61,10 @@ def _populate_vision_extras(
       ``image_spatial_shape`` — (H, W) patch grid after spatial merge, for reshaping.
       ``image_grid_thw``      — raw (T, H, W) tensor if grid_source=="grid_thw".
     """
-    image_token_id = getattr(model_config, vision.image_token_id_attr, None)
+    # A dotted attr (e.g. Omni's "thinker_config.image_token_id") needs the
+    # nested walker; a bare name behaves identically to getattr(), so no VLM
+    # spec's resolution changes.
+    image_token_id = _read_nested_attr(model_config, vision.image_token_id_attr, default=None)
     if image_token_id is not None:
         extras["image_token_mask"] = input_ids == image_token_id
 
@@ -83,6 +86,26 @@ def _populate_vision_extras(
             extras["image_spatial_shape"] = (h // merge, w // merge)
 
 
+def _populate_audio_extras(
+    extras: dict,
+    input_ids: Any,  # CPU torch.Tensor
+    model_config: Any,
+    audio: Any,  # AudioSpec — avoid circular import; duck-typed
+) -> None:
+    """Fill *extras* with the audio-token mask (the audio TokenTypeMap analog).
+
+    Symmetric to :func:`_populate_vision_extras`, minus the spatial-grid part —
+    audio placeholders are a flat run of one token per encoded frame-group, no
+    2D reshape. Writes ``audio_token_mask`` — bool tensor (seq_len,) marking
+    audio-placeholder positions — which downstream paper methods (e.g. a
+    contrastive-decoding audio-reliance signal) read to isolate how much of the
+    decoder's attention lands on audio vs. text/image tokens.
+    """
+    audio_token_id = _read_nested_attr(model_config, audio.audio_token_id_attr, default=None)
+    if audio_token_id is not None:
+        extras["audio_token_mask"] = input_ids == audio_token_id
+
+
 def _resolve_image(obj: Any) -> Any:
     """Return a PIL image for *obj* (PIL passes through; str/Path is opened)."""
     if hasattr(obj, "size") and hasattr(obj, "mode"):  # already PIL-like
@@ -90,6 +113,90 @@ def _resolve_image(obj: Any) -> Any:
     from PIL import Image
 
     return Image.open(obj).convert("RGB")
+
+
+# Sampling rate contract for ``Inputs.audio``: an ndarray is expected to already
+# be mono float32 at this rate (matches the WhisperFeatureExtractor every
+# audio-capable spec in this codebase uses). A path/URL is decoded to it here,
+# so callers never have to think about resampling.
+AUDIO_SAMPLE_RATE = 16000
+
+
+def _resolve_audio(obj: Any) -> Any:
+    """Return a mono float32 waveform (numpy array) at :data:`AUDIO_SAMPLE_RATE`.
+
+    An already-decoded array passes through UNCHANGED — the caller is on the
+    hook for it being mono float32 @ 16 kHz; there is no signal here to detect
+    or fix a mismatched sample rate, so getting this wrong fails silently
+    downstream (the model just hears audio sped up/slowed down). A str/Path is
+    decoded via ``ffmpeg`` (already assumed present elsewhere in this codebase,
+    e.g. ``analysis/workbench.py``'s duration probing) rather than adding a new
+    audio-decoding dependency.
+    """
+    if hasattr(obj, "dtype") and hasattr(obj, "shape"):  # already a numpy array
+        import numpy as np
+
+        arr = np.asarray(obj, dtype=np.float32)
+        if arr.ndim > 1:
+            # Silently flattening a (channels, samples) array would interleave
+            # channels into one stream -- audio at the wrong speed with channel
+            # aliasing, no error anywhere downstream. Mono is the documented
+            # contract; enforce it instead of guessing which axis is channels.
+            raise ValueError(
+                f"Inputs.audio must be a 1-D mono waveform, got shape {arr.shape}; "
+                "mix down to mono before passing it in"
+            )
+        return arr.reshape(-1)
+
+    import shutil
+    import subprocess
+
+    import numpy as np
+
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError(
+            "decoding audio from a path/URL requires the 'ffmpeg' binary on PATH; "
+            "install it, or pass Inputs.audio as an already-decoded mono float32 "
+            f"numpy array at {AUDIO_SAMPLE_RATE} Hz"
+        )
+    cmd = [
+        "ffmpeg", "-v", "error", "-i", str(obj),
+        "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(AUDIO_SAMPLE_RATE), "-",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg failed to decode audio {obj!r}: {proc.stderr.decode(errors='replace')}"
+        )
+    return np.frombuffer(proc.stdout, dtype="<f4").copy()
+
+
+def _check_audio_duration(audios: list, processor: Any, model_key: str) -> None:
+    """Raise before the processor silently truncates audio past its encoder window.
+
+    ``WhisperFeatureExtractor.chunk_length`` (seconds) differs per checkpoint —
+    Qwen2-Audio's is 30s, Qwen2.5-Omni's is 300s — and padding beyond it is
+    silently dropped rather than erroring (verified empirically: token count
+    and ``feature_attention_mask`` both cap at the window with no warning).
+    Read live from the processor, never baked, per this module's convention.
+    """
+    feature_extractor = getattr(processor, "feature_extractor", None)
+    chunk_length = getattr(feature_extractor, "chunk_length", None)
+    if chunk_length is None:
+        return  # nothing to check this checkpoint's contract against
+    # ``audios`` are already resolved to AUDIO_SAMPLE_RATE by _resolve_audio, but
+    # the limit itself is read from the feature extractor's own rate rather than
+    # the module constant, so this stays correct if that ever diverges.
+    sampling_rate = getattr(feature_extractor, "sampling_rate", AUDIO_SAMPLE_RATE)
+    limit_samples = int(chunk_length) * int(sampling_rate)
+    for i, wav in enumerate(audios):
+        if len(wav) > limit_samples:
+            raise ValueError(
+                f"{model_key}: audio[{i}] is {len(wav) / sampling_rate:.1f}s, longer than "
+                f"this checkpoint's {chunk_length}s encoder window — it would be silently "
+                "truncated rather than raising inside the processor. Chunk the audio yourself "
+                "before calling, or accept a documented context window in the caller."
+            )
 
 
 def _collect_message_images(messages: list) -> list:
@@ -354,7 +461,7 @@ class HFLocalModel(Model):
 
         model, processor = self._loaded
         tok = getattr(processor, "tokenizer", processor)
-        if self.spec.is_vlm:
+        if self.spec.needs_multimodal_encode:
             enc, _, _, _ = self._encode_vlm(inputs, model, processor)
         else:
             prompt = self._as_prompt(inputs)
@@ -386,7 +493,7 @@ class HFLocalModel(Model):
 
         model, processor = self._loaded
         tok = getattr(processor, "tokenizer", processor)
-        if self.spec.is_vlm:
+        if self.spec.needs_multimodal_encode:
             enc, _, _, _ = self._encode_vlm(inputs, model, processor)
         else:
             enc = self._encode(self._as_prompt(inputs))
@@ -962,16 +1069,25 @@ class HFLocalModel(Model):
         return ChatTurn(text=gen, raw_tool_calls=None, usage=usage)
 
     def _encode_vlm(self, inputs, model, processor):
-        """Encode an (image/video, text) input for a VLM and build its TokenTypeMap.
+        """Encode an (image/video/audio, text) input and build its TokenTypeMap.
 
-        Builds the TokenTypeMap from the processor output BEFORE moving to device,
-        using the live config (image_token_id, vision_config.spatial_merge_size) +
-        the spec's VisionSpec — so token ids / merge sizes are never hard-coded.
+        Despite the name (kept to avoid touching every call site), this is the
+        general multimodal encode path: it also carries ``inputs.audio`` for
+        omni/audio-only specs. Builds the TokenTypeMap from the processor output
+        BEFORE moving to device, using the live config (image_token_id,
+        vision_config.spatial_merge_size) + the spec's VisionSpec — so token ids /
+        merge sizes are never hard-coded. ``self.spec.vision is None`` (an
+        audio-only spec) skips the TokenTypeMap entirely — it is VLM-specific.
 
         ``inputs.video`` (list of PIL frames) takes priority over ``inputs.image``:
         each frame gets its own ``{"type": "image"}`` content slot so the processor
         inserts a separate image-token block per frame, enabling multi-frame /
         temporal inputs without a native video tower.
+
+        Audio is independent of the image/video branch: any spec with
+        ``self.spec.audio is not None`` that receives ``inputs.audio`` gets an
+        ``{"type": "audio"}`` content block plus the decoded waveform(s) passed
+        through the processor's ``audio=`` kwarg at :data:`AUDIO_SAMPLE_RATE`.
         """
         from evalvitals.core.tokentype import build_token_type_map
 
@@ -979,6 +1095,7 @@ class HFLocalModel(Model):
         prompt = self._as_prompt(inputs)
         image = getattr(inputs, "image", None) if isinstance(inputs, Inputs) else None
         video = getattr(inputs, "video", None) if isinstance(inputs, Inputs) else None
+        audio = getattr(inputs, "audio", None) if isinstance(inputs, Inputs) else None
 
         if video is not None:
             # Multi-frame path: one <image> placeholder per frame, frames passed in order.
@@ -990,6 +1107,14 @@ class HFLocalModel(Model):
         else:
             content = [{"type": "text", "text": prompt}]
             images = []
+
+        audios: list = []
+        if self.spec.audio is not None and audio is not None:
+            raw_audios = list(audio) if isinstance(audio, (list, tuple)) else [audio]
+            audios = [_resolve_audio(a) for a in raw_audios]
+            # Audio blocks precede the text block, matching the image/video
+            # convention above; order must match the ``audio=`` list below.
+            content = [{"type": "audio"} for _ in audios] + content
 
         if self.spec.model_type == "instructblip":
             if len(images) != 1:
@@ -1020,8 +1145,16 @@ class HFLocalModel(Model):
             proc_kwargs = {"text": [text], "return_tensors": "pt"}
             if images:
                 proc_kwargs["images"] = images
+            if audios:
+                _check_audio_duration(audios, processor, self.spec.key)
+                proc_kwargs["audio"] = audios
+                proc_kwargs["sampling_rate"] = AUDIO_SAMPLE_RATE
             enc = processor(**proc_kwargs)
-        ttm = build_token_type_map(enc["input_ids"], enc, model.config, self.spec.vision)
+        ttm = (
+            build_token_type_map(enc["input_ids"], enc, model.config, self.spec.vision)
+            if self.spec.vision is not None
+            else None
+        )
         enc = enc.to(next(model.parameters()).device)
         ids = enc["input_ids"][0].tolist()
         tokens = [tok.decode([i]) for i in ids]
@@ -1031,7 +1164,7 @@ class HFLocalModel(Model):
         import torch
 
         model, processor = self._loaded
-        if self.spec.is_vlm:
+        if self.spec.needs_multimodal_encode:
             enc, token_ids, tokens, ttm = self._encode_vlm(inputs, model, processor)
         else:
             tok = getattr(processor, "tokenizer", processor)
@@ -1041,13 +1174,17 @@ class HFLocalModel(Model):
             ttm = None
 
         extras: dict = {"attn_semantics": self.spec.attn_semantics.value}
-        if self.spec.is_vlm and self.spec.vision is not None:
+        if self.spec.vision is not None:
             image = getattr(inputs, "image", None) if isinstance(inputs, Inputs) else None
             video = getattr(inputs, "video", None) if isinstance(inputs, Inputs) else None
             if image is not None or video is not None:
                 _populate_vision_extras(
                     extras, torch.tensor(token_ids), enc, model.config, self.spec.vision
                 )
+        if self.spec.audio is not None:
+            audio = getattr(inputs, "audio", None) if isinstance(inputs, Inputs) else None
+            if audio is not None:
+                _populate_audio_extras(extras, torch.tensor(token_ids), model.config, self.spec.audio)
 
         flags = {flag: True for cap, flag in _CAPTURE_FLAGS.items() if cap in capture}
         enc.pop("token_type_ids", None)  # some VLM processors emit this; forward() rejects it

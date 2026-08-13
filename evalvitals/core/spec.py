@@ -138,6 +138,17 @@ class ModelSpec:
         return self.audio is not None or self.video
 
     @property
+    def needs_multimodal_encode(self) -> bool:
+        """True when the backend must route through the (image/video/audio) encoder.
+
+        Distinct from ``is_vlm`` alone so an audio-only spec (``vision is
+        None``, e.g. the Qwen3-Omni captioner or a Qwen2-Audio spec) still
+        takes the multimodal encode path in the backend instead of falling
+        through to the plain-text tokenizer and silently dropping its audio.
+        """
+        return self.vision is not None or self.audio is not None
+
+    @property
     def modalities(self) -> frozenset[str]:
         """Modalities derived from the components present (analyzers match on this)."""
         mods = {"text"}
