@@ -429,8 +429,21 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple:
     return (round(max(0.0, centre - half), 4), round(min(1.0, centre + half), 4))
 
 
-def band_of(acc: float, lo: float, hi: float) -> str:
-    """Classify against the 30-70% usable band, using the interval not the point."""
+#: Above this share of tag-less outputs the accuracy is a BUDGET measurement,
+#: not a capability one, and the band cannot be claimed either way.
+TRUNCATION_ALARM = 0.10
+
+
+def band_of(acc: float, lo: float, hi: float, no_tag_rate: float = 0.0) -> str:
+    """Classify against the 30-70% usable band, using the interval not the point.
+
+    A high tag-less rate short-circuits the classification: the model never
+    reached its answer on those items, so what was measured is the token budget.
+    Reporting "USABLE" there would send the whole arc after a mechanism that
+    does not exist.
+    """
+    if no_tag_rate > TRUNCATION_ALARM:
+        return "budget_limited"
     if lo >= 0.70:
         return "saturated"
     if hi <= 0.30:
@@ -486,6 +499,7 @@ def run_spec(spec: Spec, n: int, concurrency: int, temperature: float) -> dict:
     k = sum(g["correct"] for g in graded)
     acc = k / n_graded
     lo, hi = wilson(k, n_graded)
+    no_tag_rate = sum(g["no_answer_tag"] for g in graded) / n_graded
     return {
         "name": spec.name,
         "chapter": spec.chapter,
@@ -496,13 +510,11 @@ def run_spec(spec: Spec, n: int, concurrency: int, temperature: float) -> dict:
         "n_correct": k,
         "accuracy": round(acc, 4),
         "ci95": [lo, hi],
-        "band": band_of(acc, lo, hi),
+        "band": band_of(acc, lo, hi, no_tag_rate),
         "empty_rate": round(sum(g["empty"] for g in graded) / n_graded, 4),
         # thinking models overrun the budget before the tag; without this column a
         # truncation-limited score reads as a capability score
-        "no_answer_tag_rate": round(
-            sum(g["no_answer_tag"] for g in graded) / n_graded, 4
-        ),
+        "no_answer_tag_rate": round(no_tag_rate, 4),
         "mean_output_chars": round(
             sum(g["chars"] for g in graded) / n_graded, 1
         ),
