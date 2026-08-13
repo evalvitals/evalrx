@@ -112,7 +112,11 @@ class SelfRepairAnalyzer(Analyzer):
         graded = [c for c in per_case if "baseline_correct" in c]
         failed = [c for c in graded if c["baseline_correct"] == 0]
         passed = [c for c in graded if c["baseline_correct"] == 1]
-        detected = [c for c in graded if "self_says_incorrect" in c]
+        # A real model sometimes answers the critique in prose that parses to
+        # nothing; those cases carry self_says_incorrect=None and must be
+        # dropped from the detection rates rather than counted as "said correct".
+        detected = [c for c in graded if c.get("detection_correct") is not None]
+        verdicts = [c for c in passed if c.get("self_says_incorrect") is not None]
 
         repair_rate = (
             round(sum(c["repaired"] for c in failed) / len(failed), 4) if failed else None
@@ -130,9 +134,12 @@ class SelfRepairAnalyzer(Analyzer):
                 if detected
                 else None
             ),
+            "n_critique_unparsed": sum(
+                1 for c in graded if c.get("self_says_incorrect") is None
+            ),
             "false_alarm_rate": (
-                round(sum(c["self_says_incorrect"] for c in passed) / len(passed), 4)
-                if passed
+                round(sum(c["self_says_incorrect"] for c in verdicts) / len(verdicts), 4)
+                if verdicts
                 else None
             ),
             "repair_rate": repair_rate,

@@ -430,3 +430,78 @@ def test_semantic_columns_are_opt_out():
     ).findings
     assert "semantic_entropy" not in f
     assert f["consistency"] == 0.5
+
+
+def test_self_repair_survives_an_unparseable_critique():
+    """A real model answers the critique in prose sometimes; that must not crash
+    the rates or be silently counted as 'said correct'."""
+    batch = CaseBatch([
+        _case("q1", "Answer: 5", "12", Label.FAIL),
+        _case("q2", "Answer: 7", "7", Label.PASS),
+    ])
+    model = ScriptModel([
+        "Well, it depends on how you look at it.", "Answer: 12",   # unparsed verdict
+        "CORRECT", "Answer: 7",
+    ])
+    f = SelfRepairAnalyzer().run(model, batch).findings
+    assert f["n_critique_unparsed"] == 1
+    assert f["detection_accuracy"] == 1.0   # only the parseable verdict counts
+    assert f["false_alarm_rate"] == 0.0
+    assert f["repair_rate"] == 1.0 and f["damage_rate"] == 0.0
+
+
+# ── robustness: real models return things fixtures never do ───────────────────
+_ADVERSARIAL_OUTPUTS = [
+    "",                                   # empty completion (budget or backend hiccup)
+    "   \n\n  ",                          # whitespace only
+    "I cannot answer that.",              # refusal, no tag
+    "x " * 3000,                          # degenerate repetition
+    "Answer:",                            # tag with nothing after it
+    "The answer is the answer",           # self-referential prose
+    "\\boxed{}",                          # empty box
+    "答案是 42",                            # non-latin script
+    "Answer: 1/0 and 2 / 0 = inf",        # division by zero inside an equation
+    "5 + 5 = 10 = 10 = 10",               # chained equalities
+]
+
+
+class AdversarialModel(ScriptModel):
+    capabilities = frozenset({Capability.GENERATE})
+
+    def __init__(self):
+        super().__init__(_ADVERSARIAL_OUTPUTS)
+
+
+@pytest.mark.parametrize(
+    "analyzer",
+    [
+        AnswerExtractionAudit(reask=True),
+        TerminationAudit(max_cases=6),
+        ArithmeticAudit(generate_missing=True),
+        SelfRepairAnalyzer(max_cases=4, revise_with_critique=True),
+        StepRolloutValueAnalyzer(n_rollouts=2, max_cases=2),
+        KnowledgeReasoningSplit(max_cases=3),
+        ContaminationProbe(dataset_name="FakeBench", max_cases=4),
+        PerturbationBattery(max_cases=3),
+        CoverageVerificationGap(k=3, max_cases=3),
+    ],
+    ids=lambda a: a.name,
+)
+def test_probes_survive_adversarial_outputs(analyzer):
+    """Every probe must produce JSON-serialisable findings on garbage output.
+
+    Empty completions, refusals, repetition loops and division by zero are what
+    an endpoint actually returns under load — a probe that raises on them takes
+    down the whole M1 stage, not just its own column.
+    """
+    import json
+
+    batch = CaseBatch([
+        _case(f"Alice has {i} apples and Bob gives her {i + 1} more. How many?",
+              observed=text, expected="8",
+              label=Label.FAIL if i % 2 else Label.PASS)
+        for i, text in enumerate(_ADVERSARIAL_OUTPUTS)
+    ])
+    findings = analyzer.run(AdversarialModel(), batch).findings
+    json.dumps(findings)  # must not raise
+    assert isinstance(findings.get("per_case"), list)
