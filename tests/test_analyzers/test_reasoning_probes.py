@@ -505,3 +505,20 @@ def test_probes_survive_adversarial_outputs(analyzer):
     findings = analyzer.run(AdversarialModel(), batch).findings
     json.dumps(findings)  # must not raise
     assert isinstance(findings.get("per_case"), list)
+
+
+# ── extraction regressions found by a live model run ──────────────────────────
+def test_extract_answer_skips_the_instruction_placeholder():
+    """Models restate the requested format; that echo is LAST and would win."""
+    text = "...give it as 'Answer: <answer>'.\nSo we compute.\nAnswer: 25"
+    assert extract_answer(text) == "25"
+    assert extract_answer(r"\boxed{}  and later \boxed{7}") == "7"
+
+
+def test_answer_equal_checks_both_ends_of_the_span():
+    # tagged span that STARTS with the answer and trails commentary
+    assert answer_equal("620, since 12 beds are broken", "620")
+    # bare sentence ENDING in the answer
+    assert answer_equal("the answer is 18", "18")
+    # and still no substring match
+    assert not answer_equal("the answer is 180", "18")

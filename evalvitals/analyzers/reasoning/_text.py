@@ -40,16 +40,23 @@ _GIVE_UP = re.compile(
 _TERMINATORS = ".!?\"'`)]}\u3002\uff01\uff1f"
 
 
+#: A span that is only the format placeholder the prompt asked for — models
+#: restate "give it as 'Answer: <answer>'" and that echo, being LAST, would
+#: otherwise replace the real answer.
+_PLACEHOLDER = re.compile(r"^[<\[{(]\s*\w*\s*[>\]})]?['\".\s]*$")
+
+
 def extract_answer(text: Any) -> str:
-    r"""Last ``\boxed{}`` or ``Answer:``-tagged span, else the last non-empty line."""
+    r"""Last usable ``\boxed{}`` or ``Answer:``-tagged span, else the last non-empty line."""
     raw = str(text or "")
-    boxed = _BOXED.findall(raw)
-    if boxed:
-        return boxed[-1].strip()
-    tagged = _ANSWER_TAG.findall(raw)
-    if tagged:
+    for span in reversed(_BOXED.findall(raw)):
+        if span.strip():
+            return span.strip()
+    for span in reversed(_ANSWER_TAG.findall(raw)):
         # the tag regex is line-greedy; keep only the first line of the span
-        return tagged[-1].splitlines()[0].strip()
+        candidate = span.splitlines()[0].strip() if span.splitlines() else ""
+        if candidate and not _PLACEHOLDER.match(candidate):
+            return candidate
     lines = [line.strip() for line in raw.splitlines() if line.strip()]
     return lines[-1] if lines else ""
 
@@ -106,7 +113,15 @@ def answer_equal(prediction: Any, gold: Any, rel_tol: float = 1e-6) -> bool:
         found = numbers_in(pred)
         if not found:
             return False
-        return abs(found[-1] - gold_num) <= rel_tol * max(1.0, abs(gold_num))
+        # Both ends, because the prediction reaches here in two shapes: a tagged
+        # span that STARTS with the answer and may trail commentary ("620, since
+        # the broken beds don't count") — first number — and a bare sentence
+        # ending in it ("the answer is 18") — last number. Checking only one end
+        # scores the commentary's numbers on half the cases.
+        return any(
+            abs(candidate - gold_num) <= rel_tol * max(1.0, abs(gold_num))
+            for candidate in (found[0], found[-1])
+        )
     if len(exp) <= 3:
         return re.search(rf"(?<!\w){re.escape(exp)}(?!\w)", pred) is not None
     return exp in pred

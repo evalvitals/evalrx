@@ -34,9 +34,9 @@ from evalvitals.analyzers.attention.summary import AttentionAnalyzer
 from evalvitals.analyzers.geometry.cka import CKAAnalyzer
 from evalvitals.analyzers.geometry.linear_probe import LinearProbeAnalyzer
 from evalvitals.analyzers.hallucination.chair import CHAIRAnalyzer
-from evalvitals.analyzers.hallucination.selfcheck import SelfCheckConsistencyAnalyzer
 from evalvitals.analyzers.hallucination.opera import OPERAAnalyzer
 from evalvitals.analyzers.hallucination.pope import POPEAnalyzer
+from evalvitals.analyzers.hallucination.selfcheck import SelfCheckConsistencyAnalyzer
 from evalvitals.analyzers.hallucination.vcd import VCDAnalyzer
 from evalvitals.analyzers.lens.layer_contrast import LayerContrastAnalyzer
 from evalvitals.analyzers.lens.logit_lens import LogitLensAnalyzer
