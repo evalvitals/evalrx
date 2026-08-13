@@ -20,8 +20,12 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from evalvitals.core.case import FailureCase
 
+#: The separator is MANDATORY (":", "=", or the word "is"). With it optional the
+#: bare word "answer" matches — "the answer to this is unclear" would extract
+#: "to this is unclear" — and since extraction takes the LAST hit, one trailing
+#: "I hope this answer helps" silently replaces a correct tagged answer.
 _ANSWER_TAG = re.compile(
-    r"(?:final\s+answer|answer)\s*(?:is)?\s*[:=]?\s*(.+)", re.IGNORECASE
+    r"(?:final\s+answer|answer)\s*(?:[:=]|\bis\b)\s*(.+)", re.IGNORECASE
 )
 _BOXED = re.compile(r"\\boxed\s*\{([^{}]*)\}")
 _NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
