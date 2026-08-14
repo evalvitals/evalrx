@@ -17,6 +17,7 @@ lazily so this module imports on a torch-free install.
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ from evalvitals.core.model import Model, TokenLogprob, Trace
 from evalvitals.core.spec import AttnSemantics
 from evalvitals.core.tool import ChatTurn
 from evalvitals.models.backends.base import Backend, RuntimeConfig
+
+logger = logging.getLogger(__name__)
 
 # capability -> HF forward flag
 _CAPTURE_FLAGS = {
@@ -165,10 +168,13 @@ def _resolve_audio(obj: Any) -> Any:
     ]
     proc = subprocess.run(cmd, capture_output=True, check=False)
     if proc.returncode != 0:
+        logger.warning("ffmpeg failed to decode audio %r: %s", obj, proc.stderr.decode(errors="replace"))
         raise RuntimeError(
             f"ffmpeg failed to decode audio {obj!r}: {proc.stderr.decode(errors='replace')}"
         )
-    return np.frombuffer(proc.stdout, dtype="<f4").copy()
+    wav = np.frombuffer(proc.stdout, dtype="<f4").copy()
+    logger.debug("decoded audio %r via ffmpeg: %.1fs @ %dHz", obj, len(wav) / AUDIO_SAMPLE_RATE, AUDIO_SAMPLE_RATE)
+    return wav
 
 
 def _check_audio_duration(audios: list, processor: Any, model_key: str) -> None:
@@ -191,8 +197,14 @@ def _check_audio_duration(audios: list, processor: Any, model_key: str) -> None:
     limit_samples = int(chunk_length) * int(sampling_rate)
     for i, wav in enumerate(audios):
         if len(wav) > limit_samples:
+            duration_sec = len(wav) / sampling_rate
+            logger.warning(
+                "%s: audio[%d] is %.1fs, longer than the %ds encoder window — refusing rather "
+                "than letting the processor silently truncate it",
+                model_key, i, duration_sec, chunk_length,
+            )
             raise ValueError(
-                f"{model_key}: audio[{i}] is {len(wav) / sampling_rate:.1f}s, longer than "
+                f"{model_key}: audio[{i}] is {duration_sec:.1f}s, longer than "
                 f"this checkpoint's {chunk_length}s encoder window — it would be silently "
                 "truncated rather than raising inside the processor. Chunk the audio yourself "
                 "before calling, or accept a documented context window in the caller."
@@ -277,6 +289,11 @@ class HFLocalModel(Model):
         must retain that distinction rather than treating a same-formula port
         to a different model architecture as a paper reproduction.
         """
+        fidelity = self._paper_method_fidelity_impl(method)
+        logger.debug("%s: paper_method_fidelity(%r) -> %r", self.spec.key, method, fidelity)
+        return fidelity
+
+    def _paper_method_fidelity_impl(self, method: str) -> str:
         if method == "vcd":
             # The executor uses the released corruption, plausibility cutoff,
             # and per-token sampler. Image-specific seeding keeps paired
@@ -359,12 +376,13 @@ class HFLocalModel(Model):
             config._attn_implementation = "eager"
             import warnings
 
-            warnings.warn(
+            msg = (
                 f"wrapped model used attn_implementation={current!r}; set it to 'eager' for "
                 "attention capture. If attentions come back empty, reload the model with "
-                "from_pretrained(..., attn_implementation='eager').",
-                stacklevel=2,
+                "from_pretrained(..., attn_implementation='eager')."
             )
+            logger.warning(msg)
+            warnings.warn(msg, stacklevel=2)
 
     def unembed_weight(self):
         """The lm_head / unembedding weight ``(vocab, dim)`` for logit-lens."""
@@ -387,9 +405,16 @@ class HFLocalModel(Model):
 
     # -- lazy load -----------------------------------------------------
     def load(self) -> None:
+        import time
+
         import torch
         import transformers
 
+        start = time.monotonic()
+        logger.info(
+            "loading %s from %s (backend=hf_local, dtype=%s, device=%s)",
+            self.spec.key, self.spec.hf_repo, self.runtime.dtype, self.runtime.device,
+        )
         auto_cls = getattr(transformers, self.spec.auto_class)
         proc_cls = getattr(transformers, self.spec.processor_class, transformers.AutoProcessor)
 
@@ -430,11 +455,17 @@ class HFLocalModel(Model):
             if "tools" not in template:
                 import warnings
 
-                warnings.warn(
+                msg = (
                     f"{self.spec.key!r}: spec.tool_calling=True but the chat template has no "
                     "'tools' handling — tool-calling may not render. Verify the checkpoint."
                 )
+                logger.warning(msg)
+                warnings.warn(msg)
         self._hf = (model, processor)
+        logger.info(
+            "loaded %s in %.1fs (capabilities=%s)",
+            self.spec.key, time.monotonic() - start, sorted(c.value for c in self.capabilities),
+        )
 
     @property
     def _loaded(self):
@@ -593,6 +624,10 @@ class HFLocalModel(Model):
         RNG, so a frozen selection/confirmation split remains reproducible if
         case order changes.  That seed policy is recorded as a specialization.
         """
+        logger.debug(
+            "%s: generate_vcd(alpha=%s, beta=%s, noise_step=%s, noise_seed=%s)",
+            self.spec.key, alpha, beta, noise_step, noise_seed,
+        )
         if not self.spec.is_vlm:
             raise ValueError("VCD visual contrast requires a VLM")
         image = getattr(inputs, "image", None)
@@ -644,6 +679,7 @@ class HFLocalModel(Model):
         paper-method comparison, so the white-box runner calls this method
         whenever it freezes the VCD candidate.
         """
+        logger.debug("%s: generate_vcd_baseline(noise_seed=%s)", self.spec.key, noise_seed)
         if not self.spec.is_vlm:
             raise ValueError("VCD clean control requires a VLM")
         image = getattr(inputs, "image", None)
@@ -702,6 +738,10 @@ class HFLocalModel(Model):
         one-token Yes/No task.  Applying a first-token shortcut to free-form
         generation would not implement ICD's token-by-token sampler.
         """
+        logger.debug(
+            "%s: generate_instruction_cd(alpha=%s, beta=%s, qformer_mode=%r)",
+            self.spec.key, alpha, beta, qformer_mode,
+        )
         if not self.spec.is_vlm:
             raise ValueError("instruction contrast requires a VLM")
         image = getattr(inputs, "image", None)
@@ -762,6 +802,7 @@ class HFLocalModel(Model):
 
     def generate_vicrop(self, inputs: Any, *, layer: int | float = 14) -> str:
         """Run the architecture-native LLaVA ViCrop paper executor."""
+        logger.debug("%s: generate_vicrop(layer=%s)", self.spec.key, layer)
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
         from evalvitals.models.paper_methods.vicrop import generate
@@ -786,6 +827,10 @@ class HFLocalModel(Model):
         """
         import torch
 
+        logger.debug(
+            "%s: generate_opera_binary(num_attn_candidates=%s, penalty_weight=%s)",
+            self.spec.key, num_attn_candidates, penalty_weight,
+        )
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: OPERA binary route is only native on LLaVA")
         if int(num_attn_candidates) < 1:
@@ -857,6 +902,10 @@ class HFLocalModel(Model):
         import torch
         from transformers.generation.logits_process import LogitsProcessorList
 
+        logger.debug(
+            "%s: generate_ifcd(alpha=%s, beta=%s, edit_strength=%s, top_layers=%s)",
+            self.spec.key, alpha, beta, edit_strength, top_layers,
+        )
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: IFCD is only wired for LLaVA's Vicuna decoder")
         checkpoint = self.runtime.engine_kwargs.get("ifcd_checkpoint")
@@ -914,6 +963,7 @@ class HFLocalModel(Model):
         """
         import re
 
+        logger.debug("%s: generate_vicrop_consensus(layer=%s)", self.spec.key, layer)
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
         from evalvitals.models.paper_methods.vicrop import prepare_views
@@ -957,6 +1007,10 @@ class HFLocalModel(Model):
         """
         import torch
 
+        logger.debug(
+            "%s: generate_pai(alpha=%s, guidance_scale=%s, start_layer=%s, end_layer=%s)",
+            self.spec.key, alpha, guidance_scale, start_layer, end_layer,
+        )
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: PAI is only native on the LLaVA executor")
         model, processor = self._loaded
