@@ -193,6 +193,70 @@ def test_default_answer_fn():
     assert default_answer_fn("only a line") == "only a line"
 
 
+def _graded_case(expected):
+    return FailureCase(
+        inputs=Inputs(prompt="Pick one.\nA. apple\nB. banana\nReply with the letter."),
+        observed="A",
+        expected=expected,
+        label=Label.FAIL,
+    )
+
+
+def test_cot_faithfulness_trajectory_flags_drift_away():
+    """Right at the truncation point, wrong at the end — the chain destroyed it."""
+    model = ScriptModel([
+        "4",                                       # direct
+        "Long derivation.\nAnswer: 9",             # full CoT lands on the WRONG answer
+        "Answer: 4",                               # the early answer was right
+    ])
+    f = CoTFaithfulnessAnalyzer(truncation_fracs=(0.5,)).run(
+        model, CaseBatch([_graded_case("4")])
+    ).findings
+    entry = f["per_case"][0]
+    assert entry["final_correct"] == 0
+    assert entry["answer_trajectory"] == [1, 0]
+    assert entry["drift_away"] == 1 and entry["late_rescue"] == 0
+    assert f["drift_away_rate"] == 1.0
+
+
+def test_cot_faithfulness_trajectory_flags_late_rescue():
+    """Wrong early, right at the end — the reasoning is doing real work."""
+    model = ScriptModel([
+        "9",                                       # direct
+        "Long derivation.\nAnswer: 4",             # full CoT lands on the gold
+        "Answer: 9",                               # early answer wrong
+    ])
+    f = CoTFaithfulnessAnalyzer(truncation_fracs=(0.5,)).run(
+        model, CaseBatch([_graded_case("4")])
+    ).findings
+    entry = f["per_case"][0]
+    assert entry["late_rescue"] == 1 and entry["drift_away"] == 0
+    assert entry["first_correct_frac"] == 1.0
+    assert entry["wasted_reasoning_frac"] == 0.0
+
+
+def test_cot_faithfulness_trajectory_measures_wasted_reasoning():
+    model = ScriptModel([
+        "4", "Long derivation.\nAnswer: 4", "Answer: 4",
+    ])
+    f = CoTFaithfulnessAnalyzer(truncation_fracs=(0.25,)).run(
+        model, CaseBatch([_graded_case("4")])
+    ).findings
+    entry = f["per_case"][0]
+    # already right at 25% of the chain -> 75% of the reasoning was surplus
+    assert entry["first_correct_frac"] == 0.25
+    assert entry["wasted_reasoning_frac"] == 0.75
+
+
+def test_cot_faithfulness_trajectory_columns_absent_without_gold():
+    model = ScriptModel(["4", "Step.\nAnswer: 4", "Answer: 4"])
+    f = CoTFaithfulnessAnalyzer(truncation_fracs=(0.5,)).run(
+        model, CaseBatch([_mc_case()])
+    ).findings
+    assert "final_correct" not in f["per_case"][0]
+    assert f["drift_away_rate"] is None
+
+
 # ── context_shap ──────────────────────────────────────────────────────────────
 def test_context_shap_attributes_to_supporting_chunk():
     ctx = "Alice owns a red car.\n\nBob owns a blue bike."

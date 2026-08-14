@@ -69,6 +69,28 @@ _FAILURE_MODE_TO_ANALYZERS: dict[str, list[str]] = {
     "logit_lens":                ["logit_lens"],
     "representational_collapse": ["cka"],
     "numerical_hallucination":   ["self_consistency", "verbalized_confidence"],
+    # Text-reasoning mechanisms (2026-08). The hygiene pair is listed under the
+    # names an M3 hypothesis uses when it blames the harness rather than the model.
+    "answer_extraction":         ["answer_extraction_audit"],
+    "parse_failure":             ["answer_extraction_audit"],
+    "truncation":                ["termination_audit"],
+    "degenerate_repetition":     ["termination_audit"],
+    "premature_termination":     ["termination_audit"],
+    "arithmetic_error":          ["arith_audit"],
+    "computation_slip":          ["arith_audit"],
+    "chain_break":               ["arith_audit", "step_rollout_value"],
+    "reasoning_break":           ["step_rollout_value", "arith_audit"],
+    "overthinking":              ["cot_faithfulness", "step_rollout_value"],
+    "self_correction_failure":   ["self_repair"],
+    "knowledge_gap":             ["knowledge_reasoning_split"],
+    "compositionality_gap":      ["knowledge_reasoning_split"],
+    "selection_failure":         ["coverage_verification_gap"],
+    "verification_gap":          ["coverage_verification_gap"],
+    "brittleness":               ["perturbation_battery"],
+    "surface_form_sensitivity":  ["perturbation_battery", "format_sensitivity"],
+    "memorization":              ["contamination_score", "perturbation_battery"],
+    "contamination":             ["contamination_score"],
+    "semantic_uncertainty":      ["self_consistency"],
 }
 
 # Per-kind ordered priority: high → low diagnostic value for false attribution.
@@ -89,9 +111,18 @@ _PRIORITY: dict[str, list[str]] = {
         "tool_shap",                              # re-run probe: tool-subset Shapley
     ],
     ModelKind.LLM: [
+        # Hygiene first: both produce confounds that mimic every mechanism
+        # column below, so a finding read before them is not interpretable.
+        "answer_extraction_audit",                # is the FAIL label real or a parse miss?
+        "termination_audit",                      # truncated / degenerate / gave up?
+        "arith_audit",                            # computation slip vs chain break (free)
         "selfcheck_consistency",                  # text hallucination (black-box)
         "format_sensitivity",                     # MC position bias vs content-tracking
         "cot_faithfulness",                       # is the reasoning load-bearing?
+        "coverage_verification_gap",              # cannot solve vs cannot select
+        "perturbation_battery",                   # invariance breaks / missing sensitivity
+        "self_repair",                            # detect / correct / DAMAGE
+        "knowledge_reasoning_split",              # missing fact vs broken composition
         "calibration",                            # ECE / overconfidence vs labels
         "attention", "logit_lens",                # interpretability
         "layer_contrast",                          # DoLa/DeCo divergence signal
@@ -100,6 +131,8 @@ _PRIORITY: dict[str, list[str]] = {
         "prompt_contrast",                         # are failures prompt-repairable?
         "context_shap",                            # RAG context dependence
         "cka", "self_consistency", "verbalized_confidence",
+        "step_rollout_value",                      # where the chain broke (expensive)
+        "contamination_score",                     # is the benchmark measuring recall?
     ],
 }
 
