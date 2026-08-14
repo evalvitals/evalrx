@@ -115,6 +115,14 @@ def main() -> None:
     ap.add_argument("--concurrency", type=int, default=16)
     ap.add_argument("--max-tokens", type=int, default=3072)
     ap.add_argument("--out", default="probe_validation.json")
+    ap.add_argument("--probe-cases", type=int, default=12,
+                    help="cap for the INTERVENTIONAL probes. Their model calls are "
+                         "SEQUENTIAL inside the analyzer, so against a local "
+                         "endpoint this is the wall-clock knob that matters: at "
+                         "~130s per long generation, k=5 over 12 cases is 2+ hours "
+                         "for one probe.")
+    ap.add_argument("--only", default="",
+                    help="comma-separated probe names to run (default: all)")
     args = ap.parse_args()
 
     spec = next(s for s in B.SPECS if s.name == args.dataset)
@@ -150,16 +158,17 @@ def main() -> None:
           "computation_slip_rate", "chain_break_rate", "compound_rate",
           "n_errors_but_correct")),
         ("coverage_verification_gap",
-         CoverageVerificationGap(k=5, max_cases=12, gen_kwargs={"temperature": 0.8}),
+         CoverageVerificationGap(k=5, max_cases=args.probe_cases,
+                                 gen_kwargs={"temperature": 0.8}),
          ("n_scored", "mean_pass_at_k", "mean_majority_correct", "coverage_gap_rate",
           "no_coverage_rate", "degenerate_sampling")),
-        ("perturbation_battery", PerturbationBattery(max_cases=12),
+        ("perturbation_battery", PerturbationBattery(max_cases=args.probe_cases),
          ("n_scored", "applied_perturbations", "mean_invariance_break_rate",
           "noop_break_rate", "mean_sensitivity_rate", "n_memorization_suspect")),
-        ("self_repair", SelfRepairAnalyzer(max_cases=16),
+        ("self_repair", SelfRepairAnalyzer(max_cases=args.probe_cases),
          ("n_baseline_fail", "n_baseline_pass", "detection_accuracy",
           "false_alarm_rate", "repair_rate", "damage_rate", "net_revision_gain")),
-        ("cot_faithfulness", CoTFaithfulnessAnalyzer(max_cases=12),
+        ("cot_faithfulness", CoTFaithfulnessAnalyzer(max_cases=args.probe_cases),
          ("mean_early_match_rate", "mean_cot_effect", "n_graded", "drift_away_rate",
           "late_rescue_rate", "mean_first_correct_frac", "mean_wasted_reasoning_frac")),
         ("self_consistency", SelfConsistencyAnalyzer(n=5, gen_kwargs={"temperature": 0.8}),
@@ -167,6 +176,9 @@ def main() -> None:
           "semantic_entropy", "normalized_semantic_entropy")),
     ]
 
+    wanted = {p.strip() for p in args.only.split(",") if p.strip()}
+    if wanted:
+        plan = [entry for entry in plan if entry[0] in wanted]
     for name, analyzer, keys in plan:
         t0, calls0 = time.time(), model.n_calls
         try:

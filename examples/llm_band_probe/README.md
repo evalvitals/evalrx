@@ -99,3 +99,34 @@ by category) that returned a single category; the current sampler returns eight.
 What this is: a stratified cluster sample. What it is not: an iid draw. The
 Wilson interval is therefore **approximate** — the design effect from clustering
 is unmodelled, so treat the band boundaries as guidance, not as a test.
+
+## PolyMATH and SuperGPQA (added after cross-validating against the Qwen3.5 card)
+
+**PolyMATH** (`Qwen/PolyMath`) is two paired axes in one repo: config = language
+(18), split = difficulty (`low`/`medium`/`high`/`top`), 125 problems each. The
+same index in two languages is the *same problem with the same gold*
+(`medium-en-0` and `medium-zh-0` both answer `$\frac{\pi}{3}$`), so a fixed
+`--seed` keeps the language arms aligned item-for-item. Four specs are wired:
+the English `medium`/`high`/`top` ladder plus a `zh medium` cross-language arm.
+`low` is GSM8K-level and omitted as pre-saturated.
+
+Its golds are mostly **not** plain numbers — measured over 100 rows per tier:
+
+| tier | golds a numeric grader can judge |
+|---|---|
+| low | 100% |
+| medium | 47% |
+| high | 68% |
+| top | 31% |
+
+The rest are symbolic LaTeX (`\frac{\pi}{3}`, `\lfloor \log_2 n \rfloor + 1`),
+so these specs use `_grade_latex`: numeric equality first, then a normalised
+LaTeX surface form that collapses `\dfrac`/`\frac`, `\left`/`\right`, spacing
+commands and braces. It is **not** a CAS — `0.5` will not match `\frac{1}{2}`.
+A low score on `top` is therefore partly the grader, and the spec note says so.
+
+**SuperGPQA** (`m-a-p/SuperGPQA`, 26,529 rows, 285 disciplines) is 10-option
+multiple choice keyed by `answer_letter`, which indexes `options` correctly on
+every row sampled. It carries `difficulty`, `discipline`, `field`, `subfield`
+and `is_calculation`, so the full split can be sliced into sub-benchmarks
+without leaving the dataset.

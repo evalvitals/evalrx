@@ -88,7 +88,7 @@ def _text(row: dict, *keys: str) -> str:
 
 def _mc_prompt(question: str, options: list[str]) -> str:
     lines = [question, ""]
-    lines += [f"{_MC_LETTERS[i]}. {opt}" for i, opt in enumerate(options)]
+    lines += [f"{_MC_LETTERS[i]}. {opt}" for i, opt in enumerate(options[: len(_MC_LETTERS)])]
     return "\n".join(lines)
 
 
@@ -149,6 +149,8 @@ def _adapter_mc(question_keys: tuple, options_key: str, answer_key: str):
         gold = _text(row, answer_key)
         if not question or not isinstance(options, (list, tuple)) or not gold:
             return None
+        if len(options) > len(_MC_LETTERS):
+            return None  # would need a letter the prompt cannot label
         if gold in _MC_LETTERS:
             letter = gold
         elif gold in options:
@@ -158,6 +160,48 @@ def _adapter_mc(question_keys: tuple, options_key: str, answer_key: str):
         return _mc_prompt(question, list(options)), letter
 
     return _fn
+
+
+def _adapter_polymath(row: dict) -> Optional[tuple]:
+    # golds are LaTeX wrapped in $...$ ("$\\frac{\\pi}{3}$"); the delimiters are
+    # notation, not answer
+    question, gold = _text(row, "question"), _text(row, "answer")
+    gold = gold.strip().strip("$").strip()
+    if not question or not gold:
+        return None
+    return question, gold
+
+
+#: Spacing/sizing commands and the two \frac aliases carry no meaning, so two
+#: answers that differ only in them are the same answer.
+_LATEX_NOISE = re.compile(
+    # the (?![a-zA-Z]) guard keeps \\left from eating \\leftarrow
+    r"\\(?:left|right|qquad|quad|displaystyle|text|mathrm)(?![a-zA-Z])|\\[!,;:]"
+)
+
+
+def _latex_key(value: Any) -> str:
+    """Normalised surface form of a LaTeX answer.
+
+    Deliberately NOT a CAS: it collapses notation that never changes meaning
+    (\\dfrac vs \\frac, \\left(, stray spaces) and nothing else. Two answers that
+    are algebraically equal but written differently (1/2 vs 0.5, \\sqrt2/2 vs
+    1/\\sqrt2) still miss — which is why the specs using it say so.
+    """
+    text = str(value or "").strip().strip("$").strip()
+    text = text.replace("\\dfrac", "\\frac").replace("\\tfrac", "\\frac")
+    text = _LATEX_NOISE.sub("", text)
+    text = re.sub(r"\\cdot|\\times", "*", text)
+    text = re.sub(r"[\s{}]", "", text)
+    return text.lower()
+
+
+def _grade_latex(prediction: Any, gold: Any) -> bool:
+    """Numeric equality first, then normalised LaTeX surface form."""
+    if answer_equal(prediction, gold):
+        return True
+    pred = _latex_key(extract_answer(prediction) if "\n" in str(prediction) else prediction)
+    return bool(pred) and pred == _latex_key(gold)
 
 
 def _adapter_musr(row: dict) -> Optional[tuple]:
@@ -310,6 +354,25 @@ SPECS: list[Spec] = [
     Spec("olympiadbench_math", "ch1-math", "Hothan/OlympiadBench",
          config="OE_TO_maths_en_COMP", split="train", adapter=_adapter_olympiadbench,
          max_tokens=20480),
+    # PolyMATH is TWO paired axes in one repo: config = language (18), split =
+    # difficulty (low/medium/high/top), 125 problems each, and the same index in
+    # two languages is the same problem with the same gold. The `low` rung is
+    # GSM8K-level and omitted as pre-saturated.
+    Spec("polymath_en_medium", "ch1-math", "Qwen/PolyMath", grader=_grade_latex, config="en",
+         split="medium", adapter=_adapter_polymath, max_tokens=20480,
+         note="paired axis: same 125 problems as every other language; "
+              "only 47% of golds are plain numbers, the rest are matched on "
+              "normalised LaTeX form and algebraic rewrites will miss"),
+    Spec("polymath_en_high", "ch1-math", "Qwen/PolyMath", grader=_grade_latex, config="en",
+         split="high", adapter=_adapter_polymath, max_tokens=20480,
+         note="difficulty ladder rung 3 of 4 (AIME-level); 68% numeric golds"),
+    Spec("polymath_en_top", "ch1-math", "Qwen/PolyMath", grader=_grade_latex, config="en",
+         split="top", adapter=_adapter_polymath, max_tokens=20480,
+         note="difficulty ladder rung 4 of 4 (olympiad-level); only 31% "
+              "numeric golds — a low score here is partly the grader"),
+    Spec("polymath_zh_medium", "ch1-math", "Qwen/PolyMath", grader=_grade_latex, config="zh",
+         split="medium", adapter=_adapter_polymath, max_tokens=20480,
+         note="cross-language arm of polymath_en_medium — identical golds"),
     # ── ch2 code: the sandbox-free path ─────────────────────────────────
     Spec("lcb_execution", "ch2-code", "livecodebench/execution-v2", split="test",
          adapter=_adapter_lcb_execution, max_tokens=20480,
@@ -349,6 +412,11 @@ SPECS: list[Spec] = [
          adapter=_adapter_folio, max_tokens=20480),
     Spec("musr_murder", "ch4-basic", "TAUR-Lab/MuSR", split="murder_mysteries",
          adapter=_adapter_musr, max_tokens=20480),
+    Spec("supergpqa", "ch4-basic", "m-a-p/SuperGPQA", split="train",
+         adapter=_adapter_mc(("question",), "options", "answer_letter"),
+         max_tokens=20480,
+         note="285 disciplines; carries difficulty/discipline/is_calculation "
+              "fields for slicing"),
     Spec("mmlu_pro", "ch4-basic", "TIGER-Lab/MMLU-Pro", split="test",
          adapter=_adapter_mc(("question",), "options", "answer"), max_tokens=20480),
 ]
