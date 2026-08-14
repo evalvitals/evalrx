@@ -14,6 +14,12 @@ def main(argv: list[str] | None = None) -> int:
         prog="evalvitals",
         description="EvalVitals command-line interface.",
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Print evalvitals' internal stage-by-stage narration "
+             "(evalvitals.enable_console_logging()) to stdout. Applies to any subcommand.",
+    )
     sub = parser.add_subparsers(dest="command")
 
     explore = sub.add_parser(
@@ -180,6 +186,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    if args.verbose:
+        from evalvitals.logging_utils import enable_console_logging
+
+        enable_console_logging()
     if args.command == "explore":
         if not args.path:
             parser.error("evalvitals explore requires a results path")
