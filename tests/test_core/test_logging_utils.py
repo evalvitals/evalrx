@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 import evalvitals
-from evalvitals.logging_utils import TOP_LEVEL_LOGGER_NAME, _MARKER_ATTR
+from evalvitals.logging_utils import _MARKER_ATTR, TOP_LEVEL_LOGGER_NAME
 
 
 def _console_handlers():
