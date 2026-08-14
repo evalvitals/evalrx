@@ -366,6 +366,11 @@ class FixAgent:
                           (default) means L4 candidates are recorded but not
                           executed, same as before this executor existed.
                           See :func:`~.fix_internals.run_lora_repair`.
+        verbose:          When ``True``, print this agent's own tier-routing /
+                          candidate-generation / validation-verdict narration
+                          to stdout (``evalvitals.enable_console_logging()``).
+                          Redundant when the owning ``VLDiagnoseLoop`` was
+                          already constructed with ``verbose=True``.
     """
 
     def __init__(
@@ -388,7 +393,16 @@ class FixAgent:
         paper_methods_only: bool = False,
         candidate_allowlist: "Iterable[str] | None" = None,
         finetune_pool: "CaseBatch | None" = None,
+        verbose: bool = False,
     ) -> None:
+        if verbose:
+            # Surfaces this module's own logger.info()/.warning() calls (tier
+            # routing, candidate generation, validation verdicts) — see
+            # VLDiagnoseLoop's verbose= for the same convenience one layer up.
+            from evalvitals.logging_utils import enable_console_logging
+
+            enable_console_logging()
+
         self._judge = judge
         self._finetune_pool = finetune_pool
         self.max_tier = parse_tier(max_tier)
