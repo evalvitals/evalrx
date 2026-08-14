@@ -39,7 +39,7 @@ jobs:
         # matplotlib gap went unnoticed.
         run: pip install -e ".[dev,local,api,data,finetune,viz]"
       - name: Run fast unit tests
-        run: pytest -m "not gpu" --cov=evalvitals --cov-report=xml -q
+        run: pytest -m "not gpu and not network" --cov=evalvitals --cov-report=xml -q
       - name: Upload coverage
         if: matrix.python-version == '3.11'
         uses: codecov/codecov-action@v4

@@ -73,3 +73,29 @@ def test_spec_is_frozen_dataclass():
     spec = ModelSpec(key="t", family="t", model_type="t")
     with pytest.raises(Exception):
         spec.key = "other"  # frozen
+
+
+def test_qwen2_5_omni_spec_has_all_modalities():
+    spec = get_spec("qwen2.5-omni-7b")
+    assert spec.is_omni is True and spec.is_vlm is True
+    assert isinstance(spec.vision, VisionSpec) and isinstance(spec.audio, AudioSpec)
+    assert spec.modalities == frozenset({"text", "image", "audio", "video"})
+    # nested under thinker_config on this family — not a bare top-level attr,
+    # since Qwen2_5OmniConfig has no attribute_map forwarding it itself.
+    assert spec.vision.image_token_id_attr == "thinker_config.image_token_id"
+    assert spec.audio.audio_token_id_attr == "thinker_config.audio_token_id"
+    assert spec.needs_multimodal_encode is True
+
+
+def test_qwen2_audio_spec_is_audio_only():
+    spec = get_spec("qwen2-audio-7b-instruct")
+    assert spec.is_omni is True and spec.is_vlm is False
+    assert spec.modalities == frozenset({"text", "audio"})
+    # top-level config here, unlike the Omni families' thinker_config nesting.
+    assert spec.audio.audio_token_id_attr == "audio_token_id"
+    assert spec.needs_multimodal_encode is True
+
+
+def test_needs_multimodal_encode_false_for_plain_llm():
+    spec = get_spec("qwen3-8b")
+    assert spec.needs_multimodal_encode is False
