@@ -1045,10 +1045,17 @@ class HFLocalModel(Model):
             audio_out = audio_tower(
                 enc["input_features"], output_hidden_states=True, return_dict=True
             )
-        # hidden_states[0] is pre-layer-0 embeddings, not a layer's own output;
-        # the remaining N entries are outputs of layers 1..N (verified against
-        # Qwen2AudioEncoder.forward -- the loop appends BEFORE running each
-        # layer, so slicing off index 0 lines up seq len N with N layers).
+        # hidden_states[0] is pre-layer-0 embeddings, not a layer's own output.
+        # Verified against Qwen2AudioEncoder.forward: entries 1..N-1 are the
+        # RAW pre-pool output of layers 0..N-2 (seq_len == max_source_positions,
+        # e.g. 1500), but the LAST entry (N) is layer N-1's output after
+        # avg_pooler + layer_norm have already run -- half the seq_len and a
+        # LayerNorm-pinned scale, not a like-for-like continuation of the rest.
+        # layer_stability's M_l/F_l are computed independently per entry (no
+        # cross-layer diffs), so this doesn't break Eq. 2-3, but it does mean
+        # the LAST layer's S_l sits on a different footing before Eq. 4
+        # softmax-weights it back in -- an approximation, not a bug, and one
+        # this codebase's convention is to say plainly rather than round off.
         encoder_states = [h[0].float() for h in audio_out.hidden_states[1:]]
         layer_stability_scores = tcd.layer_stability(encoder_states, eps=hp.eps)
 
@@ -1057,15 +1064,23 @@ class HFLocalModel(Model):
             prefill = model(**enc, use_cache=True, output_attentions=True, return_dict=True)
         if not getattr(prefill, "attentions", None):
             raise ValueError(f"{self.spec.key}: TCD requires eager self-attention outputs")
-        prefill_attn = [a[0].float() for a in prefill.attentions]
 
         # -- Eq. 4: aggregate stability, weighted by the decoder's per-layer
         # audio-attention ratio from that same prefill. See
         # paper_method_fidelity("tcd") for the equal-layer-count requirement
-        # this truncation is standing in for on a mismatched-depth spec. --
-        n_layers = min(layer_stability_scores.shape[0], len(prefill_attn))
+        # this truncation is standing in for on a mismatched-depth spec.
+        # Indexed straight off prefill.attentions (still bf16) one layer at a
+        # time -- audio_attention_ratio does its own float() per call, so this
+        # never holds more than one layer's fp32 copy at once. A real MMAU clip
+        # is ~780 tokens; materializing all 32 layers' (heads, 780, 780) fp32
+        # attentions up front, as an earlier version of this method did, would
+        # be several GB of copies purely for a scalar-per-layer reduction. --
+        n_layers = min(layer_stability_scores.shape[0], len(prefill.attentions))
         layer_ratio = torch.stack(
-            [tcd.audio_attention_ratio(prefill_attn[i], audio_mask) for i in range(n_layers)]
+            [
+                tcd.audio_attention_ratio(prefill.attentions[i][0], audio_mask)
+                for i in range(n_layers)
+            ]
         )
         stability = tcd.aggregate_stability(
             layer_stability_scores[:n_layers], layer_ratio, temperature=hp.tau
@@ -1101,7 +1116,7 @@ class HFLocalModel(Model):
         blurred_kv = blurred_prefill.past_key_values
         z = prefill.logits[0, -1].float()
         z_tilde = blurred_prefill.logits[0, -1].float()
-        last_layers_attn = prefill_attn[-hp.l_attn :]
+        last_layers_attn = [a[0].float() for a in prefill.attentions[-hp.l_attn :]]
         mask = audio_mask.clone()
         generated: list[int] = []
 
@@ -1137,6 +1152,23 @@ class HFLocalModel(Model):
                 mask = torch.cat([mask, torch.zeros(1, dtype=torch.bool, device=mask.device)])
 
         return tok.decode(generated, skip_special_tokens=True)
+
+    def generate_tcd_baseline(self, inputs: Any, *, max_new_tokens: int | None = None) -> str:
+        """Greedy baseline paired with :meth:`generate_tcd`.
+
+        ``generate_tcd`` is greedy by construction (Eq. 9's fused logits feed
+        a plain argmax, no sampler). ``Qwen2-Audio-7B-Instruct``'s own
+        ``generation_config`` defaults to ``do_sample=True`` (temperature 0.7,
+        top_p 0.5, top_k 20) -- calling the bare :meth:`generate` for a
+        baseline would inherit that and silently pair a sampled arm against a
+        greedy one, exactly the mismatch ``generate_vcd_baseline`` exists to
+        avoid for VCD (see its docstring). The paper's own baseline is
+        greedy too (Table 7's "Baseline (Greedy)"; Section 4.1).
+        """
+        logger.debug("%s: generate_tcd_baseline()", self.spec.key)
+        if self.spec.audio is None:
+            raise ValueError(f"{self.spec.key}: TCD requires an audio-capable spec")
+        return self.generate(inputs, max_new_tokens=max_new_tokens, do_sample=False)
 
     def generate_vicrop_consensus(
         self,
