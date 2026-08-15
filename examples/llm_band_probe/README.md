@@ -26,10 +26,62 @@ estimate and classifies with the interval:
 | `USABLE` | accuracy in [0.30, 0.70] | both classes have mass |
 | `marginal` | otherwise | the interval straddles a boundary — sample more |
 
-It also reports `no_answer_tag_rate`. Thinking models overrun the token budget
-before they emit the answer tag, and without that column a truncation-limited
-score reads as a capability score — the same confound `termination_audit`
-exists to control.
+It also reports `truncated_rate`, taken from the endpoint's own `finish_reason`.
+Thinking models overrun the token budget before they emit an answer, and without
+that column a truncation-limited score reads as a capability score — the same
+confound `termination_audit` exists to control. `no_answer_tag_rate` is the older
+proxy for the same thing and is still reported, but it is only meaningful for
+specs that actually ask for an `Answer:` tag; a dataset with its own response
+format reads 100% tag-less on a run with no truncation at all.
+
+## Do not sweep with greedy decoding
+
+`--temperature` defaults to Qwen's documented thinking-mode sampling
+(`0.6 / top_p 0.95 / top_k 20`), not to 0. This is not a style preference.
+Measured on a single ZebraLogic 2\*2 item — a puzzle the model solves correctly
+inside its chain within a few hundred tokens either way:
+
+| decoding | tokens | `finish_reason` |
+|---|---|---|
+| `T=0.0` (greedy) | 16384 | **length** — never terminated |
+| `T=0.7, top_p=0.95` | 7602 | stop |
+| `T=1.0, top_p=0.95, top_k=20` | **1352** | stop |
+
+Under greedy decoding the model finishes reasoning and then loops on
+self-verification — *"I will ensure the answer format is exact."*, repeated
+verbatim until the budget runs out. Scoring that as a failed puzzle measures the
+decoding configuration, and it inflates cost by an order of magnitude at the same
+time. `--greedy` restores the old behaviour if you want to reproduce it.
+
+## Two format orders in one prompt is a bug
+
+The first ZebraLogic sweep asked for `House 1: Name=..., Color=...` and then said
+"use the attribute names from the puzzle". On a puzzle with no Color attribute
+those orders contradict, and the model does not pick one — it oscillates:
+
+> The attribute names are `Name` and `Car models`. Wait, I'll check if I can just
+> use `Car`. Let's assume the user wants `Car`. Wait, I'll check the prompt
+> again. …
+
+…to the token cap, on a puzzle it had already solved. The format order is now
+built per row from that puzzle's own header (`Use these attribute names verbatim:
+Name, CarModel`), which is a formatting aid and not a hint — the header is column
+names, never values.
+
+The same applies in reverse: `Spec.append_instruction=False` for datasets that
+ship their own response-format section. Enigmata tells the model to print a
+fenced grid of numbers; appending "put the final answer on its own last line as
+'Answer: `<answer>`'" is a second, contradictory order, and a model obeying
+either one gets graded against the other.
+
+## Grade the stated answer, not the chain
+
+Specs with `grades_raw_output=True` grade only the region **after the last
+`Answer:` marker** (ZebraLogic) or **inside the last fence** (Enigmata). Scanning
+the whole generation looks harmless and is not: a 2\*2 puzzle has two possible
+assignments and the chain enumerates both, so a subset match against the full
+text passes whatever the model finally concluded. The score would approach 100%
+while measuring nothing.
 
 ## Running
 
@@ -41,6 +93,10 @@ export BAND_MODEL_ID=qwen3.5-9b
 python band_locate.py --n 60 --concurrency 16 --out band_results.json
 python band_locate.py --only gsm_symbolic_p2,bbh_tracking7 --n 100   # focused re-run
 ```
+
+`--only` runs the specs **in the order given** and the results file is rewritten
+after each one, so putting the rungs that bracket a ladder first (`t1,t3,t5,…`)
+makes a long sweep readable — and abortable — before it finishes.
 
 Rows are pulled through the HuggingFace datasets-server (`/rows`), so nothing is
 downloaded locally, and the sample is drawn from **windows spread across the
@@ -85,6 +141,34 @@ M2 will happily attribute a harness bug to whichever mechanism is under test.
   cheapest code path here by a wide margin.
 - `MathArena/arxivmath` is mined from that month's arXiv, so its
   contamination resistance is a construction guarantee rather than a hope.
+
+## Scanning a ladder instead of averaging it
+
+Several of these datasets carry their own difficulty axis as a column, and
+measuring the pooled split reports a number that describes no part of it.
+`Spec.row_filter` selects one rung; `fetch_multiplier` and `n_windows` control
+how hard the sampler works to find enough of it.
+
+- **ZebraLogic** ships exactly 40 items for each of 25 grid sizes (verified over
+  the full 1000-row split). A grid with H houses and A attributes has `(H!)^A`
+  assignments, which spans **0.6 to 17.1 in log10** across those sizes — 2\*2 and
+  6\*6 are not the same benchmark. `zebra_t1..t5` rank the sizes by that number
+  and cut into fifths, giving five rungs of 200 rows.
+- **Enigmata** ships 36 tasks in 7 types, most with 50 items each at `easy` /
+  `medium` / `hard`. `enigmata_easy|medium|hard` scan the declared ladder;
+  `enigmata_short` is the subset with scalar golds, where grader risk is lowest.
+
+Both pooled specs are kept in the table, marked superseded, because they are what
+produced the earlier (meaningless) pooled numbers.
+
+Enigmata's gold formats were also measured across the full split rather than
+assumed: 4 tasks (`binario`, `campsite`, `star_battle`, `zebra_logic`) ship
+**multi-line** grid golds that a single-line extractor can never score above 0,
+and ~20 more ship JSON matrices that a substring grader fails on a stray space.
+`_grade_structural` compares parsed structure and reads the fenced whitespace
+grid the dataset actually asks for; the multi-line and free-prose tasks are
+listed in `_ENIGMATA_UNGRADED` so their exclusion is a decision on the record
+rather than an oversight.
 
 ## Sampling, honestly
 
