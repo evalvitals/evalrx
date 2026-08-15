@@ -5,14 +5,197 @@ M1 → M2 → M3 → M5 → M4 链路,结果落到 `outputs/<model>/<dataset>/`�
 
 ---
 
+## 🔧 在新服务器上从零搭建
+
+> 本节假设你刚 `git pull` 下来,机器上什么都没有。
+> **全部路径都是相对仓库的**,没有任何一条钉死在某台机器上。
+
+### 硬件与网络前提
+
+| 项 | 要求 |
+|---|---|
+| GPU | CUDA 卡。9B 在默认 `--max-model-len 32768` 下需 **约 40GB 显存**;4B 约 20GB;2B 约 12GB |
+| 磁盘 | 权重 2B≈5GB / 4B≈9GB / 9B≈**21GB**,加上 outputs |
+| 网络 | 必须能访问 **HuggingFace**(`huggingface.co` 取权重 + `datasets-server.huggingface.co` 取题目)。数据是**运行时现取**的,不随仓库分发 |
+
+> 显存不够就调低 `--max-model-len`(改 `run_all.sh` 里的 serve 行),
+> 别硬上——OOM 的报错不会告诉你是参数问题。
+
+### 1. 两个 venv
+
+vLLM 会钉死一批版本,和评测侧的依赖冲突,所以**分开装**:
+
+```bash
+git clone <你的远端地址> evalsmith
+cd evalsmith/evalvitals          # 有 pyproject.toml 的那一层
+
+# (a) 评测环境 —— 跑本目录的脚本
+python3 -m venv .venv            # 需要 python >= 3.10
+.venv/bin/pip install -U pip
+.venv/bin/pip install -e ".[stats,viz,dashboard]"
+.venv/bin/pip install requests
+
+# (b) 服务环境 —— 只用来起 vLLM
+python3 -m venv .venv-vllm
+.venv-vllm/bin/pip install -U pip
+.venv-vllm/bin/pip install vllm==0.27.1
+```
+
+`run_all.sh` 会**自动找到** `.venv/bin/python` 和 `.venv-vllm/bin/vllm`
+(在 `evalvitals/` 或其上一层),不需要你导出任何变量。
+装在别处就用环境变量覆盖:
+
+```bash
+export EVALVITALS_PYTHON=/your/python
+export VLLM_BIN=/your/vllm
+```
+
+**extras 各自的用途**:`stats`(statsmodels + scikit-learn)是 **M2 统计的硬依赖**,
+缺了整条链走不到 M3;`viz` 是 M2 出图;`dashboard` 只影响 dashboard 命令。
+
+### 2. claude CLI(judge,不可省)
+
+M1 选 analyzer、M2 写统计、M3 提假设、M5 判定 —— **全部**靠它。
+它不是被测模型,被测模型是 vLLM 那个。
+
+```bash
+# 安装:https://claude.com/claude-code
+claude --version          # 必须有输出
+claude                    # 首次需要交互登录一次完成认证
+```
+
+### 3. 模型权重
+
+首次 `vllm serve` 会自动下载(9B 约 21GB,视网速十几分钟到一小时)。
+想预先下好:
+
+```bash
+.venv/bin/pip install huggingface_hub
+.venv/bin/huggingface-cli download Qwen/Qwen3.5-9B
+# 缓存位置默认 ~/.cache/huggingface,可用 HF_HOME 改到大盘
+export HF_HOME=/data/hf-cache
+```
+
+### 4. 上机前自检 —— **先跑这个**
+
+```bash
+cd evalsmith/evalvitals/examples/llm_benchmark
+../../.venv/bin/python preflight.py --model qwen3.5-9b --dataset supergpqa_law
+```
+
+它会逐条检查 python 版本、每个必需模块、claude CLI 能否响应、vllm 在哪、
+GPU 空闲显存够不够这个尺寸、磁盘够不够放权重、datasets-server 通不通、
+以及数据集名能否解析。**每条 FAIL 都直接给出该敲的安装命令。**
+
+```
+  OK    python 3.12.13 (>=3.10)
+  FAIL  missing module statsmodels — needed for M2 statistics
+        -> pip install -e ".[stats]"
+  OK    claude CLI 2.1.181 (Claude Code)
+  OK    GPU 0 (NVIDIA RTX A6000) has 48 GB free, qwen3.5-9b needs ~40
+  ...
+```
+
+退出 0 才往下走。`run_all.sh` 每次也会自动先跑一遍(`SKIP_PREFLIGHT=1` 可跳过)。
+
+> **为什么值得先跑**:整条链最贵的是 Stage 0 的 GPU 生成(20–60 分钟)。
+> 如果 claude CLI 没装,要到那之后才暴露,那一小时就白烧了。
+
+---
+
+## ⚡ 给 agent / 自动化执行者:一条命令
+
+**如果你是自动化执行者,只读这一节就够了。** 下面的手动分步说明是给人看的。
+
+```bash
+cd <repo>/evalvitals/examples/llm_benchmark
+./run_all.sh qwen3.5-9b supergpqa_law 120
+```
+
+**首次在一台新机器上跑,先看上面的「从零搭建」并跑 `preflight.py`。**
+
+它会依次:挑一张空闲 GPU → 起 vLLM → **等就绪** → Stage 0 生成并冻结 batch →
+M1→M2→M3→M5→M4 → **无论成败都关掉 vLLM 释放显存**(EXIT trap)。
+
+```bash
+./run_all.sh <model> <dataset> [n_cases]
+
+# model:   qwen3.5-2b | qwen3.5-4b | qwen3.5-9b
+# dataset: 见第 1 节的八个
+# 环境变量:
+#   ANALYSIS_ONLY=1   只跑 M1→M2→M3,不做 M5 确认和 M4 修复
+#   GPU=3             指定显卡(默认自动挑第一张显存占用 <1GB 的)
+#   PORT=8021         换端口(默认 8020)
+```
+
+### ⏱ 耗时预期 —— 不要把工具调用超时设短
+
+| 步骤 | 耗时 |
+|---|---|
+| vLLM 加载权重 | 3–6 分钟(冷 page cache 更久) |
+| Stage 0 `build_cases.py` n=120 | **20–60 分钟**,取决于模型大小和推理链长度 |
+| M1→M5 | 10–40 分钟(judge 是 claude CLI 调用) |
+| M4 修复 | 10–30 分钟 |
+
+**总计 1–2 小时。** 建议 `setsid nohup ./run_all.sh ... > run.log 2>&1 &` 后台跑再轮询日志,
+不要在一次前台工具调用里等它。
+
+### 退出码
+
+| 码 | 含义 | 该怎么办 |
+|---|---|---|
+| 0 | 成功 | 读 `outputs/<model>/<dataset>/summary.json` |
+| 1 | `build_cases.py` **拒绝写文件** | **不是崩溃**。这个(模型, 数据集)配对不在带内。换数据集,见下 |
+| 2 | 模型名不认识 | 只能是 `qwen3.5-2b` / `-4b` / `-9b`,**不是** HF repo id |
+| 3 | 没有空闲 GPU | 等,或 `GPU=<idx>` 指定 |
+| 4 / 5 | vLLM 启动失败 / 超时 | 看 `outputs/<model>/<dataset>/vllm.log` |
+| 6 | 找不到 python 或 vllm | 环境没装好。见「从零搭建」,或 `export EVALVITALS_PYTHON=` / `VLLM_BIN=` |
+| 7 | **preflight 未通过** | 照它每条 FAIL 后面给的命令装。`SKIP_PREFLIGHT=1` 可强行跳过(不建议) |
+
+### 退出码 1 时怎么换数据集
+
+`build_cases.py` 在准确率落到 [0.15, 0.85] 之外时**故意拒绝写文件**——
+一类样本太少,M2 无从对比,继续跑只会产出无意义的归因。
+
+带位是**(模型, 数据集)配对**的属性。下表按 9B 分数排序;
+**模型越小,越该往表的上方选**:
+
+```
+cruxeval_output          0.700   ← 2B/4B 优先从这里试
+bbh_causal_judgement     0.600
+supergpqa_economics      0.580
+bbh_tracking7            0.540
+bamboogle                0.520
+minervamath              0.500
+supergpqa_law            0.460
+supergpqa_medicine_hard  0.360   ← 9B 上就已经偏难,小模型大概率地板
+```
+
+**不要用 `--force` 硬闯**,除非你明确知道为什么要一个带外的 batch。
+
+### 前置条件(脚本不会替你装)
+
+```bash
+./preflight.py        # 或 <python> preflight.py —— 一次查完所有前置条件
+```
+
+它覆盖:python 版本、必需模块、claude CLI、vllm、GPU 显存、磁盘、网络、数据集解析。
+
+按上面「从零搭建」装好后,`evalvitals` 是 **`pip install -e` 进 venv 的**,
+任何 cwd 都能 import。若你跳过了安装、直接用系统 python 跑,
+本目录的脚本仍能工作(它们自己插 `sys.path`),但 `python -m evalvitals.cli dashboard`
+必须先 `cd` 到 `evalvitals/`。
+
+---
+
 ## 0. 为什么是这八个
 
 M2 用配对统计对比 PASS 与 FAIL,所以一个数据集**只有在两类都有质量时才可诊断**。
 太简单(饱和)则没有 FAIL 可归因,太难(地板)则没有 PASS 做对照。
 可用区间是准确率 ∈ **[30%, 70%]**。
 
-这八个是在 **47 个候选切分**上逐个实测筛出来的,不是从榜单上抄的。
-筛选过程另见 `evalsmith/DATASETS_qwen35_9b.md`(本目录的 `../../../`)。
+这八个是在 47 个候选切分上逐个实测筛出来的,不是从榜单上抄的。
+**本文档自足**:下面第 1 节包含跑实验所需的全部信息,不依赖任何外部文件。
 
 > **⚠️ 带位是(模型, 数据集)这个「配对」的属性,不是数据集的属性。**
 > 下表全部测于 **Qwen3.5-9B**。同一个切片在 2B/4B 上可能落到地板区。
@@ -41,8 +224,60 @@ M2 用配对统计对比 PASS 与 FAIL,所以一个数据集**只有在两类都
 `../llm_band_probe/band_locate.py` 取 spec,所以两边不会漂移:
 
 ```bash
-python datasets.py        # 打印目录并校验每个条目都能解析到 spec
+$PY datasets.py               # 目录 + 校验每个条目都能解析到 spec
+$PY datasets.py --acquisition # 每个切片的 dataset/config/split/where
+$PY datasets.py --probe       # 实时请求 datasets-server 核对题数
 ```
+
+### 数据怎么拿到:运行时现取,不需要手工下载
+
+**题目不随仓库分发**,全部在运行时从 HuggingFace datasets-server 取。
+下面这四个字段就是数据集的完整身份 —— `band_locate.py` 拿它们去请求
+`/rows`(无 `where`)或 `/filter`(有 `where`):
+
+| 数据集 | HF dataset | config | split | where |
+|---|---|---|---|---|
+| `cruxeval_output` | `cruxeval-org/cruxeval` | `default` | `test` | — |
+| `bbh_causal_judgement` | `lukaemon/bbh` | `causal_judgement` | `test` | — |
+| `bbh_tracking7` | `lukaemon/bbh` | `tracking_shuffled_objects_seven_objects` | `test` | — |
+| `bamboogle` | `chiayewken/bamboogle` | `default` | `test` | — |
+| `minervamath` | `math-ai/minervamath` | `default` | `test` | — |
+| `supergpqa_economics` | `m-a-p/SuperGPQA` | `default` | `train` | `"discipline"='Economics'` |
+| `supergpqa_law` | `m-a-p/SuperGPQA` | `default` | `train` | `"discipline"='Law'` |
+| `supergpqa_medicine_hard` | `m-a-p/SuperGPQA` | `default` | `train` | `"discipline"='Medicine' AND "difficulty"='hard'` |
+
+`where` 是**服务端过滤**,过滤的是数据集自己的列。这正是那三个 SuperGPQA
+条目算"可引用的具名切分"而不是"私有抽样"的原因 —— 别人照这个字符串能拿到一模一样的题。
+
+**自己核一遍**(不需要 GPU,约 20 秒):
+
+```bash
+$PY datasets.py --acquisition   # 打印上面这张表(从代码里读,不会和文档漂移)
+$PY datasets.py --probe         # 真的去请求一次,核对每个切片的题数
+```
+
+`--probe` 的输出:
+
+```
+dataset                    rows in slice  status
+--------------------------------------------------------------------------
+cruxeval_output                      800  OK
+bbh_causal_judgement                 187  OK
+supergpqa_economics                  873  OK
+bbh_tracking7                        250  OK
+bamboogle                            125  OK
+minervamath                          272  OK
+supergpqa_law                        656  OK
+supergpqa_medicine_hard              217  OK
+```
+
+任何一行显示 `SIZE CHANGED` 就说明上游数据集变了,
+**这里记录的带位不再描述你实际会拿到的那批题** —— 别直接沿用,重新定位带位。
+`--probe` 有非零退出码时不要继续。
+
+**抽样方式**:`band_locate.fetch_rows` 不是取前 N 条,而是在切片上铺 12 个窗口做
+**分层整群抽样**(很多 split 按子集或难度排序,取头部会测到一个子集却声称测了全集)。
+代价是 Wilson 区间只是近似 —— 把边界当参考,不要当检验。
 
 ### 逐个说明
 
@@ -136,44 +371,43 @@ Law 的 hard 占比不到全集的一半,准确率却更低。**`difficulty` 只
 
 ---
 
-## 2. 环境准备
+## 2. 手动分步(不用 run_all.sh 时)
 
-```bash
-# 依赖(vLLM 环境用来起服务,评测脚本用主环境)
-VLLM_PY=/tealab-data/jiaqiliu/venvs/vllm35/bin/python   # vLLM 0.27.1
-EVAL_PY=/tealab-data/jiaqiliu/venvs/vllm/bin/python     # 跑本目录脚本
-
-# judge / coder 用的是 claude CLI,不是被测模型
-claude --version
-```
+`run_all.sh` 已经把下面这些串起来了。只有需要单独调试某一步时才手动跑。
+以下用 `$PY` 代表你的评测解释器(`<repo>/evalvitals/.venv/bin/python`),
+`$VLLM` 代表 `<repo>/evalvitals/.venv-vllm/bin/vllm`
+—— **每次新开 shell 都要重新设**,否则会静默变成空串。
 
 ### 起 vLLM 服务
 
 ```bash
-export CUDA_DEVICE_ORDER=PCI_BUS_ID    # 必须!否则 CUDA_VISIBLE_DEVICES 按算力排序
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_DEVICE_ORDER=PCI_BUS_ID    # 必须!见下
+export CUDA_VISIBLE_DEVICES=0          # 换成一张空闲卡
 export VLLM_USE_FLASHINFER_SAMPLER=0
 
-/tealab-data/jiaqiliu/venvs/vllm35/bin/vllm serve Qwen/Qwen3.5-9B \
+$VLLM serve Qwen/Qwen3.5-9B \
   --served-model-name qwen3.5-9b --port 8020 \
   --max-model-len 32768 --max-num-seqs 32 --gpu-memory-utilization 0.92
 ```
 
-三个尺寸各自的建议参数:
+它**前台阻塞**,而且加载权重要 3–6 分钟。手动跑时另开一个终端,
+并等 `curl -sf http://127.0.0.1:8020/v1/models` 有返回再往下走。
 
-| 模型 | `--served-model-name` | 端口 | `--max-model-len` | 显存 |
-|---|---|---|---|---|
-| `Qwen/Qwen3.5-2B` | `qwen3.5-2b` | 8020 | 32768 | 单卡 A6000 富余 |
-| `Qwen/Qwen3.5-4B` | `qwen3.5-4b` | 8020 | 32768 | 单卡 A6000 富余 |
-| `Qwen/Qwen3.5-9B` | `qwen3.5-9b` | 8020 | 32768 | 单卡 A6000 约 40GB |
+| 模型 | `--served-model-name` | 需要显存 |
+|---|---|---|
+| `Qwen/Qwen3.5-2B` | `qwen3.5-2b` | ~12 GB |
+| `Qwen/Qwen3.5-4B` | `qwen3.5-4b` | ~20 GB |
+| `Qwen/Qwen3.5-9B` | `qwen3.5-9b` | ~40 GB |
+
+> **`--served-model-name` 是后面 `--model` 要传的值**,不是 HF repo id。
 
 > **`CUDA_DEVICE_ORDER=PCI_BUS_ID` 不能省。** torch 默认按算力排序,
-> 在混合卡机器上 `CUDA_VISIBLE_DEVICES=0` 会解析到 A100 而不是你以为的那张卡,
-> 表现为莫名其妙的 OOM。
+> 在混合卡机器上 `CUDA_VISIBLE_DEVICES=0` 会解析到你没预期的那张卡,
+> 表现为莫名其妙的显存不足。
 
 > **不要用贪婪解码。** `temperature=0` 会让 Qwen thinking 模型陷入逐字重复的
 > 自检死循环直到烧完 token 预算。同一道已解出的题:`T=0` 烧满 16,384 token 从不停止,
-> `T=0.6/top_p=0.95/top_k=20` 用 1,352 token 就正常结束。`config.yaml` 里已经钉死了这组参数。
+> `T=0.6/top_p=0.95/top_k=20` 用 1,352 token 就正常结束。`config.yaml` 已钉死这组参数。
 
 ---
 
@@ -182,9 +416,9 @@ export VLLM_USE_FLASHINFER_SAMPLER=0
 ### Stage 0 — 冻结带标签的 CaseBatch(唯一的 GPU 生成步骤)
 
 ```bash
-cd /tealab-data/jiaqiliu/evalsmith/evalvitals/examples/llm_benchmark
+cd <repo>/evalvitals/examples/llm_benchmark
 
-$EVAL_PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law --n 120
+$PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law --n 120
 ```
 
 输出:
@@ -209,11 +443,11 @@ $EVAL_PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law --n 120
 ### Stage 1 — M1 → M2 → M3(不确认,先看分析)
 
 ```bash
-$EVAL_PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law --analysis-only
+$PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law --analysis-only
 
 # dashboard 要在 evalvitals/ 下跑(`evalvitals` 包才在 import path 上)
-cd /tealab-data/jiaqiliu/evalsmith/evalvitals
-$EVAL_PY -m evalvitals.cli dashboard examples/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
+cd <repo>/evalvitals
+$PY -m evalvitals.cli dashboard examples/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
 ```
 
 产出提出的假设,但**不做 M5 确认、不做修复**。先把分析故事看明白再决定要不要往下走。
@@ -221,7 +455,7 @@ $EVAL_PY -m evalvitals.cli dashboard examples/llm_benchmark/outputs/qwen3.5-9b/s
 ### Stage 2 — 全链路 M1 → M5 → M4
 
 ```bash
-$EVAL_PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
+$PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 ```
 
 各阶段:
@@ -241,13 +475,23 @@ $EVAL_PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 
 ### 三个尺寸都跑
 
+`run_all.sh` 每次都自己起停 vLLM,所以串行跑三个尺寸不会撞车:
+
 ```bash
+cd <repo>/evalvitals/examples/llm_benchmark
 for M in qwen3.5-2b qwen3.5-4b qwen3.5-9b; do
-  # 先把对应尺寸的 vLLM 起起来,再:
-  $EVAL_PY build_cases.py  --model $M --dataset supergpqa_law --n 120
-  $EVAL_PY run_pipeline.py --model $M --dataset supergpqa_law
+  ./run_all.sh "$M" supergpqa_law 120
 done
 ```
+
+后台跑(**推荐**,全程 3–6 小时):
+
+```bash
+setsid nohup bash -c 'for M in qwen3.5-2b qwen3.5-4b qwen3.5-9b; do
+  ./run_all.sh "$M" supergpqa_law 120; done' > sweep.log 2>&1 &
+```
+
+某个尺寸退出码为 1 是**正常的**——那个配对不在带内,循环会继续跑下一个。
 
 **2B/4B 上预期会有数据集掉出带外。** 这正是要测的东西:哪个失效机制随规模变化。
 `build_cases.py` 拒绝写文件时,换一个 9B 上分数更高的数据集
@@ -309,9 +553,10 @@ outputs/
 | [`datasets.py`](datasets.py) | 八个数据集的机器可读目录 |
 | [`build_cases.py`](build_cases.py) | Stage 0:生成 + 判分 + 冻结 batch |
 | [`run_pipeline.py`](run_pipeline.py) | M1→M2→M3→M5→M4 驱动 |
+| [`preflight.py`](preflight.py) | 上机前自检,每条 FAIL 附安装命令 |
+| [`run_all.sh`](run_all.sh) | **一条命令跑完全链路**(agent 用这个) |
 | [`config.yaml`](config.yaml) | 全部默认参数 |
 | `../llm_band_probe/` | 带位定位工具(spec / grader / fetch 的真正来源) |
-| `../../../DATASETS_qwen35_9b.md` | 47 个切分的完整筛选记录 |
 | `../diagnosis_loops/deco_hallu/` | VLM 版参考实现,阶段划分同构 |
 
 ---

@@ -195,7 +195,81 @@ def resolve_spec(name: str) -> "B.Spec":
     return get(name).spec
 
 
+def acquisition(name: str) -> dict:
+    """Exactly what identifies this slice on the HuggingFace datasets-server.
+
+    Nothing is vendored: every item is fetched at run time from the ids below, so
+    these four fields ARE the dataset. A `where` clause is a server-side filter on
+    the dataset's own columns -- that is what makes the three SuperGPQA entries
+    citable slices rather than private subsamples.
+    """
+    spec = get(name).spec
+    return {
+        "dataset": spec.dataset,
+        "config": spec.config,
+        "split": spec.split,
+        "where": spec.where or "",
+    }
+
+
+def _probe(timeout: int = 60) -> int:
+    """Fetch a couple of rows for each entry -- proves the ids actually resolve."""
+    import requests
+
+    bad = 0
+    print(f"{'dataset':26s} {'rows in slice':>13s}  status")
+    print("-" * 74)
+    for e in CATALOG:
+        acq = acquisition(e.name)
+        url = B.FILTER_API if acq["where"] else B.ROWS_API
+        params = {"dataset": acq["dataset"], "config": acq["config"],
+                  "split": acq["split"], "offset": 0, "length": 2}
+        if acq["where"]:
+            params["where"] = acq["where"]
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+        except requests.RequestException as exc:
+            print(f"{e.name:26s} {'-':>13s}  UNREACHABLE {type(exc).__name__}")
+            bad += 1
+            continue
+        if r.status_code != 200:
+            print(f"{e.name:26s} {'-':>13s}  HTTP {r.status_code}")
+            bad += 1
+            continue
+        total = r.json().get("num_rows_total")
+        # the slice size is a property of the ids; a mismatch means the upstream
+        # dataset moved under us and the recorded band no longer describes it
+        flag = "OK" if total == e.items else f"SIZE CHANGED (recorded {e.items})"
+        if total != e.items:
+            bad += 1
+        print(f"{e.name:26s} {total:13,d}  {flag}")
+    return bad
+
+
 if __name__ == "__main__":
+    import argparse
+
+    ap = argparse.ArgumentParser(description="the eight usable datasets")
+    ap.add_argument("--probe", action="store_true",
+                    help="hit datasets-server and confirm every slice resolves")
+    ap.add_argument("--acquisition", action="store_true",
+                    help="print the exact dataset/config/split/where for each")
+    args = ap.parse_args()
+
+    if args.acquisition:
+        for e in CATALOG:
+            acq = acquisition(e.name)
+            print(f"{e.name}")
+            print(f"    dataset = {acq['dataset']}")
+            print(f"    config  = {acq['config']}")
+            print(f"    split   = {acq['split']}")
+            if acq["where"]:
+                print(f"    where   = {acq['where']}")
+        raise SystemExit(0)
+
+    if args.probe:
+        raise SystemExit(1 if _probe() else 0)
+
     print(f"{'dataset':26s} {'items':>6s} {'9B acc':>7s} {'signal':>7s}  chapter")
     print("-" * 72)
     for e in CATALOG:
@@ -204,3 +278,4 @@ if __name__ == "__main__":
     missing = [e.name for e in CATALOG
                if not any(s.name == e.name for s in B.SPECS)]
     print("\nspecs missing from band_locate:", missing or "none")
+    print("run with --acquisition for the exact ids, --probe to verify they resolve")
