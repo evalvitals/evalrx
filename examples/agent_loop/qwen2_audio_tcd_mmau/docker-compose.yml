@@ -2,7 +2,7 @@ services:
   qwen2_audio_tcd_mmau:
     build:
       context: ../../..
-      dockerfile: examples/diagnosis_loops/qwen2_audio_tcd_mmau/Dockerfile
+      dockerfile: examples/agent_loop/qwen2_audio_tcd_mmau/Dockerfile
     image: evalvitals-qwen2-audio-tcd-mmau
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID

@@ -11,6 +11,11 @@ Examples are grouped by the layer they exercise:
   proposal) examples via `evalvitals explore`, outside the loop.
 - `diagnosis_loops/` — full diagnosis-loop examples (`AutoDiagnoseLoop`,
   `VLDiagnoseLoop`, DeCo/Qwen scenarios, and related loop demos).
+- `agent_loop/` — `FixAgent`-only loops: propose a candidate repair, validate
+  it against a held-out split, no M1-M5 diagnosis stages. Distinct from
+  `diagnosis_loops/` (which always runs the full M1-M5 loop) and from
+  `vlm_paper_benchmark/`'s runners (same `FixAgent`-direct shape, but that
+  directory predates this one and isn't docker'd).
 - `paper_diagnosis_benchmark/` — five research papers used as a meta-evaluation
   corpus: download PDFs locally, extract evidence records, then use the public
   `evalvitals explore` interface to surface framework gaps and unsafe repair
@@ -31,6 +36,7 @@ cd examples/m2_statistics/deco_hallu_explore && bash run_web.sh           # ONE 
                                                                           # to start a new M2+M3 run, plus the script outputs
                                                                           # above attached read-only in the same sidebar
 cd examples/diagnosis_loops/qwen_loop_agy && docker compose up
+cd examples/agent_loop/qwen2_audio_tcd_mmau && docker compose up  # TCD vs MMAU, FixAgent-only
 cd examples/agent_demos/visual_zoom_agent && python run.py --device cuda:0  # minimal VLM tool-loop trajectory
 cd examples/agent_demos/vtcbench_diagnosis && python run_m1.py && bash run_explore.sh
                                                                           # full agent diagnosis on a VTC-Bench task:

@@ -16,7 +16,7 @@ COPY . /evalvitals
 RUN pip install --no-cache-dir "/evalvitals[local,data]"
 
 WORKDIR /app/example
-COPY examples/diagnosis_loops/qwen2_audio_tcd_mmau/ .
+COPY examples/agent_loop/qwen2_audio_tcd_mmau/ .
 
 ENV PYTHONUNBUFFERED=1
 
