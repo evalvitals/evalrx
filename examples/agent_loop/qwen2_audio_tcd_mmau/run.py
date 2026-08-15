@@ -141,6 +141,26 @@ HYPOTHESIS_STATEMENT = (
 )
 
 
+class _JudgeModel:
+    """Gives FixAgent's L1/L2/L3a judge calls a longer decode budget than the
+    short answer-letter scoring calls need, without loading a second copy of
+    the weights.
+
+    Mirrors ``vlm_paper_benchmark/run_hf_autofix.py``'s ``_JudgeModel``
+    (same measured problem there: an unwrapped judge inherits whatever
+    ``max_new_tokens`` scoring used -- 8 here -- nowhere near enough to
+    return a parseable JSON proposal list).
+    """
+
+    def __init__(self, model: HFLocalModel, max_new_tokens: int = 900) -> None:
+        self._model = model
+        self._max_new_tokens = max_new_tokens
+
+    def generate(self, inputs: object, **kwargs: object) -> str:
+        kwargs.setdefault("max_new_tokens", self._max_new_tokens)
+        return self._model.generate(inputs, **kwargs)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="qwen2-audio-7b-instruct")
@@ -156,6 +176,24 @@ def main() -> int:
         "--allow-adapted-paper-methods",
         action="store_true",
         help="also admit TCD on non-layer-matched audio specs (reported as adapted, never native)",
+    )
+    parser.add_argument(
+        "--judge",
+        action="store_true",
+        help=(
+            "wire a real judge (the model under test itself, wrapped with a longer decode "
+            "budget) so FixAgent's L1/L2 tiers genuinely propose candidates from the diagnosis "
+            "text, instead of judge=None (which makes _ask_judge() a no-op and leaves only the "
+            "pre-registered L3a paper-default candidate)"
+        ),
+    )
+    parser.add_argument(
+        "--unrestricted",
+        action="store_true",
+        help=(
+            "drop candidate_allowlist=['tcd_temporal_blur'] so every admissible candidate "
+            "(paper defaults AND, with --judge, judge-proposed ones) competes on equal footing"
+        ),
     )
     args = parser.parse_args()
 
@@ -208,12 +246,18 @@ def main() -> int:
     )
 
     agent = FixAgent(
-        judge=None,  # tcd_temporal_blur is an unconditional paper default, no judge proposal needed
+        judge=_JudgeModel(model) if args.judge else None,
         max_tier=args.max_tier,
         score_fn=score_case,
         max_validation_cases=0,
         allow_adapted_paper_methods=args.allow_adapted_paper_methods,
-        candidate_allowlist=["tcd_temporal_blur"],
+        candidate_allowlist=None if args.unrestricted else ["tcd_temporal_blur"],
+        # L2 coded pipelines call a coding backend (CLI agent or judge-as-coder);
+        # this run tests the declarative judge tiers (L1/L2/L3a), not free codegen
+        # against the model handle -- off regardless of --judge so a 7B judge's
+        # unparseable Python doesn't silently eat the round with a wasted attempt
+        # (run_hf_autofix.py measured exactly this failure mode on a 7B judge).
+        allow_codegen=False,
     )
     selection = agent.propose_and_validate(
         model, make_cases(selection_rows, baseline_selection), [hypothesis]
@@ -244,6 +288,8 @@ def main() -> int:
         "baseline_decoding": "generate_tcd_baseline (forced greedy)",
         "max_tier": args.max_tier,
         "allow_adapted_paper_methods": args.allow_adapted_paper_methods,
+        "judge_enabled": args.judge,
+        "candidate_allowlist": None if args.unrestricted else ["tcd_temporal_blur"],
         "splits": {
             "diagnosis": len(diagnosis_rows),
             "selection": len(selection_rows),

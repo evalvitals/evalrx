@@ -57,3 +57,47 @@ python run.py --model qwen2-audio-7b-instruct --limit 120
 - MMAU clips over Qwen2-Audio's 30s encoder window are skipped at download
   time (`download_mmau.py`'s `MAX_DURATION_SEC`), with the skip count printed
   — never silently truncated mid-run.
+
+## `--judge --unrestricted`: what does the agent propose on its own?
+
+By default this script disables the LLM-judge proposal path (`judge=None`,
+so `FixAgent._ask_judge()` is a no-op) and pins the candidate pool to
+`tcd_temporal_blur` (`candidate_allowlist=["tcd_temporal_blur"]`) — TCD is
+proposed the same way OPERA/VCD/ICD/PAI/IFCD already are elsewhere in this
+repo: an unconditional, structurally-gated Python default in
+`fix_agent.py::_l3_candidates`, not something an LLM invents at runtime.
+
+`--judge --unrestricted` turns both restrictions off, wiring the model under
+test itself as its own judge (`_JudgeModel`, 900-token decode budget for L1/L2
+proposal calls) and letting every admissible candidate — paper defaults AND
+whatever the judge proposes — compete on equal footing. `--allow-codegen` is
+NOT exposed here (kept off) since a coding backend is out of scope for what
+this is testing.
+
+Measured result on the same 120-row / 32-selection-case split as the default
+run above: the judge's own JSON proposal for L1 and L2 failed to parse
+(`FixAgent: unparseable judge proposal; using defaults` — matches the exact
+failure mode `vlm_paper_benchmark/run_hf_autofix.py` already documented for a
+7B judge), so what actually competed was `FixAgent`'s generic FALLBACK
+defaults (image-oriented prompt/scaffold templates, since they predate any
+audio-capable spec) against `tcd_temporal_blur`:
+
+| tier | candidate | n_pairs | fixed | broken | effect | e | verdict |
+|---|---|---:|---:|---:|---:|---:|---|
+| L1 | `attend_carefully` (generic default, mentions "the image") | 32 | 1 | 11 | −31.2% | 26.3 | **regressed** |
+| L2 | `self_refine` (generic multi-call default) | 32 | 2 | 15 | −40.6% | 53.5 | **regressed** |
+| L2 | `least_to_most` (generic multi-call default) | 32 | 1 | 16 | −46.9% | 428.3 | **regressed** |
+| L3a | `tcd_temporal_blur` (paper default) | 32 | 3 | 0 | +9.4% | 2.0 | partial |
+
+Every generic candidate was actively harmful once let loose on an audio task
+they weren't written for (unsurprising — they're vision-era fallbacks, not
+audio-aware); `tcd_temporal_blur` was the only one that was safe and
+positive. `best` was still `None` — TCD wins the field but doesn't clear
+e≥20 at this sample size either way. Reproduce with:
+
+```bash
+docker compose run --rm qwen2_audio_tcd_mmau sh -c \
+  "python download_mmau.py --limit 120 && \
+   python run.py --model qwen2-audio-7b-instruct --limit 120 \
+     --judge --unrestricted --output-name tcd_mmau_open"
+```
