@@ -37,6 +37,13 @@ class AttnSemantics(str, Enum):
     MLA_LATENT = "mla_latent"  # DeepSeek / Kimi: materialised in decompressed latent head space
     NONE = "none"              # no usable weights (e.g. fused-only vision tower)
     UNVERIFIED = "unverified"  # e.g. Step3 MFA — probe tensor shape before trusting
+    #: Hybrid stacks (Qwen3.5, Qwen3-Next): most layers are linear/SSM attention
+    #: with NO query-key matrix, and only every k-th layer is full attention.
+    #: Each captured tensor is a real [H, Q, K], but the returned list is SHORTER
+    #: than the model's depth and its positions are not layer numbers — read
+    #: ``config.text_config.layer_types`` to map them back. Anything that
+    #: composes across the stack (attention rollout) is measuring a partial path.
+    HYBRID_SPARSE = "hybrid_sparse"
 
 
 @dataclass(frozen=True)

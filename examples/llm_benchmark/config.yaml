@@ -35,6 +35,25 @@ max_tokens: 20480
 n_cases: 0
 concurrency: 16
 
+# Logprobs over the SAME vLLM endpoint (it supports them; only our wrapper used
+# to throw them away). Unlocks the `logprob_entropy` and `calibration`
+# analyzers -- "is the model confidently wrong or hesitantly wrong" -- at no GPU
+# cost beyond a ~64-token continuation per case.
+#
+# mode decides WHICH continuation is scored, and for a thinking model that is
+# the whole question:
+#   answer (default) — sends enable_thinking=False, so the scored tokens are the
+#                      answer itself. Caveat: labels came from full thinking, so
+#                      this pairs no-think confidence with think-mode
+#                      correctness. Reads as "does it know this without working".
+#   chain            — scores the raw continuation with thinking on. Faithful to
+#                      how the batch was made, but the first tokens are chain
+#                      boilerplate whose probability barely moves between a
+#                      right and a wrong answer, so confidence comes out flat.
+logprobs_mode: answer
+logprobs_max_tokens: 64
+logprobs_top_k: 5
+
 # Judge (M1 selection / M2 narrative / M3 hypotheses / M5 verdicts) and the
 # codegen coder for M2 statistics. Both are `claude -p` CLI calls, NOT the model
 # under test -- the model under test is the one vLLM is serving.

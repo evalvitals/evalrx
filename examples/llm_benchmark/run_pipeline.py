@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -45,25 +46,60 @@ CFG = yaml.safe_load((HERE / "config.yaml").read_text())
 
 
 # ---------------------------------------------------------------- model
+#: Appended in ``mode="answer"`` so the scored tokens are an ANSWER rather than
+#: the opening of a chain of thought. Kept short: every token it adds is a token
+#: whose logprob enters the mean.
+ANSWER_ONLY_SUFFIX = "Give only the final answer, with no explanation."
+
+
+def _is_special(token: str) -> bool:
+    """True for chat-control tokens like ``<|im_end|>``.
+
+    They are dropped from the scored sequence, because a stop token is not part
+    of the answer and the model is near-certain about it. Measured on this
+    endpoint, keeping it moves a WRONG one-token answer from 0.629 to 0.787
+    while a correct one stays at 0.996 — i.e. it compresses precisely the gap
+    ``calibration`` exists to measure, and worst on the shortest answers.
+
+    NOTE this diverges from the hf_local backend, which scores every generated
+    token including EOS. Confidence numbers are therefore comparable across
+    cases on this backend, but not directly against an hf_local run.
+    """
+    return token.startswith("<|") and token.endswith("|>")
+
+
 class EndpointModel:
     """The model under test, over an OpenAI-compatible endpoint.
 
-    Deliberately thin: M1/M4 call ``generate`` and nothing else. Sampling is
-    pinned to the Qwen thinking recipe because greedy decoding sends these models
-    into verbatim self-verification loops that never terminate.
+    Provides GENERATE and LOGPROBS. Sampling for ``generate`` is pinned to the
+    Qwen thinking recipe because greedy decoding sends these models into verbatim
+    self-verification loops that never terminate.
+
+    Not provided: ATTENTION / HIDDEN_STATES / LOGITS. An OpenAI-compatible server
+    returns text, not internals — see whitebox.py for the second-stage model that
+    re-forwards a handful of cases through transformers to get those.
     """
 
-    def __init__(self, model_id: str, base_url: str, max_tokens: int, sampling: dict):
+    #: Which continuation ``logprobs`` scores. See :meth:`logprobs`.
+    LOGPROBS_MODES = ("answer", "chain")
+
+    def __init__(self, model_id: str, base_url: str, max_tokens: int, sampling: dict,
+                 logprobs_mode: str = "answer", logprobs_max_tokens: int = 64,
+                 logprobs_top_k: int = 5):
         from evalvitals.core.capability import Capability
 
-        self.capabilities = frozenset({Capability.GENERATE})
+        self.capabilities = frozenset({Capability.GENERATE, Capability.LOGPROBS})
         self.modalities = frozenset({"text"})
         self.model_id = model_id
         self.base_url = base_url
         self.max_tokens = max_tokens
         self.sampling = sampling
+        self.logprobs_mode = logprobs_mode
+        self.logprobs_max_tokens = logprobs_max_tokens
+        self.logprobs_top_k = logprobs_top_k
         self.n_calls = 0
         self.n_truncated = 0
+        self.n_logprob_calls = 0
 
     def generate(self, inputs, **kwargs) -> str:
         B.MODEL_ID, B.BASE_URL = self.model_id, self.base_url
@@ -78,11 +114,104 @@ class EndpointModel:
             self.n_truncated += 1
         return text
 
-    def logprobs(self, inputs, **kwargs):  # pragma: no cover
-        raise NotImplementedError("endpoint exposes no logprobs")
+    def logprobs(self, inputs, max_new_tokens: "int | None" = None,
+                 top_k: "int | None" = None, mode: "str | None" = None,
+                 **kwargs) -> list:
+        """Per-token logprobs of the model's own continuation.
+
+        Signature mirrors the hf_local backend (``max_new_tokens=64, top_k=5``)
+        so the same analyzers run unchanged: ``logprob_entropy`` (perplexity,
+        predictive entropy) and ``calibration`` (confidence vs correctness).
+
+        **Which continuation gets scored is the whole question for a thinking
+        model, and it is why this takes a mode.** With thinking on, the first 64
+        generated tokens are always the opening of a chain — "Okay, let me work
+        through this" — whose probability is near-identical whether the model
+        goes on to answer correctly or not. Feeding that to ``calibration``
+        produces a confidence column with almost no variance, i.e. a plausible
+        ECE computed on nothing.
+
+        ``mode="answer"`` (default) sends ``enable_thinking=False`` in
+        ``chat_template_kwargs``, so the template closes the think block
+        immediately and the scored tokens ARE the answer. The honest caveat: the
+        PASS/FAIL labels in the batch came from the model reasoning at full
+        length, so this correlates no-think confidence against think-mode
+        correctness. It is a proxy — a useful one, since it asks "does the model
+        know this without working for it", which is exactly what separates a
+        knowledge gap from a reasoning slip.
+
+        ``mode="chain"`` scores the raw continuation with thinking left on.
+        Faithful to how the batch was generated, but subject to the flatness
+        above; use it to look at chain-opening entropy, not at confidence.
+
+        Greedy (temperature 0) on purpose, unlike ``generate``: a confidence
+        number that changes between calls cannot be compared across cases. The
+        loop-to-the-cap failure that forbids greedy elsewhere needs thousands of
+        tokens to appear; this call is capped at ~64.
+        """
+        import requests
+
+        from evalvitals.core.model import TokenLogprob
+
+        mode = (mode or self.logprobs_mode).lower()
+        if mode not in self.LOGPROBS_MODES:
+            raise ValueError(
+                f"logprobs mode must be one of {self.LOGPROBS_MODES}, got {mode!r}")
+
+        prompt = str(getattr(inputs, "prompt", inputs))
+        if mode == "answer":
+            prompt = f"{prompt}\n\n{ANSWER_ONLY_SUFFIX}"
+        payload = {
+            "model": self.model_id,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": int(max_new_tokens or self.logprobs_max_tokens),
+            "temperature": 0.0,
+            "logprobs": True,
+            "top_logprobs": int(top_k or self.logprobs_top_k),
+        }
+        if mode == "answer":
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+
+        self.n_logprob_calls += 1
+        last = "unknown"
+        for attempt in range(3):
+            try:
+                resp = requests.post(f"{self.base_url}/chat/completions",
+                                     json=payload, timeout=600)
+                resp.raise_for_status()
+                choice = resp.json()["choices"][0]
+                entries = (choice.get("logprobs") or {}).get("content") or []
+                if not entries:
+                    # A server started without logprob support answers 200 with
+                    # the field absent. Failing loudly beats handing the
+                    # analyzers an empty list they would report as perplexity inf.
+                    raise RuntimeError(
+                        f"{self.base_url} returned no logprobs. vLLM supports them "
+                        f"on /chat/completions; check the server is not an older "
+                        f"build or a proxy that strips the field."
+                    )
+                return [
+                    TokenLogprob(
+                        token=str(e.get("token", "")),
+                        logprob=float(e.get("logprob", 0.0)),
+                        top={str(t["token"]): float(t["logprob"])
+                             for t in (e.get("top_logprobs") or [])},
+                    )
+                    for e in entries
+                    if not _is_special(str(e.get("token", "")))
+                ]
+            except Exception as exc:
+                last = f"{type(exc).__name__}: {exc}"
+                if attempt == 2:
+                    raise RuntimeError(f"logprobs failed after 3 attempts — {last}")
+                time.sleep(2 * (attempt + 1))
+        return []  # unreachable; keeps the type checker honest
 
     def forward(self, inputs, capture, spec=None):  # pragma: no cover
-        raise NotImplementedError("endpoint exposes no internals")
+        raise NotImplementedError(
+            "endpoint exposes no internals — use whitebox.py (transformers) for "
+            "ATTENTION / HIDDEN_STATES / LOGITS on a small selected subset"
+        )
 
     def __repr__(self) -> str:
         return f"EndpointModel({self.model_id})"
@@ -209,7 +338,10 @@ def main() -> None:
 
     model = EndpointModel(args.model, args.base_url, CFG["max_tokens"],
                           {"temperature": float(CFG["temperature"]),
-                           "top_p": float(CFG["top_p"]), "top_k": int(CFG["top_k"])})
+                           "top_p": float(CFG["top_p"]), "top_k": int(CFG["top_k"])},
+                          logprobs_mode=str(CFG.get("logprobs_mode", "answer")),
+                          logprobs_max_tokens=int(CFG.get("logprobs_max_tokens", 64)),
+                          logprobs_top_k=int(CFG.get("logprobs_top_k", 5)))
     judge = build_judge(args.judge_model, args.judge_effort)
     codegen = build_codegen(args.backend)
     logger = RunLogger(run_dir=out / "logs", verbose=True)
@@ -272,6 +404,8 @@ def main() -> None:
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),
         "model_calls": model.n_calls,
         "model_truncated": model.n_truncated,
+        "logprob_calls": model.n_logprob_calls,
+        "logprobs_mode": model.logprobs_mode,
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     print(f"\nwrote {out/'summary.json'}")

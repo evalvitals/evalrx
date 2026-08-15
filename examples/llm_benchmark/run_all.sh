@@ -144,6 +144,29 @@ else
 fi
 rc=$?
 
+# ---- Stage W (optional): internals for a small subset -----------------------
+# Skipped unless WHITEBOX_PYTHON points at an interpreter whose transformers
+# knows the architecture (5.15.0 for Qwen3.5; the evalvitals venv's 4.57.6 does
+# not). It runs AFTER vllm is stopped on purpose: the server holds 92% of the
+# card, and loading the same weights again in transformers needs that back.
+if [ -n "${WHITEBOX_PYTHON:-}" ] && [ $rc -eq 0 ]; then
+  stamp "stopping vllm before STAGE W (transformers needs the VRAM back)"
+  cleanup; trap - EXIT INT TERM; VLLM_PID=""
+  for _ in $(seq 1 30); do
+    used=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i "$GPU")
+    [ "${used:-9999}" -lt 2000 ] && break
+    sleep 2
+  done
+  stamp "STAGE W run_whitebox (attention over a label-balanced subset)"
+  "$WHITEBOX_PYTHON" "$HERE/run_whitebox.py" \
+    --model "$MODEL" --dataset "$DATASET" --n "${WHITEBOX_N:-24}"
+  wrc=$?
+  [ $wrc -ne 0 ] && stamp "stage W exited $wrc (the main chain already succeeded)"
+elif [ -z "${WHITEBOX_PYTHON:-}" ]; then
+  stamp "STAGE W skipped: WHITEBOX_PYTHON unset — no attention/hidden-state"
+  stamp "  analyzers ran. See README 'Stage W' if you want them."
+fi
+
 stamp "done (rc=$rc). Results in $LOG_DIR"
 echo
 echo "  dashboard:"

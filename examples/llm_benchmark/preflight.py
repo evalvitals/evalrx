@@ -154,6 +154,47 @@ def check_vllm() -> None:
             "pip install vllm==0.27.1 in a SEPARATE venv, then export VLLM_BIN=...")
 
 
+def check_whitebox() -> None:
+    """Stage W is optional, but a WRONG interpreter must not look like a working one.
+
+    ``qwen3_5`` is absent from transformers 4.57.6 and present in 5.15.0, and the
+    failure mode without this check is a bare ``KeyError: 'qwen3_5'`` raised deep
+    inside AutoConfig after the main chain has already finished.
+    """
+    exe = os.environ.get("WHITEBOX_PYTHON")
+    if not exe:
+        warn("WHITEBOX_PYTHON unset — Stage W (attention/hidden states) will be "
+             "skipped; the endpoint chain is unaffected",
+             "set it to a python whose transformers knows the architecture")
+        return
+    if not Path(exe).exists():
+        bad(f"WHITEBOX_PYTHON={exe} does not exist", "point it at a real interpreter")
+        return
+    probe = (
+        "import transformers as t;"
+        "from transformers.models.auto.configuration_auto import CONFIG_MAPPING_NAMES as C;"
+        "print(t.__version__, 'qwen3_5' in C)"
+    )
+    try:
+        out = subprocess.run([exe, "-c", probe], capture_output=True, text=True, timeout=120)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        bad(f"WHITEBOX_PYTHON probe failed ({type(exc).__name__})", "check the interpreter")
+        return
+    parts = (out.stdout or "").split()
+    if out.returncode != 0 or len(parts) < 2:
+        bad(f"WHITEBOX_PYTHON cannot import transformers: "
+            f"{(out.stderr or '').strip().splitlines()[-1][:120] if out.stderr else '?'}",
+            "pip install transformers in that venv")
+        return
+    version, supported = parts[0], parts[1] == "True"
+    if supported:
+        ok(f"WHITEBOX_PYTHON: transformers {version} knows qwen3_5")
+    else:
+        bad(f"WHITEBOX_PYTHON has transformers {version}, which does NOT know qwen3_5",
+            "use the vLLM venv's python (verified: 5.15.0), or unset "
+            "WHITEBOX_PYTHON to skip Stage W")
+
+
 def check_gpu(model: str) -> None:
     if not shutil.which("nvidia-smi"):
         bad("nvidia-smi not found — no GPU visible", "this pipeline needs a CUDA GPU")
@@ -260,6 +301,7 @@ def main() -> int:
     check_imports()
     check_claude()
     check_vllm()
+    check_whitebox()
     check_gpu(args.model)
     check_disk(args.model)
     check_network(args.skip_net)

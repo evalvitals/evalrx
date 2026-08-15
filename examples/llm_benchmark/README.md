@@ -69,8 +69,8 @@ claude                    # 首次需要交互登录一次完成认证
 judge 在两次运行之间变了,结果就不可比。
 
 `--effort` 合法值:`low | medium | high | xhigh | max`。
-`high` 想得更久也更贵,所以 `codegen_budget_usd`(6.0)和
-`codegen_timeout_sec`(1200)是配合它一起调高的 ——
+`high` 想得更久也更贵,所以 `codegen_budget_usd`(25.0)和
+`codegen_timeout_sec`(1800)是配合它一起调高的 ——
 预算或超时不跟着提,M2 的 codegen 会在中途被砍断,
 而那个阶段会把**超时报成失败**,看起来像统计做不出来。
 
@@ -139,6 +139,9 @@ M1→M2→M3→M5→M4 → **无论成败都关掉 vLLM 释放显存**(EXIT trap
 #   ANALYSIS_ONLY=1   只跑 M1→M2→M3,不做 M5 确认和 M4 修复
 #   GPU=3             指定显卡(默认自动挑第一张显存占用 <1GB 的)
 #   PORT=8021         换端口(默认 8020)
+#   WHITEBOX_PYTHON=  设了才会在主链路之后跑 Stage W(白盒 attention),
+#                     必须是 transformers>=5.15 的解释器,见第 4.2 节
+#   WHITEBOX_N=24     Stage W 取多少 case(按 PASS/FAIL 均衡)
 ```
 
 ### ⏱ 耗时预期 —— 不要把工具调用超时设短
@@ -587,7 +590,166 @@ setsid nohup bash -c 'for M in qwen3.5-2b qwen3.5-4b qwen3.5-9b; do
 
 ---
 
-## 4. 输出布局
+## 4. 模型能力边界:endpoint 给什么、不给什么
+
+vLLM 的 OpenAI 接口返回**文本**,不返回内部状态。框架按"模型声明了哪些
+capability"来匹配 analyzer,**不匹配的会被静默跳过**,不报错。所以先搞清楚
+每一层能解锁多少 analyzer(实测数字,文本模态):
+
+| 模型形态 | capability | 可用 analyzer | 增量 |
+|---|---|---|---|
+| endpoint(旧) | `GENERATE` | **23** | — |
+| endpoint(现在) | `+ LOGPROBS` | **26** | `calibration` `logprob_entropy` `mm_shap` |
+| Stage W(transformers) | `+ ATTENTION` `HIDDEN_STATES` `LOGITS` | **37** | `attention` `attention_sink` `attention_rollout` `causal_trace` `logit_lens` `tuned_lens` `layer_contrast` `linear_probe` `cka` `token_entropy` `counterfactual` |
+
+### 4.1 logprobs —— 白捡的,不用额外 GPU
+
+vLLM 一直支持 `logprobs`,只是以前的 wrapper 把它扔了。现在 `EndpointModel`
+声明 `LOGPROBS`,每个 case 多花一次 ~64 token 的续写。
+
+`config.yaml` 里的三个键:
+
+```yaml
+logprobs_mode: answer     # answer | chain
+logprobs_max_tokens: 64
+logprobs_top_k: 5
+```
+
+**`mode` 决定给哪段文本打分,对 thinking 模型这就是全部问题。** 开着 thinking
+时,前 64 个 token 永远是思维链的开场白,它的概率和答对答错几乎无关。实测
+(5 个难度递增的问题,`exp(mean logprob)`):
+
+| mode | 置信度范围 | 标准差 | 排序 |
+|---|---|---|---|
+| `answer` | 0.758 – 0.9998 | **0.1134** | 常识 > 医学 > 数学 > 不可知,合理 |
+| `chain` | 0.931 – 0.960 | 0.0108 | 最难的数学题反而最高,无意义 |
+
+`answer` 模式发 `enable_thinking=False`,打分的就是答案本身。**代价要说清楚**:
+PASS/FAIL 标签来自完整思考的那次生成,所以这是"不思考时的置信度"对
+"思考后的正确性",是个代理量——它问的是"不动脑子它知不知道"。
+
+**停止符不计分。** `<|im_end|>` 的概率接近 1,而答案常常只有 1–3 个 token,
+算进去会把所有短答案往 1 拉。实测:一个**答错**的单 token 答案,含停止符
+0.787,不含 0.629;答对的那个两种算法都是 0.996 —— 也就是说它吃掉的正好是
+`calibration` 要测的那个差。(这一点与 hf_local 后端不同,后者全算,两边的
+置信度数值不可直接互比。)
+
+> ⚠️ **别默认 `calibration` 在你的切片上有信号。** 我们各跑了 n=24 实测:
+>
+> | 切片 | 答案形态 | PASS 均值 | FAIL 均值 | AUC | 95% CI |
+> |---|---|---|---|---|---|
+> | `bbh_causal_judgement` | 是/否二选一 | 0.820±0.060 | 0.833±0.062 | **0.415** | [0.17, 0.66] |
+> | `supergpqa_law` | 十选一 | 0.852±0.090 | 0.820±0.099 | **0.607** | [0.37, 0.84] |
+>
+> 十选一方向是对的(答对更自信),二选一方向是反的。但**两个区间都包含 0.5,
+> 两者之间的差也完全落在噪声里** —— 也就是说:目前既没有证据说它有用,也没有
+> 证据说它没用,n=24 根本判不了。
+>
+> 一个合理但**未经证实**的解释是:二选一任务里答错也能答得很流利,置信度测到的
+> 是措辞而不是对错;选项越多,置信度才越有腾挪空间。
+> **实践建议**:在你自己的切片上先用几十个 case 看一眼 AUC 再决定要不要信它,
+> 自由作答(`minervamath`)最值得试。
+
+### 4.2 Stage W —— 白盒 attention,只跑一小撮 case
+
+**为什么单独一步、还要单独一个解释器**:`qwen3_5` 这个架构 transformers
+4.57.6 **不认识**(评测 venv 里就是这个版本),5.15.0 认识(vLLM venv 里的版本)。
+所以 Stage W 跑在 `WHITEBOX_PYTHON` 下,和 `VLLM_BIN` 是同一个道理。
+
+```bash
+# 接在 run_all.sh 后面自动跑(仅当设了这个变量)
+WHITEBOX_PYTHON=/path/to/vllm-venv/bin/python ./run_all.sh qwen3.5-9b supergpqa_law
+
+# 或者单独跑(cases.json 已存在即可)
+$WHITEBOX_PYTHON run_whitebox.py --model qwen3.5-9b --dataset supergpqa_law --n 24
+```
+
+它在 vLLM **停掉之后**才启动:服务占着 92% 显存,transformers 要把这块拿回来。
+
+#### ⚠️ Qwen3.5 是混合注意力栈 —— 32 层里只有 8 层有注意力矩阵
+
+这是实测出来的,不是推测。`config.text_config.layer_types` 是
+`[linear, linear, linear, full] × 8`(`full_attention_interval: 4`):
+
+```
+attention_layers() = [3, 7, 11, 15, 19, 23, 27, 31]
+forward(...) 返回 8 个 tensor,每个 (16 heads, seq, seq)
+```
+
+其余 24 层是线性注意力(SSM 类),**根本不存在 QK 矩阵**。三个后果:
+
+1. **返回列表的下标不是层号。** 第 `i` 个 tensor 是模型第 `4i+3` 层。报告里说
+   "第 2 层注意力高"会指向一个压根没有注意力的层。`whitebox.json` 里存了
+   `capturable_layer_indices` 做映射。
+2. **`attention_rollout` 在这个架构上不成立**,它要连乘穿过整个栈才叫 rollout,
+   这里只穿过 8/32 层。所以它**不在默认 analyzer 里**,要用得显式指定,并且
+   程序会打 WARNING。
+3. spec 里标成了新的 `AttnSemantics.HYBRID_SPARSE`(不是 `STANDARD`),
+   这样任何将来读这个字段的代码都能知道该谨慎。
+
+#### 显存:attention 是 O(seq²),会拒绝而不是 OOM
+
+analyzer 调 `forward(capture={ATTENTION})` 时**不带 CaptureSpec**,即"全都要"。
+`BoundedWhitebox` 拦下来先估算:
+
+| prompt 长度 | 8 层 × 16 头 | 默认 8 GB 预算 |
+|---|---|---|
+| 512 | 0.13 GB | ok |
+| 1024 | 0.52 GB | ok |
+| 2048 | 2.1 GB | ok |
+| 4096 | 8.4 GB | 拒绝 |
+
+超预算时抛 `MemoryError` 并给出三条出路(提预算 / `--max-prompt-tokens` 筛掉长题 /
+显式 `--layers`),**不会偷偷只抓几层** —— 那会让 rollout 之类的结果悄悄变味。
+
+#### 子集是按标签均衡取的,不是按准确率
+
+`--n 24` 是 12 PASS + 12 FAIL。按原分布取的话,一个 0.70 准确率的切片只会给
+FAIL 三分之一的样本量,而报告出来的还是同一个 n。
+
+#### 输出:自己做 PASS/FAIL 对比
+
+`attention_sink`、`attention_rollout`、`attention` 这三个 analyzer **只分析
+`cases[0]`**(它们源码里自己写了 "Stage 1: single-case ergonomics")。直接把
+24 个 case 的 batch 丢进去,拿到的是一个 case 的数字、却长着 batch 的样子。
+所以 `run_whitebox.py` 逐 case 跑,自己聚合:
+
+```json
+"contrasts": {
+  "attention_sink.mean_sink_mass": {
+    "n_pass": 12, "n_fail": 12,
+    "pass_mean": 0.198, "fail_mean": 0.241,
+    "gap": 0.043, "cohens_d": 0.62
+  }
+}
+```
+
+单看 0.198 没有意义;同一切片上 FAIL 0.241 对 PASS 0.198 才有意义。
+报的是 Cohen's d 而不是 p 值:每边 12 个样本,给 p 值等于鼓励一个样本量
+撑不起的结论。
+
+#### ⚠️ 长度混淆 —— 第一次真跑就撞上了
+
+在 `bbh_tracking7` 上跑通的第一次结果:
+
+```
+attention_sink.mean_sink_mass   pass=0.0596 fail=0.0582 gap=-0.0014 d=-1.15
+prompt_tokens                   pass=225.8  fail=234.6  gap=+8.8    d=1.323
+```
+
+`d=-1.15` 按惯例算"大效应",但差值只有 **0.0014**——组内方差极小才撑出这个 d。
+而同一批里 **prompt 长度本身就区分了 PASS/FAIL**(d=1.32)。sink mass 是
+token 0 上的注意力在所有 query 位置上的平均,**序列越长它机械地越低**,
+所以这个"效应"很可能就是长度。
+
+`run_whitebox.py` 现在会自动检查:`prompt_tokens` 的 |d| ≥ 0.5 时打警告,
+并在 `whitebox.json` 里写 `"length_confounded": true`。
+**看到这个警告时,上面所有 gap 都要当作被长度污染,直到你在长度匹配的子集上重跑。
+"很小的差 + 很大的 d"就是典型信号。**
+
+---
+
+## 5. 输出布局
 
 ```
 outputs/
@@ -611,7 +773,7 @@ outputs/
 
 ---
 
-## 5. 常见问题
+## 6. 常见问题
 
 **vLLM 起不来,报 free memory 不足**
 → 漏了 `export CUDA_DEVICE_ORDER=PCI_BUS_ID`,`CUDA_VISIBLE_DEVICES=0` 解析到了别的卡。
@@ -633,13 +795,15 @@ outputs/
 
 ---
 
-## 6. 相关文件
+## 7. 相关文件
 
 | 路径 | 作用 |
 |---|---|
 | [`datasets.py`](datasets.py) | 八个数据集的机器可读目录 |
 | [`build_cases.py`](build_cases.py) | Stage 0:生成 + 判分 + 冻结 batch |
-| [`run_pipeline.py`](run_pipeline.py) | M1→M2→M3→M5→M4 驱动 |
+| [`run_pipeline.py`](run_pipeline.py) | M1→M2→M3→M5→M4 驱动;`EndpointModel` 含 logprobs |
+| [`whitebox.py`](whitebox.py) | Stage W:hf_local 加载 + 显存护栏 + 混合栈层映射 |
+| [`run_whitebox.py`](run_whitebox.py) | Stage W 驱动:逐 case 跑 attention analyzer 并做 PASS/FAIL 对比 |
 | [`preflight.py`](preflight.py) | 上机前自检,每条 FAIL 附安装命令 |
 | [`run_all.sh`](run_all.sh) | **一条命令跑完全链路**(agent 用这个) |
 | [`config.yaml`](config.yaml) | 全部默认参数 |
@@ -656,6 +820,23 @@ outputs/
 - `run_pipeline.py` 里用到的每一个构造函数关键字参数,都对着实际签名验过
 - `band_locate.generate` 在调用时读 `MODEL_ID` / `BASE_URL` 全局,所以覆盖它们是有效的
 
-**尚未验证的**:全链路本身还没在这三个尺寸上端到端跑过一次。
+**第 4 节的内容是在跑起来的 9B 上实测的**(不是推的):
+
+- thinking 默认开:chat template 里 `add_generation_prompt` 会追加 `<think>\n`,
+  除非 `enable_thinking=False`。补充一个此前说法的更正——**完成文本里没有开头的
+  `<think>`**(它在 prompt 里),但**有结尾的 `</think>`**,这是切分答案的可靠锚点
+- vLLM 的 `/chat/completions` 确实返回 `logprobs` / `top_logprobs`
+- `enable_thinking=False` 在 Qwen3.5 上有效(答案直出,`finish_reason=stop`)
+- 停止符对短答案的影响、answer 与 chain 两种模式的方差差异,都是量出来的数字
+- Qwen3.5 是混合栈:`layer_types` 实测 8 个 `full_attention`,位于 3/7/…/31 层
+- `BoundedWhitebox` 的显存护栏在过小预算下确实抛 `MemoryError`,正常预算下放行
+- `attention_sink` 在真实 case 上跑通(0.2s,8 层的 per-layer 数值)
+- **Stage 0 → Stage W 端到端真跑过一次**:`bbh_tracking7` n=16 生成(174s,
+  准确率 11/16)→ `run_whitebox.py --n 10`(5 PASS / 5 FAIL)→ 写出
+  `whitebox.json`,长度混淆警告正确触发
+- 新增 25 个单测;仓库全量 **1814 passed / 15 skipped**
+
+**尚未验证的**:M1→M5→M4 主链路本身还没在这三个尺寸上端到端跑过一次
+(第 4 节的 logprobs 与 Stage W 已验证,Stage 0 也已验证)。
 上面的命令是照着已验证的接口和 `deco_hallu` 的参考实现写的,
 但第一次跑仍可能碰到运行时问题 —— 建议先用 `--analysis-only` 加一个小 `--n` 试通。
