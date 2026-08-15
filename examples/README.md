@@ -1,49 +1,73 @@
 # Examples
 
-Examples are grouped by the layer they exercise:
+Every example is launched with Docker (`docker compose up` from its own
+directory) — never `python run.py` directly. Examples that exercise the
+diagnosis loop are grouped by **which M-stages they actually run**, verified
+against each `run.py`'s own imports, not assumed from the folder name:
 
-- `analyzer_demos/` — single analyzer or analysis demos. These run one diagnostic
-  capability directly, without the M1-M5 diagnosis loop.
-- `agent_demos/` — agent-under-test demos: a VLM drives the tool-calling
-  `Agent` loop (visual tools like `image_zoom_in`) and the run is captured as
-  a serialized `Trajectory` for trajectory-level diagnosis.
-- `m2_statistics/` — standalone M2 (exploratory analysis) + M3 (hypothesis
-  proposal) examples via `evalvitals explore`, outside the loop.
-- `diagnosis_loops/` — full diagnosis-loop examples (`AutoDiagnoseLoop`,
-  `VLDiagnoseLoop`, DeCo/Qwen scenarios, and related loop demos).
-- `agent_loop/` — `FixAgent`-only loops: propose a candidate repair, validate
-  it against a held-out split, no M1-M5 diagnosis stages. Distinct from
-  `diagnosis_loops/` (which always runs the full M1-M5 loop) and from
-  `vlm_paper_benchmark/`'s runners (same `FixAgent`-direct shape, but that
-  directory predates this one and isn't docker'd).
-- `paper_diagnosis_benchmark/` — five research papers used as a meta-evaluation
-  corpus: download PDFs locally, extract evidence records, then use the public
-  `evalvitals explore` interface to surface framework gaps and unsafe repair
-  recommendations. PDFs and generated reports are gitignored.
-- `vlm_paper_benchmark/` — six image-bearing VLM papers (including TextVQA,
-  V*Bench and POPE), with a deterministic local-data adapter for visual
-  detect → fix experiments. Images and reports are gitignored.
+- `m1/` — M1 (probe/selection) only. *(Reserved — no example runs only M1
+  as a complete deliverable today.)*
+- `m1_m3/` — `VLDiagnoseLoop` through M1→M2→M3(→M5): diagnose a failure and
+  hold out a verified hypothesis, but attempt no repair.
+- `m2_m3/` — standalone M2 (stats) + M3 (hypothesis) via `evalvitals.explore()`,
+  outside any loop object. M1 case-selection may be a separate script that
+  runs first (see each example's own README), never baked into the same call.
+- `m4/` — `FixAgent` direct: propose → validate a repair against a
+  **hand-supplied** hypothesis. No M1–M3 discovery stage.
+- `m1_m4/` — the full loop, M1→M2→M3→M4→M5. M4's exact position (baked into
+  the same call, or a separate script run right after) is noted per example
+  below — that distinction matters and doesn't fit in a folder name.
 
-Run each example from its own directory, for example:
+Five more directories don't belong to the M1–M5 progression at all, and are
+kept under their own names rather than forced into a stage bucket:
+
+- `analyzer_demos/` — one analyzer, one call, no loop of any kind.
+- `agent_demos/` — agent-under-test trajectory capture (tool-calling `Agent`
+  loop, e.g. `image_zoom_in`). Produces data for a *later* diagnosis; does
+  not diagnose anything itself.
+- `preregistered_ab_demo/` — `EvalOrchestrator`'s pre-register → mine →
+  validate → confirm protocol. A different orchestrator from
+  `VLDiagnoseLoop` entirely, not M-numbered.
+- `dataset_selection/` — pre-M1 utilities: is this (model, dataset) pair
+  even diagnosable before you spend a probing budget on it.
+- `paper_diagnosis_benchmark/` — uses `explore` against the **framework's
+  own track record** over research papers, not to diagnose a subject model.
+
+## Stage coverage
+
+| Example | Orchestrator | Stages run | M4 |
+|---|---|---|---|
+| `m1_m4/deco_pope`, `deco_hallu`, `deco_miss`, `deco_chair` | `VLDiagnoseLoop` | M1→M2→M3→M5 | baked in |
+| `m1_m4/qwen_loop_claude` | `VLDiagnoseLoop` | M1→M2→M3→M5 | baked in |
+| `m1_m4/mllms_hallucination`, `mllms_small_object` | `VLDiagnoseLoop` | M1→M2→M3→M5 | baked in |
+| `m1_m3/qwen_loop_agy`, `qwen_video_temporal` | `VLDiagnoseLoop` | M1→M2→M3→M5 | separate script, run after the loop |
+| `m1_m3/vlm_research_topics` | `VLDiagnoseLoop` | M1→M2→M3→M5 | none |
+| `m4/qwen2_audio_tcd_mmau` | `FixAgent` only | M4 (hand-supplied hypothesis) | is M4; held-out confirm split |
+| `m4/vlm_paper_benchmark/*` | `FixAgent` only | M4 only — **designed as M1→M4, M1–M3 discovery never built** | is M4; held-out confirm split |
+| `m2_m3/deco_hallu_explore`, `synthetic_yield_explore` | bare `explore()` | M2→M3 | n/a |
+| `m2_m3/vtcbench_diagnosis` | bare scripts | M1 → M2/M3 (`explore`) | n/a |
+| `analyzer_demos/*` | none | single analyzer call | n/a |
+| `agent_demos/visual_zoom_agent` | `Agent` (tool-calling) | trajectory capture only | n/a — pre-diagnosis |
+| `preregistered_ab_demo/eval_agent` | `EvalOrchestrator` | mine → hypothesis → validate → confirm | not M-numbered |
+| `dataset_selection/llm_band_probe` | none | pre-M1 | n/a |
+| `paper_diagnosis_benchmark/` | mostly bare `explore()` | M2-ish, meta over papers | one script also uses `FixAgent` |
+
+## Run
 
 ```bash
 cd examples/analyzer_demos/qwen_attention && docker compose up
-cd examples/m2_statistics/synthetic_yield_explore && docker compose up
-cd examples/m2_statistics/deco_hallu_explore && docker compose up
-cd examples/m2_statistics/deco_hallu_explore && bash run_attn.sh          # attention-enriched variant (no GPU)
-cd examples/m2_statistics/deco_hallu_explore && bash run_attn_pipeline.sh # full held-out pipeline (SKIP_FIX=1 → no GPU)
-cd examples/m2_statistics/deco_hallu_explore && bash run_web.sh           # ONE web page for all of the above: upload a .zip
-                                                                          # to start a new M2+M3 run, plus the script outputs
-                                                                          # above attached read-only in the same sidebar
-cd examples/diagnosis_loops/qwen_loop_agy && docker compose up
-cd examples/agent_loop/qwen2_audio_tcd_mmau && docker compose up  # TCD vs MMAU, FixAgent-only
-cd examples/agent_demos/visual_zoom_agent && python run.py --device cuda:0  # minimal VLM tool-loop trajectory
-cd examples/agent_demos/vtcbench_diagnosis && python run_m1.py && bash run_explore.sh
-                                                                          # full agent diagnosis on a VTC-Bench task:
-                                                                          # batch + probes -> records -> explore with
-                                                                          # held-out confirm (needs a vllm serve endpoint)
-cd examples/paper_diagnosis_benchmark && python download_papers.py && python build_records.py
-cd examples/paper_diagnosis_benchmark && python run_benchmark.py --backend codex
+cd examples/m2_m3/synthetic_yield_explore && docker compose up
+cd examples/m2_m3/deco_hallu_explore && docker compose up
+cd examples/m2_m3/deco_hallu_explore && bash run_attn.sh          # attention-enriched variant (no GPU)
+cd examples/m2_m3/deco_hallu_explore && bash run_attn_pipeline.sh # full held-out pipeline (SKIP_FIX=1 → no GPU)
+cd examples/m2_m3/deco_hallu_explore && bash run_web.sh           # ONE web page for all of the above: upload a .zip
+                                                                   # to start a new M2+M3 run, plus the script outputs
+                                                                   # above attached read-only in the same sidebar
+cd examples/m1_m3/qwen_loop_agy && docker compose up
+cd examples/m4/qwen2_audio_tcd_mmau && docker compose up  # TCD vs MMAU, FixAgent-only
+cd examples/agent_demos/visual_zoom_agent && docker compose up
+cd examples/m2_m3/vtcbench_diagnosis && docker compose up
+cd examples/paper_diagnosis_benchmark && docker compose up
 ```
 
 The `deco_hallu_explore` example has three runnable variants: the raw probe
@@ -56,7 +80,7 @@ surgery/tiered-fix arc. Every explore-shaped result renders with the SAME
 five-tab layout (proposal, held-out verdicts and fix each get their own
 tab); stages a run never reached grey out as "not available" instead of
 disappearing, so an M3-only run and a full pipeline run look alike. See its
-[README](m2_statistics/deco_hallu_explore/README.md).
+[README](m2_m3/deco_hallu_explore/README.md).
 
 For the general standalone exploratory analysis workflow, see
 [`docs/m2_analysis.md`](../docs/m2_analysis.md).

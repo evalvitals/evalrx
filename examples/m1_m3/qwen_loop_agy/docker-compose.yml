@@ -1,0 +1,48 @@
+services:
+  qwen_loop_agy:
+    build:
+      context: ../../..
+      dockerfile: examples/m1_m3/qwen_loop_agy/Dockerfile
+    image: evalvitals-qwen-loop-agy
+    # Run as the host user so volume-mounted outputs/ is not root-owned.
+    # Required before first run:
+    #   export UID=$(id -u) GID=$(id -g)
+    #   export AGY_PATH=$(which agy)
+    # user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      # Make CUDA_VISIBLE_DEVICES match `nvidia-smi` indices (default CUDA
+      # ordering can map index 0 to a different physical card) so you can pick a
+      # GPU with free memory: export CUDA_VISIBLE_DEVICES=6
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}  # override: export CUDA_VISIBLE_DEVICES=2
+      # Reduce CUDA fragmentation OOMs on shared GPUs.
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - HF_HOME=/hf_cache
+      # agy reads its OAuth token from $HOME/.gemini — point HOME at the
+      # location we mount the auth directory below.
+      - HOME=/home/user
+    volumes:
+      - ${HF_HOME:-~/.cache/huggingface}:/hf_cache
+      - ./outputs:/app/example/outputs        # run logs persisted to host
+      # agy binary — mount from host so no install is needed inside the image.
+      # Set AGY_PATH before running: export AGY_PATH=$(which agy)
+      - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
+      # agy auth + project state — must be read-write so agy can create
+      # project config files when starting a new conversation.
+      - ~/.gemini:/home/user/.gemini
+      # agy cache — read/write so the container can reuse cached responses.
+      - ~/.cache/antigravity:/home/user/.cache/antigravity
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      python run.py
+        --model qwen3-vl-4b-instruct
+        --device cuda
+        --dtype bfloat16
+        --max-cycles 2
+        --max-analyzers 2
