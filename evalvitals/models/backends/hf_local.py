@@ -331,6 +331,24 @@ class HFLocalModel(Model):
                 if self.spec.model_type == "llava"
                 else "unavailable"
             )
+        if method == "tcd":
+            if self.spec.audio is None:
+                return "unavailable"
+            # Eq. 4 zips per-layer encoder stability with per-layer decoder
+            # audio-attention ratio index-for-index — faithful only when both
+            # towers have the same layer count. Qwen2-Audio-Instruct's
+            # Whisper-style encoder and Qwen2 decoder both have 32 layers
+            # (verified against the live config, not assumed); the paper's
+            # own hyperparameters (Appendix A) are anchored on this
+            # checkpoint. Every other registered audio spec has a depth
+            # mismatch (e.g. Qwen2.5-Omni: 32 encoder / 28 decoder), so
+            # generate_tcd truncates both to min(...) there instead of
+            # raising -- report that truncation as an adaptation.
+            return (
+                "native_layer_matched_stability"
+                if self.spec.key == "qwen2-audio-7b-instruct"
+                else "adapted_truncated_layer_stability"
+            )
         return "unavailable"
 
     @classmethod
@@ -947,6 +965,178 @@ class HFLocalModel(Model):
             )
         tok = getattr(processor, "tokenizer", processor)
         return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+
+    def generate_tcd(
+        self,
+        inputs: Any,
+        *,
+        max_new_tokens: int | None = None,
+        hyperparams: "Any | None" = None,
+    ) -> str:
+        """Run Temporal Contrastive Decoding (Li et al. 2026, arXiv:2604.15383).
+
+        Cannot be built as a ``model.generate(logits_processor=[...])`` bolt-on
+        the way VCD/IFCD/PAI are: a :class:`~transformers.LogitsProcessor` only
+        ever sees ``(input_ids, scores)``, never the forward pass's attention
+        weights, and TCD's gate (Eq. 8) needs the CURRENT step's decoder
+        attention to audio tokens. So this runs its own greedy decode loop,
+        holding two KV caches (original audio / Hann-blurred slow-path audio,
+        Eq. 1) and calling the model directly each step -- exactly what VCD's
+        processor already does for its single contrastive branch, just applied
+        to both branches here, with ``output_attentions=True`` on the original
+        branch to get the audio-attention ratio for free from the same forward
+        (matches the paper's own reported ~1.00x decode-step overhead, Table 7:
+        the attention weights are already computed internally, not an extra
+        pass).
+
+        The per-example blur window and update scale (Eq. 5-6) are derived
+        from a stability score (Eq. 2-4) computed ONCE before decoding starts,
+        from (a) the audio encoder's own per-layer hidden-state trajectory on
+        the *unblurred* audio, and (b) the decoder's per-layer attention to
+        audio tokens during the prefill -- see
+        :func:`evalvitals.models.paper_methods.tcd.aggregate_stability` for
+        why those two must have equal layer counts to be faithful, and
+        ``paper_method_fidelity("tcd")`` for which registered specs qualify.
+        """
+        from evalvitals.core.case import Inputs
+        from evalvitals.models.paper_methods import tcd
+
+        hp = hyperparams or tcd.TCDHyperparams()
+        logger.debug(
+            "%s: generate_tcd(l_attn=%s, tau=%s, gamma_gate=%s)",
+            self.spec.key, hp.l_attn, hp.tau, hp.gamma_gate,
+        )
+        if self.spec.audio is None:
+            raise ValueError(f"{self.spec.key}: TCD requires an audio-capable spec")
+        audio = getattr(inputs, "audio", None) if isinstance(inputs, Inputs) else None
+        if audio is None or isinstance(audio, (list, tuple)):
+            raise ValueError("TCD requires exactly one audio clip")
+
+        import torch
+
+        model, processor = self._loaded
+        tok = getattr(processor, "tokenizer", processor)
+        waveform = _resolve_audio(audio)
+        original_inputs = Inputs(
+            prompt=self._as_prompt(inputs),
+            image=getattr(inputs, "image", None),
+            audio=waveform,
+            video=getattr(inputs, "video", None),
+        )
+        enc, ids, _tokens, _ttm = self._encode_vlm(original_inputs, model, processor)
+        enc.pop("token_type_ids", None)
+        audio_token_id = _read_nested_attr(
+            model.config, self.spec.audio.audio_token_id_attr, default=None
+        )
+        if audio_token_id is None:
+            raise ValueError(f"{self.spec.key}: could not resolve the audio-token id from config")
+        audio_mask = torch.tensor(ids, device=enc["input_ids"].device) == int(audio_token_id)
+        if not bool(audio_mask.any()):
+            raise ValueError(f"{self.spec.key}: no audio tokens found in the encoded prompt")
+
+        audio_tower = _read_nested_attr(model, self.spec.audio.audio_tower, default=None)
+        if audio_tower is None:
+            raise ValueError(
+                f"{self.spec.key}: could not resolve audio_tower={self.spec.audio.audio_tower!r}"
+            )
+
+        # -- Eq. 2-3: encoder-side per-layer stability, on the UNBLURRED audio --
+        with torch.no_grad():
+            audio_out = audio_tower(
+                enc["input_features"], output_hidden_states=True, return_dict=True
+            )
+        # hidden_states[0] is pre-layer-0 embeddings, not a layer's own output;
+        # the remaining N entries are outputs of layers 1..N (verified against
+        # Qwen2AudioEncoder.forward -- the loop appends BEFORE running each
+        # layer, so slicing off index 0 lines up seq len N with N layers).
+        encoder_states = [h[0].float() for h in audio_out.hidden_states[1:]]
+        layer_stability_scores = tcd.layer_stability(encoder_states, eps=hp.eps)
+
+        # -- prefill: original branch (also seeds its KV cache) --
+        with torch.no_grad():
+            prefill = model(**enc, use_cache=True, output_attentions=True, return_dict=True)
+        if not getattr(prefill, "attentions", None):
+            raise ValueError(f"{self.spec.key}: TCD requires eager self-attention outputs")
+        prefill_attn = [a[0].float() for a in prefill.attentions]
+
+        # -- Eq. 4: aggregate stability, weighted by the decoder's per-layer
+        # audio-attention ratio from that same prefill. See
+        # paper_method_fidelity("tcd") for the equal-layer-count requirement
+        # this truncation is standing in for on a mismatched-depth spec. --
+        n_layers = min(layer_stability_scores.shape[0], len(prefill_attn))
+        layer_ratio = torch.stack(
+            [tcd.audio_attention_ratio(prefill_attn[i], audio_mask) for i in range(n_layers)]
+        )
+        stability = tcd.aggregate_stability(
+            layer_stability_scores[:n_layers], layer_ratio, temperature=hp.tau
+        )
+        window_ms, lam = tcd.adaptive_blur_params(stability, hp)
+        logger.debug(
+            "%s: generate_tcd stability=%.4f window_ms=%.2f lam=%.4f",
+            self.spec.key, stability, window_ms, lam,
+        )
+
+        # -- Eq. 1: blur + re-encode (once, up front -- not per decode step) --
+        blurred_waveform = tcd.hann_blur_waveform(waveform, AUDIO_SAMPLE_RATE, window_ms)
+        blurred_inputs = Inputs(
+            prompt=original_inputs.prompt, image=original_inputs.image,
+            audio=blurred_waveform, video=original_inputs.video,
+        )
+        blurred_enc, _, _, _ = self._encode_vlm(blurred_inputs, model, processor)
+        blurred_enc.pop("token_type_ids", None)
+        with torch.no_grad():
+            blurred_prefill = model(**blurred_enc, use_cache=True, return_dict=True)
+
+        eos_ids = set()
+        if getattr(tok, "eos_token_id", None) is not None:
+            eos_ids.add(int(tok.eos_token_id))
+        gen_eos = getattr(getattr(model, "generation_config", None), "eos_token_id", None)
+        if isinstance(gen_eos, (list, tuple, set)):
+            eos_ids.update(int(e) for e in gen_eos)
+        elif gen_eos is not None:
+            eos_ids.add(int(gen_eos))
+
+        max_new = int(max_new_tokens or self.runtime.max_new_tokens)
+        original_kv = prefill.past_key_values
+        blurred_kv = blurred_prefill.past_key_values
+        z = prefill.logits[0, -1].float()
+        z_tilde = blurred_prefill.logits[0, -1].float()
+        last_layers_attn = prefill_attn[-hp.l_attn :]
+        mask = audio_mask.clone()
+        generated: list[int] = []
+
+        with torch.no_grad():
+            for _ in range(max_new):
+                r_t = float(
+                    torch.stack(
+                        [tcd.audio_attention_ratio(a, mask) for a in last_layers_attn]
+                    ).mean()
+                )
+                entropy_hat = tcd.topk_renormalized_entropy(z, hp.k_ent)
+                gate_value = tcd.reliance_gate(r_t, entropy_hat, hp)
+                fused = tcd.fuse_logits(z, z_tilde, lam=lam, gate_value=gate_value, hp=hp)
+                next_id = int(torch.argmax(fused))
+                if next_id in eos_ids:
+                    break
+                generated.append(next_id)
+
+                next_input = torch.tensor([[next_id]], device=z.device)
+                out = model(
+                    input_ids=next_input, past_key_values=original_kv,
+                    use_cache=True, output_attentions=True, return_dict=True,
+                )
+                out_tilde = model(
+                    input_ids=next_input, past_key_values=blurred_kv,
+                    use_cache=True, return_dict=True,
+                )
+                original_kv = out.past_key_values
+                blurred_kv = out_tilde.past_key_values
+                z = out.logits[0, -1].float()
+                z_tilde = out_tilde.logits[0, -1].float()
+                last_layers_attn = [a[0].float() for a in out.attentions[-hp.l_attn :]]
+                mask = torch.cat([mask, torch.zeros(1, dtype=torch.bool, device=mask.device)])
+
+        return tok.decode(generated, skip_special_tokens=True)
 
     def generate_vicrop_consensus(
         self,
