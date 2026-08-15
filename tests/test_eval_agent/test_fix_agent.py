@@ -535,6 +535,29 @@ class OPERASensitiveModel(Model):
         raise NotImplementedError
 
 
+class TCDSensitiveModel(Model):
+    """Audio LALM fixture repaired only by TCD's gated temporal contrast."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.ATTENTION, Capability.HIDDEN_STATES})
+    modalities = frozenset({"text", "audio"})
+
+    def generate(self, inputs, **kwargs):
+        return "2"
+
+    def generate_tcd(self, inputs, **kwargs):
+        assert kwargs == {}
+        return "3"
+
+    def generate_tcd_baseline(self, inputs, **kwargs):
+        return "2"
+
+    def paper_method_fidelity(self, method):
+        return "native_layer_matched_stability" if method == "tcd" else "unavailable"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
 class IFCDSensitiveModel(Model):
     """LLaVA-style fixture repaired only by an opted-in TruthX IFCD route."""
 
@@ -630,6 +653,24 @@ def _gold_yes_batch(n: int = 8, image=None) -> CaseBatch:
             for i in range(n)
         ]
     )
+
+
+def _gold_audio_batch(n: int = 8, audio: str = "fake-waveform") -> CaseBatch:
+    three = {"all_of": ["3"], "none_of": ["2"]}
+    batch = CaseBatch(
+        [
+            FailureCase(
+                id=f"a{i}",
+                inputs=Inputs(prompt=f"How many beeps {i}?", audio=audio),
+                expected=three,
+                label=Label.FAIL,
+            )
+            for i in range(n)
+        ]
+    )
+    for case in batch:
+        case.metadata["task"] = "multiple_choice"
+    return batch
 
 
 def _label_score(case, observed):
@@ -873,6 +914,40 @@ def test_l3b_ifcd_requires_explicit_adapted_method_opt_in():
     ).propose_and_validate(IFCDSensitiveModel(), batch, hypotheses)
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "ifcd_truthx_contrast"
+
+
+def test_l3a_tcd_candidate_repairs_temporal_smoothing_bias():
+    batch = _gold_audio_batch(n=16)
+    out = FixAgent(judge=None, max_tier="L3a", allow_codegen=False).propose_and_validate(
+        TCDSensitiveModel(), batch, [_hyp("temporal smoothing bias misses a brief acoustic event")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "tcd_temporal_blur"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
+    assert out.best.n_fixed == 16 and out.best.n_broken == 0
+
+
+def test_l3a_tcd_is_not_proposed_for_non_multiple_choice_tasks():
+    batch = _gold_audio_batch(n=8)
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+    candidates = FixAgent(judge=None, max_tier="L3a", allow_codegen=False)._propose(
+        [_hyp("temporal smoothing bias misses a brief acoustic event")], batch, TCDSensitiveModel()
+    )
+
+    assert "tcd_temporal_blur" not in {candidate.name for candidate in candidates}
+
+
+def test_l3a_tcd_is_not_proposed_without_audio():
+    batch = _gold_yes_batch(n=8, image=_img())  # no audio on any case
+    for case in batch:
+        case.metadata["task"] = "multiple_choice"
+    candidates = FixAgent(judge=None, max_tier="L3a", allow_codegen=False)._propose(
+        [_hyp("temporal smoothing bias misses a brief acoustic event")], batch, TCDSensitiveModel()
+    )
+
+    assert "tcd_temporal_blur" not in {candidate.name for candidate in candidates}
 
 
 def test_l3b_pai_candidate_repairs_object_hallucination():
