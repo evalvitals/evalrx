@@ -11,6 +11,8 @@ self-registers on import.  Categories:
     lens/           logit-lens / tuned-lens                       — HIDDEN_STATES
     patching/       causal tracing / activation patching          — HIDDEN_STATES (read+write)
     geometry/       CKA / linear-probe                            — HIDDEN_STATES
+    reasoning/      extraction/termination hygiene; arithmetic,
+                    self-repair, step-value, knowledge split       — GENERATE
     agent/          loop / ignored-obs / first-error / counterfactual — Trajectory
 
 Import is torch-tolerant: the ``attention`` subpackage loads torch at import, so on
@@ -25,6 +27,7 @@ from evalvitals.analyzers import (  # noqa: F401  -- import to self-register
     lens,
     patching,
     perturbation,
+    reasoning,
     uncertainty,
 )
 from evalvitals.analyzers.base import Analyzer, Result

@@ -1022,3 +1022,38 @@ def test_signals_dataframe_and_effect_figure_helpers():
 
     fig = _signal_effect_figure(signals)  # only the 2 numeric ones plotted
     assert fig is not None
+
+
+def test_verdict_sentence_states_the_outcome_in_words():
+    """The hero must say what happened before showing any evidence.
+
+    Confirming nothing is a legitimate result for this tool, so it gets a
+    plain statement rather than an error tone -- and an in-sample confirmation
+    must never be worded as if it survived a held-out test.
+    """
+    from evalvitals.analysis.dashboard_app import _verdict_sentence
+
+    nothing, tone = _verdict_sentence(
+        {"adjudication": {"n_candidates": 4, "n_rejected": 0, "split": "in_sample"}}
+    )
+    assert nothing == "Nothing confirmed — 0 of 4 candidate signals cleared adjudication."
+    assert tone == "ev-verdict-null"
+
+    in_sample, tone = _verdict_sentence(
+        {"adjudication": {"n_candidates": 4, "n_rejected": 1, "split": "in_sample"}}
+    )
+    assert in_sample == "1 of 4 candidate signals confirmed, in-sample only."
+    assert tone == "ev-verdict-partial"  # not the "passed" tone
+
+    held_out, tone = _verdict_sentence(
+        {"adjudication": {"n_candidates": 3, "n_rejected": 2, "split": "holdout"}}
+    )
+    assert held_out == "2 of 3 candidate signals confirmed, on held-out rows."
+    assert tone == "ev-verdict-ok"
+
+    # Singular, and the no-adjudication case must not read as "0 confirmed".
+    one, _ = _verdict_sentence({"adjudication": {"n_candidates": 1, "n_rejected": 1}})
+    assert "1 of 1 candidate signal confirmed" in one
+    none, tone = _verdict_sentence({})
+    assert none == "No candidate signals were adjudicated in this run."
+    assert tone == "ev-verdict-neutral"

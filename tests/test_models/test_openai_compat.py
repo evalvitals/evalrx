@@ -1,0 +1,207 @@
+"""OpenAI-compatible client factories + the batch runner."""
+
+from __future__ import annotations
+
+import warnings
+
+import pytest
+
+from evalvitals.core.capability import Capability
+from evalvitals.core.case import FailureCase, Inputs
+from evalvitals.core.model import Model
+from evalvitals.core.tool import ChatTurn, Tool
+from evalvitals.models import RuntimeConfig, compose
+from evalvitals.models.agent import run_batch
+from evalvitals.models.backends.openai_compat import (
+    openai_chat_fn,
+    to_openai_messages,
+)
+
+
+class _FakeImg:
+    mode = "RGB"
+
+    def save(self, buf, format=None):
+        buf.write(b"\x89PNGfake")
+
+
+# ----------------------------------------------------------------------
+# Message conversion
+# ----------------------------------------------------------------------
+def test_image_blocks_become_data_urls():
+    messages = [
+        {"role": "system", "content": "sys"},
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": _FakeImg()},
+                {"type": "text", "text": "what is this?"},
+            ],
+        },
+    ]
+    out = to_openai_messages(messages)
+    assert out[0] == {"role": "system", "content": "sys"}
+    img_block, text_block = out[1]["content"]
+    assert img_block["type"] == "image_url"
+    assert img_block["image_url"]["url"].startswith("data:image/png;base64,")
+    assert text_block == {"type": "text", "text": "what is this?"}
+
+
+def test_http_image_urls_pass_through():
+    messages = [{"role": "user", "content": [{"type": "image", "image": "https://x/y.png"}]}]
+    out = to_openai_messages(messages)
+    assert out[0]["content"][0]["image_url"]["url"] == "https://x/y.png"
+
+
+def test_tool_and_assistant_messages_pass_through():
+    messages = [
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "5"},
+    ]
+    assert to_openai_messages(messages) == messages
+
+
+# ----------------------------------------------------------------------
+# chat_fn against a fake client
+# ----------------------------------------------------------------------
+class _FakeToolCall:
+    def model_dump(self):
+        return {"id": "c1", "function": {"name": "add", "arguments": '{"a": 1}'}}
+
+
+class _FakeClient:
+    def __init__(self, content="hi", tool_calls=None):
+        self.last_kwargs = None
+        outer = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                outer.last_kwargs = kwargs
+
+                class _Msg:
+                    pass
+
+                msg = _Msg()
+                msg.content = content
+                msg.tool_calls = tool_calls
+
+                class _Choice:
+                    pass
+
+                choice = _Choice()
+                choice.message = msg
+                choice.finish_reason = "stop"
+
+                class _Resp:
+                    pass
+
+                resp = _Resp()
+                resp.choices = [choice]
+                return resp
+
+        class _Chat:
+            completions = _Completions()
+
+        self.chat = _Chat()
+
+
+def test_chat_fn_parses_native_tool_calls_and_defaults_temperature_zero():
+    client = _FakeClient(content=None, tool_calls=[_FakeToolCall()])
+    fn = openai_chat_fn(client=client)
+    turn = fn([{"role": "user", "content": "add"}], tools=[{"type": "function"}], model="m")
+    assert turn.raw_tool_calls == [{"id": "c1", "function": {"name": "add", "arguments": '{"a": 1}'}}]
+    assert turn.text == ""
+    assert client.last_kwargs["temperature"] == 0.0
+    assert client.last_kwargs["tool_choice"] == "auto"
+    assert client.last_kwargs["model"] == "m"
+
+
+def test_chat_fn_plain_answer():
+    fn = openai_chat_fn(client=_FakeClient(content="done"))
+    turn = fn([{"role": "user", "content": "q"}], tools=None, model="m")
+    assert turn.text == "done" and turn.raw_tool_calls is None
+
+
+# ----------------------------------------------------------------------
+# run_batch
+# ----------------------------------------------------------------------
+def _echo_tool(tag):
+    return Tool(
+        name="echo",
+        description="echo",
+        parameters={"type": "object", "properties": {}},
+        fn=lambda: tag,
+    )
+
+
+def test_run_batch_on_api_handle_keeps_order_and_binds_tools_per_case():
+    def chat_fn(messages, tools=None, model=""):
+        return ChatTurn(text="ok")
+
+    handle = compose("qwen3-8b", "api", RuntimeConfig(chat_fn=chat_fn))
+    cases = [FailureCase(inputs=Inputs(prompt=f"q{i}")) for i in range(3)]
+    seen: list[str] = []
+
+    def factory(case):
+        seen.append(case.inputs.prompt)
+        return [_echo_tool(case.inputs.prompt)]
+
+    trajs = run_batch(handle, cases, tools_factory=factory, concurrency=3)
+    assert [t.goal for t in trajs] == ["q0", "q1", "q2"]
+    assert sorted(seen) == ["q0", "q1", "q2"]
+    assert all(t.metrics["terminated"] == "final" for t in trajs)
+
+
+def test_run_batch_error_yields_stub_trajectory():
+    class Boom(Model):
+        capabilities = frozenset({Capability.GENERATE, Capability.TOOL_CALLS})
+
+        def generate(self, inputs, **kw):
+            return ""
+
+        def forward(self, inputs, capture, spec=None):
+            raise NotImplementedError
+
+        def chat(self, messages, tools=None):
+            raise RuntimeError("endpoint down")
+
+    trajs = run_batch(Boom(), ["a", "b"], tools_factory=lambda c: [], concurrency=1)
+    assert len(trajs) == 2
+    assert all(t.metrics["terminated"] == "error" for t in trajs)
+    assert "endpoint down" in trajs[0].metrics["error"]
+
+
+def test_run_batch_forces_sequential_for_local_handles():
+    class Local(Model):
+        capabilities = frozenset({Capability.GENERATE, Capability.TOOL_CALLS})
+
+        def generate(self, inputs, **kw):
+            return ""
+
+        def forward(self, inputs, capture, spec=None):
+            raise NotImplementedError
+
+        def chat(self, messages, tools=None):
+            return ChatTurn(text="ok")
+
+    with pytest.warns(UserWarning, match="forcing"):
+        trajs = run_batch(Local(), ["x"], tools_factory=lambda c: [], concurrency=8)
+    assert trajs[0].final_answer == "ok"
+
+
+def test_run_batch_no_warning_when_sequential():
+    class Local(Model):
+        capabilities = frozenset({Capability.GENERATE, Capability.TOOL_CALLS})
+
+        def generate(self, inputs, **kw):
+            return ""
+
+        def forward(self, inputs, capture, spec=None):
+            raise NotImplementedError
+
+        def chat(self, messages, tools=None):
+            return ChatTurn(text="ok")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        run_batch(Local(), ["x"], tools_factory=lambda c: [], concurrency=1)

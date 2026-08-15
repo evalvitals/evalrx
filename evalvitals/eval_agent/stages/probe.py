@@ -15,10 +15,18 @@ Usage::
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from evalvitals.core.capability import Capability
 from evalvitals.core.registry import registry
+
+
+def _carries_trajectories(data: Any) -> bool:
+    """True when *data* (CaseBatch / iterable of cases) has any trajectory-carrying case."""
+    try:
+        return any(getattr(c, "trajectory", None) is not None for c in data)
+    except TypeError:
+        return False
 
 if TYPE_CHECKING:
     from evalvitals.core.model import Model
@@ -36,11 +44,17 @@ class ModelKind(str, Enum):
 _FAILURE_MODE_TO_ANALYZERS: dict[str, list[str]] = {
     "attention_sink":            ["attention_sink"],
     "attention":                 ["attention", "attention_rollout"],
-    "hallucination":             ["pope", "chair"],
+    "hallucination":             ["pope", "chair", "selfcheck_consistency"],
     "low_consistency":           ["self_consistency"],
     "unstable_generation":       ["self_consistency"],
-    "overconfidence":            ["verbalized_confidence"],
-    "miscalibrated_confidence":  ["verbalized_confidence"],
+    "overconfidence":            ["verbalized_confidence", "calibration"],
+    "miscalibrated_confidence":  ["verbalized_confidence", "calibration"],
+    "format_bias":               ["format_sensitivity"],
+    "position_bias":             ["format_sensitivity"],
+    "unfaithful_reasoning":      ["cot_faithfulness"],
+    "post_hoc_reasoning":        ["cot_faithfulness"],
+    "context_ignored":           ["context_shap"],
+    "premature_layer_divergence": ["layer_contrast"],
     "confident_inconsistency":   ["self_consistency", "verbalized_confidence"],
     "loop":                      ["loop_detect"],
     "ignored_obs":               ["ignored_obs"],
@@ -55,6 +69,28 @@ _FAILURE_MODE_TO_ANALYZERS: dict[str, list[str]] = {
     "logit_lens":                ["logit_lens"],
     "representational_collapse": ["cka"],
     "numerical_hallucination":   ["self_consistency", "verbalized_confidence"],
+    # Text-reasoning mechanisms (2026-08). The hygiene pair is listed under the
+    # names an M3 hypothesis uses when it blames the harness rather than the model.
+    "answer_extraction":         ["answer_extraction_audit"],
+    "parse_failure":             ["answer_extraction_audit"],
+    "truncation":                ["termination_audit"],
+    "degenerate_repetition":     ["termination_audit"],
+    "premature_termination":     ["termination_audit"],
+    "arithmetic_error":          ["arith_audit"],
+    "computation_slip":          ["arith_audit"],
+    "chain_break":               ["arith_audit", "step_rollout_value"],
+    "reasoning_break":           ["step_rollout_value", "arith_audit"],
+    "overthinking":              ["cot_faithfulness", "step_rollout_value"],
+    "self_correction_failure":   ["self_repair"],
+    "knowledge_gap":             ["knowledge_reasoning_split"],
+    "compositionality_gap":      ["knowledge_reasoning_split"],
+    "selection_failure":         ["coverage_verification_gap"],
+    "verification_gap":          ["coverage_verification_gap"],
+    "brittleness":               ["perturbation_battery"],
+    "surface_form_sensitivity":  ["perturbation_battery", "format_sensitivity"],
+    "memorization":              ["contamination_score", "perturbation_battery"],
+    "contamination":             ["contamination_score"],
+    "semantic_uncertainty":      ["self_consistency"],
 }
 
 # Per-kind ordered priority: high → low diagnostic value for false attribution.
@@ -70,14 +106,33 @@ _PRIORITY: dict[str, list[str]] = {
     ],
     ModelKind.AGENT: [
         "loop_detect", "ignored_obs",             # behavioral heuristics
-        "first_error_judge", "counterfactual",
+        "first_error_judge", "trajectory_rubric", # LLM-judge localisation + classification
+        "counterfactual", "reliability_probe",    # re-run probes: step perturbation, pass@k
+        "tool_shap",                              # re-run probe: tool-subset Shapley
     ],
     ModelKind.LLM: [
+        # Hygiene first: both produce confounds that mimic every mechanism
+        # column below, so a finding read before them is not interpretable.
+        "answer_extraction_audit",                # is the FAIL label real or a parse miss?
+        "termination_audit",                      # truncated / degenerate / gave up?
+        "arith_audit",                            # computation slip vs chain break (free)
+        "selfcheck_consistency",                  # text hallucination (black-box)
+        "format_sensitivity",                     # MC position bias vs content-tracking
+        "cot_faithfulness",                       # is the reasoning load-bearing?
+        "coverage_verification_gap",              # cannot solve vs cannot select
+        "perturbation_battery",                   # invariance breaks / missing sensitivity
+        "self_repair",                            # detect / correct / DAMAGE
+        "knowledge_reasoning_split",              # missing fact vs broken composition
+        "calibration",                            # ECE / overconfidence vs labels
         "attention", "logit_lens",                # interpretability
+        "layer_contrast",                          # DoLa/DeCo divergence signal
         "token_entropy", "logprob_entropy",
         "attention_sink", "attention_rollout",
         "prompt_contrast",                         # are failures prompt-repairable?
+        "context_shap",                            # RAG context dependence
         "cka", "self_consistency", "verbalized_confidence",
+        "step_rollout_value",                      # where the chain broke (expensive)
+        "contamination_score",                     # is the benchmark measuring recall?
     ],
 }
 
@@ -118,12 +173,18 @@ class StrategyProbe:
     def __init__(self, priority_override: dict[str, list[str]] | None = None) -> None:
         self._priority = priority_override or _PRIORITY
 
-    def detect_kind(self, model: "Model") -> ModelKind:
-        """Infer VLM / AGENT / LLM from the model's capabilities and modalities.
+    def detect_kind(self, model: "Model", data: Any = None) -> ModelKind:
+        """Infer VLM / AGENT / LLM from the data shape, capabilities and modalities.
 
-        Image modality takes priority over TOOL_CALLS so that VLMs that also
-        support tool use (e.g. Qwen3-VL) are treated as VLMs, not agents.
+        Trajectory-carrying *data* is the definitive agent signal and wins
+        outright: a VLM that drove a tool loop should get the AGENT analyzer
+        priority (loop detection, first-error attribution), not the VLM one.
+        Without trajectories, image modality takes priority over TOOL_CALLS so
+        that VLMs that merely *support* tool use (e.g. Qwen3-VL) are treated
+        as VLMs, not agents.
         """
+        if data is not None and _carries_trajectories(data):
+            return ModelKind.AGENT
         if "image" in getattr(model, "modalities", frozenset({"text"})):
             return ModelKind.VLM
         if Capability.TOOL_CALLS in getattr(model, "capabilities", frozenset()):
@@ -135,6 +196,7 @@ class StrategyProbe:
         model: "Model",
         max_analyzers: int | None = None,
         hint_failure_modes: list[str] | None = None,
+        data: Any = None,
     ) -> list[str]:
         """Return compatible analyzer names ranked by diagnostic priority.
 
@@ -144,13 +206,16 @@ class StrategyProbe:
             hint_failure_modes: Failure-mode tags from outstanding M3 hypotheses.
                                 Analyzers that match a hint are promoted to the
                                 front of the ranked list for focused follow-up.
+            data:               The case batch about to be probed, when available.
+                                Trajectory-carrying cases flip the ranking to the
+                                AGENT priority list (see :meth:`detect_kind`).
 
         Returns:
             Ordered list of registered analyzer names.  Hint-matched items
             come first, then the standard priority-list items, then remaining
             compatible analyzers sorted alphabetically.
         """
-        kind = self.detect_kind(model)
+        kind = self.detect_kind(model, data)
         compatible = set(registry.analyzers.names_compatible_with(model))
         priority = self._priority.get(kind, [])
 

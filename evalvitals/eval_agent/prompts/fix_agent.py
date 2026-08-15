@@ -2,7 +2,7 @@
 
 _L1_PROMPT = """\
 You are designing PROMPT-LEVEL fixes (tier L1: the input space only) for a \
-vision-language model failure.
+model failure. The model may be text-only or vision-language.
 
 VERIFIED FAILURE HYPOTHESES:
 {hypotheses}
@@ -20,7 +20,8 @@ Reply with ONLY a JSON array:
 
 _L2_PROMPT = """\
 You are designing SCAFFOLD-LEVEL fixes (tier L2: a pipeline around the \
-unchanged model) for a vision-language model failure.
+unchanged model) for a model failure. The model may be text-only or
+vision-language.
 
 VERIFIED FAILURE HYPOTHESES:
 {hypotheses}
@@ -28,19 +29,26 @@ VERIFIED FAILURE HYPOTHESES:
 EXAMPLE FAILING PROMPTS:
 {examples}
 
-AVAILABLE IMAGE TOOLS (applied to the case image before the model sees it):
+OPTIONAL IMAGE TOOLS (use only when the case has an image; text-only cases
+should use prompt rewrites and/or repeated sampling instead):
 {catalog}
 
-Propose up to {k} pipelines.  Each may chain image tools, rewrite the prompt
-(template MUST contain {{prompt}}), and sample the model n_samples times
-(majority vote).  Reply with ONLY a JSON array:
+Propose up to {k} pipelines. Each may chain image tools, rewrite the prompt
+(template MUST contain {{prompt}}), use bounded decoding controls in
+generation_kwargs (max_tokens, temperature, top_p, stop), sample the model
+n_samples times, or select one reviewed multi-call strategy: direct,
+least_to_most, self_refine, chain_of_verification. For structured answer tasks,
+output_key_pattern may be a regex with one capture group used for answer-only
+voting; it must not contain gold answers. Reply with ONLY a JSON array:
 [{{"name": "<short_snake_case>",
    "image_ops": [{{"tool": "<catalog name>", "params": {{}}}}],
-   "prompt_template": "{{prompt}}", "n_samples": 1}}]"""
+   "prompt_template": "{{prompt}}", "n_samples": 1,
+   "generation_kwargs": {{}}, "strategy": "direct",
+   "output_key_pattern": ""}}]"""
 
 _L2_CODE_PROMPT = """\
 You are writing a PYTHON PIPELINE (tier L2: a scaffold around the unchanged \
-vision-language model) that repairs the failures described below.  Design any
+model) that repairs the failures described below.  Design any
 pipeline you want — the only constraint is that the model itself is unchanged.
 
 VERIFIED FAILURE HYPOTHESES:

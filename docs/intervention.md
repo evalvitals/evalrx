@@ -61,7 +61,7 @@ it:
 | L2 | scaffold | Agent-designed pipeline around the *unchanged* model (multi-call, tools, aggregation) — sandboxed, bridged model access; labels never reach the code. |
 | L3a | internals (read) | Reads attention/logits to guide scaffold actions. |
 | L3b | internals (write) | Modifies the forward pass (attention reweighting, sink suppression, activation steering). |
-| L4 | parameter space | Fine-tune recipe — recorded for a human decision, not yet auto-executed. |
+| L4 | parameter space | Fine-tune recipe, always recorded for a human decision. v1 additionally *executes* one shape — LoRA on the language model — when you pass `FixAgent(finetune_pool=...)` (a diagnosis-only `CaseBatch`, disjoint from what's being validated); other recipe shapes stay recorded-only. |
 
 ```python
 outcome = loop.run_fix(report, failure_cases, auto_escalate=True)  # steps L2 → L3a → L3b

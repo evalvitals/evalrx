@@ -176,3 +176,35 @@ def test_propose_never_raises_on_backend_failure():
 
     agent = HypothesisAgent(judge=BrokenJudge())
     assert agent.propose(_REPORT) == []
+
+
+# ── agent-trajectory hint ─────────────────────────────────────────────────────
+_AGENT_REPORT = {
+    "question": "What predicts failures in this agent run?",
+    "takeaways": [{
+        "title": "Failures repeat tool calls",
+        "analysis": "FAIL cases have max_consecutive_repeat >= 2 far more often than PASS.",
+    }],
+    "observations": ["n_tool_calls is right-skewed"],
+    "candidate_signals": [{"name": "shap_outcome_image_zoom_in", "rationale": "zoom drives passing"}],
+}
+
+
+def test_agent_report_appends_intervenable_cause_hint():
+    from evalvitals.analysis.hypothesis_agent import _is_agent_report
+
+    judge = ScriptedJudge("NO_HYPOTHESIS")
+    HypothesisAgent(judge=judge).propose(_AGENT_REPORT)
+    assert _is_agent_report(_AGENT_REPORT) is True
+    assert "AGENT TRAJECTORIES" in judge.prompts[0]
+    assert "INTERVENABLE cause" in judge.prompts[0]
+    assert "failure_mode is a judge-assigned label" in judge.prompts[0]
+
+
+def test_non_agent_report_gets_no_hint():
+    from evalvitals.analysis.hypothesis_agent import _is_agent_report
+
+    judge = ScriptedJudge("NO_HYPOTHESIS")
+    HypothesisAgent(judge=judge).propose(_REPORT)
+    assert _is_agent_report(_REPORT) is False
+    assert "AGENT TRAJECTORIES" not in judge.prompts[0]

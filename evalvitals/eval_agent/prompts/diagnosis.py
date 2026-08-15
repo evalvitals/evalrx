@@ -15,7 +15,13 @@ Raw findings (JSON):
 
 {available_signals_section}Propose 1-3 hypotheses. For each write exactly three lines:
 HYPOTHESIS: <one-sentence falsifiable claim about the failure mode>
-FAILURE_MODE: <short tag, e.g. attention_sink / hallucination / loop / low_consistency>
+FAILURE_MODE: <short snake_case tag naming the MECHANISM, not the symptom.
+  Vision/agent: attention_sink / hallucination / loop / ignored_obs / language_prior_bias
+  Text reasoning: computation_slip / chain_break / knowledge_gap / selection_failure /
+    overthinking / brittleness / memorization / self_correction_failure
+  Harness (suspect these before any mechanism): answer_extraction / truncation /
+    degenerate_repetition
+  Use a tag from these lists when one fits; invent one only when none does.>
 TEST: <which evidence verifies this claim — name a signal/analyzer from the
 available evidence list when one fits (e.g. "relative_attention.max_relative_weight"
 or "prompt_contrast describe_first contrast"); otherwise describe the analyzer

@@ -85,7 +85,7 @@ def render_explore_report(root: Path, turn: dict[str, Any]) -> None:
     report = turn["report"]
 
     _render_header(root, turn, report)
-    _render_top_metrics(report)
+    _render_top_metrics(report, turn_dir)
 
     confirm = _load_sibling_json(turn_dir, "confirm_report.json")
     fix_report = _load_sibling_json(turn_dir, "fix_report.json")
@@ -688,8 +688,9 @@ def _render_problem_setting(
         )
         for label, count in stages:
             st.markdown(f"- **{label}:** {count}")
-        with st.expander("View run directory", expanded=False):
-            st.code(str(root), language="text")
+        # The run directory is already one click away under the header details;
+        # repeating it here put an absolute home path in the middle of the
+        # page, where any screenshot or screen-share carries it along.
 
 
 def _render_stage_map(*, active: set[str]) -> None:
@@ -1379,21 +1380,34 @@ def _render_unlinked_exploratory_material(
                 details += f" Why this form: {rationale}"
             st.caption(details)
 
-        for idx, chart in enumerate(charts):
-            name = str(chart.get("name") or "")
-            st.markdown(f"**{display_name(name) if name else 'Unnamed chart'}**")
-            _context(name)
-            _render_chart_card(chart, turn_dir, heading_level="caption", key_prefix=f"orphan_chart_{idx}")
-            _render_visual_explanation(report, name=name, chart=chart)
-        for idx, path in enumerate(plots):
-            # ``_plot_lookup`` deliberately retains the report's serialized
-            # string path.  Do not assume a Path here: agent-authored reports
-            # may also contain a Path-like object or another JSON scalar.
-            name = Path(str(path)).stem
-            st.markdown(f"**{display_name(name)}**")
-            _context(name)
-            _render_plot_card(path, turn_dir)
-            _render_visual_explanation(report, name=name)
+        # Unreferenced visuals still belong on the same grid as everything
+        # else — rendering them full-bleed made an audit-only chart the largest
+        # thing on the page.
+        for start in range(0, len(charts), 2):
+            orphan_cols = st.columns(2)
+            for offset, chart in enumerate(charts[start:start + 2]):
+                with orphan_cols[offset]:
+                    idx = start + offset
+                    name = str(chart.get("name") or "")
+                    st.markdown(f"**{display_name(name) if name else 'Unnamed chart'}**")
+                    _context(name)
+                    _render_chart_card(
+                        chart, turn_dir, heading_level="caption", key_prefix=f"orphan_chart_{idx}"
+                    )
+                    _render_visual_explanation(report, name=name, chart=chart)
+        for start in range(0, len(plots), 2):
+            plot_cols = st.columns(2)
+            for offset, path in enumerate(plots[start:start + 2]):
+                with plot_cols[offset]:
+                    # ``_plot_lookup`` deliberately retains the report's
+                    # serialized string path. Do not assume a Path here:
+                    # agent-authored reports may also contain a Path-like
+                    # object or another JSON scalar.
+                    name = Path(str(path)).stem
+                    st.markdown(f"**{display_name(name)}**")
+                    _context(name)
+                    _render_plot_card(path, turn_dir)
+                    _render_visual_explanation(report, name=name)
         for name, source in tables.items():
             st.markdown(f"**{display_name(name)}**")
             _context(name)
@@ -2422,14 +2436,19 @@ def _render_evidence_panel(
         if charts and explore_dir is not None:
             if reading:
                 st.caption(reading)
+            # Two-up, matching every other chart surface — a supporting figure
+            # rendered full-bleed here would tower over the identical figure
+            # shown half-width one tab away.
+            ev_cols = st.columns(2)
             for idx, chart in enumerate(charts[:2]):
-                _render_chart_card(
-                    chart,
-                    explore_dir,
-                    heading_level="caption",
-                    prefer_rendered_artifact=False,
-                    key_prefix=f"evidence_{row['raw_signal']}_{idx}",
-                )
+                with ev_cols[idx % 2]:
+                    _render_chart_card(
+                        chart,
+                        explore_dir,
+                        heading_level="caption",
+                        prefer_rendered_artifact=False,
+                        key_prefix=f"evidence_{row['raw_signal']}_{idx}",
+                    )
         else:
             st.caption("Held-out effect estimate and confidence interval above.")
 
@@ -2894,6 +2913,63 @@ def _render_explore_tables_legacy(uniq: list[Path]) -> None:
                 st.dataframe(df, width="stretch", height=240)
 
 
+def _count_records(root: Path) -> int | None:
+    """Row count from the bundle's records.json when the profile omits it."""
+    try:
+        data = json.loads((root / "records.json").read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return len(data) if isinstance(data, list) else None
+
+
+def _verdict_metric(report: dict[str, Any]) -> tuple[str, Any, str]:
+    """Lead tile: what the run actually concluded.
+
+    This is the number the whole pipeline exists to produce, so it goes first.
+    An explore-only run legitimately confirms nothing — that renders as
+    "0/N confirmed", not as a missing tile.
+    """
+    adj = report.get("adjudication") or {}
+    n_cand = adj.get("n_candidates")
+    if not isinstance(n_cand, int) or n_cand <= 0:
+        return ("Confirmed", None, "no candidates adjudicated")
+    n_rej = adj.get("n_rejected") or 0
+    method = str(adj.get("method") or "—")
+    split = str(adj.get("split") or "")
+    alpha = adj.get("alpha")
+    caption = f"{method} · α={alpha}" if alpha is not None else method
+    if split:
+        caption += f" · {split.replace('_', '-')}"
+    return ("Confirmed", f"{n_rej}/{n_cand}", caption)
+
+
+def _verdict_sentence(report: dict[str, Any]) -> tuple[str, str]:
+    """The run's outcome as a sentence, plus a tone class.
+
+    Answering "so what happened?" in words belongs above the evidence, not
+    inside a tile the reader has to decode. Confirming nothing is a real,
+    reportable outcome here — it gets a plain statement, not a warning.
+    """
+    adj = report.get("adjudication") or {}
+    n_cand = adj.get("n_candidates")
+    if not isinstance(n_cand, int) or n_cand <= 0:
+        return ("No candidate signals were adjudicated in this run.", "ev-verdict-neutral")
+    n_rej = adj.get("n_rejected") or 0
+    split = str(adj.get("split") or "")
+    noun = "signal" if n_cand == 1 else "signals"
+    held_out = split == "holdout"
+    if n_rej == 0:
+        return (
+            f"Nothing confirmed — 0 of {n_cand} candidate {noun} cleared adjudication.",
+            "ev-verdict-null",
+        )
+    where = "on held-out rows" if held_out else "in-sample only"
+    return (
+        f"{n_rej} of {n_cand} candidate {noun} confirmed, {where}.",
+        "ev-verdict-ok" if held_out else "ev-verdict-partial",
+    )
+
+
 def _short_report_title(question: str) -> str:
     q = " ".join(str(question or "").split()).strip()
     if not q:
@@ -2936,9 +3012,12 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
 
     question = str(report.get("question") or "Exploratory analysis")
     plain_question = str(report.get("plain_question") or "").strip()
-
     title = plain_question or _short_report_title(question)
     subtitle = _header_subtitle(report)
+    has_technical = bool(
+        plain_question and question.strip() and question.strip() != plain_question
+    )
+    verdict_text, verdict_class = _verdict_sentence(report)
 
     st.markdown(
         f"""
@@ -2946,6 +3025,7 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
           <div>
             <div class="ev-kicker">Exploratory Data Analysis</div>
             <h1>{_html_escape(title)}</h1>
+            <div class="ev-verdict-line {verdict_class}">{_html_escape(verdict_text)}</div>
             <div class="ev-path">{_html_escape(subtitle)}</div>
           </div>
           <div class="ev-header-right">
@@ -2959,8 +3039,12 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
     with st.expander("View full research question and run details", expanded=False):
         st.markdown("**Full research question**")
         st.markdown(_html_escape(question))
+        if has_technical:
+            st.markdown("**Reader-friendly restatement**")
+            st.markdown(_html_escape(plain_question))
         st.markdown("**Run directory**")
         st.code(str(root), language="text")
+        st.caption(f"Bundle: `{root}`")
         st.markdown("**Report details**")
         st.json({
             "status": status,
@@ -2968,20 +3052,30 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
             "report_type": "exploratory_report.json / fused_report.json",
         })
 
-def _render_top_metrics(report: dict[str, Any]) -> None:
+
+def _render_top_metrics(report: dict[str, Any], root: Path | None = None) -> None:
     profile = report.get("data_profile") or {}
-    columns = profile.get("columns") or {}
+    # NB: `profile.get("columns") or {}` would turn a missing profile into an
+    # empty dict and render a bare "0 profiled fields", which reads as broken.
+    # Keep None as None so the tile is dropped instead.
+    columns = profile.get("columns")
     observations = report.get("observations") if "observations" in report else None
     signals = report.get("candidate_signals") if "candidate_signals" in report else None
     charts = report.get("charts") if "charts" in report else None
     plots = report.get("plots") if "plots" in report else None
+    hypotheses = report.get("hypotheses") if "hypotheses" in report else None
+
+    rows = profile.get("loaded_rows", profile.get("n_rows"))
+    if rows is None and root is not None:
+        rows = _count_records(root)
 
     raw_metrics = [
-        ("Rows", profile.get("loaded_rows", profile.get("n_rows")), "records sampled"),
+        _verdict_metric(report),
+        ("Rows", rows, "cases analysed"),
         ("Columns", len(columns) if isinstance(columns, dict) and columns else None, "profiled fields"),
         ("Candidate patterns", len(signals) if isinstance(signals, list) else None, "candidate follow-ups"),
-        ("Charts", len(charts or []) + len(plots or []) if charts is not None or plots is not None else None,
-         "visual artifacts"),
+        ("Hypotheses", len(hypotheses) if isinstance(hypotheses, list) and hypotheses else None, "proposed, not validated"),
+        ("Charts", len(charts or []) + len(plots or []) if charts is not None or plots is not None else None, "visual artifacts"),
         ("Attempts", report.get("attempts") if "attempts" in report else None, "agent/code runs"),
         ("Findings", len(observations) if isinstance(observations, list) else None, "observations"),
     ]
@@ -2994,14 +3088,17 @@ def _render_top_metrics(report: dict[str, Any]) -> None:
         return
 
     cols = st.columns(len(metrics))
-    for col, (label, value, caption) in zip(cols, metrics, strict=False):
+    for idx, (col, (label, value, caption)) in enumerate(zip(cols, metrics, strict=False)):
+        # The verdict tile is emitted first by construction; when adjudication
+        # produced nothing it is dropped and this simply never fires.
+        lead = " ev-metric-lead" if idx == 0 and label == "Confirmed" else ""
         with col:
             st.markdown(
                 f"""
-                <div class="ev-metric-card">
-                  <div class="ev-metric-label">{label}</div>
-                  <div class="ev-metric-value">{value}</div>
-                  <div class="ev-metric-caption">{caption}</div>
+                <div class="ev-metric-card{lead}">
+                  <div class="ev-metric-label">{_html_escape(label)}</div>
+                  <div class="ev-metric-value">{_html_escape(value)}</div>
+                  <div class="ev-metric-caption">{_html_escape(caption)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -3009,7 +3106,6 @@ def _render_top_metrics(report: dict[str, Any]) -> None:
 
     if report.get("error"):
         st.error(report["error"])
-
 
 def _chart_lookup(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Map a chart's ``name`` (falling back to ``title``) -> its spec dict."""
@@ -3039,14 +3135,22 @@ def _render_chart_grid(
 ) -> None:
     if not charts:
         return
-    cols = st.columns(columns)
-    for idx, chart in enumerate(charts):
-        with cols[idx % columns]:
-            _render_chart_card(chart, turn_dir, key_prefix=f"{key_prefix}{idx}")
-            if report is not None:
-                _render_visual_explanation(
-                    report, name=str(chart.get("name") or chart.get("title") or ""), chart=chart
-                )
+    # One st.columns() per ROW, not one for the whole grid. A single set of
+    # columns makes each column an independent stack, so a tall figure in the
+    # left column pushes everything below it out of step with the right — the
+    # masonry effect that makes a long gallery unreadable. Fresh columns per
+    # pair keeps rows aligned.
+    for start in range(0, len(charts), columns):
+        row = charts[start:start + columns]
+        cols = st.columns(columns)
+        for offset, chart in enumerate(row):
+            with cols[offset]:
+                idx = start + offset
+                _render_chart_card(chart, turn_dir, key_prefix=f"{key_prefix}{idx}")
+                if report is not None:
+                    _render_visual_explanation(
+                        report, name=str(chart.get("name") or chart.get("title") or ""), chart=chart
+                    )
 
 
 def _render_charts_and_plots(report: dict[str, Any], turn_dir: Path) -> None:
@@ -3063,11 +3167,12 @@ def _render_charts_and_plots(report: dict[str, Any], turn_dir: Path) -> None:
 
     if plots:
         st.markdown("### Generated Figures")
-        plot_cols = st.columns(2)
-        for idx, item in enumerate(plots):
-            with plot_cols[idx % 2]:
-                _render_plot_card(item, turn_dir)
-                _render_visual_explanation(report, name=Path(str(item)).stem)
+        for start in range(0, len(plots), 2):
+            plot_cols = st.columns(2)
+            for offset, item in enumerate(plots[start:start + 2]):
+                with plot_cols[offset]:
+                    _render_plot_card(item, turn_dir)
+                    _render_visual_explanation(report, name=Path(str(item)).stem)
 
 
 def _render_chart_card(
@@ -3378,6 +3483,141 @@ def _inject_css() -> None:
             --ev-shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
           }
         }
+        /* ---- Type scale -------------------------------------------------
+           Tracking is size-specific: large text reads too loose as it grows
+           and needs negative tracking, body sits near zero, small caps-y
+           labels need a positive bump to stay legible. Leading moves
+           inversely to size. Weight/size/leading are set together as one
+           step, never size alone. */
+        :root {
+          --ev-track-display: -0.022em;
+          --ev-track-title: -0.015em;
+          --ev-track-body: 0em;
+          --ev-track-label: 0.04em;
+          --ev-lead-display: 1.08;
+          --ev-lead-title: 1.2;
+          --ev-lead-body: 1.55;
+          /* Materials. Bigger surfaces read as thicker: more blur, deeper
+             shadow. Shadows are layered (contact + ambient) rather than one
+             soft blur, which is what keeps an edge crisp against the page. */
+          --ev-material-thin: saturate(180%) blur(12px);
+          --ev-material-thick: saturate(180%) blur(24px);
+          --ev-surface-veil: rgba(255, 255, 255, 0.72);
+          --ev-hairline: rgba(255, 255, 255, 0.5);
+          --ev-shadow-lifted:
+            0 0 0 0.5px rgba(16, 24, 40, 0.04),
+            0 1px 2px rgba(16, 24, 40, 0.06),
+            0 8px 24px -8px rgba(16, 24, 40, 0.12);
+          --ev-ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+          --ev-dur-fast: 110ms;
+          --ev-dur: 220ms;
+        }
+        @media (prefers-color-scheme: dark) {
+          :root {
+            --ev-surface-veil: rgba(26, 26, 25, 0.72);
+            --ev-hairline: rgba(255, 255, 255, 0.08);
+            --ev-shadow-lifted:
+              0 0 0 0.5px rgba(0, 0, 0, 0.5),
+              0 1px 2px rgba(0, 0, 0, 0.4),
+              0 8px 24px -8px rgba(0, 0, 0, 0.6);
+          }
+        }
+        /* System font first: it already ships optical sizing, tracking tables
+           and legibility tuning that a webfont would have to re-earn. */
+        html, body, [data-testid="stAppViewContainer"] {
+          font-synthesis-weight: none;
+          -webkit-font-smoothing: antialiased;
+          text-rendering: optimizeLegibility;
+        }
+        .ev-header h1 {
+          letter-spacing: var(--ev-track-display);
+          line-height: var(--ev-lead-display);
+          font-weight: 680;
+        }
+        .ev-report-answer-text, .ev-brief-value {
+          letter-spacing: var(--ev-track-title);
+          line-height: var(--ev-lead-title);
+        }
+        .ev-kicker, .ev-metric-label, .ev-brief-label {
+          letter-spacing: var(--ev-track-label);
+        }
+        /* The verdict sentence sits directly under the headline: the reader
+           should learn the outcome before reaching any evidence. Colour
+           carries tone, but the sentence stands alone without it. */
+        .ev-verdict-line {
+          margin-top: 0.65rem;
+          font-size: 0.98rem;
+          font-weight: 600;
+          letter-spacing: var(--ev-track-body);
+          line-height: 1.45;
+          padding-left: 0.7rem;
+          border-left: 3px solid currentColor;
+        }
+        .ev-verdict-ok { color: var(--ev-ok); }
+        .ev-verdict-partial { color: var(--ev-accent-dark); }
+        .ev-verdict-null { color: var(--ev-text-secondary); }
+        .ev-verdict-neutral { color: var(--ev-muted); }
+        .ev-kicker .ev-pill { margin-left: 0.5rem; vertical-align: middle; }
+        /* Numbers are the payload of this UI: lock them to tabular figures so
+           a column of metrics aligns digit-for-digit instead of shimmering. */
+        .ev-metric-value {
+          font-variant-numeric: tabular-nums;
+          letter-spacing: var(--ev-track-title);
+        }
+        /* ---- Materials --------------------------------------------------
+           Chrome floats above content as a translucent layer rather than
+           sitting in the flow behind a hard divider. */
+        [data-testid="stSidebar"] {
+          background: var(--ev-surface-veil) !important;
+          backdrop-filter: var(--ev-material-thick);
+          -webkit-backdrop-filter: var(--ev-material-thick);
+          border-right: 1px solid var(--ev-hairline);
+        }
+        .ev-metric-card {
+          transition:
+            transform var(--ev-dur) var(--ev-ease-out),
+            box-shadow var(--ev-dur) var(--ev-ease-out);
+        }
+        .ev-metric-card:hover {
+          transform: translateY(-1px);
+          box-shadow: var(--ev-shadow-lifted);
+        }
+        .ev-metric-card.ev-metric-lead {
+          box-shadow: var(--ev-shadow-lifted);
+        }
+        /* ---- Response ---------------------------------------------------
+           Feedback lands on pointer-DOWN, not on release: waiting for the
+           click to complete is the single most common way an interface reads
+           as laggy. */
+        .stButton > button, [data-baseweb="tab"] {
+          transition: transform var(--ev-dur-fast) var(--ev-ease-out),
+                      background-color var(--ev-dur-fast) var(--ev-ease-out);
+        }
+        .stButton > button:active { transform: scale(0.975); }
+        [data-baseweb="tab"]:active { transform: scale(0.99); }
+        /* ---- Accessibility ----------------------------------------------
+           Reduced motion means gentler feedback, not absent feedback; the
+           transforms go, the colour response stays. */
+        @media (prefers-reduced-motion: reduce) {
+          .ev-metric-card, .stButton > button, [data-baseweb="tab"] {
+            transition: none !important;
+            transform: none !important;
+          }
+        }
+        @media (prefers-reduced-transparency: reduce) {
+          [data-testid="stSidebar"] {
+            background: var(--ev-panel) !important;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+          }
+        }
+        @media (prefers-contrast: more) {
+          .ev-metric-card, .ev-brief-card {
+            border-color: var(--ev-text) !important;
+            background: var(--ev-panel-elevated) !important;
+          }
+          .ev-metric-caption, .ev-metric-label { color: var(--ev-text-secondary) !important; }
+        }
         /* Product chrome, not a debug tool: hamburger menu/Deploy button/Stop
            indicator, footer "Made with Streamlit" badge, and the top toolbar
            all hidden. --client.toolbarMode minimal (launch_dashboard) hides
@@ -3525,6 +3765,79 @@ def _inject_css() -> None:
           color: var(--ev-muted);
           font-size: 0.78rem;
         }
+        /* ---- uniform figure box ------------------------------------------
+           Agent-authored figures arrive at whatever aspect ratio the analysis
+           chose — a 7-panel violin grid next to a single bar chart. Rendering
+           each at its native ratio makes a gallery of 23 look like debris.
+           Every figure gets an identical frame and is fitted inside it.
+
+           The frame lives on the WRAPPER, not the <img>: border and padding on
+           the image itself inset the picture from the column edge while the
+           title stayed flush, leaving every caption 7px adrift of the figure
+           it labels. */
+        [data-testid="stImage"] {
+          background: var(--ev-panel-elevated);
+          border: 1px solid var(--ev-border);
+          border-radius: var(--ev-radius-sm);
+          /* No horizontal padding: the picture's left edge must sit on the
+             same vertical as the caption above it. */
+          padding: 0.45rem 0;
+          margin-bottom: 0.3rem;
+        }
+        [data-testid="stImage"] img {
+          width: 100%;
+          aspect-ratio: 16 / 10;
+          object-fit: contain;
+          /* A figure narrower than 16:10 is pillarboxed by `contain`, which
+             centres it and drifts it right of the caption. Pin it left. */
+          object-position: left center;
+          background: none;
+          border: 0;
+          padding: 0;
+          border-radius: 0;
+        }
+        /* Titles of different lengths would otherwise start the images of a
+           row at different heights. */
+        .ev-card-title, .ev-card-subtitle {
+          min-height: 2.6em;
+          display: flex;
+          align-items: flex-end;
+          margin-bottom: 0.35rem;
+        }
+        /* ---- two panels, visibly two --------------------------------------
+           Side-by-side figures with no boundary read as one continuous field,
+           so the eye cannot tell where the left cell ends and the right
+           begins. Any column that holds a figure becomes a card. Scoped with
+           :has() so metric rows, forms and the sidebar are untouched. */
+        [data-testid="stHorizontalBlock"]:has([data-testid="stImage"]) {
+          gap: 1.15rem;
+          margin-bottom: 1.15rem;
+        }
+        [data-testid="stColumn"]:has([data-testid="stImage"]) {
+          background: var(--ev-panel);
+          border: 1px solid var(--ev-border);
+          border-radius: var(--ev-radius);
+          padding: 0.95rem 1.05rem 0.6rem;
+          box-shadow: var(--ev-shadow);
+        }
+        /* Inside a card the figure frame would be a second border around the
+           same thing. It also has to disappear entirely: a figure wider than
+           16:10 is letterboxed, and a contrasting frame turns that spare space
+           into grey bands above and below the picture. */
+        [data-testid="stColumn"]:has([data-testid="stImage"]) [data-testid="stImage"] {
+          border-color: transparent;
+          background: transparent;
+          padding: 0;
+        }
+        /* The adjudicated verdict is the point of the whole run: give it the
+           weight of a headline rather than letting it read as one count
+           among many. */
+        .ev-metric-card.ev-metric-lead {
+          background: linear-gradient(180deg, rgba(10,123,188,0.09), rgba(10,123,188,0.02));
+          border-color: rgba(10,123,188,0.42);
+        }
+        .ev-metric-lead .ev-metric-label { color: #0a7bbc; }
+        .ev-metric-lead .ev-metric-value { font-size: 2.15rem; }
         .ev-brief-grid {
           display: grid;
           gap: 0.75rem;
@@ -3948,8 +4261,11 @@ def _inject_css() -> None:
         div[data-testid="stTabs"] button[aria-selected="true"] {
           color: var(--ev-accent-dark);
         }
+        /* stImage is deliberately absent here — its frame is defined once, in
+           the uniform-figure-box block above. Restating it later at higher
+           specificity is what knocked every figure 7px out of line with its
+           own title. */
         div[data-testid="stDataFrame"],
-        div[data-testid="stImage"],
         div[data-testid="stVegaLiteChart"] {
           background: var(--ev-panel);
           border: 1px solid var(--ev-border);

@@ -1,0 +1,376 @@
+=== session start | model=claude-opus-5 | tools=Task,Bash,CronCreate,CronDelete,CronList,DesignSync,Edit,EnterWorktree,ExitWorktree,Monitor,NotebookEdit,PushNotification,Read,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskCreate,TaskGet,TaskList,TaskOutput,TaskStop,TaskUpdate,ToolSearch,WebFetch,WebSearch,Workflow,Write ===
+[assistant] I'll start by inspecting the raw data, then invoke the required skills before writing code.
+[#1 Bash] $ ls -la && find raw_input -type f | head -50 && echo "---SIZE---" && du -sh raw_input/* 2>/dev/null
+[#2 Skill] {"skill": "outcome-driver-analysis"}
+[#1 result] total 0
+drwx------    4 xiaoxiaoli  staff   128 Jul 26 13:42 .
+drwx------@ 248 xiaoxiaoli  staff  7936 Jul 26 13:42 ..
+drwxr-xr-x    3 xiaoxiaoli  staff    96 Jul 26 13:42 .claude
+drwxr-xr-x    3 xiaoxiaoli  staff    96 Jul 26 13:42 raw_input
+raw_input/batches.json
+---SIZE---
+4.0K	raw_input/batches.json
+[#2 result] Launching skill: outcome-driver-analysis
+[#3 Bash] $ python3 -c "
+import json
+d=json.load(open('raw_input/batches.json'))
+print(type(d))
+if isinstance(d,dict):
+    for k,v in d.items():
+        print(k, type(v), (len(v) if isinstance(v,(list,dict)) else v))
+    for k,v in d.items():
+        if isinstance(v,list) and v:
+            print('SAMPLE',k, json.dumps(v[0],indent=1)[:800]); print('N=',len(v)); break
+else:
+    print(len(d)); print(json.dumps(d[0],indent=1)[:800])
+"
+[#4 Skill] {"skill": "eval-chart-style"}
+[#3 result] <class 'list'>
+30
+{
+ "batch_id": "b0",
+ "temperature": 213.9,
+ "pressure": 3.08,
+ "catalyst": "B",
+ "yield_pct": 73.4
+}
+[#4 result] Launching skill: eval-chart-style
+[#5 Bash] $ python3 -c "
+import json,statistics as st
+d=json.load(open('raw_input/batches.json'))
+print('n',len(d))
+keys=set()
+for r in d: keys|=set(r)
+print('keys',keys)
+import collections
+print(collections.Counter(r.get('catalyst') for r in d))
+for k in ['temperature','pressure','yield_pct']:
+    v=[r[k] for r in d if r.get(k) is not None]
+    print(k,len(v),min(v),max(v),round(st.mean(v),2),round(st.pstdev(v),2))
+print('missing per key', {k:sum(1 for r in d if r.get(k) is None) for k in keys})
+print(json.dumps(d[:3],indent=1))
+" ; python3 -c "import pandas,numpy,scipy,matplotlib,statsmodels;print(pandas.__version__,numpy.__version__,scipy.__version__,matplotlib.__version__,statsmodels.__version__)"
+[#6 Skill] {"skill": "nature-figure", "args": "Python backend, non-interactive matplotlib PNGs"}
+[#5 result] n 30
+keys {'batch_id', 'yield_pct', 'temperature', 'pressure', 'catalyst'}
+Counter({'A': 11, 'C': 10, 'B': 9})
+temperature 30 154.6 248.5 194.74 30.83
+pressure 30 3.03 5.99 4.35 0.83
+yield_pct 30 53.8 80.9 69.43 6.77
+missing per key {'batch_id': 0, 'yield_pct': 0, 'temperature': 0, 'pressure': 0, 'catalyst': 0}
+[
+ {
+  "batch_id": "b0",
+  "temperature": 213.9,
+  "pressure": 3.08,
+  "catalyst": "B",
+  "yield_pct": 73.4
+ },
+ {
+  "batch_id": "b1",
+  "temperature": 160.2,
+  "pressure": 5.22,
+  "catalyst": "C",
+  "yield_pct": 66.7
+ },
+ {
+  "batch_id": "b2",
+  "temperature": 158.7,
+  "pressure": 4.27,
+  "catalyst": "A",
+  "yield_pct": 65.3
+ }
+]
+3.0.5 2.4.6 1.17.1 3.11.1 0.14.6
+[#6 result] Launching skill: nature-figure
+[#7 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/.claude/skills/nature-figure && cat manifest.yaml && echo "=====CONTRACT" && cat static/core/contract.md && echo "=====STANCE" && cat static/core/stance.md && echo "=====PY" && cat static/fragments/backend/python.md
+[#8 Skill] {"skill": "evalvitals-report-ui"}
+[#7 result] name: nature-figure
+version: 2.0.0
+description: >
+  Declarative manifest for the static/dynamic split. SKILL.md uses this to
+  decide which fragments to load for a given figure request. The main axis is
+  the plotting backend (Python or R), which is a blocking gate: it must be
+  chosen explicitly before any figure is drawn. The large body of design,
+  API, pattern, and QA material stays in on-demand references.
+
+always_load:
+  # Skill-local core (figure does not use the prose-oriented _shared layer)
+  - static/core/contract.md
+  - static/core/stance.md
+
+axes:
+  backend:
+    detect: |
+      BLOCKING GATE. Determine the plotting backend from an explicit user
+      choice or a clearly language-specific input file/workflow. If the user
+      has NOT explicitly chosen Python or R, ask exactly one concise question —
+      "Python or R?" — and stop. Do not default, do not guess, do not generate
+      mock data or scripts before the answer. Only recommend a backend when the
+      user explicitly asks you to choose; in that case use
+      references/backend-selection.md, state the reason, then proceed.
+      Once selected, the backend is exclusive for all drawing, previewing,
+      exporting, and visual QA.
+    values:
+      python:  static/fragments/backend/python.md
+      r:       static/fragments/backend/r.md
+    multi: false
+
+references:
+  on_demand:
+    - condition: convert a user request into core conclusion, evidence hierarchy, panel map, and review-risk checks
+      path: references/figure-contract.md
+    - condition: user has not chosen Python/R, asks for a recommendation, or a mixed Python/R workflow is possible
+      path: references/backend-selection.md
+    - condition: user chooses R or provides R scripts/templates/data
+      path: references/r-workflow.md
+    - condition: adapt a user-provided or private R template collection without exposing source paths
+      path: references/r-template-index.md
+    - condition: before final delivery, revision package, micros
+... [truncated 9598 chars]
+[#8 result] Launching skill: evalvitals-report-ui
+[#9 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn && python3 -c "
+import json,pandas as pd,numpy as np,statsmodels.formula.api as smf
+from scipy import stats
+df=pd.DataFrame(json.load(open('raw_input/batches.json')))
+print(df.corr(numeric_only=True).round(3))
+for c in ['temperature','pressure']:
+    r,p=stats.pearsonr(df[c],df.yield_pct); s,sp=stats.spearmanr(df[c],df.yield_pct)
+    print(c,'pearson',round(r,3),round(p,4),'spearman',round(s,3))
+print(df.groupby('catalyst').yield_pct.agg(['n' if 0 else 'count','mean','std']).round(2))
+print(df.groupby('catalyst')[['temperature','pressure']].mean().round(2))
+print('anova',stats.f_oneway(*[g.yield_pct.values for _,g in df.groupby('catalyst')]))
+m=smf.ols('yield_pct ~ temperature + pressure + C(catalyst)',data=df).fit()
+print(m.summary().tables[1]); print('R2',round(m.rsquared,3),'adjR2',round(m.rsquared_adj,3))
+m2=smf.ols('yield_pct ~ temperature + pressure',data=df).fit(); print('R2 no cat',round(m2.rsquared,3))
+for c in ['temperature','pressure']:
+    print(c,'alone R2',round(smf.ols(f'yield_pct ~ {c}',data=df).fit().rsquared,3))
+print('cat alone R2',round(smf.ols('yield_pct ~ C(catalyst)',data=df).fit().rsquared,3))
+mi=smf.ols('yield_pct ~ temperature*pressure + C(catalyst)',data=df).fit(); print('inter R2',round(mi.rsquared,3), mi.pvalues.round(4).to_dict())
+print(df.temperature.corr(df.pressure))
+# quadratic
+mq=smf.ols('yield_pct ~ temperature + I(temperature**2) + pressure + C(catalyst)',data=df).fit(); print('quad R2',round(mq.rsquared,3), mq.pvalues.round(4).to_dict())
+"
+
+[#9 result]              temperature  pressure  yield_pct
+temperature        1.000    -0.034      0.904
+pressure          -0.034     1.000     -0.142
+yield_pct          0.904    -0.142      1.000
+temperature pearson 0.904 0.0 spearman 0.872
+pressure pearson -0.142 0.455 spearman -0.156
+          count   mean   std
+catalyst                    
+A            11  70.24  5.73
+B             9  65.34  7.56
+C            10  72.21  6.28
+          temperature  pressure
+catalyst                       
+A              202.70      4.71
+B              179.30      4.13
+C              199.87      4.16
+anova F_onewayResult(statistic=np.float64(2.776221268657103), pvalue=np.float64(0.08008155054756202))
+====================================================================================
+                       coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------------
+Intercept           35.6191      4.979      7.153      0.000      25.364      45.875
+C(catalyst)[T.B]    -0.9272      1.370     -0.677      0.505      -3.749       1.895
+C(catalyst)[T.C]     2.0663      1.258      1.643      0.113      -0.524       4.656
+temperature          0.1897      0.017     10.892      0.000       0.154       0.226
+pressure            -0.8132      0.643     -1.264      0.218      -2.138       0.512
+====================================================================================
+R2 0.862 adjR2 0.84
+R2 no cat 0.83
+temperature alone R2 0.818
+pressure alone R2 0.02
+cat alone R2 0.171
+inter R2 0.867 {'Intercept': 0.3306, 'C(catalyst)[T.B]': 0.4066, 'C(catalyst)[T.C]': 0.1814, 'temperature': 0.0069, 'pressure': 0.4553, 'temperature:pressure': 0.3431}
+-0.03435489204285147
+quad R2 0.866 {'Intercept': 0.7705, 'C(catalyst)[T.B]': 0.6466, 'C(catalyst)[T.C]': 0.0902, 'temperature': 0.1386, 'I(temperature ** 2)': 0.38, 'pressure': 0.3119}
+[assistant] Data is clear: 30 rows, flat JSON list, continuous outcome `yield_pct`, predictors temperature/pressure (numeric) + catalyst (3 levels). The scan shows temperature dominates (r=0.90), pressure is flat, and catalyst B's lower yield tracks its lower run temperatures — a confounding story worth charting. Writing the script.
+[#10 Write] write /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py (69276 chars)
+[#10 result] File created successfully at: /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py (file state is current in your context — no need to Read it back)
+[#11 Bash] $ python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo "EXIT=$?"; tail -20 /tmp/err.txt; echo "---"; tail -c 400 /tmp/out.txt
+[#11 result] EXIT=0
+---
+ture x pressure interaction explicitly on new data; it was small here (delta R-sq below 0.01) but n=30 gives little power to detect it.", "Evaluate the temperature-only model against the full model by cross-validated prediction error, to see whether the extra terms earn their place out of sample.", "Extend the recorded pressure range and re-test - the current flat result only covers 3.03-5.99."]}
+[#12 Bash] $ python3 - <<'EOF'
+import json,os
+line=[l for l in open('/tmp/out.txt') if l.startswith('EXPLORATORY_RESULT_JSON=')][-1]
+r=json.loads(line.split('=',1)[1])
+names={c['name'] for c in r['charts']}
+stems={os.path.splitext(os.path.basename(p))[0] for p in r['plots']}
+cited=set()
+for t in r['takeaways']: cited|=set(t['chart_names'])
+print('charts',len(names),'plots',len(stems),'takeaways',len(r['takeaways']),'plan',len(r['visual_plan']))
+print('cited but missing:',cited-names-stems)
+prim={v['name'] for v in r['visual_plan'] if v['disposition']=='primary'}
+print('primary not cited:',prim-cited)
+print('emitted not cited:',(names|stems)-cited)
+print('plan names not emitted:',{v['name'] for v in r['visual_plan'] if v['disposition']!='skipped'}-names-stems)
+rd={x['chart'] for x in r['chart_readings']}
+print('missing readings:',(names|stems)-rd,'| extra readings:',rd-names-stems)
+for c in r['charts']:
+    assert os.path.exists(c['data']),c['data']
+    import csv
+    h=next(csv.reader(open(c['data'])))
+    assert c['x'] in h and c['y'] in h,(c['name'],h)
+for p in r['plots']: assert os.path.exists(p),p
+print('all csv/x/y/png ok; tables:',list(r['tables']))
+JARGON=['auc','roc',' ci','p-value','quantile','coefficient','r-squared','r-sq','variance','collinear','monotonic','logistic','confound','→','ρ','σ','pct-pt','residual','correlation','anova','regression','median','std']
+for t in r['takeaways']:
+    low=t['plain_title'].lower()
+    bad=[j for j in JARGON if j in low]
+    print('BAD' if bad else 'ok', bad, t['plain_title'][:95])
+print(json.dumps(r['visual_plan'][0],indent=1)[:400])
+EOF
+ls figures tables
+[#12 result] charts 10 plots 7 takeaways 7 plan 17
+cited but missing: set()
+primary not cited: set()
+emitted not cited: set()
+plan names not emitted: set()
+missing readings: set() | extra readings: set()
+all csv/x/y/png ok; tables: ['data_profile', 'marginal_screening', 'catalyst_summary', 'condition_balance_by_catalyst', 'stratified_correlations', 'model_coefficients', 'collinearity_vif', 'model_diagnostics', 'correlation_matrix']
+ok [] Running a batch hotter is by far the best predictor of a good yield: every extra 10 degrees goe
+ok [] Average yield climbs steadily across the whole temperature range - from about 62% in the cooles
+ok [] Pressure looks essentially unrelated to yield - batches run at high and low pressure end up wit
+ok [] Catalyst B looks like the weakest performer on raw numbers (65.3% vs 72.2% for catalyst C), but
+ok [] Almost everything the data can explain about yield comes from temperature alone: adding pressur
+BAD ['correlation'] The two dial settings were varied independently of each other (their correlation is only -0.03)
+ok [] Even after accounting for every recorded setting, individual batches still land about 2.8 perce
+{
+ "name": "yield_distribution",
+ "display_name": "How yields are spread across batches",
+ "question": "What is the spread of batch yield?",
+ "data_shape": "unsupervised",
+ "plot_kind": "bar",
+ "fallback_kind": "bar",
+ "required_columns": [
+  "yield_pct"
+ ],
+ "rationale": "A pre-binned count histogram shows spread and any bimodality that a mean would hide.",
+ "disposition": "primary",
+ "not_promot
+figures:
+adjusted_effect_forest.png
+factor_correlation_heatmap.png
+fit_diagnostics.png
+partial_effect_panels.png
+temperature_ecdf_by_catalyst.png
+yield_by_catalyst_raw_vs_adjusted.png
+yield_vs_temperature_by_catalyst.png
+
+tables:
+association_with_yield.csv
+calibration_predicted_vs_observed.csv
+catalyst_summary.csv
+collinearity_vif.csv
+condition_balance_by_catalyst.csv
+correlation_matrix.csv
+data_profile.csv
+marginal_screening.csv
+mean_yield_by_
+... [truncated 259 chars]
+[assistant] Two fixes: one jargon word in a plain-language headline, and an observation that claimed checks the script didn't actually run.
+[#13 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
+[#13 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#14 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
+[#14 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#15 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
+[#15 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#16 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
+[#16 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#17 Bash] $ python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo EXIT=$?; tail -5 /tmp/err.txt; python3 - <<'EOF'
+import json,os,csv
+r=json.loads([l for l in open('/tmp/out.txt') if l.startswith('EXPLORATORY_RESULT_JSON=')][-1].split('=',1)[1])
+names={c['name'] for c in r['charts']}; stems={os.path.splitext(os.path.basename(p))[0] for p in r['plots']}
+cited=set().union(*[set(t['chart_names']) for t in r['takeaways']])
+prim={v['name'] for v in r['visual_plan'] if v['disposition']=='primary'}
+rd={x['chart'] for x in r['chart_readings']}
+print('orphans',(names|stems)-cited,'| dangling',cited-names-stems,'| primary uncited',prim-cited,'| readings gap',(names|stems)^rd)
+J=['auc','roc','p-value','coefficient','r-squared','r-sq','variance','collinear','correlation','regression','quantile','→','ρ','σ','residual','pct-pt','anova','logistic','confound']
+for t in r['takeaways']:
+    b=[j for j in J if j in t['plain_title'].lower()]
+    print(('BAD '+str(b)) if b else 'ok ', t['plain_title'][:80])
+print([o for o in r['observations'] if 'Functional form' in o])
+print('records.json rows', len(json.load(open('records.json'))), 'keys', list(json.load(open('records.json'))[0]))
+print(open('tables/functional_form_checks.csv').read())
+print('n charts',len(r['charts']),'n plots',len(r['plots']),'n takeaways',len(r['takeaways']))
+EOF
+[#17 result] EXIT=0
+orphans set() | dangling set() | primary uncited set() | readings gap set()
+ok  Running a batch hotter is by far the best predictor of a good yield: every extra
+ok  Average yield climbs steadily across the whole temperature range - from about 62
+ok  Pressure looks essentially unrelated to yield - batches run at high and low pres
+ok  Catalyst B looks like the weakest performer on raw numbers (65.3% vs 72.2% for c
+ok  Almost everything the data can explain about yield comes from temperature alone:
+ok  Temperature and pressure were dialled independently of each other - knowing one 
+ok  Even after accounting for every recorded setting, individual batches still land 
+['Functional form: a squared temperature term and a temperaturexpressure interaction were each fitted (tables/functional_form_checks.csv); the best of them raised R-squared by only 0.005 over the additive model, so the straight-line description was kept rather than assumed.']
+records.json rows 30 keys ['batch_id', 'temperature', 'pressure', 'catalyst', 'yield_pct']
+form,r2,delta_r2_vs_full,term_p_value
+additive model (reported),0.8618,0.0,
++ temperature^2 (curvature),0.8663,0.0045,0.38
++ temperature x pressure (interaction),0.867,0.0052,0.3431
+
+n charts 10 n plots 7 n takeaways 7
+[assistant] Contract clean. Let me eyeball the two figures that carry the main story.
+[#18 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/figures/yield_by_catalyst_raw_vs_adjusted.png
+[#18 result] 
+[#19 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/figures/adjusted_effect_forest.png
+[#19 result] 
+[assistant] The forest plot leaks raw formula syntax into labels and its legend collides with an annotation. Fixing.
+[#20 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
+[#20 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#21 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
+[#21 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#22 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
+[#22 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#23 Bash] $ python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo EXIT=$?; tail -5 /tmp/err.txt; head -3 tables/model_coefficients.csv
+[#23 result] EXIT=0
+term,raw_term,coef,ci_low,ci_high,std_err,t,p_value
+Intercept,Intercept,35.6191,25.3637,45.8746,4.9795,7.153,0.0
+catalyst = B,C(Q('catalyst'))[T.B],-0.9272,-3.7494,1.895,1.3703,-0.677,0.5048
+[#24 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/figures/adjusted_effect_forest.png
+[#24 result] 
+[#25 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/figures/yield_vs_temperature_by_catalyst.png
+[#25 result] 
+[assistant] Done. `analysis.py` runs clean and the full contract validates.
+
+**What the data is:** `raw_input/batches.json` was a flat JSON list of 30 batch records — no wrapper metadata to merge. Tidy table = 30 × 5 (`batch_id`, `temperature`, `pressure`, `catalyst`, `yield_pct`), zero missing values, written to `records.json`.
+
+**Outcome framing:** `yield_pct` exists and is continuous (30 distinct values, 53.8–80.9%), so the script tells a correlation/regression story and does **not** binarize into FAIL/PASS.
+
+**What it found:**
+- **Temperature dominates** — r = 0.90 (95% CI 0.81–0.95), +0.19 yield points per degree (CI +0.15 to +0.23), explaining 82% of the batch-to-batch spread on its own. Binned means rise monotonically 62% → 78% with no plateau.
+- **Pressure is flat** — r = −0.14 (p = 0.455); adding it changes R² by 0.003 and its adjusted interval spans zero.
+- **The catalyst story is a confounding story** — B looks worst raw (65.3% vs C's 72.2%, ANOVA p = 0.080), but B's batches ran ~20 units cooler. Adjusted for temperature the largest catalyst effect is 2.07 points with intervals crossing zero (ΔR² = 0.017). This is charted three ways: raw-vs-adjusted violins, the condition-balance bar, and a temperature ECDF showing the whole operating ranges differ.
+- Temperature and pressure are near-orthogonal (r = −0.03, max VIF 1.01), so coefficients are stable; full model R² = 0.862, residual SD 2.75 points.
+
+**Method** follows `outcome-driver-analysis` adapted to a continuous outcome: variable EDA → per-variable tests with effect sizes and CIs → Simpson's-style conditioning check → marginal screening → OLS (justified over logistic/Poisson; `catalyst` as a **fixed** effect, not random, since 3 levels can't identify a variance component) → VIF/residual/calibration diagnostics. Curvature and interaction terms were actually fitted, not assumed away — best gain was ΔR² = 0.005, recorded in `tables/functional_form_checks.csv`.
+
+**Output:** 10 host chart specs (CSV + bar/line/scatter), 7 styled PNGs (hero scatter with CI band, raw-vs-adjusted violins with every batch overlaid, diverging correlation heatmap, dot-and-interval forest, ECDF, added-variable panels, fit diagnostics), 10 tables, 17 visual-plan entries, 7 takeaways. Every primary visual is cited by a takeaway, every chart and plot has a reading, and no chart is orphaned.
+
+Two things I fixed after inspecting the rendered figures: the forest plot was printing raw patsy terms (`catalyst) = B`) as axis labels and its legend overlapped an annotation. Both corrected in the script.
+
+All wording is descriptive — the caveats state plainly that these are observational batch records, that R² is in-sample on the same 30 rows used to fit, and that the catalyst/temperature entanglement means the adjusted comparison relies on a linear adjustment doing partial extrapolation.
+[final] Done. `analysis.py` runs clean and the full contract validates.
+
+**What the data is:** `raw_input/batches.json` was a flat JSON list of 30 batch records — no wrapper metadata to merge. Tidy table = 30 × 5 (`batch_id`, `temperature`, `pressure`, `catalyst`, `yield_pct`), zero missing values, written to `records.json`.
+
+**Outcome framing:** `yield_pct` exists and is continuous (30 distinct values, 53.8–80.9%), so the script tells a correlation/regression story and does **not** binarize into FAIL/PASS.
+
+**What it found:**
+- **Temperature dominates** — r = 0.90 (95% CI 0.81–0.95), +0.19 yield points per degree (CI +0.15 to +0.23), explaining 82% of the batch-to-batch spread on its own. Binned means rise monotonically 62% → 78% with no plateau.
+- **Pressure is flat** — r = −0.14 (p = 0.455); adding it changes R² by 0.003 and its adjusted interval spans zero.
+- **The catalyst story is a confounding story** — B looks worst raw (65.3% vs C's 72.2%, ANOVA p = 0.080), but B's batches ran ~20 units cooler. Adjusted for temperature the largest catalyst effect is 2.07 points with intervals crossing zero (ΔR² = 0.017). This is charted three ways: raw-vs-adjusted violins, the condition-balance bar, and a temperature ECDF showing the whole operating ranges differ.
+- Temperature and pressure are near-orthogonal (r = −0.03, max VIF 1.01), so coefficients are stable; full model R² = 0.862, residual SD 2.75 points.
+
+**Method** follows `outcome-driver-analysis` adapted to a continuous outcome: variable EDA → per-variable tests with effect sizes and CIs → Simpson's-style conditioning check → marginal screening → OLS (justified over logistic/Poisson; `catalyst` as a **fixed** effect, not random, since 3 levels can't identify a variance component) → VIF/residual/calibration diagnostics. Curvature and interaction terms were actually fitted, not assumed away — best gain was ΔR² = 0.005, recorded in `tables/functional_form_checks.csv`.
+
+**Output:** 10 host chart specs (CSV + bar/line/scatter), 7 styled PNGs (hero scatter with CI band, raw-vs-adjusted violins with every batch overlaid, diverging correlation heatmap, dot-and-interval forest, ECDF, added-variable panels, fit diagnostics), 10 tables, 17 visual-plan entries, 7 takeaways. Every primary visual is cited by a takeaway, every chart and plot has a reading, and no chart is orphaned.
+
+Two things I fixed after inspecting the rendered figures: the forest plot was printing raw patsy terms (`catalyst) = B`) as axis labels and its legend overlapped an annotation. Both corrected in the script.
+
+All wording is descriptive — the caveats state plainly that these are observational batch records, that R² is in-sample on the same 30 rows used to fit, and that the catalyst/temperature entanglement means the adjusted comparison relies on a linear adjustment doing partial extrapolation.
+=== result: success | turns=30 | cost=$2.5104 | tokens in=34 out=42308 (cache_read=1175575) | wall=522.7s ===

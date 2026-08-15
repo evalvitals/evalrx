@@ -25,6 +25,9 @@ from evalvitals.analyzers.agent.counterfactual import CounterfactualReplay
 from evalvitals.analyzers.agent.first_error_judge import FirstErrorJudge
 from evalvitals.analyzers.agent.ignored_obs import IgnoredObservationDetector
 from evalvitals.analyzers.agent.loop_detect import LoopDetector
+from evalvitals.analyzers.agent.reliability import ReliabilityProbe
+from evalvitals.analyzers.agent.tool_shap import ToolShap
+from evalvitals.analyzers.agent.trajectory_rubric import TrajectoryRubricJudge
 from evalvitals.analyzers.attention.rollout import AttentionRolloutAnalyzer
 from evalvitals.analyzers.attention.sink import AttentionSinkAnalyzer
 from evalvitals.analyzers.attention.summary import AttentionAnalyzer
@@ -33,12 +36,27 @@ from evalvitals.analyzers.geometry.linear_probe import LinearProbeAnalyzer
 from evalvitals.analyzers.hallucination.chair import CHAIRAnalyzer
 from evalvitals.analyzers.hallucination.opera import OPERAAnalyzer
 from evalvitals.analyzers.hallucination.pope import POPEAnalyzer
+from evalvitals.analyzers.hallucination.selfcheck import SelfCheckConsistencyAnalyzer
 from evalvitals.analyzers.hallucination.vcd import VCDAnalyzer
+from evalvitals.analyzers.lens.layer_contrast import LayerContrastAnalyzer
 from evalvitals.analyzers.lens.logit_lens import LogitLensAnalyzer
 from evalvitals.analyzers.lens.tuned_lens import TunedLensAnalyzer
 from evalvitals.analyzers.patching.causal_trace import CausalTraceAnalyzer
+from evalvitals.analyzers.perturbation.context_shap import ContextShapAnalyzer
+from evalvitals.analyzers.perturbation.cot_faithfulness import CoTFaithfulnessAnalyzer
+from evalvitals.analyzers.perturbation.format_sensitivity import FormatSensitivityAnalyzer
 from evalvitals.analyzers.perturbation.mm_shap import MMShapAnalyzer
+from evalvitals.analyzers.perturbation.perturbation_battery import PerturbationBattery
 from evalvitals.analyzers.perturbation.prompt_contrast import PromptContrastAnalyzer
+from evalvitals.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
+from evalvitals.analyzers.reasoning.arith_audit import ArithmeticAudit
+from evalvitals.analyzers.reasoning.contamination import ContaminationProbe
+from evalvitals.analyzers.reasoning.knowledge_split import KnowledgeReasoningSplit
+from evalvitals.analyzers.reasoning.self_repair import SelfRepairAnalyzer
+from evalvitals.analyzers.reasoning.step_rollout_value import StepRolloutValueAnalyzer
+from evalvitals.analyzers.reasoning.termination_audit import TerminationAudit
+from evalvitals.analyzers.uncertainty.calibration import CalibrationAnalyzer
+from evalvitals.analyzers.uncertainty.coverage_gap import CoverageVerificationGap
 from evalvitals.analyzers.uncertainty.entropy import TokenEntropyAnalyzer
 from evalvitals.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
 from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
@@ -141,6 +159,36 @@ def _contrast_batch() -> CaseBatch:
     return CaseBatch([case])
 
 
+def _reasoning_batch() -> CaseBatch:
+    """One FAIL carrying an arithmetic slip, one clean PASS — graded, so the
+    reasoning probes reach every gold-dependent column."""
+    return CaseBatch([
+        FailureCase(
+            inputs=Inputs(prompt="Alice has 5 apples and Bob gives her 3 more. How many?"),
+            observed="She has 5 + 3 = 9 apples.\nAnswer: 9",
+            expected="8",
+            label=Label.FAIL,
+        ),
+        FailureCase(
+            inputs=Inputs(prompt="Carol has 2 pears and Dan gives her 2 more. How many?"),
+            observed="She has 2 + 2 = 4 pears.\nAnswer: 4",
+            expected="4",
+            label=Label.PASS,
+        ),
+    ])
+
+
+def _long_prompt_batch() -> CaseBatch:
+    """A prompt long enough to split into two halves for the contamination probe."""
+    return CaseBatch([
+        FailureCase(
+            inputs=Inputs(prompt=" ".join(f"token{i}" for i in range(40))),
+            expected="x",
+            label=Label.PASS,
+        )
+    ])
+
+
 # ── analyzers excluded from suite 2, with documented reasons ──────────────────
 # When adding a new analyzer: either add it to _RUNNABLE/_STUBS below, or add an
 # entry here explaining why it is excluded. The coverage test will catch omissions.
@@ -156,9 +204,69 @@ _SKIPPED_REASON: dict[str, str] = {
 }
 
 
+# ── scripted runners for the intervention probes (stateless: safe to re-run) ──
+def _graded_batch() -> CaseBatch:
+    return CaseBatch([FailureCase(inputs=Inputs(prompt="Is there a dog?"), expected="yes")])
+
+
+def _mini_traj(answer: str, tools: list[str]) -> Trajectory:
+    steps = [Step(idx=0, role=StepRole.USER, content="Is there a dog?")]
+    for i, name in enumerate(tools):
+        steps.append(Step(idx=len(steps), role=StepRole.ACTOR,
+                          tool_call={"name": name, "args": {"i": i}}, span={"turn": i + 1}))
+        steps.append(Step(idx=len(steps), role=StepRole.TOOL, content=name, observation="ok"))
+    steps.append(Step(idx=len(steps), role=StepRole.ACTOR, content=answer))
+    return Trajectory(sample_id="r0", goal="Is there a dog?", steps=steps, final_answer=answer,
+                      metrics={"terminated": "final", "n_tool_calls": len(tools)})
+
+
+def _scripted_runs_fn(case, k):
+    # 2 passes + 1 fail with differing tool sequences: flaky, diverse, gradable.
+    return [_mini_traj("Yes, a dog.", ["zoom"]),
+            _mini_traj("Yes, a dog.", ["zoom"]),
+            _mini_traj("No dog visible.", ["zoom", "zoom"])][:k]
+
+
+def _scripted_run_with_tools(case, tool_names):
+    # Passing depends ONLY on zoom being available -> exact Shapley is knowable.
+    return _mini_traj("yes, a dog." if "zoom" in tool_names else "no.", list(tool_names))
+
+
+_RUBRIC_JUDGE = ScriptedFakeModel(
+    answers=['{"failure_mode": "FM-LOOP", "rubric": {"grounding": 1, "tool_choice": 2, '
+             '"tool_args": 1, "evidence_use": 0, "answer_quality": 1}, '
+             '"first_error_step": 3, "rationale": "repeats the same call"}'],
+    capabilities={Capability.GENERATE},
+)
+
+
 # ── suite 2: (analyzer, model, data) triples for runnable analyzers ────────────
 # Each call to _traj_batch() / _pope_batch() / _chair_batch() creates a fresh
 # CaseBatch so tests are isolated even if an analyzer mutates its input cases.
+
+def _mc_batch() -> CaseBatch:
+    """Two-option MC case; options parseable from the prompt, observed = 'A'."""
+    return CaseBatch([
+        FailureCase(
+            inputs=Inputs(prompt="What colour is the sky?\nA. red\nB. blue\nAnswer with the letter."),
+            observed="A",
+            label=Label.FAIL,
+        )
+    ])
+
+
+def _context_batch() -> CaseBatch:
+    ctx = "Alice owns a red car.\n\nBob owns a blue car."
+    return CaseBatch([
+        FailureCase(
+            inputs=Inputs(prompt=f"Context:\n{ctx}\n\nWhat colour is Alice's car?"),
+            observed="red",
+            label=Label.PASS,
+            metadata={"context": ctx},
+        )
+    ])
+
+
 _RUNNABLE: list[tuple[Any, Any, Any]] = [
     # attention
     (AttentionAnalyzer(),            _FULL, _STANDARD),
@@ -185,6 +293,10 @@ _RUNNABLE: list[tuple[Any, Any, Any]] = [
     (FirstErrorJudge(),              _JUDGE_MODEL, _traj_batch()),
     (CounterfactualReplay(rerun_fn=lambda traj, idx, seed: True, n_replays=2),
                                      _FULL, _traj_batch()),
+    (TrajectoryRubricJudge(judge=_RUBRIC_JUDGE), None, _traj_batch()),
+    (ReliabilityProbe(runs_fn=_scripted_runs_fn, k=3), None, _graded_batch()),
+    (ToolShap(run_with_tools=_scripted_run_with_tools, tool_names=["zoom", "detect"]),
+                                     None, _graded_batch()),
     # hallucination — GENERATE-based; modality filtering is in registry discovery,
     # not in _check_capabilities, so a text FakeModel reaches _run correctly.
     (POPEAnalyzer(), ScriptedFakeModel(
@@ -201,6 +313,59 @@ _RUNNABLE: list[tuple[Any, Any, Any]] = [
         answers=["yes"],  # repeated for every strategy call
         capabilities={Capability.GENERATE},
     ), _contrast_batch()),
+    # text probes (2026-08)
+    (SelfCheckConsistencyAnalyzer(n_samples=2), ScriptedFakeModel(
+        answers=["The sky is blue today. Paris is in France."],
+        capabilities={Capability.GENERATE},
+    ), _STANDARD),
+    (FormatSensitivityAnalyzer(n_variants=2), ScriptedFakeModel(
+        answers=["B"],  # rotated variant answers
+        capabilities={Capability.GENERATE},
+    ), _mc_batch()),
+    (CoTFaithfulnessAnalyzer(truncation_fracs=(0.5,)), ScriptedFakeModel(
+        answers=["4", "Step one holds. Step two follows.\nAnswer: 4", "Answer: 4"],
+        capabilities={Capability.GENERATE},
+    ), _mc_batch()),
+    (LayerContrastAnalyzer(max_cases=2),  _FULL, _STANDARD),
+    (ContextShapAnalyzer(n_samples=4), ScriptedFakeModel(
+        answers=["red"],
+        capabilities={Capability.GENERATE},
+    ), _context_batch()),
+    (CalibrationAnalyzer(n_bins=4, max_cases=16), ScriptedFakeModel(
+        answers=["final answer\nConfidence: 80"],
+        capabilities={Capability.GENERATE, Capability.LOGPROBS},
+    ), _LABELLED),
+    # reasoning probes (2026-08)
+    (AnswerExtractionAudit(), None, _reasoning_batch()),
+    (TerminationAudit(), ScriptedFakeModel(
+        answers=["...and so\nAnswer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (ArithmeticAudit(), None, _reasoning_batch()),
+    (SelfRepairAnalyzer(), ScriptedFakeModel(
+        answers=["INCORRECT", "Answer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (StepRolloutValueAnalyzer(n_rollouts=2, gen_kwargs={"temperature": 0.8}), ScriptedFakeModel(
+        answers=["Answer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (KnowledgeReasoningSplit(), ScriptedFakeModel(
+        answers=["Answer: 8", "Answer: 8", "- a fact", "Answer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (ContaminationProbe(dataset_name="FakeBench", ngram=3), ScriptedFakeModel(
+        answers=["token20 token21 token22"],
+        capabilities={Capability.GENERATE},
+    ), _long_prompt_batch()),
+    (PerturbationBattery(), ScriptedFakeModel(
+        answers=["Answer: 8"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
+    (CoverageVerificationGap(k=3, gen_kwargs={"temperature": 0.8}), ScriptedFakeModel(
+        answers=["Answer: 8", "Answer: 9", "Answer: 9"],
+        capabilities={Capability.GENERATE},
+    ), _reasoning_batch()),
 ]
 _RUNNABLE_IDS = [a.name for a, _, _ in _RUNNABLE]
 
@@ -236,6 +401,16 @@ _EXPECTED_FINDING_KEYS: dict[str, set[str]] = {
     "ignored_obs": {"n_trajectories", "n_with_ignored_obs", "per_case"},
     "first_error_judge": {"n_trajectories", "judge", "per_case", "_caveat"},
     "counterfactual": {"n_trajectories", "per_case", "_caveat"},
+    "trajectory_rubric": {
+        "n_trajectories", "n_judged", "judge", "mode_counts", "per_case", "_caveat",
+    },
+    "reliability_probe": {
+        "n_trajectories", "k", "n_graded_cases", "mean_success_rate", "frac_flaky",
+        "per_case", "_caveat",
+    },
+    "tool_shap": {
+        "n_trajectories", "tool_names", "exact", "runs_per_case", "per_case", "_caveat",
+    },
     "pope": {"n", "unparsed", "accuracy", "precision", "recall", "f1", "yes_rate"},
     "chair": {"n", "chair_i", "chair_s"},
     "prompt_contrast": {"n_cases", "n_strategies", "n_unscored", "by_strategy"},
@@ -345,6 +520,35 @@ def _check_counterfactual(f: dict[str, Any]) -> None:
     assert _between(f["per_case"][0]["most_influential_step"]["flip_rate"], 0, 1)
 
 
+def _check_trajectory_rubric(f: dict[str, Any]) -> None:
+    assert f["n_judged"] == 1
+    entry = f["per_case"][0]
+    assert entry["failure_mode"] == "FM-LOOP"
+    assert entry["rubric_evidence_use"] == 0 and entry["rubric_tool_choice"] == 2
+    assert entry["first_error_step"] == 3
+    assert f["mode_counts"] == {"FM-LOOP": 1}
+
+
+def _check_reliability_probe(f: dict[str, Any]) -> None:
+    assert f["n_trajectories"] == 1
+    entry = f["per_case"][0]
+    assert entry["n_runs"] == 3 and entry["n_pass"] == 2
+    assert entry["pass_at_k"] == 1 and entry["pass_all_k"] == 0 and entry["flaky"] == 1
+    assert _between(entry["answer_agreement"], 0, 1)
+    assert entry["n_tool_calls_std"] > 0  # the fail run used a different sequence
+
+
+def _check_tool_shap(f: dict[str, Any]) -> None:
+    assert f["exact"] is True and f["runs_per_case"] == 4  # 2 tools -> 2^2 subsets
+    entry = f["per_case"][0]
+    # passing depends only on zoom -> exact Shapley puts ALL outcome mass on it
+    assert entry["shap_outcome_zoom"] == 1.0
+    assert entry["shap_outcome_detect"] == 0.0
+    assert entry["baseline_pass"] == 1 and entry["no_tools_pass"] == 0
+    assert entry["tools_needed"] == 1
+    assert entry["shap_answer_zoom"] > entry["shap_answer_detect"]
+
+
 def _check_pope(f: dict[str, Any]) -> None:
     assert f["n"] == 2
     assert f["unparsed"] == 0
@@ -368,6 +572,151 @@ def _check_prompt_contrast(f: dict[str, Any]) -> None:
     assert f["n_fixed_by_sensitive"] == 0 and f["n_broken_by_sensitive"] == 0
 
 
+_EXPECTED_TEXT_PROBE_KEYS: dict[str, set[str]] = {
+    "selfcheck_consistency": {"n_cases", "n_samples", "gen_kwargs", "mean_inconsistency", "per_case"},
+    "format_sensitivity": {"n_cases", "n_scored", "mean_flip_rate", "modal_letter_histogram", "per_case"},
+    "cot_faithfulness": {"n_cases", "truncation_fracs", "mean_early_match_rate", "mean_cot_effect", "per_case"},
+    "layer_contrast": {"n_cases", "n_layers", "pos", "per_case"},
+    "context_shap": {"n_cases", "granularity", "n_samples", "mean_context_dependence", "per_case"},
+    "calibration": {"n_cases", "n_bins", "logprob_channel", "verbalized_channel", "per_case"},
+}
+_EXPECTED_FINDING_KEYS.update(_EXPECTED_TEXT_PROBE_KEYS)
+
+
+def _check_unit_interval(value, name):
+    assert value is None or 0.0 <= value <= 1.0, f"{name} out of [0,1]: {value}"
+
+
+def _check_selfcheck(f):
+    _check_unit_interval(f.get("mean_inconsistency"), "mean_inconsistency")
+    assert f["n_cases"] >= 1 and isinstance(f["per_case"], list)
+
+
+def _check_format_sensitivity(f):
+    _check_unit_interval(f.get("mean_flip_rate"), "mean_flip_rate")
+    for entry in f["per_case"]:
+        _check_unit_interval(entry.get("positional_bias"), "positional_bias")
+
+
+def _check_cot_faithfulness(f):
+    _check_unit_interval(f.get("mean_early_match_rate"), "mean_early_match_rate")
+    _check_unit_interval(f.get("mean_cot_effect"), "mean_cot_effect")
+
+
+def _check_layer_contrast(f):
+    assert f["n_layers"] >= 2
+    for entry in f["per_case"]:
+        assert entry["jsd_max"] >= 0.0
+        _check_unit_interval(entry.get("layer_agreement_frac"), "layer_agreement_frac")
+
+
+def _check_context_shap(f):
+    _check_unit_interval(f.get("mean_context_dependence"), "mean_context_dependence")
+    for entry in f["per_case"]:
+        if "top_chunk_share" in entry:
+            _check_unit_interval(entry["top_chunk_share"], "top_chunk_share")
+
+
+def _check_calibration(f):
+    for channel in ("logprob_channel", "verbalized_channel"):
+        _check_unit_interval(f[channel].get("ece"), f"{channel}.ece")
+    assert f["n_bins"] >= 2
+
+
+_EXPECTED_REASONING_PROBE_KEYS: dict[str, set[str]] = {
+    "answer_extraction_audit": {
+        "n_cases", "n_gradable", "n_labelled_fail", "n_extraction_suspect",
+        "suspect_rate", "per_case", "_caveat",
+    },
+    "termination_audit": {
+        "n_cases", "class_counts", "clean_rate", "truncation_rate",
+        "degenerate_rate", "per_case", "_caveat",
+    },
+    "arith_audit": {
+        "n_cases", "n_with_equations", "n_wrong_answers", "computation_slip_rate",
+        "chain_break_rate", "per_case", "_caveat",
+    },
+    "self_repair": {
+        "n_cases", "n_graded", "repair_rate", "damage_rate", "net_revision_gain",
+        "detection_accuracy", "per_case", "_caveat",
+    },
+    "step_rollout_value": {
+        "n_cases", "n_scored", "n_rollouts", "gen_kwargs", "mean_initial_value",
+        "per_case", "_caveat",
+    },
+    "knowledge_reasoning_split": {
+        "n_cases", "n_scored", "knowledge_deficit_share", "reasoning_deficit_share",
+        "decomposition_gain", "per_case", "_caveat",
+    },
+    "contamination_score": {
+        "n_cases", "n_scored", "dataset_name", "mean_guided_overlap",
+        "mean_guided_gain", "verbatim_flag_rate", "per_case", "_caveat",
+    },
+    "perturbation_battery": {
+        "n_cases", "n_scored", "perturbations", "mean_invariance_break_rate",
+        "mean_sensitivity_rate", "per_case", "_caveat",
+    },
+    "coverage_verification_gap": {
+        "n_cases", "n_scored", "k", "mean_pass_at_k", "mean_majority_correct",
+        "coverage_gap_rate", "degenerate_sampling", "per_case", "_caveat",
+    },
+}
+_EXPECTED_FINDING_KEYS.update(_EXPECTED_REASONING_PROBE_KEYS)
+
+
+def _check_answer_extraction_audit(f):
+    _check_unit_interval(f.get("suspect_rate"), "suspect_rate")
+    assert f["n_gradable"] <= f["n_cases"]
+
+
+def _check_termination_audit(f):
+    _check_unit_interval(f.get("clean_rate"), "clean_rate")
+    assert sum(f["class_counts"].values()) == f["n_cases"]
+
+
+def _check_arith_audit(f):
+    _check_unit_interval(f.get("computation_slip_rate"), "computation_slip_rate")
+    _check_unit_interval(f.get("chain_break_rate"), "chain_break_rate")
+    # the slip in the fixture (5+3=9) must be caught and must explain the answer
+    slip = [c for c in f["per_case"] if c.get("error_class") == "computation_slip"]
+    assert slip and slip[0]["slip_explains_final"] == 1
+
+
+def _check_self_repair(f):
+    _check_unit_interval(f.get("repair_rate"), "repair_rate")
+    _check_unit_interval(f.get("damage_rate"), "damage_rate")
+    # damage is the column that decides deployment: it must be reported, and the
+    # fixture carries a PASS case precisely so it is measurable
+    assert "damage_rate" in f and f["n_baseline_pass"] >= 1
+
+
+def _check_step_rollout_value(f):
+    for entry in f["per_case"]:
+        for value in entry.get("step_values", []):
+            _check_unit_interval(value, "step_value")
+
+
+def _check_knowledge_reasoning_split(f):
+    for key in ("knowledge_deficit_share", "reasoning_deficit_share"):
+        _check_unit_interval(f.get(key), key)
+
+
+def _check_contamination_score(f):
+    _check_unit_interval(f.get("mean_guided_overlap"), "mean_guided_overlap")
+    _check_unit_interval(f.get("verbatim_flag_rate"), "verbatim_flag_rate")
+
+
+def _check_perturbation_battery(f):
+    _check_unit_interval(f.get("mean_invariance_break_rate"), "mean_invariance_break_rate")
+    _check_unit_interval(f.get("mean_sensitivity_rate"), "mean_sensitivity_rate")
+
+
+def _check_coverage_verification_gap(f):
+    _check_unit_interval(f.get("mean_pass_at_k"), "mean_pass_at_k")
+    _check_unit_interval(f.get("coverage_gap_rate"), "coverage_gap_rate")
+    assert isinstance(f["degenerate_sampling"], bool)
+
+
 _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
     "attention": _check_attention,
     "attention_rollout": _check_attention_rollout,
@@ -384,9 +733,27 @@ _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
     "ignored_obs": _check_ignored_obs,
     "first_error_judge": _check_first_error_judge,
     "counterfactual": _check_counterfactual,
+    "trajectory_rubric": _check_trajectory_rubric,
+    "reliability_probe": _check_reliability_probe,
+    "tool_shap": _check_tool_shap,
     "pope": _check_pope,
     "chair": _check_chair,
     "prompt_contrast": _check_prompt_contrast,
+    "selfcheck_consistency": _check_selfcheck,
+    "format_sensitivity": _check_format_sensitivity,
+    "cot_faithfulness": _check_cot_faithfulness,
+    "layer_contrast": _check_layer_contrast,
+    "context_shap": _check_context_shap,
+    "calibration": _check_calibration,
+    "answer_extraction_audit": _check_answer_extraction_audit,
+    "termination_audit": _check_termination_audit,
+    "arith_audit": _check_arith_audit,
+    "self_repair": _check_self_repair,
+    "step_rollout_value": _check_step_rollout_value,
+    "knowledge_reasoning_split": _check_knowledge_reasoning_split,
+    "contamination_score": _check_contamination_score,
+    "perturbation_battery": _check_perturbation_battery,
+    "coverage_verification_gap": _check_coverage_verification_gap,
 }
 
 
@@ -410,6 +777,11 @@ _CLASS_FACTORIES: dict[str, Callable[[], Any]] = {
         n_replays=2,
     ),
     "chair": lambda: CHAIRAnalyzer(object_vocab=["dog", "cat"]),
+    "reliability_probe": lambda: ReliabilityProbe(runs_fn=lambda case, k: [], k=2),
+    "tool_shap": lambda: ToolShap(
+        run_with_tools=lambda case, names: None, tool_names=["a"]
+    ),
+    "trajectory_rubric": lambda: TrajectoryRubricJudge(judge=_RUBRIC_JUDGE),
 }
 
 

@@ -74,7 +74,9 @@ class OpenAIToolCodec(ToolCallCodec):
     def assistant_message(self, turn: ChatTurn, call: Optional[ToolCall]) -> dict:
         msg: dict = {"role": "assistant", "content": turn.text or None}
         if turn.raw_tool_calls:
-            msg["tool_calls"] = turn.raw_tool_calls
+            # The loop executes ONE call per turn; replaying more tool_calls than
+            # have matching tool results is a protocol violation on OpenAI-style APIs.
+            msg["tool_calls"] = turn.raw_tool_calls[:1]
         return msg
 
     def tool_message(self, call: ToolCall, result) -> dict:
@@ -130,10 +132,11 @@ _LOCAL_CODECS = {
 
 
 def codec_for(handle) -> ToolCallCodec:
-    """Pick a codec for *handle*: OpenAI for API, family-routed for local."""
+    """Pick a codec for *handle*: OpenAI for native-tool-call handles, family-routed for local."""
     from evalvitals.models.backends.api import APIModel
 
-    if isinstance(handle, APIModel):
+    # APIModel, and any handle declaring native structured calls (e.g. GeminiModel).
+    if isinstance(handle, APIModel) or getattr(handle, "tool_call_style", "") == "native":
         return OpenAIToolCodec()
     spec = getattr(handle, "spec", None)
     family = getattr(spec, "family", "")

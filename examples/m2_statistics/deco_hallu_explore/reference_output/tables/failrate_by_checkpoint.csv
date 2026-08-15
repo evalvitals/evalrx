@@ -1,0 +1,4 @@
+checkpoint,cases,fails,hallucination_rate,ci_lo,ci_hi
+2B,121,41,0.3388,0.2576,0.4252
+4B,115,35,0.3043,0.224,0.3911
+8B,130,50,0.3846,0.3031,0.4695

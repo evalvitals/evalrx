@@ -1,0 +1,4 @@
+variable,kind,n,pearson_r,r_ci_low,r_ci_high,p_value,spearman_rho,spearman_p,univariate_r2,slope_per_unit,aic_improvement_vs_null,abs_effect
+temperature,numeric,30,0.904,0.807,0.954,0.0,0.872,0.0,0.818,0.1987,49.13,0.904
+catalyst,categorical,30,,,,0.0801,,0.1357,0.171,,1.61,0.413
+pressure,numeric,30,-0.142,-0.478,0.23,0.455,-0.156,0.4116,0.02,-1.1517,-1.39,0.142

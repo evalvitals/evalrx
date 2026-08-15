@@ -1,0 +1,8 @@
+signal,alias,display_name,median_adversarial,median_present,auc_adv_vs_present
+attention_entropy,Entropy,Attention entropy,0.8749,0.8766,0.51
+focus_share,Focus share,Attention focus share,0.1749,0.1716,0.507
+center_offset,Center off.,Center offset,0.1629,0.1522,0.523
+edge_mass,Edge mass,Edge mass,0.1942,0.1594,0.631
+top1_share,Top-1 share,Top-1 patch share,0.0508,0.0522,0.513
+max_relative_weight,Max rel.wt,Maximum relative attention,55.4023,55.8448,0.471
+mean_relative_weight,Mean rel.wt,Mean relative attention,3.8773,4.1951,0.446

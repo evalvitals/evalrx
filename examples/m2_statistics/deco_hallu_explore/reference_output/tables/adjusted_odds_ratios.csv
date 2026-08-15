@@ -1,0 +1,10 @@
+term_label,signal,kind,odds_ratio_per_sd,or_lo,or_hi,wald_p_robust,lrt_p
+Maximum relative attention (log10),log10_max_relative_weight,attention signal,4.752,1.73,13.05,0.0025,0.000761
+Attention focus share,focus_share,attention signal,4.339,1.25,15.054,0.0208,0.0136
+Top-1 patch share,top1_share,attention signal,0.354,0.188,0.666,0.00127,0.000983
+Checkpoint 4B (vs 2B),ck_4B,checkpoint (fixed effect),0.405,0.123,1.336,0.138,0.122
+Mean relative attention,mean_relative_weight,attention signal,0.547,0.332,0.901,0.0178,0.0261
+Checkpoint 8B (vs 2B),ck_8B,checkpoint (fixed effect),0.563,0.264,1.197,0.136,0.163
+Edge mass,edge_mass,attention signal,1.043,0.699,1.556,0.838,0.821
+Center offset,center_offset,attention signal,1.039,0.669,1.615,0.864,0.834
+Attention entropy,attention_entropy,attention signal,1.035,0.264,4.066,0.961,0.96

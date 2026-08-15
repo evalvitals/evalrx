@@ -33,7 +33,10 @@ runtime via `evalvitals.list_specs()` and `evalvitals.registry.analyzers`
 | Loop detect | `loop_detect` | Trajectory | agent | — | ✓ |
 | Ignored obs | `ignored_obs` | Trajectory | agent | — | ✓ |
 | First-error judge | `first_error_judge` | Trajectory | agent | [Zhang et al. 2024](https://arxiv.org/abs/2406.14855) | ✓ |
+| Trajectory rubric | `trajectory_rubric` | Trajectory + judge | agent | [MAST, Cemri et al. 2025](https://arxiv.org/abs/2503.13657) | ✓ |
 | Counterfactual | `counterfactual` | Trajectory | agent | Pearl 2000 | ✓ |
+| Reliability probe | `reliability_probe` | re-runs (injected) | agent | pass@k vs pass^k | ✓ |
+| Tool Shapley | `tool_shap` | re-runs (injected) | agent | [AgentSHAP / TokenSHAP](https://arxiv.org/abs/2407.10114) | ✓ |
 
 ## Model Registry
 

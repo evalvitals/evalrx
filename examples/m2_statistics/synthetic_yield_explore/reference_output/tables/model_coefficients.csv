@@ -1,0 +1,6 @@
+term,raw_term,coef,ci_low,ci_high,std_err,t,p_value
+Intercept,Intercept,35.6191,25.3637,45.8746,4.9795,7.153,0.0
+catalyst = B,C(Q('catalyst'))[T.B],-0.9272,-3.7494,1.895,1.3703,-0.677,0.5048
+catalyst = C,C(Q('catalyst'))[T.C],2.0663,-0.5236,4.6563,1.2575,1.643,0.1129
+temperature,Q('temperature'),0.1897,0.1538,0.2255,0.0174,10.892,0.0
+pressure,Q('pressure'),-0.8132,-2.1381,0.5117,0.6433,-1.264,0.2178

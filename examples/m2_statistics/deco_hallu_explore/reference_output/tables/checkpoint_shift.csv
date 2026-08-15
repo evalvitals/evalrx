@@ -1,0 +1,22 @@
+signal_checkpoint,signal,checkpoint,median_z,median_raw,cases
+Entropy @ 2B,attention_entropy,2B,0.522,0.8934,121
+Entropy @ 4B,attention_entropy,4B,0.356,0.879,115
+Entropy @ 8B,attention_entropy,8B,0.12,0.8584,130
+Focus share @ 2B,focus_share,2B,-0.576,0.1446,121
+Focus share @ 4B,focus_share,4B,-0.331,0.1748,115
+Focus share @ 8B,focus_share,8B,-0.095,0.204,130
+Center off. @ 2B,center_offset,2B,-0.333,0.1501,121
+Center off. @ 4B,center_offset,4B,-0.259,0.1585,115
+Center off. @ 8B,center_offset,8B,-0.004,0.1875,130
+Edge mass @ 2B,edge_mass,2B,0.292,0.2274,121
+Edge mass @ 4B,edge_mass,4B,-0.124,0.1896,115
+Edge mass @ 8B,edge_mass,8B,-0.274,0.176,130
+Top-1 share @ 2B,top1_share,2B,-0.514,0.0406,121
+Top-1 share @ 4B,top1_share,4B,-0.316,0.0536,115
+Top-1 share @ 8B,top1_share,8B,-0.2,0.0612,130
+Max rel.wt @ 2B,max_relative_weight,2B,-0.397,18.2645,121
+Max rel.wt @ 4B,max_relative_weight,4B,-0.154,96.9712,115
+Max rel.wt @ 8B,max_relative_weight,8B,-0.261,62.3618,130
+Mean rel.wt @ 2B,mean_relative_weight,2B,-0.76,1.6334,121
+Mean rel.wt @ 4B,mean_relative_weight,4B,0.274,6.5169,115
+Mean rel.wt @ 8B,mean_relative_weight,8B,-0.342,3.6088,130

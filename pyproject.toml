@@ -34,6 +34,12 @@ local = [
     "transformers>=4.51.0,<5.0.0",
     "accelerate>=0.26.0",
 ]
+# L4 fix tier (parameter-space repair): LoRA fine-tuning executor. Separate from
+# `local` because it's only needed when FixAgent is run with a finetune_pool —
+# most `local` (inference-only) users never touch this path.
+finetune = [
+    "peft>=0.10",
+]
 # API / black-box models. The OpenAI-compatible client is optional; you can also
 # inject an existing call_vision_api via RuntimeConfig(generate_fn=...).
 api = [
@@ -78,6 +84,7 @@ all = [
     "torch>=2.0.0",
     "transformers>=4.51.0,<5.0.0",
     "accelerate>=0.26.0",
+    "peft>=0.10",
     "openai>=1.0",
     "captum>=0.7",
     "inseq>=0.6",
@@ -134,6 +141,7 @@ addopts = "-v --tb=short"
 markers = [
     "gpu: requires CUDA GPU and cached model weights — skip with -m 'not gpu'",
     "slow: takes more than a few seconds on CPU",
+    "network: downloads a small HF processor/tokenizer config (no GPU, no weights) — skip with -m 'not network'",
 ]
 
 [tool.ruff]

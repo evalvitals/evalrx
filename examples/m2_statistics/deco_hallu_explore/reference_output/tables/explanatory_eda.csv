@@ -1,0 +1,8 @@
+signal,display_name,n,missing,mean,sd,median,p05,p95,min,max,skew,iqr_outliers,shapiro_p
+attention_entropy,Attention entropy,606,0,0.8473,0.0872,0.8758,0.6662,0.9367,0.4001,0.9603,-1.438,26,0.0
+focus_share,Attention focus share,606,0,0.2144,0.124,0.1734,0.0898,0.4614,0.0653,0.7457,1.39,28,0.0
+center_offset,Center offset,606,0,0.1854,0.1134,0.1591,0.044,0.4042,0.0119,0.6261,1.006,13,0.0
+edge_mass,Edge mass,606,0,0.185,0.0838,0.1794,0.0607,0.3327,0.0231,0.5373,0.643,10,0.0
+top1_share,Top-1 patch share,606,0,0.0719,0.063,0.0516,0.0226,0.1856,0.0146,0.6306,3.192,40,0.0
+max_relative_weight,Maximum relative attention,606,0,139.4277,287.3931,55.6135,7.587,533.7937,2.7253,4574.769,7.857,64,0.0
+mean_relative_weight,Mean relative attention,606,0,5.2639,4.3524,4.0496,1.0384,14.3608,0.4478,33.0722,1.986,36,0.0

@@ -4,6 +4,7 @@ A *fix tier* names the space a candidate repair intervenes in.  The ladder is
 ordered by invasiveness into the model — each step gives up some deployability
 for more causal reach:
 
+    L0   runtime config     decoding limits / retry and timeout policy
     L1   input space        prompt rewrites, instruction strategies
     L2   scaffold space     agent-designed pipelines around the unchanged
                             model: multi-call, external tools (zoom, contrast
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 class FixTier(IntEnum):
     """Where a candidate fix intervenes, ordered by invasiveness."""
 
+    L0_RUNTIME_CONFIG = 0
     L1_PROMPT = 1
     L2_SCAFFOLD = 2
     L3A_INTERNALS_READ = 3
@@ -49,6 +51,7 @@ class FixTier(IntEnum):
 
 
 _LABELS = {
+    FixTier.L0_RUNTIME_CONFIG: "L0",
     FixTier.L1_PROMPT: "L1",
     FixTier.L2_SCAFFOLD: "L2",
     FixTier.L3A_INTERNALS_READ: "L3a",
@@ -57,6 +60,7 @@ _LABELS = {
 }
 
 _DESCRIPTIONS = {
+    FixTier.L0_RUNTIME_CONFIG: "runtime configuration: decoding limits / retry policy",
     FixTier.L1_PROMPT: "input space: prompt/instruction changes",
     FixTier.L2_SCAFFOLD: "scaffold space: pipelines + external tools around the model",
     FixTier.L3A_INTERNALS_READ: "internals, read-only: attention/logits guide the scaffold",
@@ -65,6 +69,7 @@ _DESCRIPTIONS = {
 }
 
 _PARSE = {
+    "l0": FixTier.L0_RUNTIME_CONFIG,
     "l1": FixTier.L1_PROMPT,
     "l2": FixTier.L2_SCAFFOLD,
     "l3a": FixTier.L3A_INTERNALS_READ,
@@ -123,6 +128,11 @@ _TIER_KEYWORDS: "list[tuple[FixTier, tuple[str, ...]]]" = [
         "resolution", "downsampl", "image token", "patch grid", "zoom",
         "crop", "contrast", "conspicuity", "small", "subtle", "low-contrast",
         "preprocess", "multi-call", "pipeline", "tool", "enhanc",
+    )),
+    (FixTier.L0_RUNTIME_CONFIG, (
+        "truncat", "finish reason", "finish_reason", "token budget",
+        "max token", "max_tokens", "output limit", "decode limit",
+        "completion length", "stopped early", "timeout", "rate limit",
     )),
 ]
 

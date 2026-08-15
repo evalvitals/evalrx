@@ -169,6 +169,7 @@ def run_coded_pipeline(
     deadline = time.monotonic() + timeout_sec
 
     result_line: "str | None" = None
+    unmarked_tail: "list[str]" = []  # fallback: last non-marker stdout lines
     try:
         for line in proc.stdout:  # type: ignore[union-attr]
             stripped = line.strip()
@@ -187,12 +188,35 @@ def run_coded_pipeline(
                     break
             elif stripped.startswith(RESULT_MARKER):
                 result_line = stripped[len(RESULT_MARKER):]
+            elif stripped:
+                unmarked_tail.append(stripped)
+                del unmarked_tail[:-20]
         proc.wait(timeout=10)
     except Exception as exc:
         res.error = res.error or f"bridge session failed: {exc}"
         proc.kill()
     finally:
         watchdog.cancel()
+
+    if result_line is None and not timed_out.is_set():
+        # A judge-written pipeline sometimes gets the JSON payload right but
+        # drops the exact literal marker prefix the prompt asked for (a
+        # compliance slip, not a content error, and the one-shot repair
+        # round tends to repeat it). Recover the payload straight from the
+        # last unmarked stdout line if it parses as the expected shape,
+        # rather than discarding a working pipeline over a missing prefix.
+        for candidate_line in reversed(unmarked_tail):
+            try:
+                parsed = json.loads(candidate_line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict) and isinstance(parsed.get("per_case"), list):
+                result_line = candidate_line
+                logger.info(
+                    "fix_pipeline: recovered result JSON without the literal "
+                    "%s prefix", RESULT_MARKER,
+                )
+                break
 
     if result_line is None:
         if timed_out.is_set():
