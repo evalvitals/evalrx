@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
@@ -212,6 +213,48 @@ def acquisition(name: str) -> dict:
     }
 
 
+def _plan(n_cases: int, confirm_split: float) -> None:
+    """What a requested n actually buys, per dataset.
+
+    `n_cases` is a SAMPLE SIZE drawn from the slice, so the slice size is a hard
+    ceiling: asking 240 of a 125-item set gets 125. The number that decides
+    whether M2 can conclude anything is neither n nor the half -- it is the
+    SMALLER of PASS/FAIL within a half, since a paired contrast is limited by its
+    thinner side.
+    """
+    label = "ALL (census)" if n_cases <= 0 else str(n_cases)
+    print(f"n_cases={label}  confirm_split={confirm_split}  "
+          f"(explore {1 - confirm_split:.0%} / confirm {confirm_split:.0%})")
+    print()
+    print(f"{'dataset':26s} {'slice':>6s} {'actual n':>9s} {'per half':>9s} "
+          f"{'PASS/FAIL':>11s} {'thinner':>8s}")
+    print("-" * 78)
+    for e in CATALOG:
+        actual = e.items if n_cases <= 0 else min(n_cases, e.items)
+        half = int(actual * confirm_split) if confirm_split else actual
+        n_pass = round(half * e.accuracy_9b)
+        n_fail = half - n_pass
+        thin = min(n_pass, n_fail)
+        mark = ""
+        if actual < n_cases:
+            mark += " CAPPED"
+        if thin < 25:
+            mark += " THIN"
+        print(f"{e.name:26s} {e.items:6d} {actual:9d} {half:9d} "
+              f"{f'{n_pass}/{n_fail}':>11s} {thin:8d}{mark}")
+    print()
+    if n_cases > 0:
+        print("CAPPED = the slice is smaller than the request; you get a CENSUS of it,")
+        print("         so there is no sampling variability left for that slice.")
+    else:
+        print("Every row is a CENSUS: the batch IS the slice, so there is no sampling")
+        print("variability left -- the interval speaks to the task, not to the draw.")
+    print("THIN   = fewer than ~25 in the smaller class per half. A paired test")
+    print("         there mostly reports 'not significant' from lack of power,")
+    print("         which is not a finding.")
+    print("PASS/FAIL uses the Qwen3.5-9B accuracy; a smaller model shifts it.")
+
+
 def _probe(timeout: int = 60) -> int:
     """Fetch a couple of rows for each entry -- proves the ids actually resolve."""
     import requests
@@ -254,7 +297,19 @@ if __name__ == "__main__":
                     help="hit datasets-server and confirm every slice resolves")
     ap.add_argument("--acquisition", action="store_true",
                     help="print the exact dataset/config/split/where for each")
+    ap.add_argument("--plan", action="store_true",
+                    help="what a given n_cases/confirm_split actually buys per dataset")
+    ap.add_argument("--n", type=int, default=0, help="n_cases for --plan")
+    ap.add_argument("--split", type=float, default=-1.0,
+                    help="confirm_split for --plan")
     args = ap.parse_args()
+
+    if args.plan:
+        import yaml
+        cfg = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
+        _plan(args.n or int(cfg["n_cases"]),
+              args.split if args.split >= 0 else float(cfg["confirm_split"]))
+        raise SystemExit(0)
 
     if args.acquisition:
         for e in CATALOG:
@@ -278,4 +333,5 @@ if __name__ == "__main__":
     missing = [e.name for e in CATALOG
                if not any(s.name == e.name for s in B.SPECS)]
     print("\nspecs missing from band_locate:", missing or "none")
-    print("run with --acquisition for the exact ids, --probe to verify they resolve")
+    print("--acquisition: exact ids | --probe: verify they resolve | "
+          "--plan: what an n_cases buys")

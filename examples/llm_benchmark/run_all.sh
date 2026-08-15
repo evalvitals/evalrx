@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One command, whole chain: serve -> wait -> build cases -> M1..M4 -> release GPU.
 #
-#   ./run_all.sh qwen3.5-9b supergpqa_law            # full chain
-#   ./run_all.sh qwen3.5-2b cruxeval_output 60       # 60 cases
+#   ./run_all.sh qwen3.5-9b supergpqa_law            # full chain, ALL items
+#   ./run_all.sh qwen3.5-2b cruxeval_output 60       # cap at 60 items
 #   ANALYSIS_ONLY=1 ./run_all.sh qwen3.5-9b bamboogle 40   # M1->M3, no M5/M4
 #
 # Written for unattended/agent execution: absolute interpreter paths (no shell
@@ -12,7 +12,7 @@ set -uo pipefail
 
 MODEL="${1:-qwen3.5-9b}"
 DATASET="${2:-supergpqa_law}"
-NCASES="${3:-120}"
+NCASES="${3:-0}"   # 0 = every item in the slice
 PORT="${PORT:-8020}"
 ANALYSIS_ONLY="${ANALYSIS_ONLY:-0}"
 
@@ -71,7 +71,8 @@ if [ -z "$GPU" ]; then
   exit 3
 fi
 export CUDA_VISIBLE_DEVICES="$GPU"
-stamp "model=$MODEL ($HF_REPO)  dataset=$DATASET  n=$NCASES  gpu=$GPU  port=$PORT"
+N_LABEL=$([ "$NCASES" -le 0 ] && echo "ALL" || echo "$NCASES")
+stamp "model=$MODEL ($HF_REPO)  dataset=$DATASET  n=$N_LABEL  gpu=$GPU  port=$PORT"
 
 # export so the preflight child sees the SAME interpreters this script resolved,
 # otherwise it reports vllm missing while run_all is about to use it
@@ -121,7 +122,7 @@ fi
 
 BASE_URL="http://127.0.0.1:$PORT/v1"
 
-stamp "STAGE 0 build_cases (this is the slow part: ~20-60 min at n=120)"
+stamp "STAGE 0 build_cases (slowest step; a full census of a 650+ item slice runs 4-6 h — see README)"
 "$EVAL_PY" "$HERE/build_cases.py" \
   --model "$MODEL" --dataset "$DATASET" --n "$NCASES" --base-url "$BASE_URL"
 rc=$?

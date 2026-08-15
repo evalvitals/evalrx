@@ -64,6 +64,19 @@ claude --version          # 必须有输出
 claude                    # 首次需要交互登录一次完成认证
 ```
 
+**默认 judge 与 coder 都是 `claude-opus-5`,effort `high`**(`config.yaml`)。
+模型名是**钉死的全名而不是 `opus` 别名** —— 别名会随最新 opus 漂移,
+judge 在两次运行之间变了,结果就不可比。
+
+`--effort` 合法值:`low | medium | high | xhigh | max`。
+`high` 想得更久也更贵,所以 `codegen_budget_usd`(6.0)和
+`codegen_timeout_sec`(1200)是配合它一起调高的 ——
+预算或超时不跟着提,M2 的 codegen 会在中途被砍断,
+而那个阶段会把**超时报成失败**,看起来像统计做不出来。
+
+`preflight.py` 会用配置里的 model + effort **真发一次请求**,
+所以模型名或 effort 写错在上机前就会暴露,不会等到 M1。
+
 ### 3. 模型权重
 
 首次 `vllm serve` 会自动下载(9B 约 21GB,视网速十几分钟到一小时)。
@@ -109,7 +122,7 @@ GPU 空闲显存够不够这个尺寸、磁盘够不够放权重、datasets-serv
 
 ```bash
 cd <repo>/evalvitals/examples/llm_benchmark
-./run_all.sh qwen3.5-9b supergpqa_law 120
+./run_all.sh qwen3.5-9b supergpqa_law
 ```
 
 **首次在一台新机器上跑,先看上面的「从零搭建」并跑 `preflight.py`。**
@@ -118,7 +131,7 @@ cd <repo>/evalvitals/examples/llm_benchmark
 M1→M2→M3→M5→M4 → **无论成败都关掉 vLLM 释放显存**(EXIT trap)。
 
 ```bash
-./run_all.sh <model> <dataset> [n_cases]
+./run_all.sh <model> <dataset> [n_cases]   # n_cases 省略 = 全量
 
 # model:   qwen3.5-2b | qwen3.5-4b | qwen3.5-9b
 # dataset: 见第 1 节的八个
@@ -133,11 +146,11 @@ M1→M2→M3→M5→M4 → **无论成败都关掉 vLLM 释放显存**(EXIT trap
 | 步骤 | 耗时 |
 |---|---|
 | vLLM 加载权重 | 3–6 分钟(冷 page cache 更久) |
-| Stage 0 `build_cases.py` n=120 | **20–60 分钟**,取决于模型大小和推理链长度 |
-| M1→M5 | 10–40 分钟(judge 是 claude CLI 调用) |
-| M4 修复 | 10–30 分钟 |
+| Stage 0 `build_cases.py` **全量** | **20 分钟 – 6.5 小时**,见下方逐数据集表 |
+| M1→M5 | **30–90 分钟**(judge 是 `claude-opus-5 --effort high`,想得久) |
+| M4 修复 | **20–60 分钟** |
 
-**总计 1–2 小时。** 建议 `setsid nohup ./run_all.sh ... > run.log 2>&1 &` 后台跑再轮询日志,
+**总计 1.5–8 小时**,几乎全部取决于切片大小(judge 用 high effort;调低 `judge_effort` 会快很多)。 建议 `setsid nohup ./run_all.sh ... > run.log 2>&1 &` 后台跑再轮询日志,
 不要在一次前台工具调用里等它。
 
 ### 退出码
@@ -348,6 +361,74 @@ supergpqa_medicine_hard              217  OK
 - **判分**:10 选项单选
 - **注意**:CI 下界 0.241 跌破 0.30。这里值得用 n=100 —— 217 题里抽 100 已接近半数普查
 
+### n_cases 默认全量:批次就是切片本身
+
+`n_cases: 0`(默认)= **取切片里的每一条**。
+
+设上限是没意义的:切片大小本来就是硬天花板(对 125 题的 bamboogle 要 240 只会拿到 125),
+所以限制只会砍掉那些**本来撑得起更多**的数据集,对撑不起的毫无帮助。
+
+全量的好处是**批次里不再有抽样波动**——PASS/FAIL 的划分**就是**这个切片,
+而不是从中抽的一把。同一个模型跑两次看到的是同一批题,可直接比较。
+区间的含义随之变化:它说的是"推广到这类任务",而不是"抽到哪些题"。
+
+已实测两个最大切片能 100% 取回(`supergpqa_economics` 873/873、`cruxeval_output` 800/800,
+0 个失败窗口)。
+
+#### ⏱ 代价:逐数据集的 Stage 0 耗时
+
+按实测吞吐(并发 16)推算,**单个模型尺寸**:
+
+| 数据集 | 题数 | 秒/题 | Stage 0 全量耗时 |
+|---|---|---|---|
+| `supergpqa_economics` | 873 | 27.1 | **6h33m** |
+| `minervamath` | 272 | 72.3 | **5h27m** |
+| `supergpqa_law` | 656 | 24.7 | **4h30m** |
+| `cruxeval_output` | 800 | 15.4 | **3h25m** |
+| `supergpqa_medicine_hard` | 217 | 32.6 | 1h57m |
+| `bamboogle` | 125 | 36.6 | 1h16m |
+| `bbh_causal_judgement` | 187 | 12.7 | 0h39m |
+| `bbh_tracking7` | 250 | 4.7 | **0h19m** |
+| **八个合计** | 3,380 | | **约 24 小时** |
+
+三个尺寸全跑完 = **约 3 天 GPU**。
+
+> **一次跑一个数据集,不要无脑排完八个。**
+> 想先看链路通不通,用 `bbh_tracking7`(19 分钟)或 `bbh_causal_judgement`(39 分钟),
+> 它们题数不小但推理链短。
+>
+> `minervamath` 题数只有 272 却要 5.5 小时 —— 它是自由作答的物理题,
+> 单题推理链最长(72 秒/题,是 `bbh_tracking7` 的 15 倍)。**题数不代表耗时。**
+
+需要更快时显式传 n 封顶:
+
+```bash
+./run_all.sh qwen3.5-9b supergpqa_economics 200    # 抽 200 条而不是全部 873
+```
+
+#### 全量 + 1:1 之后每边还剩多少
+
+```bash
+$PY datasets.py --plan          # 读 config.yaml 的当前设置
+```
+
+| 数据集 | 题数 | 每半 | PASS/FAIL | 较薄一侧 |
+|---|---|---|---|---|
+| `supergpqa_economics` | 873 | 436 | 253/183 | **183** |
+| `supergpqa_law` | 656 | 328 | 151/177 | 151 |
+| `cruxeval_output` | 800 | 400 | 280/120 | 120 |
+| `minervamath` | 272 | 136 | 68/68 | 68 |
+| `bbh_tracking7` | 250 | 125 | 68/57 | 57 |
+| `supergpqa_medicine_hard` | 217 | 108 | 39/69 | 39 |
+| `bbh_causal_judgement` | 187 | 93 | 56/37 | 37 |
+| `bamboogle` | 125 | 62 | 32/30 | 30 |
+
+决定 M2 能否下结论的是**较薄的那一类**,配对检验受制于薄的那一侧。
+注意 `cruxeval_output` 有 800 题,较薄一侧却只有 120 —— 准确率 0.70 让 FAIL 稀少,
+**切片大不等于功效高**。
+
+PASS/FAIL 比例用的是 9B 准确率;换 2B/4B 会移动,届时重跑 `--plan`。
+
 ### 关于"子采样"的口径
 
 三个 SuperGPQA 切片用的是 `Spec.where`(datasets-server 的 `/filter` 端点,**服务端过滤**),
@@ -418,14 +499,14 @@ $VLLM serve Qwen/Qwen3.5-9B \
 ```bash
 cd <repo>/evalvitals/examples/llm_benchmark
 
-$PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law --n 120
+$PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law
 ```
 
 输出:
 
 ```
-[build_cases] qwen3.5-9b x supergpqa_law n=120
-  accuracy 55/120 = 0.458 (9B reference 0.460)
+[build_cases] qwen3.5-9b x supergpqa_law n=ALL
+  accuracy 301/656 = 0.459 (CENSUS of the slice) (9B reference 0.460)
   truncated 9%   errors 0%   1180s
   wrote outputs/qwen3.5-9b/supergpqa_law/cases.json
 ```
@@ -471,7 +552,13 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 > **M4 跑在循环之外**,且跑在 `confirm_split` 留出的**留出集**上,
 > 所以修复是在循环从未挖过的数据上验证的。
 > `confirm_split: 0.0` 会让修复在产生假设的同一批数据上打分 —— 那是诊断循环自我恭维的标准做法。
-> 默认给的是 **0.3**。
+>
+> **默认 `confirm_split: 0.5`,即 1:1** —— 循环挖一半,修复在它从没见过的另一半上打分。
+> 划分是**确定性的**(按 label + probe_type 分层、固定 seed),所以 `run()` 和
+> `run_m4()` 从同一批输入推出完全相同的划分。
+>
+> ⚠️ **代价是两边的统计功效都减半**,这正是 `n_cases` 默认取全量的原因。
+> 每个数据集实际剩多少,用 `$PY datasets.py --plan` 算,别估。
 
 ### 三个尺寸都跑
 
@@ -480,7 +567,7 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 ```bash
 cd <repo>/evalvitals/examples/llm_benchmark
 for M in qwen3.5-2b qwen3.5-4b qwen3.5-9b; do
-  ./run_all.sh "$M" supergpqa_law 120
+  ./run_all.sh "$M" supergpqa_law
 done
 ```
 
@@ -488,7 +575,7 @@ done
 
 ```bash
 setsid nohup bash -c 'for M in qwen3.5-2b qwen3.5-4b qwen3.5-9b; do
-  ./run_all.sh "$M" supergpqa_law 120; done' > sweep.log 2>&1 &
+  ./run_all.sh "$M" supergpqa_law; done' > sweep.log 2>&1 &
 ```
 
 某个尺寸退出码为 1 是**正常的**——那个配对不在带内,循环会继续跑下一个。

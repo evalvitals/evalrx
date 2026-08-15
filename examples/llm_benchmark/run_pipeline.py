@@ -148,7 +148,7 @@ def build_judge(model_name: str, effort: str):
     if not judge.generate("Reply with exactly the word OK").strip():
         raise SystemExit(
             f"judge probe: claude --model {model_name} returned empty "
-            f"(rate-limited?) — try --judge-model sonnet"
+            f"(rate-limited?) — try --judge-model sonnet, or a lower --judge-effort"
         )
     print(f"judge: claude model={model_name} effort={effort or 'default'}")
     return judge
@@ -163,7 +163,7 @@ def build_codegen(backend: str):
     effort = str(CFG.get("codegen_effort", "") or "")
     return CliAgentConfig(
         provider=provider,
-        model=str(CFG.get("codegen_model", "claude-opus-4-8")) if is_claude else "",
+        model=str(CFG.get("codegen_model", "claude-opus-5")) if is_claude else "",
         max_budget_usd=float(CFG.get("codegen_budget_usd", 2.0)),
         timeout_sec=int(CFG.get("codegen_timeout_sec", 480)),
         extra_args=(("--effort", effort) if (effort and is_claude) else ()),

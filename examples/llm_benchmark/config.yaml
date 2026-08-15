@@ -17,19 +17,43 @@ top_p: 0.95
 top_k: 20
 max_tokens: 20480
 
-n_cases: 120        # cases in the batch. M2 pairs PASS against FAIL, so this is
-                    # split across both groups -- 120 at a 50% band gives ~60/60.
+# Cases in the batch. 0 = FULL CENSUS of the slice (the default).
+#
+# A slice size is a hard ceiling anyway -- asking 240 of the 125-item bamboogle
+# yields 125 -- so capping only shrinks the sets that could afford more, while
+# doing nothing for the ones that could not. Taking every item removes sampling
+# variability from the batch entirely: the PASS/FAIL split IS the slice, not a
+# draw from it, and two runs on the same model see the same items.
+#
+# Cost, from measured throughput at concurrency 16 (one model, all eight):
+#   supergpqa_economics 873 ~6h30m   cruxeval_output 800 ~3h25m
+#   supergpqa_law       656 ~4h30m   minervamath     272 ~5h30m
+#   supergpqa_med_hard  217 ~2h00m   bamboogle       125 ~1h15m
+#   bbh_causal_judge    187 ~0h40m   bbh_tracking7   250 ~0h20m
+#   -> ~24h per model size. Run ONE dataset at a time; do not queue all eight
+#      blindly. Pass an explicit n (./run_all.sh <model> <dataset> 120) to cap.
+n_cases: 0
 concurrency: 16
 
 # Judge (M1 selection / M2 narrative / M3 hypotheses / M5 verdicts) and the
-# codegen coder for M2 statistics. Both are `claude -p` CLI calls, not the model
-# under test.
-judge_model: claude-opus-4-8
-judge_effort: low
-codegen_model: claude-opus-4-8
-codegen_effort: low
-codegen_budget_usd: 2.0
-codegen_timeout_sec: 480
+# codegen coder for M2 statistics. Both are `claude -p` CLI calls, NOT the model
+# under test -- the model under test is the one vLLM is serving.
+#
+# `claude --model` takes either an alias ('opus') or a pinned full name. Pinned
+# here on purpose: an alias silently follows whatever the latest opus becomes,
+# and a judge that changes underneath a run makes two runs incomparable.
+judge_model: claude-opus-5
+judge_effort: high        # low | medium | high | xhigh | max
+codegen_model: claude-opus-5
+codegen_effort: high
+# high effort costs more per call and thinks longer, so the budget and the
+# per-call timeout both have to come up with it or M2 codegen gets cut off
+# mid-solution and the stage reports a failure that is really a timeout.
+# These are CEILINGS, not spend: the coder stops when the work is done. Set them
+# generously -- a cut-off M2 wastes the whole GPU-bound batch that preceded it,
+# which costs far more than the difference.
+codegen_budget_usd: 25.0
+codegen_timeout_sec: 1800
 
 # M4 surgery
 fix_max_tier: L3b
@@ -38,5 +62,10 @@ fix_exec_timeout_sec: 1800
 
 max_cycles: 3
 # Fraction of the batch held out from M1-M5 so M4 validates its fix on data the
-# loop never mined. 0.0 = off; 0.3 is the honest default for a reported number.
-confirm_split: 0.3
+# loop never mined. 0.5 is a 1:1 explore/confirm split -- the loop mines half and
+# the fix is scored on the other half, which it never saw.
+#
+# The cost is power on both sides: at n_cases 120 each half is 60, so a mid-band
+# dataset leaves ~30 PASS and ~30 FAIL per half. Raise n_cases with this, or the
+# split buys leak-freedom with intervals too wide to conclude from.
+confirm_split: 0.5

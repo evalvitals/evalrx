@@ -49,6 +49,12 @@ def build(model_id: str, base_url: str, dataset: str, n: int,
     B.MODEL_ID = model_id
     B.BASE_URL = base_url
 
+    # n <= 0 means "every item in the slice". Capping is pointless below the
+    # slice size and impossible above it, so a census is the honest default.
+    requested = n
+    if n <= 0:
+        n = entry.items
+
     rows = B.fetch_rows(spec, n)
     adapter = spec.adapter or B._adapter_plain(spec.question_field, spec.answer_field)
     items = []
@@ -60,6 +66,12 @@ def build(model_id: str, base_url: str, dataset: str, n: int,
             break
     if not items:
         raise SystemExit(f"{dataset}: adapter produced no gradable items")
+    # A slice cannot yield more than it holds. Asking for 240 from a 125-item set
+    # silently returns 125, and a batch half the requested size changes every
+    # interval downstream -- so say so rather than letting it pass as n=240.
+    if len(items) < n:
+        print(f"  NOTE asked for {n} but the slice yields {len(items)} "
+              f"({entry.items} recorded) — using every item there is")
 
     grade = spec.grader or B.answer_equal
 
@@ -92,6 +104,11 @@ def build(model_id: str, base_url: str, dataset: str, n: int,
         "model": model_id,
         "dataset": dataset,
         "n": len(cases),
+        "n_requested": requested,
+        "slice_items": entry.items,
+        #: the batch is the whole slice -- no sampling variability left for it,
+        #: so the interval speaks to the task, not to which items were drawn
+        "is_census": len(cases) >= entry.items,
         "accuracy": round(acc, 4),
         "n_pass": n_pass,
         "n_fail": len(cases) - n_pass,
@@ -110,7 +127,8 @@ def main() -> None:
     ap.add_argument("--model", default=CFG["model"])
     ap.add_argument("--base-url", default=CFG["base_url"])
     ap.add_argument("--dataset", default=CFG["dataset"])
-    ap.add_argument("--n", type=int, default=CFG["n_cases"])
+    ap.add_argument("--n", type=int, default=CFG["n_cases"],
+                    help="0 (default) = every item in the slice; >0 caps the sample")
     ap.add_argument("--concurrency", type=int, default=CFG["concurrency"])
     ap.add_argument("--max-tokens", type=int, default=CFG["max_tokens"])
     ap.add_argument("--force", action="store_true",
@@ -120,12 +138,14 @@ def main() -> None:
     sampling = {"temperature": float(CFG["temperature"]),
                 "top_p": float(CFG["top_p"]), "top_k": int(CFG["top_k"])}
 
-    print(f"[build_cases] {args.model} x {args.dataset} n={args.n}", flush=True)
+    n_label = "ALL" if args.n <= 0 else str(args.n)
+    print(f"[build_cases] {args.model} x {args.dataset} n={n_label}", flush=True)
     report = build(args.model, args.base_url, args.dataset, args.n,
                    args.concurrency, args.max_tokens, sampling)
 
     acc, trunc = report["accuracy"], report["truncated_rate"]
-    print(f"  accuracy {report['n_pass']}/{report['n']} = {acc:.3f} "
+    census = " (CENSUS of the slice)" if report["is_census"] else ""
+    print(f"  accuracy {report['n_pass']}/{report['n']} = {acc:.3f}{census} "
           f"(9B reference {report['reference_9b_accuracy']:.3f})")
     print(f"  truncated {trunc:.0%}   errors {report['error_rate']:.0%}   "
           f"{report['seconds']:.0f}s")

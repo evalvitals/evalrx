@@ -103,9 +103,46 @@ def check_claude() -> None:
         else:
             bad("`claude --version` failed — probably not authenticated",
                 "run `claude` once interactively to log in")
+            return
     except (subprocess.TimeoutExpired, OSError) as exc:
         bad(f"`claude --version` did not respond ({type(exc).__name__})",
             "check the CLI install")
+        return
+
+    # A bad --model or --effort would otherwise surface only at M1, i.e. AFTER
+    # the batch has been generated on the GPU. One real call settles it.
+    try:
+        import yaml
+        cfg = yaml.safe_load((HERE / "config.yaml").read_text())
+    except Exception:
+        warn("cannot read config.yaml; skipped the judge round-trip")
+        return
+    model, effort = str(cfg.get("judge_model", "")), str(cfg.get("judge_effort", ""))
+    cmd = [exe]
+    if model:
+        cmd += ["--model", model]
+    if effort:
+        cmd += ["--effort", effort]
+    cmd += ["-p", "Reply with exactly the word OK"]
+    try:
+        # high/xhigh effort thinks for a while even on a trivial prompt
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
+                             cwd="/tmp")
+    except subprocess.TimeoutExpired:
+        warn(f"judge probe (model={model} effort={effort}) took >5 min",
+             "works, but M1-M5 will be slow; consider a lower effort")
+        return
+    except OSError as exc:
+        bad(f"judge probe failed to launch ({type(exc).__name__})", "check the CLI")
+        return
+    if out.returncode == 0 and out.stdout.strip():
+        ok(f"judge round-trip: model={model} effort={effort}")
+    else:
+        detail = (out.stderr or out.stdout).strip().splitlines()
+        bad(f"judge probe failed for model={model!r} effort={effort!r}: "
+            f"{detail[0][:120] if detail else 'empty reply'}",
+            "fix judge_model / judge_effort in config.yaml "
+            "(effort must be low|medium|high|xhigh|max)")
 
 
 def check_vllm() -> None:
