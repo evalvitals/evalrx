@@ -103,8 +103,12 @@ def _build_loop_run(root):
 def _run_app(run_dir):
     from streamlit.testing.v1 import AppTest
 
+    from evalvitals.analysis import dashboard_app
+
     sys.argv = ["dashboard_app.py", str(run_dir)]
-    at = AppTest.from_file("evalvitals/analysis/dashboard_app.py", default_timeout=30)
+    # Absolute: AppTest resolves a relative script path against the *calling*
+    # file (this test module), not the repo root.
+    at = AppTest.from_file(dashboard_app.__file__, default_timeout=30)
     at.run()
     return at
 

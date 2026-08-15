@@ -33,6 +33,24 @@ python download_mmau.py --limit 120
 python run.py --model qwen2-audio-7b-instruct --limit 120
 ```
 
+## Case study: listen to the clips, answer them yourself
+
+```bash
+pip install -e ".[dashboard]"
+evalvitals dashboard examples/agent_loop/qwen2_audio_tcd_mmau
+```
+
+The dashboard reads every `outputs/*.json` here and re-joins its case ids to
+`data/mmau_test_mini.jsonl` (via the `dataset` pointer `run.py` writes), so each
+case shows up with its `.wav` in an audio player, its question and its four
+options. Blind mode is on by default: answer the item yourself first, then
+unblind to see the correct answer, what Qwen2-Audio answered, and — per repair
+candidate — whether it repaired, broke or left that case alone. The *Repair
+Methods* tab spells out what each candidate actually changes (`tcd_temporal_blur`'s
+blurred-waveform contrast vs. an L1 prompt template vs. an L2 scaffold) and
+links each flipped case back into the case browser. Requires `./data` to be
+populated — playback needs the audio files `download_mmau.py` fetched.
+
 ## What this does and does not claim
 
 - The baseline arm calls `generate_tcd_baseline` (forced `do_sample=False`),

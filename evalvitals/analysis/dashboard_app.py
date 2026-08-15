@@ -10,6 +10,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from evalvitals.analysis import case_studio as cs
 from evalvitals.analysis.dashboard import load_run
 from evalvitals.reporting.stages import stage_specs_as_dicts
 from evalvitals.viz.labels import display_name
@@ -59,6 +60,10 @@ def main() -> None:
 
     if session.get("kind") == "loop" and session.get("story"):
         _render_loop_story(root, session["story"], runs)
+        return
+
+    if session.get("kind") == "casebench":
+        render_case_study_run(root, session, selected)
         return
 
     if not runs:
@@ -132,6 +137,562 @@ EXPLORE_TAB_LABELS = [
     "4 Held-out Verdicts", "5 Fix",
 ]
 
+# A paper-method bench run (examples/**/run.py) — see case_studio.py. Same
+# numbered-tab grammar as the explore layout so the reader doesn't re-learn
+# the page, but the middle tab is a per-case stimulus browser rather than a
+# chart gallery: the benchmark is audio/image, so a human has to be able to
+# play the clip and answer the question before judging a repair.
+CASEBENCH_TAB_LABELS = ["1 Run Overview", "2 Case Study", "3 Repair Methods"]
+
+#: Container MIME types Streamlit's <audio> element needs spelled out.
+_AUDIO_MIME = {
+    ".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac",
+    ".ogg": "audio/ogg", ".opus": "audio/ogg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+}
+
+_FLIP_PILL = {
+    cs.FLIP_REPAIRED: ("ev-pill-ok", "repaired this case"),
+    cs.FLIP_BROKE: ("ev-pill-fail", "broke this case"),
+    cs.FLIP_UNCHANGED: ("ev-pill", "no change"),
+    cs.FLIP_UNTESTED: ("ev-pill", "not in the sweep"),
+}
+
+
+def render_case_study_run(root: Path, session: dict[str, Any], selected: int = 0) -> None:
+    """Render one paper-method bench report as a playable case book.
+
+    The report records outcomes per case id; :mod:`case_studio` joins those to
+    the benchmark manifest so this view can show the actual stimulus. Three
+    tabs: what the run did, the cases themselves (play / answer / compare), and
+    what each repair candidate actually was."""
+    studies = session.get("case_studies") or []
+    if not studies:
+        _render_empty(root)
+        return
+    study = studies[min(max(selected, 0), len(studies) - 1)]
+
+    _render_casebench_header(root, study)
+    for note in study.notes:
+        st.caption(f"⚠︎ {note}")
+
+    tabs = st.tabs(CASEBENCH_TAB_LABELS)
+    with tabs[0]:
+        _render_casebench_overview(study)
+    with tabs[1]:
+        _render_case_study_tab(study)
+    with tabs[2]:
+        _render_repair_methods_tab(study)
+
+
+def _render_casebench_header(root: Path, study: Any) -> None:
+    report = study.report
+    paper = str(report.get("paper") or study.name)
+    st.markdown(
+        f"""
+        <div class="ev-header">
+          <div class="ev-kicker">Paper-method bench run</div>
+          <h1>{_html_escape(paper.upper())} · {_html_escape(str(report.get('model', '?')))}</h1>
+          <div class="ev-path">{_html_escape(str(study.report_path))}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    fidelity = str(report.get("paper_method_fidelity") or "—")
+    splits = report.get("splits") or {}
+    baseline = report.get("baseline") or {}
+    tiles = [
+        ("Cases with a stimulus", _format_int(sum(1 for c in study.cases if not c.unresolved)),
+         f"{study.media_kind} benchmark"),
+        ("Baseline accuracy · selection", _pct(_split_accuracy(baseline, "selection")),
+         f"n={_format_int((splits or {}).get('selection'))}"),
+        ("Baseline accuracy · confirmation", _pct(_split_accuracy(baseline, "confirmation")),
+         f"n={_format_int((splits or {}).get('confirmation'))}"),
+        ("Repair candidates tried", _format_int(len(study.candidates)),
+         f"max tier {report.get('max_tier', '—')}"),
+        ("Method fidelity", fidelity.replace("_", " "), str(report.get("backend", ""))),
+    ]
+    cols = st.columns(len(tiles))
+    for col, (label, value, caption) in zip(cols, tiles):
+        with col:
+            st.markdown(
+                f"""
+                <div class="ev-metric-card">
+                  <div class="ev-metric-label">{_html_escape(label)}</div>
+                  <div class="ev-metric-value">{_html_escape(str(value))}</div>
+                  <div class="ev-metric-caption">{_html_escape(caption)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def _split_accuracy(baseline: dict[str, Any], split: str) -> float | None:
+    block = baseline.get(split)
+    if not isinstance(block, dict):
+        return None
+    value = block.get("accuracy")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _pct(value: float | None) -> str:
+    return "—" if value is None else f"{value:.0%}"
+
+
+def _render_casebench_overview(study: Any) -> None:
+    report = study.report
+    st.markdown(
+        '<div class="ev-section-head">'
+        '<div class="ev-section-title">What this run tested</div>'
+        '<div class="ev-section-sub">A frozen baseline probe, a diagnosis/selection split, a '
+        "repair sweep validated pairwise on the selection split, and (when a candidate wins) a "
+        "held-out confirmation pass.</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    hypothesis = report.get("hypothesis") or {}
+    statement = str(hypothesis.get("statement") or "")
+    if statement:
+        st.markdown(
+            f"""
+            <div class="ev-report-answer">
+              <div class="ev-brief-label">Hypothesis under test
+                 · {_html_escape(str(hypothesis.get('predicted_failure_mode', '')))}</div>
+              <div class="ev-report-answer-text">{_html_escape(statement)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    splits = report.get("splits") or {}
+    baseline = report.get("baseline") or {}
+    st.dataframe(pd.DataFrame([
+        {
+            "split": name,
+            "n": (baseline.get(name) or {}).get("n", splits.get(name)),
+            "baseline correct": (baseline.get(name) or {}).get("correct"),
+            "baseline accuracy": _split_accuracy(baseline, name),
+            "used for": {
+                "diagnosis": "forming the hypothesis",
+                "selection": "choosing a repair (the sweep runs here)",
+                "confirmation": "held-out re-test of the winner",
+            }[name],
+        }
+        for name in cs.SPLITS if baseline.get(name) or splits.get(name)
+    ]), width="stretch", hide_index=True)
+
+    confirmation = (report.get("auto_fix") or {}).get("confirmation") or {}
+    if confirmation.get("skipped"):
+        st.info(
+            f"Confirmation was skipped — {confirmation['skipped']}. No candidate cleared "
+            "selection, so nothing was re-tested on held-out data and this run has no "
+            "confirmed repair."
+        )
+    elif confirmation:
+        st.markdown("#### Held-out confirmation")
+        st.dataframe(pd.DataFrame([confirmation]), width="stretch", hide_index=True)
+
+    scored = [c for c in study.cases if c.baseline_correct is not None and c.metadata]
+    keys = cs.facet_keys(scored)
+    if keys:
+        st.markdown("#### Where the baseline fails")
+        key = st.selectbox("Break accuracy down by", keys, key=f"ev_cs_facet_break::{study.name}")
+        rows = cs.accuracy_by_facet(scored, key)
+        if rows:
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.caption(
+            "Baseline arm only, pooled over every split that recorded per-case rows — a "
+            "descriptive breakdown of this run's own probe, not a benchmark result."
+        )
+
+    recommendation = ((report.get("auto_fix") or {}).get("selection") or {}).get("recommendation")
+    if isinstance(recommendation, dict):
+        st.markdown(
+            f"""
+            <div class="ev-report-answer">
+              <div class="ev-brief-label">Recommendation</div>
+              <div class="ev-report-answer-text">Escalate to
+                {_html_escape(str(recommendation.get('recommend_tier', '')))} —
+                {_html_escape(str(recommendation.get('reason', '')))}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("Raw report JSON", expanded=False):
+        st.json(report)
+
+
+# ---------------------------------------------------------------------------
+# Case study tab
+# ---------------------------------------------------------------------------
+
+_OUTCOME_FILTERS = {
+    "all": "Every case",
+    "baseline_wrong": "Baseline answered wrong",
+    "baseline_right": "Baseline answered right",
+    "repaired": "Repaired by some candidate",
+    "broke": "Broken by some candidate",
+    "flipped": "Flipped either way",
+}
+
+
+def _case_filter_keys(study: Any) -> dict[str, str]:
+    """Session-state keys for this study's filter widgets (kept per report so
+    two reports open in one session don't fight over one filter)."""
+    return {
+        "case": f"ev_cs_case::{study.name}",
+        "split": f"ev_cs_split::{study.name}",
+        "outcome": f"ev_cs_outcome::{study.name}",
+        "blind": f"ev_cs_blind::{study.name}",
+    }
+
+
+def _jump_to_case(study: Any, case_id: str) -> None:
+    """Select *case_id* in the Case Study tab and clear the filters that could
+    hide it — used by the Repair Methods tab's per-case buttons. Runs as a
+    widget callback, i.e. before the next script run builds the widgets."""
+    keys = _case_filter_keys(study)
+    st.session_state[keys["case"]] = case_id
+    st.session_state[keys["split"]] = "all"
+    st.session_state[keys["outcome"]] = "all"
+
+
+def _filter_cases(cases: list[Any], *, split: str, outcome: str) -> list[Any]:
+    out = [c for c in cases if split in ("all", c.split)]
+    if outcome == "baseline_wrong":
+        out = [c for c in out if c.baseline_correct is False]
+    elif outcome == "baseline_right":
+        out = [c for c in out if c.baseline_correct is True]
+    elif outcome == "repaired":
+        out = [c for c in out if c.flipped_by()]
+    elif outcome == "broke":
+        out = [c for c in out if c.broken_by()]
+    elif outcome == "flipped":
+        out = [c for c in out if c.flipped_by() or c.broken_by()]
+    return out
+
+
+def _render_case_study_tab(study: Any) -> None:
+    keys = _case_filter_keys(study)
+    st.markdown(
+        '<div class="ev-section-head">'
+        '<div class="ev-section-title">Case study — play it, answer it, then see what happened'
+        "</div>"
+        '<div class="ev-section-sub">Every case the run scored, with its actual stimulus. '
+        "Answer first with blind mode on if you want your own read of the item before the "
+        "model's answer and the repair verdicts are revealed.</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    controls = st.columns([1.1, 1.2, 1.6])
+    blind = controls[0].toggle(
+        "Blind mode", value=True, key=keys["blind"],
+        help="Hide the correct answer, the model's answer and the repair verdicts "
+             "until you lock in your own answer.",
+    )
+    splits_present = [s for s in cs.SPLITS if any(c.split == s for c in study.cases)]
+    split = controls[1].selectbox(
+        "Split", ["all", *splits_present], key=keys["split"],
+        format_func=lambda s: "All splits" if s == "all" else s,
+    )
+    # Filtering by outcome would leak the answer, so blind mode drops every
+    # option but "all" — and clears a stale selection first, since a session
+    # value outside the option list is undefined behaviour for the widget.
+    outcome_options = list(_OUTCOME_FILTERS) if not blind else ["all"]
+    if st.session_state.get(keys["outcome"]) not in outcome_options:
+        st.session_state[keys["outcome"]] = "all"
+    outcome = controls[2].selectbox(
+        "Outcome filter", outcome_options, key=keys["outcome"],
+        format_func=lambda k: _OUTCOME_FILTERS[k],
+        help="Disabled in blind mode — filtering by outcome would leak the answer.",
+    )
+
+    cases = _filter_cases(study.cases, split=split, outcome=outcome)
+    if not cases:
+        st.info("No case matches these filters.")
+        return
+
+    ids = [c.id for c in cases]
+    if st.session_state.get(keys["case"]) not in ids:
+        st.session_state[keys["case"]] = ids[0]
+    by_id = {c.id: c for c in cases}
+    st.selectbox(
+        f"Case ({len(ids)} shown)", ids, key=keys["case"],
+        format_func=lambda cid: cs.case_label(by_id[cid], blind=blind),
+    )
+    case = by_id[st.session_state[keys["case"]]]
+
+    nav = st.columns([1, 1, 6])
+    index = ids.index(case.id)
+    if nav[0].button("← Prev", disabled=index == 0, key=f"ev_cs_prev::{study.name}"):
+        st.session_state[keys["case"]] = ids[index - 1]
+        st.rerun()
+    if nav[1].button("Next →", disabled=index == len(ids) - 1, key=f"ev_cs_next::{study.name}"):
+        st.session_state[keys["case"]] = ids[index + 1]
+        st.rerun()
+
+    _render_case_panel(study, case, blind=blind)
+    _render_human_scoreboard(study)
+
+
+def _render_case_panel(study: Any, case: Any, *, blind: bool) -> None:
+    answers = st.session_state.setdefault(f"ev_cs_answers::{study.name}", {})
+    answered = case.id in answers
+    revealed = answered or not blind
+
+    media_col, qa_col = st.columns([1, 1.35])
+    with media_col:
+        _render_case_media(case)
+    with qa_col:
+        _render_case_question(study, case, answers=answers, revealed=revealed)
+
+    if revealed:
+        _render_case_outcomes(study, case, human=answers.get(case.id))
+    else:
+        st.caption("Lock in an answer (or switch blind mode off) to reveal the model's answer "
+                   "and what each repair did to this case.")
+
+
+def _render_case_media(case: Any) -> None:
+    media = case.media
+    if media.kind == "none":
+        st.info("This case has no media file in the manifest — it is text-only, or the "
+                "manifest row is missing.")
+    elif not media.exists:
+        st.warning(f"Media file not found: `{media.declared or '?'}`")
+    elif media.kind == "audio":
+        path = Path(media.path)
+        try:
+            st.audio(path.read_bytes(),
+                     format=_AUDIO_MIME.get(path.suffix.lower(), "audio/wav"))
+        except OSError as exc:
+            st.warning(f"Could not read the audio file: {exc}")
+    elif media.kind == "image":
+        st.image(media.path, width="stretch")
+
+    facts = []
+    if case.duration_sec is not None:
+        facts.append(f"{case.duration_sec:.1f}s")
+    facts.extend(f"{k}: {v}" for k, v in (case.metadata or {}).items()
+                 if not isinstance(v, (dict, list)))
+    if facts:
+        st.caption(" · ".join(str(f) for f in facts))
+    st.caption(f"`{case.id}` · {case.split} split")
+
+
+def _render_case_question(study: Any, case: Any, *, answers: dict[str, str], revealed: bool) -> None:
+    if case.unresolved:
+        st.warning("No manifest row for this case id — outcomes only, no question text.")
+        return
+    if not case.question:
+        st.caption("The manifest row carries no question field.")
+        return
+
+    st.markdown(f"**{_html_escape(case.question)}**", unsafe_allow_html=True)
+    if not case.choices:
+        st.caption("Open-ended case (no options in the manifest).")
+        return
+
+    letters = [letter for letter, _ in case.choices]
+    labels = {letter: f"{letter}. {text}" for letter, text in case.choices}
+    picked_key = f"ev_cs_pick::{study.name}::{case.id}"
+    current = answers.get(case.id)
+    st.radio(
+        "Your answer", letters, key=picked_key,
+        index=letters.index(current) if current in letters else None,
+        format_func=lambda letter: labels[letter],
+    )
+
+    buttons = st.columns([1, 1, 3])
+    if buttons[0].button("Lock in", key=f"ev_cs_lock::{study.name}::{case.id}"):
+        chosen = st.session_state.get(picked_key)
+        if chosen:
+            answers[case.id] = chosen
+            st.rerun()
+        else:
+            st.warning("Pick an option first.")
+    if case.id in answers and buttons[1].button(
+        "Clear", key=f"ev_cs_clear::{study.name}::{case.id}"
+    ):
+        answers.pop(case.id, None)
+        st.rerun()
+
+    if revealed and case.expected:
+        human = answers.get(case.id)
+        expected_line = f"Correct answer: **{case.expected}**"
+        if case.expected_text:
+            expected_line += f" — {case.expected_text}"
+        st.markdown(expected_line)
+        if human:
+            mark = "✅ you got it" if human == case.expected else f"❌ you answered {human}"
+            st.markdown(mark)
+
+
+def _render_case_outcomes(study: Any, case: Any, *, human: str | None) -> None:
+    st.markdown("#### What the model answered, and what each repair did")
+    correctness = (
+        "—" if case.baseline_correct is None
+        else ("correct" if case.baseline_correct else "wrong")
+    )
+    pill = ("ev-pill-ok" if case.baseline_correct
+            else "ev-pill-fail" if case.baseline_correct is False else "ev-pill")
+    st.markdown(
+        f"""
+        <div class="ev-evidence-card">
+          <div class="ev-evidence-card-top">
+            <span class="ev-evidence-name">Baseline (unmodified decode)</span>
+            <span class="ev-pill {pill}">{correctness}</span>
+          </div>
+          <div class="ev-evidence-summary">answered
+            <code>{_html_escape(case.baseline_output or '(empty)')}</code>
+            · expected <code>{_html_escape(case.expected or '?')}</code>
+            {f"· you answered <code>{_html_escape(human)}</code>" if human else ""}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if not case.flips:
+        st.caption(
+            "No repair candidate was validated on this case — the sweep runs on the "
+            "selection split only."
+        )
+        return
+
+    notes = {c["name"]: c for c in study.candidates}
+    rows = []
+    for name, flip in case.flips.items():
+        candidate = notes.get(name, {})
+        rows.append({
+            "candidate": name,
+            "tier": candidate.get("tier", ""),
+            "effect on this case": _FLIP_PILL.get(flip, ("", flip))[1],
+            "verdict on the split": candidate.get("verdict", ""),
+            "method": candidate.get("note", ""),
+        })
+    rows.sort(key=lambda r: (r["effect on this case"] == "no change", r["candidate"]))
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    st.caption(
+        "“no change” means the candidate scored this case the same way the baseline did; "
+        "the report does not distinguish that from a case the candidate never applied to. "
+        "Candidate answer text is not recorded — see the Repair Methods tab for what each "
+        "candidate actually changes."
+    )
+
+
+def _render_human_scoreboard(study: Any) -> None:
+    answers = st.session_state.get(f"ev_cs_answers::{study.name}") or {}
+    if not answers:
+        return
+    graded = [(cid, pick) for cid, pick in answers.items() if study.case_by_id(cid)]
+    if not graded:
+        return
+    human_correct = sum(
+        1 for cid, pick in graded if pick == (study.case_by_id(cid).expected or "").upper()
+    )
+    model_correct = sum(
+        1 for cid, _ in graded if study.case_by_id(cid).baseline_correct
+    )
+    cols = st.columns(3)
+    cols[0].metric("You", f"{human_correct}/{len(graded)}")
+    cols[1].metric("Model, same cases", f"{model_correct}/{len(graded)}")
+    cols[2].metric("Gap", f"{human_correct - model_correct:+d}")
+    st.caption(
+        "Your answers live in this browser session only — they are never written back "
+        "into the run's report."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Repair methods tab
+# ---------------------------------------------------------------------------
+
+
+def _render_repair_methods_tab(study: Any) -> None:
+    st.markdown(
+        '<div class="ev-section-head">'
+        '<div class="ev-section-title">Repair methods — what was actually changed</div>'
+        '<div class="ev-section-sub">Every candidate the sweep tried, the mechanism behind '
+        "it, its exact configuration, and the cases it flipped. Each candidate is validated "
+        "pairwise against the unmodified baseline (McNemar + e-value, e-BH across the "
+        "family).</div></div>",
+        unsafe_allow_html=True,
+    )
+    selection = (study.report.get("auto_fix") or {}).get("selection") or {}
+    if not study.candidates:
+        _render_unavailable_panel(
+            "Repair methods",
+            "This run recorded no repair candidates.",
+            "A bench run writes them under `auto_fix.selection.attempted`.",
+        )
+        return
+
+    for line in _fix_narrative(selection):
+        st.markdown(f"- {line}")
+
+    best = str(selection.get("best") or "")
+    st.dataframe(pd.DataFrame([{
+        "": "🏆" if c["name"] == best else "",
+        "tier": c["tier"],
+        "candidate": c["name"],
+        "kind": c["kind"],
+        "source": c["source"],
+        "repaired": c["n_fixed"],
+        "broke": c["n_broken"],
+        "pairs": c["n_pairs"],
+        "effect": c["effect"],
+        "e-value": c["e_value"],
+        "verdict": c["verdict"],
+    } for c in study.candidates]), width="stretch", hide_index=True)
+    if not best:
+        st.caption(
+            "No `best`: no candidate was both individually significant and an e-BH "
+            "survivor across the family, so nothing went on to confirmation."
+        )
+
+    for candidate in study.candidates:
+        _render_candidate_card(study, candidate)
+
+
+def _render_candidate_card(study: Any, candidate: dict[str, Any]) -> None:
+    title = f"{candidate['tier']} · {candidate['name']} — {candidate['verdict'] or 'no verdict'}"
+    with st.expander(title, expanded=False):
+        if candidate["note"]:
+            st.markdown(candidate["note"])
+        st.caption(
+            f"kind `{candidate['kind']}` · source `{candidate['source']}` · "
+            f"{candidate['summary'] or 'no paired summary recorded'}"
+        )
+        if candidate["prompt_template"]:
+            st.markdown("**Prompt template applied to every case**")
+            st.code(candidate["prompt_template"], language="text")
+        if candidate["knobs"]:
+            st.markdown("**Configuration**")
+            st.dataframe(
+                pd.DataFrame([{"setting": k, "value": str(v)}
+                              for k, v in candidate["knobs"].items()]),
+                width="stretch", hide_index=True,
+            )
+        elif candidate["defaults_only"]:
+            st.caption("Empty payload — the method runs at its published defaults.")
+
+        for label, case_ids in (("Repaired", candidate["fixed_cases"]),
+                                ("Broke", candidate["broken_cases"])):
+            if not case_ids:
+                continue
+            st.markdown(f"**{label} {len(case_ids)} case(s)** — open one in the Case Study tab:")
+            for chunk_start in range(0, len(case_ids), 4):
+                chunk = case_ids[chunk_start:chunk_start + 4]
+                for col, case_id in zip(st.columns(4), chunk):
+                    case = study.case_by_id(case_id)
+                    col.button(
+                        _truncate(case.question or case_id, 42) if case else case_id,
+                        key=f"ev_cs_jump::{study.name}::{candidate['name']}::{case_id}",
+                        on_click=_jump_to_case, args=(study, case_id),
+                        width="stretch",
+                    )
+
 
 def _render_unavailable_panel(title: str, what_happened: str, how_to_get_it: str) -> None:
     """Greyed placeholder for a pipeline stage this run never reached."""
@@ -153,6 +714,22 @@ def _render_sidebar(root: Path, session: dict[str, Any]) -> int:
     st.sidebar.caption(str(root))
     st.sidebar.markdown(f"**Mode:** {kind}")
 
+    if kind == "casebench":
+        studies = session.get("case_studies") or []
+        st.sidebar.markdown("---")
+        selected = st.sidebar.radio(
+            "Bench reports", range(len(studies)),
+            format_func=lambda i: studies[i].name,
+        ) if len(studies) > 1 else 0
+        study = studies[int(selected)]
+        st.sidebar.metric("Cases", len(study.cases))
+        st.sidebar.metric("Repair candidates", len(study.candidates))
+        st.sidebar.caption(
+            f"Manifest: {study.manifest_path.name}" if study.manifest_path
+            else "No benchmark manifest resolved"
+        )
+        return int(selected)
+
     if not runs:
         return 0
 
@@ -171,7 +748,11 @@ def _render_sidebar(root: Path, session: dict[str, Any]) -> int:
 
 def _render_empty(root: Path) -> None:
     st.markdown('<div class="ev-hero"><h1>EvalVitals Dashboard</h1></div>', unsafe_allow_html=True)
-    st.warning("No exploratory_report.json / fused_report.json / run_log.jsonl found.")
+    st.warning(
+        "No exploratory_report.json / fused_report.json / run_log.jsonl found, and no "
+        "paper-method bench report (a JSON with `baseline` + `auto_fix`, e.g. an "
+        "examples/**/outputs/*.json) either."
+    )
     st.caption(str(root))
 
 

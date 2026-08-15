@@ -119,12 +119,17 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 def load_run(run_dir: str | Path) -> dict[str, Any]:
     """Load a single explore-output or loop-run directory into a view dict.
 
-    Returns ``{root, kind, runs, story}`` where:
-      - ``kind`` is ``"explore"``, ``"loop"`` or ``"empty"``;
+    Returns ``{root, kind, runs, story, case_studies}`` where:
+      - ``kind`` is ``"explore"``, ``"loop"``, ``"casebench"`` or ``"empty"``;
       - ``runs`` is a list of ``{name, dir, report}`` (explore reports found,
         most-specific first); the dashboard renders these as report cards;
       - ``story`` is a parsed loop narrative (``None`` for explore output) —
-        see :func:`load_loop_story`.
+        see :func:`load_loop_story`;
+      - ``case_studies`` is a list of :class:`~evalvitals.analysis.case_studio.
+        CaseStudy` (non-empty only for ``kind == "casebench"``) — a
+        paper-method bench run under ``examples/``, whose report pairs per-case
+        outcomes with the benchmark manifest beside it so each case can be
+        played/read and answered by a human.
     """
     root = Path(run_dir).resolve()
     runs: list[dict[str, Any]] = []
@@ -137,10 +142,19 @@ def load_run(run_dir: str | Path) -> dict[str, Any]:
     story = load_loop_story(root)
     if story is not None:
         # A loop run may also carry a fused_report.json (Step 1 explore artifact).
-        return {"root": str(root), "kind": "loop", "runs": runs, "story": story}
+        return {"root": str(root), "kind": "loop", "runs": runs, "story": story,
+                "case_studies": []}
 
     if runs:
-        return {"root": str(root), "kind": "explore", "runs": runs, "story": None}
+        return {"root": str(root), "kind": "explore", "runs": runs, "story": None,
+                "case_studies": []}
+
+    # A paper-method bench run (examples/**/run.py): no explore report and no
+    # loop log, just outputs/<name>.json + the benchmark manifest it read.
+    case_studies = load_case_studies(root)
+    if case_studies:
+        return {"root": str(root), "kind": "casebench", "runs": [], "story": None,
+                "case_studies": case_studies}
 
     # Legacy / fallback: a directory of turn_* explore reports (pre-retirement).
     for turn_dir in sorted(root.glob("turn_*")):
@@ -148,7 +162,19 @@ def load_run(run_dir: str | Path) -> dict[str, Any]:
         if report is not None:
             runs.append({"name": turn_dir.name, "dir": str(turn_dir), "report": report})
     kind = "explore" if runs else "empty"
-    return {"root": str(root), "kind": kind, "runs": runs, "story": None}
+    return {"root": str(root), "kind": kind, "runs": runs, "story": None, "case_studies": []}
+
+
+def load_case_studies(run_dir: str | Path) -> list[Any]:
+    """Every paper-method bench report under *run_dir*, joined with its manifest.
+
+    Separate from :func:`load_run` so the upload workbench and tests can ask for
+    case books directly. Returns ``[]`` when the directory holds no bench report.
+    """
+    from evalvitals.analysis.case_studio import build_case_study, find_bench_reports
+
+    studies = [build_case_study(p) for p in find_bench_reports(Path(run_dir).resolve())]
+    return [s for s in studies if s is not None]
 
 
 def load_loop_story(run_dir: str | Path) -> dict[str, Any] | None:

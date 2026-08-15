@@ -257,11 +257,19 @@ pytest.importorskip("streamlit")
 pytest.importorskip("pandas")
 
 
+def _app_path() -> str:
+    """Absolute: AppTest resolves a relative script path against the *calling*
+    file (this test module), not the repo root."""
+    from evalvitals.analysis import upload_app
+
+    return upload_app.__file__
+
+
 def _run_app(workspace):
     from streamlit.testing.v1 import AppTest
 
     sys.argv = ["upload_app.py", str(workspace)]
-    at = AppTest.from_file("evalvitals/analysis/upload_app.py", default_timeout=30)
+    at = AppTest.from_file(_app_path(), default_timeout=30)
     at.run()
     return at
 
@@ -365,7 +373,7 @@ def test_attached_local_dir_renders_in_sidebar_and_body(tmp_path):
     ws.mkdir()
 
     sys.argv = ["upload_app.py", str(ws), "--attach", str(local)]
-    at = AppTest.from_file("evalvitals/analysis/upload_app.py", default_timeout=30)
+    at = AppTest.from_file(_app_path(), default_timeout=30)
     at.run()
     assert not at.exception
 
