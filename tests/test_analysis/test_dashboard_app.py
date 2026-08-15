@@ -226,10 +226,12 @@ def test_standalone_dashboard_uses_reader_friendly_header_and_details_expander(t
         "4 Validation results",
         "5 Fix",
     ]
-    header_html = next(str(m.value) for m in at.markdown if 'class="ev-header"' in str(m.value))
+    header_html = next(str(m.value) for m in at.markdown if 'ev-report-overview' in str(m.value))
+    assert "EvalVitals Analysis Report" in header_html
     assert "Hallucination failure patterns" in header_html
     assert full_question not in header_html
     assert str(tmp_path) not in header_html
+    assert "fused_report" not in header_html
     assert any("View full research question and run details" in e.label for e in at.expander)
     assert full_question in " ".join(str(m.value) for m in at.markdown)
     assert str(tmp_path) in " ".join(str(c.value) for c in at.code)
@@ -241,6 +243,35 @@ def test_standalone_dashboard_uses_reader_friendly_header_and_details_expander(t
     assert 'ev-metric-label">Columns</div>' not in blob
     assert 'ev-metric-label">Rows</div>' not in blob
     assert 'ev-metric-value">-</div>' not in blob
+
+
+def test_standalone_dashboard_overview_summarizes_validation_without_raw_metadata(tmp_path):
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "ok": True,
+        "question": "What predicts yield?",
+        "data_profile": {"loaded_rows": 30},
+        "observations": ["Pressure and temperature vary together."],
+        "candidate_signals": [{"name": "high_pressure"}],
+        "charts": [{"name": "yield_by_pressure"}],
+        "attempts": 1,
+    }), encoding="utf-8")
+    (tmp_path / "confirm_report.json").write_text(json.dumps({
+        "hypothesis_verdicts": [{"name": "high_pressure", "reject": True}],
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    header_html = next(str(m.value) for m in at.markdown if "ev-report-overview" in str(m.value))
+    assert "Exploratory analysis with validation results" in header_html
+    assert "30 records" in header_html
+    assert str(tmp_path) not in header_html
+
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert 'ev-metric-label">Records</div>' in blob
+    assert 'ev-metric-label">Validation</div>' in blob
+    assert 'ev-metric-value">Yes</div>' in blob
+    assert "Bundle:" in " ".join(str(c.value) for c in at.caption)
 
 
 def test_standalone_dashboard_renders_m3_hypotheses_with_no_verdict(tmp_path):

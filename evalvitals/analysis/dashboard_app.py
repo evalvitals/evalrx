@@ -84,11 +84,9 @@ def render_explore_report(root: Path, turn: dict[str, Any]) -> None:
     turn_dir = Path(turn["dir"])
     report = turn["report"]
 
-    _render_header(root, turn, report)
-    _render_top_metrics(report, turn_dir)
-
     confirm = _load_sibling_json(turn_dir, "confirm_report.json")
     fix_report = _load_sibling_json(turn_dir, "fix_report.json")
+    _render_report_overview(root, turn, report, turn_dir, confirm=confirm, fix_report=fix_report)
 
     tabs = st.tabs(EXPLORE_TAB_LABELS)
     with tabs[0]:
@@ -2988,24 +2986,123 @@ def _short_report_title(question: str) -> str:
     return _truncate(q, 72)
 
 
-def _header_subtitle(report: dict[str, Any]) -> str:
+def _analysis_stage_label(
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> str:
+    if fix_report:
+        return "Exploratory analysis with validation and fix results"
+    if confirm:
+        return "Exploratory analysis with validation results"
+    return "Exploratory analysis"
+
+
+def _overview_scope_sentence(
+    report: dict[str, Any],
+    artifact_dir: Path,
+    *,
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> str:
     profile = report.get("data_profile") or {}
-    parts = ["Exploratory analysis"]
-    n_rows = profile.get("loaded_rows", profile.get("n_rows"))
-    if n_rows is not None:
-        parts.append(f"{_format_int(n_rows)} records")
+    parts: list[str] = []
+
+    rows = profile.get("loaded_rows", profile.get("n_rows"))
+    if rows is None:
+        rows = _count_records(artifact_dir)
+    if rows is not None:
+        parts.append(f"{_format_int(rows)} records")
+
     signals = report.get("candidate_signals") if "candidate_signals" in report else None
     if isinstance(signals, list) and signals:
         parts.append(f"{_format_int(len(signals))} candidate patterns")
-    charts = (report.get("charts") if "charts" in report else []) or []
-    plots = (report.get("plots") if "plots" in report else []) or []
-    n_visuals = len(charts) + len(plots)
+
+    charts = report.get("charts") if "charts" in report else None
+    plots = report.get("plots") if "plots" in report else None
+    n_visuals = len(charts or []) + len(plots or []) if charts is not None or plots is not None else 0
     if n_visuals:
         parts.append(f"{_format_int(n_visuals)} visuals")
-    return " · ".join(parts)
+
+    if confirm:
+        parts.append("validation attached")
+    if fix_report:
+        parts.append("fix results attached")
+
+    return " · ".join(parts) if parts else "Report sections below contain the run details."
 
 
-def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> None:
+def _overview_metrics(
+    report: dict[str, Any],
+    artifact_dir: Path,
+    *,
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> list[tuple[str, str, str]]:
+    profile = report.get("data_profile") or {}
+    observations = report.get("observations") if "observations" in report else None
+    signals = report.get("candidate_signals") if "candidate_signals" in report else None
+    charts = report.get("charts") if "charts" in report else None
+    plots = report.get("plots") if "plots" in report else None
+    hypotheses = report.get("hypotheses") if "hypotheses" in report else None
+
+    rows = profile.get("loaded_rows", profile.get("n_rows"))
+    if rows is None:
+        rows = _count_records(artifact_dir)
+
+    raw_metrics: list[tuple[str, Any, str]] = [
+        _verdict_metric(report),
+        ("Records", rows, "cases analysed"),
+        (
+            "Candidate patterns",
+            len(signals) if isinstance(signals, list) else None,
+            "possible follow-ups",
+        ),
+        (
+            "Hypotheses",
+            len(hypotheses) if isinstance(hypotheses, list) and hypotheses else None,
+            "proposed, not validated",
+        ),
+        (
+            "Visuals",
+            len(charts or []) + len(plots or []) if charts is not None or plots is not None else None,
+            "analysis charts",
+        ),
+        ("Findings", len(observations) if isinstance(observations, list) else None, "takeaways"),
+        ("Validation", "Yes" if confirm else None, "held-out results"),
+        ("Fix", "Yes" if fix_report else None, "repair results"),
+    ]
+    return [(label, _format_int(value), caption) for label, value, caption in raw_metrics if value is not None]
+
+
+def _render_overview_metrics(metrics: list[tuple[str, str, str]]) -> None:
+    if not metrics:
+        return
+
+    cols = st.columns(len(metrics))
+    for idx, (col, (label, value, caption)) in enumerate(zip(cols, metrics, strict=False)):
+        lead = " ev-metric-lead" if idx == 0 and label == "Confirmed" else ""
+        with col:
+            st.markdown(
+                f"""
+                <div class="ev-metric-card{lead}">
+                  <div class="ev-metric-label">{_html_escape(label)}</div>
+                  <div class="ev-metric-value">{_html_escape(value)}</div>
+                  <div class="ev-metric-caption">{_html_escape(caption)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def _render_report_overview(
+    root: Path,
+    turn: dict[str, Any],
+    report: dict[str, Any],
+    artifact_dir: Path,
+    *,
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> None:
     ok = bool(report.get("ok"))
     status = "finished" if ok else "failed"
     status_class = "ev-pill-ok" if ok else "ev-pill-fail"
@@ -3013,29 +3110,34 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
     question = str(report.get("question") or "Exploratory analysis")
     plain_question = str(report.get("plain_question") or "").strip()
     title = plain_question or _short_report_title(question)
-    subtitle = _header_subtitle(report)
     has_technical = bool(
         plain_question and question.strip() and question.strip() != plain_question
     )
     verdict_text, verdict_class = _verdict_sentence(report)
+    stage = _analysis_stage_label(confirm, fix_report)
+    scope = _overview_scope_sentence(report, artifact_dir, confirm=confirm, fix_report=fix_report)
 
     st.markdown(
         f"""
-        <div class="ev-header">
+        <div class="ev-header ev-report-overview">
           <div>
-            <div class="ev-kicker">Exploratory Data Analysis</div>
+            <div class="ev-kicker">EvalVitals Analysis Report</div>
             <h1>{_html_escape(title)}</h1>
+            <div class="ev-overview-stage">{_html_escape(stage)}</div>
             <div class="ev-verdict-line {verdict_class}">{_html_escape(verdict_text)}</div>
-            <div class="ev-path">{_html_escape(subtitle)}</div>
+            <div class="ev-path">{_html_escape(scope)}</div>
           </div>
           <div class="ev-header-right">
             <span class="ev-pill {status_class}">{status}</span>
-            <span class="ev-pill">{_html_escape(str(turn["name"]))}</span>
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    _render_overview_metrics(
+        _overview_metrics(report, artifact_dir, confirm=confirm, fix_report=fix_report)
+    )
+
     with st.expander("View full research question and run details", expanded=False):
         st.markdown("**Full research question**")
         st.markdown(_html_escape(question))
@@ -3050,59 +3152,11 @@ def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> 
             "status": status,
             "report": turn["name"],
             "report_type": "exploratory_report.json / fused_report.json",
+            "analysis_stage": stage,
+            "validation_results": bool(confirm),
+            "fix_results": bool(fix_report),
+            "attempts": report.get("attempts"),
         })
-
-
-def _render_top_metrics(report: dict[str, Any], root: Path | None = None) -> None:
-    profile = report.get("data_profile") or {}
-    # NB: `profile.get("columns") or {}` would turn a missing profile into an
-    # empty dict and render a bare "0 profiled fields", which reads as broken.
-    # Keep None as None so the tile is dropped instead.
-    columns = profile.get("columns")
-    observations = report.get("observations") if "observations" in report else None
-    signals = report.get("candidate_signals") if "candidate_signals" in report else None
-    charts = report.get("charts") if "charts" in report else None
-    plots = report.get("plots") if "plots" in report else None
-    hypotheses = report.get("hypotheses") if "hypotheses" in report else None
-
-    rows = profile.get("loaded_rows", profile.get("n_rows"))
-    if rows is None and root is not None:
-        rows = _count_records(root)
-
-    raw_metrics = [
-        _verdict_metric(report),
-        ("Rows", rows, "cases analysed"),
-        ("Columns", len(columns) if isinstance(columns, dict) and columns else None, "profiled fields"),
-        ("Candidate patterns", len(signals) if isinstance(signals, list) else None, "candidate follow-ups"),
-        ("Hypotheses", len(hypotheses) if isinstance(hypotheses, list) and hypotheses else None, "proposed, not validated"),
-        ("Charts", len(charts or []) + len(plots or []) if charts is not None or plots is not None else None, "visual artifacts"),
-        ("Attempts", report.get("attempts") if "attempts" in report else None, "agent/code runs"),
-        ("Findings", len(observations) if isinstance(observations, list) else None, "observations"),
-    ]
-    # Drop tiles this report never populated instead of showing bare "-" or
-    # zero-value profile cards that read as broken. A real populated zero (for
-    # example zero candidate patterns in a report that explicitly recorded the
-    # field) is still shown.
-    metrics = [(label, _format_int(v), caption) for label, v, caption in raw_metrics if v is not None]
-    if not metrics:
-        return
-
-    cols = st.columns(len(metrics))
-    for idx, (col, (label, value, caption)) in enumerate(zip(cols, metrics, strict=False)):
-        # The verdict tile is emitted first by construction; when adjudication
-        # produced nothing it is dropped and this simply never fires.
-        lead = " ev-metric-lead" if idx == 0 and label == "Confirmed" else ""
-        with col:
-            st.markdown(
-                f"""
-                <div class="ev-metric-card{lead}">
-                  <div class="ev-metric-label">{_html_escape(label)}</div>
-                  <div class="ev-metric-value">{_html_escape(value)}</div>
-                  <div class="ev-metric-caption">{_html_escape(caption)}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
 
     if report.get("error"):
         st.error(report["error"])
@@ -3701,6 +3755,11 @@ def _inject_css() -> None:
           color: var(--ev-muted);
           font-size: 0.82rem;
           word-break: break-all;
+        }
+        .ev-overview-stage {
+          color: var(--ev-text-secondary);
+          font-size: 0.88rem;
+          margin: -0.05rem 0 0.35rem;
         }
         .ev-header-right {
           display: flex;
