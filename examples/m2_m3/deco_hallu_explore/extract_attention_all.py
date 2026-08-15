@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).parent
-LOOP_DIR = HERE.parent.parent / "diagnosis_loops" / "deco_hallu"
+LOOP_DIR = HERE.parent.parent / "m1_m4" / "deco_hallu"
 sys.path.insert(0, str(LOOP_DIR))  # reuse run.py's manifest loader (images incl.)
 
 OUT_DATA = HERE / "data_attn_full"
