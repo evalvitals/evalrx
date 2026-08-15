@@ -31,7 +31,7 @@ from evalvitals.models.tools import zoom_in_tool
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_IMAGE = os.path.join(
-    HERE, "..", "..", "diagnosis_loops", "deco_pope", "data", "images",
+    HERE, "..", "..", "m1_m4", "deco_pope", "data", "images",
     "COCO_val2014_000000006033.jpg",
 )
 DEFAULT_QUESTION = (
