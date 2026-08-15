@@ -1,6 +1,0 @@
-# Eval agent + pre-registered hypothesis example.
-# Uses synthetic (no-model) strategies for the demo; swap strategy_fn for real models.
-
-n_cases: 60         # total cases; split into explore / validate / confirm
-alpha: 0.05
-min_effect: 0.03    # pre-declared minimum practical effect
