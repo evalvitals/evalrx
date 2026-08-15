@@ -3068,8 +3068,8 @@ def _overview_metrics(
             "analysis charts",
         ),
         ("Findings", len(observations) if isinstance(observations, list) else None, "takeaways"),
-        ("Validation", "Available" if confirm else None, "held-out results"),
-        ("Fix", "Available" if fix_report else None, "repair results"),
+        ("Validation", "Yes" if confirm else None, "held-out results"),
+        ("Fix", "Yes" if fix_report else None, "repair results"),
     ]
     return [(label, _format_int(value), caption) for label, value, caption in raw_metrics if value is not None]
 

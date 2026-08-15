@@ -270,7 +270,7 @@ def test_standalone_dashboard_overview_summarizes_validation_without_raw_metadat
     blob = " ".join(str(m.value) for m in at.markdown)
     assert 'ev-metric-label">Records</div>' in blob
     assert 'ev-metric-label">Validation</div>' in blob
-    assert 'ev-metric-value">Available</div>' in blob
+    assert 'ev-metric-value">Yes</div>' in blob
     assert "Bundle:" in " ".join(str(c.value) for c in at.caption)
 
 
