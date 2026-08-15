@@ -1,0 +1,24 @@
+services:
+  qwen2_audio_tcd_mmau:
+    build:
+      context: ../../..
+      dockerfile: examples/agent_loop/qwen2_audio_tcd_mmau/Dockerfile
+    image: evalvitals-qwen2-audio-tcd-mmau
+    environment:
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - HF_HOME=/hf_cache
+    volumes:
+      - ${HF_HOME:-~/.cache/huggingface}:/hf_cache
+      - ./outputs:/app/example/outputs
+      - ./data:/app/example/data   # downloaded MMAU manifest + decoded WAVs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      sh -c "python download_mmau.py --limit 120 && python run.py --model qwen2-audio-7b-instruct --limit 120"

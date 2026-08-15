@@ -170,7 +170,9 @@ class FixCandidate:
                      (L0 contrastive decoding through an opt-in backend) |
                      ``"opera"`` (L3a attention-over-trust penalty for a
                      one-token binary decision) | ``"ifcd"`` (L3b paired
-                     TruthX internal edits) | ``"visual_search"`` (L2 question-guided crop through an
+                     TruthX internal edits) | ``"tcd"`` (L3a gated temporal
+                     contrastive decoding for audio multi-choice QA) |
+                     ``"visual_search"`` (L2 question-guided crop through an
                      opt-in backend).
         payload:     Kind-specific — template: ``{"prompt_template": ...}``;
                      spec: a :class:`~.fix_tools.PipelineSpec` dict;
@@ -366,6 +368,11 @@ class FixAgent:
                           (default) means L4 candidates are recorded but not
                           executed, same as before this executor existed.
                           See :func:`~.fix_internals.run_lora_repair`.
+        verbose:          When ``True``, print this agent's own tier-routing /
+                          candidate-generation / validation-verdict narration
+                          to stdout (``evalvitals.enable_console_logging()``).
+                          Redundant when the owning ``VLDiagnoseLoop`` was
+                          already constructed with ``verbose=True``.
     """
 
     def __init__(
@@ -388,7 +395,16 @@ class FixAgent:
         paper_methods_only: bool = False,
         candidate_allowlist: "Iterable[str] | None" = None,
         finetune_pool: "CaseBatch | None" = None,
+        verbose: bool = False,
     ) -> None:
+        if verbose:
+            # Surfaces this module's own logger.info()/.warning() calls (tier
+            # routing, candidate generation, validation verdicts) — see
+            # VLDiagnoseLoop's verbose= for the same convenience one layer up.
+            from evalvitals.logging_utils import enable_console_logging
+
+            enable_console_logging()
+
         self._judge = judge
         self._finetune_pool = finetune_pool
         self.max_tier = parse_tier(max_tier)
@@ -740,6 +756,9 @@ class FixAgent:
         has_images = any(
             getattr(getattr(case, "inputs", None), "image", None) is not None for case in data
         )
+        has_audio = any(
+            getattr(getattr(case, "inputs", None), "audio", None) is not None for case in data
+        )
         tasks = {
             str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data
         }
@@ -777,6 +796,7 @@ class FixAgent:
                 prior_text,
                 prior_names,
                 has_images=has_images,
+                has_audio=has_audio,
                 tasks=tasks,
                 binary_hallucination_supported=binary_hallucination_supported,
             )
@@ -1625,6 +1645,7 @@ class FixAgent:
         prior_names: "frozenset[str]" = frozenset(),
         *,
         has_images: bool = False,
+        has_audio: bool = False,
         tasks: "set[str] | None" = None,
         binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
@@ -1775,6 +1796,44 @@ class FixAgent:
                         "start_layer": 2,
                         "end_layer": 32,
                     },
+                )
+            )
+        # TCD (Li et al. 2026, arXiv:2604.15383) is a decoding-time repair for
+        # unified audio-language models, targeting "temporal smoothing bias" on
+        # multi-choice audio QA (the paper's own benchmark, MMAU, is 4-way
+        # multiple choice) -- not a POPE-style yes_no task, so this is scoped
+        # separately from the VCD/ICD/OPERA binary-hallucination candidates
+        # above rather than folded into them. Needs ATTENTION (the decoder's
+        # audio-attention ratio drives both the stability score and the
+        # per-step gate) on top of the audio encoder's own hidden states, so
+        # it belongs at L3a like OPERA, not L0 like VCD.
+        tcd_fidelity = paper_fidelity("tcd") if callable(paper_fidelity) else "unavailable"
+        if (
+            has_audio
+            and tasks == {"multiple_choice"}
+            and callable(getattr(model, "generate_tcd", None))
+            and callable(getattr(model, "generate_tcd_baseline", None))
+            and (
+                tcd_fidelity == "native_layer_matched_stability"
+                or (
+                    tcd_fidelity == "adapted_truncated_layer_stability"
+                    and self._allow_adapted_paper_methods
+                )
+            )
+            and "tcd_temporal_blur" not in prior_names
+        ):
+            # No payload tuning: Table 6's own framing is "a single default
+            # configuration... requires little tuning" -- the blur window and
+            # update scale are already per-example adaptive (Eq. 5-6), so an
+            # empty payload runs generate_tcd() at TCDHyperparams() defaults
+            # rather than inventing a sweep the paper itself doesn't do.
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L3A_INTERNALS_READ,
+                    name="tcd_temporal_blur",
+                    kind="tcd",
+                    source="paper_default",
+                    payload={},
                 )
             )
         catalog = primitives_catalog_text(model, self.max_tier)
@@ -2072,6 +2131,18 @@ class FixAgent:
                     return None
 
             return pai
+        if candidate.kind == "tcd":
+
+            def tcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_tcd = getattr(model, "generate_tcd")
+                    output = generate_tcd(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("TCD generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return tcd
         if candidate.kind == "visual_search":
 
             def visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":

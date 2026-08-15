@@ -17,6 +17,7 @@ lazily so this module imports on a torch-free install.
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ from evalvitals.core.model import Model, TokenLogprob, Trace
 from evalvitals.core.spec import AttnSemantics
 from evalvitals.core.tool import ChatTurn
 from evalvitals.models.backends.base import Backend, RuntimeConfig
+
+logger = logging.getLogger(__name__)
 
 # capability -> HF forward flag
 _CAPTURE_FLAGS = {
@@ -165,10 +168,13 @@ def _resolve_audio(obj: Any) -> Any:
     ]
     proc = subprocess.run(cmd, capture_output=True, check=False)
     if proc.returncode != 0:
+        logger.warning("ffmpeg failed to decode audio %r: %s", obj, proc.stderr.decode(errors="replace"))
         raise RuntimeError(
             f"ffmpeg failed to decode audio {obj!r}: {proc.stderr.decode(errors='replace')}"
         )
-    return np.frombuffer(proc.stdout, dtype="<f4").copy()
+    wav = np.frombuffer(proc.stdout, dtype="<f4").copy()
+    logger.debug("decoded audio %r via ffmpeg: %.1fs @ %dHz", obj, len(wav) / AUDIO_SAMPLE_RATE, AUDIO_SAMPLE_RATE)
+    return wav
 
 
 def _check_audio_duration(audios: list, processor: Any, model_key: str) -> None:
@@ -191,8 +197,14 @@ def _check_audio_duration(audios: list, processor: Any, model_key: str) -> None:
     limit_samples = int(chunk_length) * int(sampling_rate)
     for i, wav in enumerate(audios):
         if len(wav) > limit_samples:
+            duration_sec = len(wav) / sampling_rate
+            logger.warning(
+                "%s: audio[%d] is %.1fs, longer than the %ds encoder window — refusing rather "
+                "than letting the processor silently truncate it",
+                model_key, i, duration_sec, chunk_length,
+            )
             raise ValueError(
-                f"{model_key}: audio[{i}] is {len(wav) / sampling_rate:.1f}s, longer than "
+                f"{model_key}: audio[{i}] is {duration_sec:.1f}s, longer than "
                 f"this checkpoint's {chunk_length}s encoder window — it would be silently "
                 "truncated rather than raising inside the processor. Chunk the audio yourself "
                 "before calling, or accept a documented context window in the caller."
@@ -277,6 +289,11 @@ class HFLocalModel(Model):
         must retain that distinction rather than treating a same-formula port
         to a different model architecture as a paper reproduction.
         """
+        fidelity = self._paper_method_fidelity_impl(method)
+        logger.debug("%s: paper_method_fidelity(%r) -> %r", self.spec.key, method, fidelity)
+        return fidelity
+
+    def _paper_method_fidelity_impl(self, method: str) -> str:
         if method == "vcd":
             # The executor uses the released corruption, plausibility cutoff,
             # and per-token sampler. Image-specific seeding keeps paired
@@ -313,6 +330,24 @@ class HFLocalModel(Model):
                 "native_attention_cfg_specialization"
                 if self.spec.model_type == "llava"
                 else "unavailable"
+            )
+        if method == "tcd":
+            if self.spec.audio is None:
+                return "unavailable"
+            # Eq. 4 zips per-layer encoder stability with per-layer decoder
+            # audio-attention ratio index-for-index — faithful only when both
+            # towers have the same layer count. Qwen2-Audio-Instruct's
+            # Whisper-style encoder and Qwen2 decoder both have 32 layers
+            # (verified against the live config, not assumed); the paper's
+            # own hyperparameters (Appendix A) are anchored on this
+            # checkpoint. Every other registered audio spec has a depth
+            # mismatch (e.g. Qwen2.5-Omni: 32 encoder / 28 decoder), so
+            # generate_tcd truncates both to min(...) there instead of
+            # raising -- report that truncation as an adaptation.
+            return (
+                "native_layer_matched_stability"
+                if self.spec.key == "qwen2-audio-7b-instruct"
+                else "adapted_truncated_layer_stability"
             )
         return "unavailable"
 
@@ -359,12 +394,13 @@ class HFLocalModel(Model):
             config._attn_implementation = "eager"
             import warnings
 
-            warnings.warn(
+            msg = (
                 f"wrapped model used attn_implementation={current!r}; set it to 'eager' for "
                 "attention capture. If attentions come back empty, reload the model with "
-                "from_pretrained(..., attn_implementation='eager').",
-                stacklevel=2,
+                "from_pretrained(..., attn_implementation='eager')."
             )
+            logger.warning(msg)
+            warnings.warn(msg, stacklevel=2)
 
     def unembed_weight(self):
         """The lm_head / unembedding weight ``(vocab, dim)`` for logit-lens."""
@@ -387,9 +423,16 @@ class HFLocalModel(Model):
 
     # -- lazy load -----------------------------------------------------
     def load(self) -> None:
+        import time
+
         import torch
         import transformers
 
+        start = time.monotonic()
+        logger.info(
+            "loading %s from %s (backend=hf_local, dtype=%s, device=%s)",
+            self.spec.key, self.spec.hf_repo, self.runtime.dtype, self.runtime.device,
+        )
         auto_cls = getattr(transformers, self.spec.auto_class)
         proc_cls = getattr(transformers, self.spec.processor_class, transformers.AutoProcessor)
 
@@ -430,11 +473,17 @@ class HFLocalModel(Model):
             if "tools" not in template:
                 import warnings
 
-                warnings.warn(
+                msg = (
                     f"{self.spec.key!r}: spec.tool_calling=True but the chat template has no "
                     "'tools' handling — tool-calling may not render. Verify the checkpoint."
                 )
+                logger.warning(msg)
+                warnings.warn(msg)
         self._hf = (model, processor)
+        logger.info(
+            "loaded %s in %.1fs (capabilities=%s)",
+            self.spec.key, time.monotonic() - start, sorted(c.value for c in self.capabilities),
+        )
 
     @property
     def _loaded(self):
@@ -593,6 +642,10 @@ class HFLocalModel(Model):
         RNG, so a frozen selection/confirmation split remains reproducible if
         case order changes.  That seed policy is recorded as a specialization.
         """
+        logger.debug(
+            "%s: generate_vcd(alpha=%s, beta=%s, noise_step=%s, noise_seed=%s)",
+            self.spec.key, alpha, beta, noise_step, noise_seed,
+        )
         if not self.spec.is_vlm:
             raise ValueError("VCD visual contrast requires a VLM")
         image = getattr(inputs, "image", None)
@@ -644,6 +697,7 @@ class HFLocalModel(Model):
         paper-method comparison, so the white-box runner calls this method
         whenever it freezes the VCD candidate.
         """
+        logger.debug("%s: generate_vcd_baseline(noise_seed=%s)", self.spec.key, noise_seed)
         if not self.spec.is_vlm:
             raise ValueError("VCD clean control requires a VLM")
         image = getattr(inputs, "image", None)
@@ -702,6 +756,10 @@ class HFLocalModel(Model):
         one-token Yes/No task.  Applying a first-token shortcut to free-form
         generation would not implement ICD's token-by-token sampler.
         """
+        logger.debug(
+            "%s: generate_instruction_cd(alpha=%s, beta=%s, qformer_mode=%r)",
+            self.spec.key, alpha, beta, qformer_mode,
+        )
         if not self.spec.is_vlm:
             raise ValueError("instruction contrast requires a VLM")
         image = getattr(inputs, "image", None)
@@ -762,6 +820,7 @@ class HFLocalModel(Model):
 
     def generate_vicrop(self, inputs: Any, *, layer: int | float = 14) -> str:
         """Run the architecture-native LLaVA ViCrop paper executor."""
+        logger.debug("%s: generate_vicrop(layer=%s)", self.spec.key, layer)
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
         from evalvitals.models.paper_methods.vicrop import generate
@@ -786,6 +845,10 @@ class HFLocalModel(Model):
         """
         import torch
 
+        logger.debug(
+            "%s: generate_opera_binary(num_attn_candidates=%s, penalty_weight=%s)",
+            self.spec.key, num_attn_candidates, penalty_weight,
+        )
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: OPERA binary route is only native on LLaVA")
         if int(num_attn_candidates) < 1:
@@ -857,6 +920,10 @@ class HFLocalModel(Model):
         import torch
         from transformers.generation.logits_process import LogitsProcessorList
 
+        logger.debug(
+            "%s: generate_ifcd(alpha=%s, beta=%s, edit_strength=%s, top_layers=%s)",
+            self.spec.key, alpha, beta, edit_strength, top_layers,
+        )
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: IFCD is only wired for LLaVA's Vicuna decoder")
         checkpoint = self.runtime.engine_kwargs.get("ifcd_checkpoint")
@@ -899,6 +966,210 @@ class HFLocalModel(Model):
         tok = getattr(processor, "tokenizer", processor)
         return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
 
+    def generate_tcd(
+        self,
+        inputs: Any,
+        *,
+        max_new_tokens: int | None = None,
+        hyperparams: "Any | None" = None,
+    ) -> str:
+        """Run Temporal Contrastive Decoding (Li et al. 2026, arXiv:2604.15383).
+
+        Cannot be built as a ``model.generate(logits_processor=[...])`` bolt-on
+        the way VCD/IFCD/PAI are: a :class:`~transformers.LogitsProcessor` only
+        ever sees ``(input_ids, scores)``, never the forward pass's attention
+        weights, and TCD's gate (Eq. 8) needs the CURRENT step's decoder
+        attention to audio tokens. So this runs its own greedy decode loop,
+        holding two KV caches (original audio / Hann-blurred slow-path audio,
+        Eq. 1) and calling the model directly each step -- exactly what VCD's
+        processor already does for its single contrastive branch, just applied
+        to both branches here, with ``output_attentions=True`` on the original
+        branch to get the audio-attention ratio for free from the same forward
+        (matches the paper's own reported ~1.00x decode-step overhead, Table 7:
+        the attention weights are already computed internally, not an extra
+        pass).
+
+        The per-example blur window and update scale (Eq. 5-6) are derived
+        from a stability score (Eq. 2-4) computed ONCE before decoding starts,
+        from (a) the audio encoder's own per-layer hidden-state trajectory on
+        the *unblurred* audio, and (b) the decoder's per-layer attention to
+        audio tokens during the prefill -- see
+        :func:`evalvitals.models.paper_methods.tcd.aggregate_stability` for
+        why those two must have equal layer counts to be faithful, and
+        ``paper_method_fidelity("tcd")`` for which registered specs qualify.
+        """
+        from evalvitals.core.case import Inputs
+        from evalvitals.models.paper_methods import tcd
+
+        hp = hyperparams or tcd.TCDHyperparams()
+        logger.debug(
+            "%s: generate_tcd(l_attn=%s, tau=%s, gamma_gate=%s)",
+            self.spec.key, hp.l_attn, hp.tau, hp.gamma_gate,
+        )
+        if self.spec.audio is None:
+            raise ValueError(f"{self.spec.key}: TCD requires an audio-capable spec")
+        audio = getattr(inputs, "audio", None) if isinstance(inputs, Inputs) else None
+        if audio is None or isinstance(audio, (list, tuple)):
+            raise ValueError("TCD requires exactly one audio clip")
+
+        import torch
+
+        model, processor = self._loaded
+        tok = getattr(processor, "tokenizer", processor)
+        waveform = _resolve_audio(audio)
+        original_inputs = Inputs(
+            prompt=self._as_prompt(inputs),
+            image=getattr(inputs, "image", None),
+            audio=waveform,
+            video=getattr(inputs, "video", None),
+        )
+        enc, ids, _tokens, _ttm = self._encode_vlm(original_inputs, model, processor)
+        enc.pop("token_type_ids", None)
+        audio_token_id = _read_nested_attr(
+            model.config, self.spec.audio.audio_token_id_attr, default=None
+        )
+        if audio_token_id is None:
+            raise ValueError(f"{self.spec.key}: could not resolve the audio-token id from config")
+        audio_mask = torch.tensor(ids, device=enc["input_ids"].device) == int(audio_token_id)
+        if not bool(audio_mask.any()):
+            raise ValueError(f"{self.spec.key}: no audio tokens found in the encoded prompt")
+
+        audio_tower = _read_nested_attr(model, self.spec.audio.audio_tower, default=None)
+        if audio_tower is None:
+            raise ValueError(
+                f"{self.spec.key}: could not resolve audio_tower={self.spec.audio.audio_tower!r}"
+            )
+
+        # -- Eq. 2-3: encoder-side per-layer stability, on the UNBLURRED audio --
+        with torch.no_grad():
+            audio_out = audio_tower(
+                enc["input_features"], output_hidden_states=True, return_dict=True
+            )
+        # hidden_states[0] is pre-layer-0 embeddings, not a layer's own output.
+        # Verified against Qwen2AudioEncoder.forward: entries 1..N-1 are the
+        # RAW pre-pool output of layers 0..N-2 (seq_len == max_source_positions,
+        # e.g. 1500), but the LAST entry (N) is layer N-1's output after
+        # avg_pooler + layer_norm have already run -- half the seq_len and a
+        # LayerNorm-pinned scale, not a like-for-like continuation of the rest.
+        # layer_stability's M_l/F_l are computed independently per entry (no
+        # cross-layer diffs), so this doesn't break Eq. 2-3, but it does mean
+        # the LAST layer's S_l sits on a different footing before Eq. 4
+        # softmax-weights it back in -- an approximation, not a bug, and one
+        # this codebase's convention is to say plainly rather than round off.
+        encoder_states = [h[0].float() for h in audio_out.hidden_states[1:]]
+        layer_stability_scores = tcd.layer_stability(encoder_states, eps=hp.eps)
+
+        # -- prefill: original branch (also seeds its KV cache) --
+        with torch.no_grad():
+            prefill = model(**enc, use_cache=True, output_attentions=True, return_dict=True)
+        if not getattr(prefill, "attentions", None):
+            raise ValueError(f"{self.spec.key}: TCD requires eager self-attention outputs")
+
+        # -- Eq. 4: aggregate stability, weighted by the decoder's per-layer
+        # audio-attention ratio from that same prefill. See
+        # paper_method_fidelity("tcd") for the equal-layer-count requirement
+        # this truncation is standing in for on a mismatched-depth spec.
+        # Indexed straight off prefill.attentions (still bf16) one layer at a
+        # time -- audio_attention_ratio does its own float() per call, so this
+        # never holds more than one layer's fp32 copy at once. A real MMAU clip
+        # is ~780 tokens; materializing all 32 layers' (heads, 780, 780) fp32
+        # attentions up front, as an earlier version of this method did, would
+        # be several GB of copies purely for a scalar-per-layer reduction. --
+        n_layers = min(layer_stability_scores.shape[0], len(prefill.attentions))
+        layer_ratio = torch.stack(
+            [
+                tcd.audio_attention_ratio(prefill.attentions[i][0], audio_mask)
+                for i in range(n_layers)
+            ]
+        )
+        stability = tcd.aggregate_stability(
+            layer_stability_scores[:n_layers], layer_ratio, temperature=hp.tau
+        )
+        window_ms, lam = tcd.adaptive_blur_params(stability, hp)
+        logger.debug(
+            "%s: generate_tcd stability=%.4f window_ms=%.2f lam=%.4f",
+            self.spec.key, stability, window_ms, lam,
+        )
+
+        # -- Eq. 1: blur + re-encode (once, up front -- not per decode step) --
+        blurred_waveform = tcd.hann_blur_waveform(waveform, AUDIO_SAMPLE_RATE, window_ms)
+        blurred_inputs = Inputs(
+            prompt=original_inputs.prompt, image=original_inputs.image,
+            audio=blurred_waveform, video=original_inputs.video,
+        )
+        blurred_enc, _, _, _ = self._encode_vlm(blurred_inputs, model, processor)
+        blurred_enc.pop("token_type_ids", None)
+        with torch.no_grad():
+            blurred_prefill = model(**blurred_enc, use_cache=True, return_dict=True)
+
+        eos_ids = set()
+        if getattr(tok, "eos_token_id", None) is not None:
+            eos_ids.add(int(tok.eos_token_id))
+        gen_eos = getattr(getattr(model, "generation_config", None), "eos_token_id", None)
+        if isinstance(gen_eos, (list, tuple, set)):
+            eos_ids.update(int(e) for e in gen_eos)
+        elif gen_eos is not None:
+            eos_ids.add(int(gen_eos))
+
+        max_new = int(max_new_tokens or self.runtime.max_new_tokens)
+        original_kv = prefill.past_key_values
+        blurred_kv = blurred_prefill.past_key_values
+        z = prefill.logits[0, -1].float()
+        z_tilde = blurred_prefill.logits[0, -1].float()
+        last_layers_attn = [a[0].float() for a in prefill.attentions[-hp.l_attn :]]
+        mask = audio_mask.clone()
+        generated: list[int] = []
+
+        with torch.no_grad():
+            for _ in range(max_new):
+                r_t = float(
+                    torch.stack(
+                        [tcd.audio_attention_ratio(a, mask) for a in last_layers_attn]
+                    ).mean()
+                )
+                entropy_hat = tcd.topk_renormalized_entropy(z, hp.k_ent)
+                gate_value = tcd.reliance_gate(r_t, entropy_hat, hp)
+                fused = tcd.fuse_logits(z, z_tilde, lam=lam, gate_value=gate_value, hp=hp)
+                next_id = int(torch.argmax(fused))
+                if next_id in eos_ids:
+                    break
+                generated.append(next_id)
+
+                next_input = torch.tensor([[next_id]], device=z.device)
+                out = model(
+                    input_ids=next_input, past_key_values=original_kv,
+                    use_cache=True, output_attentions=True, return_dict=True,
+                )
+                out_tilde = model(
+                    input_ids=next_input, past_key_values=blurred_kv,
+                    use_cache=True, return_dict=True,
+                )
+                original_kv = out.past_key_values
+                blurred_kv = out_tilde.past_key_values
+                z = out.logits[0, -1].float()
+                z_tilde = out_tilde.logits[0, -1].float()
+                last_layers_attn = [a[0].float() for a in out.attentions[-hp.l_attn :]]
+                mask = torch.cat([mask, torch.zeros(1, dtype=torch.bool, device=mask.device)])
+
+        return tok.decode(generated, skip_special_tokens=True)
+
+    def generate_tcd_baseline(self, inputs: Any, *, max_new_tokens: int | None = None) -> str:
+        """Greedy baseline paired with :meth:`generate_tcd`.
+
+        ``generate_tcd`` is greedy by construction (Eq. 9's fused logits feed
+        a plain argmax, no sampler). ``Qwen2-Audio-7B-Instruct``'s own
+        ``generation_config`` defaults to ``do_sample=True`` (temperature 0.7,
+        top_p 0.5, top_k 20) -- calling the bare :meth:`generate` for a
+        baseline would inherit that and silently pair a sampled arm against a
+        greedy one, exactly the mismatch ``generate_vcd_baseline`` exists to
+        avoid for VCD (see its docstring). The paper's own baseline is
+        greedy too (Table 7's "Baseline (Greedy)"; Section 4.1).
+        """
+        logger.debug("%s: generate_tcd_baseline()", self.spec.key)
+        if self.spec.audio is None:
+            raise ValueError(f"{self.spec.key}: TCD requires an audio-capable spec")
+        return self.generate(inputs, max_new_tokens=max_new_tokens, do_sample=False)
+
     def generate_vicrop_consensus(
         self,
         inputs: Any,
@@ -914,6 +1185,7 @@ class HFLocalModel(Model):
         """
         import re
 
+        logger.debug("%s: generate_vicrop_consensus(layer=%s)", self.spec.key, layer)
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
         from evalvitals.models.paper_methods.vicrop import prepare_views
@@ -957,6 +1229,10 @@ class HFLocalModel(Model):
         """
         import torch
 
+        logger.debug(
+            "%s: generate_pai(alpha=%s, guidance_scale=%s, start_layer=%s, end_layer=%s)",
+            self.spec.key, alpha, guidance_scale, start_layer, end_layer,
+        )
         if self.spec.model_type != "llava":
             raise ValueError(f"{self.spec.key}: PAI is only native on the LLaVA executor")
         model, processor = self._loaded

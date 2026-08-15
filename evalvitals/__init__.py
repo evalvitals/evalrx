@@ -44,6 +44,8 @@ Equivalent ways to run an analysis:
     model = compose("qwen2.5-7b-instruct", "hf_local", want={evalvitals.Capability.ATTENTION})
 """
 
+import logging as _logging
+
 # Importing these populates the registry (models + analyzers self-register).
 import evalvitals.analyzers as _analyzers  # noqa: E402,F401
 from evalvitals.config import AnalysisConfig, load_config
@@ -57,8 +59,15 @@ from evalvitals.core import (
     registry,
 )
 from evalvitals.core.tool import Tool, ToolCall
+from evalvitals.logging_utils import disable_console_logging, enable_console_logging
 from evalvitals.models import Agent, RuntimeConfig, compose, load, load_model, wrap
 from evalvitals.specs import get_spec, list_specs
+
+# Library hygiene: silent by default (no "No handlers could be found" noise,
+# no raw unformatted last-resort stderr output for a stray .warning() call)
+# until a caller opts in via evalvitals.enable_console_logging(). See
+# logging_utils.py's module docstring for the full rationale.
+_logging.getLogger("evalvitals").addHandler(_logging.NullHandler())
 
 __version__ = "0.1.1"
 __all__ = [
@@ -84,6 +93,8 @@ __all__ = [
     "CaseBatch",
     "Capability",
     "registry",
+    "enable_console_logging",
+    "disable_console_logging",
 ]
 
 
