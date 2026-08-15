@@ -600,8 +600,8 @@ inside the container and writes findings to `outputs/`.
    `VLDiagnoseLoop` example above; build a `CaseBatch` of `FailureCase`
    objects instead of `failure_cases` and call `loop.run(cases)`.
 2. **Add a Dockerfile + docker-compose.yml** mirroring one of the concrete
-   example directories under `examples/analyzer_demos/`, `examples/m2_statistics/`,
-   or `examples/diagnosis_loops/`.
+   example directories under `examples/analyzer_demos/`, `examples/m2_m3/`,
+   or `examples/m1_m3/` / `examples/m1_m4/`.
 3. **Submit the container:**
 
 ```bash
@@ -610,8 +610,8 @@ docker compose up
 
 Outputs (logs, analyzer artifacts, hypotheses) are written to `outputs/` in
 the container, mounted to your local directory via the compose volume. See
-`examples/diagnosis_loops/qwen_loop_agy/` and
-`examples/diagnosis_loops/qwen_video_temporal/` for complete working examples.
+`examples/m1_m3/qwen_loop_agy/` and
+`examples/m1_m3/qwen_video_temporal/` for complete working examples.
 
 ### Mode 2 — Natural-Language Description (Agent Writes the Container)
 
@@ -799,4 +799,4 @@ result = analyzer._run(model, CaseBatch([case_with_trajectory]))
 # High flip_rate ⇒ that step was causally influential.
 ```
 
-Full runnable example: `examples/diagnosis_loops/eval_agent/` (no API key needed, `docker compose up`).
+Full runnable example: `examples/preregistered_ab_demo/eval_agent/` (no API key needed, `docker compose up`).
