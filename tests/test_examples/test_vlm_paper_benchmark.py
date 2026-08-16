@@ -17,7 +17,7 @@ def _load_runner():
     # lean `[dev]` + torch-only matrix).
     pytest.importorskip("openai")
     path = (
-        Path(__file__).resolve().parents[2] / "examples" / "vlm_paper_benchmark" / "run_autofix.py"
+        Path(__file__).resolve().parents[2] / "examples" / "m4" / "vlm_paper_benchmark" / "run_autofix.py"
     )
     spec = importlib.util.spec_from_file_location("vlm_paper_benchmark_runner", path)
     module = importlib.util.module_from_spec(spec)
@@ -30,6 +30,7 @@ def _load_downloader():
     path = (
         Path(__file__).resolve().parents[2]
         / "examples"
+        / "m4"
         / "vlm_paper_benchmark"
         / "download_benchmarks.py"
     )
@@ -48,6 +49,7 @@ def _load_vicrop():
     path = (
         Path(__file__).resolve().parents[2]
         / "examples"
+        / "m4"
         / "vlm_paper_benchmark"
         / "run_hf_vicrop.py"
     )
@@ -68,7 +70,7 @@ def _load_hf_runner(module_name: str = "vlm_paper_hf"):
     # _load_runner() above -- same skip-cleanly requirement applies here.
     pytest.importorskip("openai")
     path = (
-        Path(__file__).resolve().parents[2] / "examples" / "vlm_paper_benchmark" / "run_hf_autofix.py"
+        Path(__file__).resolve().parents[2] / "examples" / "m4" / "vlm_paper_benchmark" / "run_hf_autofix.py"
     )
     sys.path.insert(0, str(path.parent))
     try:
@@ -89,7 +91,7 @@ def test_mllms_know_paper_case_and_unit_normalization():
 
 
 def test_pope_conditions_remain_separate_paper_slices():
-    root = Path(__file__).resolve().parents[2] / "examples" / "vlm_paper_benchmark"
+    root = Path(__file__).resolve().parents[2] / "examples" / "m4" / "vlm_paper_benchmark"
     papers = json.loads((root / "papers.json").read_text())["papers"]
     by_id = {paper["id"]: paper for paper in papers}
 
@@ -179,7 +181,7 @@ def test_vcd_source_pope_prompt_keeps_the_released_one_word_instruction():
 
 
 def test_paper_casebook_has_mechanism_defined_cases():
-    root = Path(__file__).resolve().parents[2] / "examples" / "vlm_paper_benchmark"
+    root = Path(__file__).resolve().parents[2] / "examples" / "m4" / "vlm_paper_benchmark"
     casebook = json.loads((root / "paper_casebook.json").read_text())
     cases = casebook["cases"]
 
@@ -194,7 +196,7 @@ def test_paper_casebook_has_mechanism_defined_cases():
 
 
 def test_literature_matrix_covers_eleven_source_papers():
-    root = Path(__file__).resolve().parents[2] / "examples" / "vlm_paper_benchmark"
+    root = Path(__file__).resolve().parents[2] / "examples" / "m4" / "vlm_paper_benchmark"
     matrix = json.loads((root / "literature_matrix.json").read_text())
 
     assert len(matrix["papers"]) >= 11
