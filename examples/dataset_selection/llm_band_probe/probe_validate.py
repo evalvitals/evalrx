@@ -50,18 +50,32 @@ class EndpointModel(Model):
     capabilities = frozenset({Capability.GENERATE})
     modalities = frozenset({"text"})
 
-    def __init__(self, max_tokens: int = 3072, temperature: float = 0.0):
+    def __init__(self, max_tokens: int = 3072,
+                 temperature: float = B.SAMPLING["temperature"],
+                 sampling: dict | None = None):
         self.max_tokens = max_tokens
         self.temperature = temperature
+        # Greedy decoding sends this model into verbatim self-verification loops
+        # that run to the token cap; every probe reading such a chain would be
+        # measuring the decoding config. See SAMPLING in band_locate.
+        self.sampling = (
+            {k: v for k, v in B.SAMPLING.items() if k != "temperature"}
+            if sampling is None else sampling
+        )
         self.n_calls = 0
+        self.n_truncated = 0
 
     def generate(self, inputs, **kwargs):
         self.n_calls += 1
-        return B.generate(
+        text, reason = B.generate(
             str(inputs.prompt),
             kwargs.get("max_tokens", self.max_tokens),
             kwargs.get("temperature", self.temperature),
+            sampling=self.sampling,
         )
+        if reason == "length":
+            self.n_truncated += 1
+        return text
 
     def logprobs(self, inputs, **kwargs):  # pragma: no cover
         raise NotImplementedError
@@ -87,11 +101,22 @@ def collect_baseline(spec: B.Spec, n: int, concurrency: int, max_tokens: int) ->
 
     grade = spec.grader or B.answer_equal
 
+    sampling = {k: v for k, v in B.SAMPLING.items() if k != "temperature"}
+
     def _one(item):
         question, gold = item
-        prompt = f"{question}\n\n{spec.instruction}"
-        output = B.generate(prompt, max_tokens, 0.0)
-        ok = bool(grade(B.extract_answer(output), gold))
+        prompt = (
+            f"{question}\n\n{spec.instruction}" if spec.append_instruction
+            else question
+        )
+        output, _ = B.generate(
+            prompt, max_tokens, B.SAMPLING["temperature"], sampling=sampling
+        )
+        # a spec whose gold spans lines is graded on the whole generation, the
+        # same way band_locate grades it — otherwise PASS/FAIL here would
+        # disagree with the band the dataset was chosen on
+        graded_text = output if spec.grades_raw_output else B.extract_answer(output)
+        ok = bool(grade(graded_text, gold))
         return FailureCase(
             inputs=Inputs(prompt=prompt),
             observed=output,

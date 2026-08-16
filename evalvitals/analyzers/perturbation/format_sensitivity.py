@@ -36,7 +36,15 @@ if TYPE_CHECKING:
     from evalvitals.core.case import CaseBatch, FailureCase
     from evalvitals.core.model import Model
 
-_OPTION_LINE = re.compile(r"^[ \t]*([A-Z])[.)][ \t]+(.+?)[ \t]*$", re.MULTILINE)
+#: Matches ``A. opt``, ``A) opt`` and ``(A) opt``.
+#:
+#: The leading ``\(?`` is not cosmetic. BBH, AGIEval and several MMLU
+#: redistributions write ``(A) blue ball``, and without it the letter is not at
+#: the start of the line, so the whole block matched nothing and the analyzer
+#: reported ``n_scored=0`` on a purely multiple-choice benchmark — a silent
+#: no-op that still spent a generation budget getting there.
+_OPTION_LINE = re.compile(r"^[ \t]*\(?([A-Z])[.)][ \t]+(.+?)[ \t]*$", re.MULTILINE)
+_PAREN_OPTION = re.compile(r"^[ \t]*\([A-Z]\)")
 _MAX_LETTERS = 26
 
 
@@ -84,7 +92,16 @@ def extract_options(case: "FailureCase") -> tuple[list[str], Optional[str]]:
     return options, block
 
 
-def render_options(options: list[str]) -> str:
+def render_options(options: list[str], paren: bool = False) -> str:
+    """Render a rotated block, keeping the prompt's own letter style.
+
+    ``paren`` matters for correctness, not looks: this probe isolates POSITIONAL
+    bias by rotating options. Re-rendering a ``(A)`` block as ``A.`` would change
+    the delimiter at the same time as the position, so any flip it measured
+    could be either cause.
+    """
+    if paren:
+        return "\n".join(f"({chr(65 + i)}) {opt}" for i, opt in enumerate(options))
     return "\n".join(f"{chr(65 + i)}. {opt}" for i, opt in enumerate(options))
 
 
@@ -102,7 +119,10 @@ def parse_choice(output: str, n_options: int) -> str:
     last = chr(64 + n)  # 'A' + n - 1
     text = str(output or "")
     marked = re.findall(
-        rf"(?:answer|choice|option|final)\s*(?:is)?\s*[:=-]?\s*([A-{last}])\b",
+        # \(? so a model that answers in the prompt's own style -- "Answer: (A)"
+        # on a "(A) ..." block -- is read as a tagged answer rather than falling
+        # through to the positional fallback below
+        rf"(?:answer|choice|option|final)\s*(?:is)?\s*[:=-]?\s*\(?([A-{last}])\b",
         text,
         re.IGNORECASE,
     )
@@ -134,7 +154,8 @@ class FormatSensitivityAnalyzer(Analyzer):
         prompt: str, block: Optional[str], options: list[str], shift: int
     ) -> tuple[str, list[str]]:
         rotated = options[shift:] + options[:shift]
-        rotated_block = render_options(rotated)
+        paren = bool(block) and bool(_PAREN_OPTION.match(block))
+        rotated_block = render_options(rotated, paren=paren)
         if block:
             # identical restatements of the same block rotate together
             return prompt.replace(block, rotated_block), rotated

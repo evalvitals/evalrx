@@ -1,0 +1,32 @@
+# musicavqa_avcd — audio-visual QA failure diagnosis (VideoLLaMA2.1-7B-AV on
+# Music-AVQA). AVCD paper (arXiv 2505.20862) studies unimodal/cross-modal
+# hallucination in exactly this model on the related AVHBench; Music-AVQA is
+# a public audio-visual QA benchmark with the same Audio/Visual/Audio-Visual
+# question-type split, letting the loop discover the analogous failure here.
+model: videollama2.1-7b-av
+model_path: /content/drive/MyDrive/av_llm_project/models/VideoLLaMA2.1-7B-AV
+
+# Judge for M1 selection / M2 / M3 / M5 + codegen coder — both are `claude -p`
+# CLI calls (this Colab session's own authenticated `claude` binary).
+judge_model: claude-opus-4-8
+judge_effort: low
+codegen_model: claude-opus-4-8
+codegen_effort: low
+codegen_budget_usd: 2.0
+codegen_timeout_sec: 240
+
+# Fix module. VideoLLaMA2AVModel's forward() genuinely returns hidden_states
+# (always) and attentions (only when run.py is given --want-attention, which
+# forces eager attention at load time) — see videollama2_model.py's module
+# docstring for the one gap: no token_type_map yet (video/audio token span
+# boundaries are input-length-dependent; localizing them needs empirical
+# verification against real weights, not done on this CPU-only host), so
+# L3a analyzers that need per-token modality localization will not resolve
+# through this handle yet. L3b (write internals / modify forward pass) is
+# not implemented at all. L3a is the realistic ceiling; raise only once
+# --want-attention has been verified end-to-end on real weights.
+fix_max_tier: L3a
+fix_validation_cases: 12   # stratified subset (~6 FAIL + 6 PASS); CPU/mock runs
+                           # are slow per case, keep this small for smoke tests
+fix_exec_timeout_sec: 1200
+fix_repair_rounds: 2

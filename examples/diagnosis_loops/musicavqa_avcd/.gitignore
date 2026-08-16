@@ -1,0 +1,8 @@
+# Mined case manifests, loop outputs and run logs are reproducible local
+# artifacts, never repository inputs.
+data/
+data_cases_*/
+outputs/
+outputs_*/
+run_logs/
+__pycache__/

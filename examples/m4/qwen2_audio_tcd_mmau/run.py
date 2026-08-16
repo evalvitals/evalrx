@@ -37,10 +37,11 @@ from evalvitals.specs import get_spec
 HERE = Path(__file__).parent
 DATA = HERE / "data"
 OUT = HERE / "outputs"
+MANIFEST = DATA / "mmau_test_mini.jsonl"
 
 
 def load_records(limit: int | None = None) -> list[dict[str, Any]]:
-    manifest = DATA / "mmau_test_mini.jsonl"
+    manifest = MANIFEST
     if not manifest.is_file():
         raise SystemExit(f"{manifest} does not exist -- run download_mmau.py first")
     records = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line]
@@ -290,6 +291,16 @@ def main() -> int:
         "allow_adapted_paper_methods": args.allow_adapted_paper_methods,
         "judge_enabled": args.judge,
         "candidate_allowlist": None if args.unrestricted else ["tcd_temporal_blur"],
+        # Where the stimuli live. The report records per-case outcomes by id
+        # only; the dashboard's case-study view (evalvitals/analysis/
+        # case_studio.py) needs this pointer to re-join each id to its question,
+        # options and .wav so a human can play the clip and answer it. Written
+        # relative to this file's directory so the pair stays portable.
+        "dataset": {
+            "manifest": str(MANIFEST.relative_to(HERE)),
+            "media_field": "audio_path",
+            "media_kind": "audio",
+        },
         "splits": {
             "diagnosis": len(diagnosis_rows),
             "selection": len(selection_rows),

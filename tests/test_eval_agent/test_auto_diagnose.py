@@ -126,11 +126,58 @@ def test_probe_agent_only_compatible_analyzers():
     assert set(results.keys()) <= compatible
 
 
-def test_probe_agent_skips_mandatory_arg_analyzer_with_warning(recwarn):
+def test_probe_agent_does_not_select_an_analyzer_it_cannot_build(recwarn):
+    """It used to be selected and then dropped at instantiation with a warning.
+
+    That spent a selection slot on something that could never run. Selection now
+    rejects it up front, so no warning is reached — and, on a single-turn batch,
+    `counterfactual` would be rejected on the data shape as well.
+    """
     model = FakeModel(capabilities={Capability.GENERATE, Capability.TOOL_CALLS})
     agent = ProbeAgent()
-    agent.probe(model, CaseBatch([FailureCase(inputs=Inputs(prompt="x"))]))
+    results = agent.probe(model, CaseBatch([FailureCase(inputs=Inputs(prompt="x"))]))
+    assert "counterfactual" not in results
+    assert not any("counterfactual" in str(w.message) for w in recwarn.list)
+
+
+def test_make_analyzer_still_warns_when_called_directly(recwarn):
+    """The instantiation guard stays as a backstop for callers that force a name."""
+    assert ProbeAgent()._make_analyzer("counterfactual") is None
     assert any("counterfactual" in str(w.message) for w in recwarn.list)
+
+
+def test_single_turn_batch_is_not_offered_trajectory_analyzers():
+    """The bug this gate exists for: analyzers/agent/ declares no capability, so
+    every one of them matched a plain QA batch. `first_error_judge` was selected,
+    ran, and reported n_trajectories=0 -- which M2 listed as a healthy metric."""
+    from evalvitals.eval_agent.stages.probe_agent import (
+        _analyzer_data_preconditions_met,
+    )
+
+    single_turn = CaseBatch([FailureCase(inputs=Inputs(prompt="2+2?"))])
+    for name in ("first_error_judge", "ignored_obs", "loop_detect",
+                 "trajectory_rubric", "tool_shap", "counterfactual"):
+        assert not _analyzer_data_preconditions_met(name, single_turn), name
+
+
+def test_trajectory_batch_still_admits_them():
+    from evalvitals.eval_agent.stages.probe_agent import (
+        _analyzer_data_preconditions_met,
+    )
+
+    traj = _traj_batch(n_fail=1, n_pass=1)
+    for name in ("first_error_judge", "loop_detect", "counterfactual"):
+        assert _analyzer_data_preconditions_met(name, traj), name
+
+
+def test_non_agent_analyzers_are_unaffected_by_the_gate():
+    from evalvitals.eval_agent.stages.probe_agent import (
+        _analyzer_data_preconditions_met,
+    )
+
+    single_turn = CaseBatch([FailureCase(inputs=Inputs(prompt="2+2?"))])
+    for name in ("self_consistency", "format_sensitivity", "arith_audit"):
+        assert _analyzer_data_preconditions_met(name, single_turn), name
 
 
 def test_probe_agent_uses_override():
