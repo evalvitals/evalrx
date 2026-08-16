@@ -1,4 +1,4 @@
-# musicavqa_avcd — audio-visual QA failure diagnosis (VideoLLaMA2.1-7B-AV on
+# musicavqa_videollama2 — audio-visual QA failure diagnosis (VideoLLaMA2.1-7B-AV on
 # Music-AVQA). AVCD paper (arXiv 2505.20862) studies unimodal/cross-modal
 # hallucination in exactly this model on the related AVHBench; Music-AVQA is
 # a public audio-visual QA benchmark with the same Audio/Visual/Audio-Visual

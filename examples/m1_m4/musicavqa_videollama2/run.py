@@ -1,6 +1,6 @@
-"""musicavqa_avcd — Mode-1 container input: frozen AVQA answers + protocol -> VLDiagnoseLoop.
+"""musicavqa_videollama2 — Mode-1 container input: frozen AVQA answers + protocol -> VLDiagnoseLoop.
 
-Audio-visual analogue of examples/diagnosis_loops/deco_chair: an audio-visual
+Audio-visual analogue of examples/m1_m4/deco_chair: an audio-visual
 LLM (VideoLLaMA2.1-7B-AV) answers Music-AVQA questions that need audio AND
 video evidence (AVCD paper, arXiv 2505.20862, studies exactly this failure
 mode — unimodal/cross-modal hallucination in AV-LLMs). This run.py only

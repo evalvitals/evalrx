@@ -1,4 +1,4 @@
-# musicavqa_avcd
+# musicavqa_videollama2
 
 Audio-visual QA failure diagnosis: **VideoLLaMA2.1-7B-AV** on **Music-AVQA**,
 following the failure family studied by AVCD (arXiv 2505.20862) —

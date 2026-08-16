@@ -1,6 +1,6 @@
-"""Offline miner (musicavqa_avcd) — Music-AVQA questions -> frozen manifest.
+"""Offline miner (musicavqa_videollama2) — Music-AVQA questions -> frozen manifest.
 
-Mirrors examples/diagnosis_loops/deco_chair/mine_cases.py's shape: run the
+Mirrors examples/m1_m4/deco_chair/mine_cases.py's shape: run the
 model once, offline, over a sampled question pool; label each case
 PASS/FAIL by comparing the model's answer to the dataset's ground truth;
 freeze to data/cases/{model_key}.json so run.py's loop never needs to know
