@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from evalvitals.analysis import case_studio as cs
 from evalvitals.analysis.dashboard import load_run
 from evalvitals.reporting.stages import stage_specs_as_dicts
 from evalvitals.viz.labels import display_name
@@ -61,6 +63,10 @@ def main() -> None:
         _render_loop_story(root, session["story"], runs)
         return
 
+    if session.get("kind") == "casebench":
+        render_case_study_run(root, session, selected)
+        return
+
     if not runs:
         _render_empty(root)
         return
@@ -83,11 +89,9 @@ def render_explore_report(root: Path, turn: dict[str, Any]) -> None:
     turn_dir = Path(turn["dir"])
     report = turn["report"]
 
-    _render_header(root, turn, report)
-    _render_top_metrics(report, turn_dir)
-
     confirm = _load_sibling_json(turn_dir, "confirm_report.json")
     fix_report = _load_sibling_json(turn_dir, "fix_report.json")
+    _render_report_overview(root, turn, report, turn_dir, confirm=confirm, fix_report=fix_report)
 
     tabs = st.tabs(EXPLORE_TAB_LABELS)
     with tabs[0]:
@@ -129,8 +133,564 @@ def render_explore_report(root: Path, turn: dict[str, Any]) -> None:
 # rather than vanish (see render_explore_report).
 EXPLORE_TAB_LABELS = [
     "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-    "4 Held-out Verdicts", "5 Fix",
+    "4 Validation results", "5 Fix",
 ]
+
+# A paper-method bench run (examples/**/run.py) — see case_studio.py. Same
+# numbered-tab grammar as the explore layout so the reader doesn't re-learn
+# the page, but the middle tab is a per-case stimulus browser rather than a
+# chart gallery: the benchmark is audio/image, so a human has to be able to
+# play the clip and answer the question before judging a repair.
+CASEBENCH_TAB_LABELS = ["1 Run Overview", "2 Case Study", "3 Repair Methods"]
+
+#: Container MIME types Streamlit's <audio> element needs spelled out.
+_AUDIO_MIME = {
+    ".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac",
+    ".ogg": "audio/ogg", ".opus": "audio/ogg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+}
+
+_FLIP_PILL = {
+    cs.FLIP_REPAIRED: ("ev-pill-ok", "repaired this case"),
+    cs.FLIP_BROKE: ("ev-pill-fail", "broke this case"),
+    cs.FLIP_UNCHANGED: ("ev-pill", "no change"),
+    cs.FLIP_UNTESTED: ("ev-pill", "not in the sweep"),
+}
+
+
+def render_case_study_run(root: Path, session: dict[str, Any], selected: int = 0) -> None:
+    """Render one paper-method bench report as a playable case book.
+
+    The report records outcomes per case id; :mod:`case_studio` joins those to
+    the benchmark manifest so this view can show the actual stimulus. Three
+    tabs: what the run did, the cases themselves (play / answer / compare), and
+    what each repair candidate actually was."""
+    studies = session.get("case_studies") or []
+    if not studies:
+        _render_empty(root)
+        return
+    study = studies[min(max(selected, 0), len(studies) - 1)]
+
+    _render_casebench_header(root, study)
+    for note in study.notes:
+        st.caption(f"⚠︎ {note}")
+
+    tabs = st.tabs(CASEBENCH_TAB_LABELS)
+    with tabs[0]:
+        _render_casebench_overview(study)
+    with tabs[1]:
+        _render_case_study_tab(study)
+    with tabs[2]:
+        _render_repair_methods_tab(study)
+
+
+def _render_casebench_header(root: Path, study: Any) -> None:
+    report = study.report
+    paper = str(report.get("paper") or study.name)
+    st.markdown(
+        f"""
+        <div class="ev-header">
+          <div class="ev-kicker">Paper-method bench run</div>
+          <h1>{_html_escape(paper.upper())} · {_html_escape(str(report.get('model', '?')))}</h1>
+          <div class="ev-path">{_html_escape(str(study.report_path))}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    fidelity = str(report.get("paper_method_fidelity") or "—")
+    splits = report.get("splits") or {}
+    baseline = report.get("baseline") or {}
+    tiles = [
+        ("Cases with a stimulus", _format_int(sum(1 for c in study.cases if not c.unresolved)),
+         f"{study.media_kind} benchmark"),
+        ("Baseline accuracy · selection", _pct(_split_accuracy(baseline, "selection")),
+         f"n={_format_int((splits or {}).get('selection'))}"),
+        ("Baseline accuracy · confirmation", _pct(_split_accuracy(baseline, "confirmation")),
+         f"n={_format_int((splits or {}).get('confirmation'))}"),
+        ("Repair candidates tried", _format_int(len(study.candidates)),
+         f"max tier {report.get('max_tier', '—')}"),
+        ("Method fidelity", fidelity.replace("_", " "), str(report.get("backend", ""))),
+    ]
+    cols = st.columns(len(tiles))
+    for col, (label, value, caption) in zip(cols, tiles):
+        with col:
+            st.markdown(
+                f"""
+                <div class="ev-metric-card">
+                  <div class="ev-metric-label">{_html_escape(label)}</div>
+                  <div class="ev-metric-value">{_html_escape(str(value))}</div>
+                  <div class="ev-metric-caption">{_html_escape(caption)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def _split_accuracy(baseline: dict[str, Any], split: str) -> float | None:
+    block = baseline.get(split)
+    if not isinstance(block, dict):
+        return None
+    value = block.get("accuracy")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _pct(value: float | None) -> str:
+    return "—" if value is None else f"{value:.0%}"
+
+
+def _render_casebench_overview(study: Any) -> None:
+    report = study.report
+    st.markdown(
+        '<div class="ev-section-head">'
+        '<div class="ev-section-title">What this run tested</div>'
+        '<div class="ev-section-sub">A frozen baseline probe, a diagnosis/selection split, a '
+        "repair sweep validated pairwise on the selection split, and (when a candidate wins) a "
+        "held-out confirmation pass.</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    hypothesis = report.get("hypothesis") or {}
+    statement = str(hypothesis.get("statement") or "")
+    if statement:
+        st.markdown(
+            f"""
+            <div class="ev-report-answer">
+              <div class="ev-brief-label">Hypothesis under test
+                 · {_html_escape(str(hypothesis.get('predicted_failure_mode', '')))}</div>
+              <div class="ev-report-answer-text">{_html_escape(statement)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    splits = report.get("splits") or {}
+    baseline = report.get("baseline") or {}
+    st.dataframe(pd.DataFrame([
+        {
+            "split": name,
+            "n": (baseline.get(name) or {}).get("n", splits.get(name)),
+            "baseline correct": (baseline.get(name) or {}).get("correct"),
+            "baseline accuracy": _split_accuracy(baseline, name),
+            "used for": {
+                "diagnosis": "forming the hypothesis",
+                "selection": "choosing a repair (the sweep runs here)",
+                "confirmation": "held-out re-test of the winner",
+            }[name],
+        }
+        for name in cs.SPLITS if baseline.get(name) or splits.get(name)
+    ]), width="stretch", hide_index=True)
+
+    confirmation = (report.get("auto_fix") or {}).get("confirmation") or {}
+    if confirmation.get("skipped"):
+        st.info(
+            f"Confirmation was skipped — {confirmation['skipped']}. No candidate cleared "
+            "selection, so nothing was re-tested on held-out data and this run has no "
+            "confirmed repair."
+        )
+    elif confirmation:
+        st.markdown("#### Held-out confirmation")
+        st.dataframe(pd.DataFrame([confirmation]), width="stretch", hide_index=True)
+
+    scored = [c for c in study.cases if c.baseline_correct is not None and c.metadata]
+    keys = cs.facet_keys(scored)
+    if keys:
+        st.markdown("#### Where the baseline fails")
+        key = st.selectbox("Break accuracy down by", keys, key=f"ev_cs_facet_break::{study.name}")
+        rows = cs.accuracy_by_facet(scored, key)
+        if rows:
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.caption(
+            "Baseline arm only, pooled over every split that recorded per-case rows — a "
+            "descriptive breakdown of this run's own probe, not a benchmark result."
+        )
+
+    recommendation = ((report.get("auto_fix") or {}).get("selection") or {}).get("recommendation")
+    if isinstance(recommendation, dict):
+        st.markdown(
+            f"""
+            <div class="ev-report-answer">
+              <div class="ev-brief-label">Recommendation</div>
+              <div class="ev-report-answer-text">Escalate to
+                {_html_escape(str(recommendation.get('recommend_tier', '')))} —
+                {_html_escape(str(recommendation.get('reason', '')))}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("Raw report JSON", expanded=False):
+        st.json(report)
+
+
+# ---------------------------------------------------------------------------
+# Case study tab
+# ---------------------------------------------------------------------------
+
+_OUTCOME_FILTERS = {
+    "all": "Every case",
+    "baseline_wrong": "Baseline answered wrong",
+    "baseline_right": "Baseline answered right",
+    "repaired": "Repaired by some candidate",
+    "broke": "Broken by some candidate",
+    "flipped": "Flipped either way",
+}
+
+
+def _case_filter_keys(study: Any) -> dict[str, str]:
+    """Session-state keys for this study's filter widgets (kept per report so
+    two reports open in one session don't fight over one filter)."""
+    return {
+        "case": f"ev_cs_case::{study.name}",
+        "split": f"ev_cs_split::{study.name}",
+        "outcome": f"ev_cs_outcome::{study.name}",
+        "blind": f"ev_cs_blind::{study.name}",
+    }
+
+
+def _jump_to_case(study: Any, case_id: str) -> None:
+    """Select *case_id* in the Case Study tab and clear the filters that could
+    hide it — used by the Repair Methods tab's per-case buttons. Runs as a
+    widget callback, i.e. before the next script run builds the widgets."""
+    keys = _case_filter_keys(study)
+    st.session_state[keys["case"]] = case_id
+    st.session_state[keys["split"]] = "all"
+    st.session_state[keys["outcome"]] = "all"
+
+
+def _filter_cases(cases: list[Any], *, split: str, outcome: str) -> list[Any]:
+    out = [c for c in cases if split in ("all", c.split)]
+    if outcome == "baseline_wrong":
+        out = [c for c in out if c.baseline_correct is False]
+    elif outcome == "baseline_right":
+        out = [c for c in out if c.baseline_correct is True]
+    elif outcome == "repaired":
+        out = [c for c in out if c.flipped_by()]
+    elif outcome == "broke":
+        out = [c for c in out if c.broken_by()]
+    elif outcome == "flipped":
+        out = [c for c in out if c.flipped_by() or c.broken_by()]
+    return out
+
+
+def _render_case_study_tab(study: Any) -> None:
+    keys = _case_filter_keys(study)
+    st.markdown(
+        '<div class="ev-section-head">'
+        '<div class="ev-section-title">Case study — play it, answer it, then see what happened'
+        "</div>"
+        '<div class="ev-section-sub">Every case the run scored, with its actual stimulus. '
+        "Answer first with blind mode on if you want your own read of the item before the "
+        "model's answer and the repair verdicts are revealed.</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    controls = st.columns([1.1, 1.2, 1.6])
+    blind = controls[0].toggle(
+        "Blind mode", value=True, key=keys["blind"],
+        help="Hide the correct answer, the model's answer and the repair verdicts "
+             "until you lock in your own answer.",
+    )
+    splits_present = [s for s in cs.SPLITS if any(c.split == s for c in study.cases)]
+    split = controls[1].selectbox(
+        "Split", ["all", *splits_present], key=keys["split"],
+        format_func=lambda s: "All splits" if s == "all" else s,
+    )
+    # Filtering by outcome would leak the answer, so blind mode drops every
+    # option but "all" — and clears a stale selection first, since a session
+    # value outside the option list is undefined behaviour for the widget.
+    outcome_options = list(_OUTCOME_FILTERS) if not blind else ["all"]
+    if st.session_state.get(keys["outcome"]) not in outcome_options:
+        st.session_state[keys["outcome"]] = "all"
+    outcome = controls[2].selectbox(
+        "Outcome filter", outcome_options, key=keys["outcome"],
+        format_func=lambda k: _OUTCOME_FILTERS[k],
+        help="Disabled in blind mode — filtering by outcome would leak the answer.",
+    )
+
+    cases = _filter_cases(study.cases, split=split, outcome=outcome)
+    if not cases:
+        st.info("No case matches these filters.")
+        return
+
+    ids = [c.id for c in cases]
+    if st.session_state.get(keys["case"]) not in ids:
+        st.session_state[keys["case"]] = ids[0]
+    by_id = {c.id: c for c in cases}
+    st.selectbox(
+        f"Case ({len(ids)} shown)", ids, key=keys["case"],
+        format_func=lambda cid: cs.case_label(by_id[cid], blind=blind),
+    )
+    case = by_id[st.session_state[keys["case"]]]
+
+    nav = st.columns([1, 1, 6])
+    index = ids.index(case.id)
+    if nav[0].button("← Prev", disabled=index == 0, key=f"ev_cs_prev::{study.name}"):
+        st.session_state[keys["case"]] = ids[index - 1]
+        st.rerun()
+    if nav[1].button("Next →", disabled=index == len(ids) - 1, key=f"ev_cs_next::{study.name}"):
+        st.session_state[keys["case"]] = ids[index + 1]
+        st.rerun()
+
+    _render_case_panel(study, case, blind=blind)
+    _render_human_scoreboard(study)
+
+
+def _render_case_panel(study: Any, case: Any, *, blind: bool) -> None:
+    answers = st.session_state.setdefault(f"ev_cs_answers::{study.name}", {})
+    answered = case.id in answers
+    revealed = answered or not blind
+
+    media_col, qa_col = st.columns([1, 1.35])
+    with media_col:
+        _render_case_media(case)
+    with qa_col:
+        _render_case_question(study, case, answers=answers, revealed=revealed)
+
+    if revealed:
+        _render_case_outcomes(study, case, human=answers.get(case.id))
+    else:
+        st.caption("Lock in an answer (or switch blind mode off) to reveal the model's answer "
+                   "and what each repair did to this case.")
+
+
+def _render_case_media(case: Any) -> None:
+    media = case.media
+    if media.kind == "none":
+        st.info("This case has no media file in the manifest — it is text-only, or the "
+                "manifest row is missing.")
+    elif not media.exists:
+        st.warning(f"Media file not found: `{media.declared or '?'}`")
+    elif media.kind == "audio":
+        path = Path(media.path)
+        try:
+            st.audio(path.read_bytes(),
+                     format=_AUDIO_MIME.get(path.suffix.lower(), "audio/wav"))
+        except OSError as exc:
+            st.warning(f"Could not read the audio file: {exc}")
+    elif media.kind == "image":
+        st.image(media.path, width="stretch")
+
+    facts = []
+    if case.duration_sec is not None:
+        facts.append(f"{case.duration_sec:.1f}s")
+    facts.extend(f"{k}: {v}" for k, v in (case.metadata or {}).items()
+                 if not isinstance(v, (dict, list)))
+    if facts:
+        st.caption(" · ".join(str(f) for f in facts))
+    st.caption(f"`{case.id}` · {case.split} split")
+
+
+def _render_case_question(study: Any, case: Any, *, answers: dict[str, str], revealed: bool) -> None:
+    if case.unresolved:
+        st.warning("No manifest row for this case id — outcomes only, no question text.")
+        return
+    if not case.question:
+        st.caption("The manifest row carries no question field.")
+        return
+
+    st.markdown(f"**{_html_escape(case.question)}**", unsafe_allow_html=True)
+    if not case.choices:
+        st.caption("Open-ended case (no options in the manifest).")
+        return
+
+    letters = [letter for letter, _ in case.choices]
+    labels = {letter: f"{letter}. {text}" for letter, text in case.choices}
+    picked_key = f"ev_cs_pick::{study.name}::{case.id}"
+    current = answers.get(case.id)
+    st.radio(
+        "Your answer", letters, key=picked_key,
+        index=letters.index(current) if current in letters else None,
+        format_func=lambda letter: labels[letter],
+    )
+
+    buttons = st.columns([1, 1, 3])
+    if buttons[0].button("Lock in", key=f"ev_cs_lock::{study.name}::{case.id}"):
+        chosen = st.session_state.get(picked_key)
+        if chosen:
+            answers[case.id] = chosen
+            st.rerun()
+        else:
+            st.warning("Pick an option first.")
+    if case.id in answers and buttons[1].button(
+        "Clear", key=f"ev_cs_clear::{study.name}::{case.id}"
+    ):
+        answers.pop(case.id, None)
+        st.rerun()
+
+    if revealed and case.expected:
+        human = answers.get(case.id)
+        expected_line = f"Correct answer: **{case.expected}**"
+        if case.expected_text:
+            expected_line += f" — {case.expected_text}"
+        st.markdown(expected_line)
+        if human:
+            mark = "✅ you got it" if human == case.expected else f"❌ you answered {human}"
+            st.markdown(mark)
+
+
+def _render_case_outcomes(study: Any, case: Any, *, human: str | None) -> None:
+    st.markdown("#### What the model answered, and what each repair did")
+    correctness = (
+        "—" if case.baseline_correct is None
+        else ("correct" if case.baseline_correct else "wrong")
+    )
+    pill = ("ev-pill-ok" if case.baseline_correct
+            else "ev-pill-fail" if case.baseline_correct is False else "ev-pill")
+    st.markdown(
+        f"""
+        <div class="ev-evidence-card">
+          <div class="ev-evidence-card-top">
+            <span class="ev-evidence-name">Baseline (unmodified decode)</span>
+            <span class="ev-pill {pill}">{correctness}</span>
+          </div>
+          <div class="ev-evidence-summary">answered
+            <code>{_html_escape(case.baseline_output or '(empty)')}</code>
+            · expected <code>{_html_escape(case.expected or '?')}</code>
+            {f"· you answered <code>{_html_escape(human)}</code>" if human else ""}
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if not case.flips:
+        st.caption(
+            "No repair candidate was validated on this case — the sweep runs on the "
+            "selection split only."
+        )
+        return
+
+    notes = {c["name"]: c for c in study.candidates}
+    rows = []
+    for name, flip in case.flips.items():
+        candidate = notes.get(name, {})
+        rows.append({
+            "candidate": name,
+            "tier": candidate.get("tier", ""),
+            "effect on this case": _FLIP_PILL.get(flip, ("", flip))[1],
+            "verdict on the split": candidate.get("verdict", ""),
+            "method": candidate.get("note", ""),
+        })
+    rows.sort(key=lambda r: (r["effect on this case"] == "no change", r["candidate"]))
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    st.caption(
+        "“no change” means the candidate scored this case the same way the baseline did; "
+        "the report does not distinguish that from a case the candidate never applied to. "
+        "Candidate answer text is not recorded — see the Repair Methods tab for what each "
+        "candidate actually changes."
+    )
+
+
+def _render_human_scoreboard(study: Any) -> None:
+    answers = st.session_state.get(f"ev_cs_answers::{study.name}") or {}
+    if not answers:
+        return
+    graded = [(cid, pick) for cid, pick in answers.items() if study.case_by_id(cid)]
+    if not graded:
+        return
+    human_correct = sum(
+        1 for cid, pick in graded if pick == (study.case_by_id(cid).expected or "").upper()
+    )
+    model_correct = sum(
+        1 for cid, _ in graded if study.case_by_id(cid).baseline_correct
+    )
+    cols = st.columns(3)
+    cols[0].metric("You", f"{human_correct}/{len(graded)}")
+    cols[1].metric("Model, same cases", f"{model_correct}/{len(graded)}")
+    cols[2].metric("Gap", f"{human_correct - model_correct:+d}")
+    st.caption(
+        "Your answers live in this browser session only — they are never written back "
+        "into the run's report."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Repair methods tab
+# ---------------------------------------------------------------------------
+
+
+def _render_repair_methods_tab(study: Any) -> None:
+    st.markdown(
+        '<div class="ev-section-head">'
+        '<div class="ev-section-title">Repair methods — what was actually changed</div>'
+        '<div class="ev-section-sub">Every candidate the sweep tried, the mechanism behind '
+        "it, its exact configuration, and the cases it flipped. Each candidate is validated "
+        "pairwise against the unmodified baseline (McNemar + e-value, e-BH across the "
+        "family).</div></div>",
+        unsafe_allow_html=True,
+    )
+    selection = (study.report.get("auto_fix") or {}).get("selection") or {}
+    if not study.candidates:
+        _render_unavailable_panel(
+            "Repair methods",
+            "This run recorded no repair candidates.",
+            "A bench run writes them under `auto_fix.selection.attempted`.",
+        )
+        return
+
+    for line in _fix_narrative(selection):
+        st.markdown(f"- {line}")
+
+    best = str(selection.get("best") or "")
+    st.dataframe(pd.DataFrame([{
+        "": "🏆" if c["name"] == best else "",
+        "tier": c["tier"],
+        "candidate": c["name"],
+        "kind": c["kind"],
+        "source": c["source"],
+        "repaired": c["n_fixed"],
+        "broke": c["n_broken"],
+        "pairs": c["n_pairs"],
+        "effect": c["effect"],
+        "e-value": c["e_value"],
+        "verdict": c["verdict"],
+    } for c in study.candidates]), width="stretch", hide_index=True)
+    if not best:
+        st.caption(
+            "No `best`: no candidate was both individually significant and an e-BH "
+            "survivor across the family, so nothing went on to confirmation."
+        )
+
+    for candidate in study.candidates:
+        _render_candidate_card(study, candidate)
+
+
+def _render_candidate_card(study: Any, candidate: dict[str, Any]) -> None:
+    title = f"{candidate['tier']} · {candidate['name']} — {candidate['verdict'] or 'no verdict'}"
+    with st.expander(title, expanded=False):
+        if candidate["note"]:
+            st.markdown(candidate["note"])
+        st.caption(
+            f"kind `{candidate['kind']}` · source `{candidate['source']}` · "
+            f"{candidate['summary'] or 'no paired summary recorded'}"
+        )
+        if candidate["prompt_template"]:
+            st.markdown("**Prompt template applied to every case**")
+            st.code(candidate["prompt_template"], language="text")
+        if candidate["knobs"]:
+            st.markdown("**Configuration**")
+            st.dataframe(
+                pd.DataFrame([{"setting": k, "value": str(v)}
+                              for k, v in candidate["knobs"].items()]),
+                width="stretch", hide_index=True,
+            )
+        elif candidate["defaults_only"]:
+            st.caption("Empty payload — the method runs at its published defaults.")
+
+        for label, case_ids in (("Repaired", candidate["fixed_cases"]),
+                                ("Broke", candidate["broken_cases"])):
+            if not case_ids:
+                continue
+            st.markdown(f"**{label} {len(case_ids)} case(s)** — open one in the Case Study tab:")
+            for chunk_start in range(0, len(case_ids), 4):
+                chunk = case_ids[chunk_start:chunk_start + 4]
+                for col, case_id in zip(st.columns(4), chunk):
+                    case = study.case_by_id(case_id)
+                    col.button(
+                        _truncate(case.question or case_id, 42) if case else case_id,
+                        key=f"ev_cs_jump::{study.name}::{candidate['name']}::{case_id}",
+                        on_click=_jump_to_case, args=(study, case_id),
+                        width="stretch",
+                    )
 
 
 def _render_unavailable_panel(title: str, what_happened: str, how_to_get_it: str) -> None:
@@ -150,8 +710,24 @@ def _render_sidebar(root: Path, session: dict[str, Any]) -> int:
     kind = session.get("kind", "explore")
 
     st.sidebar.markdown('<div class="ev-sidebar-title">EvalVitals</div>', unsafe_allow_html=True)
-    st.sidebar.caption(str(root))
+    st.sidebar.caption(root.name)
     st.sidebar.markdown(f"**Mode:** {kind}")
+
+    if kind == "casebench":
+        studies = session.get("case_studies") or []
+        st.sidebar.markdown("---")
+        selected = st.sidebar.radio(
+            "Bench reports", range(len(studies)),
+            format_func=lambda i: studies[i].name,
+        ) if len(studies) > 1 else 0
+        study = studies[int(selected)]
+        st.sidebar.metric("Cases", len(study.cases))
+        st.sidebar.metric("Repair candidates", len(study.candidates))
+        st.sidebar.caption(
+            f"Manifest: {study.manifest_path.name}" if study.manifest_path
+            else "No benchmark manifest resolved"
+        )
+        return int(selected)
 
     if not runs:
         return 0
@@ -171,7 +747,11 @@ def _render_sidebar(root: Path, session: dict[str, Any]) -> int:
 
 def _render_empty(root: Path) -> None:
     st.markdown('<div class="ev-hero"><h1>EvalVitals Dashboard</h1></div>', unsafe_allow_html=True)
-    st.warning("No exploratory_report.json / fused_report.json / run_log.jsonl found.")
+    st.warning(
+        "No exploratory_report.json / fused_report.json / run_log.jsonl found, and no "
+        "paper-method bench report (a JSON with `baseline` + `auto_fix`, e.g. an "
+        "examples/**/outputs/*.json) either."
+    )
     st.caption(str(root))
 
 
@@ -526,6 +1106,10 @@ def _render_problem_setting(
     plain_question = str(report.get("plain_question") or "").strip()
     signals = _candidate_signals(report)
     charts = [c for c in report.get("charts", []) if isinstance(c, dict)]
+    chart_count = (
+        len(charts) + len(report.get("plots") or [])
+        if "charts" in report or "plots" in report else None
+    )
 
     matrix = None
     if load_case_matrix is not None:
@@ -568,8 +1152,8 @@ def _render_problem_setting(
     st.markdown(
         '<div class="ev-section-head">'
         '<div class="ev-section-title">Problem Setting</div>'
-        '<div class="ev-section-sub">What data was loaded and how it will be evaluated, '
-        "before any analysis runs.</div>"
+        '<div class="ev-section-sub">What this run studied, what one row means, '
+        "and how to interpret the analysis.</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -593,16 +1177,18 @@ def _render_problem_setting(
             unsafe_allow_html=True,
         )
 
-    cols = st.columns(5)
     metrics = [
         ("Cases", n_cases, "rows/cases loaded"),
         ("Explore", n_explore, "agent discovery split"),
         ("Confirm", n_confirm, "held-out confirmation split"),
-        ("Signals", len(signals) or n_features, "candidate/features"),
-        ("Charts", len(charts) + len(report.get("plots") or []), "analysis visuals"),
+        ("Candidate patterns", len(signals) or n_features, "candidate/features"),
+        ("Charts", chart_count, "analysis visuals"),
     ]
-    for col, (label, value, help_text) in zip(cols, metrics, strict=False):
-        col.metric(label, _format_int(value), help=help_text)
+    metrics = [(label, value, help_text) for label, value, help_text in metrics if value is not None]
+    if metrics:
+        cols = st.columns(len(metrics))
+        for col, (label, value, help_text) in zip(cols, metrics, strict=False):
+            col.metric(label, _format_int(value), help=help_text)
 
     c1, c2 = st.columns([1.15, 1], gap="large")
     with c1:
@@ -650,7 +1236,7 @@ def _render_problem_setting(
             st.info("No structured data profile was saved with this report.")
 
     with c2:
-        st.markdown("#### Evaluation frame")
+        st.markdown("#### How to interpret this analysis")
         # Standalone explore reports have no loop/story at all, so they're
         # always the descriptive framing; a loop run's own story says whether
         # a test phase actually ran.
@@ -681,7 +1267,7 @@ def _render_problem_setting(
         )
         for label, count in stages:
             st.markdown(f"- **{label}:** {count}")
-        # The run directory is already one click away under "Provenance";
+        # The run directory is already one click away under the header details;
         # repeating it here put an absolute home path in the middle of the
         # page, where any screenshot or screen-share carries it along.
 
@@ -1177,17 +1763,102 @@ def _render_raw_data_browser(report: dict[str, Any], turn_dir: Path) -> None:
         st.dataframe(view.head(500), width="stretch", height=420)
 
 
+def _takeaway_headline(takeaway: dict[str, Any]) -> str:
+    plain_title = str(takeaway.get("plain_title") or "").strip()
+    title = str(takeaway.get("title") or "").strip()
+    return plain_title or title or "Finding"
+
+
+def _render_findings_overview(takeaways: list[dict[str, Any]]) -> None:
+    if not takeaways:
+        return
+
+    items = []
+    for i, takeaway in enumerate(takeaways, start=1):
+        chart_count = len(takeaway.get("chart_names") or [])
+        table_count = len(takeaway.get("table_names") or [])
+        meta = [
+            f"{chart_count} visual{'s' if chart_count != 1 else ''}",
+            f"{table_count} source table{'s' if table_count != 1 else ''}",
+        ]
+        if takeaway.get("caveat"):
+            meta.append("caution noted")
+        if takeaway.get("analysis"):
+            meta.append("detail available")
+        items.append(
+            '<div class="ev-finding-index-row">'
+            f'<div class="ev-finding-index-num">{i}</div>'
+            '<div>'
+            f'<div class="ev-finding-index-title">{_html_escape(_takeaway_headline(takeaway))}</div>'
+            f'<div class="ev-finding-index-meta">{_html_escape(" · ".join(meta))}</div>'
+            '</div>'
+            '</div>'
+        )
+    st.markdown(
+        '<div class="ev-findings-overview">'
+        '<div class="ev-findings-overview-kicker">Findings overview</div>'
+        '<div class="ev-findings-overview-sub">'
+        'Skim the conclusions first; open each finding’s details for the full analysis and source data.'
+        '</div>'
+        f'{"".join(items)}'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_takeaway_details(
+    index: int,
+    takeaway: dict[str, Any],
+    *,
+    title: str,
+    headline: str,
+    table_names: list[str],
+    tables: dict[str, Any],
+    turn_dir: Path,
+    referenced_tables: set[str],
+) -> None:
+    has_technical_title = bool(title.strip() and title.strip() != headline.strip())
+    has_detail = bool(
+        has_technical_title
+        or takeaway.get("analysis")
+        or takeaway.get("caveat")
+        or any(name in tables for name in table_names)
+    )
+    if not has_detail:
+        return
+
+    with st.expander(f"Details and source data for finding {index}", expanded=False):
+        if has_technical_title:
+            st.markdown("**Technical title**")
+            st.markdown(_html_escape(title))
+        if takeaway.get("analysis"):
+            st.markdown("**Full analysis**")
+            st.markdown(_html_escape(str(takeaway["analysis"])))
+        if takeaway.get("caveat"):
+            st.markdown("**Caveat**")
+            st.markdown(_html_escape(str(takeaway["caveat"])))
+        for name in table_names:
+            referenced_tables.add(name)
+            source = tables.get(name)
+            if source is None:
+                continue
+            df = _table_to_dataframe(source, turn_dir)
+            if df is not None:
+                with st.expander(f"Source table: {display_name(name)}", expanded=False):
+                    st.dataframe(df, width="stretch", height=220)
+
+
 def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Path) -> None:
     """The primary exploratory-analysis view: pure descriptive EDA, no hypotheses.
 
-    Each takeaway is rendered as title -> its supporting chart(s)/table(s) ->
-    the analysis paragraph, so a reader never has to hunt for the evidence
-    behind a claim in a separate section."""
+    Each takeaway is rendered as a finding -> supporting visual evidence ->
+    compact interpretation, with full analysis and source data available on
+    demand so the page stays scannable."""
     st.markdown(
         '<div class="ev-section-head">'
         '<div class="ev-section-title">Exploratory Analysis</div>'
-        '<div class="ev-section-sub">Descriptive findings only — each takeaway is shown '
-        "with the chart or table that supports it, followed by the analysis.</div>"
+        '<div class="ev-section-sub">Descriptive findings only — skim the evidence cards first, '
+        "then open details for full analysis, caveats, and source data.</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1227,11 +1898,12 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
     referenced_charts: set[str] = set()
     referenced_tables: set[str] = set()
 
+    _render_findings_overview(takeaways)
+
     for i, takeaway in enumerate(takeaways, start=1):
         with st.container(border=True):
             title = str(takeaway.get("title", ""))
-            plain_title = str(takeaway.get("plain_title") or "").strip()
-            headline = plain_title or title
+            headline = _takeaway_headline(takeaway)
             st.markdown(
                 '<div class="ev-takeaway-head">'
                 f'<div class="ev-takeaway-badge">{i}</div>'
@@ -1239,11 +1911,6 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
                 "</div>",
                 unsafe_allow_html=True,
             )
-            if plain_title and title.strip() and title.strip() != plain_title:
-                st.markdown(
-                    f'<div class="ev-signal-test">Technical detail: {_html_escape(title)}</div>',
-                    unsafe_allow_html=True,
-                )
             chart_names = [str(x) for x in takeaway.get("chart_names") or []]
             table_names = [str(x) for x in takeaway.get("table_names") or []]
             found_charts = []
@@ -1262,18 +1929,10 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
                     with cols[idx % 2]:
                         if kind == "chart":
                             _render_chart_card(item, turn_dir, heading_level="caption", key_prefix=f"takeaway{i}")
-                            _render_visual_explanation(report, name=artifact_name, chart=item)
+                            _render_compact_visual_explanation(report, name=artifact_name, chart=item)
                         else:
                             _render_plot_card(item, turn_dir)
-                            _render_visual_explanation(report, name=artifact_name)
-            for name in table_names:
-                referenced_tables.add(name)
-                source = tables.get(name)
-                if source is None:
-                    continue
-                df = _table_to_dataframe(source, turn_dir)
-                if df is not None:
-                    st.dataframe(df, width="stretch", height=220)
+                            _render_compact_visual_explanation(report, name=artifact_name)
             if chart_names or table_names:
                 if not found_charts and not any(n in tables for n in table_names):
                     st.markdown(
@@ -1282,16 +1941,21 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
                         "</div>",
                         unsafe_allow_html=True,
                     )
-            if takeaway.get("analysis"):
+            if takeaway.get("analysis") and not found_charts:
                 st.markdown(
                     f'<div class="ev-takeaway-analysis">{_html_escape(str(takeaway["analysis"]))}</div>',
                     unsafe_allow_html=True,
                 )
-            if takeaway.get("caveat"):
-                st.markdown(
-                    f'<div class="ev-takeaway-caveat">Caveat — {_html_escape(str(takeaway["caveat"]))}</div>',
-                    unsafe_allow_html=True,
-                )
+            _render_takeaway_details(
+                i,
+                takeaway,
+                title=title,
+                headline=headline,
+                table_names=table_names,
+                tables=tables,
+                turn_dir=turn_dir,
+                referenced_tables=referenced_tables,
+            )
 
     orphan_charts = [c for name, c in charts_by_name.items() if name not in referenced_charts]
     orphan_plots = [p for stem, p in plots_by_stem.items() if stem not in referenced_charts]
@@ -1415,6 +2079,62 @@ def _visual_key(value: Any) -> str:
     return "".join(ch for ch in raw if ch.isalnum())
 
 
+def _chart_reading_for(
+    report: dict[str, Any], *, name: str, chart: dict[str, Any] | None = None
+) -> tuple[str | None, str | None]:
+    keys = {_visual_key(name)}
+    if chart is not None:
+        keys.update(
+            _visual_key(chart.get(field))
+            for field in ("name", "title", "display_name", "figure_path")
+        )
+    keys.discard("")
+    for reading in report.get("chart_readings") or []:
+        if not isinstance(reading, dict):
+            continue
+        if _visual_key(reading.get("chart")) in keys:
+            text = str(reading.get("reading") or "").strip() or None
+            boundary = str(reading.get("do_not_infer") or "").strip() or None
+            return text, boundary
+    return None, None
+
+
+def _render_compact_visual_explanation(
+    report: dict[str, Any], *, name: str, chart: dict[str, Any] | None = None
+) -> None:
+    reading, boundary = _chart_reading_for(report, name=name, chart=chart)
+    if reading:
+        st.markdown(
+            f'<div class="ev-evidence-reading">'
+            f'<div class="ev-evidence-reading-label">Evidence reading</div>'
+            f'<div>{_html_escape(reading)}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif chart is not None and chart.get("x") and chart.get("y"):
+        kind = str(chart.get("kind") or "chart").lower()
+        st.markdown(
+            f'<div class="ev-evidence-reading">'
+            f'<div class="ev-evidence-reading-label">Visual guide</div>'
+            f'<div>This {kind} encodes <code>{_html_escape(str(chart["y"]))}</code> '
+            f'against <code>{_html_escape(str(chart["x"]))}</code>. '
+            'The dashboard is not assigning a specific finding to this visual.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption(
+            "Supplementary visual: read its axes, legend, and annotations before drawing a conclusion."
+        )
+    if boundary:
+        st.markdown(
+            f'<div class="ev-evidence-caution">'
+            f'<span>Caution</span> {_html_escape(boundary)}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
 def _render_visual_explanation(
     report: dict[str, Any], *, name: str, chart: dict[str, Any] | None = None
 ) -> None:
@@ -1424,25 +2144,10 @@ def _render_visual_explanation(
     sometimes lack them, so we still orient the reader to the chart's encoding
     without inventing a data finding.
     """
-    keys = {_visual_key(name)}
-    if chart is not None:
-        keys.update(
-            _visual_key(chart.get(field))
-            for field in ("name", "title", "display_name", "figure_path")
-        )
-    keys.discard("")
-    matched: dict[str, Any] | None = None
-    for reading in report.get("chart_readings") or []:
-        if not isinstance(reading, dict):
-            continue
-        if _visual_key(reading.get("chart")) in keys:
-            matched = reading
-            break
-
     st.markdown("**How to read this visual**")
-    if matched and str(matched.get("reading") or "").strip():
-        st.markdown(f"**What it shows:** {str(matched['reading']).strip()}")
-        boundary = str(matched.get("do_not_infer") or "").strip()
+    reading, boundary = _chart_reading_for(report, name=name, chart=chart)
+    if reading:
+        st.markdown(f"**What it shows:** {reading}")
         if boundary:
             st.caption(f"Do not infer: {boundary}")
         return
@@ -1510,17 +2215,17 @@ def _render_standalone_hypotheses(report: dict[str, Any], turn_dir: Path) -> Non
         for h in hypotheses:
             _render_standalone_hypothesis_card(h)
     else:
-        st.info(
-            "No hypotheses were recorded for this report. Re-run with the CLI's M3 step "
-            "enabled (on by default; pass --no-hypotheses to skip it), or the exploratory "
-            "findings above may have been too thin to propose one from."
+        st.info("No formal hypotheses were recorded for this report.")
+        st.markdown(
+            "Review the candidate signals below as possible follow-ups, or rerun the "
+            "analysis with hypothesis generation enabled."
         )
 
     signals = _candidate_signals(report)
     tests = report.get("recommended_confirmatory_tests") or []
-    with st.expander("Candidate signals, suggested next steps, and raw artifacts", expanded=False):
+    with st.expander("Candidate signals — possible follow-ups, not validated hypotheses", expanded=False):
         if signals:
-            st.markdown("#### Candidate signals (optional follow-up)")
+            st.markdown("#### Candidate signals — possible follow-ups, not validated hypotheses")
             st.dataframe(_signals_dataframe(signals), width="stretch", hide_index=True)
         if tests:
             st.markdown("#### Suggested next steps")
@@ -1528,7 +2233,7 @@ def _render_standalone_hypotheses(report: dict[str, Any], turn_dir: Path) -> Non
                 st.markdown(f"- {item}")
         if not signals and not tests:
             st.caption("No candidate signals or suggested next steps were recorded.")
-        _render_artifacts(report, turn_dir)
+    _render_artifacts(report, turn_dir)
 
 
 def _render_standalone_hypothesis_card(
@@ -1578,13 +2283,13 @@ def _render_standalone_hypothesis_card(
 
 
 def _render_holdout_panel(confirm: dict[str, Any]) -> None:
-    """Held-out Verdicts tab: phase 2's frozen-recipe re-adjudication + the
+    """Validation results tab: phase 2's frozen-recipe re-adjudication + the
     per-hypothesis judge verdicts. Unlike the in-sample screen in tab 2,
     verdicts here are legitimate: thresholds were frozen before this data was
     touched."""
     st.markdown(
         '<div class="ev-section-head">'
-        '<div class="ev-section-title">Held-out Verdicts</div>'
+        '<div class="ev-section-title">Validation results</div>'
         '<div class="ev-section-sub">Recipes re-evaluated VERBATIM (thresholds frozen from the '
         "exploration half) on a validate split the explorer never saw; hypotheses graded "
         "against that evidence.</div>"
@@ -2963,78 +3668,118 @@ def _verdict_sentence(report: dict[str, Any]) -> tuple[str, str]:
     )
 
 
-def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> None:
-    ok = bool(report.get("ok"))
-    status = "finished" if ok else "failed"
-    status_class = "ev-pill-ok" if ok else "ev-pill-fail"
-    question = str(report.get("question") or "Exploratory analysis")
-    plain_question = str(report.get("plain_question") or "").strip()
-    headline = plain_question or question
-    has_technical = bool(
-        plain_question and question.strip() and question.strip() != plain_question
-    )
-    verdict_text, verdict_class = _verdict_sentence(report)
-
-    st.markdown(
-        f"""
-        <div class="ev-header">
-          <div>
-            <div class="ev-kicker">Exploratory Data Analysis
-              <span class="ev-pill {status_class}">{status}</span>
-            </div>
-            <h1>{_html_escape(headline)}</h1>
-            <div class="ev-verdict-line {verdict_class}">{_html_escape(verdict_text)}</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    # The verbatim prompt and the on-disk location are provenance, not headline
-    # material: keep them one click away so the hero stays readable — and so a
-    # screen-share or screenshot does not broadcast the operator's home path.
-    if has_technical or root is not None:
-        with st.expander("Provenance — exact question and source path", expanded=False):
-            if has_technical:
-                st.markdown("**Question as asked**")
-                st.code(question, language=None)
-            st.caption(f"Bundle: `{root}`")
+def _short_report_title(question: str) -> str:
+    q = " ".join(str(question or "").split()).strip()
+    if not q:
+        return "Exploratory analysis"
+    lower = q.lower()
+    if "hallucination" in lower and ("fail" in lower or "failure" in lower):
+        return "Hallucination failure patterns"
+    if lower.startswith("what predicts "):
+        target = q[len("What predicts "):].split("?", 1)[0].split(" in ", 1)[0].strip()
+        if target:
+            return f"What predicts {target}?"
+    if lower.startswith("what drives "):
+        target = q[len("What drives "):].split("?", 1)[0].split(" in ", 1)[0].strip()
+        if target:
+            return f"What drives {target}?"
+    return _truncate(q, 72)
 
 
-def _render_top_metrics(report: dict[str, Any], root: Path | None = None) -> None:
+def _analysis_stage_label(
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> str:
+    if fix_report:
+        return "Exploratory analysis with validation and fix results"
+    if confirm:
+        return "Exploratory analysis with validation results"
+    return "Exploratory analysis"
+
+
+def _overview_scope_sentence(
+    report: dict[str, Any],
+    artifact_dir: Path,
+    *,
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> str:
     profile = report.get("data_profile") or {}
-    # NB: `profile.get("columns") or {}` would turn a missing profile into an
-    # empty dict and render a bare "0 profiled fields", which reads as broken.
-    # Keep None as None so the tile is dropped instead.
-    columns = profile.get("columns")
-    observations = report.get("observations") or []
-    signals = report.get("candidate_signals") or []
-    charts = report.get("charts") or []
-    plots = report.get("plots") or []
-    hypotheses = report.get("hypotheses") or []
+    parts: list[str] = []
 
     rows = profile.get("loaded_rows", profile.get("n_rows"))
-    if rows is None and root is not None:
-        rows = _count_records(root)
+    if rows is None:
+        rows = _count_records(artifact_dir)
+    if rows is not None:
+        parts.append(f"{_format_int(rows)} records")
 
-    raw_metrics = [
+    signals = report.get("candidate_signals") if "candidate_signals" in report else None
+    if isinstance(signals, list) and signals:
+        parts.append(f"{_format_int(len(signals))} candidate patterns")
+
+    charts = report.get("charts") if "charts" in report else None
+    plots = report.get("plots") if "plots" in report else None
+    n_visuals = len(charts or []) + len(plots or []) if charts is not None or plots is not None else 0
+    if n_visuals:
+        parts.append(f"{_format_int(n_visuals)} visuals")
+
+    if confirm:
+        parts.append("validation attached")
+    if fix_report:
+        parts.append("fix results attached")
+
+    return " · ".join(parts) if parts else "Report sections below contain the run details."
+
+
+def _overview_metrics(
+    report: dict[str, Any],
+    artifact_dir: Path,
+    *,
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> list[tuple[str, str, str]]:
+    profile = report.get("data_profile") or {}
+    observations = report.get("observations") if "observations" in report else None
+    signals = report.get("candidate_signals") if "candidate_signals" in report else None
+    charts = report.get("charts") if "charts" in report else None
+    plots = report.get("plots") if "plots" in report else None
+    hypotheses = report.get("hypotheses") if "hypotheses" in report else None
+
+    rows = profile.get("loaded_rows", profile.get("n_rows"))
+    if rows is None:
+        rows = _count_records(artifact_dir)
+
+    raw_metrics: list[tuple[str, Any, str]] = [
         _verdict_metric(report),
-        ("Rows", rows, "cases analysed"),
-        ("Columns", len(columns) if isinstance(columns, dict) else None, "profiled fields"),
-        ("Signals", len(signals), "candidate drivers"),
-        ("Hypotheses", len(hypotheses) or None, "proposed, not validated"),
-        ("Charts", len(charts) + len(plots), "figures generated"),
-        ("Notes", len(observations), "observations"),
+        ("Records", rows, "cases analysed"),
+        (
+            "Candidate patterns",
+            len(signals) if isinstance(signals, list) else None,
+            "possible follow-ups",
+        ),
+        (
+            "Hypotheses",
+            len(hypotheses) if isinstance(hypotheses, list) and hypotheses else None,
+            "proposed, not validated",
+        ),
+        (
+            "Visuals",
+            len(charts or []) + len(plots or []) if charts is not None or plots is not None else None,
+            "analysis charts",
+        ),
+        ("Findings", len(observations) if isinstance(observations, list) else None, "takeaways"),
+        ("Validation", "Yes" if confirm else None, "held-out results"),
+        ("Fix", "Yes" if fix_report else None, "repair results"),
     ]
-    # Drop tiles this report never populated (None) instead of showing a bare
-    # "-" that reads as broken; a real 0 (e.g. "Signals: 0") is still shown.
-    metrics = [(label, _format_int(v), caption) for label, v, caption in raw_metrics if v is not None]
+    return [(label, _format_int(value), caption) for label, value, caption in raw_metrics if value is not None]
+
+
+def _render_overview_metrics(metrics: list[tuple[str, str, str]]) -> None:
     if not metrics:
         return
 
     cols = st.columns(len(metrics))
     for idx, (col, (label, value, caption)) in enumerate(zip(cols, metrics, strict=False)):
-        # The verdict tile is emitted first by construction; when adjudication
-        # produced nothing it is dropped and this simply never fires.
         lead = " ev-metric-lead" if idx == 0 and label == "Confirmed" else ""
         with col:
             st.markdown(
@@ -3048,9 +3793,73 @@ def _render_top_metrics(report: dict[str, Any], root: Path | None = None) -> Non
                 unsafe_allow_html=True,
             )
 
+
+def _render_report_overview(
+    root: Path,
+    turn: dict[str, Any],
+    report: dict[str, Any],
+    artifact_dir: Path,
+    *,
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> None:
+    ok = bool(report.get("ok"))
+    status = "finished" if ok else "failed"
+    status_class = "ev-pill-ok" if ok else "ev-pill-fail"
+
+    question = str(report.get("question") or "Exploratory analysis")
+    plain_question = str(report.get("plain_question") or "").strip()
+    title = plain_question or _short_report_title(question)
+    has_technical = bool(
+        plain_question and question.strip() and question.strip() != plain_question
+    )
+    verdict_text, verdict_class = _verdict_sentence(report)
+    stage = _analysis_stage_label(confirm, fix_report)
+    scope = _overview_scope_sentence(report, artifact_dir, confirm=confirm, fix_report=fix_report)
+
+    st.markdown(
+        f"""
+        <div class="ev-header ev-report-overview">
+          <div>
+            <div class="ev-kicker">EvalVitals Analysis Report</div>
+            <h1>{_html_escape(title)}</h1>
+            <div class="ev-overview-stage">{_html_escape(stage)}</div>
+            <div class="ev-verdict-line {verdict_class}">{_html_escape(verdict_text)}</div>
+            <div class="ev-path">{_html_escape(scope)}</div>
+          </div>
+          <div class="ev-header-right">
+            <span class="ev-pill {status_class}">{status}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _render_overview_metrics(
+        _overview_metrics(report, artifact_dir, confirm=confirm, fix_report=fix_report)
+    )
+
+    with st.expander("View full research question and run details", expanded=False):
+        st.markdown("**Full research question**")
+        st.markdown(_html_escape(question))
+        if has_technical:
+            st.markdown("**Reader-friendly restatement**")
+            st.markdown(_html_escape(plain_question))
+        st.markdown("**Run directory**")
+        st.code(str(root), language="text")
+        st.caption(f"Bundle: `{root}`")
+        st.markdown("**Report details**")
+        st.json({
+            "status": status,
+            "report": turn["name"],
+            "report_type": "exploratory_report.json / fused_report.json",
+            "analysis_stage": stage,
+            "validation_results": bool(confirm),
+            "fix_results": bool(fix_report),
+            "attempts": report.get("attempts"),
+        })
+
     if report.get("error"):
         st.error(report["error"])
-
 
 def _chart_lookup(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Map a chart's ``name`` (falling back to ``title``) -> its spec dict."""
@@ -3230,17 +4039,55 @@ def _render_tables(report: dict[str, Any], turn_dir: Path) -> None:
     st.dataframe(df, width="stretch", height=520)
 
 
+def _source_preview(source: str, *, max_lines: int = 40, max_chars: int = 4000) -> tuple[str, bool]:
+    """Return a print-friendly source preview and whether anything was omitted."""
+    if not source:
+        return "", False
+    lines = source.splitlines()
+    by_lines = "\n".join(lines[:max_lines])
+    preview = by_lines[:max_chars]
+    omitted = len(lines) > max_lines or len(by_lines) > max_chars or len(source) > len(preview)
+    return preview, omitted
+
+
+def _artifact_widget_key(prefix: str, turn_dir: Path) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", str(turn_dir)).strip("_")
+    return f"{prefix}_{slug[-80:] or 'run'}"
+
+
 def _render_artifacts(report: dict[str, Any], turn_dir: Path) -> None:
-    st.markdown("### Run Artifacts")
-    with st.expander("Generated analysis.py", expanded=True):
-        code = report.get("code") or _read_text(turn_dir / "analysis.py")
-        st.code(code or "", language="python")
-    with st.expander("stdout"):
-        st.text(_read_text(turn_dir / "stdout.txt") or report.get("stdout", ""))
-    with st.expander("stderr"):
-        st.text(_read_text(turn_dir / "stderr.txt") or report.get("stderr", ""))
-    with st.expander("Raw JSON report"):
-        st.json(report)
+    with st.expander("Run artifacts and developer details", expanded=False):
+        st.caption(
+            "Technical artifacts are available for audit and reproduction. "
+            "They are collapsed by default so the report stays focused on the scientific content."
+        )
+
+        code = report.get("code") or _read_text(turn_dir / "analysis.py") or ""
+        preview, omitted = _source_preview(str(code))
+        st.markdown("#### Generated analysis.py preview")
+        if preview:
+            st.caption("Preview only — first 40 lines or 4,000 characters, whichever comes first.")
+            st.code(preview, language="python")
+            if omitted:
+                st.caption("Full source is available below or as a download.")
+            st.download_button(
+                "Download analysis.py",
+                data=str(code),
+                file_name="analysis.py",
+                mime="text/x-python",
+                key=_artifact_widget_key("download_analysis", turn_dir),
+            )
+            if st.checkbox("View full source", value=False, key=_artifact_widget_key("view_source", turn_dir)):
+                st.code(str(code), language="python")
+        else:
+            st.caption("No generated analysis.py source was saved for this report.")
+
+        with st.expander("stdout", expanded=False):
+            st.text(_read_text(turn_dir / "stdout.txt") or report.get("stdout", ""))
+        with st.expander("stderr", expanded=False):
+            st.text(_read_text(turn_dir / "stderr.txt") or report.get("stderr", ""))
+        with st.expander("Raw JSON report", expanded=False):
+            st.json(report)
 
 
 def _turn_label(turn: dict[str, Any]) -> str:
@@ -3608,6 +4455,11 @@ def _inject_css() -> None:
           color: var(--ev-muted);
           font-size: 0.82rem;
           word-break: break-all;
+        }
+        .ev-overview-stage {
+          color: var(--ev-text-secondary);
+          font-size: 0.88rem;
+          margin: -0.05rem 0 0.35rem;
         }
         .ev-header-right {
           display: flex;
@@ -4075,6 +4927,59 @@ def _inject_css() -> None:
           font-size: 0.86rem;
           margin-top: 0.2rem;
         }
+        .ev-findings-overview {
+          background: color-mix(in srgb, var(--ev-accent) 5%, var(--ev-panel));
+          border: 1px solid var(--ev-border);
+          border-radius: var(--ev-radius);
+          box-shadow: var(--ev-shadow);
+          margin: 0.85rem 0 1rem;
+          padding: 1rem 1.1rem;
+        }
+        .ev-findings-overview-kicker {
+          color: var(--ev-accent-dark);
+          font-size: 0.78rem;
+          font-weight: 780;
+          letter-spacing: 0.04em;
+          margin-bottom: 0.15rem;
+          text-transform: uppercase;
+        }
+        .ev-findings-overview-sub {
+          color: var(--ev-muted);
+          font-size: 0.85rem;
+          margin-bottom: 0.75rem;
+        }
+        .ev-finding-index-row {
+          align-items: flex-start;
+          border-top: 1px solid color-mix(in srgb, var(--ev-border) 75%, transparent);
+          display: flex;
+          gap: 0.7rem;
+          padding: 0.65rem 0 0.1rem;
+        }
+        .ev-finding-index-num {
+          align-items: center;
+          background: color-mix(in srgb, var(--ev-accent) 12%, var(--ev-panel));
+          border: 1px solid color-mix(in srgb, var(--ev-accent) 36%, var(--ev-panel));
+          border-radius: 999px;
+          color: var(--ev-accent-dark);
+          display: flex;
+          flex: 0 0 1.55rem;
+          font-size: 0.78rem;
+          font-weight: 780;
+          height: 1.55rem;
+          justify-content: center;
+          width: 1.55rem;
+        }
+        .ev-finding-index-title {
+          color: var(--ev-text);
+          font-size: 0.95rem;
+          font-weight: 720;
+          line-height: 1.35;
+        }
+        .ev-finding-index-meta {
+          color: var(--ev-muted);
+          font-size: 0.8rem;
+          margin-top: 0.12rem;
+        }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.ev-takeaway-head) {
           border: 1px solid var(--ev-border);
           border-radius: var(--ev-radius);
@@ -4121,6 +5026,39 @@ def _inject_css() -> None:
           font-size: 0.82rem;
           font-style: italic;
           margin: 0.5rem 0;
+        }
+        .ev-evidence-reading {
+          background: color-mix(in srgb, var(--ev-accent) 5%, var(--ev-panel));
+          border: 1px solid color-mix(in srgb, var(--ev-accent) 18%, var(--ev-border));
+          border-radius: var(--ev-radius-sm);
+          color: var(--ev-text-secondary);
+          font-size: 0.9rem;
+          line-height: 1.45;
+          margin: 0.55rem 0 0.35rem;
+          padding: 0.62rem 0.72rem;
+        }
+        .ev-evidence-reading-label {
+          color: var(--ev-accent-dark);
+          font-size: 0.72rem;
+          font-weight: 780;
+          letter-spacing: 0.04em;
+          margin-bottom: 0.18rem;
+          text-transform: uppercase;
+        }
+        .ev-evidence-caution {
+          background: color-mix(in srgb, var(--ev-warn) 10%, var(--ev-panel));
+          border: 1px solid color-mix(in srgb, var(--ev-warn) 34%, var(--ev-panel));
+          border-radius: var(--ev-radius-sm);
+          color: var(--ev-text-secondary);
+          font-size: 0.82rem;
+          line-height: 1.4;
+          margin: 0.35rem 0 0.6rem;
+          padding: 0.45rem 0.65rem;
+        }
+        .ev-evidence-caution span {
+          color: var(--ev-text);
+          font-weight: 760;
+          margin-right: 0.25rem;
         }
         .ev-takeaway-analysis {
           background: color-mix(in srgb, var(--ev-accent) 6%, var(--ev-panel));
