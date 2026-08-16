@@ -1182,17 +1182,102 @@ def _render_raw_data_browser(report: dict[str, Any], turn_dir: Path) -> None:
         st.dataframe(view.head(500), width="stretch", height=420)
 
 
+def _takeaway_headline(takeaway: dict[str, Any]) -> str:
+    plain_title = str(takeaway.get("plain_title") or "").strip()
+    title = str(takeaway.get("title") or "").strip()
+    return plain_title or title or "Finding"
+
+
+def _render_findings_overview(takeaways: list[dict[str, Any]]) -> None:
+    if not takeaways:
+        return
+
+    items = []
+    for i, takeaway in enumerate(takeaways, start=1):
+        chart_count = len(takeaway.get("chart_names") or [])
+        table_count = len(takeaway.get("table_names") or [])
+        meta = [
+            f"{chart_count} visual{'s' if chart_count != 1 else ''}",
+            f"{table_count} source table{'s' if table_count != 1 else ''}",
+        ]
+        if takeaway.get("caveat"):
+            meta.append("caution noted")
+        if takeaway.get("analysis"):
+            meta.append("detail available")
+        items.append(
+            '<div class="ev-finding-index-row">'
+            f'<div class="ev-finding-index-num">{i}</div>'
+            '<div>'
+            f'<div class="ev-finding-index-title">{_html_escape(_takeaway_headline(takeaway))}</div>'
+            f'<div class="ev-finding-index-meta">{_html_escape(" · ".join(meta))}</div>'
+            '</div>'
+            '</div>'
+        )
+    st.markdown(
+        '<div class="ev-findings-overview">'
+        '<div class="ev-findings-overview-kicker">Findings overview</div>'
+        '<div class="ev-findings-overview-sub">'
+        'Skim the conclusions first; open each finding’s details for the full analysis and source data.'
+        '</div>'
+        f'{"".join(items)}'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_takeaway_details(
+    index: int,
+    takeaway: dict[str, Any],
+    *,
+    title: str,
+    headline: str,
+    table_names: list[str],
+    tables: dict[str, Any],
+    turn_dir: Path,
+    referenced_tables: set[str],
+) -> None:
+    has_technical_title = bool(title.strip() and title.strip() != headline.strip())
+    has_detail = bool(
+        has_technical_title
+        or takeaway.get("analysis")
+        or takeaway.get("caveat")
+        or any(name in tables for name in table_names)
+    )
+    if not has_detail:
+        return
+
+    with st.expander(f"Details and source data for finding {index}", expanded=False):
+        if has_technical_title:
+            st.markdown("**Technical title**")
+            st.markdown(_html_escape(title))
+        if takeaway.get("analysis"):
+            st.markdown("**Full analysis**")
+            st.markdown(_html_escape(str(takeaway["analysis"])))
+        if takeaway.get("caveat"):
+            st.markdown("**Caveat**")
+            st.markdown(_html_escape(str(takeaway["caveat"])))
+        for name in table_names:
+            referenced_tables.add(name)
+            source = tables.get(name)
+            if source is None:
+                continue
+            df = _table_to_dataframe(source, turn_dir)
+            if df is not None:
+                with st.expander(f"Source table: {display_name(name)}", expanded=False):
+                    st.dataframe(df, width="stretch", height=220)
+
+
 def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Path) -> None:
     """The primary exploratory-analysis view: pure descriptive EDA, no hypotheses.
 
-    Each takeaway is rendered as title -> its supporting chart(s)/table(s) ->
-    the analysis paragraph, so a reader never has to hunt for the evidence
-    behind a claim in a separate section."""
+    Each takeaway is rendered as a finding -> supporting visual evidence ->
+    compact interpretation, with full analysis and source data available on
+    demand so the page stays scannable."""
     st.markdown(
         '<div class="ev-section-head">'
         '<div class="ev-section-title">Exploratory Analysis</div>'
-        '<div class="ev-section-sub">Descriptive findings only — each takeaway is shown '
-        "with the chart or table that supports it, followed by the analysis.</div>"
+        '<div class="ev-section-sub">Descriptive findings only — skim the evidence cards first, '
+        "then open details for full analysis, caveats, and source data.</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1232,11 +1317,12 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
     referenced_charts: set[str] = set()
     referenced_tables: set[str] = set()
 
+    _render_findings_overview(takeaways)
+
     for i, takeaway in enumerate(takeaways, start=1):
         with st.container(border=True):
             title = str(takeaway.get("title", ""))
-            plain_title = str(takeaway.get("plain_title") or "").strip()
-            headline = plain_title or title
+            headline = _takeaway_headline(takeaway)
             st.markdown(
                 '<div class="ev-takeaway-head">'
                 f'<div class="ev-takeaway-badge">{i}</div>'
@@ -1244,11 +1330,6 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
                 "</div>",
                 unsafe_allow_html=True,
             )
-            if plain_title and title.strip() and title.strip() != plain_title:
-                st.markdown(
-                    f'<div class="ev-signal-test">Technical detail: {_html_escape(title)}</div>',
-                    unsafe_allow_html=True,
-                )
             chart_names = [str(x) for x in takeaway.get("chart_names") or []]
             table_names = [str(x) for x in takeaway.get("table_names") or []]
             found_charts = []
@@ -1267,18 +1348,10 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
                     with cols[idx % 2]:
                         if kind == "chart":
                             _render_chart_card(item, turn_dir, heading_level="caption", key_prefix=f"takeaway{i}")
-                            _render_visual_explanation(report, name=artifact_name, chart=item)
+                            _render_compact_visual_explanation(report, name=artifact_name, chart=item)
                         else:
                             _render_plot_card(item, turn_dir)
-                            _render_visual_explanation(report, name=artifact_name)
-            for name in table_names:
-                referenced_tables.add(name)
-                source = tables.get(name)
-                if source is None:
-                    continue
-                df = _table_to_dataframe(source, turn_dir)
-                if df is not None:
-                    st.dataframe(df, width="stretch", height=220)
+                            _render_compact_visual_explanation(report, name=artifact_name)
             if chart_names or table_names:
                 if not found_charts and not any(n in tables for n in table_names):
                     st.markdown(
@@ -1287,16 +1360,21 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
                         "</div>",
                         unsafe_allow_html=True,
                     )
-            if takeaway.get("analysis"):
+            if takeaway.get("analysis") and not found_charts:
                 st.markdown(
                     f'<div class="ev-takeaway-analysis">{_html_escape(str(takeaway["analysis"]))}</div>',
                     unsafe_allow_html=True,
                 )
-            if takeaway.get("caveat"):
-                st.markdown(
-                    f'<div class="ev-takeaway-caveat">Caveat — {_html_escape(str(takeaway["caveat"]))}</div>',
-                    unsafe_allow_html=True,
-                )
+            _render_takeaway_details(
+                i,
+                takeaway,
+                title=title,
+                headline=headline,
+                table_names=table_names,
+                tables=tables,
+                turn_dir=turn_dir,
+                referenced_tables=referenced_tables,
+            )
 
     orphan_charts = [c for name, c in charts_by_name.items() if name not in referenced_charts]
     orphan_plots = [p for stem, p in plots_by_stem.items() if stem not in referenced_charts]
@@ -1420,6 +1498,62 @@ def _visual_key(value: Any) -> str:
     return "".join(ch for ch in raw if ch.isalnum())
 
 
+def _chart_reading_for(
+    report: dict[str, Any], *, name: str, chart: dict[str, Any] | None = None
+) -> tuple[str | None, str | None]:
+    keys = {_visual_key(name)}
+    if chart is not None:
+        keys.update(
+            _visual_key(chart.get(field))
+            for field in ("name", "title", "display_name", "figure_path")
+        )
+    keys.discard("")
+    for reading in report.get("chart_readings") or []:
+        if not isinstance(reading, dict):
+            continue
+        if _visual_key(reading.get("chart")) in keys:
+            text = str(reading.get("reading") or "").strip() or None
+            boundary = str(reading.get("do_not_infer") or "").strip() or None
+            return text, boundary
+    return None, None
+
+
+def _render_compact_visual_explanation(
+    report: dict[str, Any], *, name: str, chart: dict[str, Any] | None = None
+) -> None:
+    reading, boundary = _chart_reading_for(report, name=name, chart=chart)
+    if reading:
+        st.markdown(
+            f'<div class="ev-evidence-reading">'
+            f'<div class="ev-evidence-reading-label">Evidence reading</div>'
+            f'<div>{_html_escape(reading)}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif chart is not None and chart.get("x") and chart.get("y"):
+        kind = str(chart.get("kind") or "chart").lower()
+        st.markdown(
+            f'<div class="ev-evidence-reading">'
+            f'<div class="ev-evidence-reading-label">Visual guide</div>'
+            f'<div>This {kind} encodes <code>{_html_escape(str(chart["y"]))}</code> '
+            f'against <code>{_html_escape(str(chart["x"]))}</code>. '
+            'The dashboard is not assigning a specific finding to this visual.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption(
+            "Supplementary visual: read its axes, legend, and annotations before drawing a conclusion."
+        )
+    if boundary:
+        st.markdown(
+            f'<div class="ev-evidence-caution">'
+            f'<span>Caution</span> {_html_escape(boundary)}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
 def _render_visual_explanation(
     report: dict[str, Any], *, name: str, chart: dict[str, Any] | None = None
 ) -> None:
@@ -1429,25 +1563,10 @@ def _render_visual_explanation(
     sometimes lack them, so we still orient the reader to the chart's encoding
     without inventing a data finding.
     """
-    keys = {_visual_key(name)}
-    if chart is not None:
-        keys.update(
-            _visual_key(chart.get(field))
-            for field in ("name", "title", "display_name", "figure_path")
-        )
-    keys.discard("")
-    matched: dict[str, Any] | None = None
-    for reading in report.get("chart_readings") or []:
-        if not isinstance(reading, dict):
-            continue
-        if _visual_key(reading.get("chart")) in keys:
-            matched = reading
-            break
-
     st.markdown("**How to read this visual**")
-    if matched and str(matched.get("reading") or "").strip():
-        st.markdown(f"**What it shows:** {str(matched['reading']).strip()}")
-        boundary = str(matched.get("do_not_infer") or "").strip()
+    reading, boundary = _chart_reading_for(report, name=name, chart=chart)
+    if reading:
+        st.markdown(f"**What it shows:** {reading}")
         if boundary:
             st.caption(f"Do not infer: {boundary}")
         return
@@ -4227,6 +4346,59 @@ def _inject_css() -> None:
           font-size: 0.86rem;
           margin-top: 0.2rem;
         }
+        .ev-findings-overview {
+          background: color-mix(in srgb, var(--ev-accent) 5%, var(--ev-panel));
+          border: 1px solid var(--ev-border);
+          border-radius: var(--ev-radius);
+          box-shadow: var(--ev-shadow);
+          margin: 0.85rem 0 1rem;
+          padding: 1rem 1.1rem;
+        }
+        .ev-findings-overview-kicker {
+          color: var(--ev-accent-dark);
+          font-size: 0.78rem;
+          font-weight: 780;
+          letter-spacing: 0.04em;
+          margin-bottom: 0.15rem;
+          text-transform: uppercase;
+        }
+        .ev-findings-overview-sub {
+          color: var(--ev-muted);
+          font-size: 0.85rem;
+          margin-bottom: 0.75rem;
+        }
+        .ev-finding-index-row {
+          align-items: flex-start;
+          border-top: 1px solid color-mix(in srgb, var(--ev-border) 75%, transparent);
+          display: flex;
+          gap: 0.7rem;
+          padding: 0.65rem 0 0.1rem;
+        }
+        .ev-finding-index-num {
+          align-items: center;
+          background: color-mix(in srgb, var(--ev-accent) 12%, var(--ev-panel));
+          border: 1px solid color-mix(in srgb, var(--ev-accent) 36%, var(--ev-panel));
+          border-radius: 999px;
+          color: var(--ev-accent-dark);
+          display: flex;
+          flex: 0 0 1.55rem;
+          font-size: 0.78rem;
+          font-weight: 780;
+          height: 1.55rem;
+          justify-content: center;
+          width: 1.55rem;
+        }
+        .ev-finding-index-title {
+          color: var(--ev-text);
+          font-size: 0.95rem;
+          font-weight: 720;
+          line-height: 1.35;
+        }
+        .ev-finding-index-meta {
+          color: var(--ev-muted);
+          font-size: 0.8rem;
+          margin-top: 0.12rem;
+        }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.ev-takeaway-head) {
           border: 1px solid var(--ev-border);
           border-radius: var(--ev-radius);
@@ -4273,6 +4445,39 @@ def _inject_css() -> None:
           font-size: 0.82rem;
           font-style: italic;
           margin: 0.5rem 0;
+        }
+        .ev-evidence-reading {
+          background: color-mix(in srgb, var(--ev-accent) 5%, var(--ev-panel));
+          border: 1px solid color-mix(in srgb, var(--ev-accent) 18%, var(--ev-border));
+          border-radius: var(--ev-radius-sm);
+          color: var(--ev-text-secondary);
+          font-size: 0.9rem;
+          line-height: 1.45;
+          margin: 0.55rem 0 0.35rem;
+          padding: 0.62rem 0.72rem;
+        }
+        .ev-evidence-reading-label {
+          color: var(--ev-accent-dark);
+          font-size: 0.72rem;
+          font-weight: 780;
+          letter-spacing: 0.04em;
+          margin-bottom: 0.18rem;
+          text-transform: uppercase;
+        }
+        .ev-evidence-caution {
+          background: color-mix(in srgb, var(--ev-warn) 10%, var(--ev-panel));
+          border: 1px solid color-mix(in srgb, var(--ev-warn) 34%, var(--ev-panel));
+          border-radius: var(--ev-radius-sm);
+          color: var(--ev-text-secondary);
+          font-size: 0.82rem;
+          line-height: 1.4;
+          margin: 0.35rem 0 0.6rem;
+          padding: 0.45rem 0.65rem;
+        }
+        .ev-evidence-caution span {
+          color: var(--ev-text);
+          font-weight: 760;
+          margin-right: 0.25rem;
         }
         .ev-takeaway-analysis {
           background: color-mix(in srgb, var(--ev-accent) 6%, var(--ev-panel));

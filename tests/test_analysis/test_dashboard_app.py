@@ -314,7 +314,7 @@ def test_standalone_dashboard_pairs_takeaway_with_its_chart_and_analysis(tmp_pat
         "takeaways": [{
             "title": "Higher temperature batches yield more (70.1% vs 88.4%).",
             "chart_names": ["yield_by_temp"],
-            "table_names": [],
+            "table_names": ["yield_by_temp"],
             "analysis": "Mean yield rises from 70.1% in low-temperature batches to 88.4% in high-temperature ones.",
             "caveat": "Descriptive only; temperature and pressure are correlated.",
         }],
@@ -328,6 +328,7 @@ def test_standalone_dashboard_pairs_takeaway_with_its_chart_and_analysis(tmp_pat
             "data": "tables/yield_by_temp.csv", "x": "temp_bin", "y": "mean_yield",
             "title": "Mean yield by temperature bin",
         }],
+        "tables": {"yield_by_temp": "tables/yield_by_temp.csv"},
     }), encoding="utf-8")
 
     at = _run_app(tmp_path)
@@ -339,8 +340,15 @@ def test_standalone_dashboard_pairs_takeaway_with_its_chart_and_analysis(tmp_pat
     assert "Higher temperature batches yield more" in blob
     assert "Mean yield rises from 70.1%" in blob
     assert "Caveat" in blob and "Descriptive only" in blob
-    assert "How to read this visual" in blob
+    assert "Findings overview" in blob
+    assert "1 visual · 1 source table · caution noted · detail available" in blob
+    assert "Evidence reading" in blob
+    assert "How to read this visual" not in blob
     assert "high-temperature group has the higher plotted mean yield" in blob
+    assert "Caution" in blob
+    assert "This does not establish temperature as the cause." in blob
+    assert "Details and source data for finding 1" in [e.label for e in at.expander]
+    assert "Source table: Yield by temp" in [e.label for e in at.expander]
     # its supporting chart was found and rendered, not left orphaned
     assert "referenced evidence not found" not in blob
     assert "Mean yield by temperature bin" in blob  # the chart's own title rendered
@@ -413,7 +421,9 @@ def test_standalone_dashboard_renders_plain_title_as_headline_with_technical_det
     assert not at.exception
     blob = " ".join(str(m.value) for m in at.markdown)
     assert 'ev-takeaway-title">Small objects trip up the model far more often.' in blob
-    assert "Technical detail: Small objects fail far more often (18% vs 4%, AUC 0.71)." in blob
+    assert "Technical title" in blob
+    assert "Small objects fail far more often (18% vs 4%, AUC 0.71)." in blob
+    assert "Details and source data for finding 1" in [e.label for e in at.expander]
 
 
 def test_standalone_dashboard_keeps_a_takeaway_with_only_plain_title(tmp_path):
