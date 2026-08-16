@@ -39,6 +39,9 @@ class CounterfactualReplay(Analyzer):
 
     name = "counterfactual"
     requires = frozenset({Capability.TOOL_CALLS})
+    #: TOOL_CALLS says the model CAN call tools; this says the cases ARE agent
+    #: runs. A chat model whose template renders tools declares the former.
+    requires_trajectories = True
     applies_to_modalities = frozenset({"text", "image"})  # trajectory analysis is modality-agnostic
 
     def __init__(self, rerun_fn: Callable, n_replays: int = 3) -> None:

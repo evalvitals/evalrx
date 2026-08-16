@@ -59,6 +59,10 @@ class FirstErrorJudge(Analyzer):
 
     name = "first_error_judge"
     requires = frozenset()  # the analysed model is irrelevant; the judge does the work
+    #: Reads agent runs. The model is not what makes this applicable —
+    #: the DATA is, which is why `requires` stays empty (these run on
+    #: trajectories loaded from disk, with no model at all).
+    requires_trajectories = True
     applies_to_modalities = frozenset({"text", "image"})  # trajectory analysis is modality-agnostic
 
     def __init__(self, judge: Optional["Model"] = None) -> None:

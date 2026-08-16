@@ -15,6 +15,7 @@ Usage::
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -281,6 +282,30 @@ class AnalysisModule:
         )
 
 
+#: Metric names that count how many items an analyzer actually examined:
+#: ``n_scored``, ``n_trajectories``, ``n_cases``, ``n_samples``, ``num_steps`` …
+_COUNT_KEY = re.compile(r"(?:^n$|^n_|^num_|_count$)", re.IGNORECASE)
+
+
+def _zero_counts(results: dict) -> list[str]:
+    """``analyzer.metric`` keys whose sample count is zero.
+
+    Deliberately restricted to count-like names. A zero elsewhere is usually a
+    real measurement — ``flip_rate = 0`` means nothing flipped, which IS a
+    finding — whereas a zero sample count means there was nothing to measure at
+    all. Reporting the two the same way is how "examined 0 items" became a line
+    under "healthy metrics".
+    """
+    out: list[str] = []
+    for r_name, r in results.items():
+        for key, value in (getattr(r, "findings", {}) or {}).items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            if value == 0 and _COUNT_KEY.search(key):
+                out.append(f"{r_name}.{key}")
+    return sorted(out)
+
+
 def _build_narrative(
     model_name: str,
     findings: list[AnalysisFinding],
@@ -289,8 +314,25 @@ def _build_narrative(
     lines: list[str] = [f"Model: {model_name}"]
     lines.append(f"Analyzers run: {', '.join(sorted(results)) or 'none'}")
 
+    # Absence of evidence, before anything else. A zero count means the analyzer
+    # examined nothing -- format_sensitivity found no options to rotate,
+    # first_error_judge found no trajectories. Those used to be printed under
+    # "healthy metrics (no threshold violations)", which reads as a clean bill of
+    # health for a measurement that never happened.
+    empty = _zero_counts(results)
+    if empty:
+        lines.append(
+            f"\n{len(empty)} metric(s) measured NOTHING — absence of evidence, "
+            f"NOT evidence of health:")
+        for key in empty:
+            lines.append(f"  {key} = 0  (analyzer ran but examined no items)")
+
     if not findings:
-        lines.append("No anomalies detected — all metrics within normal ranges.")
+        lines.append(
+            "No anomalies detected — all metrics within normal ranges."
+            if not empty else
+            "No anomalies detected among the metrics that DID measure something; "
+            "the zero-count metrics above are not evidence either way.")
         return "\n".join(lines)
 
     lines.append(f"\n{len(findings)} anomalie(s) detected:")
@@ -307,9 +349,12 @@ def _build_narrative(
     if all_metrics:
         lines.append("\nSelected healthy metrics (no threshold violations):")
         flagged_keys = {(f.analyzer, f.metric) for f in findings}
+        empty_keys = set(empty)
         shown = 0
         for (r_name, k), v in all_metrics.items():
-            if (r_name, k) not in flagged_keys and shown < 5:
+            if (r_name, k) in flagged_keys or f"{r_name}.{k}" in empty_keys:
+                continue
+            if shown < 5:
                 lines.append(f"  {r_name}.{k} = {v:.3g}")
                 shown += 1
 

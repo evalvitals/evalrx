@@ -97,6 +97,41 @@ _add(ModelSpec(
     caveats=("text-only size; tied embeddings by default",),
 ))
 
+# Qwen3.5 — the checkpoints examples/dataset_selection/llm_benchmark diagnoses. Registered as
+# TEXT specs on purpose, see the caveats: the released checkpoint is
+# ``Qwen3_5ForConditionalGeneration`` and carries a vision tower, but this
+# pipeline only ever sends text, and ``AutoModelForCausalLM`` maps ``qwen3_5``
+# to ``Qwen3_5ForCausalLM`` — the language tower alone, which is both lighter
+# and the thing whose attention we want to read.
+for _key, _repo in (
+    ("qwen3.5-2b", "Qwen/Qwen3.5-2B"),
+    ("qwen3.5-4b", "Qwen/Qwen3.5-4B"),
+    ("qwen3.5-9b", "Qwen/Qwen3.5-9B"),
+):
+    _add(ModelSpec(
+        key=_key, family="qwen3_5", model_type="qwen3_5", hf_repo=_repo,
+        auto_class="AutoModelForCausalLM", processor_class="AutoTokenizer",
+        min_transformers="5.15.0", is_reasoning=True, tool_calling=True,
+        attn_semantics=AttnSemantics.HYBRID_SPARSE,
+        module_paths=ModulePaths(decoder_layers="model.layers"),
+        caveats=(
+            "HYBRID stack: layer_types is [linear, linear, linear, full] x 8 "
+            "(full_attention_interval=4), so a forward returns 8 attention "
+            "tensors for 32 layers and position i is model layer 4i+3 — "
+            "attention_rollout composes a partial path here and must not be "
+            "read as a full-depth rollout",
+            "checkpoint is Qwen3_5ForConditionalGeneration (vision tower + "
+            "image_token_id); this spec deliberately loads the text tower only, "
+            "so no image analyzer is offered and no TokenTypeMap is built",
+            "min_transformers is the version VERIFIED to work (qwen3_5 is absent "
+            "from 4.57.6), not a discovered floor — and nothing in the framework "
+            "enforces the field, so the loader checks AutoConfig itself",
+            "thinking is ON by default: the chat template appends '<think>\\n' "
+            "unless enable_thinking=False, so a completion carries the chain and "
+            "a closing '</think>' but no opening tag",
+        ),
+    ))
+
 # ----------------------------------------------------------------------
 # VLMs (vision tower + TokenTypeMap)
 # ----------------------------------------------------------------------

@@ -1,0 +1,353 @@
+"""The eight band-located datasets, with provenance and slicing criteria.
+
+Each entry was MEASURED on Qwen3.5-9B into the 30-70% usable band (n=50, Qwen
+thinking sampling). The band is a property of the (model, dataset) PAIR, not of
+the dataset, so ``accuracy_9b`` is a starting point for 2B/4B, never a prediction
+-- see README.md.
+
+The dataset plumbing itself lives in ``../llm_band_probe/band_locate.py``; this
+module only records WHICH slice and WHY, and re-exports the spec so the two can
+never drift apart.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional
+
+_BAND_PROBE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "..", "llm_band_probe")
+sys.path.insert(0, _BAND_PROBE)
+
+import band_locate as B  # noqa: E402
+
+
+@dataclass(frozen=True)
+class Entry:
+    """One usable dataset: where it comes from and why this slice."""
+
+    name: str
+    chapter: str
+    items: int
+    accuracy_9b: float
+    ci95_9b: tuple
+    budget_signal_9b: float
+    source: str
+    venue: str
+    slicing: str
+    grading: str
+    caveat: str = ""
+    #: Generation budget the reference accuracy was MEASURED at, when it differs
+    #: from the config default. 0 = the default is fine. This is not a
+    #: preference: minervamath reads 0.500 at 65k and 0.320/budget_limited at
+    #: 40k, so running it at the default would diagnose the token cap and call
+    #: it a capability. build_cases.py reads this; run_all.sh sizes the server's
+    #: --max-model-len from it.
+    max_tokens: int = 0
+
+    @property
+    def spec(self) -> "B.Spec":
+        """The live band_locate spec — single source of truth for fetch/grade."""
+        return next(s for s in B.SPECS if s.name == self.name)
+
+
+CATALOG: tuple = (
+    Entry(
+        name="cruxeval_output",
+        chapter="ch2-code",
+        items=800,
+        accuracy_9b=0.700,
+        ci95_9b=(0.56, 0.81),
+        budget_signal_9b=0.06,
+        source="cruxeval-org/cruxeval · split=test",
+        venue="CRUXEval, Gu et al., ICML 2024",
+        slicing="Whole test split. The `output` direction only (predict what the "
+                "function returns), not the `input` direction.",
+        grading="Exact string match on the extracted answer. NO SANDBOX — the "
+                "model predicts the return value, nothing is executed.",
+        caveat="Sits exactly on the band's upper edge (0.700). If the true value "
+               "is any higher it slides out into `saturated`.",
+    ),
+    Entry(
+        name="bbh_causal_judgement",
+        chapter="ch4-basic",
+        items=187,
+        accuracy_9b=0.600,
+        ci95_9b=(0.46, 0.72),
+        budget_signal_9b=0.10,
+        source="lukaemon/bbh · config=causal_judgement · split=test",
+        venue="BIG-Bench Hard, Suzgun et al., ACL Findings 2023",
+        slicing="One named BBH task. Causal attribution questions answered Yes/No.",
+        grading="Normalised exact match. Two-way answer space, no grader ambiguity.",
+        caveat="MARGINAL PASS. Budget signal is exactly 0.10, sitting on the veto "
+               "threshold, and the CI upper bound 0.724 crosses 0.70. It also ran "
+               "at an 8k budget rather than 40k. Re-measure at n=100 / 24k before "
+               "using it as a headline number.",
+    ),
+    Entry(
+        name="supergpqa_economics",
+        chapter="ch4-basic",
+        items=873,
+        accuracy_9b=0.580,
+        ci95_9b=(0.44, 0.71),
+        budget_signal_9b=0.06,
+        source="m-a-p/SuperGPQA · split=train · where discipline='Economics'",
+        venue="SuperGPQA, M-A-P, 2025 (285 graduate disciplines)",
+        slicing="Server-side `where` on the dataset's OWN `discipline` column — a "
+                "named subdivision, not a random sample. 65% `middle` difficulty.",
+        grading="Multiple choice, 10 options. Random baseline ~10%, so the usable "
+                "band is much wider than a 4-option set.",
+        caveat="CI upper bound 0.706 presses against the 0.70 edge.",
+    ),
+    Entry(
+        name="bbh_tracking7",
+        chapter="ch4-basic",
+        items=250,
+        accuracy_9b=0.540,
+        ci95_9b=(0.40, 0.67),
+        budget_signal_9b=0.02,
+        source="lukaemon/bbh · config=tracking_shuffled_objects_seven_objects",
+        venue="BIG-Bench Hard, Suzgun et al., ACL Findings 2023",
+        slicing="One named BBH task: track seven objects through a swap sequence.",
+        grading="Normalised exact match.",
+        caveat="CLEANEST measurement in the table (budget signal 2%). Also the "
+               "clearest evidence against extrapolation: a survey agent predicted "
+               "0.93 for this slice; it measured 0.540, a 39-point miss.",
+    ),
+    Entry(
+        name="bamboogle",
+        chapter="ch4-basic",
+        items=125,
+        accuracy_9b=0.520,
+        ci95_9b=(0.39, 0.65),
+        budget_signal_9b=0.08,
+        source="chiayewken/bamboogle · split=test",
+        venue="Press et al., EMNLP Findings 2023 (self-ask)",
+        slicing="Whole test split. Closed-book 2-hop compositional questions.",
+        grading="Normalised exact match on a short span.",
+        caveat="Smallest usable set, so the cheapest full sweep — but 125 items "
+               "puts a wide interval on any subgroup analysis.",
+    ),
+    Entry(
+        name="minervamath",
+        chapter="ch1-math",
+        items=272,
+        accuracy_9b=0.500,
+        ci95_9b=(0.37, 0.63),
+        budget_signal_9b=0.10,
+        source="math-ai/minervamath · split=test",
+        venue="Minerva, Lewkowycz et al., NeurIPS 2022",
+        slicing="Whole test split. Undergraduate physics/astronomy quantitative "
+                "problems, free-response.",
+        grading="`_grade_latex`: numeric first, then normalised LaTeX surface "
+                "form. NOT a CAS. Scientific notation is normalised across "
+                "program form (`4.5e33`) and LaTeX (`4.5 \\times 10^{33}`), with a "
+                "1% relative tolerance THAT APPLIES ONLY to exponent-bearing "
+                "answers — plain integers still require exact equality.",
+        caveat="Measured at a 65k budget. At 40k it read 0.320/budget_limited, and "
+               "the difference was mostly a grader bug (23.5% of golds are "
+               "program-form scientific notation), not the budget. INFLUENCE "
+               "EVIDENCE UNCONFIRMED: `lm_eval/tasks/minerva_math` points at "
+               "`EleutherAI/hendrycks_math`, NOT at this dataset.",
+        max_tokens=65536,
+    ),
+    Entry(
+        name="supergpqa_law",
+        chapter="ch4-basic",
+        items=656,
+        accuracy_9b=0.460,
+        ci95_9b=(0.33, 0.60),
+        budget_signal_9b=0.10,
+        source="m-a-p/SuperGPQA · split=train · where discipline='Law'",
+        venue="SuperGPQA, M-A-P, 2025",
+        slicing="Server-side `where` on the `discipline` column. 52% `middle`, "
+                "39% `easy`, 9% `hard`.",
+        grading="Multiple choice, 10 options.",
+        caveat="RECOMMENDED DEFAULT. The only slice in the catalog whose 95% CI "
+               "lies entirely inside the band, so neither the point estimate nor "
+               "the interval is arguable.",
+    ),
+    Entry(
+        name="supergpqa_medicine_hard",
+        chapter="ch4-basic",
+        items=217,
+        accuracy_9b=0.360,
+        ci95_9b=(0.24, 0.50),
+        budget_signal_9b=0.10,
+        source="m-a-p/SuperGPQA · split=train · "
+               "where discipline='Medicine' AND difficulty='hard'",
+        venue="SuperGPQA, M-A-P, 2025",
+        slicing="Two-column `where`. The ONLY <1000 slice that is entirely `hard`; "
+                "every other discipline's hard tier is too small to sample "
+                "(History 3 items, Education 1, Sociology 1).",
+        grading="Multiple choice, 10 options.",
+        caveat="CI lower bound 0.241 falls below 0.30. n=100 is worth it here — on "
+               "217 items that is already close to a half census.",
+    ),
+)
+
+BY_NAME: dict = {e.name: e for e in CATALOG}
+
+
+def get(name: str) -> Entry:
+    if name not in BY_NAME:
+        raise SystemExit(
+            f"unknown dataset {name!r}. Available: {', '.join(sorted(BY_NAME))}"
+        )
+    return BY_NAME[name]
+
+
+def resolve_spec(name: str) -> "B.Spec":
+    return get(name).spec
+
+
+def acquisition(name: str) -> dict:
+    """Exactly what identifies this slice on the HuggingFace datasets-server.
+
+    Nothing is vendored: every item is fetched at run time from the ids below, so
+    these four fields ARE the dataset. A `where` clause is a server-side filter on
+    the dataset's own columns -- that is what makes the three SuperGPQA entries
+    citable slices rather than private subsamples.
+    """
+    spec = get(name).spec
+    return {
+        "dataset": spec.dataset,
+        "config": spec.config,
+        "split": spec.split,
+        "where": spec.where or "",
+    }
+
+
+def _plan(n_cases: int, confirm_split: float) -> None:
+    """What a requested n actually buys, per dataset.
+
+    `n_cases` is a SAMPLE SIZE drawn from the slice, so the slice size is a hard
+    ceiling: asking 240 of a 125-item set gets 125. The number that decides
+    whether M2 can conclude anything is neither n nor the half -- it is the
+    SMALLER of PASS/FAIL within a half, since a paired contrast is limited by its
+    thinner side.
+    """
+    label = "ALL (census)" if n_cases <= 0 else str(n_cases)
+    print(f"n_cases={label}  confirm_split={confirm_split}  "
+          f"(explore {1 - confirm_split:.0%} / confirm {confirm_split:.0%})")
+    print()
+    print(f"{'dataset':26s} {'slice':>6s} {'actual n':>9s} {'per half':>9s} "
+          f"{'PASS/FAIL':>11s} {'thinner':>8s}")
+    print("-" * 78)
+    for e in CATALOG:
+        actual = e.items if n_cases <= 0 else min(n_cases, e.items)
+        half = int(actual * confirm_split) if confirm_split else actual
+        n_pass = round(half * e.accuracy_9b)
+        n_fail = half - n_pass
+        thin = min(n_pass, n_fail)
+        mark = ""
+        if actual < n_cases:
+            mark += " CAPPED"
+        if thin < 25:
+            mark += " THIN"
+        print(f"{e.name:26s} {e.items:6d} {actual:9d} {half:9d} "
+              f"{f'{n_pass}/{n_fail}':>11s} {thin:8d}{mark}")
+    print()
+    if n_cases > 0:
+        print("CAPPED = the slice is smaller than the request; you get a CENSUS of it,")
+        print("         so there is no sampling variability left for that slice.")
+    else:
+        print("Every row is a CENSUS: the batch IS the slice, so there is no sampling")
+        print("variability left -- the interval speaks to the task, not to the draw.")
+    print("THIN   = fewer than ~25 in the smaller class per half. A paired test")
+    print("         there mostly reports 'not significant' from lack of power,")
+    print("         which is not a finding.")
+    print("PASS/FAIL uses the Qwen3.5-9B accuracy; a smaller model shifts it.")
+
+
+def _probe(timeout: int = 60) -> int:
+    """Fetch a couple of rows for each entry -- proves the ids actually resolve."""
+    import requests
+
+    bad = 0
+    print(f"{'dataset':26s} {'rows in slice':>13s}  status")
+    print("-" * 74)
+    for e in CATALOG:
+        acq = acquisition(e.name)
+        url = B.FILTER_API if acq["where"] else B.ROWS_API
+        params = {"dataset": acq["dataset"], "config": acq["config"],
+                  "split": acq["split"], "offset": 0, "length": 2}
+        if acq["where"]:
+            params["where"] = acq["where"]
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+        except requests.RequestException as exc:
+            print(f"{e.name:26s} {'-':>13s}  UNREACHABLE {type(exc).__name__}")
+            bad += 1
+            continue
+        if r.status_code != 200:
+            print(f"{e.name:26s} {'-':>13s}  HTTP {r.status_code}")
+            bad += 1
+            continue
+        total = r.json().get("num_rows_total")
+        # the slice size is a property of the ids; a mismatch means the upstream
+        # dataset moved under us and the recorded band no longer describes it
+        flag = "OK" if total == e.items else f"SIZE CHANGED (recorded {e.items})"
+        if total != e.items:
+            bad += 1
+        print(f"{e.name:26s} {total:13,d}  {flag}")
+    return bad
+
+
+if __name__ == "__main__":
+    import argparse
+
+    ap = argparse.ArgumentParser(description="the eight usable datasets")
+    ap.add_argument("--probe", action="store_true",
+                    help="hit datasets-server and confirm every slice resolves")
+    ap.add_argument("--acquisition", action="store_true",
+                    help="print the exact dataset/config/split/where for each")
+    ap.add_argument("--plan", action="store_true",
+                    help="what a given n_cases/confirm_split actually buys per dataset")
+    ap.add_argument("--n", type=int, default=0, help="n_cases for --plan")
+    ap.add_argument("--max-tokens", metavar="NAME",
+                    help="print the generation budget NAME needs (0 = config "
+                         "default is fine); run_all.sh uses this to size the "
+                         "server's --max-model-len before it starts")
+    ap.add_argument("--split", type=float, default=-1.0,
+                    help="confirm_split for --plan")
+    args = ap.parse_args()
+
+    if args.max_tokens:
+        print(get(args.max_tokens).max_tokens)
+        raise SystemExit(0)
+
+    if args.plan:
+        import yaml
+        cfg = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
+        _plan(args.n or int(cfg["n_cases"]),
+              args.split if args.split >= 0 else float(cfg["confirm_split"]))
+        raise SystemExit(0)
+
+    if args.acquisition:
+        for e in CATALOG:
+            acq = acquisition(e.name)
+            print(f"{e.name}")
+            print(f"    dataset = {acq['dataset']}")
+            print(f"    config  = {acq['config']}")
+            print(f"    split   = {acq['split']}")
+            if acq["where"]:
+                print(f"    where   = {acq['where']}")
+        raise SystemExit(0)
+
+    if args.probe:
+        raise SystemExit(1 if _probe() else 0)
+
+    print(f"{'dataset':26s} {'items':>6s} {'9B acc':>7s} {'signal':>7s}  chapter")
+    print("-" * 72)
+    for e in CATALOG:
+        print(f"{e.name:26s} {e.items:6d} {e.accuracy_9b:7.3f} "
+              f"{e.budget_signal_9b:7.2f}  {e.chapter}")
+    missing = [e.name for e in CATALOG
+               if not any(s.name == e.name for s in B.SPECS)]
+    print("\nspecs missing from band_locate:", missing or "none")
+    print("--acquisition: exact ids | --probe: verify they resolve | "
+          "--plan: what an n_cases buys")

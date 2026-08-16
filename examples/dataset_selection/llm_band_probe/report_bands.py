@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import sys
 
-from band_locate import TRUNCATION_ALARM, band_of
+from band_locate import TRUNCATION_ALARM, band_of, bracket_in_band, budget_bracket
 
 _ORDER = {"USABLE": 0, "marginal": 1, "budget_limited": 2, "saturated": 3, "floor": 4}
 
@@ -31,10 +31,14 @@ def load(paths: list[str]) -> list[dict]:
                 print(f"  ! {row['name']}: {row['error']}", file=sys.stderr)
                 continue
             row["_source"] = path
-            # re-derive so an old file is judged by the CURRENT rule
-            row["band"] = band_of(
-                row["accuracy"], *row["ci95"], row.get("no_answer_tag_rate", 0.0)
+            # re-derive so an old file is judged by the CURRENT rule.
+            # finish_reason is the real truncation signal; the tag rate is the
+            # older proxy and is all an older results file carries.
+            row["_budget_signal"] = max(
+                row.get("truncated_rate") or 0.0,
+                row.get("no_answer_tag_rate") or 0.0,
             )
+            row["band"] = band_of(row["accuracy"], *row["ci95"], row["_budget_signal"])
             prior = by_name.get(row["name"])
             if prior is not None:
                 row["_superseded"] = {
@@ -51,7 +55,7 @@ def main() -> None:
     rows = load(paths)
     rows.sort(key=lambda r: (_ORDER.get(r["band"], 9), -r["accuracy"]))
 
-    header = f"{'dataset':22s} {'chapter':11s} {'n':>3s} {'acc':>6s} {'95% CI':>15s} {'no-tag':>7s} {'band':14s}"
+    header = f"{'dataset':22s} {'chapter':11s} {'n':>3s} {'acc':>6s} {'95% CI':>15s} {'budget':>7s} {'band':14s}"
     print(header)
     print("-" * len(header))
     for r in rows:
@@ -61,10 +65,15 @@ def main() -> None:
             f"  (was {was['accuracy']:.2f}/{was['no_answer_tag_rate']:.2f} {was['band']})"
             if was else ""
         )
+        flags = ""
+        if r.get("undersampled"):
+            flags += f" [n<{r.get('n_requested')}]"
+        if r.get("error_rate"):
+            flags += f" [err {r['error_rate']:.0%}]"
         print(
             f"{r['name']:22s} {r.get('chapter', ''):11s} {r['n']:3d} "
             f"{r['accuracy']:6.3f} {f'[{lo:.2f}, {hi:.2f}]':>15s} "
-            f"{r.get('no_answer_tag_rate', 0.0):7.2f} {r['band']:14s}{delta}"
+            f"{r['_budget_signal']:7.2f} {r['band']:14s}{flags}{delta}"
         )
 
     usable = [r for r in rows if r["band"] == "USABLE"]
@@ -81,10 +90,21 @@ def main() -> None:
             "not the model. Re-run these with a larger budget before reading a band:"
         )
         for r in budget:
+            trunc = r.get("truncated_rate")
+            how = (
+                f"truncated {trunc:.0%}" if trunc is not None
+                else f"no-tag {r['no_answer_tag_rate']:.0%}"
+            )
+            # the bracket sorts the queue: a re-run only answers the question for
+            # rows whose ceiling cannot clear the band
+            lo, hi = budget_bracket(r["accuracy"], r["_budget_signal"])
+            worth = " <- RERUN SETTLES IT" if bracket_in_band(
+                r["accuracy"], r["_budget_signal"]
+            ) else ""
             print(
                 f"  ! {r['name']} @ {r['accuracy']:.0%} "
-                f"(no-tag {r['no_answer_tag_rate']:.0%}, "
-                f"mean {r['mean_output_chars']:.0f} chars)"
+                f"({how}, mean {r['mean_output_chars']:.0f} chars) "
+                f"could land in [{lo:.2f}, {hi:.2f}]{worth}"
             )
 
 

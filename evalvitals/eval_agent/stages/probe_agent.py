@@ -331,7 +331,7 @@ class ProbeAgent:
         assert self.judge is not None  # caller guarantees this
 
         kind = self.selector.detect_kind(model, data)
-        catalog = get_analyzer_catalog(model)
+        catalog = self._offerable(get_analyzer_catalog(model), data)
         if not catalog:
             return self._static_fallback(model, data), "no analyzers available"
 
@@ -493,7 +493,13 @@ class ProbeAgent:
         def _consider(candidate: str) -> None:
             if candidate in selected:
                 return
-            if not _analyzer_data_preconditions_met(candidate, data):
+            # Both selection paths (judge and static) converge here, so this is
+            # where "the data is the wrong shape" and "the collaborator was never
+            # injected" have to be caught. Previously neither was: an analyzer
+            # that could not be built was selected anyway and then dropped at
+            # instantiation with a warning, having already cost a slot.
+            if not _analyzer_data_preconditions_met(candidate, data) \
+                    or self._needs_injection(candidate):
                 if candidate not in filtered_seen:
                     filtered.append(candidate)
                     filtered_seen.add(candidate)
@@ -724,6 +730,76 @@ class ProbeAgent:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _offerable(self, catalog: "dict[str, str]", data: "Any" = None) -> "dict[str, str]":
+        """Drop analyzers the judge could pick but this run could never use.
+
+        Capability + modality matching answers "does the MODEL provide what this
+        needs". Two things it cannot answer, both of which produced real damage
+        on a single-turn text run:
+
+        1. **Is the data the right shape?** Every analyzer in ``analyzers/agent/``
+           declares no capability (correctly — they read trajectories, sometimes
+           with no model at all), so all six matched a plain QA batch.
+           ``first_error_judge`` was duly selected, ran, and reported
+           ``n_trajectories: 0``, which M2 then listed as a healthy metric.
+        2. **Did the caller inject the collaborator?** ``reliability_probe``
+           wants ``runs_fn``, ``tool_shap`` a tool runner, ``trajectory_rubric``
+           a judge. These were offered every run and skipped at instantiation
+           with a warning, spending a selection slot a runnable analyzer could
+           have had.
+
+        An override supplies exactly that missing collaborator, so anything in
+        ``analyzer_overrides`` survives the second check.
+        """
+        import inspect
+
+        from evalvitals.eval_agent.stages.probe import _carries_trajectories
+
+        has_traj = data is not None and _carries_trajectories(data)
+        keep: dict[str, str] = {}
+        for name, desc in catalog.items():
+            cls = registry.analyzers.get(name)
+            if getattr(cls, "requires_trajectories", False) and not has_traj:
+                logger.debug(
+                    "not offering analyzer '%s': it reads agent trajectories and "
+                    "this batch carries none", name,
+                )
+                continue
+            needs = self._needs_injection(name)
+            if needs:
+                logger.debug(
+                    "not offering analyzer '%s': needs %s, which must be injected "
+                    "via analyzer_overrides", name, needs,
+                )
+                continue
+            keep[name] = desc
+        return keep
+
+    def _needs_injection(self, name: str) -> "list[str]":
+        """Constructor arguments the caller must supply; empty when buildable.
+
+        An entry in ``analyzer_overrides`` IS that supply, so an overridden
+        analyzer always reads as buildable.
+        """
+        import inspect
+
+        if name in self._overrides:
+            return []
+        cls = registry.analyzers.get(name) if registry.analyzers.has(name) else None
+        if cls is None:
+            return []
+        try:
+            params = inspect.signature(cls.__init__).parameters
+        except (TypeError, ValueError):
+            return []
+        return [
+            n for n, p in params.items()
+            if n != "self"
+            and p.default is inspect.Parameter.empty
+            and p.kind not in (inspect.Parameter.VAR_POSITIONAL,
+                               inspect.Parameter.VAR_KEYWORD)
+        ]
+
     def _make_analyzer(self, name: str) -> "Analyzer | None":
         if name in self._overrides:
             return self._overrides[name]
@@ -847,6 +923,15 @@ def _serialize_cases(data: "CaseBatch") -> list[dict[str, Any]]:
 
 
 def _analyzer_data_preconditions_met(name: str, data: "CaseBatch") -> bool:
+    cls = registry.analyzers.get(name) if registry.analyzers.has(name) else None
+    if cls is not None and getattr(cls, "requires_trajectories", False):
+        # The agent lane declares no capability — correctly, since these read
+        # trajectories and often take model=None — so capability matching let all
+        # of them through to single-turn batches. This is the precondition that
+        # actually applies: are there trajectories to read?
+        from evalvitals.eval_agent.stages.probe import _carries_trajectories
+
+        return _carries_trajectories(data)
     if name == "pope":
         return any(
             str((getattr(case, "metadata", {}) or {}).get("pope_label", "")).lower()
