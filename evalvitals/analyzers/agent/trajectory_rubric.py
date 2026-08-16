@@ -92,6 +92,10 @@ class TrajectoryRubricJudge(Analyzer):
 
     name = "trajectory_rubric"
     requires = frozenset()  # the judge is injected, not the probed model
+    #: Reads agent runs. The model is not what makes this applicable —
+    #: the DATA is, which is why `requires` stays empty (these run on
+    #: trajectories loaded from disk, with no model at all).
+    requires_trajectories = True
     applies_to_modalities = frozenset({"text", "image"})
 
     def __init__(self, judge: Any, max_cases: Optional[int] = None, annotate: bool = True) -> None:

@@ -38,6 +38,10 @@ class LoopDetector(Analyzer):
 
     name = "loop_detect"
     requires = frozenset()  # pure heuristic over Trajectory — no model needed
+    #: Reads agent runs. The model is not what makes this applicable —
+    #: the DATA is, which is why `requires` stays empty (these run on
+    #: trajectories loaded from disk, with no model at all).
+    requires_trajectories = True
     applies_to_modalities = frozenset({"text", "image"})  # trajectory analysis is modality-agnostic
 
     def __init__(self, min_repeats: int = 2) -> None:

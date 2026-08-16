@@ -43,6 +43,18 @@ class Analyzer(ABC):
     #: Modalities this analysis applies to; matched against ``model.modalities``.
     #: ``{"text"}`` runs on any text-capable model; ``{"image"}`` only on VLMs.
     applies_to_modalities: frozenset[str] = frozenset({"text"})
+    #: True when the analysis reads multi-step agent runs
+    #: (:class:`~evalvitals.core.case.Trajectory`) rather than single turns.
+    #:
+    #: A requirement on the DATA, which is why it is not a
+    #: :class:`~evalvitals.core.capability.Capability`: these analyzers run on
+    #: trajectories loaded from disk with ``model=None``, so nothing about the
+    #: model can express it. ``requires``/``applies_to_modalities`` therefore let
+    #: every one of them match a plain LLM or VLM, and a single-turn QA batch got
+    #: offered trajectory analyzers — the ones that built with default args then
+    #: ran and reported ``n_trajectories: 0``. Selection gates on this against
+    #: the batch actually in hand.
+    requires_trajectories: bool = False
 
     def __init__(self, **params: Any) -> None:
         # Store hyper-parameters sklearn-style for introspection / reproduction.
