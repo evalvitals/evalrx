@@ -161,8 +161,8 @@ CATALOG: tuple = (
         name="minervamath",
         chapter="ch1-math",
         items=272,
-        accuracy_9b=0.500,
-        ci95_9b=(0.37, 0.63),
+        accuracy_9b=0.463,
+        ci95_9b=(0.40, 0.52),
         budget_signal_9b=0.10,
         source="math-ai/minervamath · split=test",
         venue="Minerva, Lewkowycz et al., NeurIPS 2022",
@@ -173,10 +173,19 @@ CATALOG: tuple = (
                 "program form (`4.5e33`) and LaTeX (`4.5 \\times 10^{33}`), with a "
                 "1% relative tolerance THAT APPLIES ONLY to exponent-bearing "
                 "answers — plain integers still require exact equality.",
-        caveat="Measured at a 65k budget. At 40k it read 0.320/budget_limited, and "
-               "the difference was mostly a grader bug (23.5% of golds are "
-               "program-form scientific notation), not the budget. INFLUENCE "
-               "EVIDENCE UNCONFIRMED: `lm_eval/tasks/minerva_math` points at "
+        caveat="The one entry here that is NOT an n=50 probe: 0.463 is a regraded "
+               "FULL CENSUS (126/272, Wilson [0.40, 0.52]) — the batch was "
+               "generated once and relabelled by regrade.py after the "
+               "extract_answer fix, which moved it 0.360 -> 0.463 with zero "
+               "PASS->FAIL. It replaces a 0.500 probe read off the broken "
+               "grader. qwen3.5-2b is 0.419 (114/272) on the same slice under "
+               "the same grader — a 4.4-point gap across a 4.5x parameter "
+               "difference, so treat this slice as measuring something other "
+               "than scale. Measured at a 65k budget. At 40k it read "
+               "0.320/budget_limited, and the difference was mostly a grader "
+               "bug (23.5% of golds are program-form scientific notation), not "
+               "the budget. INFLUENCE EVIDENCE UNCONFIRMED: "
+               "`lm_eval/tasks/minerva_math` points at "
                "`EleutherAI/hendrycks_math`, NOT at this dataset.",
         max_tokens=65536,
     ),
@@ -216,6 +225,40 @@ CATALOG: tuple = (
 )
 
 BY_NAME: dict = {e.name: e for e in CATALOG}
+
+
+#: Qwen3.5-**2B**, n=50 probe, measured 2026-08-16 with the FIXED extractor.
+#:
+#: The band is a property of the (model, dataset) PAIR, and this is the evidence
+#: for it: five of seven candidates land IN band on a 2B, so a small model is not
+#: the reason a slice is unusable — bbh_tracking7 was unusable because the grader
+#: was inventing its position (0.988 once regraded, on the 9B).
+#:
+#: ``seconds`` is per 50 items at concurrency 16 and spans a factor of FORTY-FIVE,
+#: which no accuracy column shows: cruxeval_output is a whole census in ~4 min
+#: while supergpqa_economics is ~2.5 h. It is here so a dataset gets picked on
+#: cost as well as band position.
+#:
+#: ``chars`` is the mean generation length, and it is the column that decides
+#: whether M1 has anything to read. At 189 chars a 2B barely opens a chain on
+#: cruxeval_output, so the reasoning analyzers measure almost nothing there —
+#: same band position, very different diagnostic value.
+BAND_2B: dict = {
+    #                        acc     band       seconds  chars
+    "bbh_causal_judgement": (0.420, "USABLE",      90,     None),
+    "minervamath":          (0.380, "USABLE",     639,    12149),
+    "supergpqa_law":        (0.360, "USABLE",     305,     6576),
+    "supergpqa_economics":  (0.340, "USABLE",     507,     6338),
+    "cruxeval_output":      (0.300, "USABLE",      14,      189),
+    "bamboogle":            (0.160, "floor",      107,     None),
+    "supergpqa_medicine_hard": (0.140, "floor",   701,     None),
+    # bbh_tracking7 not probed: already saturated on the 9B once regraded.
+}
+
+#: Full-census follow-ups, which are what the probe is FOR — checking that an
+#: n=50 read survives the whole slice.  minervamath: probe 0.380 (CI 0.26-0.52),
+#: census 0.419 (114/272).  Inside the interval, so the probe was representative.
+CENSUS_2B: dict = {"minervamath": 0.419}
 
 
 def get(name: str) -> Entry:
