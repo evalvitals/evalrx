@@ -40,6 +40,7 @@ sys.path.insert(0, str(PKG_ROOT))
 
 import band_locate as B  # noqa: E402
 import datasets as CATALOG  # noqa: E402
+from regrade import grader_fingerprint as _grader_fingerprint  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
 
@@ -123,6 +124,10 @@ def build(model_id: str, base_url: str, dataset: str, n: int,
         "sampling": sampling,
         "seconds": round(time.time() - started, 1),
         "reference_9b_accuracy": entry.accuracy_9b,
+        #: Which grader produced the labels below. The generations never go
+        #: stale; the labels do, and SKIP_STAGE0=1 reuses this file verbatim.
+        #: See regrade.py -- run_pipeline warns when this no longer matches.
+        "grader_fingerprint": _grader_fingerprint(),
         "cases": cases,
     }
 

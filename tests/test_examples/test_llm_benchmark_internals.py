@@ -18,6 +18,7 @@ plausible number rather than an error:
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -424,3 +425,84 @@ def test_hybrid_sparse_still_grants_the_attention_capability():
     from evalvitals.core.spec import AttnSemantics
 
     assert AttnSemantics.HYBRID_SPARSE is not AttnSemantics.NONE
+
+
+# ── regrade: a frozen batch's labels go stale, its generations do not ────────
+@pytest.fixture(scope="module")
+def rg():
+    return _load("regrade")
+
+
+def _batch(dataset="bbh_tracking7", cases=()):
+    return {
+        "model": "qwen3.5-9b", "dataset": dataset, "n": len(cases),
+        "accuracy": sum(c["label"] == "PASS" for c in cases) / max(len(cases), 1),
+        "cases": list(cases),
+    }
+
+
+def _rg_case(output, gold, label, truncated=False):
+    return {"prompt": "q", "gold": gold, "output": output, "label": label,
+            "finish_reason": "length" if truncated else "stop",
+            "truncated": truncated}
+
+
+def test_regrade_recovers_a_bare_option_label(rg):
+    """The exact shape that cost the 9B batch 99 cases."""
+    report = _batch(cases=[
+        _rg_case("Claire is dancing with **Lola**.\n\nAnswer: (A)", "(A)", "FAIL"),
+        _rg_case("Answer: (B)", "(B)", "PASS"),
+    ])
+    delta = rg.regrade(report)
+    assert delta["fail_to_pass"] == 1
+    assert delta["pass_to_fail"] == 0
+    assert delta["labels"] == ["PASS", "PASS"]
+    assert delta["new_accuracy"] == 1.0
+
+
+def test_regrade_does_not_mutate_its_input(rg):
+    """Dry run is the default, so the report must survive being inspected."""
+    report = _batch(cases=[_rg_case("Answer: (A)", "(A)", "FAIL")])
+    before = json.dumps(report, sort_keys=True)
+    rg.regrade(report)
+    assert json.dumps(report, sort_keys=True) == before
+
+
+def test_regrade_counts_recovered_truncated_cases_separately(rg):
+    """A cut-off generation that happens to regrade PASS is budget noise."""
+    report = _batch(cases=[_rg_case("Answer: (A)", "(A)", "FAIL", truncated=True)])
+    delta = rg.regrade(report)
+    assert delta["fail_to_pass"] == 1
+    assert delta["fail_to_pass_truncated"] == 1
+
+
+def test_apply_writes_labels_accuracy_and_the_fingerprint(rg):
+    report = _batch(cases=[
+        _rg_case("Answer: (A)", "(A)", "FAIL"),
+        _rg_case("Answer: (C)", "(B)", "PASS"),
+    ])
+    out = rg.apply(report, rg.regrade(report))
+    assert [c["label"] for c in out["cases"]] == ["PASS", "FAIL"]
+    assert out["accuracy"] == 0.5
+    assert out["n_pass"] == 1 and out["n_fail"] == 1
+    assert out["grader_fingerprint"] == rg.grader_fingerprint()
+
+
+def test_fingerprint_tracks_the_grading_source_not_a_version_constant(rg):
+    """Hand-bumped versions record only the changes someone remembered to."""
+    from evalvitals.analyzers.reasoning import _text
+
+    digest = rg.grader_fingerprint()
+    assert digest == rg.grader_fingerprint(), "must be deterministic"
+    assert len(digest) == 16
+    # it really is derived from that file's bytes
+    import hashlib
+    assert digest == hashlib.sha256(
+        Path(_text.__file__).read_bytes()).hexdigest()[:16]
+
+
+def test_a_freshly_built_batch_is_not_reported_stale():
+    """build_cases must stamp the same fingerprint run_pipeline checks."""
+    build_cases = _load("build_cases")
+    regrade = _load("regrade")
+    assert build_cases._grader_fingerprint() == regrade.grader_fingerprint()

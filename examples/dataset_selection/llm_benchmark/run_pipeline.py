@@ -242,6 +242,27 @@ def load_batch(model_id: str, dataset: str):
             f"  python build_cases.py --model {model_id} --dataset {dataset}"
         )
     report = json.loads(path.read_text())
+
+    # A frozen batch keeps its generations forever but its LABELS are only as
+    # good as the grader that wrote them, and SKIP_STAGE0=1 reuses the file
+    # wholesale. When extract_answer was fixed on 2026-08-16 the two batches on
+    # disk moved 0.592->0.988 and 0.360->0.463 without a single re-generation --
+    # a loop restarted on them would have mined the old bug and reported it as
+    # model behaviour. Warn rather than refuse: the batch is still USABLE, it
+    # just has to be regraded first, and that is free.
+    try:
+        from regrade import grader_fingerprint
+        if report.get("grader_fingerprint") != grader_fingerprint():
+            print(f"  WARNING {path.name} was graded by a different version of "
+                  f"the grader than the one installed now. Its PASS/FAIL split "
+                  f"may not reflect current grading.\n"
+                  f"          python regrade.py --model {model_id} "
+                  f"--dataset {dataset}        # see the delta\n"
+                  f"          python regrade.py --model {model_id} "
+                  f"--dataset {dataset} --write")
+    except Exception as exc:  # never block a run on the staleness check itself
+        print(f"  NOTE could not check grader freshness: {exc}")
+
     cases = [
         FailureCase(
             inputs=Inputs(prompt=c["prompt"]),
