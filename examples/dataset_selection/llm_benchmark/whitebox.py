@@ -35,7 +35,12 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(HERE.parent.parent))
+#: The checkout root (holds pyproject.toml). Found by walking up rather than
+#: counting directories: this example moved from examples/ to
+#: examples/dataset_selection/ in one reorg, and a hardcoded ``parent.parent``
+#: silently started pointing at examples/ instead of the package root.
+PKG_ROOT = next(p for p in HERE.resolve().parents if (p / "pyproject.toml").exists())
+sys.path.insert(0, str(PKG_ROOT))
 
 #: Bytes of attention a single forward may materialise before we refuse.
 #: 8 GB ~ a 2k-token prompt on the 9B. Raise it only with the RAM to back it:

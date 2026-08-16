@@ -92,7 +92,7 @@ export HF_HOME=/data/hf-cache
 ### 4. 上机前自检 —— **先跑这个**
 
 ```bash
-cd evalsmith/evalvitals/examples/llm_benchmark
+cd evalsmith/evalvitals/examples/dataset_selection/llm_benchmark
 ../../.venv/bin/python preflight.py --model qwen3.5-9b --dataset supergpqa_law
 ```
 
@@ -121,7 +121,7 @@ GPU 空闲显存够不够这个尺寸、磁盘够不够放权重、datasets-serv
 **如果你是自动化执行者,只读这一节就够了。** 下面的手动分步说明是给人看的。
 
 ```bash
-cd <repo>/evalvitals/examples/llm_benchmark
+cd <repo>/evalvitals/examples/dataset_selection/llm_benchmark
 ./run_all.sh qwen3.5-9b supergpqa_law
 ```
 
@@ -500,7 +500,7 @@ $VLLM serve Qwen/Qwen3.5-9B \
 ### Stage 0 — 冻结带标签的 CaseBatch(唯一的 GPU 生成步骤)
 
 ```bash
-cd <repo>/evalvitals/examples/llm_benchmark
+cd <repo>/evalvitals/examples/dataset_selection/llm_benchmark
 
 $PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law
 ```
@@ -531,7 +531,7 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law --analysis-only
 
 # dashboard 要在 evalvitals/ 下跑(`evalvitals` 包才在 import path 上)
 cd <repo>/evalvitals
-$PY -m evalvitals.cli dashboard examples/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
+$PY -m evalvitals.cli dashboard examples/dataset_selection/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
 ```
 
 产出提出的假设,但**不做 M5 确认、不做修复**。先把分析故事看明白再决定要不要往下走。
@@ -568,7 +568,7 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 `run_all.sh` 每次都自己起停 vLLM,所以串行跑三个尺寸不会撞车:
 
 ```bash
-cd <repo>/evalvitals/examples/llm_benchmark
+cd <repo>/evalvitals/examples/dataset_selection/llm_benchmark
 for M in qwen3.5-2b qwen3.5-4b qwen3.5-9b; do
   ./run_all.sh "$M" supergpqa_law
 done

@@ -25,7 +25,11 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-PKG_ROOT = HERE.parent.parent
+#: The checkout root (holds pyproject.toml). Found by walking up rather than
+#: counting directories: this example moved from examples/ to
+#: examples/dataset_selection/ in one reorg, and a hardcoded ``parent.parent``
+#: silently started pointing at examples/ instead of the package root.
+PKG_ROOT = next(p for p in HERE.resolve().parents if (p / "pyproject.toml").exists())
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(PKG_ROOT))
 sys.path.insert(0, str(HERE.parent / "llm_band_probe"))
@@ -271,7 +275,7 @@ def check_catalog(dataset: str) -> None:
         import datasets as CAT
     except Exception as exc:
         bad(f"cannot import the dataset catalog ({type(exc).__name__}: {exc})",
-            "run from inside examples/llm_benchmark")
+            "run from inside examples/dataset_selection/llm_benchmark")
         return
     try:
         entry = CAT.get(dataset)

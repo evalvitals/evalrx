@@ -1,4 +1,4 @@
-"""Contract checks for the two capability stages of examples/llm_benchmark.
+"""Contract checks for the two capability stages of examples/dataset_selection/llm_benchmark.
 
 The failures these exist to catch are all SILENT ones — each would produce a
 plausible number rather than an error:
@@ -23,7 +23,8 @@ from pathlib import Path
 
 import pytest
 
-_BENCH = Path(__file__).resolve().parents[2] / "examples" / "llm_benchmark"
+_BENCH = (Path(__file__).resolve().parents[2]
+          / "examples" / "dataset_selection" / "llm_benchmark")
 
 
 def _load(name: str):

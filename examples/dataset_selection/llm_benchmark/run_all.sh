@@ -17,7 +17,16 @@ PORT="${PORT:-8020}"
 ANALYSIS_ONLY="${ANALYSIS_ONLY:-0}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PKG_ROOT="$(cd "$HERE/../.." && pwd)"   # the dir holding pyproject.toml
+# Walk up to the checkout root instead of counting directories: this example
+# moved one level deeper in an examples/ reorg, and a fixed "../.." silently
+# resolved to examples/ — which still exists, so nothing errored.
+PKG_ROOT="$HERE"
+while [ "$PKG_ROOT" != "/" ] && [ ! -f "$PKG_ROOT/pyproject.toml" ]; do
+  PKG_ROOT="$(dirname "$PKG_ROOT")"
+done
+if [ ! -f "$PKG_ROOT/pyproject.toml" ]; then
+  echo "cannot find the checkout root (no pyproject.toml above $HERE)" >&2; exit 6
+fi
 
 # Resolve interpreters WITHOUT hardcoding a machine. Order: explicit override ->
 # a venv inside the checkout -> whatever is on PATH. Serving and evaluating are

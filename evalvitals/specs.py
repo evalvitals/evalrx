@@ -97,7 +97,7 @@ _add(ModelSpec(
     caveats=("text-only size; tied embeddings by default",),
 ))
 
-# Qwen3.5 — the checkpoints examples/llm_benchmark diagnoses. Registered as
+# Qwen3.5 — the checkpoints examples/dataset_selection/llm_benchmark diagnoses. Registered as
 # TEXT specs on purpose, see the caveats: the released checkpoint is
 # ``Qwen3_5ForConditionalGeneration`` and carries a vision tower, but this
 # pipeline only ever sends text, and ``AutoModelForCausalLM`` maps ``qwen3_5``
