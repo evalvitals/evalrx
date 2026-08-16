@@ -1,9 +1,9 @@
 services:
-  musicavqa_avcd:
+  musicavqa_videollama2:
     build:
       context: ../../..
-      dockerfile: examples/diagnosis_loops/musicavqa_avcd/Dockerfile
-    image: evalvitals-musicavqa-avcd
+      dockerfile: examples/m1_m4/musicavqa_videollama2/Dockerfile
+    image: evalvitals-musicavqa-videollama2
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}

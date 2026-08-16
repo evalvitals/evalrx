@@ -23,7 +23,7 @@ RUN git clone --branch audio_visual --depth 1 \
        opencv-python-headless moviepy librosa timm
 
 WORKDIR /app/example
-COPY examples/diagnosis_loops/musicavqa_avcd/ .
+COPY examples/m1_m4/musicavqa_videollama2/ .
 
 ENV PYTHONUNBUFFERED=1
 

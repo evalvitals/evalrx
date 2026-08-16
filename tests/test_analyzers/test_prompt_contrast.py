@@ -147,6 +147,33 @@ def test_prompt_sensitivity_surfaced_to_findings_per_case():
     assert all("fixed_by_describe_first" not in e for e in pc)
 
 
+# ── audio: dataclasses.replace must preserve non-image modality fields ──
+
+class _AudioEchoModel(Model):
+    """Answers "yes" iff .audio survived onto the re-asked Inputs."""
+
+    capabilities = frozenset({Capability.GENERATE})
+    modalities = frozenset({"text", "audio"})
+
+    def generate(self, inputs, **kwargs):
+        return "Yes." if getattr(inputs, "audio", None) is not None else "No."
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+def test_audio_input_preserved_across_strategies():
+    yes = {"all_of": ["yes"], "none_of": ["no"]}
+    cases = CaseBatch([
+        FailureCase(id="a0", inputs=Inputs(prompt="What sound is this?", audio="clip.wav"),
+                    expected=yes, label=Label.FAIL),
+    ])
+    res = PromptContrastAnalyzer().run(_AudioEchoModel(), cases)
+    # Every strategy re-generate must still carry .audio through, not just baseline.
+    for strat, scores in res.findings["by_strategy"].items():
+        assert scores["a0"] == 1.0, f"strategy {strat!r} dropped .audio on re-ask"
+
+
 def test_prompt_robust_model_has_zero_sensitivity():
     res = PromptContrastAnalyzer().run(_ConsistentModel(), _batch())
     pc = res.findings["per_case"]

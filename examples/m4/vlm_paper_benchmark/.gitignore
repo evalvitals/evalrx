@@ -1,5 +1,0 @@
-# Public datasets, decoded images, Hugging Face cache and all experiment reports
-# are reproducible local artifacts, never repository inputs.
-data/
-outputs/
-__pycache__/
