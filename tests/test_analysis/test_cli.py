@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
+import evalvitals
 from evalvitals.analysis.cli import main as explore_main
 from evalvitals.cli import main
+from evalvitals.logging_utils import _MARKER_ATTR, TOP_LEVEL_LOGGER_NAME
 
 
 def test_top_level_cli_help(capsys):
@@ -13,6 +17,30 @@ def test_top_level_cli_help(capsys):
     # chat REPL is retired; the single-shot explore entry replaces it.
     assert "explore" in out
     assert "chat" not in out
+
+
+def test_verbose_flag_documented_in_help(capsys):
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert "-v, --verbose" in out
+
+
+def test_verbose_flag_enables_console_logging():
+    try:
+        evalvitals.disable_console_logging()
+        top = logging.getLogger(TOP_LEVEL_LOGGER_NAME)
+        assert not any(getattr(h, _MARKER_ATTR, False) for h in top.handlers)
+        assert main(["-v"]) == 0
+        assert any(getattr(h, _MARKER_ATTR, False) for h in top.handlers)
+    finally:
+        evalvitals.disable_console_logging()
+
+
+def test_without_verbose_flag_logging_untouched():
+    evalvitals.disable_console_logging()
+    top = logging.getLogger(TOP_LEVEL_LOGGER_NAME)
+    assert main([]) == 0
+    assert not any(getattr(h, _MARKER_ATTR, False) for h in top.handlers)
 
 
 def test_top_level_explore_help(capsys):

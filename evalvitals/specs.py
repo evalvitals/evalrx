@@ -304,10 +304,16 @@ _OMNI_PATHS = ModulePaths(
     router="mlp.gate", experts="mlp.experts",   # thinker text layers are Qwen3-MoE
 )
 _OMNI_VISION = VisionSpec(
-    image_token_id_attr="image_token_id",
+    # Qwen3OmniMoeConfig has no top-level attribute_map to thinker_config, so
+    # the token id must be resolved through the nested path (verified against
+    # transformers 4.57's Qwen3OmniMoeThinkerConfig source — the top-level
+    # config genuinely does not expose image_token_id/audio_token_id itself).
+    image_token_id_attr="thinker_config.image_token_id",
     merge_size_attr="thinker_config.vision_config.spatial_merge_size", grid_source="grid_thw",
 )
-_OMNI_AUDIO = AudioSpec(audio_token_id_attr="audio_token_id", audio_tower="thinker.audio_tower")
+_OMNI_AUDIO = AudioSpec(
+    audio_token_id_attr="thinker_config.audio_token_id", audio_tower="thinker.audio_tower"
+)
 _OMNI_CAVEATS = (
     "Transformers >= 5.2.0 (Qwen3OmniMoeForConditionalGeneration / Qwen3OmniMoeProcessor)",
     "multimodal preprocessing via qwen_omni_utils.process_mm_info; pass use_audio_in_video "
@@ -339,6 +345,50 @@ _add(ModelSpec(
     min_transformers="5.2.0", is_moe=True,
     module_paths=_OMNI_PATHS, audio=_OMNI_AUDIO,  # audio-in / text-out only
     caveats=_OMNI_CAVEATS + ("audio-only input -> text caption; no image/video heads in use",),
+))
+
+# Qwen2.5-Omni — same thinker/talker/token2wav shape as Qwen3-Omni (dense, not
+# MoE), so the vision/audio HINTS are byte-identical; reused rather than
+# redefined. https://github.com/QwenLM/Qwen2.5-Omni
+# https://arxiv.org/abs/2503.20215
+_QWEN25_OMNI_CAVEATS = (
+    "Transformers >= 4.52.0 (Qwen2_5OmniForConditionalGeneration / Qwen2_5OmniProcessor); "
+    "verify against the installed changelog before pinning a release",
+    "audio=<mono float32 ndarray @ 16kHz> or path/URL (decoded via ffmpeg) passed straight to "
+    "the processor's audio= kwarg -- no qwen_omni_utils dependency needed for text+image+audio",
+    "WhisperFeatureExtractor window is 300s (chunk_length) on this checkpoint -- longer clips "
+    "raise rather than silently truncate (see hf_local._check_audio_duration)",
+    "config nests under thinker_config (vision_config/audio_config) — image/audio token ids "
+    "read from the live config at load, never baked",
+    "7B dense thinker; talker (speech out) not modelled — analysis targets the thinker text stream",
+)
+_add(ModelSpec(
+    key="qwen2.5-omni-7b", family="qwen2_5_omni", model_type="qwen2_5_omni",
+    hf_repo="Qwen/Qwen2.5-Omni-7B",
+    auto_class="Qwen2_5OmniForConditionalGeneration", processor_class="Qwen2_5OmniProcessor",
+    min_transformers="4.52.0", tool_calling=True,
+    module_paths=_OMNI_PATHS, vision=_OMNI_VISION, audio=_OMNI_AUDIO, video=True,
+    caveats=_QWEN25_OMNI_CAVEATS,
+))
+
+# Qwen2-Audio — audio-in/text-out only (no vision tower), the simplest
+# audio-capable spec: one config level, no thinker/talker nesting, so
+# audio_token_id resolves directly off the top-level config.
+# https://github.com/QwenLM/Qwen2-Audio · https://arxiv.org/abs/2407.10759
+_add(ModelSpec(
+    key="qwen2-audio-7b-instruct", family="qwen2_audio", model_type="qwen2_audio",
+    hf_repo="Qwen/Qwen2-Audio-7B-Instruct",
+    auto_class="Qwen2AudioForConditionalGeneration", processor_class="Qwen2AudioProcessor",
+    min_transformers="4.45.0",
+    module_paths=ModulePaths(decoder_layers="language_model.model.layers"),
+    audio=AudioSpec(audio_token_id_attr="audio_token_id", audio_tower="audio_tower"),
+    caveats=(
+        "audio-only input -> text output; no vision/video heads at all",
+        "WhisperFeatureExtractor window is 30s (chunk_length) on this checkpoint -- longer "
+        "clips raise rather than silently truncate (see hf_local._check_audio_duration)",
+        "audio_token_id resolves directly off the top-level config (no thinker_config nesting, "
+        "unlike the Omni families)",
+    ),
 ))
 
 _add(ModelSpec(

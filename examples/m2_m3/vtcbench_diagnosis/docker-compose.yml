@@ -1,0 +1,43 @@
+services:
+  vtcbench_diagnosis:
+    build:
+      context: ../../..
+      dockerfile: examples/m2_m3/vtcbench_diagnosis/Dockerfile
+    image: evalvitals-vtcbench-diagnosis
+    # Prerequisite: serve the checkpoint before `docker compose up` (see this
+    # example's README) --
+    #   vllm serve Qwen/Qwen3-VL-2B-Instruct --port 8901 \
+    #     --enable-auto-tool-choice --tool-call-parser hermes \
+    #     --max-model-len 32768 --mm-processor-kwargs '{"max_pixels": 1003520}'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - HF_HOME=/hf_cache
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://host.docker.internal:8901/v1}
+      - HOME=/home/user
+      - IS_SANDBOX=1
+    volumes:
+      - ${HF_HOME:-~/.cache/huggingface}:/hf_cache
+      - ./outputs:/app/example/outputs
+      # DATA_ROOT is a hardcoded module constant in run_m1.py
+      # ("/tealab-data/jiaqiliu/datasets") -- mounted at the SAME absolute
+      # path rather than patched, so the container sees exactly what a bare
+      # checkout on this host would. Point this at your own copy of
+      # https://huggingface.co/datasets/zzzhu/VTC-Bench elsewhere.
+      - /tealab-data/jiaqiliu/datasets:/tealab-data/jiaqiliu/datasets:ro
+      # Judge for the M2/M3 explore step (claude_code backend) -- mount the
+      # NATIVE claude binary:
+      #   export CLAUDE_PATH=$(ls -d ~/.vscode-server/extensions/anthropic.claude-code-*/resources/native-binary/claude | sort -V | tail -1)
+      - ${CLAUDE_PATH:-~/.local/bin/claude}:/usr/local/bin/claude:ro
+      - ~/.claude:/home/user/.claude
+      - ~/.claude.json:/home/user/.claude.json
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

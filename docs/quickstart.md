@@ -229,6 +229,33 @@ evalvitals web my_runs --port 8500 --attach evalvitals_explore_output
 See [Exploratory Analysis (M2/M3)](m2_analysis.md) for the full standalone
 explore + hypothesis-generation workflow.
 
+### Case study on a paper-method bench run
+
+Point the same command at an `examples/` bench run — a directory holding
+`outputs/<name>.json` beside the `data/` manifest the runner read — and the
+dashboard opens a **case book** instead of the explore layout:
+
+```bash
+evalvitals dashboard examples/agent_loop/qwen2_audio_tcd_mmau
+```
+
+Three tabs: *Run Overview* (splits, hypothesis, where the baseline fails),
+*Case Study* and *Repair Methods*. The Case Study tab plays each case's actual
+stimulus — an `<audio>` player for MMAU clips, the image for the VLM slices —
+next to the question and its options, so a human can answer the item before
+anything is revealed (blind mode is on by default, and the outcome filter is
+disabled while it is, so the filter cannot leak the answer). Unblinding shows
+the correct answer, the model's baseline answer and, per repair candidate, what
+that candidate did to *this* case: repaired / broke / no change. Answers you
+lock in are scored against the model on the same cases and stay in the browser
+session — nothing is written back to the report.
+
+The Repair Methods tab is the other half of a case study: for every candidate
+in the sweep it shows the mechanism (TCD's blurred-waveform contrast, an L1
+prompt template, an L2 self-refine scaffold …), its exact configuration or
+prompt text, its paired McNemar / e-value verdict, and a button per flipped
+case that jumps straight to that case in the Case Study tab.
+
 ## Run a Codebase, Then Explore
 
 If you don't have result logs yet — only an existing evaluation/inference
@@ -600,8 +627,8 @@ inside the container and writes findings to `outputs/`.
    `VLDiagnoseLoop` example above; build a `CaseBatch` of `FailureCase`
    objects instead of `failure_cases` and call `loop.run(cases)`.
 2. **Add a Dockerfile + docker-compose.yml** mirroring one of the concrete
-   example directories under `examples/analyzer_demos/`, `examples/m2_statistics/`,
-   or `examples/diagnosis_loops/`.
+   example directories under `examples/analyzer_demos/`, `examples/m2_m3/`,
+   or `examples/m1_m3/` / `examples/m1_m4/`.
 3. **Submit the container:**
 
 ```bash
@@ -610,8 +637,8 @@ docker compose up
 
 Outputs (logs, analyzer artifacts, hypotheses) are written to `outputs/` in
 the container, mounted to your local directory via the compose volume. See
-`examples/diagnosis_loops/qwen_loop_agy/` and
-`examples/diagnosis_loops/qwen_video_temporal/` for complete working examples.
+`examples/m1_m3/qwen_loop_agy/` and
+`examples/m1_m3/qwen_video_temporal/` for complete working examples.
 
 ### Mode 2 — Natural-Language Description (Agent Writes the Container)
 
@@ -799,4 +826,4 @@ result = analyzer._run(model, CaseBatch([case_with_trajectory]))
 # High flip_rate ⇒ that step was causally influential.
 ```
 
-Full runnable example: `examples/diagnosis_loops/eval_agent/` (no API key needed, `docker compose up`).
+Full runnable example: `examples/preregistered_ab_demo/eval_agent/` (no API key needed, `docker compose up`).

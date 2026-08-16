@@ -175,6 +175,25 @@ renders BEFORE any takeaway):
   really asking, not to copy it. Same jargon/acronym/symbol ban as
   "plain_title" below, and it is checked the same way.
 
+Reader-friendly writing contract:
+- Write for a user who may understand the evaluation problem but may NOT know
+  machine-learning or statistics terms. Prefer concrete, plain language over
+  terms like "rank-biserial", "AUC", "VIF", "collinearity", "effect size",
+  "bootstrap", or "regression" in reader-facing titles and summaries. If one of
+  those terms is unavoidable, define it immediately in the same sentence.
+- Separate three ideas in every reader-facing explanation: what was observed,
+  why it matters for the user's question, and what remains uncertain.
+- Use raw counts alongside percentages whenever you can, e.g. "24 of 30 cases
+  (80%)" rather than only "80%". For group comparisons, name both groups and
+  their sample sizes.
+- Never imply that an observed relationship proves a cause. Use wording like
+  "is linked with", "appears more often with", or "is a candidate signal", not
+  "drives", "causes", or "explains", unless an intervention actually tested it.
+- Clearly flag weak evidence in ordinary language: small samples, missing data,
+  uneven group sizes, repeated cases, class imbalance, wide uncertainty, or
+  thresholds chosen on the same exploration rows.
+
+
 Takeaways (THE PRIMARY OUTPUT — this is what a reader sees first):
 - "takeaways": a ranked list of 4-8 dicts, most important/surprising finding
   first, each shaped exactly like:
@@ -190,14 +209,17 @@ Takeaways (THE PRIMARY OUTPUT — this is what a reader sees first):
                        a reader sees first; it is checked automatically and a
                        jargon-y or copy-pasted one is sent back for a
                        rewrite.>",
-      "title": "<one punchy sentence with the precise technical detail and
-                 real numbers — the companion line for a reader who wants
-                 it; stats terms/acronyms are fine here>",
+      "title": "<one concise companion sentence with the precise technical
+                 detail and real counts/percentages; statistics terms are fine
+                 here when they add useful precision>",
+
       "chart_names": ["<name(s) from 'charts' or 'plots' that support it>"],
       "table_names": ["<key(s) from 'tables' that support it, if any>"],
-      "analysis": "<2-4 sentences explaining WHY this matters, citing the
-                    actual numbers/columns behind the chart(s)>",
-      "caveat": "<what this does NOT show, or '' if nothing notable>"}}
+      "analysis": "<2-4 plain-language sentences: (1) what was observed, (2)
+                    why it matters for the user's question, and (3) what
+                    remains uncertain. Cite actual counts, percentages,
+                    columns, and groups behind the chart(s).>",
+      "caveat": "<short plain-language note on what this does NOT show, or '' if nothing notable>"}}
   EVERY important chart/plot you produce should be referenced by at least one
   takeaway's "chart_names" — never leave a chart orphaned with no explanation,
   and never write a takeaway with no supporting chart/table unless the data
@@ -208,6 +230,13 @@ Report/dashboard contract:
   the reader on the data/question before the takeaways:
     {{"id": "problem_setting", "title": "Problem Setting", "summary": "...",
       "items": ["..."], "artifact_refs": ["data_profile"]}}
+  The problem-setting summary/items must state, in plain language:
+    * what is being studied;
+    * the user's question;
+    * the unit of analysis (one row = one case/batch/request/etc.);
+    * how many records were loaded and which groups/splits are relevant;
+    * what the outcome column means in practical terms (e.g. what FAIL/PASS
+      mean, or what a continuous outcome measures).
   Do not add "analysis" or "hypotheses" panels — "takeaways" already covers
   that ground, and this tool does not generate hypotheses.
 
@@ -218,6 +247,11 @@ pipeline — NOT the primary reader-facing narrative; keep these terse):
   {{"chart": "<name/title>", "reading": "<what a human should see>",
   "do_not_infer": "<what this chart cannot prove>"}}. This is the explanation
   displayed immediately below that visual; never leave it generic or omit it.
+  The reading should explain the visible pattern in one or two simple
+  sentences, name the comparison groups and sample sizes when available, and
+  avoid merely restating the axes. The do_not_infer field should name the main
+  boundary, such as "does not prove causation", "small group", "chosen on
+  exploration rows", or "missing data may affect this comparison".
 - add "claims" only for carefully worded descriptive/confirmable statements. Each
   claim must cite chart/signal identifiers in "evidence_ids"; set status to
   "descriptive" (never "supported" — this tool does not confirm anything).
@@ -268,16 +302,17 @@ pipeline — NOT the primary reader-facing narrative; keep these terse):
     ],
     "takeaways": [
       {{"plain_title": "Small objects trip up the model much more often than big ones.",
-        "title": "Small objects fail far more often (18% vs 4%, n=120).",
+        "title": "Small-object cases failed in 18 of 100 rows (18%), compared with 4 of 100 larger-object rows (4%).",
+
         "chart_names": ["failrate_by_objsize"],
         "table_names": [],
-        "analysis": "The fail rate rises sharply below obj_size=40 (18% vs a 4% baseline above it), across 120 rows. This is the single strongest split in the ranked-discriminator chart.",
-        "caveat": "Descriptive only — object size and other factors may be confounded; no causal claim is made."}}
+        "analysis": "The chart compares small-object cases with larger-object cases. Small-object cases failed in 18 of 100 rows (18%), compared with 4 of 100 larger-object rows (4%). This matters because it points to a concrete group of cases to inspect next, but the chart does not show whether object size itself is the reason for the failures.",
+        "caveat": "Descriptive only — other differences between the two groups may be responsible, and this is not a causal finding."}}
     ],
     "chart_readings": [
       {{"chart": "failrate_by_objsize",
-        "reading": "Failure rate rises in the smallest object-size bins.",
-        "do_not_infer": "This does not prove object size causes the error."}}
+        "reading": "The smallest object-size bins have visibly higher failure rates than the larger-object bins. Include the number of cases in each bin so the reader can see whether the comparison is based on enough data.",
+        "do_not_infer": "This chart does not prove object size causes the error; it only shows where failures are more common in these rows."}}
     ],
     "claims": [
       {{"id": "C1",
@@ -289,8 +324,8 @@ pipeline — NOT the primary reader-facing narrative; keep these terse):
     ],
     "dashboard_storyboard": [
       {{"id": "problem_setting", "title": "Problem Setting",
-        "summary": "Labeled FAIL/PASS cases with per-case signals.",
-        "items": ["FAIL means false positive on absent object."],
+        "summary": "This run studies labeled model-evaluation cases to find which recorded signals are linked with failures.",
+        "items": ["User question: which case features are linked with FAIL outcomes?", "Unit of analysis: one row is one evaluated case.", "Outcome: FAIL means the model gave the wrong answer; PASS means it answered correctly.", "Report the number of loaded rows and the FAIL/PASS counts here."],
         "artifact_refs": ["data_profile"]}}
     ],
     "candidate_signals": [

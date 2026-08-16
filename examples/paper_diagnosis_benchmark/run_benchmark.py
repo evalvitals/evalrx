@@ -32,7 +32,13 @@ def main() -> int:
         help="Authenticated coding-agent backend used by evalvitals explore.",
     )
     parser.add_argument("--model", default="", help="Optional backend model override.")
-    parser.add_argument("--timeout-sec", type=int, default=300)
+    # 300s cuts off a real run mid-analysis: a claude_code run against all
+    # five papers took 21 turns / ~300s wall and was killed while writing its
+    # final script ("error_during_execution"), having already done the
+    # expensive evidence-verification work. vtcbench_diagnosis's equivalent
+    # explore step (run_explore.sh) already defaults to 3600s for the same
+    # class of task; match that here rather than re-guess a number.
+    parser.add_argument("--timeout-sec", type=int, default=3600)
     args = parser.parse_args()
 
     if not args.records.exists():

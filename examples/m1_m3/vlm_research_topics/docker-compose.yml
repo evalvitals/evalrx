@@ -1,0 +1,39 @@
+services:
+  vlm_research_topics:
+    build:
+      context: ../../..
+      dockerfile: examples/m1_m3/vlm_research_topics/Dockerfile
+    image: evalvitals-vlm-research-topics
+    # Run as the host user so volume-mounted outputs/ is not root-owned.
+    # Required before first run:
+    #   export UID=$(id -u) GID=$(id -g)
+    #   export AGY_PATH=$(which agy)
+    # user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}  # override: export CUDA_VISIBLE_DEVICES=2
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - HF_HOME=/hf_cache
+      - HOME=/home/user
+    volumes:
+      - ${HF_HOME:-~/.cache/huggingface}:/hf_cache
+      - ../../runs:/app/example/outputs        # run logs persisted to host (evalvitals/runs/)
+      - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
+      - ~/.gemini:/home/user/.gemini
+      - ~/.cache/antigravity:/home/user/.cache/antigravity
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      python run.py
+        --model qwen3-vl-4b-instruct
+        --device cuda
+        --dtype bfloat16
+        --scenario ${SCENARIO:-spatial}
+        --max-cycles 2
+        --max-analyzers 2
+        --run-dir /app/example/outputs

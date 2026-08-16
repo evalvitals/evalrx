@@ -3,7 +3,8 @@
 A quota-exhausted CLI model often exits 0 with an empty response rather than
 an error, so a tiny generation probe is the only reliable availability check.
 Promoted from the ``_pick_agy_model``/``_pick_claude_model``/``_resolve_judge``
-helpers duplicated across ``examples/diagnosis_loops/*``.
+helpers duplicated across the ``VLDiagnoseLoop`` examples (``examples/m1_m3/*``,
+``examples/m1_m4/*``).
 """
 
 from __future__ import annotations

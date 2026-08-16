@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-_HARNESS = Path(__file__).resolve().parents[2] / "examples" / "llm_band_probe"
+_HARNESS = Path(__file__).resolve().parents[2] / "examples" / "dataset_selection" / "llm_band_probe"
 
 
 def _load(name: str):

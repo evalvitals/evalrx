@@ -6,6 +6,33 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — dashboard case-study view for paper-method bench runs (audio + image)
+
+`evalvitals dashboard` now recognises a third run shape: a paper-method bench
+run under `examples/` (a report with `baseline` + `auto_fix`, e.g.
+`examples/agent_loop/qwen2_audio_tcd_mmau/outputs/tcd_mmau.json`). Those
+reports record per-case outcomes by id only — the question, options and media
+file live in the benchmark manifest beside them — so a repaired case was
+previously just a bare uuid with nothing to inspect. The new
+`evalvitals/analysis/case_studio.py` (Streamlit-free, like `workbench.py`)
+joins the two, resolving the manifest from the report's `dataset.manifest`
+pointer or, for older reports, by id-coverage across the conventional sibling
+locations, and normalising MMAU's `instruction`/`choices`/`audio_path` and the
+VLM slices' `question`/`options`/`image` into one case view.
+
+The dashboard renders it as three tabs (Run Overview / Case Study / Repair
+Methods). Case Study plays each case's stimulus — an `<audio>` element for
+audio benchmarks, the image for visual ones — beside the question and its
+options, so a human can answer the item themselves; blind mode (on by default)
+hides the correct answer, the model's answer and the repair verdicts until an
+answer is locked in, and disables the outcome filter while on so filtering
+cannot leak the answer. Human answers are scored against the model on the same
+cases, in-session only. Repair Methods describes what each candidate actually
+changes (mechanism, prompt template, configuration), its paired McNemar /
+e-value verdict, and a per-flipped-case button that jumps to that case.
+`qwen2_audio_tcd_mmau/run.py` now writes the `dataset` pointer so its reports
+are self-describing.
+
 ### Added — L4 fix tier: first executable shape (LoRA on the language model)
 
 `FixAgent`'s L4 (parameter space) tier previously only recorded a

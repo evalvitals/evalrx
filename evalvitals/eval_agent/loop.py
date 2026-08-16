@@ -144,6 +144,12 @@ class VLDiagnoseLoop:
         token_budget:       Stop early when accumulated token usage reaches
                             this limit (0 = unlimited).
         analysis_only:      Run only M1→M2 and stop before hypothesis generation.
+        verbose:            When ``True``, print live M1-M5 stage narration to
+                            stdout (equivalent to calling
+                            ``evalvitals.enable_console_logging()`` yourself).
+                            Separate from ``run_logger`` — this surfaces the
+                            existing ``logger.info()``/``.warning()`` calls,
+                            not RunLogger's structured JSONL event stream.
     """
 
     def __init__(
@@ -166,12 +172,24 @@ class VLDiagnoseLoop:
         signal_recipes: "list | None" = None,
         bridge_analyzer_name: str = "explored",
         explore_report: "Any | None" = None,
+        verbose: bool = False,
     ) -> None:
         from evalvitals.analysis.stats_agent import StatsAnalysisAgent
         from evalvitals.eval_agent.stages.fix_agent import FixAgent
         from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTester
         from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
         from evalvitals.eval_agent.stages.surgery import SurgeryAgent
+
+        if verbose:
+            # M1-M5 already narrate every stage transition via logger.info()/
+            # .warning() (this module's `logger`, plus probe_agent/diagnosis/
+            # hypothesis_tester/fix_agent's own) -- it's just invisible by
+            # default. This is the one-line equivalent of a caller doing
+            # `evalvitals.enable_console_logging()` themselves; it does NOT
+            # touch RunLogger's separate structured JSONL event stream.
+            from evalvitals.logging_utils import enable_console_logging
+
+            enable_console_logging()
 
         self.model = model
         self.protocol = protocol
