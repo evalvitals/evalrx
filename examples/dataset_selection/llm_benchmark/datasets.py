@@ -8,6 +8,26 @@ the dataset, so ``accuracy_9b`` is a starting point for 2B/4B, never a predictio
 The dataset plumbing itself lives in ``../llm_band_probe/band_locate.py``; this
 module only records WHICH slice and WHY, and re-exports the spec so the two can
 never drift apart.
+
+.. warning::
+
+   **Every ``accuracy_9b`` below was measured with a BROKEN answer extractor**
+   (fixed 2026-08-16 in ``evalvitals.analyzers.reasoning._text``).  Two defects,
+   both of which could only ever push a number DOWN:
+
+   * a bare ``(A)`` was discarded as a format placeholder, so multiple-choice
+     answers were thrown away and extraction fell back into the reasoning prose;
+   * ``\\boxed{}`` outranked a LATER ``Answer:`` line, so a chain that boxed its
+     intermediate working outranked its own conclusion.
+
+   Regrading the frozen full-census batches moved ``bbh_tracking7`` 0.592 ->
+   0.988 and ``minervamath`` 0.360 -> 0.463, with ZERO PASS->FAIL either way.
+   ``bbh_tracking7`` is therefore not a mid-band dataset at all — it is
+   saturated, and its band placement was an artefact of the grader.
+
+   Treat every ``accuracy_9b`` here as an unverified LOWER BOUND until it is
+   re-measured.  The multiple-choice entries (the ``supergpqa_*`` trio) are the
+   most exposed, because ``(X)`` is exactly the shape that was being discarded.
 """
 
 from __future__ import annotations
@@ -106,16 +126,22 @@ CATALOG: tuple = (
         name="bbh_tracking7",
         chapter="ch4-basic",
         items=250,
-        accuracy_9b=0.540,
-        ci95_9b=(0.40, 0.67),
+        accuracy_9b=0.988,
+        ci95_9b=(0.96, 1.00),
         budget_signal_9b=0.02,
         source="lukaemon/bbh · config=tracking_shuffled_objects_seven_objects",
         venue="BIG-Bench Hard, Suzgun et al., ACL Findings 2023",
         slicing="One named BBH task: track seven objects through a swap sequence.",
         grading="Normalised exact match.",
-        caveat="CLEANEST measurement in the table (budget signal 2%). Also the "
-               "clearest evidence against extrapolation: a survey agent predicted "
-               "0.93 for this slice; it measured 0.540, a 39-point miss.",
+        caveat="DO NOT USE — saturated at 0.988 (full census, n=250), far above "
+               "the band's 0.85 ceiling; qwen3.5-2b is higher still. It was "
+               "listed at 0.540 because the answer extractor discarded a bare "
+               "'(A)' as a format placeholder: 244 of 250 final claims are a "
+               "bare '(X)', and regrading flipped 99 FAIL->PASS with 0 the other "
+               "way. The old caveat called this the CLEANEST measurement in the "
+               "table and cited it as evidence against extrapolation — in fact "
+               "the survey agent's 0.93 prediction was closer to the truth than "
+               "the measurement was. A grader bug outranks a survey prior.",
     ),
     Entry(
         name="bamboogle",

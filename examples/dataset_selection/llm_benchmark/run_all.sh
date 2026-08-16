@@ -205,5 +205,5 @@ stamp "done (rc=$rc). Results in $LOG_DIR"
 echo
 echo "  dashboard:"
 echo "    cd $PKG_ROOT"
-echo "    $EVAL_PY -m evalvitals.cli dashboard examples/llm_benchmark/outputs/$MODEL/$DATASET"
+echo "    $EVAL_PY -m evalvitals.cli dashboard examples/dataset_selection/llm_benchmark/outputs/$MODEL/$DATASET"
 exit $rc
