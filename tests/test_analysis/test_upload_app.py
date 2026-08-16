@@ -305,12 +305,28 @@ def test_upload_page_renders_form(tmp_path):
     assert not at.exception
     blob = " ".join(str(m.value) for m in at.markdown)
     assert "Upload" in blob
+    assert "Set up your analysis in 5 steps" in " ".join(str(c.value) for c in at.caption)
     assert at.button[0].label == "Start analysis"
     # nothing uploaded yet -> the launch button is disabled
     assert at.button[0].disabled
+    assert "Upload a ZIP file to enable analysis." in " ".join(str(c.value) for c in at.caption)
     # the sidebar-reopen chevron must be exempted from the chrome-hiding CSS,
     # or a collapsed sidebar (narrow window) can never be reopened
     assert "stExpandSidebarButton" in blob
+
+
+def test_upload_page_renders_guided_setup_steps(tmp_path):
+    at = _run_app(tmp_path)
+    assert not at.exception
+
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert "Step 1" in blob and "Upload results" in blob
+    assert "Step 2" in blob and "Analysis question" in blob
+    assert "Step 3" in blob and "Validation mode" in blob
+    assert "Step 4" in blob and "Outcome column" in blob
+    assert "Step 5" in blob and "Start analysis" in blob
+    assert "What happens after I click Start?" in [e.label for e in at.expander]
+    assert "Build an auditable dataset bundle" in blob
 
 
 def test_mode_selection_drives_split_slider(tmp_path):
@@ -350,11 +366,47 @@ def test_finished_run_renders_explore_tabs(tmp_path):
     # M3-only run never reached grey out instead of disappearing
     assert [t.label for t in at.tabs] == [
         "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Held-out Verdicts", "5 Fix",
+        "4 Validation results", "5 Fix",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
     assert "Peaked attention marks hallucinations." in blob
     assert blob.count("not available for this run") == 2
+
+
+def test_finished_upload_run_uses_non_speculative_hypothesis_empty_state(tmp_path):
+    run = _build_finished_run(tmp_path)
+    out = run / "output"
+    source = "\n".join(f"line_{i} = {i}" for i in range(80)) + "\nFULL_SOURCE_SENTINEL = True\n"
+    (out / "analysis.py").write_text(source, encoding="utf-8")
+    (out / "exploratory_report.json").write_text(json.dumps({
+        "ok": True,
+        "question": "what drives FAIL?",
+        "observations": ["all failures adversarial"],
+        "hypotheses": [],
+        "candidate_signals": [{"name": "focus_share_high"}],
+        "recommended_confirmatory_tests": ["Re-test this signal on held-out rows."],
+        "charts": [], "plots": [], "tables": {},
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+    radio = at.sidebar.radio[0]
+    radio.set_value(run.name)
+    at.run()
+
+    assert not at.exception
+    info = " ".join(str(i.value) for i in at.info)
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert "No formal hypotheses were recorded for this report." in info
+    assert "M3 step enabled" not in info
+    assert "too thin" not in info
+    assert "Candidate signals — possible follow-ups, not validated hypotheses" in blob
+    assert "Candidate signals — possible follow-ups, not validated hypotheses" in [
+        e.label for e in at.expander
+    ]
+    assert "Run artifacts and developer details" in [e.label for e in at.expander]
+    assert "Generated analysis.py preview" in blob
+    assert any("line_0 = 0" in str(c.value) for c in at.code)
+    assert not any("FULL_SOURCE_SENTINEL" in str(c.value) for c in at.code)
 
 
 def test_attached_local_dir_renders_in_sidebar_and_body(tmp_path):
@@ -387,7 +439,7 @@ def test_attached_local_dir_renders_in_sidebar_and_body(tmp_path):
     assert not at.exception
     assert [t.label for t in at.tabs] == [
         "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Held-out Verdicts", "5 Fix",
+        "4 Validation results", "5 Fix",
     ]
     # The on-disk location is provenance, not chrome: it must not be printed
     # beside the title where a screenshot or screen-share would carry it. It

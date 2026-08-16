@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -88,11 +89,9 @@ def render_explore_report(root: Path, turn: dict[str, Any]) -> None:
     turn_dir = Path(turn["dir"])
     report = turn["report"]
 
-    _render_header(root, turn, report)
-    _render_top_metrics(report, turn_dir)
-
     confirm = _load_sibling_json(turn_dir, "confirm_report.json")
     fix_report = _load_sibling_json(turn_dir, "fix_report.json")
+    _render_report_overview(root, turn, report, turn_dir, confirm=confirm, fix_report=fix_report)
 
     tabs = st.tabs(EXPLORE_TAB_LABELS)
     with tabs[0]:
@@ -134,7 +133,7 @@ def render_explore_report(root: Path, turn: dict[str, Any]) -> None:
 # rather than vanish (see render_explore_report).
 EXPLORE_TAB_LABELS = [
     "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-    "4 Held-out Verdicts", "5 Fix",
+    "4 Validation results", "5 Fix",
 ]
 
 # A paper-method bench run (examples/**/run.py) — see case_studio.py. Same
@@ -711,7 +710,7 @@ def _render_sidebar(root: Path, session: dict[str, Any]) -> int:
     kind = session.get("kind", "explore")
 
     st.sidebar.markdown('<div class="ev-sidebar-title">EvalVitals</div>', unsafe_allow_html=True)
-    st.sidebar.caption(str(root))
+    st.sidebar.caption(root.name)
     st.sidebar.markdown(f"**Mode:** {kind}")
 
     if kind == "casebench":
@@ -1107,6 +1106,10 @@ def _render_problem_setting(
     plain_question = str(report.get("plain_question") or "").strip()
     signals = _candidate_signals(report)
     charts = [c for c in report.get("charts", []) if isinstance(c, dict)]
+    chart_count = (
+        len(charts) + len(report.get("plots") or [])
+        if "charts" in report or "plots" in report else None
+    )
 
     matrix = None
     if load_case_matrix is not None:
@@ -1149,8 +1152,8 @@ def _render_problem_setting(
     st.markdown(
         '<div class="ev-section-head">'
         '<div class="ev-section-title">Problem Setting</div>'
-        '<div class="ev-section-sub">What data was loaded and how it will be evaluated, '
-        "before any analysis runs.</div>"
+        '<div class="ev-section-sub">What this run studied, what one row means, '
+        "and how to interpret the analysis.</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1174,16 +1177,18 @@ def _render_problem_setting(
             unsafe_allow_html=True,
         )
 
-    cols = st.columns(5)
     metrics = [
         ("Cases", n_cases, "rows/cases loaded"),
         ("Explore", n_explore, "agent discovery split"),
         ("Confirm", n_confirm, "held-out confirmation split"),
-        ("Signals", len(signals) or n_features, "candidate/features"),
-        ("Charts", len(charts) + len(report.get("plots") or []), "analysis visuals"),
+        ("Candidate patterns", len(signals) or n_features, "candidate/features"),
+        ("Charts", chart_count, "analysis visuals"),
     ]
-    for col, (label, value, help_text) in zip(cols, metrics, strict=False):
-        col.metric(label, _format_int(value), help=help_text)
+    metrics = [(label, value, help_text) for label, value, help_text in metrics if value is not None]
+    if metrics:
+        cols = st.columns(len(metrics))
+        for col, (label, value, help_text) in zip(cols, metrics, strict=False):
+            col.metric(label, _format_int(value), help=help_text)
 
     c1, c2 = st.columns([1.15, 1], gap="large")
     with c1:
@@ -1231,7 +1236,7 @@ def _render_problem_setting(
             st.info("No structured data profile was saved with this report.")
 
     with c2:
-        st.markdown("#### Evaluation frame")
+        st.markdown("#### How to interpret this analysis")
         # Standalone explore reports have no loop/story at all, so they're
         # always the descriptive framing; a loop run's own story says whether
         # a test phase actually ran.
@@ -1262,7 +1267,7 @@ def _render_problem_setting(
         )
         for label, count in stages:
             st.markdown(f"- **{label}:** {count}")
-        # The run directory is already one click away under "Provenance";
+        # The run directory is already one click away under the header details;
         # repeating it here put an absolute home path in the middle of the
         # page, where any screenshot or screen-share carries it along.
 
@@ -1758,17 +1763,102 @@ def _render_raw_data_browser(report: dict[str, Any], turn_dir: Path) -> None:
         st.dataframe(view.head(500), width="stretch", height=420)
 
 
+def _takeaway_headline(takeaway: dict[str, Any]) -> str:
+    plain_title = str(takeaway.get("plain_title") or "").strip()
+    title = str(takeaway.get("title") or "").strip()
+    return plain_title or title or "Finding"
+
+
+def _render_findings_overview(takeaways: list[dict[str, Any]]) -> None:
+    if not takeaways:
+        return
+
+    items = []
+    for i, takeaway in enumerate(takeaways, start=1):
+        chart_count = len(takeaway.get("chart_names") or [])
+        table_count = len(takeaway.get("table_names") or [])
+        meta = [
+            f"{chart_count} visual{'s' if chart_count != 1 else ''}",
+            f"{table_count} source table{'s' if table_count != 1 else ''}",
+        ]
+        if takeaway.get("caveat"):
+            meta.append("caution noted")
+        if takeaway.get("analysis"):
+            meta.append("detail available")
+        items.append(
+            '<div class="ev-finding-index-row">'
+            f'<div class="ev-finding-index-num">{i}</div>'
+            '<div>'
+            f'<div class="ev-finding-index-title">{_html_escape(_takeaway_headline(takeaway))}</div>'
+            f'<div class="ev-finding-index-meta">{_html_escape(" · ".join(meta))}</div>'
+            '</div>'
+            '</div>'
+        )
+    st.markdown(
+        '<div class="ev-findings-overview">'
+        '<div class="ev-findings-overview-kicker">Findings overview</div>'
+        '<div class="ev-findings-overview-sub">'
+        'Skim the conclusions first; open each finding’s details for the full analysis and source data.'
+        '</div>'
+        f'{"".join(items)}'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_takeaway_details(
+    index: int,
+    takeaway: dict[str, Any],
+    *,
+    title: str,
+    headline: str,
+    table_names: list[str],
+    tables: dict[str, Any],
+    turn_dir: Path,
+    referenced_tables: set[str],
+) -> None:
+    has_technical_title = bool(title.strip() and title.strip() != headline.strip())
+    has_detail = bool(
+        has_technical_title
+        or takeaway.get("analysis")
+        or takeaway.get("caveat")
+        or any(name in tables for name in table_names)
+    )
+    if not has_detail:
+        return
+
+    with st.expander(f"Details and source data for finding {index}", expanded=False):
+        if has_technical_title:
+            st.markdown("**Technical title**")
+            st.markdown(_html_escape(title))
+        if takeaway.get("analysis"):
+            st.markdown("**Full analysis**")
+            st.markdown(_html_escape(str(takeaway["analysis"])))
+        if takeaway.get("caveat"):
+            st.markdown("**Caveat**")
+            st.markdown(_html_escape(str(takeaway["caveat"])))
+        for name in table_names:
+            referenced_tables.add(name)
+            source = tables.get(name)
+            if source is None:
+                continue
+            df = _table_to_dataframe(source, turn_dir)
+            if df is not None:
+                with st.expander(f"Source table: {display_name(name)}", expanded=False):
+                    st.dataframe(df, width="stretch", height=220)
+
+
 def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Path) -> None:
     """The primary exploratory-analysis view: pure descriptive EDA, no hypotheses.
 
-    Each takeaway is rendered as title -> its supporting chart(s)/table(s) ->
-    the analysis paragraph, so a reader never has to hunt for the evidence
-    behind a claim in a separate section."""
+    Each takeaway is rendered as a finding -> supporting visual evidence ->
+    compact interpretation, with full analysis and source data available on
+    demand so the page stays scannable."""
     st.markdown(
         '<div class="ev-section-head">'
         '<div class="ev-section-title">Exploratory Analysis</div>'
-        '<div class="ev-section-sub">Descriptive findings only — each takeaway is shown '
-        "with the chart or table that supports it, followed by the analysis.</div>"
+        '<div class="ev-section-sub">Descriptive findings only — skim the evidence cards first, '
+        "then open details for full analysis, caveats, and source data.</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -1808,11 +1898,12 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
     referenced_charts: set[str] = set()
     referenced_tables: set[str] = set()
 
+    _render_findings_overview(takeaways)
+
     for i, takeaway in enumerate(takeaways, start=1):
         with st.container(border=True):
             title = str(takeaway.get("title", ""))
-            plain_title = str(takeaway.get("plain_title") or "").strip()
-            headline = plain_title or title
+            headline = _takeaway_headline(takeaway)
             st.markdown(
                 '<div class="ev-takeaway-head">'
                 f'<div class="ev-takeaway-badge">{i}</div>'
@@ -1820,11 +1911,6 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
                 "</div>",
                 unsafe_allow_html=True,
             )
-            if plain_title and title.strip() and title.strip() != plain_title:
-                st.markdown(
-                    f'<div class="ev-signal-test">Technical detail: {_html_escape(title)}</div>',
-                    unsafe_allow_html=True,
-                )
             chart_names = [str(x) for x in takeaway.get("chart_names") or []]
             table_names = [str(x) for x in takeaway.get("table_names") or []]
             found_charts = []
@@ -1843,18 +1929,10 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
                     with cols[idx % 2]:
                         if kind == "chart":
                             _render_chart_card(item, turn_dir, heading_level="caption", key_prefix=f"takeaway{i}")
-                            _render_visual_explanation(report, name=artifact_name, chart=item)
+                            _render_compact_visual_explanation(report, name=artifact_name, chart=item)
                         else:
                             _render_plot_card(item, turn_dir)
-                            _render_visual_explanation(report, name=artifact_name)
-            for name in table_names:
-                referenced_tables.add(name)
-                source = tables.get(name)
-                if source is None:
-                    continue
-                df = _table_to_dataframe(source, turn_dir)
-                if df is not None:
-                    st.dataframe(df, width="stretch", height=220)
+                            _render_compact_visual_explanation(report, name=artifact_name)
             if chart_names or table_names:
                 if not found_charts and not any(n in tables for n in table_names):
                     st.markdown(
@@ -1863,16 +1941,21 @@ def _render_standalone_analysis(report: dict[str, Any], turn_dir: Path, root: Pa
                         "</div>",
                         unsafe_allow_html=True,
                     )
-            if takeaway.get("analysis"):
+            if takeaway.get("analysis") and not found_charts:
                 st.markdown(
                     f'<div class="ev-takeaway-analysis">{_html_escape(str(takeaway["analysis"]))}</div>',
                     unsafe_allow_html=True,
                 )
-            if takeaway.get("caveat"):
-                st.markdown(
-                    f'<div class="ev-takeaway-caveat">Caveat — {_html_escape(str(takeaway["caveat"]))}</div>',
-                    unsafe_allow_html=True,
-                )
+            _render_takeaway_details(
+                i,
+                takeaway,
+                title=title,
+                headline=headline,
+                table_names=table_names,
+                tables=tables,
+                turn_dir=turn_dir,
+                referenced_tables=referenced_tables,
+            )
 
     orphan_charts = [c for name, c in charts_by_name.items() if name not in referenced_charts]
     orphan_plots = [p for stem, p in plots_by_stem.items() if stem not in referenced_charts]
@@ -1996,6 +2079,62 @@ def _visual_key(value: Any) -> str:
     return "".join(ch for ch in raw if ch.isalnum())
 
 
+def _chart_reading_for(
+    report: dict[str, Any], *, name: str, chart: dict[str, Any] | None = None
+) -> tuple[str | None, str | None]:
+    keys = {_visual_key(name)}
+    if chart is not None:
+        keys.update(
+            _visual_key(chart.get(field))
+            for field in ("name", "title", "display_name", "figure_path")
+        )
+    keys.discard("")
+    for reading in report.get("chart_readings") or []:
+        if not isinstance(reading, dict):
+            continue
+        if _visual_key(reading.get("chart")) in keys:
+            text = str(reading.get("reading") or "").strip() or None
+            boundary = str(reading.get("do_not_infer") or "").strip() or None
+            return text, boundary
+    return None, None
+
+
+def _render_compact_visual_explanation(
+    report: dict[str, Any], *, name: str, chart: dict[str, Any] | None = None
+) -> None:
+    reading, boundary = _chart_reading_for(report, name=name, chart=chart)
+    if reading:
+        st.markdown(
+            f'<div class="ev-evidence-reading">'
+            f'<div class="ev-evidence-reading-label">Evidence reading</div>'
+            f'<div>{_html_escape(reading)}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif chart is not None and chart.get("x") and chart.get("y"):
+        kind = str(chart.get("kind") or "chart").lower()
+        st.markdown(
+            f'<div class="ev-evidence-reading">'
+            f'<div class="ev-evidence-reading-label">Visual guide</div>'
+            f'<div>This {kind} encodes <code>{_html_escape(str(chart["y"]))}</code> '
+            f'against <code>{_html_escape(str(chart["x"]))}</code>. '
+            'The dashboard is not assigning a specific finding to this visual.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption(
+            "Supplementary visual: read its axes, legend, and annotations before drawing a conclusion."
+        )
+    if boundary:
+        st.markdown(
+            f'<div class="ev-evidence-caution">'
+            f'<span>Caution</span> {_html_escape(boundary)}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
 def _render_visual_explanation(
     report: dict[str, Any], *, name: str, chart: dict[str, Any] | None = None
 ) -> None:
@@ -2005,25 +2144,10 @@ def _render_visual_explanation(
     sometimes lack them, so we still orient the reader to the chart's encoding
     without inventing a data finding.
     """
-    keys = {_visual_key(name)}
-    if chart is not None:
-        keys.update(
-            _visual_key(chart.get(field))
-            for field in ("name", "title", "display_name", "figure_path")
-        )
-    keys.discard("")
-    matched: dict[str, Any] | None = None
-    for reading in report.get("chart_readings") or []:
-        if not isinstance(reading, dict):
-            continue
-        if _visual_key(reading.get("chart")) in keys:
-            matched = reading
-            break
-
     st.markdown("**How to read this visual**")
-    if matched and str(matched.get("reading") or "").strip():
-        st.markdown(f"**What it shows:** {str(matched['reading']).strip()}")
-        boundary = str(matched.get("do_not_infer") or "").strip()
+    reading, boundary = _chart_reading_for(report, name=name, chart=chart)
+    if reading:
+        st.markdown(f"**What it shows:** {reading}")
         if boundary:
             st.caption(f"Do not infer: {boundary}")
         return
@@ -2091,17 +2215,17 @@ def _render_standalone_hypotheses(report: dict[str, Any], turn_dir: Path) -> Non
         for h in hypotheses:
             _render_standalone_hypothesis_card(h)
     else:
-        st.info(
-            "No hypotheses were recorded for this report. Re-run with the CLI's M3 step "
-            "enabled (on by default; pass --no-hypotheses to skip it), or the exploratory "
-            "findings above may have been too thin to propose one from."
+        st.info("No formal hypotheses were recorded for this report.")
+        st.markdown(
+            "Review the candidate signals below as possible follow-ups, or rerun the "
+            "analysis with hypothesis generation enabled."
         )
 
     signals = _candidate_signals(report)
     tests = report.get("recommended_confirmatory_tests") or []
-    with st.expander("Candidate signals, suggested next steps, and raw artifacts", expanded=False):
+    with st.expander("Candidate signals — possible follow-ups, not validated hypotheses", expanded=False):
         if signals:
-            st.markdown("#### Candidate signals (optional follow-up)")
+            st.markdown("#### Candidate signals — possible follow-ups, not validated hypotheses")
             st.dataframe(_signals_dataframe(signals), width="stretch", hide_index=True)
         if tests:
             st.markdown("#### Suggested next steps")
@@ -2109,7 +2233,7 @@ def _render_standalone_hypotheses(report: dict[str, Any], turn_dir: Path) -> Non
                 st.markdown(f"- {item}")
         if not signals and not tests:
             st.caption("No candidate signals or suggested next steps were recorded.")
-        _render_artifacts(report, turn_dir)
+    _render_artifacts(report, turn_dir)
 
 
 def _render_standalone_hypothesis_card(
@@ -2159,13 +2283,13 @@ def _render_standalone_hypothesis_card(
 
 
 def _render_holdout_panel(confirm: dict[str, Any]) -> None:
-    """Held-out Verdicts tab: phase 2's frozen-recipe re-adjudication + the
+    """Validation results tab: phase 2's frozen-recipe re-adjudication + the
     per-hypothesis judge verdicts. Unlike the in-sample screen in tab 2,
     verdicts here are legitimate: thresholds were frozen before this data was
     touched."""
     st.markdown(
         '<div class="ev-section-head">'
-        '<div class="ev-section-title">Held-out Verdicts</div>'
+        '<div class="ev-section-title">Validation results</div>'
         '<div class="ev-section-sub">Recipes re-evaluated VERBATIM (thresholds frozen from the '
         "exploration half) on a validate split the explorer never saw; hypotheses graded "
         "against that evidence.</div>"
@@ -3544,78 +3668,118 @@ def _verdict_sentence(report: dict[str, Any]) -> tuple[str, str]:
     )
 
 
-def _render_header(root: Path, turn: dict[str, Any], report: dict[str, Any]) -> None:
-    ok = bool(report.get("ok"))
-    status = "finished" if ok else "failed"
-    status_class = "ev-pill-ok" if ok else "ev-pill-fail"
-    question = str(report.get("question") or "Exploratory analysis")
-    plain_question = str(report.get("plain_question") or "").strip()
-    headline = plain_question or question
-    has_technical = bool(
-        plain_question and question.strip() and question.strip() != plain_question
-    )
-    verdict_text, verdict_class = _verdict_sentence(report)
-
-    st.markdown(
-        f"""
-        <div class="ev-header">
-          <div>
-            <div class="ev-kicker">Exploratory Data Analysis
-              <span class="ev-pill {status_class}">{status}</span>
-            </div>
-            <h1>{_html_escape(headline)}</h1>
-            <div class="ev-verdict-line {verdict_class}">{_html_escape(verdict_text)}</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    # The verbatim prompt and the on-disk location are provenance, not headline
-    # material: keep them one click away so the hero stays readable — and so a
-    # screen-share or screenshot does not broadcast the operator's home path.
-    if has_technical or root is not None:
-        with st.expander("Provenance — exact question and source path", expanded=False):
-            if has_technical:
-                st.markdown("**Question as asked**")
-                st.code(question, language=None)
-            st.caption(f"Bundle: `{root}`")
+def _short_report_title(question: str) -> str:
+    q = " ".join(str(question or "").split()).strip()
+    if not q:
+        return "Exploratory analysis"
+    lower = q.lower()
+    if "hallucination" in lower and ("fail" in lower or "failure" in lower):
+        return "Hallucination failure patterns"
+    if lower.startswith("what predicts "):
+        target = q[len("What predicts "):].split("?", 1)[0].split(" in ", 1)[0].strip()
+        if target:
+            return f"What predicts {target}?"
+    if lower.startswith("what drives "):
+        target = q[len("What drives "):].split("?", 1)[0].split(" in ", 1)[0].strip()
+        if target:
+            return f"What drives {target}?"
+    return _truncate(q, 72)
 
 
-def _render_top_metrics(report: dict[str, Any], root: Path | None = None) -> None:
+def _analysis_stage_label(
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> str:
+    if fix_report:
+        return "Exploratory analysis with validation and fix results"
+    if confirm:
+        return "Exploratory analysis with validation results"
+    return "Exploratory analysis"
+
+
+def _overview_scope_sentence(
+    report: dict[str, Any],
+    artifact_dir: Path,
+    *,
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> str:
     profile = report.get("data_profile") or {}
-    # NB: `profile.get("columns") or {}` would turn a missing profile into an
-    # empty dict and render a bare "0 profiled fields", which reads as broken.
-    # Keep None as None so the tile is dropped instead.
-    columns = profile.get("columns")
-    observations = report.get("observations") or []
-    signals = report.get("candidate_signals") or []
-    charts = report.get("charts") or []
-    plots = report.get("plots") or []
-    hypotheses = report.get("hypotheses") or []
+    parts: list[str] = []
 
     rows = profile.get("loaded_rows", profile.get("n_rows"))
-    if rows is None and root is not None:
-        rows = _count_records(root)
+    if rows is None:
+        rows = _count_records(artifact_dir)
+    if rows is not None:
+        parts.append(f"{_format_int(rows)} records")
 
-    raw_metrics = [
+    signals = report.get("candidate_signals") if "candidate_signals" in report else None
+    if isinstance(signals, list) and signals:
+        parts.append(f"{_format_int(len(signals))} candidate patterns")
+
+    charts = report.get("charts") if "charts" in report else None
+    plots = report.get("plots") if "plots" in report else None
+    n_visuals = len(charts or []) + len(plots or []) if charts is not None or plots is not None else 0
+    if n_visuals:
+        parts.append(f"{_format_int(n_visuals)} visuals")
+
+    if confirm:
+        parts.append("validation attached")
+    if fix_report:
+        parts.append("fix results attached")
+
+    return " · ".join(parts) if parts else "Report sections below contain the run details."
+
+
+def _overview_metrics(
+    report: dict[str, Any],
+    artifact_dir: Path,
+    *,
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> list[tuple[str, str, str]]:
+    profile = report.get("data_profile") or {}
+    observations = report.get("observations") if "observations" in report else None
+    signals = report.get("candidate_signals") if "candidate_signals" in report else None
+    charts = report.get("charts") if "charts" in report else None
+    plots = report.get("plots") if "plots" in report else None
+    hypotheses = report.get("hypotheses") if "hypotheses" in report else None
+
+    rows = profile.get("loaded_rows", profile.get("n_rows"))
+    if rows is None:
+        rows = _count_records(artifact_dir)
+
+    raw_metrics: list[tuple[str, Any, str]] = [
         _verdict_metric(report),
-        ("Rows", rows, "cases analysed"),
-        ("Columns", len(columns) if isinstance(columns, dict) else None, "profiled fields"),
-        ("Signals", len(signals), "candidate drivers"),
-        ("Hypotheses", len(hypotheses) or None, "proposed, not validated"),
-        ("Charts", len(charts) + len(plots), "figures generated"),
-        ("Notes", len(observations), "observations"),
+        ("Records", rows, "cases analysed"),
+        (
+            "Candidate patterns",
+            len(signals) if isinstance(signals, list) else None,
+            "possible follow-ups",
+        ),
+        (
+            "Hypotheses",
+            len(hypotheses) if isinstance(hypotheses, list) and hypotheses else None,
+            "proposed, not validated",
+        ),
+        (
+            "Visuals",
+            len(charts or []) + len(plots or []) if charts is not None or plots is not None else None,
+            "analysis charts",
+        ),
+        ("Findings", len(observations) if isinstance(observations, list) else None, "takeaways"),
+        ("Validation", "Yes" if confirm else None, "held-out results"),
+        ("Fix", "Yes" if fix_report else None, "repair results"),
     ]
-    # Drop tiles this report never populated (None) instead of showing a bare
-    # "-" that reads as broken; a real 0 (e.g. "Signals: 0") is still shown.
-    metrics = [(label, _format_int(v), caption) for label, v, caption in raw_metrics if v is not None]
+    return [(label, _format_int(value), caption) for label, value, caption in raw_metrics if value is not None]
+
+
+def _render_overview_metrics(metrics: list[tuple[str, str, str]]) -> None:
     if not metrics:
         return
 
     cols = st.columns(len(metrics))
     for idx, (col, (label, value, caption)) in enumerate(zip(cols, metrics, strict=False)):
-        # The verdict tile is emitted first by construction; when adjudication
-        # produced nothing it is dropped and this simply never fires.
         lead = " ev-metric-lead" if idx == 0 and label == "Confirmed" else ""
         with col:
             st.markdown(
@@ -3629,9 +3793,73 @@ def _render_top_metrics(report: dict[str, Any], root: Path | None = None) -> Non
                 unsafe_allow_html=True,
             )
 
+
+def _render_report_overview(
+    root: Path,
+    turn: dict[str, Any],
+    report: dict[str, Any],
+    artifact_dir: Path,
+    *,
+    confirm: dict[str, Any] | None,
+    fix_report: dict[str, Any] | None,
+) -> None:
+    ok = bool(report.get("ok"))
+    status = "finished" if ok else "failed"
+    status_class = "ev-pill-ok" if ok else "ev-pill-fail"
+
+    question = str(report.get("question") or "Exploratory analysis")
+    plain_question = str(report.get("plain_question") or "").strip()
+    title = plain_question or _short_report_title(question)
+    has_technical = bool(
+        plain_question and question.strip() and question.strip() != plain_question
+    )
+    verdict_text, verdict_class = _verdict_sentence(report)
+    stage = _analysis_stage_label(confirm, fix_report)
+    scope = _overview_scope_sentence(report, artifact_dir, confirm=confirm, fix_report=fix_report)
+
+    st.markdown(
+        f"""
+        <div class="ev-header ev-report-overview">
+          <div>
+            <div class="ev-kicker">EvalVitals Analysis Report</div>
+            <h1>{_html_escape(title)}</h1>
+            <div class="ev-overview-stage">{_html_escape(stage)}</div>
+            <div class="ev-verdict-line {verdict_class}">{_html_escape(verdict_text)}</div>
+            <div class="ev-path">{_html_escape(scope)}</div>
+          </div>
+          <div class="ev-header-right">
+            <span class="ev-pill {status_class}">{status}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _render_overview_metrics(
+        _overview_metrics(report, artifact_dir, confirm=confirm, fix_report=fix_report)
+    )
+
+    with st.expander("View full research question and run details", expanded=False):
+        st.markdown("**Full research question**")
+        st.markdown(_html_escape(question))
+        if has_technical:
+            st.markdown("**Reader-friendly restatement**")
+            st.markdown(_html_escape(plain_question))
+        st.markdown("**Run directory**")
+        st.code(str(root), language="text")
+        st.caption(f"Bundle: `{root}`")
+        st.markdown("**Report details**")
+        st.json({
+            "status": status,
+            "report": turn["name"],
+            "report_type": "exploratory_report.json / fused_report.json",
+            "analysis_stage": stage,
+            "validation_results": bool(confirm),
+            "fix_results": bool(fix_report),
+            "attempts": report.get("attempts"),
+        })
+
     if report.get("error"):
         st.error(report["error"])
-
 
 def _chart_lookup(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Map a chart's ``name`` (falling back to ``title``) -> its spec dict."""
@@ -3811,17 +4039,55 @@ def _render_tables(report: dict[str, Any], turn_dir: Path) -> None:
     st.dataframe(df, width="stretch", height=520)
 
 
+def _source_preview(source: str, *, max_lines: int = 40, max_chars: int = 4000) -> tuple[str, bool]:
+    """Return a print-friendly source preview and whether anything was omitted."""
+    if not source:
+        return "", False
+    lines = source.splitlines()
+    by_lines = "\n".join(lines[:max_lines])
+    preview = by_lines[:max_chars]
+    omitted = len(lines) > max_lines or len(by_lines) > max_chars or len(source) > len(preview)
+    return preview, omitted
+
+
+def _artifact_widget_key(prefix: str, turn_dir: Path) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", str(turn_dir)).strip("_")
+    return f"{prefix}_{slug[-80:] or 'run'}"
+
+
 def _render_artifacts(report: dict[str, Any], turn_dir: Path) -> None:
-    st.markdown("### Run Artifacts")
-    with st.expander("Generated analysis.py", expanded=True):
-        code = report.get("code") or _read_text(turn_dir / "analysis.py")
-        st.code(code or "", language="python")
-    with st.expander("stdout"):
-        st.text(_read_text(turn_dir / "stdout.txt") or report.get("stdout", ""))
-    with st.expander("stderr"):
-        st.text(_read_text(turn_dir / "stderr.txt") or report.get("stderr", ""))
-    with st.expander("Raw JSON report"):
-        st.json(report)
+    with st.expander("Run artifacts and developer details", expanded=False):
+        st.caption(
+            "Technical artifacts are available for audit and reproduction. "
+            "They are collapsed by default so the report stays focused on the scientific content."
+        )
+
+        code = report.get("code") or _read_text(turn_dir / "analysis.py") or ""
+        preview, omitted = _source_preview(str(code))
+        st.markdown("#### Generated analysis.py preview")
+        if preview:
+            st.caption("Preview only — first 40 lines or 4,000 characters, whichever comes first.")
+            st.code(preview, language="python")
+            if omitted:
+                st.caption("Full source is available below or as a download.")
+            st.download_button(
+                "Download analysis.py",
+                data=str(code),
+                file_name="analysis.py",
+                mime="text/x-python",
+                key=_artifact_widget_key("download_analysis", turn_dir),
+            )
+            if st.checkbox("View full source", value=False, key=_artifact_widget_key("view_source", turn_dir)):
+                st.code(str(code), language="python")
+        else:
+            st.caption("No generated analysis.py source was saved for this report.")
+
+        with st.expander("stdout", expanded=False):
+            st.text(_read_text(turn_dir / "stdout.txt") or report.get("stdout", ""))
+        with st.expander("stderr", expanded=False):
+            st.text(_read_text(turn_dir / "stderr.txt") or report.get("stderr", ""))
+        with st.expander("Raw JSON report", expanded=False):
+            st.json(report)
 
 
 def _turn_label(turn: dict[str, Any]) -> str:
@@ -4189,6 +4455,11 @@ def _inject_css() -> None:
           color: var(--ev-muted);
           font-size: 0.82rem;
           word-break: break-all;
+        }
+        .ev-overview-stage {
+          color: var(--ev-text-secondary);
+          font-size: 0.88rem;
+          margin: -0.05rem 0 0.35rem;
         }
         .ev-header-right {
           display: flex;
@@ -4656,6 +4927,59 @@ def _inject_css() -> None:
           font-size: 0.86rem;
           margin-top: 0.2rem;
         }
+        .ev-findings-overview {
+          background: color-mix(in srgb, var(--ev-accent) 5%, var(--ev-panel));
+          border: 1px solid var(--ev-border);
+          border-radius: var(--ev-radius);
+          box-shadow: var(--ev-shadow);
+          margin: 0.85rem 0 1rem;
+          padding: 1rem 1.1rem;
+        }
+        .ev-findings-overview-kicker {
+          color: var(--ev-accent-dark);
+          font-size: 0.78rem;
+          font-weight: 780;
+          letter-spacing: 0.04em;
+          margin-bottom: 0.15rem;
+          text-transform: uppercase;
+        }
+        .ev-findings-overview-sub {
+          color: var(--ev-muted);
+          font-size: 0.85rem;
+          margin-bottom: 0.75rem;
+        }
+        .ev-finding-index-row {
+          align-items: flex-start;
+          border-top: 1px solid color-mix(in srgb, var(--ev-border) 75%, transparent);
+          display: flex;
+          gap: 0.7rem;
+          padding: 0.65rem 0 0.1rem;
+        }
+        .ev-finding-index-num {
+          align-items: center;
+          background: color-mix(in srgb, var(--ev-accent) 12%, var(--ev-panel));
+          border: 1px solid color-mix(in srgb, var(--ev-accent) 36%, var(--ev-panel));
+          border-radius: 999px;
+          color: var(--ev-accent-dark);
+          display: flex;
+          flex: 0 0 1.55rem;
+          font-size: 0.78rem;
+          font-weight: 780;
+          height: 1.55rem;
+          justify-content: center;
+          width: 1.55rem;
+        }
+        .ev-finding-index-title {
+          color: var(--ev-text);
+          font-size: 0.95rem;
+          font-weight: 720;
+          line-height: 1.35;
+        }
+        .ev-finding-index-meta {
+          color: var(--ev-muted);
+          font-size: 0.8rem;
+          margin-top: 0.12rem;
+        }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.ev-takeaway-head) {
           border: 1px solid var(--ev-border);
           border-radius: var(--ev-radius);
@@ -4702,6 +5026,39 @@ def _inject_css() -> None:
           font-size: 0.82rem;
           font-style: italic;
           margin: 0.5rem 0;
+        }
+        .ev-evidence-reading {
+          background: color-mix(in srgb, var(--ev-accent) 5%, var(--ev-panel));
+          border: 1px solid color-mix(in srgb, var(--ev-accent) 18%, var(--ev-border));
+          border-radius: var(--ev-radius-sm);
+          color: var(--ev-text-secondary);
+          font-size: 0.9rem;
+          line-height: 1.45;
+          margin: 0.55rem 0 0.35rem;
+          padding: 0.62rem 0.72rem;
+        }
+        .ev-evidence-reading-label {
+          color: var(--ev-accent-dark);
+          font-size: 0.72rem;
+          font-weight: 780;
+          letter-spacing: 0.04em;
+          margin-bottom: 0.18rem;
+          text-transform: uppercase;
+        }
+        .ev-evidence-caution {
+          background: color-mix(in srgb, var(--ev-warn) 10%, var(--ev-panel));
+          border: 1px solid color-mix(in srgb, var(--ev-warn) 34%, var(--ev-panel));
+          border-radius: var(--ev-radius-sm);
+          color: var(--ev-text-secondary);
+          font-size: 0.82rem;
+          line-height: 1.4;
+          margin: 0.35rem 0 0.6rem;
+          padding: 0.45rem 0.65rem;
+        }
+        .ev-evidence-caution span {
+          color: var(--ev-text);
+          font-weight: 760;
+          margin-right: 0.25rem;
         }
         .ev-takeaway-analysis {
           background: color-mix(in srgb, var(--ev-accent) 6%, var(--ev-panel));

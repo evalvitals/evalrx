@@ -7,7 +7,9 @@ Guarded on streamlit/pandas (the optional dashboard extras).
 from __future__ import annotations
 
 import json
+import pickle
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -148,6 +150,10 @@ def test_loop_dashboard_renders_analysis_panel_without_error(tmp_path):
 
 
 def test_standalone_dashboard_hypotheses_tab_falls_back_gracefully_when_absent(tmp_path):
+    source = "\n".join(f"line_{i} = {i}" for i in range(80)) + "\nFULL_SOURCE_SENTINEL = True\n"
+    (tmp_path / "analysis.py").write_text(source, encoding="utf-8")
+    (tmp_path / "stdout.txt").write_text("STDOUT_SENTINEL", encoding="utf-8")
+    (tmp_path / "stderr.txt").write_text("STDERR_SENTINEL", encoding="utf-8")
     (tmp_path / "fused_report.json").write_text(json.dumps({
         "summary": "M2-only exploratory analysis.",
         "observations": ["Candidate pattern surfaced for review."],
@@ -162,15 +168,114 @@ def test_standalone_dashboard_hypotheses_tab_falls_back_gracefully_when_absent(t
         "1 Problem Setting",
         "2 Exploratory Analysis",
         "3 Hypotheses",
-        "4 Held-out Verdicts",
+        "4 Validation results",
         "5 Fix",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
-    assert any("No hypotheses were recorded" in str(i.value) for i in at.info)
-    # candidate signals / suggested next steps still exist, just demoted into
-    # an expander (not the tab's primary content anymore)
+    info = " ".join(str(i.value) for i in at.info)
+    assert "No formal hypotheses were recorded for this report." in info
+    assert "M3 step enabled" not in info
+    assert "too thin" not in info
+    assert "disabled" not in info.lower()
+    assert "Review the candidate signals below as possible follow-ups" in blob
+    assert "Candidate signals — possible follow-ups, not validated hypotheses" in blob
+    assert any(
+        e.label == "Candidate signals — possible follow-ups, not validated hypotheses"
+        for e in at.expander
+    )
     assert "Suggested next steps" in blob
+    assert blob.index("Review the candidate signals below") < blob.index("Generated analysis.py preview")
     assert "Hypotheses & Artifacts" not in blob
+    assert any(e.label == "Run artifacts and developer details" for e in at.expander)
+    assert any(e.label == "stdout" for e in at.expander)
+    assert any(e.label == "stderr" for e in at.expander)
+    assert any(e.label == "Raw JSON report" for e in at.expander)
+    assert any(b.label == "Download analysis.py" for b in at.download_button)
+    assert any(c.label == "View full source" and c.value is False for c in at.checkbox)
+    assert "Preview only" in " ".join(str(c.value) for c in at.caption)
+    assert any("line_0 = 0" in str(c.value) for c in at.code)
+    assert not any("FULL_SOURCE_SENTINEL" in str(c.value) for c in at.code)
+    assert "STDOUT_SENTINEL" in " ".join(str(t.value) for t in at.text)
+    assert "STDERR_SENTINEL" in " ".join(str(t.value) for t in at.text)
+
+    at.checkbox[0].set_value(True)
+    at.run()
+
+    assert not at.exception
+    assert any("FULL_SOURCE_SENTINEL" in str(c.value) for c in at.code)
+
+
+def test_standalone_dashboard_uses_reader_friendly_header_and_details_expander(tmp_path):
+    full_question = (
+        "What predicts hallucination failures (label=fail) in this VLM "
+        "object-presence probe? Compare attention-geometry scalars across "
+        "three checkpoints and freeze threshold-explicit recipes."
+    )
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "ok": True,
+        "question": full_question,
+        "observations": ["77 of 221 adversarial cases failed."],
+        "candidate_signals": [{"name": "attention_entropy_low"}],
+        "charts": [{"name": "failrate_by_attention_entropy"}],
+        "attempts": 1,
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    assert [t.label for t in at.tabs] == [
+        "1 Problem Setting",
+        "2 Exploratory Analysis",
+        "3 Hypotheses",
+        "4 Validation results",
+        "5 Fix",
+    ]
+    header_html = next(str(m.value) for m in at.markdown if 'ev-report-overview' in str(m.value))
+    assert "EvalVitals Analysis Report" in header_html
+    assert "Hallucination failure patterns" in header_html
+    assert full_question not in header_html
+    assert str(tmp_path) not in header_html
+    assert "fused_report" not in header_html
+    assert any("View full research question and run details" in e.label for e in at.expander)
+    assert full_question in " ".join(str(m.value) for m in at.markdown)
+    assert str(tmp_path) in " ".join(str(c.value) for c in at.code)
+
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert "Candidate patterns" in blob
+    assert "Findings" in blob
+    assert "How to interpret this analysis" in blob
+    assert 'ev-metric-label">Columns</div>' not in blob
+    assert 'ev-metric-label">Rows</div>' not in blob
+    assert 'ev-metric-value">-</div>' not in blob
+
+
+def test_standalone_dashboard_overview_summarizes_validation_without_raw_metadata(tmp_path):
+    (tmp_path / "fused_report.json").write_text(json.dumps({
+        "ok": True,
+        "question": "What predicts yield?",
+        "data_profile": {"loaded_rows": 30},
+        "observations": ["Pressure and temperature vary together."],
+        "candidate_signals": [{"name": "high_pressure"}],
+        "charts": [{"name": "yield_by_pressure"}],
+        "attempts": 1,
+    }), encoding="utf-8")
+    (tmp_path / "confirm_report.json").write_text(json.dumps({
+        "hypothesis_verdicts": [{"name": "high_pressure", "reject": True}],
+    }), encoding="utf-8")
+
+    at = _run_app(tmp_path)
+
+    assert not at.exception
+    header_html = next(str(m.value) for m in at.markdown if "ev-report-overview" in str(m.value))
+    assert "Exploratory analysis with validation results" in header_html
+    assert "30 records" in header_html
+    assert str(tmp_path) not in header_html
+
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert 'ev-metric-label">Records</div>' in blob
+    assert 'ev-metric-label">Validation</div>' in blob
+    assert 'ev-metric-value">Yes</div>' in blob
+    assert "Bundle:" in " ".join(str(c.value) for c in at.caption)
 
 
 def test_standalone_dashboard_renders_m3_hypotheses_with_no_verdict(tmp_path):
@@ -194,6 +299,7 @@ def test_standalone_dashboard_renders_m3_hypotheses_with_no_verdict(tmp_path):
     assert "Higher temperature accelerates the reaction, raising yield." in blob
     assert "Run a controlled temperature-ramp experiment holding pressure fixed." in blob
     assert "Catalyst B underperforms due to a side reaction." in blob
+    assert not any("No formal hypotheses were recorded" in str(i.value) for i in at.info)
     # proposal only — no support/tested verdict pill, since there's no
     # confirm/M4/M5 phase wired up for the standalone tool
     assert 'ev-pill" style="border-color' not in blob
@@ -212,7 +318,7 @@ def test_standalone_dashboard_pairs_takeaway_with_its_chart_and_analysis(tmp_pat
         "takeaways": [{
             "title": "Higher temperature batches yield more (70.1% vs 88.4%).",
             "chart_names": ["yield_by_temp"],
-            "table_names": [],
+            "table_names": ["yield_by_temp"],
             "analysis": "Mean yield rises from 70.1% in low-temperature batches to 88.4% in high-temperature ones.",
             "caveat": "Descriptive only; temperature and pressure are correlated.",
         }],
@@ -226,6 +332,7 @@ def test_standalone_dashboard_pairs_takeaway_with_its_chart_and_analysis(tmp_pat
             "data": "tables/yield_by_temp.csv", "x": "temp_bin", "y": "mean_yield",
             "title": "Mean yield by temperature bin",
         }],
+        "tables": {"yield_by_temp": "tables/yield_by_temp.csv"},
     }), encoding="utf-8")
 
     at = _run_app(tmp_path)
@@ -237,8 +344,15 @@ def test_standalone_dashboard_pairs_takeaway_with_its_chart_and_analysis(tmp_pat
     assert "Higher temperature batches yield more" in blob
     assert "Mean yield rises from 70.1%" in blob
     assert "Caveat" in blob and "Descriptive only" in blob
-    assert "How to read this visual" in blob
+    assert "Findings overview" in blob
+    assert "1 visual · 1 source table · caution noted · detail available" in blob
+    assert "Evidence reading" in blob
+    assert "How to read this visual" not in blob
     assert "high-temperature group has the higher plotted mean yield" in blob
+    assert "Caution" in blob
+    assert "This does not establish temperature as the cause." in blob
+    assert "Details and source data for finding 1" in [e.label for e in at.expander]
+    assert "Source table: Yield by temp" in [e.label for e in at.expander]
     # its supporting chart was found and rendered, not left orphaned
     assert "referenced evidence not found" not in blob
     assert "Mean yield by temperature bin" in blob  # the chart's own title rendered
@@ -311,7 +425,9 @@ def test_standalone_dashboard_renders_plain_title_as_headline_with_technical_det
     assert not at.exception
     blob = " ".join(str(m.value) for m in at.markdown)
     assert 'ev-takeaway-title">Small objects trip up the model far more often.' in blob
-    assert "Technical detail: Small objects fail far more often (18% vs 4%, AUC 0.71)." in blob
+    assert "Technical title" in blob
+    assert "Small objects fail far more often (18% vs 4%, AUC 0.71)." in blob
+    assert "Details and source data for finding 1" in [e.label for e in at.expander]
 
 
 def test_standalone_dashboard_keeps_a_takeaway_with_only_plain_title(tmp_path):
@@ -615,12 +731,12 @@ def test_hypotheses_tab_shows_multiple_hypotheses_and_how_each_was_derived(tmp_p
     assert "HYPOTHESIS: language-prior hallucination" in texts
 
 
-def test_stale_case_matrix_never_silently_replaces_this_runs_own_charts(tmp_path, monkeypatch):
+def test_stale_case_matrix_never_silently_replaces_this_runs_own_charts(tmp_path):
     """A case matrix reconstructed from m1_state.pkl is a separate artifact from a
     specific attention-probe pipeline — if an output dir is reused across runs, a
     stale pickle must not silently stand in for (or hide) this run's own explorer
     charts, and it must be clearly labeled as a distinct, possibly-mismatched source."""
-    import pandas as pd
+    pytest.importorskip("plotly", reason="case-matrix charts require Plotly dashboard extras")
 
     _build_loop_run(tmp_path)
     # This run's own group-stats/fail-rate tables (distinct signal name).
@@ -633,20 +749,26 @@ def test_stale_case_matrix_never_silently_replaces_this_runs_own_charts(tmp_path
     )
 
     # A stale/unrelated case matrix (different signal, from a different pipeline).
-    fake_matrix = pd.DataFrame({
-        "case_id": [f"c{i}" for i in range(6)],
-        "label": ["FAIL", "PASS", "FAIL", "PASS", "FAIL", "PASS"],
-        "is_fail": [1, 0, 1, 0, 1, 0],
-        "model_yes": [1, 0, 1, 0, 1, 0],
-        "truth_yes": [1, 0, 0, 1, 1, 0],
-        "attn_max": [0.9, 0.1, 0.8, 0.2, 0.7, 0.3],
-    })
-    monkeypatch.setattr(
-        "evalvitals.analysis.eval_case_matrix.load_case_matrix", lambda root: fake_matrix
-    )
-    monkeypatch.setattr(
-        "evalvitals.analysis.eval_case_matrix.continuous_signals", lambda df: ["attn_max"]
-    )
+    # Write the real pickle-shaped artifact instead of monkeypatching: AppTest
+    # executes dashboard_app.py as a script, so module-level monkeypatches do not
+    # reliably cross that file-run boundary.
+    cases = [
+        SimpleNamespace(id=f"c{i}", label=label, observed=observed, expected=expected)
+        for i, (label, observed, expected) in enumerate([
+            ("FAIL", "yes", "yes"),
+            ("PASS", "no", "no"),
+            ("FAIL", "yes", "no"),
+            ("PASS", "no", "yes"),
+            ("FAIL", "yes", "yes"),
+            ("PASS", "no", "no"),
+        ])
+    ]
+    relative_attention = SimpleNamespace(findings={"per_case": [
+        {"id": f"c{i}", "max_relative_weight": v}
+        for i, v in enumerate([0.9, 0.1, 0.8, 0.2, 0.7, 0.3])
+    ]})
+    with (tmp_path / "m1_state.pkl").open("wb") as fh:
+        pickle.dump({"cases": cases, "probe_results": {"relative_attention": relative_attention}}, fh)
 
     at = _run_app(tmp_path)
 
@@ -837,7 +959,7 @@ def test_explore_dashboard_renders_holdout_verdicts_and_fix(tmp_path):
     assert not at.exception
     assert [t.label for t in at.tabs] == [
         "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Held-out Verdicts", "5 Fix",
+        "4 Validation results", "5 Fix",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
     # tab 3 stays the pure proposal view; verdict badges live in tab 4 only
@@ -863,7 +985,7 @@ def test_explore_dashboard_without_pipeline_artifacts_greys_out_tabs(tmp_path):
     assert not at.exception
     assert [t.label for t in at.tabs] == [
         "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Held-out Verdicts", "5 Fix",
+        "4 Validation results", "5 Fix",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
     assert blob.count("not available for this run") == 2

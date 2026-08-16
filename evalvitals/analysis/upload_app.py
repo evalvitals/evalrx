@@ -515,6 +515,10 @@ def _inject_workbench_css(st: Any) -> None:
         .ev-timeline-canceled .ev-timeline-dot { background: var(--ev-muted); }
         .ev-timeline-started { background: linear-gradient(100deg, color-mix(in srgb, var(--ev-accent) 10%, transparent), color-mix(in srgb, var(--ev-accent) 20%, transparent), color-mix(in srgb, var(--ev-accent) 10%, transparent)); background-size: 220% 100%; animation: ev-timeline-enter .32s ease-out both, ev-timeline-shimmer 2.1s ease-in-out infinite; }
         .ev-timeline-started .ev-timeline-dot { background: var(--ev-accent); box-shadow: 0 0 0 1px var(--ev-accent), 0 0 0 0 color-mix(in srgb, var(--ev-accent) 55%, transparent); animation: ev-timeline-pulse 1.7s ease-out infinite; }
+        .ev-setup-step { align-items: flex-start; display: flex; gap: .7rem; margin: 1.05rem 0 .35rem; }
+        .ev-setup-step-num { background: color-mix(in srgb, var(--ev-accent) 12%, var(--ev-panel)); border: 1px solid color-mix(in srgb, var(--ev-accent) 34%, var(--ev-panel)); border-radius: 999px; color: var(--ev-accent-dark); flex: 0 0 auto; font-size: .72rem; font-weight: 800; letter-spacing: .03em; padding: .18rem .55rem; text-transform: uppercase; }
+        .ev-setup-step-title { color: var(--ev-text); font-size: .98rem; font-weight: 760; line-height: 1.3; }
+        .ev-setup-step-body { color: var(--ev-muted); font-size: .83rem; line-height: 1.4; margin-top: .08rem; max-width: 62rem; }
         @keyframes ev-timeline-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes ev-timeline-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -120% 0; } }
         @keyframes ev-timeline-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ev-accent) 55%, transparent); } 70% { box-shadow: 0 0 0 .48rem transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
@@ -527,6 +531,27 @@ def _inject_workbench_css(st: Any) -> None:
 
 def _backend_label(value: str) -> str:
     return {"claude_code": "Claude Code", "codex": "Codex", "antigravity": "Antigravity"}.get(value, value)
+
+
+def _render_setup_step(st: Any, number: int, title: str, body: str) -> None:
+    st.markdown(
+        f"""
+        <div class="ev-setup-step">
+          <div class="ev-setup-step-num">Step {number}</div>
+          <div>
+            <div class="ev-setup-step-title">{html.escape(title)}</div>
+            <div class="ev-setup-step-body">{html.escape(body)}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _start_disabled_reason(uploaded: Any) -> str | None:
+    if uploaded is None:
+        return "Upload a ZIP file to enable analysis."
+    return None
 
 
 def _render_thread_messages(st: Any, run_dir: Path) -> None:
@@ -673,15 +698,37 @@ def _render_new_analysis(st: Any, workspace: Path, args: argparse.Namespace,
         unsafe_allow_html=True,
     )
     st.markdown(
-        "Upload a **.zip** containing tables (JSON / JSONL / CSV / TSV / "
-        "Parquet / Excel) and/or images, PDFs, audio, or video. The workbench "
-        "builds an auditable dataset bundle, then M2 analyses it and M3 proposes "
-        "falsifiable hypotheses."
+        "Upload a ZIP of evaluation results. EvalVitals will prepare the dataset, "
+        "run exploratory analysis, and generate a report you can inspect."
     )
+    st.caption("Set up your analysis in 5 steps. Defaults are safe for a first run.")
 
+    _render_setup_step(
+        st,
+        1,
+        "Upload results",
+        "Choose a .zip containing tables, logs, or optional media. EvalVitals keeps an auditable copy.",
+    )
     uploaded = st.file_uploader("Results archive", type=["zip"])
+    if uploaded is None:
+        st.caption("Waiting for a ZIP archive before analysis can start.")
+    else:
+        st.success(f"Archive selected: {uploaded.name}")
+
+    _render_setup_step(
+        st,
+        2,
+        "Analysis question",
+        "Keep the default for a broad scan, or ask what patterns EvalVitals should look for.",
+    )
     question = st.text_area("Analysis question", value=DEFAULT_QUESTION, height=90)
 
+    _render_setup_step(
+        st,
+        3,
+        "Validation mode",
+        "Recommended: hold out some rows so candidate patterns can be checked on data the explorer did not see.",
+    )
     mode_label = st.radio(
         "Analysis mode",
         ["Explore + held-out verification", "Explore only (M2 + M3)"],
@@ -715,6 +762,12 @@ def _render_new_analysis(st: Any, workspace: Path, args: argparse.Namespace,
             + ("" if explore_share < 1.0 else " — all rows analysed in-sample")
         )
 
+    _render_setup_step(
+        st,
+        4,
+        "Outcome column",
+        "Use the column that marks pass/fail or the target outcome. Leave it blank to let EvalVitals infer one.",
+    )
     outcome_col = st.text_input(
         "Outcome column", value="label",
         help="Name of the pass/fail (or target) column. Leave empty to "
@@ -726,6 +779,7 @@ def _render_new_analysis(st: Any, workspace: Path, args: argparse.Namespace,
     # question. Keeping them collapsed makes the primary form four fields
     # instead of seven without taking the controls away.
     with st.expander("Advanced — engine settings", expanded=False):
+        st.caption("Most users can keep these defaults. Open this only to change the coding backend, model, or timeout.")
         col2, col3, col4 = st.columns(3)
         backend = col2.selectbox(
             "Coding-agent backend", list(BACKENDS), index=list(BACKENDS).index(args.backend),
@@ -736,7 +790,24 @@ def _render_new_analysis(st: Any, workspace: Path, args: argparse.Namespace,
         timeout_sec = col4.number_input("Timeout (sec)", min_value=60, max_value=7200,
                                         value=int(args.timeout_sec), step=60)
 
-    if st.button("Start analysis", type="primary", disabled=uploaded is None):
+    _render_setup_step(
+        st,
+        5,
+        "Start analysis",
+        "EvalVitals will extract your files, normalize the dataset, run the analysis worker, and save report artifacts.",
+    )
+    with st.expander("What happens after I click Start?", expanded=False):
+        st.markdown(
+            "- Extract and normalize the uploaded archive\n"
+            "- Build an auditable dataset bundle\n"
+            "- Run exploratory analysis and propose follow-ups\n"
+            "- Save report artifacts for review in this workbench"
+        )
+    disabled_reason = _start_disabled_reason(uploaded)
+    if disabled_reason:
+        st.caption(disabled_reason)
+
+    if st.button("Start analysis", type="primary", disabled=disabled_reason is not None):
         payload = uploaded.getvalue()
         run_dir = ThreadStore(workspace).create(
             name=Path(uploaded.name).stem, provider=backend, model=model.strip()
