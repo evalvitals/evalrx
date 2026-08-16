@@ -297,12 +297,28 @@ def test_upload_page_renders_form(tmp_path):
     assert not at.exception
     blob = " ".join(str(m.value) for m in at.markdown)
     assert "Upload" in blob
+    assert "Set up your analysis in 5 steps" in " ".join(str(c.value) for c in at.caption)
     assert at.button[0].label == "Start analysis"
     # nothing uploaded yet -> the launch button is disabled
     assert at.button[0].disabled
+    assert "Upload a ZIP file to enable analysis." in " ".join(str(c.value) for c in at.caption)
     # the sidebar-reopen chevron must be exempted from the chrome-hiding CSS,
     # or a collapsed sidebar (narrow window) can never be reopened
     assert "stExpandSidebarButton" in blob
+
+
+def test_upload_page_renders_guided_setup_steps(tmp_path):
+    at = _run_app(tmp_path)
+    assert not at.exception
+
+    blob = " ".join(str(m.value) for m in at.markdown)
+    assert "Step 1" in blob and "Upload results" in blob
+    assert "Step 2" in blob and "Analysis question" in blob
+    assert "Step 3" in blob and "Validation mode" in blob
+    assert "Step 4" in blob and "Outcome column" in blob
+    assert "Step 5" in blob and "Start analysis" in blob
+    assert "What happens after I click Start?" in [e.label for e in at.expander]
+    assert "Build an auditable dataset bundle" in blob
 
 
 def test_mode_selection_drives_split_slider(tmp_path):
