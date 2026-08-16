@@ -40,6 +40,13 @@ class Entry:
     slicing: str
     grading: str
     caveat: str = ""
+    #: Generation budget the reference accuracy was MEASURED at, when it differs
+    #: from the config default. 0 = the default is fine. This is not a
+    #: preference: minervamath reads 0.500 at 65k and 0.320/budget_limited at
+    #: 40k, so running it at the default would diagnose the token cap and call
+    #: it a capability. build_cases.py reads this; run_all.sh sizes the server's
+    #: --max-model-len from it.
+    max_tokens: int = 0
 
     @property
     def spec(self) -> "B.Spec":
@@ -145,6 +152,7 @@ CATALOG: tuple = (
                "program-form scientific notation), not the budget. INFLUENCE "
                "EVIDENCE UNCONFIRMED: `lm_eval/tasks/minerva_math` points at "
                "`EleutherAI/hendrycks_math`, NOT at this dataset.",
+        max_tokens=65536,
     ),
     Entry(
         name="supergpqa_law",
@@ -300,9 +308,17 @@ if __name__ == "__main__":
     ap.add_argument("--plan", action="store_true",
                     help="what a given n_cases/confirm_split actually buys per dataset")
     ap.add_argument("--n", type=int, default=0, help="n_cases for --plan")
+    ap.add_argument("--max-tokens", metavar="NAME",
+                    help="print the generation budget NAME needs (0 = config "
+                         "default is fine); run_all.sh uses this to size the "
+                         "server's --max-model-len before it starts")
     ap.add_argument("--split", type=float, default=-1.0,
                     help="confirm_split for --plan")
     args = ap.parse_args()
+
+    if args.max_tokens:
+        print(get(args.max_tokens).max_tokens)
+        raise SystemExit(0)
 
     if args.plan:
         import yaml

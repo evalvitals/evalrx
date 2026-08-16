@@ -98,10 +98,23 @@ trap cleanup EXIT INT TERM
 LOG_DIR="$HERE/outputs/$MODEL/$DATASET"
 mkdir -p "$LOG_DIR"
 
+# The server's context has to be sized BEFORE it starts, and some datasets need
+# more than the default. minervamath's 0.500 reference was measured at a 65k
+# generation budget; at 40k the same slice reads 0.320 and budget_limited, so a
+# 32768 context would not shorten the run, it would change what it measures.
+DS_TOKENS=$("$EVAL_PY" "$HERE/datasets.py" --max-tokens "$DATASET" 2>/dev/null || echo 0)
+CFG_TOKENS=$(awk '/^max_tokens:/ {print $2; exit}' "$HERE/config.yaml")
+GEN_TOKENS="${MAX_TOKENS:-0}"
+[ "$GEN_TOKENS" -le 0 ] && GEN_TOKENS=$([ "${DS_TOKENS:-0}" -gt 0 ] && echo "$DS_TOKENS" || echo "$CFG_TOKENS")
+# leave room for the prompt on top of the generation budget
+MODEL_LEN="${MAX_MODEL_LEN:-$((GEN_TOKENS + 8192))}"
+[ "$MODEL_LEN" -lt 32768 ] && MODEL_LEN=32768
+stamp "generation budget $GEN_TOKENS tok -> --max-model-len $MODEL_LEN"
+
 stamp "launching vllm (weights load takes 3-6 min on a cold page cache)"
 "$VLLM_BIN" serve "$HF_REPO" \
   --served-model-name "$MODEL" --port "$PORT" \
-  --max-model-len 32768 --max-num-seqs 32 --gpu-memory-utilization 0.92 \
+  --max-model-len "$MODEL_LEN" --max-num-seqs 32 --gpu-memory-utilization 0.92 \
   > "$LOG_DIR/vllm.log" 2>&1 &
 VLLM_PID=$!
 
@@ -122,15 +135,27 @@ fi
 
 BASE_URL="http://127.0.0.1:$PORT/v1"
 
-stamp "STAGE 0 build_cases (slowest step; a full census of a 650+ item slice runs 4-6 h — see README)"
-"$EVAL_PY" "$HERE/build_cases.py" \
-  --model "$MODEL" --dataset "$DATASET" --n "$NCASES" --base-url "$BASE_URL"
-rc=$?
-if [ $rc -ne 0 ]; then
-  # exit 1 here is usually the deliberate out-of-band refusal, not a crash
-  stamp "build_cases exited $rc — if it refused on band position, pick a dataset"
-  stamp "that sits mid-band for THIS model size (see README section 1)."
-  exit $rc
+# SKIP_STAGE0=1 reuses the frozen batch. This is the whole reason Stage 0 is a
+# separate step: when M1-M4 fails, the four hours of GPU generation that
+# preceded it are still valid, and regenerating them would only add noise (the
+# sampler is not seeded). Refuses rather than silently regenerating if absent.
+if [ "${SKIP_STAGE0:-0}" = "1" ]; then
+  if [ ! -f "$LOG_DIR/cases.json" ]; then
+    stamp "SKIP_STAGE0=1 but $LOG_DIR/cases.json does not exist"; exit 1
+  fi
+  stamp "STAGE 0 skipped — reusing $LOG_DIR/cases.json"
+  rc=0
+else
+  stamp "STAGE 0 build_cases (slowest step; a full census of a 650+ item slice runs 4-6 h — see README)"
+  "$EVAL_PY" "$HERE/build_cases.py" \
+    --model "$MODEL" --dataset "$DATASET" --n "$NCASES" --base-url "$BASE_URL"
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    # exit 1 here is usually the deliberate out-of-band refusal, not a crash
+    stamp "build_cases exited $rc — if it refused on band position, pick a dataset"
+    stamp "that sits mid-band for THIS model size (see README section 1)."
+    exit $rc
+  fi
 fi
 
 if [ "$ANALYSIS_ONLY" = "1" ]; then

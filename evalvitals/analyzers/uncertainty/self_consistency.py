@@ -90,6 +90,17 @@ class SelfConsistencyAnalyzer(Analyzer):
                        semantic entropy (no extra generations).
         entailment_fn: ``callable(a, b) -> bool`` equivalence test used for that
                        clustering; defaults to :func:`lexical_equivalent`.
+        answer_fn:     ``callable(text) -> str`` applied BEFORE comparing.
+
+    ``answer_fn`` is what makes this usable on a reasoning model. Without it the
+    comparison is over the whole generation, and two samples of a 3,000-token
+    chain of thought are never byte-identical even when they reach the same
+    answer — so ``consistency`` reads ``1/n`` by construction and ``n_unique``
+    reads ``n``, regardless of whether the model actually agreed with itself.
+    That is not a lower bound, it is a constant. Pass
+    ``answer_fn=extract_answer`` and the metric measures answers again; the
+    raw-text number is still reported alongside as ``raw_text_consistency`` so
+    the two are never confused.
     """
 
     name = "self_consistency"
@@ -102,22 +113,36 @@ class SelfConsistencyAnalyzer(Analyzer):
         gen_kwargs: dict | None = None,
         semantic: bool = True,
         entailment_fn: Optional[Callable[[str, str], bool]] = None,
+        answer_fn: Optional[Callable[[str], str]] = None,
     ) -> None:
         super().__init__(n=n, gen_kwargs=gen_kwargs or {}, semantic=semantic)
         # ctor name, so sklearn-style get_params() reflection works
         self.entailment_fn = entailment_fn or lexical_equivalent
+        self.answer_fn = answer_fn
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         case = cases[0]
         samples = [model.generate(case.inputs, **self.gen_kwargs) for _ in range(self.n)]
-        norm = [str(s).strip().lower() for s in samples]
+        raw = [str(s).strip().lower() for s in samples]
+        if self.answer_fn is not None:
+            norm = [str(self.answer_fn(s) or "").strip().lower() for s in samples]
+        else:
+            norm = raw
         counts = Counter(norm)
         modal, modal_n = counts.most_common(1)[0]
+        raw_counts = Counter(raw)
         findings: dict[str, Any] = {
             "n_samples": self.n,
             "consistency": round(modal_n / max(len(samples), 1), 4),
             "n_unique": len(counts),
-            "modal_answer": samples[norm.index(modal)],
+            "compared_on": "answer" if self.answer_fn is not None else "raw_text",
+            # Kept alongside so the two are never mistaken for each other. On a
+            # reasoning model this one is ~1/n by construction; a downstream
+            # stage that sees only the headline number cannot tell.
+            "raw_text_consistency": round(
+                raw_counts.most_common(1)[0][1] / max(len(samples), 1), 4),
+            "modal_answer": (modal if self.answer_fn is not None
+                             else samples[norm.index(modal)]),
             # The consistency score is meaningless without the sampling
             # config that produced it (temperature above all): a low score
             # at temperature 0 is a real defect, the same score at 1.0 is

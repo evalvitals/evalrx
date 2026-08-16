@@ -308,3 +308,121 @@ def test_ece_helper():
     perfect = [(0.9, True)] * 9 + [(0.9, False)]
     assert expected_calibration_error(perfect, 10) == 0.0
     assert expected_calibration_error([], 10) is None
+
+
+# ── (A)-style option blocks ──────────────────────────────────────────────────
+# BBH / AGIEval / several MMLU redistributions write "(A) foo". The block regex
+# required the letter at the start of the line, so every one of those prompts
+# parsed to zero options and format_sensitivity reported n_scored=0 -- a silent
+# no-op on a benchmark that is nothing but multiple choice.
+_BBH_PROMPT = (
+    "Alice has a blue ball, Bob has a orange ball, Claire has a black ball.\n"
+    "Alice and Bob swap balls. At the end of the game, Bob has the\n"
+    "Options:\n(A) blue ball\n(B) orange ball\n(C) black ball\n"
+)
+
+
+def test_extract_option_block_reads_parenthesised_letters():
+    from evalvitals.analyzers.perturbation.format_sensitivity import extract_option_block
+
+    options, block = extract_option_block(_BBH_PROMPT)
+    assert options == ["blue ball", "orange ball", "black ball"]
+    assert block.startswith("(A)")
+
+
+def test_plain_and_parenthesised_styles_both_parse():
+    from evalvitals.analyzers.perturbation.format_sensitivity import extract_option_block
+
+    for text in ("Q?\nA. one\nB. two\n", "Q?\nA) one\nB) two\n", "Q?\n(A) one\n(B) two\n"):
+        assert extract_option_block(text)[0] == ["one", "two"], text
+
+
+def test_rotation_preserves_the_prompts_own_letter_style():
+    """Re-rendering "(A)" as "A." would change the delimiter and the position at
+    once, so a measured flip could be either cause."""
+    from evalvitals.analyzers.perturbation.format_sensitivity import (
+        FormatSensitivityAnalyzer,
+        extract_option_block,
+    )
+
+    options, block = extract_option_block(_BBH_PROMPT)
+    rotated_prompt, rotated = FormatSensitivityAnalyzer._variant_prompt(
+        _BBH_PROMPT, block, options, 1)
+    assert "(A) orange ball" in rotated_prompt
+    assert "A. orange ball" not in rotated_prompt
+    assert rotated[0] == "orange ball"
+
+    plain = "Q?\nA. one\nB. two\n"
+    opts, blk = extract_option_block(plain)
+    out, _ = FormatSensitivityAnalyzer._variant_prompt(plain, blk, opts, 1)
+    assert "A. two" in out and "(A) two" not in out
+
+
+def test_parse_choice_accepts_the_answer_in_paren_style():
+    from evalvitals.analyzers.perturbation.format_sensitivity import parse_choice
+
+    assert parse_choice("Answer: (C)", 7) == "C"
+    assert parse_choice("Answer: C", 7) == "C"
+    assert parse_choice("the final answer is (G)", 7) == "G"
+
+
+# ── self_consistency on a reasoning model ────────────────────────────────────
+def _chain_model(answers):
+    """A model whose chains all differ but whose ANSWERS are given."""
+    from evalvitals.core.capability import Capability
+    from evalvitals.core.model import Model
+
+    class _M(Model):
+        capabilities = frozenset({Capability.GENERATE})
+        modalities = frozenset({"text"})
+
+        def __init__(self):
+            self.i = 0
+
+        def generate(self, inputs, **kwargs):
+            a = answers[self.i]
+            self.i += 1
+            return f"Step {self.i}: unique reasoning text {self.i}\n</think>\nAnswer: {a}"
+
+        def forward(self, *a, **k):
+            raise NotImplementedError
+
+    return _M()
+
+
+def _one_case():
+    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+
+    return CaseBatch([FailureCase(inputs=Inputs(prompt="q"), observed="",
+                                  expected="(C)", label=Label.FAIL)])
+
+
+def test_raw_text_consistency_is_a_constant_on_a_reasoning_model():
+    """Five identical ANSWERS still read 1/n when whole chains are compared."""
+    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
+
+    f = SelfConsistencyAnalyzer(n=5, semantic=False).run(
+        _chain_model(["(C)"] * 5), _one_case()).findings
+    assert f["consistency"] == 0.2 and f["n_unique"] == 5
+    assert f["compared_on"] == "raw_text"
+
+
+def test_answer_fn_makes_consistency_measure_answers():
+    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
+    from evalvitals.analyzers.reasoning._text import extract_answer
+
+    f = SelfConsistencyAnalyzer(n=5, semantic=False, answer_fn=extract_answer).run(
+        _chain_model(["(C)"] * 5), _one_case()).findings
+    assert f["consistency"] == 1.0 and f["n_unique"] == 1
+    assert f["compared_on"] == "answer"
+    # the misleading number is still reported, so the two cannot be conflated
+    assert f["raw_text_consistency"] == 0.2
+
+
+def test_answer_fn_still_detects_genuine_disagreement():
+    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
+    from evalvitals.analyzers.reasoning._text import extract_answer
+
+    f = SelfConsistencyAnalyzer(n=4, semantic=False, answer_fn=extract_answer).run(
+        _chain_model(["(A)", "(B)", "(A)", "(C)"]), _one_case()).findings
+    assert f["consistency"] == 0.5 and f["n_unique"] == 3

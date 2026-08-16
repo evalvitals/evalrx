@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -41,6 +42,7 @@ sys.path.insert(0, str(HERE.parent.parent))
 
 import band_locate as B  # noqa: E402
 import datasets as CATALOG  # noqa: E402
+from evalvitals.core.model import Model  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
 
@@ -68,8 +70,15 @@ def _is_special(token: str) -> bool:
     return token.startswith("<|") and token.endswith("|>")
 
 
-class EndpointModel:
+class EndpointModel(Model):
     """The model under test, over an OpenAI-compatible endpoint.
+
+    Subclasses ``Model`` rather than duck-typing it. Duck-typing looked fine —
+    the loop mostly calls ``generate`` — and then died at M1 on
+    ``model.supports(...)``, which the analyzer registry calls to decide what can
+    run. Attributes alone are not the contract; inheriting also supplies
+    ``unembed_weight`` and the ``call_<analyzer>`` shim, so the next thing the
+    framework adds does not repeat this.
 
     Provides GENERATE and LOGPROBS. Sampling for ``generate`` is pinned to the
     Qwen thinking recipe because greedy decoding sends these models into verbatim
@@ -283,6 +292,123 @@ def build_judge(model_name: str, effort: str):
     return judge
 
 
+#: A leading answer marker that ``extract_answer`` keeps and ``normalize_answer``
+#: does not strip, so "Answer: (C)" and "The answer is (C)" would otherwise
+#: normalise to "answer: c" and "answer is c" — counted as disagreement when the
+#: grader scores them the same.
+_ANSWER_LEAD = re.compile(
+    r"^\s*(?:the\s+)?(?:final\s+)?answers?\s*(?:is|are)?\s*[:=-]?\s*", re.IGNORECASE)
+
+
+def graded_answer(text) -> str:
+    """The answer as the GRADER would see it — extracted, de-prefixed, normalised.
+
+    Consistency should be measured in the same equivalence class the batch was
+    labelled in. Anything coarser counts wording as disagreement, which on a
+    model that varies its phrasing every sample is most of the signal.
+    """
+    from evalvitals.analyzers.reasoning._text import normalize_answer
+
+    return normalize_answer(_ANSWER_LEAD.sub("", str(B.extract_answer(text)), count=1))
+
+
+def _spends_gpu(cls) -> bool:
+    """True when the analyzer's per-case loop actually calls the model.
+
+    The cap exists to shorten wall-clock, and wall-clock is generation. Auditing
+    analyzers (``arith_audit``, ``termination_audit``, ``answer_extraction_audit``)
+    read the outputs already recorded in the batch — capping those would throw
+    away evidence that costs nothing to collect, which is a straight loss.
+    """
+    import inspect
+
+    try:
+        src = inspect.getsource(cls)
+    except (OSError, TypeError):
+        return True  # unknown: cap it rather than risk another straggler
+    return "model.generate(" in src or "model.logprobs(" in src
+
+
+def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -> dict:
+    """Cap how many cases each per-case analyzer generates for.
+
+    Why this exists: analyzers run in parallel with each other but iterate their
+    OWN cases serially, one ``model.generate`` at a time. Against a thinking
+    model on an HTTP endpoint that is ~49 s per call, so an analyzer with
+    ``max_cases=128`` is a two-hour straggler that holds up the whole of M1 long
+    after the other seven have finished. Measured on the bbh_tracking7 run:
+    concurrency decayed 5.3 -> 1.0 and then sat at exactly 1.0 for four hours.
+
+    This trades statistical power, not correctness: each measurement is
+    unchanged, there are just fewer of them. It is deliberately reported rather
+    than applied quietly, because a narrower interval that is not labelled as
+    narrower is how an underpowered result gets read as a null one.
+
+    Analyzers needing constructor arguments we cannot supply (``runs_fn``,
+    ``judge``) are left alone — the loop already skips them with a warning.
+    """
+    import inspect
+
+    from evalvitals.core.registry import registry
+
+    # 0 means "library defaults" everywhere else in the config, and without this
+    # it would instead cap every analyzer to ZERO cases -- analyzers that run,
+    # report, and measure nothing. Silent, and it looks like a clean null result.
+    if max_cases <= 0:
+        return {}
+
+    empty = inspect.Parameter.empty
+    varargs = (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    eligible = (set(registry.analyzers.names_compatible_with(model))
+                if model is not None else None)
+    overrides, capped, spared = {}, [], []
+    for name, cls in sorted(registry.analyzers.all().items()):
+        try:
+            params = inspect.signature(cls.__init__).parameters
+        except (TypeError, ValueError):
+            continue
+        spec = params.get("max_cases")
+        if spec is None or not isinstance(spec.default, int):
+            continue
+        if spec.default <= max_cases:
+            continue  # already cheaper than the cap; leave it exactly as it is
+        if eligible is not None and name not in eligible:
+            continue  # cannot run on this model at all
+        if not _spends_gpu(cls):
+            spared.append(f"{name} (reads recorded outputs, costs no generation)")
+            continue
+        needs = [n for n, p in params.items()
+                 if n not in ("self", "max_cases")
+                 and p.default is empty and p.kind not in varargs]
+        if needs:
+            continue
+        try:
+            overrides[name] = cls(max_cases=max_cases)
+        except Exception:  # an analyzer that will not build is the loop's problem
+            continue
+        capped.append(f"{name} {spec.default}->{max_cases}")
+
+    # self_consistency has no max_cases (it reads cases[0]) so the loop above
+    # never reaches it, and its default compares WHOLE generations. On a
+    # thinking model two 3k-token chains are never identical, so it reports
+    # consistency = 1/n every time -- which is exactly what M2 flagged as the
+    # primary anomaly on the 9B run. Comparing extracted answers fixes it.
+    if "self_consistency" in (eligible if eligible is not None else {"self_consistency"}):
+        try:
+            sc = registry.analyzers.get("self_consistency")
+            overrides["self_consistency"] = sc(answer_fn=graded_answer)
+            capped.append("self_consistency compare raw_text->graded answer")
+        except (KeyError, TypeError):
+            pass
+    if verbose:
+        print(f"analyzer_max_cases={max_cases}: capped {len(capped)} analyzer(s)")
+        for line in capped:
+            print(f"  cap   {line}")
+        for line in spared:
+            print(f"  keep  {line}")
+    return overrides
+
+
 def build_codegen(backend: str):
     from evalvitals.eval_agent import CliAgentConfig
 
@@ -310,6 +436,11 @@ def main() -> None:
     ap.add_argument("--backend", default="claude", choices=["claude", "codex", "agy"])
     ap.add_argument("--max-cycles", type=int, default=CFG["max_cycles"])
     ap.add_argument("--confirm-split", type=float, default=CFG["confirm_split"])
+    ap.add_argument("--analyzer-max-cases", type=int,
+                    default=int(CFG.get("analyzer_max_cases", 0)),
+                    help="cap per-analyzer case counts (0 = library defaults). "
+                         "Analyzers generate serially, so this is the main knob "
+                         "on M1 wall-clock; it costs power, not correctness")
     ap.add_argument("--analysis-only", action="store_true",
                     help="M1->M2->M3 and stop: propose hypotheses, skip M5 and M4")
     ap.add_argument("--skip-m4", action="store_true",
@@ -336,7 +467,10 @@ def main() -> None:
           f"PASS={report_in['n_pass']} FAIL={report_in['n_fail']} "
           f"acc={report_in['accuracy']:.3f}")
 
-    model = EndpointModel(args.model, args.base_url, CFG["max_tokens"],
+    # Same budget Stage 0 used, or M1's probes truncate where the batch did not
+    # and the two halves of the run stop being comparable.
+    max_tokens = CATALOG.get(args.dataset).max_tokens or int(CFG["max_tokens"])
+    model = EndpointModel(args.model, args.base_url, max_tokens,
                           {"temperature": float(CFG["temperature"]),
                            "top_p": float(CFG["top_p"]), "top_k": int(CFG["top_k"])},
                           logprobs_mode=str(CFG.get("logprobs_mode", "answer")),
@@ -344,6 +478,8 @@ def main() -> None:
                           logprobs_top_k=int(CFG.get("logprobs_top_k", 5)))
     judge = build_judge(args.judge_model, args.judge_effort)
     codegen = build_codegen(args.backend)
+    overrides = (build_analyzer_overrides(args.analyzer_max_cases, model=model)
+                 if args.analyzer_max_cases > 0 else {})
     logger = RunLogger(run_dir=out / "logs", verbose=True)
 
     # Every stage takes its judge/coder through its CONSTRUCTOR. Assigning
@@ -354,7 +490,8 @@ def main() -> None:
         model=model,
         protocol=build_protocol(args.dataset),
         probe_agent=ProbeAgent(judge=judge, allow_codegen=True,
-                               codegen_config=codegen),
+                               codegen_config=codegen,
+                               analyzer_overrides=overrides),
         stats_agent=StatsAnalysisAgent(judge=judge, allow_codegen=True,
                                        codegen_config=codegen),
         diagnosis_agent=DiagnosisAgent(judge=judge),
@@ -406,6 +543,10 @@ def main() -> None:
         "model_truncated": model.n_truncated,
         "logprob_calls": model.n_logprob_calls,
         "logprobs_mode": model.logprobs_mode,
+        # recorded so a narrow interval downstream is readable as "fewer cases",
+        # not as "no effect"
+        "analyzer_max_cases": args.analyzer_max_cases or None,
+        "analyzers_capped": sorted(overrides),
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     print(f"\nwrote {out/'summary.json'}")

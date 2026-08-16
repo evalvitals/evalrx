@@ -130,7 +130,9 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=CFG["n_cases"],
                     help="0 (default) = every item in the slice; >0 caps the sample")
     ap.add_argument("--concurrency", type=int, default=CFG["concurrency"])
-    ap.add_argument("--max-tokens", type=int, default=CFG["max_tokens"])
+    ap.add_argument("--max-tokens", type=int, default=0,
+                    help="0 (default) = the dataset's own measured budget if it "
+                         "declares one, else config max_tokens")
     ap.add_argument("--force", action="store_true",
                     help="write the batch even if it is outside the usable band")
     args = ap.parse_args()
@@ -138,10 +140,20 @@ def main() -> None:
     sampling = {"temperature": float(CFG["temperature"]),
                 "top_p": float(CFG["top_p"]), "top_k": int(CFG["top_k"])}
 
+    # A dataset whose reference accuracy was measured at a larger budget must be
+    # run at that budget or its FAIL labels are token-cap artefacts, not
+    # capability. minervamath reads 0.500 at 65k and 0.320/budget_limited at 40k.
+    entry = CATALOG.get(args.dataset)
+    max_tokens = args.max_tokens or entry.max_tokens or int(CFG["max_tokens"])
+    if not args.max_tokens and entry.max_tokens:
+        print(f"  NOTE {args.dataset} declares max_tokens={entry.max_tokens} "
+              f"(config default is {CFG['max_tokens']}) — using the declared one")
+
     n_label = "ALL" if args.n <= 0 else str(args.n)
-    print(f"[build_cases] {args.model} x {args.dataset} n={n_label}", flush=True)
+    print(f"[build_cases] {args.model} x {args.dataset} n={n_label} "
+          f"max_tokens={max_tokens}", flush=True)
     report = build(args.model, args.base_url, args.dataset, args.n,
-                   args.concurrency, args.max_tokens, sampling)
+                   args.concurrency, max_tokens, sampling)
 
     acc, trunc = report["accuracy"], report["truncated_rate"]
     census = " (CENSUS of the slice)" if report["is_census"] else ""

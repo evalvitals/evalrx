@@ -79,6 +79,21 @@ fix_max_tier: L3b
 fix_validation_cases: 0     # 0 = validate on the whole batch
 fix_exec_timeout_sec: 1800
 
+# Cap on how many cases each per-case analyzer generates for. 0 = library
+# defaults (128 for prompt_contrast / calibration / linear_probe, 48 for
+# format_sensitivity, ...).
+#
+# This is the main knob on M1 wall-clock, because analyzers run in parallel with
+# EACH OTHER but iterate their own cases SERIALLY, one generate() at a time.
+# Measured against the 9B over the endpoint: ~49 s per call, so a 128-case
+# analyzer is a ~2 h straggler. On bbh_tracking7 the observed concurrency fell
+# 5.3 -> 1.0 and sat at 1.0 for four hours while one analyzer finished alone.
+#
+# It costs statistical power, not correctness -- same measurement, fewer of
+# them. run_pipeline prints exactly which analyzers were capped and records it
+# in summary.json, so a wide interval downstream is not misread as a null.
+analyzer_max_cases: 32
+
 max_cycles: 3
 # Fraction of the batch held out from M1-M5 so M4 validates its fix on data the
 # loop never mined. 0.5 is a 1:1 explore/confirm split -- the loop mines half and

@@ -163,6 +163,83 @@ def test_forward_still_refuses_and_says_where_to_go(pipe):
         _model(pipe).forward("q", capture=set())
 
 
+def test_endpoint_model_satisfies_the_registry(pipe):
+    """The regression that killed the first full run.
+
+    ``EndpointModel`` carried `capabilities` and `modalities` but was not a
+    ``Model``, so it had no ``supports()``. Everything looked right until M1
+    asked the registry what could run and got an AttributeError — after Stage 0
+    had already spent four hours on the GPU.
+    """
+    from evalvitals.core.model import Model as _Model
+    from evalvitals.core.registry import registry
+
+    model = _model(pipe)
+    assert isinstance(model, _Model)
+    names = registry.analyzers.names_compatible_with(model)
+    assert "logprob_entropy" in names and "calibration" in names
+    assert "attention_sink" not in names, "the endpoint has no internals"
+
+
+# ── analyzer case caps ───────────────────────────────────────────────────────
+def test_cap_only_lowers_never_raises(pipe):
+    """A cap must not turn a cheap analyzer into an expensive one."""
+    import inspect
+
+    from evalvitals.core.registry import registry
+
+    overrides = pipe.build_analyzer_overrides(32, model=_model(pipe), verbose=False)
+    for name, instance in overrides.items():
+        params = inspect.signature(registry.analyzers.get(name).__init__).parameters
+        if "max_cases" not in params:
+            continue  # not a cap — e.g. the self_consistency answer_fn override
+        default = params["max_cases"].default
+        assert default > 32, f"{name} defaulted to {default}, should have been left alone"
+        assert instance.max_cases == 32
+
+
+def test_self_consistency_is_overridden_to_compare_answers(pipe):
+    """Its default compares whole generations, which on a thinking model reports
+    consistency = 1/n no matter what the model answered. That artifact was the
+    only 'anomaly' M2 found on the first full 9B run."""
+    overrides = pipe.build_analyzer_overrides(32, model=_model(pipe), verbose=False)
+    sc = overrides.get("self_consistency")
+    assert sc is not None and sc.answer_fn is not None
+    # measured in the grader's equivalence class, so wording is not disagreement
+    assert sc.answer_fn("reasoning...\nAnswer: (C)") == sc.answer_fn("blah\nThe answer is (C)")
+    assert sc.answer_fn("x\nAnswer: (A)") != sc.answer_fn("x\nAnswer: (B)")
+
+
+def test_cap_skips_analyzers_the_model_cannot_run(pipe):
+    """White-box analyzers must not be instantiated for an endpoint model."""
+    overrides = pipe.build_analyzer_overrides(32, model=_model(pipe), verbose=False)
+    for name in ("logit_lens", "linear_probe", "layer_contrast"):
+        assert name not in overrides
+
+
+def test_cap_skips_analyzers_needing_constructor_args(pipe):
+    """reliability_probe needs runs_fn; building it blind would raise inside M1."""
+    overrides = pipe.build_analyzer_overrides(32, model=_model(pipe), verbose=False)
+    for name in ("reliability_probe", "tool_shap", "trajectory_rubric", "chair"):
+        assert name not in overrides
+
+
+def test_generation_detection_is_read_from_source_not_assumed(pipe):
+    """arith_audit LOOKS like a pure audit of recorded outputs and is not.
+
+    It re-asks the model, so it belongs under the cap. Assuming otherwise would
+    have left a 200-case straggler in place.
+    """
+    from evalvitals.core.registry import registry
+
+    assert pipe._spends_gpu(registry.analyzers.get("arith_audit"))
+    assert pipe._spends_gpu(registry.analyzers.get("termination_audit"))
+
+
+def test_zero_means_library_defaults(pipe):
+    assert pipe.build_analyzer_overrides(0, model=_model(pipe), verbose=False) == {}
+
+
 # ── Stage W ──────────────────────────────────────────────────────────────────
 class _FakeInner:
     """Minimal hf_local stand-in: config shape + a forward that records its spec."""
