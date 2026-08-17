@@ -83,6 +83,16 @@ if TYPE_CHECKING:
 RUN_LOG_SCHEMA_VERSION = 3
 
 
+def _externalized(summary: "dict[str, Any]") -> str:
+    """Render an ``_externalize_if_large`` stand-in instead of iterating it.
+
+    Says where the payload went rather than dropping the line: an externalised
+    value is exactly the case where the data is most worth pointing at.
+    """
+    where = summary.get("path") or "artifacts/"
+    return f"({summary.get('n_items', '?')} items externalised -> {where})"
+
+
 def _artifact_to_numpy(artifact: Any) -> "Any | None":
     """Convert *artifact* to a numpy array, or return None if not possible.
 
@@ -237,16 +247,28 @@ class _VerboseFormatter(logging.Formatter):
                 )
             for step in (p.get("evidence_chain") or [])[:3]:
                 lines.append(f"     evidence   : {step}")
+            # These two are run through _externalize_if_large, which swaps an
+            # oversized list for a {path, n_items, bytes} SUMMARY DICT. Iterating
+            # that yields its keys — strings — so `s['tool']` raised TypeError
+            # inside logging.emit, where Python swallows the exception: the run
+            # carried on and the whole [M2] line vanished. Seen live on
+            # qwen3.5-2b/minervamath, where M2's plan crossed the threshold.
             stats_plan = p.get("stats_plan") or []
-            if stats_plan:
-                lines.append(f"     stats_tools: {[s['tool'] for s in stats_plan]}")
+            if isinstance(stats_plan, dict):
+                lines.append(f"     stats_tools: {_externalized(stats_plan)}")
+            elif stats_plan:
+                lines.append(f"     stats_tools: {[s.get('tool') for s in stats_plan]}")
             corrected = p.get("corrected_rejections") or {}
-            if corrected.get("rejected_tools"):
+            if isinstance(corrected, dict) and corrected.get("rejected_tools"):
                 lines.append(f"     fdr_survive: {corrected['rejected_tools']}")
-            for tool in (p.get("stats_tool_results") or [])[:2]:
-                lines.append(
-                    f"     stats_tool : {tool.get('name')} - {tool.get('conclusion', '')}"
-                )
+            tool_results = p.get("stats_tool_results") or []
+            if isinstance(tool_results, dict):
+                lines.append(f"     stats_tool : {_externalized(tool_results)}")
+            else:
+                for tool in tool_results[:2]:
+                    lines.append(
+                        f"     stats_tool : {tool.get('name')} - {tool.get('conclusion', '')}"
+                    )
             for fig in p.get("figures") or []:
                 lines.append(f"     figure     : {fig}")
             if not conclusion:
