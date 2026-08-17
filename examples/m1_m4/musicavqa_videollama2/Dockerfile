@@ -15,12 +15,21 @@ RUN pip install --no-cache-dir "/evalvitals[local,data]" PyYAML
 # + mm_infer() this example needs; it is NOT on PyPI (see videollama2_model.py
 # docstring). `--no-deps` avoids its pinned transformers==4.42.3 (which would
 # downgrade below evalvitals' >=4.51 requirement) — only the lightweight
-# extras it actually imports are installed explicitly.
+# extras it actually imports at inference time are installed explicitly
+# (skips gradio/wandb/tensorboard/deepspeed/bitsandbytes/peft — training +
+# serving-UI deps from upstream's requirements.txt this example never
+# exercises). einops/einops-exts/imageio/imageio-ffmpeg/scenedetect/pysubs2/
+# sentencepiece/shortuuid were missing here the first time this example was
+# actually run end-to-end against real weights (caught live, not caught by
+# the Dockerfile build itself since `import` failures are load-time, not
+# build-time, for a --no-deps editable install).
 RUN git clone --branch audio_visual --depth 1 \
     https://github.com/DAMO-NLP-SG/VideoLLaMA2.git /videollama2_av \
     && pip install --no-cache-dir --no-deps -e /videollama2_av \
     && pip install --no-cache-dir decord pytorchvideo iopath portalocker \
-       opencv-python-headless moviepy librosa timm
+       opencv-python-headless "moviepy==1.0.3" librosa timm \
+       einops einops-exts imageio imageio-ffmpeg scenedetect pysubs2 \
+       sentencepiece shortuuid
 
 WORKDIR /app/example
 COPY examples/m1_m4/musicavqa_videollama2/ .

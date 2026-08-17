@@ -116,6 +116,30 @@ AVAILABLE PRIMITIVES:
 Propose up to {k} configurations.  Reply with ONLY a JSON array:
 [{{"primitive": "<name from the list>", "params": {{...}}}}]"""
 
+_PAPER_METHOD_PROMPT = """\
+You are selecting which PAPER-METHOD repair(s), if any, apply to the \
+failure(s) below.  Each candidate is a specific, pre-implemented \
+intervention that targets ONE named failure mechanism — read what mechanism \
+each one actually targets, then select it ONLY when the verified hypotheses \
+describe that same mechanism, not merely because it is technically able to \
+run on this model and task (that eligibility has already been checked for \
+you; your only job is judging whether the mechanism matches).
+
+VERIFIED FAILURE HYPOTHESES:
+{hypotheses}
+
+ELIGIBLE CANDIDATES (already filtered to what this model/task can run):
+{catalog}
+
+Propose up to {k} candidates whose targeted mechanism is genuinely \
+consistent with the hypotheses above.  A hypothesis naming a DIFFERENT \
+mechanism (e.g. a flat knowledge gap, a positional/answer-choice bias, or a \
+hallucination cause when the candidate targets something else entirely) is \
+NOT a match, even if the candidate would run without error.  If none of the \
+candidates address the diagnosed mechanism, reply with an empty array — do \
+not select one just because it is available.  Reply with ONLY a JSON array:
+[{{"name": "<name from the list>", "rationale": "<one sentence: how the hypothesis's mechanism matches this candidate's>"}}]"""
+
 _L4_PROMPT = """\
 You are writing a PARAMETER-SPACE repair recipe (tier L4: fine-tuning) for \
 the failures below.  The recipe is RECORDED for a human decision — it will \

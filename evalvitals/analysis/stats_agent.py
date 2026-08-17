@@ -120,7 +120,20 @@ def _parse_llm_analysis(
 ) -> tuple[str, list[str], list[str]]:
     """Parse LLM output into (conclusion, evidence_chain, qualitative_findings).
 
-    Falls back to the base narrative/findings if a section is missing.
+    Returns "" for conclusion when the judge's response didn't contain a
+    parseable CONCLUSION: section (empty/error response, quota message,
+    wrong format, ...) -- NOT a synthesized fallback string. The only caller
+    (_analyze_llm_guided) already built a real, statistically-grounded
+    conclusion via _build_conclusion() before this parse ever runs and only
+    overwrites it `if conclusion:` — inventing a fallback here (this used to
+    return base.narrative's first line, which is just "Model: <repr>") meant
+    a failed/malformed judge call silently threw away the good deterministic
+    conclusion and replaced it with a useless one, with no error anywhere.
+    Measured live: a judge call that hit its account's spend limit returned
+    the CLI's plain-text quota message as `raw`, which parses to nothing
+    here — before this fix, that overwrote a real "statistically supported:
+    signal X flips on FAIL, effect +0.83" conclusion with "Model: <object
+    repr>", and M3 saw the latter.
     """
     conclusion = ""
     evidence: list[str] = []
@@ -145,10 +158,6 @@ def _parse_llm_analysis(
                 qualitative.append(content)
         elif section == "conclusion" and s and not upper.startswith(("EVIDENCE", "QUALITATIVE")):
             conclusion = (conclusion + " " + s).strip()
-
-    if not conclusion:
-        first_line = base.narrative.split("\n")[0] if base.narrative else ""
-        conclusion = first_line or "No conclusion produced."
 
     return conclusion, evidence, qualitative
 

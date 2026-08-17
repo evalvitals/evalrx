@@ -136,6 +136,21 @@ def test_load_run_empty_dir():
         assert run["runs"] == []
 
 
+def test_load_run_resolves_conventional_outputs_child(tmp_path):
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    (outputs / "run_log.jsonl").write_text(
+        json.dumps({"event": "analysis", "cycle": 1}) + "\n",
+        encoding="utf-8",
+    )
+
+    run = load_run(tmp_path)
+
+    assert run["kind"] == "loop"
+    assert run["root"] == str(outputs.resolve())
+    assert len(run["story"]["analyses"]) == 1
+
+
 def test_load_loop_story_returns_none_for_explore_output(tmp_path):
     (tmp_path / "exploratory_report.json").write_text("{}", encoding="utf-8")
     assert load_loop_story(tmp_path) is None

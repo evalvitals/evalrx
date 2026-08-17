@@ -156,6 +156,16 @@ def load_run(run_dir: str | Path) -> dict[str, Any]:
         return {"root": str(root), "kind": "casebench", "runs": [], "story": None,
                 "case_studies": case_studies}
 
+    # Example/project roots conventionally keep a loop run under ``outputs/``.
+    # Accept the documented project-root invocation as well as the run directory
+    # itself, while retaining case-book precedence for legacy bench examples
+    # whose report JSON also lives under ``outputs/``.
+    outputs_dir = root / "outputs"
+    if outputs_dir.is_dir():
+        nested = load_run(outputs_dir)
+        if nested["kind"] != "empty":
+            return nested
+
     # Legacy / fallback: a directory of turn_* explore reports (pre-retirement).
     for turn_dir in sorted(root.glob("turn_*")):
         report = _read_json(turn_dir / "exploratory_report.json")

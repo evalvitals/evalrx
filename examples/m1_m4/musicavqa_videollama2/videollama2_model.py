@@ -93,7 +93,7 @@ def _build_multimodal_inputs(image_or_video, instruct, model, tokenizer, device,
 
 
 def _mm_infer_on(image_or_video, instruct, model, tokenizer, device, dtype,
-                  modal="video", **kwargs):
+                  modal="video", return_meta: bool = False, **kwargs):
     import torch
 
     from videollama2.mm_utils import KeywordsStoppingCriteria
@@ -104,6 +104,7 @@ def _mm_infer_on(image_or_video, instruct, model, tokenizer, device, dtype,
     keywords = [tokenizer.eos_token]
     stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
     do_sample = kwargs.get("do_sample", False)
+    max_new_tokens = kwargs.get("max_new_tokens", 128)
 
     with torch.inference_mode():
         output_ids = model.generate(
@@ -112,13 +113,34 @@ def _mm_infer_on(image_or_video, instruct, model, tokenizer, device, dtype,
             images=tensor,
             do_sample=do_sample,
             temperature=kwargs.get("temperature", 0.2 if do_sample else 0.0),
-            max_new_tokens=kwargs.get("max_new_tokens", 128),
+            max_new_tokens=max_new_tokens,
             top_p=kwargs.get("top_p", 0.9),
             use_cache=True,
             stopping_criteria=[stopping_criteria],
             pad_token_id=tokenizer.eos_token_id,
         )
-    return tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+    text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+    if not return_meta:
+        return text
+    # HF's own finish_reason isn't surfaced by mm_infer's transformers.generate()
+    # call above (this branch doesn't pass return_dict_in_generate=True, and
+    # doing so changes output_ids' shape/type in ways the stopping-criteria +
+    # batch_decode call above aren't written for) -- but "did it hit the token
+    # cap" is exactly what FixAgent's L0 telemetry gate needs
+    # (fix_agent.py:_l0_candidates -- metadata['finish_reason']=='length' +
+    # metadata['generation_config']['max_tokens']), and that specific fact is
+    # cheaply and reliably derivable here: output_ids includes the prompt, so
+    # the number of NEWLY generated tokens is output_ids.shape[1] -
+    # input_ids.shape[1]; reaching max_new_tokens (stopping_criteria never
+    # fired) is the token-cap case, full stop.
+    n_generated = output_ids.shape[1] - input_ids.shape[1]
+    finish_reason = "length" if n_generated >= max_new_tokens else "stop"
+    meta = {
+        "finish_reason": finish_reason,
+        "generation_config": {"max_tokens": int(max_new_tokens)},
+        "n_generated_tokens": int(n_generated),
+    }
+    return text, meta
 
 
 def _forward_on(image_or_video, instruct, model, tokenizer, device, dtype,
@@ -213,6 +235,27 @@ class VideoLLaMA2AVModel(Model):
             device=self.device, dtype=self.dtype, modal="video",
             max_new_tokens=kwargs.get("max_new_tokens", self.max_new_tokens),
             do_sample=kwargs.get("do_sample", False),
+        )
+
+    def generate_with_meta(self, inputs: Any, **kwargs) -> "tuple[str, dict]":
+        """generate() + (finish_reason, generation_config) -- NOT part of the
+        Model ABC (generate() must return a bare str for every caller in the
+        framework), used only by mine_cases.py's baseline pass so FixAgent's
+        L0 telemetry gate (fix_agent.py:_l0_candidates) has real per-case
+        evidence to propose the cheap, precise "raise max_tokens" repair from,
+        instead of that hypothesis only ever reaching slow/unreliable
+        LLM-authored L1/L2 coded pipelines."""
+        prompt = inputs.prompt if isinstance(inputs, Inputs) else str(inputs)
+        video_path = inputs.video if isinstance(inputs, Inputs) else None
+        if not video_path:
+            raise ValueError("VideoLLaMA2AVModel.generate requires Inputs.video (a video path)")
+        tensor = self._processor["video"](str(video_path), va=True)
+        return _mm_infer_on(
+            tensor, prompt, model=self._model, tokenizer=self._tokenizer,
+            device=self.device, dtype=self.dtype, modal="video",
+            max_new_tokens=kwargs.get("max_new_tokens", self.max_new_tokens),
+            do_sample=kwargs.get("do_sample", False),
+            return_meta=True,
         )
 
     def forward(self, inputs: Any, capture: "set[Capability]", spec=None) -> Trace:

@@ -690,6 +690,8 @@ def run_pipeline(
     prompt-only and keep the underlying model unchanged. Returns ``None`` when
     the case cannot be scored (no rubric / all calls failed).
     """
+    import dataclasses
+
     from evalvitals.core.case import Inputs
 
     inp = getattr(case, "inputs", None)
@@ -701,9 +703,22 @@ def run_pipeline(
 
     def generate(text: str) -> str:
         try:
-            return str(model.generate(
-                Inputs(prompt=text, image=image), **spec.generation_kwargs
-            ))
+            # dataclasses.replace(inp, ...), not a bare Inputs(prompt=...,
+            # image=...): the bare form silently dropped .video/.audio, so
+            # every strategy (least_to_most/self_refine/chain_of_verification)
+            # was unconditionally inapplicable on any non-image FailureCase --
+            # generate() raising on the missing required modality field,
+            # caught below, every call returning "" (all outputs empty ->
+            # run_pipeline returns None -> unscoreable for every case). Only
+            # `image` is deliberately overridden (it may have been rewritten
+            # by spec.image_ops just above); no fallback needed for inp is
+            # None since FailureCase.inputs is never optional in practice.
+            new_inputs = (
+                dataclasses.replace(inp, prompt=text, image=image)
+                if inp is not None
+                else Inputs(prompt=text, image=image)
+            )
+            return str(model.generate(new_inputs, **spec.generation_kwargs))
         except Exception as exc:
             logger.debug("run_pipeline: generate failed on %s: %s", case.id, exc)
             return ""

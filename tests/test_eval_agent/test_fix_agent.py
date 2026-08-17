@@ -346,6 +346,30 @@ def test_pipeline_self_refine_is_a_label_blind_reviewed_multicall_strategy():
     assert "yes" not in "\n".join(model.prompts).lower()  # expected label never enters prompts
 
 
+def test_pipeline_preserves_non_image_modality_fields():
+    """run_pipeline's inner generate() used to rebuild a bare Inputs(prompt=...,
+    image=...), silently dropping .video/.audio -- every strategy was
+    unconditionally inapplicable on any non-image FailureCase (generate()
+    raising on the missing modality, every call returning "", run_pipeline
+    returning None -> "no applicable scorable pair" for every case, the
+    exact failure musicavqa_videollama2's real run hit)."""
+    from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+
+    case = FailureCase(
+        id="clip", inputs=Inputs(prompt="What instrument is heard?", video="clip.mp4"),
+        expected="cello",
+    )
+
+    class VideoRequiredModel:
+        def generate(self, inputs, **kwargs):
+            if getattr(inputs, "video", None) is None:
+                raise ValueError("requires Inputs.video")
+            return "cello"
+
+    spec = PipelineSpec(name="direct", strategy="direct")
+    assert run_pipeline(VideoRequiredModel(), case, spec, _label_score) is True
+
+
 def test_pipeline_votes_on_task_declared_output_key_not_hidden_score():
     from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
 
@@ -710,6 +734,38 @@ def test_l1_judge_candidate_validates_and_fixes():
     assert out.repair_rounds == 1  # single-shot by default
 
 
+def test_l1_template_candidate_preserves_non_image_modality_fields():
+    """The L1 template runner used to rebuild a bare Inputs(prompt=...,
+    image=...), silently dropping .video/.audio -- identical bug to
+    run_pipeline's, in the sibling L1 (not L2) code path."""
+    case = FailureCase(
+        id="clip", inputs=Inputs(prompt="What instrument is heard?", video="clip.mp4"),
+        expected="cello", label=Label.FAIL,
+    )
+    batch = CaseBatch([case])
+
+    class VideoRequiredModel(Model):
+        capabilities = frozenset({Capability.GENERATE})
+        modalities = frozenset({"text", "video"})
+
+        def generate(self, inputs, **kwargs):
+            if getattr(inputs, "video", None) is None:
+                raise ValueError("requires Inputs.video")
+            return "cello"
+
+        def forward(self, inputs, capture, spec=None):
+            raise NotImplementedError
+
+    judge = ScriptedJudge('[{"name": "careful", "prompt_template": "Listen carefully. {prompt}"}]')
+    agent = FixAgent(judge=judge, max_tier="L1", score_fn=_label_score)
+    out = agent.propose_and_validate(
+        VideoRequiredModel(), batch, [_hyp("the prompt underspecifies the task")]
+    )
+    careful = next(v for v in out.attempted if v.candidate.name == "careful")
+    assert careful.n_pairs == 1  # was 0 ("no applicable scorable pair") before the fix
+    assert careful.verdict != "not_executed"
+
+
 def test_image_l1_candidates_start_with_visual_grounding_control():
     """A visual benchmark must not depend solely on a judge's narrow prompt."""
     batch = _gold_yes_batch(image=_img())
@@ -723,6 +779,36 @@ def test_image_l1_candidates_start_with_visual_grounding_control():
     assert candidates[0].name == "visual_grounding"
     assert "visible evidence" in candidates[0].payload["prompt_template"]
     assert FixAgent()._strategy(candidates[0])(BaselineFailsModel(), batch[0]) is True
+
+
+def test_video_only_batch_is_treated_as_having_visual_content():
+    """A video case (no .image ever set) must not read as 'no images'.
+
+    Found via a real run (musicavqa_videollama2): every case only set
+    .video, so has_images was False for the whole batch and every
+    image-gated candidate at every tier -- including the L1 visual-grounding
+    control above -- was structurally excluded, not judge-rejected.
+    """
+    yes = {"all_of": ["yes"], "none_of": ["no"]}
+    batch = CaseBatch(
+        [
+            FailureCase(
+                id=f"clip{i}",
+                inputs=Inputs(prompt=f"Is an instrument playing {i}?", video="clip.mp4"),
+                expected=yes,
+                label=Label.FAIL,
+            )
+            for i in range(8)
+        ]
+    )
+    batch[0].metadata["failure_axis"] = "cross-modal evidence"
+    candidates = FixAgent(max_tier="L1")._propose(
+        [_hyp("small visual detail is sometimes missed")],
+        batch,
+        HopelessModel(),
+    )
+
+    assert candidates[0].name == "visual_grounding"
 
 
 def test_l0_telemetry_candidate_repairs_decode_budget_without_prompt_guessing():
@@ -831,9 +917,19 @@ def test_l0_icd_candidate_repairs_binary_visual_grounding():
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
 
 
+# Paper-method L3a/L3b candidates are judge-selected: structural eligibility
+# (capability/modality/task shape/fidelity/tier) narrows the catalog shown to
+# the judge, but whether the diagnosed MECHANISM actually matches a given
+# candidate is the judge's call, not a string match against the hypothesis
+# text -- see fix_agent.py's _l3_candidates. These tests use ScriptedJudge to
+# stand in for that call.
+
 def test_l3a_vicrop_candidate_repairs_small_visual_detail():
     batch = _gold_yes_batch(n=16, image=_img())
-    out = FixAgent(judge=None, max_tier="L3a", allow_codegen=False).propose_and_validate(
+    judge = ScriptedJudge('[{"name": "vicrop_relative_attention"}]')
+    out = FixAgent(
+        judge=judge, max_tier="L3a", allow_codegen=False, paper_methods_only=True
+    ).propose_and_validate(
         ViCropSensitiveModel(), batch, [_hyp("small visual detail is below input resolution")]
     )
 
@@ -846,10 +942,12 @@ def test_l3a_vicrop_consensus_guard_can_be_frozen_for_safe_transfer():
     batch = _gold_yes_batch(n=16, image=_img())
     for case in batch:
         case.observed = "No."
+    judge = ScriptedJudge('[{"name": "vicrop_consensus_guard"}]')
     out = FixAgent(
-        judge=None,
+        judge=judge,
         max_tier="L3a",
         allow_codegen=False,
+        paper_methods_only=True,
         candidate_allowlist=["vicrop_consensus_guard"],
     ).propose_and_validate(
         ViCropConsensusSensitiveModel(),
@@ -862,20 +960,63 @@ def test_l3a_vicrop_consensus_guard_can_be_frozen_for_safe_transfer():
     assert out.best.n_fixed == 16 and out.best.n_broken == 0
 
 
-def test_l3a_vicrop_is_not_proposed_for_an_unrelated_mechanism():
+def test_l3a_vicrop_is_not_proposed_when_judge_declines_the_mechanism():
+    """Structurally eligible (image case, ViCrop capable), but the judge
+    itself says the mechanism doesn't match -- an empty JSON array, exactly
+    what a real judge would return for e.g. "language priors override
+    visible evidence" (that's OPERA/PAI/IFCD's mechanism, not ViCrop's)."""
     batch = _gold_yes_batch(n=16, image=_img())
-    candidates = FixAgent(judge=None, max_tier="L3a", allow_codegen=False)._propose(
+    judge = ScriptedJudge("[]")
+    candidates = FixAgent(
+        judge=judge, max_tier="L3a", allow_codegen=False, paper_methods_only=True
+    )._propose(
         [_hyp("language priors override visible evidence")], batch, ViCropSensitiveModel()
     )
 
     assert "vicrop_relative_attention" not in {candidate.name for candidate in candidates}
+    assert judge.prompts, "the judge should have been consulted at all"
+
+
+def test_l3a_paper_method_candidates_require_a_configured_judge():
+    """Structurally eligible does not mean proposed: with no judge to make
+    the mechanism-match call, _ask_judge returns [] and NO paper-method
+    candidate is proposed -- there is no keyword fallback."""
+    batch = _gold_yes_batch(n=16, image=_img())
+    candidates = FixAgent(judge=None, max_tier="L3a", allow_codegen=False)._propose(
+        [_hyp("small visual detail is below input resolution")], batch, ViCropSensitiveModel()
+    )
+
+    assert "vicrop_relative_attention" not in {candidate.name for candidate in candidates}
+
+
+def test_l3a_paper_method_catalog_shown_to_judge_is_structurally_filtered():
+    """The judge only ever sees candidates that already passed structural
+    eligibility (image/task/capability/fidelity) -- e.g. a yes_no-only batch
+    on a model without ViCrop support never puts vicrop_* in the catalog, so
+    the judge can't select something that couldn't run anyway."""
+    batch = _gold_yes_batch(n=16, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+    judge = ScriptedJudge('[{"name": "opera_overtrust_binary"}]')
+    FixAgent(
+        judge=judge, max_tier="L3a", allow_codegen=False, paper_methods_only=True
+    )._propose(
+        [_hyp("object hallucination follows language priors")], batch, OPERASensitiveModel()
+    )
+
+    assert judge.prompts
+    assert "opera_overtrust_binary" in judge.prompts[-1]
+    assert "vicrop_relative_attention" not in judge.prompts[-1]  # OPERASensitiveModel lacks generate_vicrop
 
 
 def test_l3a_opera_binary_candidate_repairs_object_hallucination():
     batch = _gold_yes_batch(n=16, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
-    out = FixAgent(judge=None, max_tier="L3a", allow_codegen=False).propose_and_validate(
+    judge = ScriptedJudge('[{"name": "opera_overtrust_binary"}]')
+    out = FixAgent(
+        judge=judge, max_tier="L3a", allow_codegen=False, paper_methods_only=True
+    ).propose_and_validate(
         OPERASensitiveModel(), batch, [_hyp("object hallucination follows language priors")]
     )
 
@@ -885,6 +1026,8 @@ def test_l3a_opera_binary_candidate_repairs_object_hallucination():
 
 
 def test_l3a_opera_binary_is_not_proposed_for_non_binary_tasks():
+    """Structural: non-yes_no task -- excluded before the judge is even
+    asked (no candidate reaches the catalog, so this needs no judge)."""
     batch = _gold_yes_batch(n=16, image=_img())
     for case in batch:
         case.metadata["task"] = "multiple_choice"
@@ -900,15 +1043,17 @@ def test_l3b_ifcd_requires_explicit_adapted_method_opt_in():
     for case in batch:
         case.metadata["task"] = "yes_no"
     hypotheses = [_hyp("object hallucination follows language priors")]
-    no_opt_in = FixAgent(judge=None, max_tier="L3b", allow_codegen=False)._propose(
-        hypotheses, batch, IFCDSensitiveModel()
-    )
+    no_opt_in = FixAgent(
+        judge=ScriptedJudge('[{"name": "ifcd_truthx_contrast"}]'),
+        max_tier="L3b", allow_codegen=False, paper_methods_only=True,
+    )._propose(hypotheses, batch, IFCDSensitiveModel())
     assert "ifcd_truthx_contrast" not in {candidate.name for candidate in no_opt_in}
 
     out = FixAgent(
-        judge=None,
+        judge=ScriptedJudge('[{"name": "ifcd_truthx_contrast"}]'),
         max_tier="L3b",
         allow_codegen=False,
+        paper_methods_only=True,
         allow_adapted_paper_methods=True,
         candidate_allowlist=["ifcd_truthx_contrast"],
     ).propose_and_validate(IFCDSensitiveModel(), batch, hypotheses)
@@ -918,7 +1063,10 @@ def test_l3b_ifcd_requires_explicit_adapted_method_opt_in():
 
 def test_l3a_tcd_candidate_repairs_temporal_smoothing_bias():
     batch = _gold_audio_batch(n=16)
-    out = FixAgent(judge=None, max_tier="L3a", allow_codegen=False).propose_and_validate(
+    judge = ScriptedJudge('[{"name": "tcd_temporal_blur"}]')
+    out = FixAgent(
+        judge=judge, max_tier="L3a", allow_codegen=False, paper_methods_only=True
+    ).propose_and_validate(
         TCDSensitiveModel(), batch, [_hyp("temporal smoothing bias misses a brief acoustic event")]
     )
 
@@ -926,6 +1074,23 @@ def test_l3a_tcd_candidate_repairs_temporal_smoothing_bias():
     assert out.best is not None and out.best.candidate.name == "tcd_temporal_blur"
     assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 16 and out.best.n_broken == 0
+
+
+def test_l3a_tcd_is_not_proposed_when_judge_declines_the_mechanism():
+    """Structurally eligible (audio, multiple_choice, TCD-capable), but the
+    hypothesis names a DIFFERENT mechanism (a flat knowledge gap -- exactly
+    what M3 actually proposed on the real MMAU run) -- a real judge would
+    decline, which ScriptedJudge stands in for with an empty array."""
+    batch = _gold_audio_batch(n=16)
+    judge = ScriptedJudge("[]")
+    candidates = FixAgent(
+        judge=judge, max_tier="L3a", allow_codegen=False, paper_methods_only=True
+    )._propose(
+        [_hyp("the correct answer is never in the model's sample pool at all (pass@5=0)")],
+        batch, TCDSensitiveModel(),
+    )
+
+    assert "tcd_temporal_blur" not in {candidate.name for candidate in candidates}
 
 
 def test_l3a_tcd_is_not_proposed_for_non_multiple_choice_tasks():
@@ -952,7 +1117,10 @@ def test_l3a_tcd_is_not_proposed_without_audio():
 
 def test_l3b_pai_candidate_repairs_object_hallucination():
     batch = _gold_yes_batch(n=16, image=_img())
-    out = FixAgent(judge=None, max_tier="L3b", allow_codegen=False).propose_and_validate(
+    judge = ScriptedJudge('[{"name": "pai_image_attention"}]')
+    out = FixAgent(
+        judge=judge, max_tier="L3b", allow_codegen=False, paper_methods_only=True
+    ).propose_and_validate(
         PAISensitiveModel(), batch, [_hyp("object hallucination follows language priors")]
     )
 
