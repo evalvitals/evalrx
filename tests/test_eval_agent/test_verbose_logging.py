@@ -79,10 +79,15 @@ def test_m2_line_survives_an_externalised_stats_plan():
     """_externalize_if_large swaps a big list for {path, n_items, bytes}.
 
     Iterating that dict yields its KEYS, so ``s['tool']`` raised
-    ``TypeError: string indices must be integers`` inside ``logging.emit`` --
-    where Python swallows the exception, prints a traceback to stderr and drops
-    the record. The run completed and the whole [M2] line was simply missing.
-    Observed live on qwen3.5-2b / minervamath.
+    ``TypeError: string indices must be integers`` inside ``logging.emit``,
+    where Python swallows the exception and prints a traceback to stderr.
+
+    Only the CONSOLE line is lost -- the JSON handler is a separate formatter,
+    so the JSONL record survives intact.  That is what makes it easy to miss:
+    the run completes, the data is on disk, and the only symptom is a missing
+    [M2] line next to a traceback that names neither M2 nor the log.  Observed
+    live on qwen3.5-2b / minervamath, whose stats_plan externalised at 53 items
+    / 9846 bytes.
     """
     out = _format_payload({
         "event": "analysis", "cycle": 0, "severity": "high", "conclusion": "c",
