@@ -171,6 +171,51 @@ def test_survivors_are_listed_per_signal_not_per_tool():
     assert "cot.drift_away" not in block.split("survive:")[1]
 
 
+def test_a_judge_that_never_answered_says_so_in_the_report():
+    """A crashed judge and an uninformative one produced identical runs.
+
+    On qwen3.5-2b / bbh_word_sorting the judge call raised OSError(E2BIG) —
+    the prompt exceeded one argv entry. M2 caught it, fell back to the
+    threshold narrative, M3 had nothing to hypothesise from, and the chain
+    finished rc=0 with stopped_by=no_hypotheses. The only record was a
+    logger.warning that reached neither the console nor run_log.jsonl, so the
+    run was indistinguishable from a clean "nothing found".
+    """
+    from evalvitals.analysis import StatsAnalysisAgent
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalvitals.core.result import Result
+
+    class DeadJudge:
+        def generate(self, prompt, **kwargs):
+            raise OSError(7, "Argument list too long")
+
+    res = {"a": Result(analyzer="a", model="m", findings={"x": 1.0})}
+    report = StatsAnalysisAgent(judge=DeadJudge()).analyze(
+        res, model_name="m", protocol=ExperimentProtocol(description="d"))
+
+    assert "Argument list too long" in report.llm_fallback_reason
+    assert report.stats_tool != "llm_guided"
+
+
+def test_a_judge_that_answered_leaves_no_fallback_reason():
+    """"" must never have to be read as "it failed but we don't know why"."""
+    from evalvitals.analysis import StatsAnalysisAgent
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalvitals.core.result import Result
+
+    class LiveJudge:
+        def generate(self, prompt, **kwargs):
+            return "CONCLUSION: it worked\nEVIDENCE_CHAIN:\n- because"
+
+    res = {"a": Result(analyzer="a", model="m", findings={"x": 1.0})}
+    report = StatsAnalysisAgent(judge=LiveJudge()).analyze(
+        res, model_name="m", protocol=ExperimentProtocol(description="d"))
+
+    assert report.llm_fallback_reason == ""
+    assert report.stats_tool == "llm_guided"
+    assert report.conclusion == "it worked"
+
+
 def test_descriptive_results_are_not_labelled_as_failing_correction():
     """``rank_corr`` never enters a family; absence of a verdict is not a No."""
     from evalvitals.analysis.stats_agent import _format_stats_for_prompt

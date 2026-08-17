@@ -195,6 +195,10 @@ class StatsAnalysisReport(AnalysisReport):
         stats_tool_results:     Backward-compatible JSON-safe stats summaries.
         visualizations:         Backward-compatible figure/spec list.
         protocol:               The protocol that guided this analysis, if any.
+        llm_fallback_reason:    Why the LLM-guided path did not produce this
+                                report. Empty when it was never attempted (no
+                                judge) or when it succeeded — non-empty ONLY
+                                when it was tried and raised.
     """
 
     conclusion: str = ""
@@ -217,6 +221,9 @@ class StatsAnalysisReport(AnalysisReport):
     # Surfaced so RunLogger can persist exactly what the M2 judge was shown.
     llm_prompt: str = ""
     llm_raw: str = ""
+    # Why the LLM path did not produce this report. Non-empty ONLY after it was
+    # attempted and raised, so "" never has to be read as "it worked".
+    llm_fallback_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
@@ -225,6 +232,7 @@ class StatsAnalysisReport(AnalysisReport):
             "evidence_chain": self.evidence_chain,
             "qualitative_findings": self.qualitative_findings,
             "stats_tool": self.stats_tool,
+            "llm_fallback_reason": self.llm_fallback_reason,
             "stats_results": [r.to_dict() for r in self.stats_results],
             "stats_plan": self.stats_plan,
             "corrected_rejections": self.corrected_rejections,
@@ -413,6 +421,7 @@ class StatsAnalysisAgent:
             ]
 
         report: "StatsAnalysisReport | None" = None
+        fallback_reason = ""
         if self._judge is not None and protocol is not None:
             try:
                 report = self._analyze_llm_guided(
@@ -421,12 +430,20 @@ class StatsAnalysisAgent:
                     legacy_tool_results,
                 )
             except Exception as exc:
+                # A judge that never answered and a judge that found nothing
+                # produce the SAME downstream run: threshold narrative, M3 with
+                # nothing to hypothesise from, stopped_by=no_hypotheses, rc=0.
+                # The reason has to travel with the report — a logger.warning
+                # here reached neither the console nor run_log.jsonl, so an
+                # OSError(E2BIG) on the prompt left no trace anywhere in the run.
+                fallback_reason = f"{type(exc).__name__}: {exc}"
                 logger.warning("LLM-guided M2 analysis failed, falling back: %s", exc)
         if report is None:
             report = self._to_stats_report(
                 base, protocol, stats_results, stats_plan, corrected, figures,
                 legacy_tool_results,
             )
+            report.llm_fallback_reason = fallback_reason
         report.descriptive_only = not confirmatory
         return report
 

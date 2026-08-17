@@ -239,6 +239,11 @@ class _VerboseFormatter(logging.Formatter):
 
         if event == "analysis":
             lines = [f"\n[M2] cycle={cycle}  severity={p.get('severity')}"]
+            if p.get("llm_fallback_reason"):
+                lines.append(
+                    f"     JUDGE FAILED — narrative below is the threshold "
+                    f"fallback, not analysis: {p['llm_fallback_reason']}"
+                )
             conclusion = p.get("conclusion")
             if conclusion:
                 lines.append(
@@ -644,6 +649,15 @@ class RunLogger:
             # supported/not-supported claims until a confirmatory M2 is logged.
             "descriptive_only": bool(getattr(report, "descriptive_only", False)),
         }
+        # Which M2 path produced this report, and — when the LLM path was tried
+        # and failed — why. Without these, a judge that never answered logs
+        # exactly like a judge that answered and found nothing.
+        stats_tool = getattr(report, "stats_tool", None)
+        if stats_tool:
+            entry["stats_tool"] = stats_tool
+        fallback_reason = getattr(report, "llm_fallback_reason", None)
+        if fallback_reason:
+            entry["llm_fallback_reason"] = fallback_reason
         # StatsAnalysisReport extras (present when VLDiagnoseLoop is used)
         conclusion = getattr(report, "conclusion", None)
         if conclusion:

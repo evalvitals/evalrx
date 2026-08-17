@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -61,7 +63,8 @@ def test_empty_response_warns_and_returns_empty(tmp_path):
 
 
 def test_images_listed_in_prompt_and_workspace_added(tmp_path):
-    binary = _fake_claude(tmp_path, 'echo "$@"')
+    # The prompt arrives on stdin now, so the fake must read both.
+    binary = _fake_claude(tmp_path, 'echo "$@"; cat')
     img = tmp_path / "m2_effects.png"
     img.write_bytes(b"\x89PNG fake")
     judge = ClaudeModel(binary_path=binary)
@@ -102,6 +105,45 @@ def test_utf8_output_decodes_under_any_locale(tmp_path, monkeypatch):
     judge = ClaudeModel(binary_path=binary)
     out = judge.generate("hi")
     assert "café — fine" in out
+
+
+# ── the prompt must not be an argv entry ─────────────────────────────────────
+#: Linux caps a SINGLE argv entry at 32 pages. Not ARG_MAX, not ulimit -s —
+#: MAX_ARG_STRLEN, which nothing configures.
+MAX_ARG_STRLEN = 32 * 4096
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="MAX_ARG_STRLEN is a Linux limit")
+def test_the_limit_this_guards_against_is_real(tmp_path):
+    """The premise, so the guard below is never mistaken for superstition."""
+    binary = _fake_claude(tmp_path, "wc -c")
+    with pytest.raises(OSError, match="Argument list too long"):
+        subprocess.run([binary, "x" * MAX_ARG_STRLEN], capture_output=True)
+
+
+def test_prompt_larger_than_one_argv_entry_round_trips(tmp_path):
+    """M2's prompt is the analyzers' findings JSON, so its size tracks how many
+    analyzers M1 happened to select.
+
+    Two runs of qwen3.5-2b over the SAME frozen bbh_word_sorting batch: 9
+    analyzers -> 127,856 bytes, judge answered; 12 analyzers -> ~137,600,
+    execve refused it with OSError(E2BIG). M2 caught the OSError, fell back to
+    the threshold narrative, M3 had nothing to work from, and the run finished
+    rc=0 reporting stopped_by=no_hypotheses — indistinguishable from a healthy
+    run that found nothing.
+    """
+    binary = _fake_claude(tmp_path, "wc -c")
+    judge = ClaudeModel(binary_path=binary)
+    prompt = "x" * (MAX_ARG_STRLEN + 8000)
+
+    assert int(judge.generate(prompt).strip()) == len(prompt)
+
+
+def test_prompt_never_appears_in_argv(tmp_path):
+    binary = _fake_claude(tmp_path, 'echo "ARGV[$*]"')
+    judge = ClaudeModel(binary_path=binary)
+
+    assert "the prompt text" not in judge.generate("the prompt text")
 
 
 def test_effort_flag_forwarded(tmp_path):
