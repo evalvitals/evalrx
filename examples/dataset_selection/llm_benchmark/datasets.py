@@ -105,7 +105,13 @@ CATALOG: tuple = (
         caveat="MARGINAL PASS. Budget signal is exactly 0.10, sitting on the veto "
                "threshold, and the CI upper bound 0.724 crosses 0.70. It also ran "
                "at an 8k budget rather than 40k. Re-measure at n=100 / 24k before "
-               "using it as a headline number.",
+               "using it as a headline number. — THE BUDGET WORRY WAS JUSTIFIED: "
+               "on qwen3.5-2b the same slice reads 0.420 at the spec's 8192 (n=50 "
+               "probe) and 0.508 at 20480 (full census, 95/187, Wilson "
+               "[0.44, 0.58]). Nearly nine points from budget alone, so band "
+               "position here is a property of (model, dataset, BUDGET), not of "
+               "the pair. accuracy_9b=0.600 above is still the 8k number and is "
+               "therefore NOT comparable to a census run at the config default.",
     ),
     Entry(
         name="supergpqa_economics",
@@ -243,6 +249,16 @@ BY_NAME: dict = {e.name: e for e in CATALOG}
 #: whether M1 has anything to read. At 189 chars a 2B barely opens a chain on
 #: cruxeval_output, so the reasoning analyzers measure almost nothing there —
 #: same band position, very different diagnostic value.
+#:
+#: .. warning::
+#:
+#:    Each row ran at its own ``spec.max_tokens`` (band_locate's budget), which
+#:    is NOT what build_cases uses — build_cases takes ``entry.max_tokens or
+#:    CFG["max_tokens"]``.  The two agree only where the entry declares a budget
+#:    (minervamath).  Everywhere else these accuracies are measured at a
+#:    different budget than the census that follows them, and the gap is not
+#:    small: bbh_causal_judgement reads 0.420 here at 8192 and 0.508 at 20480.
+#:    Treat a row as "in band at THIS budget", never as a census prediction.
 BAND_2B: dict = {
     #                        acc     band       seconds  chars
     "bbh_causal_judgement": (0.420, "USABLE",      90,     None),
@@ -256,9 +272,25 @@ BAND_2B: dict = {
 }
 
 #: Full-census follow-ups, which are what the probe is FOR — checking that an
-#: n=50 read survives the whole slice.  minervamath: probe 0.380 (CI 0.26-0.52),
-#: census 0.419 (114/272).  Inside the interval, so the probe was representative.
-CENSUS_2B: dict = {"minervamath": 0.419}
+#: n=50 read survives the whole slice.  ``(accuracy, n_correct, n, budget)``.
+#:
+#: The two so far say different things, and the difference is the budget:
+#:
+#: * ``minervamath`` — probe 0.380 (CI 0.26-0.52) at 65536, census 0.419 at the
+#:   SAME budget.  Inside the interval: the probe was representative.
+#: * ``bbh_causal_judgement`` — probe 0.420 at the spec's 8192, census 0.508 at
+#:   the config default 20480.  Outside the probe's point estimate by nearly
+#:   nine points, and NOT a failure of the probe: the two ran at different
+#:   budgets, because band_locate uses ``spec.max_tokens`` while build_cases
+#:   uses ``entry.max_tokens or CFG["max_tokens"]`` and this entry declares
+#:   none.  Band position is a property of (model, dataset, BUDGET).
+#:
+#: So compare a probe against a census only when both ran at the same budget —
+#: otherwise the drift measures the budget, not the slice.
+CENSUS_2B: dict = {
+    "minervamath":          (0.419, 114, 272, 65536),
+    "bbh_causal_judgement": (0.508,  95, 187, 20480),
+}
 
 
 def get(name: str) -> Entry:
