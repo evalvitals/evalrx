@@ -486,23 +486,83 @@ METHOD_NOTES: "dict[str, str]" = {
     "finetune_spec": "LoRA repair (L4): parameter-space fine-tuning on a repair pool.",
 }
 
-#: Multi-call strategies used by L2 specs, named in ``payload["strategy"]``.
+#: Multi-call strategies a PipelineSpec can name in ``payload["strategy"]``.
+#: These are the ONLY values ``fix_tools._SCAFFOLD_STRATEGIES`` admits besides
+#: ``direct`` — a spec with no strategy runs ``n_samples`` plain calls and
+#: majority-votes them, which is what `self_consistency_5` actually is.
 STRATEGY_NOTES: "dict[str, str]" = {
     "self_refine": "answer once, critique that answer, then revise it (deterministic, single path).",
-    "least_to_most": "decompose the question into sub-questions, answer them in order, then answer the original.",
-    "self_consistency": "sample several independent answers and take the majority vote.",
-    "describe_first": "describe the input before answering the question about it.",
+    "least_to_most": "break the task into subproblems, then answer it using that decomposition.",
+    "chain_of_verification": "answer once, list independent checks for that answer, then re-answer under them.",
 }
+
+#: The ordered call chain each strategy issues, as ``(step label, instruction
+#: prepended for that call)``; an empty instruction means the call sends the
+#: task prompt unchanged.
+#:
+#: This MIRRORS ``fix_tools.STRATEGY_CALLS``, which is what actually formats
+#: the calls. It is copied rather than imported because ``evalvitals.analysis``
+#: must stay usable standalone and may not import ``evalvitals.eval_agent`` at
+#: runtime (locked by test_agent_architecture). Drift is impossible anyway:
+#: ``test_strategy_flow_matches_what_the_pipeline_sends`` asserts the two are
+#: equal, so re-wording a prompt on either side fails the suite.
+STRATEGY_CALLS: "dict[str, tuple[tuple[str, str], ...]]" = {
+    "self_refine": (
+        ("answer", ""),
+        ("critique that answer",
+         "Check the attempted answer for factual, reasoning, arithmetic, and "
+         "instruction-following errors. Give concise correction advice only."),
+        ("revise it",
+         "Produce a corrected final answer to the original task using the "
+         "feedback. Do not discuss the revision process."),
+    ),
+    "least_to_most": (
+        ("break into subproblems",
+         "Break the following task into the smallest useful subproblems. "
+         "Do not answer the task yet."),
+        ("solve using the decomposition",
+         "Solve the original task using the decomposition. Give only the final "
+         "answer required by the task."),
+    ),
+    "chain_of_verification": (
+        ("answer", ""),
+        ("list verification checks",
+         "List short, independent checks needed to verify this attempted answer. "
+         "Do not answer the original task yet."),
+        ("answer after the checks",
+         "Answer the original task after applying the independent verification "
+         "checks. Give only the final answer required by the task."),
+    ),
+}
+
+
+def strategy_steps(strategy: str, *, n_samples: int = 1) -> "list[tuple[str, str]]":
+    """The call chain to draw for one spec, as ``(label, prompt sent)``.
+
+    A named strategy has a fixed chain. Everything else is ``direct``: it makes
+    ``n_samples`` independent calls and majority-votes them, so it is only
+    worth drawing when there is more than one."""
+    calls = STRATEGY_CALLS.get(strategy)
+    if calls:
+        return [(label, prompt) for label, prompt in calls]
+    if n_samples > 1:
+        return [
+            (f"sample {n_samples} answers independently", ""),
+            ("take the majority answer", ""),
+        ]
+    return []
 
 
 def describe_candidate(attempt: "dict[str, Any]") -> "dict[str, Any]":
     """Normalize one ``attempted`` entry into what the Repair-methods UI shows."""
     payload = attempt.get("payload") if isinstance(attempt.get("payload"), dict) else {}
     kind = str(attempt.get("kind") or "spec")
-    note = METHOD_NOTES.get(kind, "")
     strategy = str(payload.get("strategy") or "")
-    if strategy and strategy in STRATEGY_NOTES:
-        note = f"{note} Strategy `{strategy}`: {STRATEGY_NOTES[strategy]}".strip()
+    # The tier label on the card already says "L2", and the verdict legend says
+    # what a tier is — so the generic kind blurb costs a paragraph without
+    # describing THIS candidate. When a strategy is known it says the specific
+    # thing instead; the kind blurb is only the fallback.
+    note = STRATEGY_NOTES.get(strategy) or METHOD_NOTES.get(kind, "")
 
     prompt_template = str(payload.get("prompt_template") or "")
     knobs = {
@@ -516,6 +576,9 @@ def describe_candidate(attempt: "dict[str, Any]") -> "dict[str, Any]":
         "source": str(attempt.get("source") or ""),
         "note": note,
         "strategy": strategy,
+        "strategy_steps": strategy_steps(
+            strategy, n_samples=int(payload.get("n_samples") or 1)
+        ),
         "prompt_template": prompt_template,
         "knobs": knobs,
         "defaults_only": not payload,
