@@ -508,6 +508,17 @@ def main() -> None:
                  if args.analyzer_max_cases > 0 else {})
     logger = RunLogger(run_dir=out / "logs", verbose=True)
 
+    # max_cases_per_analyzer is the BACKSTOP for analyzer_overrides: the
+    # overrides can only turn a `max_cases` constructor knob, and the five
+    # analyzers that dominated M1 wall-clock here (first_error_judge, rise,
+    # self_consistency, verbalized_confidence, trajectory_rubric) expose none.
+    # Without it the cap reached 7 of 20 generating analyzers and the rest ran
+    # the full batch one generate() at a time.
+    probe_agent = ProbeAgent(judge=judge, allow_codegen=True,
+                             codegen_config=codegen,
+                             analyzer_overrides=overrides,
+                             max_cases_per_analyzer=args.analyzer_max_cases)
+
     # Every stage takes its judge/coder through its CONSTRUCTOR. Assigning
     # `stage.judge` afterwards would leave each stage on its own default and the
     # run would complete looking normal while none of the configured judge
@@ -515,9 +526,13 @@ def main() -> None:
     loop = VLDiagnoseLoop(
         model=model,
         protocol=build_protocol(args.dataset),
-        probe_agent=ProbeAgent(judge=judge, allow_codegen=True,
-                               codegen_config=codegen,
-                               analyzer_overrides=overrides),
+        # max_cases_per_analyzer is the BACKSTOP for analyzer_overrides: the
+        # overrides can only turn a `max_cases` constructor knob, and the five
+        # analyzers that dominated M1 wall-clock here (first_error_judge, rise,
+        # self_consistency, verbalized_confidence, trajectory_rubric) expose
+        # none. Without it the cap reached 7 of 20 generating analyzers and the
+        # rest ran the full batch serially.
+        probe_agent=probe_agent,
         stats_agent=StatsAnalysisAgent(judge=judge, allow_codegen=True,
                                        codegen_config=codegen),
         diagnosis_agent=DiagnosisAgent(judge=judge),
@@ -572,7 +587,12 @@ def main() -> None:
         # recorded so a narrow interval downstream is readable as "fewer cases",
         # not as "no effect"
         "analyzer_max_cases": args.analyzer_max_cases or None,
+        # two different mechanisms, and the gap between them is the point:
+        # `capped` turned a constructor knob, `truncated` bounded the analyzers
+        # that have no knob to turn (name -> [cases offered, cases used]).
         "analyzers_capped": sorted(overrides),
+        "analyzers_truncated": {k: list(v) for k, v
+                                in sorted(probe_agent.capped_analyzers.items())},
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     print(f"\nwrote {out/'summary.json'}")

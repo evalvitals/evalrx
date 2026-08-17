@@ -594,3 +594,83 @@ def test_loop_docker_mode_falls_back_gracefully(recwarn):
     loop = AutoDiagnoseLoop(model=model, probe_agent=agent)
     report = loop.run(data)
     assert isinstance(report, AutoDiagnoseReport)
+
+
+# ── the per-analyzer case ceiling ────────────────────────────────────────────
+def _labelled_batch(n_pass, n_fail):
+    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    cases = [FailureCase(inputs=Inputs(prompt=f"p{i}"), observed="o",
+                         expected="e", label=Label.PASS) for i in range(n_pass)]
+    cases += [FailureCase(inputs=Inputs(prompt=f"f{i}"), observed="o",
+                          expected="e", label=Label.FAIL) for i in range(n_fail)]
+    return CaseBatch(cases)
+
+
+class _NoKnob:
+    """Like first_error_judge / rise / self_consistency: no max_cases at all."""
+    max_cases = None
+    name = "no_knob"
+
+
+class _OwnKnob:
+    max_cases = 12
+    name = "own_knob"
+
+
+def _agent(cap):
+    from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+    return ProbeAgent(max_cases_per_analyzer=cap)
+
+
+def test_cap_bounds_an_analyzer_that_has_no_max_cases_argument():
+    """The wall-clock case: analyzer_overrides cannot reach these at all."""
+    agent = _agent(32)
+    out = agent._cap_cases("no_knob", _NoKnob(), _labelled_batch(114, 158))
+    assert len(out) == 32
+    assert agent.capped_analyzers["no_knob"] == (272, 32)
+
+
+def test_cap_keeps_both_label_classes_in_proportion():
+    """M1 contrasts PASS against FAIL — a subset with one class is not a probe,
+    it is a null result that looks like a measurement."""
+    from evalvitals.core.case import Label
+
+    out = _agent(32)._cap_cases("no_knob", _NoKnob(), _labelled_batch(114, 158))
+    seen = [c.label for c in out]
+    assert seen.count(Label.FAIL) == 19 and seen.count(Label.PASS) == 13
+
+
+def test_cap_survives_a_batch_that_opens_with_one_label():
+    """Head truncation would hand this analyzer 32 PASS and zero FAIL."""
+    from evalvitals.core.case import Label
+
+    out = _agent(32)._cap_cases("no_knob", _NoKnob(), _labelled_batch(100, 8))
+    assert len(out) == 32
+    assert min(sum(1 for c in out if c.label is lab) for lab in
+               (Label.PASS, Label.FAIL)) > 0
+
+
+def test_cap_does_not_override_a_tighter_knob_the_analyzer_set_itself():
+    batch = _labelled_batch(114, 158)
+    agent = _agent(32)
+    assert len(agent._cap_cases("own_knob", _OwnKnob(), batch)) == len(batch)
+    assert "own_knob" not in agent.capped_analyzers
+
+
+def test_cap_is_off_by_default_and_a_noop_below_the_ceiling():
+    from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+
+    batch = _labelled_batch(114, 158)
+    assert len(ProbeAgent()._cap_cases("no_knob", _NoKnob(), batch)) == len(batch)
+    small = _labelled_batch(5, 5)
+    assert len(_agent(32)._cap_cases("no_knob", _NoKnob(), small)) == 10
+
+
+def test_cap_picks_the_same_cases_every_run():
+    """Two runs on one batch must be comparable, so no RNG in the selection."""
+    batch = _labelled_batch(114, 158)
+    first = [c.inputs.prompt for c in _agent(32)._cap_cases("n", _NoKnob(), batch)]
+    second = [c.inputs.prompt for c in _agent(32)._cap_cases("n", _NoKnob(), batch)]
+    assert first == second
+    # and it strides rather than taking the head of each group
+    assert first[:2] != [c.inputs.prompt for c in batch][:2]

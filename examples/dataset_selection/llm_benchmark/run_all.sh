@@ -156,7 +156,7 @@ if [ "${SKIP_STAGE0:-0}" = "1" ]; then
   rc=0
 else
   stamp "STAGE 0 build_cases (slowest step; a full census of a 650+ item slice runs 4-6 h — see README)"
-  "$EVAL_PY" "$HERE/build_cases.py" \
+  "$EVAL_PY" -u "$HERE/build_cases.py" \
     --model "$MODEL" --dataset "$DATASET" --n "$NCASES" --base-url "$BASE_URL"
   rc=$?
   if [ $rc -ne 0 ]; then
@@ -169,11 +169,11 @@ fi
 
 if [ "$ANALYSIS_ONLY" = "1" ]; then
   stamp "STAGE 1 run_pipeline --analysis-only (M1->M2->M3)"
-  "$EVAL_PY" "$HERE/run_pipeline.py" \
+  "$EVAL_PY" -u "$HERE/run_pipeline.py" \
     --model "$MODEL" --dataset "$DATASET" --base-url "$BASE_URL" --analysis-only
 else
   stamp "STAGE 2 run_pipeline (M1->M2->M3->M5->M4)"
-  "$EVAL_PY" "$HERE/run_pipeline.py" \
+  "$EVAL_PY" -u "$HERE/run_pipeline.py" \
     --model "$MODEL" --dataset "$DATASET" --base-url "$BASE_URL"
 fi
 rc=$?
@@ -192,7 +192,7 @@ if [ -n "${WHITEBOX_PYTHON:-}" ] && [ $rc -eq 0 ]; then
     sleep 2
   done
   stamp "STAGE W run_whitebox (attention over a label-balanced subset)"
-  "$WHITEBOX_PYTHON" "$HERE/run_whitebox.py" \
+  "$WHITEBOX_PYTHON" -u "$HERE/run_whitebox.py" \
     --model "$MODEL" --dataset "$DATASET" --n "${WHITEBOX_N:-24}"
   wrc=$?
   [ $wrc -ne 0 ] && stamp "stage W exited $wrc (the main chain already succeeded)"
