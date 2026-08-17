@@ -129,6 +129,32 @@ CATALOG: tuple = (
         caveat="CI upper bound 0.706 presses against the 0.70 edge.",
     ),
     Entry(
+        name="bbh_word_sorting",
+        chapter="ch4-basic",
+        items=250,
+        accuracy_9b=0.720,
+        ci95_9b=(0.58, 0.83),
+        budget_signal_9b=0.00,
+        source="lukaemon/bbh · config=word_sorting",
+        venue="BIG-Bench Hard, Suzgun et al., ACL Findings 2023",
+        slicing="One named BBH task: sort a word list into alphabetical order.",
+        grading="Normalised exact match on the whole sorted list — one word out "
+                "of place is a FAIL, so this is a harsh binary. That is fine for "
+                "band purposes but means a FAIL is not evidence of not knowing "
+                "how to sort.",
+        caveat="ADDED FOR THE 2B, not the 9B: 0.720 above is a 9B number and is "
+               "marginal there (CI 0.58-0.83 crosses 0.70). It is here because "
+               "qwen3.5-2b measures 0.440 (Wilson [0.31, 0.58], BOTH ends inside "
+               "the band) — the most comfortably band-centred entry in this table "
+               "for that model. Two budget notes, and they point opposite ways: "
+               "the 0.440 was measured at band_locate's 4096, while a census here "
+               "runs at the config default 20480, and on bbh_causal_judgement the "
+               "same widening moved accuracy +8.8 points. It also carried an 8% "
+               "budget signal at 4096, two points under the veto, which the wider "
+               "budget should relieve. Expect the census to read higher than "
+               "0.440; build_cases refuses outside [0.15, 0.85] either way.",
+    ),
+    Entry(
         name="bbh_tracking7",
         chapter="ch4-basic",
         items=250,
