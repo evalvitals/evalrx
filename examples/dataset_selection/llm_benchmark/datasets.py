@@ -281,6 +281,26 @@ BAND_2B: dict = {
     "bamboogle":            (0.160, "floor",      107,     None),
     "supergpqa_medicine_hard": (0.140, "floor",   701,     None),
     # bbh_tracking7 not probed: already saturated on the 9B once regraded.
+
+    # ── 2026-08-17: the "just above 0.70 on the 9B" sweep ────────────────────
+    # Rationale, and it held: a dataset the 9B has nearly saturated is where a
+    # 2B lands mid-band. The drop is real but NOT predictable — same 0.720
+    # starting point gave -28 (word_sorting) and -6 (gsm_symbolic_main) — so
+    # this band is a hunting ground, never an estimate.
+    #
+    # The two rows that did NOT make it are the useful negative result: both
+    # started from the saturated tier (0.94/0.98) and both fell exactly 20
+    # points, landing 0.74/0.78 — still out. Entering the band from there needs
+    # a cruxeval-sized 40-point fall, which happened once in five. Probe the
+    # 0.70-0.80 tier; skip the saturated one.
+    "mmlu_pro":             (0.480, "USABLE",     646,    16737),  # at 65536
+    "bbh_word_sorting":     (0.440, "USABLE",      55,     2822),
+    #: USABLE on the POINT ESTIMATE only — band_of tests acc in [0.30, 0.70] and
+    #: this CI runs to 0.776, so the true value may be out of band. Raise n
+    #: before using it.
+    "gsm_symbolic_main":    (0.660, "USABLE",      52,     2126),
+    "folio":                (0.740, "marginal",   221,    12300),
+    "bbh_navigate":         (0.780, "marginal",    15,      874),
 }
 
 #: Full-census follow-ups, which are what the probe is FOR — checking that an
