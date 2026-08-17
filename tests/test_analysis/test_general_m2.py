@@ -115,3 +115,73 @@ def test_prose_without_sections_still_falls_back():
 
     conclusion, _, _ = _parse_llm_analysis("just prose", _base_report())
     assert conclusion == "Model: EndpointModel(qwen3.5-2b)"
+
+
+# ── what the judge is shown about multiplicity ───────────────────────────────
+def _bh_pair():
+    """One survivor and one that BH kills, as ``signal_label_assoc`` emits them.
+
+    ``summary`` says REJECT H0 on BOTH because it is baked before correction,
+    and ``reject`` stays raw for the BH family on purpose — so the rendered
+    block is the only place the difference can appear.
+    """
+    from evalvitals.analysis.stats_tools import StatsToolResult, fdr_correct
+
+    strong = StatsToolResult(
+        tool="signal_label_assoc", ok=True, effect=0.46, reject=True, p_value=3e-7,
+        summary="signal 'probe1.dropped' vs FAIL: effect=+0.4635 -> REJECT H0",
+        analysis_key="signal_label_assoc:probe1.dropped",
+        correction_family="bh", raw_reject=True, details={"n_signal": 54},
+    )
+    noise = StatsToolResult(
+        tool="signal_label_assoc", ok=True, effect=-0.50, reject=True, p_value=1.0,
+        summary="signal 'cot.drift_away' vs FAIL: effect=-0.5000 -> REJECT H0",
+        analysis_key="signal_label_assoc:cot.drift_away",
+        correction_family="bh", raw_reject=True, details={"n_signal": 1},
+    )
+    corrected = fdr_correct([strong, noise], alpha=0.05)
+    return [strong, noise], corrected
+
+
+def test_uncorrected_reject_is_marked_as_not_surviving():
+    """A p=1.000, n_signal=1 result printed a bare "REJECT H0" to the judge.
+
+    ``summary`` is frozen at tool-run time, so correcting ``reject`` alone would
+    not have changed one character of what the judge reads.
+    """
+    from evalvitals.analysis.stats_agent import _format_stats_for_prompt
+
+    results, corrected = _bh_pair()
+    block = _format_stats_for_prompt(results, corrected)
+
+    survivor, killed = [ln for ln in block.splitlines() if "vs FAIL" in ln]
+    assert "[BH: survived, p=3e-07, n_signal=54]" in survivor
+    assert "[BH: NOT survived, p=1, n_signal=1]" in killed
+
+
+def test_survivors_are_listed_per_signal_not_per_tool():
+    """The old footer printed tool NAMES, so 42 signals collapsed to one word."""
+    from evalvitals.analysis.stats_agent import _format_stats_for_prompt
+
+    results, corrected = _bh_pair()
+    block = _format_stats_for_prompt(results, corrected)
+
+    assert "1 of 2 corrected test(s) survive" in block
+    assert "* signal_label_assoc:probe1.dropped" in block
+    assert "cot.drift_away" not in block.split("survive:")[1]
+
+
+def test_descriptive_results_are_not_labelled_as_failing_correction():
+    """``rank_corr`` never enters a family; absence of a verdict is not a No."""
+    from evalvitals.analysis.stats_agent import _format_stats_for_prompt
+    from evalvitals.analysis.stats_tools import StatsToolResult
+
+    descriptive = StatsToolResult(
+        tool="rank_corr", ok=True, effect=0.24, reject=None,
+        summary="Kendall tau between 'probe1.dropped' and FAIL = +0.243",
+        correction_family=None,
+    )
+    block = _format_stats_for_prompt([descriptive], {"n_tested": 0})
+
+    assert "Kendall tau" in block
+    assert "NOT survived" not in block and "survived" not in block

@@ -850,22 +850,69 @@ def _legacy_visualizations(tool_results: list[Any]) -> list[dict[str, Any]]:
     return visualizations
 
 
+def _multiplicity_note(result: StatsToolResult) -> str:
+    """Per-result multiplicity verdict, or "" for a result outside every family.
+
+    ``correction_method`` is set by :func:`~evalvitals.stats.multiplicity.correct_results`
+    on family members only, so its absence means "descriptive, never corrected" —
+    which must not be rendered as a failure to survive.
+    """
+    method = result.correction_method
+    if not method:
+        return ""
+    bits = ["survived" if result.fdr_corrected else "NOT survived"]
+    if result.p_value is not None:
+        bits.append(f"p={result.p_value:.3g}")
+    if result.e_value is not None:
+        bits.append(f"e={result.e_value:.3g}")
+    n_signal = (result.details or {}).get("n_signal")
+    if n_signal is not None:
+        bits.append(f"n_signal={n_signal}")
+    return f"   [{method}: {', '.join(bits)}]"
+
+
 def _format_stats_for_prompt(
     stats_results: list[StatsToolResult],
     corrected: dict[str, Any],
 ) -> str:
-    """Render statistical verdicts as a block appended to the LLM narrative."""
+    """Render statistical verdicts as a block appended to the LLM narrative.
+
+    Every line carries its OWN multiplicity verdict, because two separate things
+    otherwise mislead the reader in the same direction:
+
+    * ``summary`` is baked when the tool RUNS, before any correction, so a line
+      ending "-> REJECT H0" is the uncorrected verdict. On qwen3.5-2b /
+      bbh_word_sorting, 23 of 42 ``signal_label_assoc`` results printed
+      REJECT H0 while BH kept 13; of the other ten, one rested on a single case
+      at permutation p = 1.000.
+    * The footer used to list ``rejected_tools`` — a set of TOOL NAMES. Every
+      per-signal test shares the name ``signal_label_assoc``, so a 42-signal
+      family collapsed to the single word "signal_label_assoc" and no reader
+      could tell WHICH signals survived. The judge on that run reconciled the
+      mismatch the only way left to it, concluding the tool had not run at all,
+      and discarded the entire family. ``rejected_result_keys`` was already in
+      the same dict, at per-signal granularity.
+
+    ``reject`` itself is deliberately not touched here: for the BH family it
+    keeps the tool's raw CI verdict for the M1-M5 loop (see
+    :mod:`evalvitals.stats.multiplicity`). This renderer is the place that has
+    to make the difference between raw and corrected legible.
+    """
     if not stats_results:
         return ""
     lines = ["", "Statistical test results (effect-sized, FDR-aware):"]
     for r in stats_results:
         if r.ok:
-            lines.append(f"  - {r.summary}")
+            lines.append(f"  - {r.summary}{_multiplicity_note(r)}")
         else:
             lines.append(f"  - {r.tool}: not run ({r.error})")
-    if corrected.get("rejected_tools"):
+    n_tested = int(corrected.get("n_tested") or 0)
+    if n_tested:
+        keys = list(corrected.get("rejected_result_keys") or [])
+        method = corrected.get("method") or "FDR"
         lines.append(
-            f"  After e-BH FDR correction, surviving tools: "
-            f"{', '.join(corrected['rejected_tools'])}"
+            f"  After {method} correction, {len(keys)} of {n_tested} corrected "
+            f"test(s) survive" + (":" if keys else " — none.")
         )
+        lines.extend(f"    * {key}" for key in keys)
     return "\n".join(lines)
