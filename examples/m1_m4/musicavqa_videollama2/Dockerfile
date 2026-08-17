@@ -23,6 +23,13 @@ RUN pip install --no-cache-dir "/evalvitals[local,data]" PyYAML
 # actually run end-to-end against real weights (caught live, not caught by
 # the Dockerfile build itself since `import` failures are load-time, not
 # build-time, for a --no-deps editable install).
+#
+# (An AVCD (arXiv:2505.20862) integration was tried and reverted here: its
+# released kaistmm/AVCD fork of this same package produces degenerate
+# garbage output under our transformers>=4.51 -- a real version-skew bug in
+# their frozen custom attention patch, not something this example's wiring
+# caused. See project chat history; abandoned in favor of AAD on
+# Qwen2-Audio, examples/m1_m4/audiocaps_hallucination_qwen2_audio/.)
 RUN git clone --branch audio_visual --depth 1 \
     https://github.com/DAMO-NLP-SG/VideoLLaMA2.git /videollama2_av \
     && pip install --no-cache-dir --no-deps -e /videollama2_av \

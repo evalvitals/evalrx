@@ -2,8 +2,9 @@
 
 Audio-visual analogue of examples/m1_m4/deco_chair: an audio-visual
 LLM (VideoLLaMA2.1-7B-AV) answers Music-AVQA questions that need audio AND
-video evidence (AVCD paper, arXiv 2505.20862, studies exactly this failure
-mode — unimodal/cross-modal hallucination in AV-LLMs). This run.py only
+video evidence (unimodal/cross-modal hallucination in AV-LLMs -- the failure
+mode AVCD, arXiv:2505.20862, studies; that paper's own released code turned
+out unusable here, see the Dockerfile's comment). This run.py only
 supplies INPUTS — frozen cases + an observation-only protocol; detection,
 diagnosis and repair are the loop's own job.
 
@@ -127,7 +128,17 @@ def main() -> None:
                      help="force eager attention at load time so ATTENTION capture "
                           "(not just HIDDEN_STATES/LOGITS) is available for M1/L3a; "
                           "costs more memory/compute, off by default")
+    ap.add_argument("--candidate-allowlist", default=None,
+                     help="comma-separated FixCandidate names to restrict run_fix to -- "
+                          "isolates a specific candidate's execution/effect from "
+                          "whether the judge would have picked it unprompted. Unset "
+                          "(default) = full free exploration, every admissible "
+                          "candidate competes.")
     args = ap.parse_args()
+    candidate_allowlist = (
+        [name.strip() for name in args.candidate_allowlist.split(",") if name.strip()]
+        if args.candidate_allowlist else None
+    )
     OUT.mkdir(exist_ok=True)
 
     manifest_path = Path(__file__).parent / "data" / "cases" / f"{args.model}.json"
@@ -187,6 +198,7 @@ def main() -> None:
             run_context=ctx),
         fix_agent=FixAgent(judge=judge, score_fn=avqa_score,
                             max_tier=str(CFG.get("fix_max_tier", "L2")),
+                            candidate_allowlist=candidate_allowlist,
                             cli_config=codegen, run_logger=ctx.logger,
                             max_validation_cases=int(CFG.get("fix_validation_cases", 12)),
                             exec_timeout_sec=int(CFG.get("fix_exec_timeout_sec", 1200)),

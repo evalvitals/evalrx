@@ -185,6 +185,29 @@ def test_termination_audit_degeneration_wins_over_truncation():
     assert f["per_case"][0]["looks_truncated"] == 1
 
 
+def test_termination_audit_trusts_recorded_finish_reason_over_text_shape():
+    """A bare short answer ("guitar") has the exact text shape looks_truncated
+    flags -- correctly, when guessing from shape alone. But on a short-answer
+    dataset (VQA-style single-word gold answers) that shape is what a
+    perfectly complete generation looks like. Found on a real run
+    (musicavqa_videollama2): termination_audit reported truncation_rate up to
+    98% while the model's own finish_reason telemetry said 0% were actually
+    cut off by the token budget -- M3 kept chasing a truncation hypothesis
+    that M4 then had to refute every cycle using that same telemetry. When
+    finish_reason is recorded, it must override the text-shape guess."""
+    batch = CaseBatch([
+        _case("q1", "guitar", "guitar", Label.PASS, metadata={"finish_reason": "stop"}),
+        _case("q2", "guitar", "guitar", Label.PASS, metadata={"finish_reason": "length"}),
+        _case("q3", "guitar", "guitar", Label.PASS),  # no telemetry -> heuristic, unchanged
+    ])
+    f = TerminationAudit(continue_non_clean=False).run(ScriptModel(["_"]), batch).findings
+    classes = [c["termination_class"] for c in f["per_case"]]
+    truncated_flags = [c["looks_truncated"] for c in f["per_case"]]
+    assert classes[0] != "truncated" and truncated_flags[0] == 0
+    assert classes[1] == "truncated" and truncated_flags[1] == 1
+    assert classes[2] == "truncated" and truncated_flags[2] == 1  # heuristic fallback intact
+
+
 # ── arith_audit ───────────────────────────────────────────────────────────────
 def test_arith_audit_flags_computation_slip():
     # 3 * 4 stated as 13; repairing it lands exactly on the gold

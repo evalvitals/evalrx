@@ -751,8 +751,6 @@ class ProbeAgent:
         An override supplies exactly that missing collaborator, so anything in
         ``analyzer_overrides`` survives the second check.
         """
-        import inspect
-
         from evalvitals.eval_agent.stages.probe import _carries_trajectories
 
         has_traj = data is not None and _carries_trajectories(data)

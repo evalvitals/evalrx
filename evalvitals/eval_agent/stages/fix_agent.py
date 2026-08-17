@@ -936,6 +936,54 @@ class FixAgent:
                     predicate=_false_yes_predicate,
                 )
             )
+        # AAD (Hsu et al. 2025, arXiv:2506.07233) is VCD's same shape applied
+        # to audio instead of an image: contrasts real-audio decoding against
+        # the identical prompt with the waveform silenced, at every step. No
+        # internals read (no attention weights, no layer stability) -- just
+        # two generate()-compatible forward passes and a LogitsProcessor, the
+        # same cost/risk class as VCD, so it belongs at L0 next to it, not
+        # gated through the L3a judge-selected paper-method catalog.
+        paper_fidelity_early = getattr(model, "paper_method_fidelity", None)
+        aad_fidelity = (
+            paper_fidelity_early("aad") if callable(paper_fidelity_early) else "unavailable"
+        )
+        supports_aad = callable(getattr(model, "generate_aad", None))
+        if (
+            tasks == {"yes_no"}
+            and supports_aad
+            and aad_fidelity == "native_silence_contrast"
+            and hallucination_direction_supported
+            and "aad_silence_contrast" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="aad_silence_contrast",
+                    kind="aad",
+                    source="paper_default",
+                    payload={"alpha": 0.5},
+                )
+            )
+        # Gated sibling, same reasoning as vcd_diffusion_noise_gated_false_yes
+        # above: AAD is suppressive (promotes tokens whose probability rises
+        # WITH audio, i.e. demotes an audio-ungrounded over-affirmation), so
+        # it is the right direction only on false-Yes cases.
+        if (
+            tasks == {"yes_no"}
+            and supports_aad
+            and aad_fidelity == "native_silence_contrast"
+            and "aad_silence_contrast_gated_false_yes" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="aad_silence_contrast_gated_false_yes",
+                    kind="aad",
+                    source="conditional_default",
+                    payload={"alpha": 0.5},
+                    predicate=_false_yes_predicate,
+                )
+            )
         # ICD (Wang et al., ACL 2024) has the same binary, token-level
         # admission requirements but its negative condition is an instruction
         # disturbance rather than a corrupted image.  A backend can expose an
@@ -2099,6 +2147,18 @@ class FixAgent:
                     return None
 
             return vcd
+        if candidate.kind == "aad":
+
+            def aad(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_aad = getattr(model, "generate_aad")
+                    output = generate_aad(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("AAD generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return aad
         if candidate.kind == "icd":
 
             def icd(model: "Model", case: "FailureCase") -> "Optional[bool]":

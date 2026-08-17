@@ -349,6 +349,15 @@ class HFLocalModel(Model):
                 if self.spec.key == "qwen2-audio-7b-instruct"
                 else "adapted_truncated_layer_stability"
             )
+        if method == "aad":
+            # Unlike TCD, AAD's contrast (real audio vs. the same prompt with
+            # the waveform silenced) never reads architecture internals -- no
+            # layer counts, no attention weights, no audio-token span. The
+            # released repo's own claim is that this generalises across
+            # audio LALMs (Qwen2-Audio and SALMONN both evaluated); this
+            # codebase's registered audio specs are exactly the checkpoints
+            # that claim covers, so any of them is native, not adapted.
+            return "native_silence_contrast" if self.spec.audio is not None else "unavailable"
         return "unavailable"
 
     @classmethod
@@ -606,6 +615,90 @@ class HFLocalModel(Model):
         noisy_enc = dict(enc)
         noisy_enc["pixel_values"] = alpha_bar.sqrt() * pixels + (1 - alpha_bar).sqrt() * noise
         return enc, noisy_enc
+
+    def _aad_encodings(self, inputs: Any) -> tuple[Any, dict[str, Any]]:
+        """Build real-audio/silent-audio AAD inputs at the published boundary.
+
+        AAD's release zeroes the raw WAVEFORM (``np.zeros_like(audio)``) and
+        re-runs it through the same feature extractor, not the post-extraction
+        feature tensor directly -- a zeroed waveform's log-mel features are
+        not literally zero, so matching that boundary (not skipping straight
+        to zeroed ``input_features``) is material, same reasoning as VCD's
+        noise-after-processor boundary above.
+        """
+        import numpy as np
+
+        from evalvitals.core.case import Inputs
+
+        model, processor = self._loaded
+        audio = getattr(inputs, "audio", None)
+        if audio is None or isinstance(audio, (list, tuple)):
+            raise ValueError("AAD requires exactly one audio clip")
+        waveform = _resolve_audio(audio)
+        real_inputs = Inputs(
+            prompt=self._as_prompt(inputs),
+            image=getattr(inputs, "image", None),
+            audio=waveform,
+            video=getattr(inputs, "video", None),
+        )
+        silent_inputs = Inputs(
+            prompt=self._as_prompt(inputs),
+            image=getattr(inputs, "image", None),
+            audio=np.zeros_like(waveform),
+            video=getattr(inputs, "video", None),
+        )
+        enc, _ids, _tokens, _ttm = self._encode_vlm(real_inputs, model, processor)
+        enc.pop("token_type_ids", None)
+        silent_enc, _ids2, _tokens2, _ttm2 = self._encode_vlm(silent_inputs, model, processor)
+        silent_enc.pop("token_type_ids", None)
+        return enc, silent_enc
+
+    def generate_aad(self, inputs: Any, *, alpha: float = 0.5) -> str:
+        """Run AAD (Hsu et al. 2025, arXiv:2506.07233): contrast real-audio
+        decoding against the same prompt with the audio waveform silenced,
+        at every step. See :mod:`evalvitals.models.paper_methods.aad`.
+        """
+        logger.debug("%s: generate_aad(alpha=%s)", self.spec.key, alpha)
+        if self.spec.audio is None:
+            raise ValueError(f"{self.spec.key}: AAD requires an audio-capable spec")
+        import torch
+        from transformers.generation.logits_process import LogitsProcessorList
+
+        from evalvitals.models.paper_methods.aad import AADLogitsProcessor
+
+        model, processor = self._loaded
+        tok = getattr(processor, "tokenizer", processor)
+        enc, silent_enc = self._aad_encodings(inputs)
+        processor_list = LogitsProcessorList(
+            [AADLogitsProcessor(model, silent_enc, alpha=alpha)]
+        )
+        with torch.no_grad():
+            out = model.generate(
+                **enc,
+                max_new_tokens=self.runtime.max_new_tokens,
+                do_sample=False,
+                use_cache=True,
+                logits_processor=processor_list,
+            )
+        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+
+    def generate_aad_baseline(self, inputs: Any) -> str:
+        """Greedy-decode the real-audio arm alone -- the paired-comparison
+        control AAD's own eligibility gate looks for (mirrors
+        generate_vcd_baseline/generate_tcd_baseline's role)."""
+        logger.debug("%s: generate_aad_baseline()", self.spec.key)
+        if self.spec.audio is None:
+            raise ValueError(f"{self.spec.key}: AAD requires an audio-capable spec")
+        import torch
+
+        model, processor = self._loaded
+        tok = getattr(processor, "tokenizer", processor)
+        enc, _silent_enc = self._aad_encodings(inputs)
+        with torch.no_grad():
+            out = model.generate(
+                **enc, max_new_tokens=self.runtime.max_new_tokens, do_sample=False, use_cache=True,
+            )
+        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
 
     def _vcd_next_token_logits(
         self,
