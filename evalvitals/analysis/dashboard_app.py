@@ -423,12 +423,21 @@ def _render_case_study_tab(study: Any) -> None:
 
     nav = st.columns([1, 1, 6])
     index = ids.index(case.id)
-    if nav[0].button("← Prev", disabled=index == 0, key=f"ev_cs_prev::{study.name}"):
-        st.session_state[keys["case"]] = ids[index - 1]
-        st.rerun()
-    if nav[1].button("Next →", disabled=index == len(ids) - 1, key=f"ev_cs_next::{study.name}"):
-        st.session_state[keys["case"]] = ids[index + 1]
-        st.rerun()
+
+    # Prev/Next move the selectbox itself, and a widget-keyed value may only be
+    # written before its widget runs — so step in an on_click callback, which
+    # fires ahead of the rerun instead of after the selectbox above.
+    def _step(delta: int, *, key: str = keys["case"], case_ids: list = ids, at: int = index) -> None:
+        st.session_state[key] = case_ids[at + delta]
+
+    nav[0].button(
+        "← Prev", disabled=index == 0, key=f"ev_cs_prev::{study.name}",
+        on_click=_step, args=(-1,),
+    )
+    nav[1].button(
+        "Next →", disabled=index == len(ids) - 1, key=f"ev_cs_next::{study.name}",
+        on_click=_step, args=(1,),
+    )
 
     _render_case_panel(study, case, blind=blind)
     _render_human_scoreboard(study)
