@@ -2411,3 +2411,57 @@ def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     assert (t2.root / "record.md").exists()
     assert json.loads((t1.root / "result.json").read_text())["fixed"] is False
     assert json.loads((t2.root / "result.json").read_text())["fixed"] is True
+
+
+# ── prompt templates live next to LaTeX ──────────────────────────────────────
+def test_safe_format_leaves_non_placeholder_braces_alone():
+    r"""str.format treats every {...} as a field; a math prompt is full of them.
+
+    All four of these are real str.format failures, and the third ended a live
+    qwen3.5-2b / minervamath run after M4 had already produced its fix:
+
+        "{prompt} \frac{a}{b}"  KeyError: 'a'
+        "{prompt} 10^{33}"      IndexError: Replacement index 33
+        "{prompt} ${~m}$"       KeyError: '~m'
+        "{prompt} {}"           IndexError: Replacement index 0
+    """
+    from evalvitals.eval_agent.stages.fix_agent import safe_format
+
+    ctx = {"prompt": "P", "failure_axis": "AX"}
+    assert safe_format(r"{prompt} solve \frac{a}{b}", ctx) == r"P solve \frac{a}{b}"
+    assert safe_format(r"{prompt} 10^{33}", ctx) == r"P 10^{33}"
+    assert safe_format(r"{prompt} ${~m}$", ctx) == r"P ${~m}$"
+    assert safe_format("{prompt} {}", ctx) == "P {}"
+
+
+def test_safe_format_still_substitutes_the_known_fields():
+    from evalvitals.eval_agent.stages.fix_agent import safe_format
+
+    ctx = {"prompt": "P", "failure_axis": "AX", "n": 3}
+    assert safe_format("{prompt} focus on {failure_axis} ({n})", ctx) == "P focus on AX (3)"
+
+
+def test_safe_format_never_raises_on_arbitrary_text():
+    from evalvitals.eval_agent.stages.fix_agent import safe_format
+
+    for template in ("{", "}", "{{", "{unclosed", r"\boxed{}", "{a}{b}{c}", ""):
+        safe_format(template, {"prompt": "P"})
+
+
+def test_a_template_case_that_cannot_render_scores_none_not_a_crash():
+    """The formatting used to sit outside l1's try/except, so one unrenderable
+    template aborted the entire validation instead of dropping one case."""
+    from evalvitals.core.case import FailureCase, Inputs, Label
+    from evalvitals.eval_agent.stages.fix_agent import FixAgent, FixCandidate
+
+    class _Boom:
+        def generate(self, *a, **k):
+            raise RuntimeError("model down")
+
+    agent = FixAgent()
+    candidate = FixCandidate(tier=None, name="t", kind="template",
+                             payload={"prompt_template": r"{prompt} ${~m}$"})
+    strategy = agent._strategy(candidate)
+    case = FailureCase(inputs=Inputs(prompt="q"), observed="o", expected="e",
+                       label=Label.FAIL)
+    assert strategy(_Boom(), case) is None

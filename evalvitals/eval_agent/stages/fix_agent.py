@@ -105,6 +105,39 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+#: ``{identifier}`` — the only thing a prompt template may substitute.
+_TEMPLATE_FIELD = re.compile(r"\{(\w+)\}")
+
+
+def safe_format(template: str, context: "dict[str, Any]") -> str:
+    r"""Fill ``{known}`` placeholders and leave every other brace group alone.
+
+    ``str.format`` treats EVERY ``{...}`` as a replacement field, but a prompt
+    template is model-authored prose about a task whose text legitimately
+    contains braces — LaTeX above all.  Measured against the real thing:
+
+        "{prompt} \frac{a}{b}"  -> KeyError: 'a'
+        "{prompt} 10^{33}"      -> IndexError: Replacement index 33
+        "{prompt} ${~m}$"       -> KeyError: '~m'
+        "{prompt} {}"           -> IndexError: Replacement index 0
+
+    The third is not hypothetical: it ended a qwen3.5-2b/minervamath run
+    *after* M4 had produced its fix, because the formatting sat outside the
+    per-case ``try``, so a template the model wrote for a LaTeX dataset took
+    down the process instead of scoring one case as ``None``.
+
+    Substituting by regex rather than forgiving ``format_map`` because the
+    failures above are three different exception types from two different
+    causes (unknown name, positional index), and a rule of "replace exactly the
+    ``{identifier}`` groups I know" has none of them: unknown names stay
+    literal, and nothing else is even looked at.  The cost is format specs
+    (``{value:.2f}``), which a prompt template has no use for.
+    """
+    return _TEMPLATE_FIELD.sub(
+        lambda m: str(context.get(m.group(1), m.group(0))), template
+    )
+
 _MAX_JUDGE_CANDIDATES = 3
 _EXAMPLE_PROMPTS = 3
 
@@ -2186,10 +2219,14 @@ class FixAgent:
                 template_context = {str(key): value for key, value in metadata.items()}
                 template_context["prompt"] = str(getattr(inp, "prompt", ""))
                 template_context.setdefault("failure_axis", "the relevant visual evidence")
-                new_inputs = Inputs(
-                    prompt=template.format(**template_context), image=getattr(inp, "image", None)
-                )
+                # Inside the try, not before it: rendering the template is as
+                # capable of failing as generating from it, and a single bad
+                # case must score None rather than abort the whole validation.
                 try:
+                    new_inputs = Inputs(
+                        prompt=safe_format(template, template_context),
+                        image=getattr(inp, "image", None),
+                    )
                     return score_to_bool(self._score(case, str(model.generate(new_inputs))))
                 except Exception:
                     return None
