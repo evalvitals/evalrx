@@ -114,6 +114,19 @@ def _select_tools_via_llm(
     return {n for n in valid_names if n in low}
 
 
+#: A section label as an LLM actually writes it. The original matcher required
+#: a literal "CONCLUSION:" at line start; a judge that wrote the markdown
+#: heading "## CONCLUSION" entered no section at all, so a 4,158-character
+#: analysis fell through to the base narrative's first line
+#: ("Model: EndpointModel(qwen3.5-2b)") and M3 had nothing to hypothesise from —
+#: the run then reported stopped_by=no_hypotheses as if that were a finding.
+#: Earlier runs parsed only because the judge happened to use the colon form.
+_SECTION_HEADER = re.compile(
+    r"^[#*\s]*(CONCLUSION|EVIDENCE_CHAIN|QUALITATIVE)\s*[:：]?[*#\s]*(.*)$",
+    re.IGNORECASE,
+)
+
+
 def _parse_llm_analysis(
     raw: str,
     base: AnalysisReport,
@@ -130,13 +143,15 @@ def _parse_llm_analysis(
     for line in raw.splitlines():
         s = line.strip()
         upper = s.upper()
-        if upper.startswith("CONCLUSION:"):
-            conclusion = s[len("CONCLUSION:"):].strip()
-            section = "conclusion"
-        elif upper.startswith("EVIDENCE_CHAIN:"):
-            section = "evidence"
-        elif upper.startswith("QUALITATIVE:"):
-            section = "qualitative"
+        header = _SECTION_HEADER.match(s)
+        if header:
+            section = header.group(1).upper()
+            section = {"CONCLUSION": "conclusion",
+                       "EVIDENCE_CHAIN": "evidence",
+                       "QUALITATIVE": "qualitative"}[section]
+            rest = header.group(2).strip()
+            if section == "conclusion" and rest:
+                conclusion = rest
         elif s.startswith("- "):
             content = s[2:].strip()
             if section == "evidence":

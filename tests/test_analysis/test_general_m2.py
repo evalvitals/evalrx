@@ -55,3 +55,63 @@ def test_stats_analysis_agent_tests_more_than_four_signals_by_default():
     assert len(signal_results) == 6
     assert report.corrected_rejections["method"] == "BH"
     assert report.corrected_rejections["families"]["bh"]["n_tested"] >= 6
+
+
+# ── the M2 section parser must survive how judges actually write ─────────────
+def _base_report():
+    from evalvitals.analysis.analysis_module import AnalysisReport
+    return AnalysisReport(model_name="m",
+                          narrative="Model: EndpointModel(qwen3.5-2b)\nrest")
+
+
+def test_markdown_headings_are_parsed_not_dropped():
+    """A judge wrote '## CONCLUSION'; the matcher demanded 'CONCLUSION:'.
+
+    No section was ever entered, so 4,158 characters of analysis fell through to
+    the base narrative's first line and M3 received nothing to hypothesise from.
+    The run then reported stopped_by=no_hypotheses as though that were a
+    finding. Earlier runs parsed only because the judge happened to use a colon.
+    """
+    from evalvitals.analysis.stats_agent import _parse_llm_analysis
+
+    raw = (
+        "## CONCLUSION\n\n"
+        "The failures are a capability defect in list-state maintenance.\n\n"
+        "## EVIDENCE_CHAIN\n\n"
+        "- Step 1 - kendall tau 0.92 with edit distance 7.82\n"
+        "- Step 2 - 66% token loss\n\n"
+        "## QUALITATIVE\n\n"
+        "- probe1 has an internally incoherent signature on ~45% of fails\n"
+    )
+    conclusion, evidence, qualitative = _parse_llm_analysis(raw, _base_report())
+    assert "capability defect" in conclusion
+    assert len(evidence) == 2 and "kendall tau" in evidence[0]
+    assert len(qualitative) == 1
+
+
+def test_the_original_colon_contract_still_parses():
+    from evalvitals.analysis.stats_agent import _parse_llm_analysis
+
+    raw = ("CONCLUSION: it broke\n"
+           "EVIDENCE_CHAIN:\n- step one\n- step two\n"
+           "QUALITATIVE:\n- note")
+    conclusion, evidence, qualitative = _parse_llm_analysis(raw, _base_report())
+    assert conclusion == "it broke"
+    assert evidence == ["step one", "step two"]
+    assert qualitative == ["note"]
+
+
+def test_bold_headings_parse_too():
+    from evalvitals.analysis.stats_agent import _parse_llm_analysis
+
+    raw = "**CONCLUSION**\nthe thing happened\n**EVIDENCE_CHAIN**\n- because\n"
+    conclusion, evidence, _ = _parse_llm_analysis(raw, _base_report())
+    assert conclusion == "the thing happened"
+    assert evidence == ["because"]
+
+
+def test_prose_without_sections_still_falls_back():
+    from evalvitals.analysis.stats_agent import _parse_llm_analysis
+
+    conclusion, _, _ = _parse_llm_analysis("just prose", _base_report())
+    assert conclusion == "Model: EndpointModel(qwen3.5-2b)"
