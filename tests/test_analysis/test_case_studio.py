@@ -420,11 +420,12 @@ def test_verdict_legend_covers_every_branch_fix_agent_can_emit():
     colour for everything it can return."""
     pytest.importorskip("streamlit")
     pytest.importorskip("pandas")
-    from evalvitals.eval_agent.stages.fix_agent import FixAgent, FixValidation
-
     from evalvitals.analysis.dashboard_app import (
-        _FIX_VERDICT_GUIDE, _FIX_VERDICT_HEX, _FIX_VERDICT_MD,
+        _FIX_VERDICT_GUIDE,
+        _FIX_VERDICT_HEX,
+        _FIX_VERDICT_MD,
     )
+    from evalvitals.eval_agent.stages.fix_agent import FixAgent, FixValidation
 
     emitted = set()
     for reject in (True, False):
