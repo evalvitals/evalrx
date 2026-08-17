@@ -851,6 +851,16 @@ SPECS: list[Spec] = [
          adapter=_adapter_bbh, max_tokens=4096),
     Spec("bbh_word_sorting", "ch4-basic", "lukaemon/bbh", config="word_sorting",
          split="test", adapter=_adapter_bbh, max_tokens=4096),
+    Spec("bbh_object_counting", "ch4-basic", "lukaemon/bbh",
+         config="object_counting", split="test", adapter=_adapter_bbh,
+         max_tokens=4096,
+         note="250 items; TextGrad's BBH pair with word_sorting. Gold is a bare "
+              "integer ('8'), so answer_equal's numeric path grades it exactly "
+              "and there is no option-letter surface to mis-extract — unlike "
+              "bbh_tracking7, whose '(X)' golds were mis-graded until the "
+              "_PLACEHOLDER fix. The other four BBH slices measured 0.980 "
+              "saturated / 0.720 marginal / 0.600 / 0.540, so this one's band "
+              "is genuinely unknown"),
     Spec("bbeh", "ch4-basic", "BBEH/bbeh", split="train",
          adapter=_adapter_plain("input", "target"), max_tokens=20480),
     Spec("musique", "ch4-basic", "bdsaglam/musique", split="validation",

@@ -259,9 +259,21 @@ BY_NAME: dict = {e.name: e for e in CATALOG}
 #:    different budget than the census that follows them, and the gap is not
 #:    small: bbh_causal_judgement reads 0.420 here at 8192 and 0.508 at 20480.
 #:    Treat a row as "in band at THIS budget", never as a census prediction.
+#:
+#: Keys are ``band_locate`` SPEC names, NOT ``CATALOG`` entries — this table
+#: records what was probed, and a probe that excludes a dataset is exactly the
+#: result worth keeping. ``bbh_object_counting`` is here and deliberately not in
+#: CATALOG, so do not look these names up in ``BY_NAME`` without a guard.
 BAND_2B: dict = {
     #                        acc     band       seconds  chars
     "bbh_causal_judgement": (0.420, "USABLE",      90,     None),
+    #: Probed 2026-08-17 to close a gap in the TextGrad dataset list. Excluded
+    #: on the SMALL model, which settles it for the large one too: 0.800 on a 2B
+    #: can only go up on a 9B. Its budget_bracket is the degenerate [0.80, 0.80]
+    #: — budget_signal is 0 — so unlike a budget_limited row there is nothing a
+    #: bigger cap could resolve. Counting objects in a list is arithmetic; the
+    #: same 2B scores 0.508 on causal_judgement from the same repo.
+    "bbh_object_counting":  (0.800, "marginal",    25,      351),
     "minervamath":          (0.380, "USABLE",     639,    12149),
     "supergpqa_law":        (0.360, "USABLE",     305,     6576),
     "supergpqa_economics":  (0.340, "USABLE",     507,     6338),
