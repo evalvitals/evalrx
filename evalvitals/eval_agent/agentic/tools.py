@@ -176,9 +176,10 @@ def _current_report(loop: Any, state: _RunState) -> "VLDiagnoseReport":
     verified = loop.hypothesis_tester.best_hypotheses(state.all_test_results)
     return VLDiagnoseReport(
         cycles=state.cycle,
+        resolved=bool(verified),
         stopped_by="in_progress",
         verified_hypotheses=verified,
-        all_hypotheses=state.all_hypotheses,
+        final_hypotheses=state.all_hypotheses,
         all_test_results=state.all_test_results,
         final_stats_report=state.stats_report,
         store=loop.store,
