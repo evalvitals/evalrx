@@ -1617,10 +1617,21 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_cases_payload_never_leaks_labels_or_rubrics():
+    """The sandbox sees id, prompt and the model's OWN baseline output — never
+    a label, expected answer, or rubric. baseline_output is what the unchanged
+    model already said (the frozen-model control replays exactly it), so it
+    carries no correctness information."""
     from evalvitals.eval_agent.stages.fix_pipeline import cases_payload
 
-    payload = cases_payload(_gold_yes_batch())
-    assert all(set(c) == {"id", "prompt"} for c in payload["cases"])
+    batch = _gold_yes_batch()
+    payload = cases_payload(batch)
+    assert all(set(c) == {"id", "prompt", "baseline_output"} for c in payload["cases"])
+    forbidden = {"label", "expected", "gold", "rubric", "score", "metadata"}
+    assert all(forbidden.isdisjoint(c) for c in payload["cases"])
+    by_id = {c.id: c for c in batch}
+    for c in payload["cases"]:
+        observed = getattr(by_id[c["id"]], "observed", None)
+        assert c["baseline_output"] == (None if observed is None else str(observed))
 
 
 def test_coded_pipeline_bridge_round_trip(tmp_path):

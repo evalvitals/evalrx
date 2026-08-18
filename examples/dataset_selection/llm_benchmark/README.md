@@ -574,6 +574,24 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 > ⚠️ **代价是两边的统计功效都减半**,这正是 `n_cases` 默认取全量的原因。
 > 每个数据集实际剩多少,用 `$PY datasets.py --plan` 算,别估。
 
+#### fix 阶段的验证口径(2026-08-18 起)
+
+`FixAgent` 在这里的接法(`run_pipeline.py`)和它拿到的东西:
+
+| 什么 | 从哪来 | 为什么 |
+|---|---|---|
+| 打分 | `make_score_fn`:数据集自己的 grader(`extract_answer` → `answer_equal`) | 框架默认是"gold 逐字子串",逗号/括号格式一变就全错 |
+| **解码预算下限** | `baseline_generation_kwargs={max_tokens, temperature, top_p}` = Stage 0 的配置 | 判官给的 `max_tokens` 低于基线会被**抬到基线**;tracking7 上判官曾给 900,基线 4096、基线输出中位数 806 tok,30% 已超 900 → 候选被截断成 "regressed" |
+| 截断遥测 | `EndpointModel.n_truncated` 在每个候选前后做差 → `n_truncated` | 区分"想法坏"和"被 token 上限截断" |
+| 每例输出 | `logs*/fixes/NN_<tier>_<name>/outputs.jsonl`(fixed/broken/unchanged 三态) | 声明式候选以前不留任何输出,regressed 无法复盘 |
+| 判官/coder 看到的 | explore 半区的完整样例(prompt + 模型基线输出 + gold + PASS 对照)、评分规则(`make_scoring_note`)、基线解码、M2/M5/explore 证据、被 M4 反驳的假设 | 之前只有 160 字符的 prompt 开头 |
+| 家族地板 | `fix_floor_candidates: [self_consistency_5]`(文本任务) | 默认候选以前只在判官沉默时兜底,最基础的多数投票从没进过家族 |
+| 并发 | `fix_concurrency: 6`(声明式候选按 case 多线程打 endpoint) | 5 样本 × 80 例串行要一个多小时 |
+
+`n_samples` 对每种 strategy 都生效(整条 least_to_most / self_refine 链重复 n 次,
+按抽出的最终答案投票 —— 之前非 direct 策略会静默忽略 n_samples,而对 CoT 输出按全文投票等于不投票)。
+`run_fix` 会**剔除被 M4 实验反驳的假设**,并把它作为 "REFUTED — do not build on" 传给 proposer。
+
 ### 三个尺寸都跑
 
 `run_all.sh` 每次都自己起停 vLLM,所以串行跑三个尺寸不会撞车:

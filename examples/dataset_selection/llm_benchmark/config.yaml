@@ -96,10 +96,19 @@ fix_validation_cases: 40    # 0 = whole batch. Candidates run serially (~10 s/ca
                             # L2 coded pipeline makes 4-5 bridged calls per case: 250 cases cannot
                             # finish inside fix_exec_timeout_sec, so it is killed as "timed out"
                             # instead of being judged. The paired gate does not need the whole batch.
-fix_exec_timeout_sec: 3600  # measured 16 s per bridged call on the 2B (long direct answers):
-                            # 40 cases x ~5 calls x 16 s ~= 53 min worst case; the first attempt
-                            # must be able to finish, or every coded candidate spends its one
-                            # repair round on the timeout instead of on the repair.
+fix_exec_timeout_sec: 7200  # measured 16 s per bridged call on the 2B (long direct answers):
+                            # 40 cases x ~5 calls x 16 s ~= 53 min worst case, and
+                            # --fix-validation-cases 80 doubles it; the first attempt must be
+                            # able to finish, or every coded candidate spends its one repair
+                            # round on the timeout instead of on the repair. The bridge is
+                            # serial (one call at a time), so this is wall-clock, not load.
+fix_concurrency: 6          # threads per DECLARATIVE candidate (L1 templates / L2 specs) over
+                            # the validation batch; the endpoint serves them in parallel. Coded
+                            # pipelines are serial through the bridge regardless. 1 = old behaviour.
+fix_floor_candidates:       # built-in defaults ALWAYS in the tested family for a text-only batch,
+  - self_consistency_5      # next to the judge's proposals (5 samples, vote on the extracted
+                            # final answer). Before 2026-08-18 defaults were only a fallback for
+                            # a silent judge, so plain self-consistency was never tested. [] = off.
 
 # Cap on how many cases each per-case analyzer generates for. 0 = library
 # defaults (128 for prompt_contrast / calibration / linear_probe, 48 for

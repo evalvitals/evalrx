@@ -141,7 +141,85 @@ def safe_format(template: str, context: "dict[str, Any]") -> str:
     )
 
 _MAX_JUDGE_CANDIDATES = 3
-_EXAMPLE_PROMPTS = 3
+#: How many FAIL / PASS cases the proposer sees in full (prompt, the model's
+#: baseline output, expected answer when allowed). Before this the judge saw
+#: only the first 160 characters of a few failing prompts (1000 characters in
+#: total) — no model output, no answer format, no PASS contrast — and designed
+#: blind: on bbh_tracking7 it never saw an option list or an "Answer: (X)".
+_EXAMPLE_FAILS = 4
+_EXAMPLE_PASSES = 2
+_EXAMPLE_PROMPT_CHARS = 1600
+_EXAMPLE_OUTPUT_CHARS = 1000
+
+_TEXT_ONLY_CATALOG_NOTE = (
+    "(this batch is text-only: there are NO image tools; leave image_ops empty)"
+)
+
+_FLOOR_DESCRIPTIONS = {
+    "self_consistency_5": "5 independent samples, majority vote on the extracted final answer",
+    "self_refine": "answer -> critique -> revise, three calls",
+    "least_to_most": "decompose -> solve with the decomposition, two calls",
+    "chain_of_verification": "answer -> list checks -> answer after the checks, three calls",
+}
+
+
+def _clip(text: Any, limit: int, *, tail_share: float = 0.35) -> str:
+    """Head + tail of *text* within *limit* characters (the answer sits at the end)."""
+    text = str(text or "")
+    if len(text) <= limit:
+        return text
+    tail = max(1, int(limit * tail_share))
+    head = max(1, limit - tail)
+    return text[:head] + f"\n[… {len(text) - head - tail} chars elided …]\n" + text[-tail:]
+
+
+def _format_examples(
+    cases: Any,
+    *,
+    with_gold: bool,
+    n_fail: int = _EXAMPLE_FAILS,
+    n_pass: int = _EXAMPLE_PASSES,
+) -> str:
+    """Render FAIL (and a few PASS) cases in full for the proposer.
+
+    Each example shows the prompt, the model's baseline output and — only when
+    *with_gold* (the cases are disjoint from the validation batch) — the
+    expected answer. Deterministic: first *n_fail* FAILs and first *n_pass*
+    PASSes in batch order.
+    """
+    fails: "list[Any]" = []
+    passes: "list[Any]" = []
+    for case in list(cases or []):
+        label = getattr(getattr(case, "label", None), "value", None)
+        (fails if label == "fail" else passes).append(case)
+    chosen = [("FAIL", c) for c in fails[:n_fail]] + [("PASS", c) for c in passes[:n_pass]]
+    if not chosen:
+        return "- (none)"
+    blocks: "list[str]" = []
+    for tag, case in chosen:
+        inp = getattr(case, "inputs", None)
+        prompt = _clip(getattr(inp, "prompt", ""), _EXAMPLE_PROMPT_CHARS, tail_share=0.3)
+        observed = getattr(case, "observed", None)
+        lines = [f"### {tag} case {getattr(case, 'id', '?')}", "PROMPT:", prompt]
+        if observed is not None:
+            raw = str(observed)
+            lines += [f"MODEL OUTPUT (baseline, {len(raw)} chars):",
+                      _clip(raw, _EXAMPLE_OUTPUT_CHARS, tail_share=0.7)]
+        else:
+            lines.append("MODEL OUTPUT (baseline): (not recorded)")
+        if with_gold:
+            gold = (getattr(case, "metadata", None) or {}).get(
+                "gold", getattr(case, "expected", None))
+            if gold is not None:
+                lines.append(f"EXPECTED: {gold}")
+        blocks.append("\n".join(lines))
+    header = (
+        "(from the diagnosis split — the fix is validated on a DISJOINT split; "
+        "EXPECTED is shown so you can see the answer FORMAT, never to hard-code answers)"
+        if with_gold else
+        "(from the validation batch — expected answers withheld)"
+    )
+    return header + "\n\n" + "\n\n".join(blocks)
 
 def _binary_answer(value: Any) -> "str | None":
     match = re.search(r"\b(yes|no)\b", str(value).lower())
@@ -274,6 +352,17 @@ class FixValidation:
     # bridge contract violation) — distinct from "executed and not effective".
     # Escalation must not treat these as evidence that the tier is exhausted.
     exec_error: str = ""
+    # What the candidate actually PRODUCED, per case id (the aggregated /
+    # final answer that was scored). Persisted by RunLogger as
+    # ``outputs.jsonl`` beside the record, never inlined in the JSONL event.
+    # Without this a "regressed" verdict cannot be told apart from a truncated
+    # chain, a format slip, or a genuinely wrong answer after the fact.
+    outputs: "dict[str, str]" = field(default_factory=dict)
+    # Model calls that hit the decode cap while this candidate ran (delta of
+    # the model's ``n_truncated`` counter when it exposes one; ``None`` when
+    # the backend has no such telemetry). A candidate whose breaks coincide
+    # with truncations was undone by its decoding budget, not by its idea.
+    n_truncated: "int | None" = None
 
 
 @dataclass
@@ -335,6 +424,8 @@ class FixOutcome:
                     "n_model_independent": v.n_model_independent,
                     "e_value": v.e_value,
                     "verdict": v.verdict,
+                    "n_truncated": v.n_truncated,
+                    "outputs": dict(v.outputs),
                 }
                 for v in self.attempted
             ],
@@ -344,6 +435,55 @@ class FixOutcome:
             "refine_signal": self.refine_signal,
             "ebh_survivors": self.ebh_survivors,
         }
+
+
+def _truncated_count(model: Any) -> "int | None":
+    """The model's ``n_truncated`` counter when it exposes one, else ``None``."""
+    value = getattr(model, "n_truncated", None)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+@dataclass
+class FixContext:
+    """What the proposer (judge / coder) may see BESIDES the hypotheses.
+
+    Everything is optional; the loop builds one from its report in
+    ``run_fix``. The two rules that matter:
+
+    * ``example_cases`` are shown IN FULL (prompt, the model's baseline output,
+      the expected answer, PASS/FAIL). They MUST be disjoint from the batch
+      the candidates are validated on — the loop passes its EXPLORE split, the
+      fix is scored on CONFIRM. When no example cases are given, examples are
+      drawn from the validation batch itself and the expected answer is
+      withheld (a template that encodes gold answers of the cases it is scored
+      on would be a leak, not a repair).
+    * ``evidence`` / ``refuted`` are read-only narrative: what M2/M5/explore
+      established and what M4's intervention experiment knocked down. They
+      steer *what* to propose; validation still decides *whether* it works.
+
+    Attributes:
+        example_cases:      Cases the proposer may see in full (see above).
+        evidence:           Host-built summary of M2 statistics, M5 test
+                            verdicts and exploratory notes.
+        refuted:            Hypotheses an M4 experiment REFUTED (statement +
+                            why), so the proposer does not build on them.
+        scoring_note:       How outputs are scored / the expected final-answer
+                            format (e.g. "last 'Answer:' line, '(D)' == 'D'").
+        baseline_decoding:  ``{"max_tokens": .., "temperature": ..}`` the
+                            baseline was generated with; the agent also uses
+                            ``max_tokens`` as the floor a candidate may not go
+                            below.
+        task_note:          One-paragraph task / protocol description.
+    """
+
+    example_cases: "Any | None" = None
+    evidence: str = ""
+    refuted: "list[str]" = field(default_factory=list)
+    scoring_note: str = ""
+    baseline_decoding: "dict[str, Any]" = field(default_factory=dict)
+    task_note: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +555,36 @@ class FixAgent:
                           to stdout (``evalvitals.enable_console_logging()``).
                           Redundant when the owning ``VLDiagnoseLoop`` was
                           already constructed with ``verbose=True``.
+        baseline_generation_kwargs: The decoding controls the BASELINE was
+                          generated with (``{"max_tokens": 4096,
+                          "temperature": 0.6}``). ``max_tokens`` becomes the
+                          floor for every candidate: a judge-proposed
+                          ``max_tokens`` below it is raised to it (measured:
+                          on qwen3.5-2b/bbh_tracking7 the judge set 900 where
+                          the baseline had 4096 and 30% of baseline outputs
+                          already exceed 900 tokens — the candidate "regressed"
+                          by truncation, not by its idea). When ``None`` the
+                          floor is inferred from ``model.max_tokens`` or the
+                          cases' ``metadata["generation_config"]``, else no
+                          floor is enforced. Both values are also shown to the
+                          proposer.
+        concurrency:      Threads used to run a declarative candidate over
+                          the validation batch (default 1 = serial, unchanged
+                          behaviour). Coded pipelines are inherently serial
+                          (one bridge) and unaffected.
+        scoring_note:     Free-text description of how outputs are scored /
+                          the expected final-answer format, shown to the
+                          proposer (a per-call ``FixContext.scoring_note``
+                          overrides it).
+        floor_candidates: Names of built-in default candidates that are ALWAYS
+                          in the tested family for a text-only batch, on top of
+                          whatever the judge proposes (default:
+                          ``("self_consistency_5",)`` — 5 samples, majority
+                          vote on the extracted final answer). Before this the
+                          defaults were a *fallback* used only when the judge
+                          returned nothing, so the most basic variance-reduction
+                          scaffold was never even tested next to the judge's
+                          ideas. Empty tuple / ``None`` disables the floor.
     """
 
     def __init__(
@@ -438,6 +608,10 @@ class FixAgent:
         candidate_allowlist: "Iterable[str] | None" = None,
         finetune_pool: "CaseBatch | None" = None,
         verbose: bool = False,
+        baseline_generation_kwargs: "dict[str, Any] | None" = None,
+        concurrency: int = 1,
+        scoring_note: str = "",
+        floor_candidates: "Iterable[str] | None" = ("self_consistency_5",),
     ) -> None:
         if verbose:
             # Surfaces this module's own logger.info()/.warning() calls (tier
@@ -474,6 +648,17 @@ class FixAgent:
         )
         self._last_repair_prompt = ""
         self._last_usage: dict | None = None
+        self._baseline_generation_kwargs = dict(baseline_generation_kwargs or {})
+        self._concurrency = max(1, int(concurrency))
+        self._scoring_note = str(scoring_note or "")
+        self._floor_candidates = (
+            tuple(str(n) for n in floor_candidates) if floor_candidates else ()
+        )
+        # Per-candidate scratch: case id -> the final output that was scored.
+        # Filled by the strategy closures / run_pipeline capture while a
+        # candidate runs; _validate moves it onto the FixValidation.
+        self._captured: "dict[str, str]" = {}
+        self._max_tokens_floor: "int | None" = None
 
     @property
     def codegen_available(self) -> bool:
@@ -491,9 +676,17 @@ class FixAgent:
         data: "CaseBatch",
         hypotheses: "list[Hypothesis]",
         prior_attempts: "list[FixValidation] | None" = None,
+        context: "FixContext | None" = None,
     ) -> FixOutcome:
-        """Generate candidates within the allowed tiers, validate, recommend."""
+        """Generate candidates within the allowed tiers, validate, recommend.
+
+        *context* (optional :class:`FixContext`) is what the proposer sees
+        besides the hypotheses — full example cases from a DISJOINT split,
+        the M2/M5/explore evidence, M4-refuted hypotheses, the scoring rule
+        and the baseline decoding budget.
+        """
         outcome = FixOutcome(max_tier=self.max_tier)
+        self._max_tokens_floor = self._resolve_max_tokens_floor(model, data)
         routed_tiers: "list[FixTier]" = []
         for h in hypotheses:
             tier, why = route_min_tier(h)
@@ -529,7 +722,9 @@ class FixAgent:
             prior_text = self._format_prior(combined_prior) if combined_prior else ""
             prior_names: "frozenset[str]" = frozenset(v.candidate.name for v in combined_prior)
             new_candidates: "list[FixCandidate]" = []
-            for candidate in self._propose(hypotheses, data, model, prior_text, prior_names):
+            for candidate in self._propose(
+                hypotheses, data, model, prior_text, prior_names, context=context
+            ):
                 sig = self._signature(candidate)
                 if sig in seen:
                     continue
@@ -614,6 +809,8 @@ class FixAgent:
         selection correction is needed on the confirmation split.
         """
         data = self._validation_subset(data)
+        self._max_tokens_floor = self._resolve_max_tokens_floor(model, data)
+        self._enforce_generation_floor([candidate])
         baseline, unstable = self._baseline(model, data)
         return self._validate(candidate, model, data, baseline, unstable)
 
@@ -704,6 +901,24 @@ class FixAgent:
             }
 
         rec = self._recommend(routed_tiers, model=model)
+        if promising and rec is not None:
+            best = max(promising, key=lambda v: (v.n_fixed - v.n_broken, v.effect or 0.0))
+            eff = f"{best.effect:+.3f}" if best.effect is not None else "n/a"
+            ev = f"{best.e_value:.1f}" if best.e_value is not None else "n/a"
+            rec["promising"] = {
+                "candidate": best.candidate.name,
+                "n_fixed": best.n_fixed,
+                "n_broken": best.n_broken,
+                "effect": best.effect,
+                "e_value": best.e_value,
+            }
+            rec["reason"] += (
+                f" (note: {best.candidate.name!r} is INCONCLUSIVE, not refuted — "
+                f"{best.n_fixed} fixed / {best.n_broken} broken, effect {eff}, "
+                f"e={ev} < {1.0 / self._alpha:.0f}; re-validating it on more or cleaner "
+                "pairs (baseline_repeats>1 to drop sampling-unstable cases, or a larger "
+                "confirm split) is a cheaper next step than escalating the tier)"
+            )
         solo = [v for v in attempted if v.verdict == "model_independent"]
         if solo and rec is not None:
             rec["reason"] += (
@@ -791,7 +1006,9 @@ class FixAgent:
         model: "Model",
         prior_text: str = "",
         prior_names: "frozenset[str]" = frozenset(),
+        context: "FixContext | None" = None,
     ) -> "list[FixCandidate]":
+        context = context or FixContext()
         hyp_lines = (
             "\n".join(
                 f"- [{getattr(h, 'predicted_failure_mode', '')}] {getattr(h, 'statement', h)}"
@@ -799,14 +1016,14 @@ class FixAgent:
             )
             or "- (no verified hypotheses; failures are unexplained)"
         )
-        examples = (
-            "\n".join(
-                f"- {str(getattr(c.inputs, 'prompt', ''))[:160]}"
-                for c in list(data)
-                if getattr(getattr(c, "label", None), "value", None) == "fail"
-            )[:1000]
-            or "- (none)"
-        )
+        # Full examples (prompt + the model's own output + expected answer)
+        # come from cases the proposer may see in full — the loop's EXPLORE
+        # split. Without such cases the examples are drawn from the validation
+        # batch itself and the expected answer is withheld (see FixContext).
+        if context.example_cases is not None:
+            examples = _format_examples(context.example_cases, with_gold=True)
+        else:
+            examples = _format_examples(data, with_gold=False)
         # A video frame is visual content too -- a video-only case batch (no
         # .image ever set, only .video) must not silently read as "no images"
         # and lock every image-gated L1/L2/L3 candidate out. This was found
@@ -825,6 +1042,13 @@ class FixAgent:
             str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data
         }
         binary_hallucination_supported, _, _ = _binary_hallucination_direction(data)
+        # Text-only batches: the image-tool catalog is noise for the judge and
+        # an invitation to burn a candidate on a structural no-op.
+        catalog = catalog_text() if has_images else _TEXT_ONLY_CATALOG_NOTE
+        floor_names = self._floor_names(has_images=has_images, tasks=tasks)
+        context_block = self._context_block(
+            context, data, model, floor_names=floor_names
+        )
 
         candidates: "list[FixCandidate]" = []
         if self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
@@ -838,6 +1062,7 @@ class FixAgent:
                 has_images=has_images,
                 tasks=tasks,
                 binary_hallucination_supported=binary_hallucination_supported,
+                context_block=context_block,
             )
         if self.max_tier >= FixTier.L2_SCAFFOLD:
             candidates += self._l2_candidates(
@@ -848,9 +1073,28 @@ class FixAgent:
                 has_images=has_images,
                 model=model,
                 tasks=tasks,
+                context_block=context_block,
+                catalog=catalog,
             )
+            # The floor: always-tested defaults, on top of the judge's ideas.
+            present = {c.name for c in candidates}
+            for name in floor_names:
+                if name in present or name in prior_names:
+                    continue
+                spec = self._default_spec(name)
+                if spec is not None:
+                    candidates.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD, name=name, kind="spec",
+                            source="floor", payload=spec.to_dict(),
+                        )
+                    )
             if self.codegen_available:
-                candidates += self._l2_coded_candidate(hyp_lines, examples, model, prior_text)
+                candidates += self._l2_coded_candidate(
+                    hyp_lines, examples, model, prior_text,
+                    context_block=context_block, catalog=catalog,
+                    text_only=not has_images,
+                )
         if self.max_tier >= FixTier.L3A_INTERNALS_READ:
             candidates += self._l3_candidates(
                 hyp_lines,
@@ -866,8 +1110,168 @@ class FixAgent:
             candidates += self._l4_candidates(hyp_lines)
         if self._candidate_allowlist is not None:
             candidates = [c for c in candidates if c.name in self._candidate_allowlist]
+        self._enforce_generation_floor(candidates)
         return candidates
 
+    # -- proposer context ---------------------------------------------------
+
+    def _floor_names(self, *, has_images: bool, tasks: "set[str] | None") -> "tuple[str, ...]":
+        """Which built-in defaults are ALWAYS in the family for this batch.
+
+        Text-only batches get the configured floor. Image batches keep their
+        existing ladder (image transforms first; self_refine/self_consistency
+        only for reasoning-shaped tasks — see ``_l2_candidates``), so the
+        floor applies there only for those reasoning tasks.
+        """
+        if not self._floor_candidates:
+            return ()
+        reasoning_task = bool(
+            tasks and tasks & {"multiple_choice", "exact_or_numeric", "vqa_consensus"}
+        )
+        if has_images and not reasoning_task:
+            return ()
+        return tuple(self._floor_candidates)
+
+    def _default_spec(self, name: str) -> "PipelineSpec | None":
+        """Built-in default L2 specs by name (the floor and the fallback)."""
+        if name == "self_consistency_5":
+            # Vote at a stochastic temperature: at T=0 five samples are one
+            # sample. Inherit the baseline temperature when it already samples.
+            base_t = self._baseline_generation_kwargs.get("temperature")
+            try:
+                base_t = float(base_t) if base_t is not None else None
+            except (TypeError, ValueError):
+                base_t = None
+            temperature = base_t if (base_t is not None and base_t > 0.0) else 0.7
+            return PipelineSpec(
+                name="self_consistency_5",
+                prompt_template="{prompt}",
+                n_samples=5,
+                generation_kwargs={"temperature": temperature},
+            )
+        if name == "self_refine":
+            return PipelineSpec(name="self_refine", prompt_template="{prompt}",
+                                strategy="self_refine")
+        if name == "least_to_most":
+            return PipelineSpec(name="least_to_most", prompt_template="{prompt}",
+                                strategy="least_to_most")
+        if name == "chain_of_verification":
+            return PipelineSpec(name="chain_of_verification", prompt_template="{prompt}",
+                                strategy="chain_of_verification")
+        return None
+
+    def _resolve_max_tokens_floor(self, model: "Model | None", data: "CaseBatch") -> "int | None":
+        """The baseline decode budget: explicit > model attribute > case metadata."""
+        raw = self._baseline_generation_kwargs.get("max_tokens")
+        try:
+            if raw is not None and int(raw) > 0:
+                return int(raw)
+        except (TypeError, ValueError):
+            pass
+        attr = getattr(model, "max_tokens", None)
+        if isinstance(attr, int) and not isinstance(attr, bool) and attr > 0:
+            return attr
+        caps: "list[int]" = []
+        for case in data:
+            meta = getattr(case, "metadata", {}) or {}
+            config = meta.get("generation_config") or {}
+            try:
+                cap = int(config.get("max_tokens"))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if cap > 0:
+                caps.append(cap)
+        return max(caps) if caps else None
+
+    def _enforce_generation_floor(self, candidates: "list[FixCandidate]") -> None:
+        """Raise any candidate ``max_tokens`` below the baseline budget to it.
+
+        A scaffold may give the model MORE decode room than the baseline had,
+        never less: a lower cap truncates the chain of thought and the answer
+        never appears, which the scorer reads as a wrong answer — a decoding
+        artefact that says nothing about the candidate's idea. The judge's
+        proposal is kept in ``payload["generation_kwargs_proposed"]`` for the
+        record; the applied value is what ``PipelineSpec.from_dict`` reads.
+        """
+        floor = self._max_tokens_floor
+        if not floor:
+            return
+        for candidate in candidates:
+            payload = candidate.payload
+            if not isinstance(payload, dict) or candidate.kind != "spec":
+                continue
+            gk = payload.get("generation_kwargs")
+            if not isinstance(gk, dict):
+                continue
+            try:
+                proposed = int(gk.get("max_tokens"))
+            except (TypeError, ValueError):
+                continue
+            if proposed < floor:
+                payload.setdefault("generation_kwargs_proposed", dict(gk))
+                gk["max_tokens"] = int(floor)
+                logger.info(
+                    "FixAgent: %s proposed max_tokens=%d below the baseline budget %d; "
+                    "raised to the floor (a candidate may not decode with less room "
+                    "than the baseline)", candidate.name, proposed, floor,
+                )
+
+    def _context_block(
+        self,
+        context: FixContext,
+        data: "CaseBatch",
+        model: "Model | None",
+        *,
+        floor_names: "tuple[str, ...]" = (),
+    ) -> str:
+        """Render task / scoring / decoding / evidence / refuted notes for the proposer."""
+        lines: "list[str]" = []
+        if context.task_note:
+            lines += ["TASK:", f"  {context.task_note.strip()}"]
+        scoring = context.scoring_note or self._scoring_note
+        if scoring:
+            lines += ["HOW OUTPUTS ARE SCORED (the final answer must be recoverable this way):",
+                      f"  {scoring.strip()}"]
+        decoding = dict(self._baseline_generation_kwargs)
+        decoding.update(context.baseline_decoding or {})
+        floor = self._max_tokens_floor
+        outputs = [str(getattr(c, "observed", "") or "") for c in data]
+        lengths = sorted(len(o) for o in outputs if o)
+        median_chars = lengths[len(lengths) // 2] if lengths else None
+        if decoding or floor or median_chars:
+            parts = []
+            if floor:
+                parts.append(f"max_tokens={floor}")
+            for key in ("temperature", "top_p"):
+                if key in decoding:
+                    parts.append(f"{key}={decoding[key]}")
+            note = "BASELINE DECODING: " + (", ".join(parts) if parts else "(unknown)")
+            if median_chars:
+                note += f"; median baseline output ≈ {median_chars} chars"
+            lines.append(note)
+            if floor:
+                lines.append(
+                    "  A candidate's max_tokens is a FLOOR-RAISED value: anything below "
+                    f"{floor} is raised to {floor} (a candidate may give the model more "
+                    "room, never less — the model needs its chain of thought), so do not "
+                    "try to save tokens; only raise max_tokens if the baseline truncates."
+                )
+        if context.evidence:
+            lines += ["DIAGNOSTIC EVIDENCE (what M2 statistics / M5 tests / exploration "
+                      "established — read-only, steer WHAT to try):", context.evidence.rstrip()]
+        if context.refuted:
+            lines += ["REFUTED BY AN INTERVENTION EXPERIMENT (M4) — do NOT build a fix on these:"]
+            lines += [f"  - {r}" for r in context.refuted]
+        if floor_names:
+            lines.append(
+                "ALREADY IN THE TEST FAMILY (validated alongside your proposals — do not "
+                "re-propose plain versions of these): " + ", ".join(
+                    f"{n} ({_FLOOR_DESCRIPTIONS.get(n, 'built-in default')})" for n in floor_names
+                )
+            )
+        if not lines:
+            return ""
+        return "\n" + "\n".join(lines) + "\n"
     def _l0_candidates(
         self,
         data: "CaseBatch",
@@ -1144,9 +1548,13 @@ class FixAgent:
         has_images: bool = False,
         tasks: "set[str] | None" = None,
         binary_hallucination_supported: bool = True,
+        context_block: str = "",
     ) -> "list[FixCandidate]":
         proposals = self._ask_judge(
-            _L1_PROMPT.format(hypotheses=hyp_lines, examples=examples, k=self.max_judge_candidates)
+            _L1_PROMPT.format(
+                hypotheses=hyp_lines, examples=examples, k=self.max_judge_candidates,
+                context=context_block,
+            )
             + prior_text
         )
         out: "list[FixCandidate]" = []
@@ -1226,18 +1634,24 @@ class FixAgent:
                 )
             )
         if not out and not has_structural_proposal and "attend_carefully" not in prior_names:
+            # The judge gave nothing usable: one conservative default. Worded
+            # for the modality — a text-only batch must not be told to
+            # "examine the image".
+            template = (
+                "Examine the image carefully, including small, subtle and "
+                "low-contrast regions, before answering. {prompt}"
+                if has_images else
+                "Work through this carefully step by step, re-read the question "
+                "before committing, and double-check the final answer against the "
+                "question's own wording before answering. {prompt}"
+            )
             out = [
                 FixCandidate(
                     tier=FixTier.L1_PROMPT,
                     name="attend_carefully",
                     kind="template",
                     source="default",
-                    payload={
-                        "prompt_template": (
-                            "Examine the image carefully, including small, subtle and "
-                            "low-contrast regions, before answering. {prompt}"
-                        )
-                    },
+                    payload={"prompt_template": template},
                 )
             ]
         return out[: self.max_judge_candidates]
@@ -1252,7 +1666,11 @@ class FixAgent:
         has_images: bool = False,
         model: "Model | None" = None,
         tasks: "set[str] | None" = None,
+        context_block: str = "",
+        catalog: "str | None" = None,
     ) -> "list[FixCandidate]":
+        if catalog is None:
+            catalog = catalog_text() if has_images else _TEXT_ONLY_CATALOG_NOTE
         proposals = (
             []
             if self._paper_methods_only
@@ -1261,7 +1679,8 @@ class FixAgent:
                     hypotheses=hyp_lines,
                     examples=examples,
                     k=self.max_judge_candidates,
-                    catalog=catalog_text(),
+                    catalog=catalog,
+                    context=context_block,
                 )
                 + prior_text
             )
@@ -1528,7 +1947,15 @@ class FixAgent:
         return out[: self.max_judge_candidates]
 
     def _l2_coded_candidate(
-        self, hyp_lines: str, examples: str, model: "Model", prior_text: str = ""
+        self,
+        hyp_lines: str,
+        examples: str,
+        model: "Model",
+        prior_text: str = "",
+        *,
+        context_block: str = "",
+        catalog: "str | None" = None,
+        text_only: bool = False,
     ) -> "list[FixCandidate]":
         """The coding agent writes a brand-new pipeline (CLI first, judge fallback).
 
@@ -1565,13 +1992,16 @@ class FixAgent:
             else ""
         )
         code, source, prompt, raw = "", "", "", ""
+        if catalog is None:
+            catalog = _TEXT_ONLY_CATALOG_NOTE if text_only else catalog_text()
         base = dict(
             hypotheses=hyp_lines,
             examples=examples,
-            catalog=catalog_text(),
+            catalog=catalog,
             cases_file=CASES_FILENAME,
             marker=RESULT_MARKER,
             attend_hint=attend_hint,
+            context=context_block,
         )
         if self._cli_config is not None and self._cli_config.provider != "llm":
             prompt = (
@@ -1613,7 +2043,8 @@ class FixAgent:
                 tier=tier,
                 name="coded_pipeline",
                 kind="code",
-                payload={"code": code, "enable_attend": enable_attend},
+                payload={"code": code, "enable_attend": enable_attend,
+                         "text_only": bool(text_only)},
                 source=source,
                 trial=trial,
             )
@@ -1671,9 +2102,14 @@ class FixAgent:
                 continue
             effect = f"effect={v.effect:+.2f}" if v.effect is not None else "did not execute"
             broken = f", broke {v.broken_cases[:3]}" if v.broken_cases else ""
+            trunc = (
+                f"; {v.n_truncated} model call(s) hit the decode cap — its breaks are "
+                "truncation, not the idea: give the model MORE room, never less"
+                if v.n_truncated else ""
+            )
             items.append(
                 f"- [{c.tier.label}/{c.kind}] {c.name}: "
-                f"{v.n_fixed} fixed / {v.n_broken} broken ({effect}{broken})"
+                f"{v.n_fixed} fixed / {v.n_broken} broken ({effect}{broken}{trunc})"
             )
             if v.n_fixed > 0 and v.n_broken > 0:
                 heterogeneous.append(
@@ -2193,6 +2629,7 @@ class FixAgent:
                 try:
                     generate_vcd = getattr(model, "generate_vcd")
                     output = generate_vcd(case.inputs, **candidate.payload)
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("VCD generation failed on %s: %s", case.id, exc)
@@ -2205,6 +2642,7 @@ class FixAgent:
                 try:
                     generate_aad = getattr(model, "generate_aad")
                     output = generate_aad(case.inputs, **candidate.payload)
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("AAD generation failed on %s: %s", case.id, exc)
@@ -2217,6 +2655,7 @@ class FixAgent:
                 try:
                     generate_icd = getattr(model, "generate_instruction_cd")
                     output = generate_icd(case.inputs, **candidate.payload)
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("ICD generation failed on %s: %s", case.id, exc)
@@ -2229,6 +2668,7 @@ class FixAgent:
                 try:
                     generate_vicrop = getattr(model, "generate_vicrop")
                     output = generate_vicrop(case.inputs, **candidate.payload)
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("ViCrop generation failed on %s: %s", case.id, exc)
@@ -2257,6 +2697,7 @@ class FixAgent:
                 try:
                     generate_opera = getattr(model, "generate_opera_binary")
                     output = generate_opera(case.inputs, **candidate.payload)
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("OPERA binary generation failed on %s: %s", case.id, exc)
@@ -2269,6 +2710,7 @@ class FixAgent:
                 try:
                     generate_ifcd = getattr(model, "generate_ifcd")
                     output = generate_ifcd(case.inputs, **candidate.payload)
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("IFCD generation failed on %s: %s", case.id, exc)
@@ -2281,6 +2723,7 @@ class FixAgent:
                 try:
                     generate_pai = getattr(model, "generate_pai")
                     output = generate_pai(case.inputs, **candidate.payload)
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("PAI generation failed on %s: %s", case.id, exc)
@@ -2293,6 +2736,7 @@ class FixAgent:
                 try:
                     generate_tcd = getattr(model, "generate_tcd")
                     output = generate_tcd(case.inputs, **candidate.payload)
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("TCD generation failed on %s: %s", case.id, exc)
@@ -2309,6 +2753,7 @@ class FixAgent:
                         baseline_answer=getattr(case, "observed", None),
                         **candidate.payload,
                     )
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("Guided visual search failed on %s: %s", case.id, exc)
@@ -2325,6 +2770,7 @@ class FixAgent:
                         baseline_answer=getattr(case, "observed", None),
                         **candidate.payload,
                     )
+                    self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
                     logger.debug("Detector visual search failed on %s: %s", case.id, exc)
@@ -2352,7 +2798,9 @@ class FixAgent:
                     new_inputs = dataclasses.replace(
                         inp, prompt=safe_format(template, template_context)
                     )
-                    return score_to_bool(self._score(case, str(model.generate(new_inputs))))
+                    output = str(model.generate(new_inputs))
+                    self._record_output(case.id, output)
+                    return score_to_bool(self._score(case, output))
                 except Exception:
                     return None
 
@@ -2361,7 +2809,17 @@ class FixAgent:
         spec = PipelineSpec.from_dict(candidate.payload)
         if spec is None:  # already validated at proposal time; belt and braces
             return lambda model, case: None
-        return lambda model, case: run_pipeline(model, case, spec, self._score)
+
+        def declarative(model: "Model", case: "FailureCase") -> "Optional[bool]":
+            capture: "dict[str, Any]" = {}
+            result = run_pipeline(model, case, spec, self._score, capture=capture)
+            winner = capture.get("winner")
+            if winner is None and capture.get("outputs"):
+                winner = capture["outputs"][0]
+            self._record_output(case.id, winner)
+            return result
+
+        return declarative
 
     def _candidate_scores(
         self, candidate: FixCandidate, model: "Model", data: "CaseBatch"
@@ -2372,6 +2830,8 @@ class FixAgent:
             return prim.run(model, data, self._score, candidate.payload.get("params"))
         if candidate.kind == "code":
             result = self._run_coded(candidate, model, data)
+            for cid, output in result.outputs.items():
+                self._record_output(cid, output)
             if result.ok:
                 self._frozen_model_control(candidate, data)
             return score_outputs(result, data, self._score)
@@ -2381,7 +2841,20 @@ class FixAgent:
                 candidate.payload["exec_error"] = "" if result.ok else result.error
             return result.scores
         strategy = self._strategy(candidate)
-        return {case.id: strategy(model, case) for case in data}
+        cases = list(data)
+        if self._concurrency > 1 and len(cases) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=self._concurrency) as pool:
+                results = list(pool.map(lambda c: (c.id, strategy(model, c)), cases))
+            return dict(results)
+        return {case.id: strategy(model, case) for case in cases}
+
+    def _record_output(self, case_id: str, output: Any) -> None:
+        """Remember what a candidate produced for *case_id* (see FixValidation.outputs)."""
+        if output is None:
+            return
+        self._captured[str(case_id)] = str(output)
 
     def _run_coded(
         self, candidate: FixCandidate, model: "Model", data: "CaseBatch"
@@ -2401,6 +2874,7 @@ class FixAgent:
             workdir=workdir,
             timeout_sec=self._exec_timeout_sec,
             enable_attend=bool(candidate.payload.get("enable_attend")),
+            max_tokens_floor=self._max_tokens_floor,
         )
         if not result.ok and self.codegen_available:
             logger.warning("FixAgent: coded pipeline failed (%s) — one repair round", result.error)
@@ -2423,6 +2897,7 @@ class FixAgent:
                     workdir=workdir,
                     timeout_sec=self._exec_timeout_sec,
                     enable_attend=bool(candidate.payload.get("enable_attend")),
+                    max_tokens_floor=self._max_tokens_floor,
                 )
         candidate.payload["exec_error"] = "" if result.ok else result.error
         if not result.ok:
@@ -2482,7 +2957,8 @@ class FixAgent:
             error=error[:600],
             code=str(candidate.payload.get("code", ""))[:4000],
             attend_clause=attend_clause,
-            catalog=catalog_text(),
+            catalog=(_TEXT_ONLY_CATALOG_NOTE if candidate.payload.get("text_only")
+                     else catalog_text()),
             cases_file=CASES_FILENAME,
             marker=RESULT_MARKER,
         )
@@ -2523,7 +2999,14 @@ class FixAgent:
     ) -> FixValidation:
         v = FixValidation(candidate=candidate)
         unstable = unstable or set()
+        self._captured = {}
+        truncated_before = _truncated_count(model)
         scores = self._candidate_scores(candidate, model, data)
+        truncated_after = _truncated_count(model)
+        if truncated_before is not None and truncated_after is not None:
+            v.n_truncated = max(0, truncated_after - truncated_before)
+        v.outputs = dict(self._captured)
+        self._captured = {}
         if isinstance(candidate.payload, dict):
             v.exec_error = str(candidate.payload.get("exec_error", "") or "")
 
@@ -2605,7 +3088,9 @@ class FixAgent:
         noise = f", {v.n_unstable} unstable dropped" if v.n_unstable else ""
         solo = (f", {v.n_model_independent} model-independent excluded"
                 if v.n_model_independent else "")
-        v.summary = f"{stat.summary()} [{v.verdict}{cov}{noise}{solo}]"
+        trunc = (f", {v.n_truncated} call(s) hit the decode cap"
+                 if v.n_truncated else "")
+        v.summary = f"{stat.summary()} [{v.verdict}{cov}{noise}{solo}{trunc}]"
         return v
 
     @staticmethod

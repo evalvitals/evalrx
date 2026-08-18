@@ -6,14 +6,16 @@ model failure. The model may be text-only or vision-language.
 
 VERIFIED FAILURE HYPOTHESES:
 {hypotheses}
-
-EXAMPLE FAILING PROMPTS:
+{context}
+EXAMPLE CASES — read the model's own outputs: what it does when it fails, what
+it does when it succeeds, and the answer format the scorer expects:
 {examples}
 
 Propose up to {k} prompt rewrite strategies that could repair these failures
 WITHOUT changing the model or adding pipeline steps.  Each strategy is a
 template applied to every case prompt; it MUST contain the literal placeholder
-{{prompt}}.
+{{prompt}}.  Keep the final-answer format the scorer expects recoverable; do
+not ask the model to suppress its reasoning if the task needs it.
 
 Reply with ONLY a JSON array:
 [{{"name": "<short_snake_case>", "prompt_template": "<template with {{prompt}}>"}}]"""
@@ -25,21 +27,26 @@ vision-language.
 
 VERIFIED FAILURE HYPOTHESES:
 {hypotheses}
-
-EXAMPLE FAILING PROMPTS:
+{context}
+EXAMPLE CASES — read the model's own outputs: what it does when it fails, what
+it does when it succeeds, and the answer format the scorer expects:
 {examples}
 
-OPTIONAL IMAGE TOOLS (use only when the case has an image; text-only cases
-should use prompt rewrites and/or repeated sampling instead):
+IMAGE TOOLS (only meaningful when the case has an image):
 {catalog}
 
 Propose up to {k} pipelines. Each may chain image tools, rewrite the prompt
-(template MUST contain {{prompt}}), use bounded decoding controls in
-generation_kwargs (max_tokens, temperature, top_p, stop), sample the model
-n_samples times, or select one reviewed multi-call strategy: direct,
-least_to_most, self_refine, chain_of_verification. For structured answer tasks,
-output_key_pattern may be a regex with one capture group used for answer-only
-voting; it must not contain gold answers. Reply with ONLY a JSON array:
+(template MUST contain {{prompt}}), sample the model n_samples times (1..5;
+applies to EVERY strategy — a multi-call strategy is repeated end-to-end and
+its final answers vote on the extracted final answer), select one reviewed
+multi-call strategy (direct, least_to_most, self_refine,
+chain_of_verification), and set bounded decoding controls in
+generation_kwargs (temperature, top_p, stop, max_tokens). max_tokens can only
+RAISE the baseline budget — a value below it is raised to the baseline, so
+never try to shorten the model's chain of thought; temperature 0 makes
+n_samples>1 pointless. For structured answer tasks, output_key_pattern may be
+a regex with one capture group used for answer-only voting; it must not
+contain gold answers. Reply with ONLY a JSON array:
 [{{"name": "<short_snake_case>",
    "image_ops": [{{"tool": "<catalog name>", "params": {{}}}}],
    "prompt_template": "{{prompt}}", "n_samples": 1,
@@ -53,16 +60,24 @@ pipeline you want — the only constraint is that the model itself is unchanged.
 
 VERIFIED FAILURE HYPOTHESES:
 {hypotheses}
-
-EXAMPLE FAILING PROMPTS:
+{context}
+EXAMPLE CASES — read the model's own outputs: what it does when it fails, what
+it does when it succeeds, and the answer format the scorer expects:
 {examples}
 
 EXECUTION CONTRACT:
-- "{cases_file}" in the current directory: {{"cases": [{{"id": str, "prompt": str}}]}}
-- A function  model_generate(case_id, prompt=None, image_ops=None) -> str  is
-  ALREADY DEFINED in your namespace (do NOT import or redefine it).  It runs
-  the ORIGINAL model on that case: optional prompt override, optional image
-  transforms applied to the case's image first.  image_ops MUST be a list of
+- "{cases_file}" in the current directory: {{"cases": [{{"id": str, "prompt": str,
+  "baseline_output": str|null}}]}} — baseline_output is the model's ORIGINAL
+  answer to that prompt (may be wrong; it is NOT a label and carries no
+  correctness information; you may compare against it, vote with it, or ask
+  the model to double-check it).
+- A function  model_generate(case_id, prompt=None, image_ops=None,
+  generation_kwargs=None) -> str  is ALREADY DEFINED in your namespace (do NOT
+  import or redefine it).  It runs the ORIGINAL model on that case: optional
+  prompt override, optional image transforms applied to the case's image
+  first, optional bounded decoding controls (temperature, top_p, stop,
+  max_tokens — max_tokens can only RAISE the baseline budget; a lower value is
+  raised to it).  image_ops MUST be a list of
   {{"tool": "<name>", "params": {{...}}}} dicts using ONLY these tools
   (anything else is rejected with an error):
 {catalog}{attend_hint}
@@ -98,7 +113,7 @@ YOUR PREVIOUS CODE:
 
 Fix the code.  Follow the execution contract EXACTLY:
 - the ONLY model access is the predefined model_generate(case_id, prompt=None, \
-image_ops=None){attend_clause} — do not import or redefine it;
+image_ops=None, generation_kwargs=None){attend_clause} — do not import or redefine it;
 - image_ops must be a list of {{"tool": "<name>", "params": {{...}}}} dicts \
 using ONLY these tools:
 {catalog}

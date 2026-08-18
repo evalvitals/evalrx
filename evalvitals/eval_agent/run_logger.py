@@ -956,9 +956,16 @@ class RunLogger:
         repair experiment can be read on its own without parsing the log.
         """
         d = outcome.to_dict()
+        # Per-case outputs go to ``outputs.jsonl`` beside each attempt's record
+        # (written by _write_fix_records), never inline in the JSONL event —
+        # 80 cases x a few KB x N candidates would bloat every reader of the
+        # log. The event keeps only the count.
+        record = self._write_fix_records(d)
+        for a in d.get("attempted") or []:
+            outputs = a.pop("outputs", None)
+            a["n_outputs"] = len(outputs) if isinstance(outputs, dict) else 0
         entry: dict[str, Any] = {"event": "fix", "cycle": -1, "module": "fix"}
         entry.update(d)
-        record = self._write_fix_records(d)
         if record is not None:
             entry["record"] = record
         self._log(entry, span_id="fix")
@@ -1015,8 +1022,28 @@ class RunLogger:
                 f"- e-value: {_eff(a.get('e_value'))}",
                 f"- statistically significant (rejects H0): {a.get('reject')}",
             ]
+            if a.get("n_truncated") is not None:
+                lines.append(
+                    f"- model calls that hit the decode cap: {a.get('n_truncated')}"
+                )
             if a.get("summary"):
                 lines.append(f"- summary: {a['summary']}")
+            outputs = a.get("outputs")
+            if isinstance(outputs, dict) and outputs:
+                # One JSON line per case: what the candidate produced, tagged
+                # fixed/broken/unchanged so a regression can be read against
+                # its actual text (truncated? format slip? wrong?).
+                fixed_ids = set(a.get("fixed_cases") or [])
+                broken_ids = set(a.get("broken_cases") or [])
+                rows_out = []
+                for cid, text in outputs.items():
+                    status = ("fixed" if cid in fixed_ids
+                              else "broken" if cid in broken_ids else "unchanged")
+                    rows_out.append(json.dumps(
+                        {"case_id": cid, "status": status, "output": text},
+                        ensure_ascii=False, default=str))
+                self._save_text(dest_dir, "outputs.jsonl", "\n".join(rows_out) + "\n")
+                lines.append(f"- per-case outputs: outputs.jsonl ({len(outputs)} cases)")
             lines.append("")
             if a.get("fixed_cases"):
                 lines.append("## Cases fixed")
@@ -1031,7 +1058,9 @@ class RunLogger:
             lines.append(json.dumps(a.get("payload") or {}, indent=2, default=str))
             lines.append("```")
             self._save_text(dest_dir, "record.md", "\n".join(lines))
-            self._save_text(dest_dir, "result.json", json.dumps(a, indent=2, default=str))
+            lean = {k: v for k, v in a.items() if k != "outputs"}
+            lean["n_outputs"] = len(outputs) if isinstance(outputs, dict) else 0
+            self._save_text(dest_dir, "result.json", json.dumps(lean, indent=2, default=str))
 
         # Top-level summary across all attempts.
         fixed = d.get("fixed")

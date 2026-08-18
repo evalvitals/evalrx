@@ -94,6 +94,128 @@ def _diagnose_with_optional_context(
     return diag_agent.diagnose(stats_report, **kwargs)
 
 
+def _propose_and_validate(agent: "Any", model: "Any", data: "Any", hypotheses: "Any",
+                          **kwargs: Any) -> "Any":
+    """Call ``agent.propose_and_validate`` passing ``prior_attempts`` /
+    ``context`` only when the agent accepts them (custom/stub fix agents keep
+    working unchanged — same pattern as ``_diagnose_with_optional_context``)."""
+    import inspect as _inspect
+
+    try:
+        params = _inspect.signature(agent.propose_and_validate).parameters
+    except (TypeError, ValueError):
+        params = {}
+    accepts_any = any(p.kind == p.VAR_KEYWORD for p in params.values())
+    passed = {k: v for k, v in kwargs.items()
+              if v is not None and (accepts_any or k in params)}
+    return agent.propose_and_validate(model, data, hypotheses, **passed)
+
+
+def _hyp_key(hypothesis: "Any") -> str:
+    """Identity of a hypothesis for matching across M5/M4 results."""
+    hid = str(getattr(hypothesis, "id", "") or "")
+    return hid or str(getattr(hypothesis, "statement", hypothesis))
+
+
+def _m4_refuted(report: "Any") -> "tuple[set[str], list[str]]":
+    """Hypotheses M4's intervention experiment REFUTED, with a one-line why.
+
+    Reads ``report.fix_proposal`` (an ``InterventionResult`` from ``run_m4``).
+    Returns ``(keys, notes)``; both empty when M4 did not run or did not refute.
+    """
+    iv = getattr(report, "fix_proposal", None)
+    if iv is None:
+        return set(), []
+    status = getattr(iv, "status", None)
+    status_s = str(getattr(status, "value", status) or "").lower()
+    if status_s != "refuted":
+        return set(), []
+    hyp = getattr(iv, "hypothesis", None)
+    if hyp is None:
+        return set(), []
+    statement = str(getattr(hyp, "statement", hyp))
+    evidence = getattr(iv, "evidence", None) or {}
+    scalars = []
+    if isinstance(evidence, dict):
+        for k, v in evidence.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                scalars.append(f"{k}={v:g}" if isinstance(v, float) else f"{k}={v}")
+            if len(scalars) >= 8:
+                break
+    why = f" [experiment: {', '.join(scalars)}]" if scalars else ""
+    return {_hyp_key(hyp)}, [f"{statement}{why}"]
+
+
+def _fix_context_from_report(
+    report: "Any",
+    *,
+    example_cases: "Any | None",
+    explore_context: "Any | None",
+    protocol: "Any | None",
+    refuted: "list[str]",
+    refuted_ids: "set[str] | None" = None,
+) -> "Any":
+    """Build the :class:`~evalvitals.eval_agent.stages.fix_agent.FixContext`
+    the proposer sees: M5 verdicts + M2 conclusion/tests + exploratory notes,
+    the M4-refuted hypotheses, and (when a confirm split is in play) the
+    EXPLORE cases in full."""
+    from evalvitals.eval_agent.stages.fix_agent import FixContext
+
+    lines: list[str] = []
+    refuted_ids = set(refuted_ids or ())
+    verified = [
+        tr for tr in list(getattr(report, "verified_hypotheses", None) or [])
+        if _hyp_key(getattr(tr, "hypothesis", None)) not in refuted_ids
+    ]
+    if verified:
+        lines.append("  M5 verified hypotheses (statistical tests on the diagnosis split):")
+        for tr in verified[:6]:
+            stmt = str(getattr(getattr(tr, "hypothesis", None), "statement", ""))[:220]
+            verdict = str(getattr(tr, "verdict", "") or "")[:300]
+            conf = getattr(tr, "confidence", None)
+            grade = getattr(tr, "evidence_grade", "")
+            conf_s = f" conf={conf:.2f}" if isinstance(conf, (int, float)) else ""
+            lines.append(f"    - {stmt}{conf_s} grade={grade}")
+            if verdict:
+                lines.append(f"        evidence: {verdict}")
+    stats = getattr(report, "final_stats_report", None) or getattr(report, "final_analysis", None)
+    if stats is not None:
+        conclusion = str(getattr(stats, "conclusion", "") or getattr(stats, "narrative", "") or "")
+        if conclusion:
+            lines.append("  M2 conclusion:")
+            lines.append("    " + conclusion.strip()[:1200])
+        chain = list(getattr(stats, "evidence_chain", None) or [])
+        if chain:
+            lines.append("  M2 evidence chain:")
+            lines += [f"    - {str(step)[:300]}" for step in chain[:8]]
+        results = list(getattr(stats, "stats_results", None) or [])
+        sig = [r for r in results if getattr(r, "ok", False) and getattr(r, "reject", False)]
+        shown = sig[:8] or [r for r in results if getattr(r, "ok", False)][:5]
+        if shown:
+            lines.append("  M2 statistical tests" + (" (rejecting H0):" if sig else ":"))
+            lines += [f"    - {str(getattr(r, 'summary', ''))[:300]}" for r in shown]
+    if explore_context is not None and not getattr(explore_context, "is_empty", True):
+        obs = list(getattr(explore_context, "observations", None) or [])
+        cav = list(getattr(explore_context, "caveats", None) or [])
+        if obs:
+            lines.append("  Exploratory notes (free-form EDA, UNCONFIRMED — hints only):")
+            lines += [f"    - {str(o)[:300]}" for o in obs[:10]]
+        if cav:
+            lines.append("  Explorer caveats:")
+            lines += [f"    - {str(c)[:200]}" for c in cav[:5]]
+    task_bits = []
+    for attr in ("description", "task_domain", "failure_patterns"):
+        value = str(getattr(protocol, attr, "") or "").strip()
+        if value:
+            task_bits.append(value)
+    return FixContext(
+        example_cases=example_cases,
+        evidence="\n".join(lines),
+        refuted=list(refuted),
+        task_note=" — ".join(task_bits),
+    )
+
+
 class VLDiagnoseLoop:
     """M1→M2→M3→M5 failure-analysis loop for VL tasks (Plan A architecture).
 
@@ -1072,14 +1194,35 @@ class VLDiagnoseLoop:
         # were generated on EXPLORE, so the deployed repair must be confirmed on
         # CONFIRM — cases the loop never used to pick the fix. Deterministic
         # re-split of the same batch; no-op when confirm_split=0.
-        _, confirm = self._split_explore_confirm(data)
+        explore, confirm = self._split_explore_confirm(data)
         if confirm is not None:
             data = confirm
 
         agent = fix_agent or self.fix_agent
-        hypotheses = [tr.hypothesis for tr in report.verified_hypotheses]
+        # M4's intervention experiment (run_m4) can REFUTE the very hypothesis
+        # M5 verified. A refuted hypothesis must not reach the proposer as
+        # "verified": on qwen3.5-2b/bbh_tracking7 the fix judge/coder were told
+        # the M4-refuted grading-mismatch hypothesis was verified and half the
+        # coded pipeline's design served it. Refuted ones are dropped from the
+        # list and passed to the proposer as "do not build on these".
+        refuted_ids, refuted_notes = _m4_refuted(report)
+        hypotheses = [
+            tr.hypothesis for tr in report.verified_hypotheses
+            if _hyp_key(tr.hypothesis) not in refuted_ids
+        ]
         if not hypotheses:
-            hypotheses = list(report.final_hypotheses)[-3:]
+            hypotheses = [
+                h for h in list(report.final_hypotheses)[-3:]
+                if _hyp_key(h) not in refuted_ids
+            ]
+        context = _fix_context_from_report(
+            report,
+            example_cases=explore if confirm is not None else None,
+            explore_context=self._explore_context,
+            protocol=self.protocol,
+            refuted=refuted_notes,
+            refuted_ids=refuted_ids,
+        )
 
         if auto_escalate:
             _LADDER = [
@@ -1106,9 +1249,10 @@ class VLDiagnoseLoop:
                     agent.max_tier = tier
                     logger.info("run_fix: trying tier %s (%d prior attempt(s))",
                                 tier.label, len(all_prior))
-                    outcome = agent.propose_and_validate(
-                        self.model, data, hypotheses,
+                    outcome = _propose_and_validate(
+                        agent, self.model, data, hypotheses,
                         prior_attempts=all_prior if all_prior else None,
+                        context=context,
                     )
                     all_attempted.extend(outcome.attempted)
                     all_prior.extend(v for v in outcome.attempted if not v.fixed)
@@ -1155,6 +1299,6 @@ class VLDiagnoseLoop:
         # Non-escalating path: single shot at the requested tier.
         if max_tier is not None:
             agent.max_tier = parse_tier(max_tier)
-        outcome = agent.propose_and_validate(self.model, data, hypotheses)
+        outcome = _propose_and_validate(agent, self.model, data, hypotheses, context=context)
         report.fix_outcome = outcome
         return outcome
