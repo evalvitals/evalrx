@@ -605,3 +605,51 @@ def test_build_explorer_uses_the_m2_coder_and_a_durable_sandbox_under_the_run(pi
     # the sandbox lives under <run>/explore/sandbox so analysis.py/tables survive
     assert Path(explorer._sandbox.workdir).resolve() == (tmp_path / "explore" / "sandbox").resolve()
     assert explorer._sandbox._cleanup is False
+
+
+# ── smoke-run knobs: --max-cases (stratified subsample) and --out-tag ─────────
+
+def _frozen(tmp_path, pipe, model="m", dataset="d", n_fail=30, n_pass=70):
+    base = tmp_path / "outputs" / model / dataset
+    base.mkdir(parents=True)
+    cases = ([{"prompt": f"f{i}", "output": "x", "gold": "y", "label": "FAIL"} for i in range(n_fail)]
+             + [{"prompt": f"p{i}", "output": "y", "gold": "y", "label": "PASS"} for i in range(n_pass)])
+    base.joinpath("cases.json").write_text(json.dumps({
+        "n": len(cases), "n_fail": n_fail, "n_pass": n_pass, "accuracy": n_pass / len(cases),
+        "truncated_rate": 0.0, "cases": cases}))
+    return base
+
+
+def test_subsample_keeps_the_label_mix_and_is_deterministic(pipe, tmp_path, monkeypatch):
+    monkeypatch.setattr(pipe, "HERE", tmp_path)
+    _frozen(tmp_path, pipe)
+    batch, report = pipe.load_batch("m", "d")
+    sub, rep = pipe.subsample_batch(batch, report, 20)
+    assert len(list(sub)) == 20 and rep["n"] == 20
+    assert rep["n_fail"] == 6 and rep["n_pass"] == 14         # 30/70 preserved
+    assert rep["subsampled_from"] == 100 and abs(rep["accuracy"] - 0.7) < 1e-9
+    again, _ = pipe.subsample_batch(batch, report, 20)
+    assert [c.inputs.prompt for c in sub] == [c.inputs.prompt for c in again]
+    # 0 / oversize = the whole batch, report untouched
+    same, same_rep = pipe.subsample_batch(batch, report, 0)
+    assert same is batch and same_rep is report
+    same, _ = pipe.subsample_batch(batch, report, 500)
+    assert same is batch
+
+
+def test_out_tag_reads_the_frozen_batch_and_copies_it_without_touching_it(pipe, tmp_path, monkeypatch):
+    monkeypatch.setattr(pipe, "HERE", tmp_path)
+    base = _frozen(tmp_path, pipe)
+    before = base.joinpath("cases.json").read_text()
+    tagged = tmp_path / "outputs" / "m" / "d.smoke"
+    batch, report = pipe.load_batch("m", "d", out_dir=tagged)
+    assert len(list(batch)) == 100
+    assert (tagged / "cases.json").read_text() == before        # self-contained copy
+    assert base.joinpath("cases.json").read_text() == before    # frozen batch untouched
+    # a second load prefers the tagged copy (edit it to prove which one was read)
+    doc = json.loads((tagged / "cases.json").read_text()); doc["cases"] = doc["cases"][:5]
+    (tagged / "cases.json").write_text(json.dumps(doc))
+    batch2, _ = pipe.load_batch("m", "d", out_dir=tagged)
+    assert len(list(batch2)) == 5
+    # untagged load is unchanged
+    assert len(list(pipe.load_batch("m", "d")[0])) == 100

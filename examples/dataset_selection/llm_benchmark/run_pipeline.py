@@ -237,16 +237,26 @@ class EndpointModel(Model):
 
 
 # ---------------------------------------------------------------- inputs
-def load_batch(model_id: str, dataset: str):
+def load_batch(model_id: str, dataset: str, out_dir: "Path | None" = None):
+    """Load the frozen batch. *out_dir* (a tagged run dir, see ``--out-tag``) is
+    read first so a smoke run is self-contained; it falls back to the untagged
+    ``outputs/<model>/<dataset>/cases.json`` and copies that file into *out_dir*
+    for provenance — the frozen batch itself is never rewritten."""
     from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
 
-    path = HERE / "outputs" / model_id / dataset / "cases.json"
+    base = HERE / "outputs" / model_id / dataset / "cases.json"
+    path = base
+    if out_dir is not None and (out_dir / "cases.json").exists():
+        path = out_dir / "cases.json"
     if not path.exists():
         raise SystemExit(
             f"{path} not found — run:\n"
             f"  python build_cases.py --model {model_id} --dataset {dataset}"
         )
     report = json.loads(path.read_text())
+    if out_dir is not None and path == base and out_dir.resolve() != base.parent.resolve():
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "cases.json").write_text(path.read_text())
 
     # A frozen batch keeps its generations forever but its LABELS are only as
     # good as the grader that wrote them, and SKIP_STAGE0=1 reuses the file
@@ -278,6 +288,41 @@ def load_batch(model_id: str, dataset: str):
         for c in report["cases"]
     ]
     return CaseBatch(cases), report
+
+
+def subsample_batch(batch, report: dict, n: int, seed: int = 0):
+    """Deterministic label-stratified subsample of the frozen batch (smoke runs).
+
+    Keeps the PASS/FAIL proportion (each label rounded, at least one of each
+    when both exist) so a 60-case smoke run has the same base rate as the
+    full batch. Returns ``(batch, report)`` unchanged when *n* is 0 or covers
+    the whole batch; the report's headline counts are recomputed so the
+    printed ``[batch]`` line and summary.json describe what actually ran."""
+    import random
+
+    from evalvitals.core.case import CaseBatch, Label
+
+    cases = list(batch)
+    if n <= 0 or n >= len(cases):
+        return batch, report
+    by_label: dict = {}
+    for c in cases:
+        by_label.setdefault(c.label, []).append(c)
+    rng = random.Random(seed)
+    picked = []
+    total = len(cases)
+    for label, group in sorted(by_label.items(), key=lambda kv: str(kv[0])):
+        k = max(1, round(n * len(group) / total))
+        picked.extend(rng.sample(group, min(k, len(group))))
+    picked = picked[:n]
+    n_fail = sum(1 for c in picked if c.label == Label.FAIL)
+    sub = dict(report)
+    sub.update({
+        "n": len(picked), "n_fail": n_fail, "n_pass": len(picked) - n_fail,
+        "accuracy": (len(picked) - n_fail) / len(picked),
+        "subsampled_from": len(cases), "subsample_seed": seed,
+    })
+    return CaseBatch(picked), sub
 
 
 def build_protocol(dataset: str):
@@ -580,6 +625,16 @@ def main() -> None:
                     help="M1->M2->M3 and stop: propose hypotheses, skip M5 and M4")
     ap.add_argument("--skip-m4", action="store_true",
                     help="run M1->M5 but do not attempt a fix")
+    ap.add_argument("--max-cases", type=int, default=0,
+                    help="label-stratified subsample of the frozen batch for a "
+                         "smoke run (0 = the whole batch). Cuts M1 wall-clock; "
+                         "recorded in summary.json so a wide interval reads as "
+                         "'few cases', not 'no effect'")
+    ap.add_argument("--out-tag", default="",
+                    help="write everything to outputs/<model>/<dataset>.<tag>/ "
+                         "instead of the untagged run dir (the frozen batch is "
+                         "read from there or copied in) so a smoke run never "
+                         "appends to a real run's logs/ or overwrites its explore/")
     ap.add_argument("--no-explore", action="store_true",
                     help="skip the in-cycle explore step (free-form EDA beside the "
                          "catalog M2) even when config.yaml has explore: true")
@@ -604,9 +659,14 @@ def main() -> None:
     from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTester
     from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
 
-    batch, report_in = load_batch(args.model, args.dataset)
-    out = HERE / "outputs" / args.model / args.dataset
+    out = HERE / "outputs" / args.model / (
+        f"{args.dataset}.{args.out_tag}" if args.out_tag else args.dataset)
     out.mkdir(parents=True, exist_ok=True)
+    batch, report_in = load_batch(args.model, args.dataset, out_dir=out)
+    if args.max_cases > 0:
+        batch, report_in = subsample_batch(batch, report_in, args.max_cases)
+        print(f"[batch] --max-cases {args.max_cases}: label-stratified subsample "
+              f"of {report_in.get('subsampled_from', '?')} frozen cases (seed 0)")
 
     prior = None
     if args.confirm_only:
@@ -699,7 +759,7 @@ def main() -> None:
 
     if args.analysis_only:
         report = loop.run_analysis(batch)
-        print(f"[M1-M3] proposed {len(report.hypotheses)} hypotheses")
+        print(f"[M1-M3] proposed {len(report.final_hypotheses)} hypotheses")
     else:
         if args.confirm_only:
             hypotheses, stats_report = prior
@@ -732,6 +792,8 @@ def main() -> None:
         "analysis_only": args.analysis_only,
         "confirm_only": args.confirm_only,
         "explore": explorer is not None,
+        "max_cases": args.max_cases or None,
+        "out_tag": args.out_tag or None,
         "n_hypotheses": len(getattr(report, "hypotheses", None)
                             or getattr(report, "all_hypotheses", None) or []),
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),
