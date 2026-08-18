@@ -159,9 +159,11 @@ class VLDiagnoseLoop:
         explore_dir:        Where the explore step persists
                             ``exploratory_report.json`` + ``tables/`` +
                             ``figures/`` (rendered chart PNGs, which M3 is shown).
-                            Defaults to ``<run_logger.run_dir>/../explore``
-                            (a sibling of ``logs/``, where the dashboard looks);
-                            with no run_logger, nothing is persisted.
+                            Default: ``<ctx.root>/explore`` for a RunContext-
+                            backed logger, ``<run>/explore`` beside a standalone
+                            ``logs*/`` dir, else ``<run_dir>/explore`` — always
+                            inside the run, where the dashboard looks; with no
+                            run_logger, nothing is persisted.
         explore_question:   The question handed to the explorer. Defaults to
                             :func:`~evalvitals.eval_agent.prompts.explore_step.default_explore_question`
                             built from *protocol*.
@@ -405,16 +407,35 @@ class VLDiagnoseLoop:
     def _explore_out_dir(self) -> "Path | None":
         """Where the explore step persists its report/tables/figures.
 
-        Explicit ``explore_dir`` wins; otherwise a sibling of the run logger's
-        directory (``<run_dir>/../explore`` — beside ``logs*/``, which is where
-        the dashboard's ``_find_explore_report`` looks); ``None`` (nothing
-        persisted, context in memory only) when there is neither."""
+        Explicit ``explore_dir`` wins. Otherwise it is derived from the run
+        logger so the files land INSIDE the run, beside the log, where the
+        dashboard's ``_find_explore_report`` looks (``<root>/*/exploratory_report.json``):
+
+        - a :class:`~evalvitals.eval_agent.run_context.RunContext`-backed logger
+          → ``<ctx.root>/explore`` (the context owns the whole run directory;
+          ``run_log.jsonl`` sits directly under root);
+        - a standalone ``RunLogger("<run>/logs")`` / ``logs_confirm`` … →
+          ``<run>/explore`` (a sibling of the ``logs*/`` dir, the llm_benchmark
+          layout — under the log dir it would be two levels down for a
+          ``logs_confirm/`` carrier log and the dashboard would miss it);
+        - any other standalone run dir → ``<run_dir>/explore``.
+
+        ``None`` (nothing persisted, context in memory only) without a logger."""
         if self._explore_dir is not None:
             return self._explore_dir
+        if self.run_logger is None:
+            return None
+        ctx = getattr(self.run_logger, "_context", None)
+        ctx_root = getattr(ctx, "root", None) if ctx is not None else None
+        if ctx_root is not None:
+            return Path(ctx_root) / "explore"
         run_dir = getattr(self.run_logger, "run_dir", None)
         if run_dir is None:
             return None
-        return Path(run_dir).parent / "explore"
+        run_dir = Path(run_dir)
+        if run_dir.name.startswith("logs"):
+            return run_dir.parent / "explore"
+        return run_dir / "explore"
 
     def _do_explore(
         self, cycle: int, probe_results: "dict[str, Any]", data: "Any",

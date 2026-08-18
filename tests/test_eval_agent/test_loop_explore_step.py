@@ -347,3 +347,39 @@ def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):
     m3 = next(e for e in events if e["event"] == "diagnosis")
     assert m3.get("explore_context_used") is True
     assert "Mean n_steps by label" in (m3.get("referenced_charts") or [])
+
+
+# ── default explore_dir: always inside the run, where the dashboard looks ────
+
+
+def test_default_explore_dir_with_a_run_context_is_under_its_root(tmp_path):
+    from evalvitals.eval_agent.run_context import RunContext
+
+    calls: list[str] = []
+    workdir = tmp_path / "sandbox"
+    _seed_workdir(workdir)
+    with RunContext(tmp_path / "run") as ctx:
+        loop, _ = _loop(calls, _Explorer(calls, report=_report(workdir)), run_logger=ctx.logger)
+        assert loop._explore_out_dir() == ctx.root / "explore" == ctx.explore_dir
+        loop.run(_batch())
+    assert (tmp_path / "run" / "explore" / "exploratory_report.json").exists()
+    assert not (tmp_path / "explore").exists()          # never outside the run
+    # the manifest/README knows the directory
+    manifest = json.loads((tmp_path / "run" / "manifest.json").read_text())
+    assert any("explore/" in str(f) for f in json.dumps(manifest).split('"'))
+
+
+def test_default_explore_dir_beside_a_standalone_logs_dir_and_inside_other_dirs(tmp_path):
+    calls: list[str] = []
+    for name, expected in (("logs", tmp_path / "explore"),
+                           ("logs_confirm", tmp_path / "explore"),
+                           ("run_2026", tmp_path / "run_2026" / "explore")):
+        logger = RunLogger(run_dir=tmp_path / name)
+        loop, _ = _loop(calls, _Explorer(calls, report=_report()), run_logger=logger)
+        assert loop._explore_out_dir() == expected, name
+        logger.close()
+    # no logger and no explicit dir: nothing is persisted, notes stay in memory
+    loop, diag = _loop(calls, _Explorer(calls, report=_report()))
+    assert loop._explore_out_dir() is None
+    loop.run(_batch())
+    assert diag.seen_context[0] is not None

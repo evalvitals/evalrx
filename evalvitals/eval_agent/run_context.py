@@ -16,6 +16,8 @@ Layout (single root, no ``logs/`` nesting)::
     ├── README.txt        auto-generated file guide (from manifest)
     ├── report/           human deliverables (summary.md, hypotheses.json, …)
     ├── figures/          M1 heatmaps + M2 effect plots
+    ├── explore/          optional in-cycle explore step: exploratory_report.json,
+    │                     tables/*.csv, figures/*.png (VLDiagnoseLoop(explorer=...))
     ├── artifacts/        M1 heavy numeric data (.npy / .json)
     ├── prompts/          judge prompt / response
     ├── experiments/      one self-contained folder per M4 experiment (see new_trial)
@@ -59,6 +61,9 @@ if TYPE_CHECKING:
 _CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "report": "human-facing deliverables: run summary, hypotheses, M5 results",
     "figures": "plots: M1 attention/spatial heatmaps and M2 effect-size charts",
+    "explore": "in-cycle explore step (VLDiagnoseLoop(explorer=...)): free-form EDA "
+               "beside the catalog M2 — exploratory_report.json, tables/*.csv, "
+               "figures/*.png; descriptive notes M3 was shown, never M2/M5 evidence",
     "artifacts": "M1 heavy numeric data (.npy tensors, .json finding dumps)",
     "prompts": "verbatim judge prompt + response for each M1/M2/M3 call",
     "experiments": "one self-contained folder per M4 mechanism-verification "
@@ -71,7 +76,7 @@ _CATEGORY_DESCRIPTIONS: dict[str, str] = {
 
 # Order categories appear in the README / manifest.
 _CATEGORY_ORDER = [
-    "report", "figures", "artifacts", "prompts",
+    "report", "figures", "explore", "artifacts", "prompts",
     "experiments", "tools", "workspace", "fixes", "other",
 ]
 
@@ -176,6 +181,13 @@ class RunContext:
     @property
     def figures_dir(self) -> Path:
         return self._sub("figures")
+
+    @property
+    def explore_dir(self) -> Path:
+        """``explore/`` — the in-cycle explore step's report, tables and rendered
+        figures (``VLDiagnoseLoop(explorer=..., explore_dir=ctx.explore_dir)``;
+        the loop derives the same path from ``ctx.logger`` when not given)."""
+        return self._sub("explore")
 
     @property
     def artifacts_dir(self) -> Path:
