@@ -635,6 +635,11 @@ def main() -> None:
                          "instead of the untagged run dir (the frozen batch is "
                          "read from there or copied in) so a smoke run never "
                          "appends to a real run's logs/ or overwrites its explore/")
+    ap.add_argument("--fix-validation-cases", type=int, default=None,
+                    help="override config fix_validation_cases for this run (0 = the "
+                         "whole confirm half). A thin-FAIL batch needs more than the "
+                         "default 40 stratified cases for the paired gate to have any "
+                         "power; a long-generation batch may need fewer to fit the timeout")
     ap.add_argument("--no-explore", action="store_true",
                     help="skip the in-cycle explore step (free-form EDA beside the "
                          "catalog M2) even when config.yaml has explore: true")
@@ -741,7 +746,9 @@ def main() -> None:
             max_tier=str(CFG.get("fix_max_tier", "L3b")),
             cli_config=codegen,
             run_logger=logger,
-            max_validation_cases=int(CFG.get("fix_validation_cases", 0)),
+            max_validation_cases=(args.fix_validation_cases
+                                  if args.fix_validation_cases is not None
+                                  else int(CFG.get("fix_validation_cases", 0))),
             exec_timeout_sec=int(CFG.get("fix_exec_timeout_sec", 1800)),
         ),
         max_cycles=args.max_cycles,
@@ -794,6 +801,9 @@ def main() -> None:
         "explore": explorer is not None,
         "max_cases": args.max_cases or None,
         "out_tag": args.out_tag or None,
+        "fix_validation_cases": (args.fix_validation_cases
+                                 if args.fix_validation_cases is not None
+                                 else int(CFG.get("fix_validation_cases", 0))),
         "n_hypotheses": len(getattr(report, "hypotheses", None)
                             or getattr(report, "all_hypotheses", None) or []),
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),

@@ -26,6 +26,7 @@ EXPLORE="${EXPLORE:-1}"              # 0 = skip the in-cycle explore step (free-
 RUN_TAG="${RUN_TAG:-}"               # set = write to outputs/<model>/<dataset>.<tag>/ (smoke runs; needs SKIP_STAGE0=1)
 MAX_CASES="${MAX_CASES:-0}"          # >0 = label-stratified subsample of the frozen batch (smoke runs)
 PIPELINE_ARGS="${PIPELINE_ARGS:-}"   # extra run_pipeline.py flags, e.g. "--analyzer-max-cases 16"
+BUILD_ARGS="${BUILD_ARGS:-}"         # extra build_cases.py flags, e.g. "--force" (write an out-of-band batch)
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Walk up to the checkout root instead of counting directories: this example
@@ -179,8 +180,10 @@ if [ "${SKIP_STAGE0:-0}" = "1" ]; then
   rc=0
 else
   stamp "STAGE 0 build_cases (slowest step; a full census of a 650+ item slice runs 4-6 h — see README)"
+  # shellcheck disable=SC2206  # BUILD_ARGS is deliberately word-split
+  BEXTRA=($BUILD_ARGS)
   "$EVAL_PY" -u "$HERE/build_cases.py" \
-    --model "$MODEL" --dataset "$DATASET" --n "$NCASES" --base-url "$BASE_URL"
+    --model "$MODEL" --dataset "$DATASET" --n "$NCASES" --base-url "$BASE_URL" "${BEXTRA[@]}"
   rc=$?
   if [ $rc -ne 0 ]; then
     # exit 1 here is usually the deliberate out-of-band refusal, not a crash
