@@ -466,6 +466,26 @@ class VCDSensitiveModel(Model):
         raise NotImplementedError
 
 
+class AADSensitiveModel(Model):
+    """Binary audio-LALM fixture: only its silence-contrast decoder repairs it."""
+
+    capabilities = frozenset({Capability.GENERATE, Capability.LOGPROBS})
+    modalities = frozenset({"text", "audio"})
+
+    def generate(self, inputs, **kwargs):
+        return "No."
+
+    def generate_aad(self, inputs, **kwargs):
+        assert kwargs == {"alpha": 0.5}
+        return "Yes."
+
+    def paper_method_fidelity(self, method):
+        return "native_silence_contrast" if method == "aad" else "unavailable"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
 class ICDSensitiveModel(Model):
     """Binary VLM fixture: only instruction contrastive decoding repairs it."""
 
@@ -697,6 +717,24 @@ def _gold_audio_batch(n: int = 8, audio: str = "fake-waveform") -> CaseBatch:
     return batch
 
 
+def _gold_audio_yes_batch(n: int = 8, audio: str = "fake-waveform") -> CaseBatch:
+    yes = {"all_of": ["yes"], "none_of": ["no"]}
+    batch = CaseBatch(
+        [
+            FailureCase(
+                id=f"ay{i}",
+                inputs=Inputs(prompt=f"Is there a dog barking {i}?", audio=audio),
+                expected=yes,
+                label=Label.FAIL,
+            )
+            for i in range(n)
+        ]
+    )
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+    return batch
+
+
 def _label_score(case, observed):
     """CaseDiscovery-style scorer: returns Label instead of bool."""
     from evalvitals.analyzers.perturbation.prompt_contrast import _default_score
@@ -901,6 +939,69 @@ def test_l0_vcd_is_proposed_when_false_yes_hallucinations_dominate():
     )
 
     assert "vcd_diffusion_noise" in {candidate.name for candidate in candidates}
+
+
+def test_l0_aad_candidate_repairs_binary_audio_grounding():
+    batch = _gold_audio_yes_batch(n=8)
+
+    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+        AADSensitiveModel(), batch, [_hyp("language priors override audio evidence")]
+    )
+
+    assert out.fixed is True
+    assert out.best is not None and out.best.candidate.name == "aad_silence_contrast"
+    assert out.best.n_fixed == 8 and out.best.n_broken == 0
+    assert out.best.candidate.payload["alpha"] == 0.5
+
+
+def test_l0_aad_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+    batch = _gold_audio_yes_batch(n=8)
+    for case in batch:
+        case.expected = "Yes"
+        case.observed = "No"
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override audio evidence")], batch, AADSensitiveModel()
+    )
+
+    assert "aad_silence_contrast" not in {candidate.name for candidate in candidates}
+
+
+def test_l0_aad_is_proposed_when_false_yes_hallucinations_dominate():
+    batch = _gold_audio_yes_batch(n=8)
+    for case in batch:
+        case.expected = "No"
+        case.observed = "Yes"
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override audio evidence")], batch, AADSensitiveModel()
+    )
+
+    assert "aad_silence_contrast" in {candidate.name for candidate in candidates}
+
+
+def test_l0_aad_requires_paper_method_fidelity():
+    """Structural gate only -- a model without paper_method_fidelity('aad')
+    declared native must not get the candidate, judge or not."""
+    batch = _gold_audio_yes_batch(n=8)
+
+    class UnfitAudioModel(Model):
+        capabilities = frozenset({Capability.GENERATE, Capability.LOGPROBS})
+        modalities = frozenset({"text", "audio"})
+
+        def generate(self, inputs, **kwargs):
+            return "No."
+
+        def generate_aad(self, inputs, **kwargs):
+            return "Yes."
+
+        def forward(self, inputs, capture, spec=None):
+            raise NotImplementedError
+
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override audio evidence")], batch, UnfitAudioModel()
+    )
+
+    assert "aad_silence_contrast" not in {candidate.name for candidate in candidates}
+    assert "aad_silence_contrast_gated_false_yes" not in {candidate.name for candidate in candidates}
 
 
 def test_l0_icd_candidate_repairs_binary_visual_grounding():
