@@ -84,8 +84,10 @@ codegen_timeout_sec: 1800
 # beside it. Cost: one coder-agent call per cycle (a few minutes) plus host-side
 # chart rendering. `explore: false` (or EXPLORE=0 / --no-explore) turns it off.
 explore: true
-explore_timeout_sec: 900     # per coder attempt; the coder is told the outcome column and asked
-                             # for FROZEN threshold-explicit recipes, so a normal pass is minutes
+explore_timeout_sec: 1800    # per coder attempt. Measured on the 2026-08-18 smoke run (opus, effort
+                             # high, 3 bundled skills, 30 rows): a complete pass took 746 s; at 900 s
+                             # the FIRST attempt was killed mid-write and the retry paid the whole
+                             # cost again (29 min total). Same ceiling as codegen_timeout_sec.
 explore_max_attempts: 2      # a failed script gets one repair round, then the step is skipped
 
 # M4 surgery
