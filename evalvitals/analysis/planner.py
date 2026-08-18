@@ -8,10 +8,14 @@ dropping columns because of their original order.
 
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from evalvitals.analysis.profile import DatasetProfile, profile_stats_input
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -59,12 +63,96 @@ def _signal_priority(inp: Any, signal: str, profile: DatasetProfile) -> float:
     return coverage + min(1.0, variance) + kind_bonus + sparse_binary_bonus + constant_penalty
 
 
+#: Agreement above which a BINARY signal is the label wearing another name.
+#: Not 1.0: one flipped case out of dozens is still a restatement, not a finding.
+_LABEL_RESTATEMENT_AGREEMENT = 0.95
+#: Below this many shared cases, perfect agreement is cheap and means nothing.
+_MIN_CASES_TO_JUDGE_RESTATEMENT = 10
+#: Names of fields an analyzer produces BY GRADING — i.e. by asking the same
+#: question the label answers.  Matched on the last dotted segment.
+_CORRECTNESS_NAME = re.compile(
+    r"(?:^|_)(?:correct|incorrect|label|labelled|passed|is_pass)(?:_|$)"
+    r"|_match$|^match$"
+)
+
+
+def restates_label(inp: Any, signal: str) -> bool:
+    """True when *signal* reproduces the PASS/FAIL label, or its complement.
+
+    Such a signal always rejects H0, always survives FDR, and carries no
+    information — "does the label predict the label". Left in the pool it also
+    CROWDS OUT the real ones, because the survivor list is what M5 draws on to
+    verify a hypothesis. Measured on qwen3.5-2b / bbh_causal_judgement: of 10
+    rejecting signals, 6 survived FDR and every one of those 6 was the label
+    (``labelled_fail``, ``strict_match``, ``calibration.correct``,
+    ``self_repair.baseline_correct`` / ``revised_correct``), while the two
+    genuinely informative extraction flags did not survive. M2's own narrative
+    called them out as "the label copied under another name"; M5 then verified a
+    hypothesis about label REPRODUCIBILITY using ``labelled_fail``, at
+    confidence 0.73.
+
+    Requires BOTH a correctness-shaped NAME and label agreement in the DATA,
+    because neither alone is safe and each fixes the other's failure:
+
+    * Data alone suppresses real findings. A composite discovered over
+      independent measurements — ``(obj_size < 40) and (attention < 0.3)`` —
+      can separate the labels perfectly, and that is the most valuable result
+      the loop can produce, not a tautology. It is statistically identical to
+      ``calibration.correct``; only its provenance differs.
+    * Name alone suppresses honest fields. A column called ``correct`` that
+      tracks something other than this batch's label is a legitimate signal.
+
+    Two further things this deliberately does NOT do:
+
+    * It does not judge by the conditional rate. ``extraction_suspect`` also had
+      ``P(FAIL | signal) = 1.000`` and is a REAL finding covering 2 of 16
+      failures; what separates it is that it says nothing about the other 30
+      cases, so its agreement with the label is 0.56, not 1.0. Screening on the
+      conditional would have discarded the one signal worth keeping.
+    * It does not touch continuous signals. Restatement is an identity claim,
+      and a continuous measure binarised at some threshold can drift into high
+      agreement without being the label at all.
+    """
+    if not _CORRECTNESS_NAME.search(str(signal).rsplit(".", 1)[-1].lower()):
+        return False
+    sigmap = (getattr(inp, "per_case", {}) or {}).get(signal, {})
+    labels = getattr(inp, "labels", {}) or {}
+    shared = [key for key in sigmap if key in labels]
+    if len(shared) < _MIN_CASES_TO_JUDGE_RESTATEMENT:
+        return False
+    try:
+        values = {float(sigmap[key]) for key in shared}
+    except (TypeError, ValueError):
+        return False
+    if not values <= {0.0, 1.0} or len(values) < 2:
+        return False
+    agree = sum(1 for key in shared
+                if bool(float(sigmap[key])) == bool(labels[key]))
+    rate = agree / len(shared)
+    return (rate >= _LABEL_RESTATEMENT_AGREEMENT
+            or rate <= 1.0 - _LABEL_RESTATEMENT_AGREEMENT)
+
+
+def label_restating_signals(inp: Any) -> list[str]:
+    """The signals :func:`ranked_signal_names` drops, so callers can report them.
+
+    Dropped rather than tested-and-flagged on purpose: the harm is not that the
+    result is wrong, it is that the result is RIGHT and meaningless, and every
+    such test consumes a slot in the FDR family that a real signal needed.
+    """
+    return sorted(
+        signal for signal in (getattr(inp, "per_case", {}) or {})
+        if restates_label(inp, signal)
+    )
+
+
 def ranked_signal_names(inp: Any, *, max_signals: int | None = None) -> list[str]:
     """Rank per-case signals by testability rather than insertion order."""
     profile = profile_stats_input(inp)
     scored = [
         (_signal_priority(inp, signal, profile), signal)
         for signal in (getattr(inp, "per_case", {}) or {})
+        if not restates_label(inp, signal)
     ]
     scored.sort(key=lambda item: (-item[0], item[1]))
     names = [name for score, name in scored if score > 0]
@@ -87,6 +175,14 @@ def plan_stats_input(
     plan: list[AnalysisPlanItem] = []
 
     if n_pass > 0 and n_fail > 0 and getattr(inp, "per_case", None):
+        # Dropped, not silently: a suppressed signal that turns out to be real
+        # has to leave a trace somewhere, and this is the only place that knows.
+        dropped = label_restating_signals(inp)
+        if dropped:
+            logger.info(
+                "planner: dropped %d signal(s) that restate the PASS/FAIL label "
+                "and would crowd the FDR family: %s",
+                len(dropped), ", ".join(dropped))
         ranked = ranked_signal_names(inp, max_signals=max_signals)
         for key in ranked:
             plan.append(AnalysisPlanItem(

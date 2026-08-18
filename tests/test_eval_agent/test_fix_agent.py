@@ -2680,3 +2680,200 @@ def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     assert (t2.root / "record.md").exists()
     assert json.loads((t1.root / "result.json").read_text())["fixed"] is False
     assert json.loads((t2.root / "result.json").read_text())["fixed"] is True
+
+
+# ── prompt templates live next to LaTeX ──────────────────────────────────────
+def test_safe_format_leaves_non_placeholder_braces_alone():
+    r"""str.format treats every {...} as a field; a math prompt is full of them.
+
+    All four of these are real str.format failures, and the third ended a live
+    qwen3.5-2b / minervamath run after M4 had already produced its fix:
+
+        "{prompt} \frac{a}{b}"  KeyError: 'a'
+        "{prompt} 10^{33}"      IndexError: Replacement index 33
+        "{prompt} ${~m}$"       KeyError: '~m'
+        "{prompt} {}"           IndexError: Replacement index 0
+    """
+    from evalvitals.eval_agent.stages.fix_agent import safe_format
+
+    ctx = {"prompt": "P", "failure_axis": "AX"}
+    assert safe_format(r"{prompt} solve \frac{a}{b}", ctx) == r"P solve \frac{a}{b}"
+    assert safe_format(r"{prompt} 10^{33}", ctx) == r"P 10^{33}"
+    assert safe_format(r"{prompt} ${~m}$", ctx) == r"P ${~m}$"
+    assert safe_format("{prompt} {}", ctx) == "P {}"
+
+
+def test_safe_format_still_substitutes_the_known_fields():
+    from evalvitals.eval_agent.stages.fix_agent import safe_format
+
+    ctx = {"prompt": "P", "failure_axis": "AX", "n": 3}
+    assert safe_format("{prompt} focus on {failure_axis} ({n})", ctx) == "P focus on AX (3)"
+
+
+def test_safe_format_never_raises_on_arbitrary_text():
+    from evalvitals.eval_agent.stages.fix_agent import safe_format
+
+    for template in ("{", "}", "{{", "{unclosed", r"\boxed{}", "{a}{b}{c}", ""):
+        safe_format(template, {"prompt": "P"})
+
+
+def test_a_template_case_that_cannot_render_scores_none_not_a_crash():
+    """The formatting used to sit outside l1's try/except, so one unrenderable
+    template aborted the entire validation instead of dropping one case."""
+    from evalvitals.core.case import FailureCase, Inputs, Label
+    from evalvitals.eval_agent.stages.fix_agent import FixAgent, FixCandidate
+
+    class _Boom:
+        def generate(self, *a, **k):
+            raise RuntimeError("model down")
+
+    agent = FixAgent()
+    candidate = FixCandidate(tier=None, name="t", kind="template",
+                             payload={"prompt_template": r"{prompt} ${~m}$"})
+    strategy = agent._strategy(candidate)
+    case = FailureCase(inputs=Inputs(prompt="q"), observed="o", expected="e",
+                       label=Label.FAIL)
+    assert strategy(_Boom(), case) is None
+
+
+# ── repair the model, not the task: the frozen-model control ─────────────────
+#
+# qwen3.5-2b / bbh_word_sorting: the L2 pipeline that "FIXED" 124/125 cases was
+# `ref = sorted(input_words(prompt))` with the model's answer accepted only when
+# it already equalled ref — 113 model calls, none of which changed an output.
+# The sandbox forbids touching the model; it never asked whether the answer
+# came from it.
+
+
+def _observed_no_batch(n: int = 16) -> CaseBatch:
+    """Gold "yes", recorded baseline "No." — a real batch always carries the
+    baseline answer, and the control replays exactly that."""
+    yes = {"all_of": ["yes"], "none_of": ["no"]}
+    return CaseBatch([
+        FailureCase(id=f"c{i}", inputs=Inputs(prompt=f"Is there a lesion {i}?"),
+                    expected=yes, observed="No.", label=Label.FAIL)
+        for i in range(n)
+    ])
+
+
+_SOLVER_PIPELINE = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = []
+for c in cases:
+    ans = model_generate(c["id"])          # asked, then ignored
+    out.append({"sample_id": c["id"], "output": "Yes."})
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+
+_REPROMPT_PIPELINE = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = []
+for c in cases:
+    ans = model_generate(c["id"], prompt=c["prompt"] + " Look carefully.")
+    out.append({"sample_id": c["id"], "output": ans})
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+
+_PARTIAL_SOLVER_PIPELINE = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = []
+for c in cases:
+    ans = model_generate(c["id"], prompt=c["prompt"] + " Look carefully.")
+    if c["id"] in ("c0", "c1", "c2"):     # hard-codes three of them
+        ans = "Yes."
+    out.append({"sample_id": c["id"], "output": ans})
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+
+
+def _code_candidate(code: str, name: str = "coded_pipeline") -> FixCandidate:
+    return FixCandidate(tier=FixTier.L2_SCAFFOLD, name=name, kind="code",
+                        source="judge", payload={"code": code})
+
+
+def test_a_pipeline_that_solves_the_task_itself_is_not_a_fix(tmp_path):
+    """Every case right, every case also right with the model frozen: nothing
+    left to attribute to the model. Verdict names it; the recommendation must
+    not read it as 'never executed'."""
+    agent = FixAgent(judge=None, max_tier="L2", exec_timeout_sec=30)
+    data = _observed_no_batch()
+    model = BaselineFailsModel()
+    baseline, unstable = agent._baseline(model, data)
+    v = agent._validate(_code_candidate(_SOLVER_PIPELINE), model, data, baseline, unstable)
+
+    assert v.fixed is False
+    assert v.verdict == "model_independent"
+    assert v.n_model_independent == len(data) and v.n_pairs == 0
+    assert "frozen-model control" in v.summary
+    ctrl = v.candidate.payload["frozen_model_control"]
+    assert ctrl["ok"] is True and len(ctrl["solved"]) == len(data)
+
+    rec = agent._no_fix_recommendation([v], [FixTier.L2_SCAFFOLD], data, model)
+    assert rec is not None and rec.get("action") != "fix_execution"
+    assert "without the model" in rec["reason"]
+
+
+def test_a_pipeline_that_needs_the_model_keeps_its_credit(tmp_path):
+    """Frozen to 'No.' the re-prompt yields 'No.' — nothing is discounted."""
+    agent = FixAgent(judge=None, max_tier="L2", exec_timeout_sec=30)
+    data = _observed_no_batch()
+    model = BaselineFailsModel()
+    baseline, unstable = agent._baseline(model, data)
+    v = agent._validate(_code_candidate(_REPROMPT_PIPELINE), model, data, baseline, unstable)
+
+    assert v.fixed is True and v.verdict == "fixed"
+    assert v.n_model_independent == 0 and v.n_pairs == len(data)
+    assert v.candidate.payload["frozen_model_control"]["solved"] == []
+
+
+def test_a_solver_fallback_only_loses_the_cases_it_solved(tmp_path):
+    """Three hard-coded cases leave the test; the thirteen the model repaired
+    still certify the fix. The count is on the record."""
+    agent = FixAgent(judge=None, max_tier="L2", exec_timeout_sec=30)
+    data = _observed_no_batch()
+    model = BaselineFailsModel()
+    baseline, unstable = agent._baseline(model, data)
+    v = agent._validate(_code_candidate(_PARTIAL_SOLVER_PIPELINE), model, data,
+                        baseline, unstable)
+
+    assert v.n_model_independent == 3 and v.n_pairs == len(data) - 3
+    assert v.fixed is True
+    assert "3 model-independent excluded" in v.summary
+    assert set(v.candidate.payload["frozen_model_control"]["solved"]) == {"c0", "c1", "c2"}
+
+
+def test_baseline_correct_cases_are_never_dropped_by_the_control():
+    """Replaying a right answer proves nothing; dropping such cases would hide
+    what a candidate breaks. A pipeline that hard-codes 'No.' breaks the
+    baseline-correct cases and must be seen breaking them."""
+    from evalvitals.eval_agent.stages.fix_agent import FixValidation
+
+    yes = {"all_of": ["yes"], "none_of": ["no"]}
+    data = CaseBatch([
+        FailureCase(id=f"c{i}", inputs=Inputs(prompt=f"q{i}"), expected=yes,
+                    observed="Yes.", label=Label.PASS)
+        for i in range(6)
+    ])
+    agent = FixAgent(judge=None, max_tier="L2", exec_timeout_sec=30)
+    cand = _code_candidate('''
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps(
+    {"per_case": [{"sample_id": c["id"], "output": "No."} for c in cases]}))
+''')
+    model = BaselineFailsModel()
+    baseline, unstable = agent._baseline(model, data)
+    v = agent._validate(cand, model, data, baseline, unstable)
+    assert v.n_model_independent == 0
+    assert v.n_broken == 6 and v.verdict in {"regressed", "unsafe"}
+
+
+def test_the_coder_is_told_the_rule():
+    from evalvitals.eval_agent.prompts.fix_agent import _L2_CODE_PROMPT, _REPAIR_PROMPT_BODY
+
+    assert "REPAIR THE MODEL, NOT THE TASK" in _L2_CODE_PROMPT
+    assert "ORIGINAL recorded answer" in _L2_CODE_PROMPT
+    assert "not the task" in _REPAIR_PROMPT_BODY

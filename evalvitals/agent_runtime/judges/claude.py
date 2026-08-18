@@ -46,7 +46,22 @@ class ClaudeModel:
         images: "list[Path] | None" = None,
         **kwargs: object,
     ) -> str:
-        """Run ``claude -p <inputs>`` and return the text response."""
+        """Run ``claude -p`` with the prompt on STDIN and return the response.
+
+        The prompt must not be an argv entry. Linux caps a SINGLE argument at
+        ``MAX_ARG_STRLEN`` = 32 pages = 131,072 bytes — a limit ``ulimit -s`` and
+        ``ARG_MAX`` do not describe and no configuration raises — and execve
+        fails outright with ``OSError: [Errno 7] Argument list too long``.
+
+        M2's prompt is the analyzers' findings JSON, so its size grows with how
+        many analyzers M1 selected. Measured on qwen3.5-2b / bbh_word_sorting:
+        9 analyzers produced 127,856 bytes and worked, 12 analyzers produced
+        ~137,600 and did not. The size that fails is therefore a property of one
+        judge's analyzer selection, which is exactly the thing that varies run to
+        run — the same batch, the same code, and one run crosses the cliff.
+
+        Stdin has no equivalent limit; 144,050 bytes round-trips fine.
+        """
         img_dir: str | None = None
         try:
             prompt_text = str(inputs)
@@ -62,7 +77,6 @@ class ClaudeModel:
             cmd = [
                 self._binary,
                 "-p",
-                prompt_text,
                 "--dangerously-skip-permissions",
                 "--output-format",
                 "text",
@@ -77,6 +91,7 @@ class ClaudeModel:
             try:
                 proc = subprocess.run(
                     cmd,
+                    input=prompt_text,
                     capture_output=True,
                     timeout=self._timeout_sec,
                     text=True,

@@ -113,6 +113,7 @@ class ProbeAgent:
         whitebox_generator: "Any | None" = None,
         case_examples: tuple[int, int] = (4, 2),
         run_logger: "Any | None" = None,
+        max_cases_per_analyzer: int = 0,
     ) -> None:
         self.selector = probe or StrategyProbe()
         self.judge = judge
@@ -155,6 +156,25 @@ class ProbeAgent:
         # when selection used the static fallback (no judge / LLM call failed).
         self.last_selection_prompt: str = ""
         self.last_selection_raw: str = ""
+        #: Ceiling on how many cases ANY single analyzer receives.  0 = no limit.
+        #:
+        #: Capping via each analyzer's own ``max_cases`` constructor argument
+        #: only reaches the analyzers that HAVE one, and the ones that dominate
+        #: M1 wall-clock mostly do not: ``first_error_judge``, ``rise``,
+        #: ``self_consistency`` and ``verbalized_confidence`` expose no such knob
+        #: and ``trajectory_rubric`` defaults it to None, so all five iterate the
+        #: whole batch one generate() at a time.  Measured on qwen3.5-2b /
+        #: minervamath (136 explore cases, 20 generating analyzers): the caller
+        #: capped 7 of them, observed concurrency decayed 5.8 -> 1.0 over three
+        #: hours and then sat at exactly 1.0 while the uncapped ones finished
+        #: alone, at ~1/10 of the endpoint's throughput.
+        #:
+        #: This is the backstop for that: it bounds every analyzer, including the
+        #: ones with no knob to turn.  It costs statistical power, not
+        #: correctness -- the same measurement, fewer of them.
+        self.max_cases_per_analyzer = int(max_cases_per_analyzer or 0)
+        #: Names actually truncated by the cap, for the caller to report.
+        self.capped_analyzers: dict[str, tuple[int, int]] = {}
 
     # ------------------------------------------------------------------
     # Public interface
@@ -227,9 +247,10 @@ class ProbeAgent:
 
         def _run_one(name: str, analyzer: "Analyzer") -> tuple[str, "Result | None"]:
             cls = type(analyzer)
+            subset = self._cap_cases(name, analyzer, data)
             if self.use_docker and _is_blackbox_compatible(cls):
-                return name, self._run_in_docker(name, analyzer, data)
-            return name, self._run_direct(analyzer, model, data)
+                return name, self._run_in_docker(name, analyzer, subset)
+            return name, self._run_direct(analyzer, model, subset)
 
         # White-box analyzers do GPU forward passes on the SHARED local model;
         # running them in threads races on the model (accelerate device_map
@@ -648,6 +669,56 @@ class ProbeAgent:
     # ------------------------------------------------------------------
     # Execution strategies
     # ------------------------------------------------------------------
+
+    def _cap_cases(self, name: str, analyzer: "Analyzer", data: "CaseBatch"):
+        """Bound how many cases *analyzer* receives, keeping the labels balanced.
+
+        Three things this must not do:
+
+        * **Fight the analyzer's own knob.**  If it already caps itself at or
+          below the ceiling, it is left alone — otherwise a 12-case analyzer
+          configured deliberately would silently be handed 32.
+        * **Destroy the contrast.**  M1 exists to compare PASS against FAIL, so a
+          head-truncation is not acceptable: on a batch that happens to open with
+          a run of one label it would hand the analyzer a single class and the
+          result would read as a null rather than as a missing comparison.  Each
+          label group is subsampled proportionally.
+        * **Vary between runs.**  Even striding, no RNG: two runs on the same
+          batch must select the same cases or their numbers are not comparable.
+        """
+        cap = self.max_cases_per_analyzer
+        if cap <= 0 or data is None or len(data) <= cap:
+            return data
+        own = getattr(analyzer, "max_cases", None)
+        if isinstance(own, int) and 0 < own <= cap:
+            return data
+
+        from evalvitals.core.case import CaseBatch
+
+        groups: dict[Any, list] = {}
+        for case in data:
+            groups.setdefault(getattr(case, "label", None), []).append(case)
+
+        picked: list = []
+        # Largest group first, so integer truncation costs the class that can
+        # best afford it rather than wiping out a small one.
+        order = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+        remaining = cap
+        for index, (_, members) in enumerate(order):
+            share = remaining if index == len(order) - 1 else round(
+                cap * len(members) / len(data))
+            share = max(1, min(share, len(members), remaining))
+            if len(members) <= share:
+                picked.extend(members)
+            else:  # even stride across the group, not its head
+                step = len(members) / share
+                picked.extend(members[int(i * step)] for i in range(share))
+            remaining -= share
+            if remaining <= 0:
+                break
+
+        self.capped_analyzers[name] = (len(data), len(picked))
+        return CaseBatch(picked)
 
     def _run_direct(
         self,

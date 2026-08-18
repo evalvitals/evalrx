@@ -210,3 +210,122 @@ def test_small_batch_falls_back_to_in_sample_with_caveat():
     assert rep.split["mode"] == "in_sample"
     assert any("IN-SAMPLE" in c for c in rep.caveats)
     assert isinstance(rep, FusedReport)
+
+
+# ── label-restating signals must not reach the plan ──────────────────────────
+class _Inp:
+    def __init__(self, per_case, labels):
+        self.per_case, self.labels = per_case, labels
+
+
+def _observed_shape():
+    """The signal set measured on qwen3.5-2b / bbh_causal_judgement, 16 FAIL/16 PASS."""
+    ids = [f"c{i}" for i in range(32)]
+    labels = {c: (i < 16) for i, c in enumerate(ids)}          # True = FAIL
+    per_case = {
+        # the label itself, and the label's complement
+        "answer_extraction_audit.labelled_fail": {c: float(labels[c]) for c in ids},
+        "calibration.correct": {c: float(not labels[c]) for c in ids},
+        # correctness after self-revision: the label bar one case
+        "self_repair.revised_correct":
+            {**{c: float(not labels[c]) for c in ids}, "c0": 1.0},
+        # a REAL finding with P(FAIL|signal)=1.0 that must survive
+        "answer_extraction_audit.extraction_suspect":
+            {c: (1.0 if c in ("c0", "c1") else 0.0) for c in ids},
+        # continuous — never judged
+        "arith_audit.first_error_idx": {c: float(i % 7) for i, c in enumerate(ids)},
+    }
+    return _Inp(per_case, labels)
+
+
+def test_label_restatements_are_dropped_from_the_plan():
+    """6 of 6 FDR survivors in the live run were the label under another name.
+
+    They always reject H0, always survive correction, carry no information, and
+    crowd out the real signals — which is what M5 then draws on to "verify" a
+    hypothesis.
+    """
+    from evalvitals.analysis.planner import label_restating_signals, plan_stats_input
+
+    inp = _observed_shape()
+    assert label_restating_signals(inp) == [
+        "answer_extraction_audit.labelled_fail",
+        "calibration.correct",
+        "self_repair.revised_correct",
+    ]
+    planned = {item.config.get("signal") for item in plan_stats_input(inp)}
+    assert "answer_extraction_audit.labelled_fail" not in planned
+    assert "calibration.correct" not in planned
+
+
+def test_a_perfect_conditional_rate_is_not_enough_to_drop_a_signal():
+    """extraction_suspect had P(FAIL | signal) = 1.000 and is a REAL finding.
+
+    Screening on the conditional would have discarded the one signal in that run
+    worth keeping. What separates it is that it says nothing about the other 30
+    cases: agreement with the label is 0.56, not 1.0.
+    """
+    from evalvitals.analysis.planner import plan_stats_input, restates_label
+
+    inp = _observed_shape()
+    sig = "answer_extraction_audit.extraction_suspect"
+    fails_when_set = [k for k, v in inp.per_case[sig].items() if v and inp.labels[k]]
+    assert len(fails_when_set) == 2, "every case with the signal set does fail"
+    assert not restates_label(inp, sig)
+    assert sig in {item.config.get("signal") for item in plan_stats_input(inp)}
+
+
+def test_continuous_signals_are_never_judged_as_restatements():
+    from evalvitals.analysis.planner import restates_label
+
+    inp = _observed_shape()
+    assert not restates_label(inp, "arith_audit.first_error_idx")
+
+
+def test_too_few_shared_cases_to_judge():
+    """Perfect agreement over a handful of cases is cheap and means nothing."""
+    from evalvitals.analysis.planner import restates_label
+
+    inp = _observed_shape()
+    ids = list(inp.labels)
+    inp.per_case["tiny"] = {c: float(inp.labels[c]) for c in ids[:4] + ids[16:20]}
+    assert not restates_label(inp, "tiny")
+
+
+def test_dropping_is_off_when_there_is_no_label_to_restate():
+    from evalvitals.analysis.planner import restates_label
+
+    inp = _observed_shape()
+    inp.labels = {}
+    assert not restates_label(inp, "answer_extraction_audit.labelled_fail")
+
+
+def test_a_perfect_separator_from_independent_measurements_is_kept():
+    """The false positive the existing suite caught, kept as a regression.
+
+    ``(obj_size < 40) and (attention < 0.3)`` can separate the labels perfectly
+    and is the most valuable result the loop can produce. It is statistically
+    IDENTICAL to ``calibration.correct`` — agreement 1.0 either way — so an
+    agreement-only rule suppresses exactly the finding worth having. Only the
+    provenance differs, which is why the name has to agree too.
+    """
+    from evalvitals.analysis.planner import restates_label
+
+    inp = _observed_shape()
+    ids = list(inp.labels)
+    inp.per_case["explored.small_and_peripheral"] = {
+        c: float(inp.labels[c]) for c in ids
+    }
+    assert not restates_label(inp, "explored.small_and_peripheral")
+    # ...while the graded field with the identical data IS dropped
+    assert restates_label(inp, "calibration.correct")
+
+
+def test_a_correctness_name_that_does_not_track_the_label_is_kept():
+    """Name alone must not be enough either."""
+    from evalvitals.analysis.planner import restates_label
+
+    inp = _observed_shape()
+    ids = list(inp.labels)
+    inp.per_case["some.correct"] = {c: float(i % 2) for i, c in enumerate(ids)}
+    assert not restates_label(inp, "some.correct")

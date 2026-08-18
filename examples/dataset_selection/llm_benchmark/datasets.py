@@ -8,6 +8,26 @@ the dataset, so ``accuracy_9b`` is a starting point for 2B/4B, never a predictio
 The dataset plumbing itself lives in ``../llm_band_probe/band_locate.py``; this
 module only records WHICH slice and WHY, and re-exports the spec so the two can
 never drift apart.
+
+.. warning::
+
+   **Every ``accuracy_9b`` below was measured with a BROKEN answer extractor**
+   (fixed 2026-08-16 in ``evalvitals.analyzers.reasoning._text``).  Two defects,
+   both of which could only ever push a number DOWN:
+
+   * a bare ``(A)`` was discarded as a format placeholder, so multiple-choice
+     answers were thrown away and extraction fell back into the reasoning prose;
+   * ``\\boxed{}`` outranked a LATER ``Answer:`` line, so a chain that boxed its
+     intermediate working outranked its own conclusion.
+
+   Regrading the frozen full-census batches moved ``bbh_tracking7`` 0.592 ->
+   0.988 and ``minervamath`` 0.360 -> 0.463, with ZERO PASS->FAIL either way.
+   ``bbh_tracking7`` is therefore not a mid-band dataset at all — it is
+   saturated, and its band placement was an artefact of the grader.
+
+   Treat every ``accuracy_9b`` here as an unverified LOWER BOUND until it is
+   re-measured.  The multiple-choice entries (the ``supergpqa_*`` trio) are the
+   most exposed, because ``(X)`` is exactly the shape that was being discarded.
 """
 
 from __future__ import annotations
@@ -85,7 +105,13 @@ CATALOG: tuple = (
         caveat="MARGINAL PASS. Budget signal is exactly 0.10, sitting on the veto "
                "threshold, and the CI upper bound 0.724 crosses 0.70. It also ran "
                "at an 8k budget rather than 40k. Re-measure at n=100 / 24k before "
-               "using it as a headline number.",
+               "using it as a headline number. — THE BUDGET WORRY WAS JUSTIFIED: "
+               "on qwen3.5-2b the same slice reads 0.420 at the spec's 8192 (n=50 "
+               "probe) and 0.508 at 20480 (full census, 95/187, Wilson "
+               "[0.44, 0.58]). Nearly nine points from budget alone, so band "
+               "position here is a property of (model, dataset, BUDGET), not of "
+               "the pair. accuracy_9b=0.600 above is still the 8k number and is "
+               "therefore NOT comparable to a census run at the config default.",
     ),
     Entry(
         name="supergpqa_economics",
@@ -103,19 +129,51 @@ CATALOG: tuple = (
         caveat="CI upper bound 0.706 presses against the 0.70 edge.",
     ),
     Entry(
+        name="bbh_word_sorting",
+        chapter="ch4-basic",
+        items=250,
+        accuracy_9b=0.720,
+        ci95_9b=(0.58, 0.83),
+        budget_signal_9b=0.00,
+        source="lukaemon/bbh · config=word_sorting",
+        venue="BIG-Bench Hard, Suzgun et al., ACL Findings 2023",
+        slicing="One named BBH task: sort a word list into alphabetical order.",
+        grading="Normalised exact match on the whole sorted list — one word out "
+                "of place is a FAIL, so this is a harsh binary. That is fine for "
+                "band purposes but means a FAIL is not evidence of not knowing "
+                "how to sort.",
+        caveat="ADDED FOR THE 2B, not the 9B: 0.720 above is a 9B number and is "
+               "marginal there (CI 0.58-0.83 crosses 0.70). It is here because "
+               "qwen3.5-2b measures 0.440 (Wilson [0.31, 0.58], BOTH ends inside "
+               "the band) — the most comfortably band-centred entry in this table "
+               "for that model. Two budget notes, and they point opposite ways: "
+               "the 0.440 was measured at band_locate's 4096, while a census here "
+               "runs at the config default 20480, and on bbh_causal_judgement the "
+               "same widening moved accuracy +8.8 points. It also carried an 8% "
+               "budget signal at 4096, two points under the veto, which the wider "
+               "budget should relieve. Expect the census to read higher than "
+               "0.440; build_cases refuses outside [0.15, 0.85] either way.",
+    ),
+    Entry(
         name="bbh_tracking7",
         chapter="ch4-basic",
         items=250,
-        accuracy_9b=0.540,
-        ci95_9b=(0.40, 0.67),
+        accuracy_9b=0.988,
+        ci95_9b=(0.96, 1.00),
         budget_signal_9b=0.02,
         source="lukaemon/bbh · config=tracking_shuffled_objects_seven_objects",
         venue="BIG-Bench Hard, Suzgun et al., ACL Findings 2023",
         slicing="One named BBH task: track seven objects through a swap sequence.",
         grading="Normalised exact match.",
-        caveat="CLEANEST measurement in the table (budget signal 2%). Also the "
-               "clearest evidence against extrapolation: a survey agent predicted "
-               "0.93 for this slice; it measured 0.540, a 39-point miss.",
+        caveat="DO NOT USE — saturated at 0.988 (full census, n=250), far above "
+               "the band's 0.85 ceiling; qwen3.5-2b is higher still. It was "
+               "listed at 0.540 because the answer extractor discarded a bare "
+               "'(A)' as a format placeholder: 244 of 250 final claims are a "
+               "bare '(X)', and regrading flipped 99 FAIL->PASS with 0 the other "
+               "way. The old caveat called this the CLEANEST measurement in the "
+               "table and cited it as evidence against extrapolation — in fact "
+               "the survey agent's 0.93 prediction was closer to the truth than "
+               "the measurement was. A grader bug outranks a survey prior.",
     ),
     Entry(
         name="bamboogle",
@@ -135,8 +193,8 @@ CATALOG: tuple = (
         name="minervamath",
         chapter="ch1-math",
         items=272,
-        accuracy_9b=0.500,
-        ci95_9b=(0.37, 0.63),
+        accuracy_9b=0.463,
+        ci95_9b=(0.40, 0.52),
         budget_signal_9b=0.10,
         source="math-ai/minervamath · split=test",
         venue="Minerva, Lewkowycz et al., NeurIPS 2022",
@@ -147,10 +205,19 @@ CATALOG: tuple = (
                 "program form (`4.5e33`) and LaTeX (`4.5 \\times 10^{33}`), with a "
                 "1% relative tolerance THAT APPLIES ONLY to exponent-bearing "
                 "answers — plain integers still require exact equality.",
-        caveat="Measured at a 65k budget. At 40k it read 0.320/budget_limited, and "
-               "the difference was mostly a grader bug (23.5% of golds are "
-               "program-form scientific notation), not the budget. INFLUENCE "
-               "EVIDENCE UNCONFIRMED: `lm_eval/tasks/minerva_math` points at "
+        caveat="The one entry here that is NOT an n=50 probe: 0.463 is a regraded "
+               "FULL CENSUS (126/272, Wilson [0.40, 0.52]) — the batch was "
+               "generated once and relabelled by regrade.py after the "
+               "extract_answer fix, which moved it 0.360 -> 0.463 with zero "
+               "PASS->FAIL. It replaces a 0.500 probe read off the broken "
+               "grader. qwen3.5-2b is 0.419 (114/272) on the same slice under "
+               "the same grader — a 4.4-point gap across a 4.5x parameter "
+               "difference, so treat this slice as measuring something other "
+               "than scale. Measured at a 65k budget. At 40k it read "
+               "0.320/budget_limited, and the difference was mostly a grader "
+               "bug (23.5% of golds are program-form scientific notation), not "
+               "the budget. INFLUENCE EVIDENCE UNCONFIRMED: "
+               "`lm_eval/tasks/minerva_math` points at "
                "`EleutherAI/hendrycks_math`, NOT at this dataset.",
         max_tokens=65536,
     ),
@@ -190,6 +257,98 @@ CATALOG: tuple = (
 )
 
 BY_NAME: dict = {e.name: e for e in CATALOG}
+
+
+#: Qwen3.5-**2B**, n=50 probe, measured 2026-08-16 with the FIXED extractor.
+#:
+#: The band is a property of the (model, dataset) PAIR, and this is the evidence
+#: for it: five of seven candidates land IN band on a 2B, so a small model is not
+#: the reason a slice is unusable — bbh_tracking7 was unusable because the grader
+#: was inventing its position (0.988 once regraded, on the 9B).
+#:
+#: ``seconds`` is per 50 items at concurrency 16 and spans a factor of FORTY-FIVE,
+#: which no accuracy column shows: cruxeval_output is a whole census in ~4 min
+#: while supergpqa_economics is ~2.5 h. It is here so a dataset gets picked on
+#: cost as well as band position.
+#:
+#: ``chars`` is the mean generation length, and it is the column that decides
+#: whether M1 has anything to read. At 189 chars a 2B barely opens a chain on
+#: cruxeval_output, so the reasoning analyzers measure almost nothing there —
+#: same band position, very different diagnostic value.
+#:
+#: .. warning::
+#:
+#:    Each row ran at its own ``spec.max_tokens`` (band_locate's budget), which
+#:    is NOT what build_cases uses — build_cases takes ``entry.max_tokens or
+#:    CFG["max_tokens"]``.  The two agree only where the entry declares a budget
+#:    (minervamath).  Everywhere else these accuracies are measured at a
+#:    different budget than the census that follows them, and the gap is not
+#:    small: bbh_causal_judgement reads 0.420 here at 8192 and 0.508 at 20480.
+#:    Treat a row as "in band at THIS budget", never as a census prediction.
+#:
+#: Keys are ``band_locate`` SPEC names, NOT ``CATALOG`` entries — this table
+#: records what was probed, and a probe that excludes a dataset is exactly the
+#: result worth keeping. ``bbh_object_counting`` is here and deliberately not in
+#: CATALOG, so do not look these names up in ``BY_NAME`` without a guard.
+BAND_2B: dict = {
+    #                        acc     band       seconds  chars
+    "bbh_causal_judgement": (0.420, "USABLE",      90,     None),
+    #: Probed 2026-08-17 to close a gap in the TextGrad dataset list. Excluded
+    #: on the SMALL model, which settles it for the large one too: 0.800 on a 2B
+    #: can only go up on a 9B. Its budget_bracket is the degenerate [0.80, 0.80]
+    #: — budget_signal is 0 — so unlike a budget_limited row there is nothing a
+    #: bigger cap could resolve. Counting objects in a list is arithmetic; the
+    #: same 2B scores 0.508 on causal_judgement from the same repo.
+    "bbh_object_counting":  (0.800, "marginal",    25,      351),
+    "minervamath":          (0.380, "USABLE",     639,    12149),
+    "supergpqa_law":        (0.360, "USABLE",     305,     6576),
+    "supergpqa_economics":  (0.340, "USABLE",     507,     6338),
+    "cruxeval_output":      (0.300, "USABLE",      14,      189),
+    "bamboogle":            (0.160, "floor",      107,     None),
+    "supergpqa_medicine_hard": (0.140, "floor",   701,     None),
+    # bbh_tracking7 not probed: already saturated on the 9B once regraded.
+
+    # ── 2026-08-17: the "just above 0.70 on the 9B" sweep ────────────────────
+    # Rationale, and it held: a dataset the 9B has nearly saturated is where a
+    # 2B lands mid-band. The drop is real but NOT predictable — same 0.720
+    # starting point gave -28 (word_sorting) and -6 (gsm_symbolic_main) — so
+    # this band is a hunting ground, never an estimate.
+    #
+    # The two rows that did NOT make it are the useful negative result: both
+    # started from the saturated tier (0.94/0.98) and both fell exactly 20
+    # points, landing 0.74/0.78 — still out. Entering the band from there needs
+    # a cruxeval-sized 40-point fall, which happened once in five. Probe the
+    # 0.70-0.80 tier; skip the saturated one.
+    "mmlu_pro":             (0.480, "USABLE",     646,    16737),  # at 65536
+    "bbh_word_sorting":     (0.440, "USABLE",      55,     2822),
+    #: USABLE on the POINT ESTIMATE only — band_of tests acc in [0.30, 0.70] and
+    #: this CI runs to 0.776, so the true value may be out of band. Raise n
+    #: before using it.
+    "gsm_symbolic_main":    (0.660, "USABLE",      52,     2126),
+    "folio":                (0.740, "marginal",   221,    12300),
+    "bbh_navigate":         (0.780, "marginal",    15,      874),
+}
+
+#: Full-census follow-ups, which are what the probe is FOR — checking that an
+#: n=50 read survives the whole slice.  ``(accuracy, n_correct, n, budget)``.
+#:
+#: The two so far say different things, and the difference is the budget:
+#:
+#: * ``minervamath`` — probe 0.380 (CI 0.26-0.52) at 65536, census 0.419 at the
+#:   SAME budget.  Inside the interval: the probe was representative.
+#: * ``bbh_causal_judgement`` — probe 0.420 at the spec's 8192, census 0.508 at
+#:   the config default 20480.  Outside the probe's point estimate by nearly
+#:   nine points, and NOT a failure of the probe: the two ran at different
+#:   budgets, because band_locate uses ``spec.max_tokens`` while build_cases
+#:   uses ``entry.max_tokens or CFG["max_tokens"]`` and this entry declares
+#:   none.  Band position is a property of (model, dataset, BUDGET).
+#:
+#: So compare a probe against a census only when both ran at the same budget —
+#: otherwise the drift measures the budget, not the slice.
+CENSUS_2B: dict = {
+    "minervamath":          (0.419, 114, 272, 65536),
+    "bbh_causal_judgement": (0.508,  95, 187, 20480),
+}
 
 
 def get(name: str) -> Entry:

@@ -107,6 +107,39 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+#: ``{identifier}`` — the only thing a prompt template may substitute.
+_TEMPLATE_FIELD = re.compile(r"\{(\w+)\}")
+
+
+def safe_format(template: str, context: "dict[str, Any]") -> str:
+    r"""Fill ``{known}`` placeholders and leave every other brace group alone.
+
+    ``str.format`` treats EVERY ``{...}`` as a replacement field, but a prompt
+    template is model-authored prose about a task whose text legitimately
+    contains braces — LaTeX above all.  Measured against the real thing:
+
+        "{prompt} \frac{a}{b}"  -> KeyError: 'a'
+        "{prompt} 10^{33}"      -> IndexError: Replacement index 33
+        "{prompt} ${~m}$"       -> KeyError: '~m'
+        "{prompt} {}"           -> IndexError: Replacement index 0
+
+    The third is not hypothetical: it ended a qwen3.5-2b/minervamath run
+    *after* M4 had produced its fix, because the formatting sat outside the
+    per-case ``try``, so a template the model wrote for a LaTeX dataset took
+    down the process instead of scoring one case as ``None``.
+
+    Substituting by regex rather than forgiving ``format_map`` because the
+    failures above are three different exception types from two different
+    causes (unknown name, positional index), and a rule of "replace exactly the
+    ``{identifier}`` groups I know" has none of them: unknown names stay
+    literal, and nothing else is even looked at.  The cost is format specs
+    (``{value:.2f}``), which a prompt template has no use for.
+    """
+    return _TEMPLATE_FIELD.sub(
+        lambda m: str(context.get(m.group(1), m.group(0))), template
+    )
+
 _MAX_JUDGE_CANDIDATES = 3
 _EXAMPLE_PROMPTS = 3
 
@@ -227,9 +260,15 @@ class FixValidation:
     n_applicable: int = 0  # cases the candidate actually touched
     coverage: "float | None" = None  # applicable FAILs / total FAILs in subset
     n_unstable: int = 0  # cases dropped as baseline-unstable (noise)
+    # Failing cases a coded pipeline ALSO got right with the model frozen to
+    # its recorded answers (fix_pipeline.frozen_model_control) — the repair was
+    # the pipeline's own computation, not the model's, so they leave the paired
+    # test. Baseline-correct cases are never dropped on this ground.
+    n_model_independent: int = 0
     e_value: "float | None" = None
     # Coarse verdict (defect 4): fixed | partial | unsafe | regressed |
-    # no_effect | not_executed.  Richer than the boolean ``fixed`` for triage.
+    # no_effect | not_executed | model_independent.  Richer than the boolean
+    # ``fixed`` for triage.
     verdict: str = ""
     # Non-empty when the candidate never EXECUTED (sandbox crash, timeout,
     # bridge contract violation) — distinct from "executed and not effective".
@@ -293,6 +332,7 @@ class FixOutcome:
                     "n_applicable": v.n_applicable,
                     "coverage": v.coverage,
                     "n_unstable": v.n_unstable,
+                    "n_model_independent": v.n_model_independent,
                     "e_value": v.e_value,
                     "verdict": v.verdict,
                 }
@@ -612,7 +652,11 @@ class FixAgent:
         * **genuinely exhausted** — executed, powered, still no fix; escalate.
         """
         executed = [v for v in attempted if v.n_pairs > 0]
-        never_ran = [v for v in attempted if v.n_pairs == 0]
+        # A model-independent candidate DID execute; it just is not a repair of
+        # the model. It is neither an engineering failure nor evidence the tier
+        # is exhausted, so it sits in neither list.
+        never_ran = [v for v in attempted
+                     if v.n_pairs == 0 and v.verdict != "model_independent"]
         if never_ran and not executed:
             return {
                 "recommend_tier": self.max_tier.label,
@@ -660,6 +704,14 @@ class FixAgent:
             }
 
         rec = self._recommend(routed_tiers, model=model)
+        solo = [v for v in attempted if v.verdict == "model_independent"]
+        if solo and rec is not None:
+            rec["reason"] += (
+                f" (note: {len(solo)} candidate(s) solved the task without the model "
+                "and were not counted as repairs: "
+                + ", ".join(v.candidate.name for v in solo[:3])
+                + ")"
+            )
         if never_ran and rec is not None:
             rec["reason"] += (
                 f" (caveat: {len(never_ran)} candidate(s) never executed: "
@@ -2288,15 +2340,18 @@ class FixAgent:
                 template_context = {str(key): value for key, value in metadata.items()}
                 template_context["prompt"] = str(getattr(inp, "prompt", ""))
                 template_context.setdefault("failure_axis", "the relevant visual evidence")
-                # dataclasses.replace, not a bare Inputs(prompt=..., image=...):
-                # that silently dropped .video/.audio, so every L1 candidate was
-                # unconditionally inapplicable (generate() raising on the
-                # missing required modality field, caught below, scored as
-                # None for every case) on any non-image FailureCase.
-                new_inputs = dataclasses.replace(
-                    inp, prompt=template.format(**template_context)
-                )
+                # Inside the try, not before it: rendering the template is as
+                # capable of failing as generating from it, and a single bad
+                # case must score None rather than abort the whole validation.
                 try:
+                    # dataclasses.replace, not a bare Inputs(prompt=..., image=...):
+                    # that silently dropped .video/.audio, so every L1 candidate was
+                    # unconditionally inapplicable (generate() raising on the
+                    # missing required modality field, caught below, scored as
+                    # None for every case) on any non-image FailureCase.
+                    new_inputs = dataclasses.replace(
+                        inp, prompt=safe_format(template, template_context)
+                    )
                     return score_to_bool(self._score(case, str(model.generate(new_inputs))))
                 except Exception:
                     return None
@@ -2317,6 +2372,8 @@ class FixAgent:
             return prim.run(model, data, self._score, candidate.payload.get("params"))
         if candidate.kind == "code":
             result = self._run_coded(candidate, model, data)
+            if result.ok:
+                self._frozen_model_control(candidate, data)
             return score_outputs(result, data, self._score)
         if candidate.kind == "finetune_spec":
             result = run_lora_repair(model, self._finetune_pool, data, candidate.payload, self._score)
@@ -2371,6 +2428,43 @@ class FixAgent:
         if not result.ok:
             logger.warning("FixAgent: coded pipeline produced no result: %s", result.error)
         return result
+
+    def _frozen_model_control(self, candidate: FixCandidate, data: "CaseBatch") -> None:
+        """Re-run a coded candidate with the model frozen; record what it still
+        gets right in ``payload["frozen_model_control"]``.
+
+        ``_validate`` reads ``solved`` and drops those failing cases from the
+        paired test: with every model call answered by the model's own recorded
+        output, a repair can only have come from the code. A control that does
+        not complete (the pipeline crashes or spins without a live model) is
+        evidence the pipeline needs the model — nothing is discounted, and the
+        reason is kept.
+        """
+        from pathlib import Path
+
+        from evalvitals.eval_agent.stages.fix_pipeline import frozen_model_control
+
+        workdir = Path(self._workdir(candidate.trial)) / "frozen_model_control"
+        ctrl = frozen_model_control(
+            candidate.payload["code"], data, workdir=workdir,
+            timeout_sec=self._exec_timeout_sec,
+        )
+        solved: "list[str]" = []
+        if ctrl.ok:
+            for cid, ok in score_outputs(ctrl, data, self._score).items():
+                if ok is True:
+                    solved.append(cid)
+        candidate.payload["frozen_model_control"] = {
+            "ok": ctrl.ok,
+            "error": ctrl.error,
+            "n_calls": ctrl.n_calls,
+            "solved": solved,
+        }
+        if solved:
+            logger.info(
+                "FixAgent: frozen-model control — %s still solves %d/%d case(s) with the "
+                "model held at its recorded answers", candidate.name, len(solved), len(data),
+            )
 
     def _repair_code(self, candidate: FixCandidate, error: str) -> "tuple[str, str, str]":
         """Ask the coder to fix its failed pipeline; returns (code, source, raw)."""
@@ -2437,10 +2531,19 @@ class FixAgent:
         applicable_fail = 0
         base_vec: "list[bool]" = []
         cand_vec: "list[bool]" = []
+        control = (candidate.payload.get("frozen_model_control") or {}
+                   if isinstance(candidate.payload, dict) else {})
+        solved_without_model = set(control.get("solved") or [])
         for case in data:
             b = score_to_bool(baseline.get(case.id))
             c = score_to_bool(scores.get(case.id))
             if b is None or c is None:
+                continue
+            # A failing case the pipeline also gets right with the model frozen
+            # to its recorded answer was repaired by the code, not the model:
+            # not a fix of the model, not a regression either — out of the test.
+            if not b and case.id in solved_without_model:
+                v.n_model_independent += 1
                 continue
             # Noise floor (defect 2): a case whose baseline flipped across
             # repeats is unreliable — excluding it stops a stochastic flip from
@@ -2468,6 +2571,15 @@ class FixAgent:
         v.n_candidate_correct = sum(cand_vec)
         v.n_applicable = v.n_pairs
         v.coverage = (applicable_fail / n_fail) if n_fail else None
+        if v.n_pairs == 0 and v.n_model_independent:
+            v.verdict = "model_independent"
+            v.summary = (
+                f"model-independent: all {v.n_model_independent} failing case(s) it "
+                "repairs it also repairs with the model frozen to its recorded answers "
+                "(frozen-model control) — the pipeline solves the task itself; no "
+                "model-attributable pair to test"
+            )
+            return v
         if v.n_pairs == 0:
             v.verdict = "not_executed"
             v.summary = (
@@ -2491,7 +2603,9 @@ class FixAgent:
         v.verdict = self._verdict(v)
         cov = "" if v.coverage is None else f", coverage={v.coverage:.0%}"
         noise = f", {v.n_unstable} unstable dropped" if v.n_unstable else ""
-        v.summary = f"{stat.summary()} [{v.verdict}{cov}{noise}]"
+        solo = (f", {v.n_model_independent} model-independent excluded"
+                if v.n_model_independent else "")
+        v.summary = f"{stat.summary()} [{v.verdict}{cov}{noise}{solo}]"
         return v
 
     @staticmethod

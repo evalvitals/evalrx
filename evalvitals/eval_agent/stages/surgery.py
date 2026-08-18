@@ -79,9 +79,29 @@ class InterventionResult:
 def _serialize_cases(data: CaseBatch, image_dir: "Any | None" = None) -> str:
     """Serialize *data* to a compact JSON string embeddable in a script.
 
-    Text fields are always included.  When *image_dir* is provided, PIL images
-    are saved as JPEG files there and the path is included as ``image_path`` so
-    the generated diagnostic script (and codex) can load them.
+    Includes the GOLD (``expected``) and the graded GENERATION (``observed``).
+    Without them a whole class of hypothesis is untestable in the sandbox rather
+    than merely hard: M1 and M3 keep proposing "these labels are grading
+    artifacts" on free-response sets, and the judge cannot check a grading claim
+    with no gold to grade against.  Observed live on qwen3.5-2b/minervamath,
+    where the experiment said so itself --
+
+        "cases.json carries only {prompt, label, id} -- no gold answer, no
+         stored output.  So `gold_in_output` cannot be recomputed directly.
+         So the claim is tested on its MECHANISM instead"
+
+    -- substituted a resampling proxy, and returned SUPPORTED for a hypothesis
+    that regrading the full batch refutes outright (0 of 114 PASS labels wrong).
+
+    This is NOT the sandbox that runs a candidate fix.  That one is
+    :func:`~evalvitals.eval_agent.stages.fix_pipeline.cases_payload`, which is
+    id+prompt only on purpose, so a fix cannot be written against the answers.
+    The split matters: a DIAGNOSTIC needs the gold to diagnose grading, a REPAIR
+    must not see it. Widening this function does not widen that one.
+
+    When *image_dir* is provided, PIL images are saved as JPEG files there and
+    the path is included as ``image_path`` so the generated diagnostic script
+    (and codex) can load them.
     """
     from pathlib import Path as _Path
 
@@ -92,6 +112,13 @@ def _serialize_cases(data: CaseBatch, image_dir: "Any | None" = None) -> str:
             rec["label"] = str(case.label)
         if getattr(case, "id", None):
             rec["id"] = case.id
+        expected = getattr(case, "expected", None)
+        if expected is not None:
+            rec["expected"] = expected if isinstance(
+                expected, (str, int, float, bool)) else str(expected)
+        observed = getattr(case, "observed", None)
+        if observed is not None:
+            rec["observed"] = str(observed)
         meta = getattr(case, "metadata", {}) or {}
         if meta:
             rec["metadata"] = {k: v for k, v in meta.items()

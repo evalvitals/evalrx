@@ -9,8 +9,13 @@ it takes a plain Model plus an ExperimentProtocol whose target_modalities is
 {"text"} here, and nothing in it is vision-specific):
 
     M1 ProbeAgent          selects and runs analyzers against the batch
+       ExploratoryAnalysisAgent  (optional, config `explore`) free-form EDA over
+                          M1's per-case table: tables/ + rendered figures/ under
+                          outputs/<model>/<dataset>/explore/, and UNCONFIRMED
+                          notes for M3. Runs beside the catalog M2, not instead.
     M2 StatsAnalysisAgent  protocol-aware statistics over M1's per-case signals
-    M3 DiagnosisAgent      proposes hypotheses from the stats
+                          (the confirmatory tool catalog + e-BH; unchanged)
+    M3 DiagnosisAgent      proposes hypotheses from the stats (+ explore notes)
     M5 HypothesisTester    tests each hypothesis + checks protocol consistency
     M4 SurgeryAgent        proposes a fix for the best VERIFIED hypothesis
 
@@ -232,16 +237,47 @@ class EndpointModel(Model):
 
 
 # ---------------------------------------------------------------- inputs
-def load_batch(model_id: str, dataset: str):
+def load_batch(model_id: str, dataset: str, out_dir: "Path | None" = None):
+    """Load the frozen batch. *out_dir* (a tagged run dir, see ``--out-tag``) is
+    read first so a smoke run is self-contained; it falls back to the untagged
+    ``outputs/<model>/<dataset>/cases.json`` and copies that file into *out_dir*
+    for provenance — the frozen batch itself is never rewritten."""
     from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
 
-    path = HERE / "outputs" / model_id / dataset / "cases.json"
+    base = HERE / "outputs" / model_id / dataset / "cases.json"
+    path = base
+    if out_dir is not None and (out_dir / "cases.json").exists():
+        path = out_dir / "cases.json"
     if not path.exists():
         raise SystemExit(
             f"{path} not found — run:\n"
             f"  python build_cases.py --model {model_id} --dataset {dataset}"
         )
     report = json.loads(path.read_text())
+    if out_dir is not None and path == base and out_dir.resolve() != base.parent.resolve():
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "cases.json").write_text(path.read_text())
+
+    # A frozen batch keeps its generations forever but its LABELS are only as
+    # good as the grader that wrote them, and SKIP_STAGE0=1 reuses the file
+    # wholesale. When extract_answer was fixed on 2026-08-16 the two batches on
+    # disk moved 0.592->0.988 and 0.360->0.463 without a single re-generation --
+    # a loop restarted on them would have mined the old bug and reported it as
+    # model behaviour. Warn rather than refuse: the batch is still USABLE, it
+    # just has to be regraded first, and that is free.
+    try:
+        from regrade import grader_fingerprint
+        if report.get("grader_fingerprint") != grader_fingerprint():
+            print(f"  WARNING {path.name} was graded by a different version of "
+                  f"the grader than the one installed now. Its PASS/FAIL split "
+                  f"may not reflect current grading.\n"
+                  f"          python regrade.py --model {model_id} "
+                  f"--dataset {dataset}        # see the delta\n"
+                  f"          python regrade.py --model {model_id} "
+                  f"--dataset {dataset} --write")
+    except Exception as exc:  # never block a run on the staleness check itself
+        print(f"  NOTE could not check grader freshness: {exc}")
+
     cases = [
         FailureCase(
             inputs=Inputs(prompt=c["prompt"]),
@@ -252,6 +288,41 @@ def load_batch(model_id: str, dataset: str):
         for c in report["cases"]
     ]
     return CaseBatch(cases), report
+
+
+def subsample_batch(batch, report: dict, n: int, seed: int = 0):
+    """Deterministic label-stratified subsample of the frozen batch (smoke runs).
+
+    Keeps the PASS/FAIL proportion (each label rounded, at least one of each
+    when both exist) so a 60-case smoke run has the same base rate as the
+    full batch. Returns ``(batch, report)`` unchanged when *n* is 0 or covers
+    the whole batch; the report's headline counts are recomputed so the
+    printed ``[batch]`` line and summary.json describe what actually ran."""
+    import random
+
+    from evalvitals.core.case import CaseBatch, Label
+
+    cases = list(batch)
+    if n <= 0 or n >= len(cases):
+        return batch, report
+    by_label: dict = {}
+    for c in cases:
+        by_label.setdefault(c.label, []).append(c)
+    rng = random.Random(seed)
+    picked = []
+    total = len(cases)
+    for label, group in sorted(by_label.items(), key=lambda kv: str(kv[0])):
+        k = max(1, round(n * len(group) / total))
+        picked.extend(rng.sample(group, min(k, len(group))))
+    picked = picked[:n]
+    n_fail = sum(1 for c in picked if c.label == Label.FAIL)
+    sub = dict(report)
+    sub.update({
+        "n": len(picked), "n_fail": n_fail, "n_pass": len(picked) - n_fail,
+        "accuracy": (len(picked) - n_fail) / len(picked),
+        "subsampled_from": len(cases), "subsample_seed": seed,
+    })
+    return CaseBatch(picked), sub
 
 
 def build_protocol(dataset: str):
@@ -414,6 +485,89 @@ def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -
     return overrides
 
 
+def load_prior_run(logs_dir: Path):
+    """Reload the LAST run's M2 stats + M3 hypotheses from ``logs_dir``.
+
+    ``run_log.jsonl`` is append-only across runs, so everything is read from
+    the segment after the final ``run_start``. Returns
+    ``(hypotheses, stats_report)`` — the exact hypotheses that run proposed
+    and a StatsAnalysisReport carrying its per-signal tool results (with the
+    BH verdicts as serialised), its multiplicity summary, its conclusion, and
+    the M1 analyzer findings — everything M5, M4 and the fix module read.
+    Findings objects and figures are not rebuilt (nothing downstream needs
+    them). Raises SystemExit with the missing piece named when the logs do
+    not hold a completed M2->M3.
+    """
+    from evalvitals.analysis.stats_agent import StatsAnalysisReport
+    from evalvitals.analysis.stats_tools import StatsToolResult
+    from evalvitals.core.result import Result
+    from evalvitals.eval_agent.hypothesis import hypothesis_from_dict
+
+    log_path = logs_dir / "run_log.jsonl"
+    if not log_path.exists():
+        raise SystemExit(f"--confirm-only: {log_path} missing — no earlier run to reload")
+    events = []
+    for line in log_path.read_text(encoding="utf-8").splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    starts = [i for i, e in enumerate(events) if e.get("event") == "run_start"]
+    segment = events[starts[-1]:] if starts else events
+    by_event = {}
+    for e in segment:  # last of each kind wins inside the segment
+        by_event[e.get("event")] = e
+
+    diagnosis = by_event.get("diagnosis")
+    if not diagnosis or not diagnosis.get("hypotheses"):
+        raise SystemExit("--confirm-only: the last run has no M3 diagnosis with "
+                         "hypotheses — nothing to confirm")
+    hypotheses = [hypothesis_from_dict(h) for h in diagnosis["hypotheses"]]
+
+    analysis = by_event.get("analysis")
+    if not analysis:
+        raise SystemExit("--confirm-only: the last run has no M2 analysis event")
+
+    def _externalised(field):
+        v = analysis.get(field)
+        if isinstance(v, dict) and v.get("path"):
+            return json.loads((logs_dir / v["path"]).read_text(encoding="utf-8"))
+        return v or []
+
+    stats_results = []
+    for d in _externalised("stats_results"):
+        d = dict(d)
+        if d.get("ci") is not None:
+            d["ci"] = tuple(d["ci"])
+        stats_results.append(StatsToolResult(**d))
+    if not stats_results:
+        raise SystemExit("--confirm-only: the last run's M2 stats_results are empty")
+
+    raw_results = {}
+    probe = by_event.get("probe") or {}
+    for name, rel in (probe.get("result_paths") or {}).items():
+        path = logs_dir / rel
+        if not path.exists():
+            continue
+        d = json.loads(path.read_text(encoding="utf-8"))
+        raw_results[name] = Result(analyzer=d.get("analyzer", name), model=d.get("model", ""),
+                                   findings=d.get("findings") or {},
+                                   metadata=d.get("metadata") or {})
+
+    report = StatsAnalysisReport(
+        model_name=diagnosis.get("model_name") or "",
+        severity=analysis.get("severity") or "none",
+        narrative=analysis.get("narrative") or "",
+        raw_results=raw_results,
+        conclusion=analysis.get("conclusion") or "",
+        evidence_chain=list(analysis.get("evidence_chain") or []),
+        stats_results=stats_results,
+        corrected_rejections=dict(analysis.get("corrected_rejections") or {}),
+        descriptive_only=bool(analysis.get("descriptive_only", False)),
+    )
+    return hypotheses, report
+
+
 def build_codegen(backend: str):
     from evalvitals.eval_agent import CliAgentConfig
 
@@ -427,6 +581,27 @@ def build_codegen(backend: str):
         max_budget_usd=float(CFG.get("codegen_budget_usd", 2.0)),
         timeout_sec=int(CFG.get("codegen_timeout_sec", 480)),
         extra_args=(("--effort", effort) if (effort and is_claude) else ()),
+    )
+
+
+def build_explorer(codegen, out: Path):
+    """The optional in-cycle explore step (free-form EDA beside the catalog M2).
+
+    Same coder backend as M2's tool codegen, its own durable sandbox under the
+    run dir so the generated ``analysis.py`` / ``tables/`` survive for audit.
+    ``explore: false`` in config.yaml (or ``EXPLORE=0`` in run_all.sh) turns the
+    step off; the loop then runs exactly as before.
+    """
+    if not bool(CFG.get("explore", True)):
+        return None
+    from evalvitals.agent_runtime.sandbox import ExperimentSandbox
+    from evalvitals.analysis import ExploratoryAnalysisAgent
+
+    return ExploratoryAnalysisAgent(
+        cli_config=codegen,
+        sandbox=ExperimentSandbox(workdir=out / "explore" / "sandbox", cleanup=False),
+        timeout_sec=int(CFG.get("explore_timeout_sec", 900)),
+        max_attempts=int(CFG.get("explore_max_attempts", 2)),
     )
 
 
@@ -450,7 +625,27 @@ def main() -> None:
                     help="M1->M2->M3 and stop: propose hypotheses, skip M5 and M4")
     ap.add_argument("--skip-m4", action="store_true",
                     help="run M1->M5 but do not attempt a fix")
+    ap.add_argument("--max-cases", type=int, default=0,
+                    help="label-stratified subsample of the frozen batch for a "
+                         "smoke run (0 = the whole batch). Cuts M1 wall-clock; "
+                         "recorded in summary.json so a wide interval reads as "
+                         "'few cases', not 'no effect'")
+    ap.add_argument("--out-tag", default="",
+                    help="write everything to outputs/<model>/<dataset>.<tag>/ "
+                         "instead of the untagged run dir (the frozen batch is "
+                         "read from there or copied in) so a smoke run never "
+                         "appends to a real run's logs/ or overwrites its explore/")
+    ap.add_argument("--no-explore", action="store_true",
+                    help="skip the in-cycle explore step (free-form EDA beside the "
+                         "catalog M2) even when config.yaml has explore: true")
+    ap.add_argument("--confirm-only", action="store_true",
+                    help="skip M1->M3: reload the last run's M2 stats + M3 hypotheses "
+                         "from outputs/<model>/<dataset>/logs/ and run M5 -> M4 -> fix "
+                         "on them (logs go to logs_confirm/, summary to "
+                         "summary_confirm.json)")
     args = ap.parse_args()
+    if args.analysis_only and args.confirm_only:
+        ap.error("--analysis-only and --confirm-only are the two halves of one run")
 
     from evalvitals.analysis.stats_agent import StatsAnalysisAgent
     from evalvitals.eval_agent import (
@@ -464,9 +659,22 @@ def main() -> None:
     from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTester
     from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
 
-    batch, report_in = load_batch(args.model, args.dataset)
-    out = HERE / "outputs" / args.model / args.dataset
+    out = HERE / "outputs" / args.model / (
+        f"{args.dataset}.{args.out_tag}" if args.out_tag else args.dataset)
     out.mkdir(parents=True, exist_ok=True)
+    batch, report_in = load_batch(args.model, args.dataset, out_dir=out)
+    if args.max_cases > 0:
+        batch, report_in = subsample_batch(batch, report_in, args.max_cases)
+        print(f"[batch] --max-cases {args.max_cases}: label-stratified subsample "
+              f"of {report_in.get('subsampled_from', '?')} frozen cases (seed 0)")
+
+    prior = None
+    if args.confirm_only:
+        prior = load_prior_run(out / "logs")
+        print(f"[confirm-only] reloaded {len(prior[0])} hypothesis(es) + "
+              f"{len(prior[1].stats_results)} M2 tool results from {out / 'logs'}")
+        for h in prior[0]:
+            print(f"  - {h.statement[:110]}")
 
     print(f"[batch] {args.dataset} n={report_in['n']} "
           f"PASS={report_in['n_pass']} FAIL={report_in['n_fail']} "
@@ -483,9 +691,26 @@ def main() -> None:
                           logprobs_top_k=int(CFG.get("logprobs_top_k", 5)))
     judge = build_judge(args.judge_model, args.judge_effort)
     codegen = build_codegen(args.backend)
+    # A confirm-only pass never runs M1/M3, so there is nothing to explore.
+    explorer = (None if (args.confirm_only or args.no_explore)
+                else build_explorer(codegen, out))
     overrides = (build_analyzer_overrides(args.analyzer_max_cases, model=model)
                  if args.analyzer_max_cases > 0 else {})
-    logger = RunLogger(run_dir=out / "logs", verbose=True)
+    # A confirm-only pass logs beside the analysis it reuses, never over it —
+    # the dashboard merges every logs*/run_log.jsonl under the run dir.
+    logger = RunLogger(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
+                       verbose=True)
+
+    # max_cases_per_analyzer is the BACKSTOP for analyzer_overrides: the
+    # overrides can only turn a `max_cases` constructor knob, and the five
+    # analyzers that dominated M1 wall-clock here (first_error_judge, rise,
+    # self_consistency, verbalized_confidence, trajectory_rubric) expose none.
+    # Without it the cap reached 7 of 20 generating analyzers and the rest ran
+    # the full batch one generate() at a time.
+    probe_agent = ProbeAgent(judge=judge, allow_codegen=True,
+                             codegen_config=codegen,
+                             analyzer_overrides=overrides,
+                             max_cases_per_analyzer=args.analyzer_max_cases)
 
     # Every stage takes its judge/coder through its CONSTRUCTOR. Assigning
     # `stage.judge` afterwards would leave each stage on its own default and the
@@ -494,11 +719,19 @@ def main() -> None:
     loop = VLDiagnoseLoop(
         model=model,
         protocol=build_protocol(args.dataset),
-        probe_agent=ProbeAgent(judge=judge, allow_codegen=True,
-                               codegen_config=codegen,
-                               analyzer_overrides=overrides),
+        # max_cases_per_analyzer is the BACKSTOP for analyzer_overrides: the
+        # overrides can only turn a `max_cases` constructor knob, and the five
+        # analyzers that dominated M1 wall-clock here (first_error_judge, rise,
+        # self_consistency, verbalized_confidence, trajectory_rubric) expose
+        # none. Without it the cap reached 7 of 20 generating analyzers and the
+        # rest ran the full batch serially.
+        probe_agent=probe_agent,
+        # figure_dir: the catalog M2's forest plot (effect +- CI per tool)
+        # lands in logs/figures/m2_effects.png and is listed in the analysis
+        # event's `figures`; without it M2 stays JSON-only.
         stats_agent=StatsAnalysisAgent(judge=judge, allow_codegen=True,
-                                       codegen_config=codegen),
+                                       codegen_config=codegen,
+                                       figure_dir=str(logger.run_dir / "figures")),
         diagnosis_agent=DiagnosisAgent(judge=judge),
         hypothesis_tester=HypothesisTester(judge=judge),
         surgery_agent=SurgeryAgent(
@@ -514,16 +747,31 @@ def main() -> None:
         max_cycles=args.max_cycles,
         run_logger=logger,
         confirm_split=args.confirm_split,
+        # Explore beside the catalog M2, not instead of it: a free-form EDA pass
+        # over the same M1 per-case table, between M1 and M2. Its
+        # observations/charts reach M3 as UNCONFIRMED notes and land under
+        # outputs/<model>/<dataset>/explore/ (exploratory_report.json + tables/
+        # + figures/) for the dashboard. M2's confirmatory family, M5 and the
+        # fix gate never see it.
+        explorer=explorer,
+        explore_dir=out / "explore",
     )
 
     if args.analysis_only:
         report = loop.run_analysis(batch)
-        print(f"[M1-M3] proposed {len(report.hypotheses)} hypotheses")
+        print(f"[M1-M3] proposed {len(report.final_hypotheses)} hypotheses")
     else:
-        report = loop.run(batch)
-        print(f"[M1-M5] cycles={report.cycles} stopped_by={report.stopped_by} "
-              f"verified={len(report.verified_hypotheses)}/"
-              f"{len(report.all_test_results)}")
+        if args.confirm_only:
+            hypotheses, stats_report = prior
+            report = loop.run_confirm(batch, hypotheses, stats_report=stats_report)
+            print(f"[M5 confirm-only] stopped_by={report.stopped_by} "
+                  f"verified={len(report.verified_hypotheses)}/"
+                  f"{len(report.all_test_results)}")
+        else:
+            report = loop.run(batch)
+            print(f"[M1-M5] cycles={report.cycles} stopped_by={report.stopped_by} "
+                  f"verified={len(report.verified_hypotheses)}/"
+                  f"{len(report.all_test_results)}")
         for t in report.all_test_results:
             stmt = getattr(t.hypothesis, "statement", str(t.hypothesis))
             print(f"  - [{t.status}] conf={t.confidence:.2f} "
@@ -542,7 +790,12 @@ def main() -> None:
                   ("n", "accuracy", "n_pass", "n_fail", "truncated_rate")},
         "confirm_split": args.confirm_split,
         "analysis_only": args.analysis_only,
-        "n_hypotheses": len(getattr(report, "hypotheses", []) or []),
+        "confirm_only": args.confirm_only,
+        "explore": explorer is not None,
+        "max_cases": args.max_cases or None,
+        "out_tag": args.out_tag or None,
+        "n_hypotheses": len(getattr(report, "hypotheses", None)
+                            or getattr(report, "all_hypotheses", None) or []),
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),
         "model_calls": model.n_calls,
         "model_truncated": model.n_truncated,
@@ -551,10 +804,16 @@ def main() -> None:
         # recorded so a narrow interval downstream is readable as "fewer cases",
         # not as "no effect"
         "analyzer_max_cases": args.analyzer_max_cases or None,
+        # two different mechanisms, and the gap between them is the point:
+        # `capped` turned a constructor knob, `truncated` bounded the analyzers
+        # that have no knob to turn (name -> [cases offered, cases used]).
         "analyzers_capped": sorted(overrides),
+        "analyzers_truncated": {k: list(v) for k, v
+                                in sorted(probe_agent.capped_analyzers.items())},
     }
-    (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
-    print(f"\nwrote {out/'summary.json'}")
+    summary_name = "summary_confirm.json" if args.confirm_only else "summary.json"
+    (out / summary_name).write_text(json.dumps(summary, indent=2, ensure_ascii=False))
+    print(f"\nwrote {out/summary_name}")
     print(f"dashboard: python -m evalvitals.cli dashboard {out}")
 
 

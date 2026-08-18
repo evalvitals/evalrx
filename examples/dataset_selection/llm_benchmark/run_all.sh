@@ -4,6 +4,12 @@
 #   ./run_all.sh qwen3.5-9b supergpqa_law            # full chain, ALL items
 #   ./run_all.sh qwen3.5-2b cruxeval_output 60       # cap at 60 items
 #   ANALYSIS_ONLY=1 ./run_all.sh qwen3.5-9b bamboogle 40   # M1->M3, no M5/M4
+#   SKIP_STAGE0=1 CONFIRM_ONLY=1 ./run_all.sh qwen3.5-2b bbh_word_sorting
+#                                     # M5->M4->fix only, on the last run's M2/M3
+#   EXPLORE=0 ./run_all.sh qwen3.5-2b bbh_word_sorting   # no explore step (catalog M2 only)
+#   SKIP_STAGE0=1 ANALYSIS_ONLY=1 RUN_TAG=smoke MAX_CASES=60 ./run_all.sh qwen3.5-2b bbh_word_sorting
+#                                     # smoke run: 60-case subsample of the frozen batch,
+#                                     # M1->explore->M2->M3, everything under <dataset>.smoke/
 #
 # Written for unattended/agent execution: absolute interpreter paths (no shell
 # variables carried between steps), an explicit readiness wait, a free-GPU probe,
@@ -15,6 +21,11 @@ DATASET="${2:-supergpqa_law}"
 NCASES="${3:-0}"   # 0 = every item in the slice
 PORT="${PORT:-8020}"
 ANALYSIS_ONLY="${ANALYSIS_ONLY:-0}"
+CONFIRM_ONLY="${CONFIRM_ONLY:-0}"    # reuse logs/ M2+M3; needs the frozen batch (SKIP_STAGE0=1)
+EXPLORE="${EXPLORE:-1}"              # 0 = skip the in-cycle explore step (free-form EDA beside M2)
+RUN_TAG="${RUN_TAG:-}"               # set = write to outputs/<model>/<dataset>.<tag>/ (smoke runs; needs SKIP_STAGE0=1)
+MAX_CASES="${MAX_CASES:-0}"          # >0 = label-stratified subsample of the frozen batch (smoke runs)
+PIPELINE_ARGS="${PIPELINE_ARGS:-}"   # extra run_pipeline.py flags, e.g. "--analyzer-max-cases 16"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Walk up to the checkout root instead of counting directories: this example
@@ -105,6 +116,15 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 LOG_DIR="$HERE/outputs/$MODEL/$DATASET"
+BASE_DIR="$LOG_DIR"
+if [ -n "$RUN_TAG" ]; then
+  # A tagged run keeps a real run's logs/ (append-only) and explore/ untouched.
+  # Stage 0 always writes the UNTAGGED batch, so a tagged run must reuse one.
+  if [ "${SKIP_STAGE0:-0}" != "1" ]; then
+    stamp "RUN_TAG=$RUN_TAG requires SKIP_STAGE0=1 (build_cases writes the untagged batch)"; exit 1
+  fi
+  LOG_DIR="$HERE/outputs/$MODEL/$DATASET.$RUN_TAG"
+fi
 mkdir -p "$LOG_DIR"
 
 # The server's context has to be sized BEFORE it starts, and some datasets need
@@ -149,6 +169,9 @@ BASE_URL="http://127.0.0.1:$PORT/v1"
 # preceded it are still valid, and regenerating them would only add noise (the
 # sampler is not seeded). Refuses rather than silently regenerating if absent.
 if [ "${SKIP_STAGE0:-0}" = "1" ]; then
+  if [ ! -f "$LOG_DIR/cases.json" ] && [ -n "$RUN_TAG" ] && [ -f "$BASE_DIR/cases.json" ]; then
+    cp "$BASE_DIR/cases.json" "$LOG_DIR/cases.json"   # self-contained tagged run
+  fi
   if [ ! -f "$LOG_DIR/cases.json" ]; then
     stamp "SKIP_STAGE0=1 but $LOG_DIR/cases.json does not exist"; exit 1
   fi
@@ -156,7 +179,7 @@ if [ "${SKIP_STAGE0:-0}" = "1" ]; then
   rc=0
 else
   stamp "STAGE 0 build_cases (slowest step; a full census of a 650+ item slice runs 4-6 h — see README)"
-  "$EVAL_PY" "$HERE/build_cases.py" \
+  "$EVAL_PY" -u "$HERE/build_cases.py" \
     --model "$MODEL" --dataset "$DATASET" --n "$NCASES" --base-url "$BASE_URL"
   rc=$?
   if [ $rc -ne 0 ]; then
@@ -167,14 +190,22 @@ else
   fi
 fi
 
+# Flags shared by every run_pipeline invocation below.
+COMMON=(--model "$MODEL" --dataset "$DATASET" --base-url "$BASE_URL")
+if [ -n "$RUN_TAG" ]; then COMMON+=(--out-tag "$RUN_TAG"); fi
+if [ "$MAX_CASES" -gt 0 ] 2>/dev/null; then COMMON+=(--max-cases "$MAX_CASES"); fi
+if [ "$EXPLORE" = "0" ]; then COMMON+=(--no-explore); fi
+# shellcheck disable=SC2206  # PIPELINE_ARGS is deliberately word-split
+EXTRA=($PIPELINE_ARGS)
 if [ "$ANALYSIS_ONLY" = "1" ]; then
-  stamp "STAGE 1 run_pipeline --analysis-only (M1->M2->M3)"
-  "$EVAL_PY" "$HERE/run_pipeline.py" \
-    --model "$MODEL" --dataset "$DATASET" --base-url "$BASE_URL" --analysis-only
+  stamp "STAGE 1 run_pipeline --analysis-only (M1->[explore]->M2->M3)"
+  "$EVAL_PY" -u "$HERE/run_pipeline.py" "${COMMON[@]}" --analysis-only "${EXTRA[@]}"
+elif [ "$CONFIRM_ONLY" = "1" ]; then
+  stamp "STAGE 2' run_pipeline --confirm-only (M5->M4->fix on the last run's M2/M3; logs_confirm/)"
+  "$EVAL_PY" -u "$HERE/run_pipeline.py" "${COMMON[@]}" --confirm-only "${EXTRA[@]}"
 else
-  stamp "STAGE 2 run_pipeline (M1->M2->M3->M5->M4)"
-  "$EVAL_PY" "$HERE/run_pipeline.py" \
-    --model "$MODEL" --dataset "$DATASET" --base-url "$BASE_URL"
+  stamp "STAGE 2 run_pipeline (M1->[explore]->M2->M3->M5->M4)"
+  "$EVAL_PY" -u "$HERE/run_pipeline.py" "${COMMON[@]}" "${EXTRA[@]}"
 fi
 rc=$?
 
@@ -192,7 +223,7 @@ if [ -n "${WHITEBOX_PYTHON:-}" ] && [ $rc -eq 0 ]; then
     sleep 2
   done
   stamp "STAGE W run_whitebox (attention over a label-balanced subset)"
-  "$WHITEBOX_PYTHON" "$HERE/run_whitebox.py" \
+  "$WHITEBOX_PYTHON" -u "$HERE/run_whitebox.py" \
     --model "$MODEL" --dataset "$DATASET" --n "${WHITEBOX_N:-24}"
   wrc=$?
   [ $wrc -ne 0 ] && stamp "stage W exited $wrc (the main chain already succeeded)"
@@ -205,5 +236,5 @@ stamp "done (rc=$rc). Results in $LOG_DIR"
 echo
 echo "  dashboard:"
 echo "    cd $PKG_ROOT"
-echo "    $EVAL_PY -m evalvitals.cli dashboard examples/llm_benchmark/outputs/$MODEL/$DATASET"
+echo "    $EVAL_PY -m evalvitals.cli dashboard examples/dataset_selection/llm_benchmark/outputs/$MODEL/$DATASET"
 exit $rc

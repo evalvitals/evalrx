@@ -114,6 +114,19 @@ def _select_tools_via_llm(
     return {n for n in valid_names if n in low}
 
 
+#: A section label as an LLM actually writes it. The original matcher required
+#: a literal "CONCLUSION:" at line start; a judge that wrote the markdown
+#: heading "## CONCLUSION" entered no section at all, so a 4,158-character
+#: analysis fell through to the base narrative's first line
+#: ("Model: EndpointModel(qwen3.5-2b)") and M3 had nothing to hypothesise from —
+#: the run then reported stopped_by=no_hypotheses as if that were a finding.
+#: Earlier runs parsed only because the judge happened to use the colon form.
+_SECTION_HEADER = re.compile(
+    r"^[#*\s]*(CONCLUSION|EVIDENCE_CHAIN|QUALITATIVE)\s*[:：]?[*#\s]*(.*)$",
+    re.IGNORECASE,
+)
+
+
 def _parse_llm_analysis(
     raw: str,
     base: AnalysisReport,
@@ -143,13 +156,15 @@ def _parse_llm_analysis(
     for line in raw.splitlines():
         s = line.strip()
         upper = s.upper()
-        if upper.startswith("CONCLUSION:"):
-            conclusion = s[len("CONCLUSION:"):].strip()
-            section = "conclusion"
-        elif upper.startswith("EVIDENCE_CHAIN:"):
-            section = "evidence"
-        elif upper.startswith("QUALITATIVE:"):
-            section = "qualitative"
+        header = _SECTION_HEADER.match(s)
+        if header:
+            section = header.group(1).upper()
+            section = {"CONCLUSION": "conclusion",
+                       "EVIDENCE_CHAIN": "evidence",
+                       "QUALITATIVE": "qualitative"}[section]
+            rest = header.group(2).strip()
+            if section == "conclusion" and rest:
+                conclusion = rest
         elif s.startswith("- "):
             content = s[2:].strip()
             if section == "evidence":
@@ -189,6 +204,10 @@ class StatsAnalysisReport(AnalysisReport):
         stats_tool_results:     Backward-compatible JSON-safe stats summaries.
         visualizations:         Backward-compatible figure/spec list.
         protocol:               The protocol that guided this analysis, if any.
+        llm_fallback_reason:    Why the LLM-guided path did not produce this
+                                report. Empty when it was never attempted (no
+                                judge) or when it succeeded — non-empty ONLY
+                                when it was tried and raised.
     """
 
     conclusion: str = ""
@@ -211,6 +230,9 @@ class StatsAnalysisReport(AnalysisReport):
     # Surfaced so RunLogger can persist exactly what the M2 judge was shown.
     llm_prompt: str = ""
     llm_raw: str = ""
+    # Why the LLM path did not produce this report. Non-empty ONLY after it was
+    # attempted and raised, so "" never has to be read as "it worked".
+    llm_fallback_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
@@ -219,6 +241,7 @@ class StatsAnalysisReport(AnalysisReport):
             "evidence_chain": self.evidence_chain,
             "qualitative_findings": self.qualitative_findings,
             "stats_tool": self.stats_tool,
+            "llm_fallback_reason": self.llm_fallback_reason,
             "stats_results": [r.to_dict() for r in self.stats_results],
             "stats_plan": self.stats_plan,
             "corrected_rejections": self.corrected_rejections,
@@ -407,6 +430,7 @@ class StatsAnalysisAgent:
             ]
 
         report: "StatsAnalysisReport | None" = None
+        fallback_reason = ""
         if self._judge is not None and protocol is not None:
             try:
                 report = self._analyze_llm_guided(
@@ -415,12 +439,20 @@ class StatsAnalysisAgent:
                     legacy_tool_results,
                 )
             except Exception as exc:
+                # A judge that never answered and a judge that found nothing
+                # produce the SAME downstream run: threshold narrative, M3 with
+                # nothing to hypothesise from, stopped_by=no_hypotheses, rc=0.
+                # The reason has to travel with the report — a logger.warning
+                # here reached neither the console nor run_log.jsonl, so an
+                # OSError(E2BIG) on the prompt left no trace anywhere in the run.
+                fallback_reason = f"{type(exc).__name__}: {exc}"
                 logger.warning("LLM-guided M2 analysis failed, falling back: %s", exc)
         if report is None:
             report = self._to_stats_report(
                 base, protocol, stats_results, stats_plan, corrected, figures,
                 legacy_tool_results,
             )
+            report.llm_fallback_reason = fallback_reason
         report.descriptive_only = not confirmatory
         return report
 
@@ -844,22 +876,69 @@ def _legacy_visualizations(tool_results: list[Any]) -> list[dict[str, Any]]:
     return visualizations
 
 
+def _multiplicity_note(result: StatsToolResult) -> str:
+    """Per-result multiplicity verdict, or "" for a result outside every family.
+
+    ``correction_method`` is set by :func:`~evalvitals.stats.multiplicity.correct_results`
+    on family members only, so its absence means "descriptive, never corrected" —
+    which must not be rendered as a failure to survive.
+    """
+    method = result.correction_method
+    if not method:
+        return ""
+    bits = ["survived" if result.fdr_corrected else "NOT survived"]
+    if result.p_value is not None:
+        bits.append(f"p={result.p_value:.3g}")
+    if result.e_value is not None:
+        bits.append(f"e={result.e_value:.3g}")
+    n_signal = (result.details or {}).get("n_signal")
+    if n_signal is not None:
+        bits.append(f"n_signal={n_signal}")
+    return f"   [{method}: {', '.join(bits)}]"
+
+
 def _format_stats_for_prompt(
     stats_results: list[StatsToolResult],
     corrected: dict[str, Any],
 ) -> str:
-    """Render statistical verdicts as a block appended to the LLM narrative."""
+    """Render statistical verdicts as a block appended to the LLM narrative.
+
+    Every line carries its OWN multiplicity verdict, because two separate things
+    otherwise mislead the reader in the same direction:
+
+    * ``summary`` is baked when the tool RUNS, before any correction, so a line
+      ending "-> REJECT H0" is the uncorrected verdict. On qwen3.5-2b /
+      bbh_word_sorting, 23 of 42 ``signal_label_assoc`` results printed
+      REJECT H0 while BH kept 13; of the other ten, one rested on a single case
+      at permutation p = 1.000.
+    * The footer used to list ``rejected_tools`` — a set of TOOL NAMES. Every
+      per-signal test shares the name ``signal_label_assoc``, so a 42-signal
+      family collapsed to the single word "signal_label_assoc" and no reader
+      could tell WHICH signals survived. The judge on that run reconciled the
+      mismatch the only way left to it, concluding the tool had not run at all,
+      and discarded the entire family. ``rejected_result_keys`` was already in
+      the same dict, at per-signal granularity.
+
+    ``reject`` itself is deliberately not touched here: for the BH family it
+    keeps the tool's raw CI verdict for the M1-M5 loop (see
+    :mod:`evalvitals.stats.multiplicity`). This renderer is the place that has
+    to make the difference between raw and corrected legible.
+    """
     if not stats_results:
         return ""
     lines = ["", "Statistical test results (effect-sized, FDR-aware):"]
     for r in stats_results:
         if r.ok:
-            lines.append(f"  - {r.summary}")
+            lines.append(f"  - {r.summary}{_multiplicity_note(r)}")
         else:
             lines.append(f"  - {r.tool}: not run ({r.error})")
-    if corrected.get("rejected_tools"):
+    n_tested = int(corrected.get("n_tested") or 0)
+    if n_tested:
+        keys = list(corrected.get("rejected_result_keys") or [])
+        method = corrected.get("method") or "FDR"
         lines.append(
-            f"  After e-BH FDR correction, surviving tools: "
-            f"{', '.join(corrected['rejected_tools'])}"
+            f"  After {method} correction, {len(keys)} of {n_tested} corrected "
+            f"test(s) survive" + (":" if keys else " — none.")
         )
+        lines.extend(f"    * {key}" for key in keys)
     return "\n".join(lines)

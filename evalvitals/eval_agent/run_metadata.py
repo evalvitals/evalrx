@@ -118,6 +118,17 @@ def _run_config(loop: Any, data: Any, *, loop_name: str) -> dict[str, Any]:
         getattr(getattr(loop, "probe_agent", None), "allow_codegen", False)
         or getattr(getattr(loop, "stats_agent", None), "_allow_codegen", False)
     )
+    # Whether the in-cycle explore step (free-form EDA beside M2) is configured —
+    # so a run with explorer notes in M3 is distinguishable from one without.
+    explorer = getattr(loop, "explorer", None)
+    if explorer is not None:
+        cli = getattr(explorer, "_cli_config", None)
+        provider = getattr(cli, "provider", None)
+        model = getattr(cli, "model", "")
+        cfg["explorer"] = (
+            (f"{provider}:{model}" if model else provider) if provider
+            else type(explorer).__name__
+        )
     return cfg
 
 

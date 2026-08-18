@@ -83,6 +83,16 @@ if TYPE_CHECKING:
 RUN_LOG_SCHEMA_VERSION = 3
 
 
+def _externalized(summary: "dict[str, Any]") -> str:
+    """Render an ``_externalize_if_large`` stand-in instead of iterating it.
+
+    Says where the payload went rather than dropping the line: an externalised
+    value is exactly the case where the data is most worth pointing at.
+    """
+    where = summary.get("path") or "artifacts/"
+    return f"({summary.get('n_items', '?')} items externalised -> {where})"
+
+
 def _artifact_to_numpy(artifact: Any) -> "Any | None":
     """Convert *artifact* to a numpy array, or return None if not possible.
 
@@ -206,7 +216,7 @@ class _VerboseFormatter(logging.Formatter):
         if event == "run_start":
             lines = ["\n[START] run configuration"]
             for k in (
-                "model", "judge", "coder", "max_cycles", "depth",
+                "model", "judge", "coder", "explorer", "max_cycles", "depth",
                 "allow_codegen", "n_cases", "evalvitals_version", "git_commit",
             ):
                 if p.get(k) is not None:
@@ -227,8 +237,30 @@ class _VerboseFormatter(logging.Formatter):
                 lines.append(f"     {name}: {dict(list(scalars.items())[:6])}")
             return "\n".join(lines)
 
+        if event == "explore":
+            status = "ok" if p.get("ok") else f"FAILED ({p.get('error', '?')})"
+            lines = [
+                f"\n[EXPLORE] cycle={cycle}  {status}  "
+                f"observations={p.get('n_observations', 0)} "
+                f"charts={p.get('n_charts_rendered', 0)}/{p.get('n_charts', 0)} rendered "
+                f"tables={p.get('n_tables', 0)} "
+                f"candidates={p.get('n_candidate_signals', 0)}"
+            ]
+            for obs in (p.get("observations") or [])[:4]:
+                lines.append("     - " + textwrap.fill(str(obs), 72, subsequent_indent="       "))
+            if p.get("out_dir"):
+                lines.append(f"     out_dir    : {p['out_dir']}")
+            lines.append("     (descriptive only — feeds M3's notes and the dashboard, "
+                         "never M2/M5/fix)")
+            return "\n".join(lines)
+
         if event == "analysis":
             lines = [f"\n[M2] cycle={cycle}  severity={p.get('severity')}"]
+            if p.get("llm_fallback_reason"):
+                lines.append(
+                    f"     JUDGE FAILED — narrative below is the threshold "
+                    f"fallback, not analysis: {p['llm_fallback_reason']}"
+                )
             conclusion = p.get("conclusion")
             if conclusion:
                 lines.append(
@@ -237,16 +269,34 @@ class _VerboseFormatter(logging.Formatter):
                 )
             for step in (p.get("evidence_chain") or [])[:3]:
                 lines.append(f"     evidence   : {step}")
+            # These two are run through _externalize_if_large, which swaps an
+            # oversized list for a {path, n_items, bytes} SUMMARY DICT. Iterating
+            # that yields its keys — strings — so `s['tool']` raised TypeError
+            # inside logging.emit, where Python swallows the exception: the run
+            # carried on and the whole [M2] line vanished. Seen live on
+            # qwen3.5-2b/minervamath, where M2's plan crossed the threshold.
             stats_plan = p.get("stats_plan") or []
-            if stats_plan:
-                lines.append(f"     stats_tools: {[s['tool'] for s in stats_plan]}")
+            if isinstance(stats_plan, dict):
+                lines.append(f"     stats_tools: {_externalized(stats_plan)}")
+            elif stats_plan:
+                lines.append(f"     stats_tools: {[s.get('tool') for s in stats_plan]}")
             corrected = p.get("corrected_rejections") or {}
-            if corrected.get("rejected_tools"):
-                lines.append(f"     fdr_survive: {corrected['rejected_tools']}")
-            for tool in (p.get("stats_tool_results") or [])[:2]:
-                lines.append(
-                    f"     stats_tool : {tool.get('name')} - {tool.get('conclusion', '')}"
-                )
+            if isinstance(corrected, dict):
+                # Per result, not per tool: every signal_label_assoc test shares
+                # one tool name, so the tool list read "survived" for all of them.
+                survivors = corrected.get("rejected_result_keys") or corrected.get("rejected_tools")
+                if survivors:
+                    n_tested = corrected.get("n_tested")
+                    tested = f" of {n_tested}" if n_tested else ""
+                    lines.append(f"     fdr_survive: {len(survivors)}{tested}: {survivors}")
+            tool_results = p.get("stats_tool_results") or []
+            if isinstance(tool_results, dict):
+                lines.append(f"     stats_tool : {_externalized(tool_results)}")
+            else:
+                for tool in tool_results[:2]:
+                    lines.append(
+                        f"     stats_tool : {tool.get('name')} - {tool.get('conclusion', '')}"
+                    )
             for fig in p.get("figures") or []:
                 lines.append(f"     figure     : {fig}")
             if not conclusion:
@@ -622,6 +672,15 @@ class RunLogger:
             # supported/not-supported claims until a confirmatory M2 is logged.
             "descriptive_only": bool(getattr(report, "descriptive_only", False)),
         }
+        # Which M2 path produced this report, and — when the LLM path was tried
+        # and failed — why. Without these, a judge that never answered logs
+        # exactly like a judge that answered and found nothing.
+        stats_tool = getattr(report, "stats_tool", None)
+        if stats_tool:
+            entry["stats_tool"] = stats_tool
+        fallback_reason = getattr(report, "llm_fallback_reason", None)
+        if fallback_reason:
+            entry["llm_fallback_reason"] = fallback_reason
         # StatsAnalysisReport extras (present when VLDiagnoseLoop is used)
         conclusion = getattr(report, "conclusion", None)
         if conclusion:
@@ -665,6 +724,67 @@ class RunLogger:
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         self._log(entry, span_id=f"c{cycle}.m2")
+
+    def log_explore(
+        self,
+        cycle: int,
+        report: "Any | None",
+        *,
+        out_dir: "Path | str | None" = None,
+        duration_sec: "float | None" = None,
+    ) -> None:
+        """In-cycle explore step: log what the free-form EDA produced and where.
+
+        *report* is the explorer's :class:`~evalvitals.analysis.explorer.ExploratoryAnalysisReport`
+        (or ``None`` when the step failed before producing one). This is a
+        DESCRIPTIVE event — the explorer's candidate-signal verdicts are
+        in-sample host adjudications and are recorded only as counts; nothing
+        here is a confirmatory result. *out_dir* is where the report, tables
+        and rendered figures were persisted (``exploratory_report.json``,
+        ``tables/``, ``figures/``); the dashboard finds them by path.
+        """
+        ok = bool(getattr(report, "ok", False)) if report is not None else False
+        charts = list(getattr(report, "charts", None) or []) if report is not None else []
+        rendered = [
+            str(c.get("figure_path")) for c in charts
+            if isinstance(c, dict) and c.get("figure_path")
+        ]
+        tables = getattr(report, "tables", None) or {}
+        adjudication = dict(getattr(report, "adjudication", None) or {}) if report is not None else {}
+        entry: dict[str, Any] = {
+            "event": "explore",
+            "cycle": cycle,
+            "ok": ok,
+            "n_observations": len(getattr(report, "observations", None) or []) if report is not None else 0,
+            "n_charts": len(charts),
+            "n_charts_rendered": len(rendered),
+            "n_tables": len(tables) if isinstance(tables, dict) else len(list(tables or [])),
+            "n_candidate_signals": len(getattr(report, "candidate_signals", None) or []) if report is not None else 0,
+            "n_hypotheses": len(getattr(report, "hypotheses", None) or []) if report is not None else 0,
+            # In-sample host verdict counts (descriptive; the confirmatory M2
+            # family is untouched by anything the explorer proposed).
+            "adjudication": {
+                k: adjudication[k] for k in (
+                    "method", "alpha", "split", "n_host_adjudicated", "n_rejected",
+                    "n_in_family", "n_descriptive_only",
+                ) if k in adjudication
+            },
+            "observations": [str(o) for o in (getattr(report, "observations", None) or [])[:12]] if report is not None else [],
+            "caveats": [str(c) for c in (getattr(report, "caveats", None) or [])[:8]] if report is not None else [],
+            "figures": rendered,
+            "attempts": int(getattr(report, "attempts", 0) or 0) if report is not None else 0,
+        }
+        error = str(getattr(report, "error", "") or "") if report is not None else "explorer produced no report"
+        if error:
+            entry["error"] = error
+        if out_dir is not None:
+            entry["out_dir"] = str(out_dir)
+            report_path = Path(out_dir) / "exploratory_report.json"
+            if report_path.exists():
+                entry["report_path"] = str(report_path)
+        if duration_sec is not None:
+            entry["duration_sec"] = round(duration_sec, 3)
+        self._log(entry, span_id=f"c{cycle}.explore")
 
     def log_diagnosis(
         self,
@@ -889,6 +1009,8 @@ class RunLogger:
                 f"- cases broken: {a.get('n_broken')}",
                 f"- coverage of failures: {'—' if cov is None else f'{cov:.0%}'}",
                 f"- unstable cases dropped (noise): {a.get('n_unstable', 0)}",
+                f"- model-independent cases excluded (frozen-model control): "
+                f"{a.get('n_model_independent', 0)}",
                 f"- effect: {_eff(a.get('effect'))}",
                 f"- e-value: {_eff(a.get('e_value'))}",
                 f"- statistically significant (rejects H0): {a.get('reject')}",

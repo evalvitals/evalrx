@@ -86,3 +86,79 @@ disappearing, so an M3-only run and a full pipeline run look alike. See its
 
 For the general standalone exploratory analysis workflow, see
 [`docs/m2_analysis.md`](../docs/m2_analysis.md).
+
+## Catalog M2 + explore inside one loop run
+
+Two different programs produce "M2" in this repo, and they are not the same
+thing:
+
+| | loop M2 — `StatsAnalysisAgent` | standalone `evalvitals explore` — `ExploratoryAnalysisAgent` |
+|---|---|---|
+| input | M1 analyzer per-case findings (`StatsInput`) | a flat per-case records table (any source) |
+| method | **confirmatory**: judge-picked tools from a fixed statistical catalog, e-BH/BH multiplicity, optional codegen tools | **exploratory**: a coder agent writes free-form pandas EDA in a sandbox; the host recomputes candidate verdicts (`adjudicate`) and renders its chart specs |
+| output | JSON (`artifacts/c0_m2_stats_results.json` …) + chart *specs* the dashboard plots live; `m2_effects.png` only with `figure_dir=` | `exploratory_report.json` + `tables/*.csv` + `figures/*.png` + `analysis.py` |
+| verdict | yes — the evidence M5 tests | no — "the explorer never decides" |
+
+A `VLDiagnoseLoop` run can carry **both**: keep the catalog M2 as the evidence
+and add the explorer as a descriptive lane that runs between M1 and M2 over
+the *same* per-case table (M1 signals + PASS/FAIL labels). Its observations
+and rendered charts reach M3 as an `ExploreContext` (which hypotheses to
+propose — never *whether* one is true), and land on disk for the dashboard.
+It never enters M2's confirmatory family, M5, or the fix gate. Wiring, for a
+`RunContext`-style example:
+
+```python
+from evalvitals.agent_runtime.sandbox import ExperimentSandbox
+from evalvitals.analysis import ExploratoryAnalysisAgent, StatsAnalysisAgent
+from evalvitals.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
+
+with RunContext("examples/foo/outputs", verbose=True) as ctx:
+    explorer = ExploratoryAnalysisAgent(
+        cli_config=codegen,                       # the same CliAgentConfig M2's codegen uses
+        sandbox=ExperimentSandbox(workdir=ctx.explore_dir / "sandbox", cleanup=False),
+        timeout_sec=900, max_attempts=2,
+    )
+    loop = VLDiagnoseLoop(
+        model=model, protocol=protocol,
+        stats_agent=StatsAnalysisAgent(judge=judge, allow_codegen=True, codegen_config=codegen,
+                                       figure_dir=str(ctx.figures_dir)),  # catalog M2, unchanged; + m2_effects.png
+        diagnosis_agent=DiagnosisAgent(judge=judge),
+        run_logger=ctx.logger,
+        explorer=explorer,                        # ← turns the explore step on
+        explore_dir=ctx.explore_dir,              # ← <root>/explore (also the default with ctx.logger)
+        # explore_question="...",                 # optional; default is built from the protocol
+    )
+    report = loop.run(cases)                      # or loop.run_analysis(cases) — explore runs in both
+```
+
+What you get per run:
+
+- `<root>/explore/exploratory_report.json`, `tables/*.csv`, `figures/*.png`,
+  `analysis.py`, `sandbox/` — the dashboard's loop view finds them by path
+  (`<root>/*/exploratory_report.json`) and stops saying "No explore report
+  was found"; the Analysis panel shows the explorer's candidate signals
+  (descriptive), charts and tables next to the catalog M2 verdicts.
+- `run_log.jsonl`: an `explore` event per cycle (counts, observations,
+  rendered figure paths, `report_path`); the `diagnosis` event records the
+  explore figures M3 was shown (`explore_figures`, `referenced_charts`).
+- M3's prompt carries an "EXPLORATORY MECHANISM NOTES … UNCONFIRMED" block
+  with the observations/caveats, and the PNGs are attached as images.
+
+Rules of the road:
+
+- The step is best-effort: an explorer failure logs a warning and the cycle
+  continues on M2 alone; `run_confirm()` (M5 → fix) never explores.
+- The explorer's recipes are **not** bridged into M2's family here — the loop
+  discovers and confirms on the same rows, which would be double-dipping. To
+  confirm explorer recipes on a held-out split use the fused pipeline
+  (`run_fused_analysis` → `signal_recipes=` + `explore_report=`, as
+  `m1_m4/deco_hallu/run_fused.py` does).
+- `explore/` is rewritten every cycle (it holds what the latest M3 saw); the
+  per-cycle `explore` events keep every cycle's counts.
+- Cost: one coder-agent call per cycle (minutes) plus host-side matplotlib
+  rendering. Omit `explorer=` (or set it to `None`) and the loop is exactly
+  what it was.
+
+`dataset_selection/llm_benchmark` has this wired behind `config.yaml`
+`explore: true` (`EXPLORE=0` / `--no-explore` to turn it off) — see its
+[README](dataset_selection/llm_benchmark/README.md).

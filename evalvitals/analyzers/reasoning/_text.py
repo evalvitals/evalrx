@@ -45,18 +45,46 @@ _TERMINATORS = ".!?\"'`)]}\u3002\uff01\uff1f"
 #: otherwise replace the real answer.
 _PLACEHOLDER = re.compile(r"^[<\[{(]\s*\w*\s*[>\]})]?['\".\s]*$")
 
+#: A bare option label — ``(A)``, ``[B]``, ``C.`` — is a REAL multiple-choice
+#: answer, but it is character-for-character the shape :data:`_PLACEHOLDER`
+#: describes, so it needs an explicit exemption.  Without one the guard throws
+#: the answer away and extraction keeps walking backwards into the chain-of-
+#: thought, where it picks up whatever prose came before.  Measured on BBH
+#: ``tracking_shuffled_objects_seven_objects`` / Qwen3.5-9B: 244 of 250 final
+#: claims are a bare ``(X)``, 98 correct answers were scored FAIL, and the slice
+#: read 0.592 instead of 0.984 — a mid-band dataset invented out of a saturated
+#: one.  A one-letter *placeholder* (``<X>``) loses to a one-letter answer here
+#: on purpose: the letter is a valid option either way, so the collision costs
+#: nothing, while the reverse costs the whole measurement.
+_OPTION_LABEL = re.compile(r"^[<\[{(]?\s*[A-Za-z]\s*[>\]})]?[.\s]*$")
+
+
+def _is_placeholder(span: str) -> bool:
+    """True when *span* is only the prompt's format hint echoed back."""
+    return bool(_PLACEHOLDER.match(span)) and not _OPTION_LABEL.match(span)
+
 
 def extract_answer(text: Any) -> str:
     r"""Last usable ``\boxed{}`` or ``Answer:``-tagged span, else the last non-empty line."""
     raw = str(text or "")
-    for span in reversed(_BOXED.findall(raw)):
-        if span.strip():
-            return span.strip()
-    for span in reversed(_ANSWER_TAG.findall(raw)):
+    # "Last usable" is by POSITION IN THE TEXT, across both conventions. Draining
+    # every \boxed{} before looking at a single "Answer:" tag made an INTERMEDIATE
+    # box outrank the final answer line whenever a chain boxed its working — on
+    # minervamath / Qwen3.5-9B that mis-scored 14 of 272 (gold 2.45e6, the model
+    # closed with "Answer: 2.45e6", extraction returned a mid-chain 7.353e14).
+    candidates: list[tuple[int, str]] = []
+    for match in _BOXED.finditer(raw):
+        span = match.group(1).strip()
+        if span:
+            candidates.append((match.end(), span))
+    for match in _ANSWER_TAG.finditer(raw):
         # the tag regex is line-greedy; keep only the first line of the span
+        span = match.group(1)
         candidate = span.splitlines()[0].strip() if span.splitlines() else ""
-        if candidate and not _PLACEHOLDER.match(candidate):
-            return candidate
+        if candidate and not _is_placeholder(candidate):
+            candidates.append((match.end(), candidate))
+    if candidates:
+        return max(candidates, key=lambda item: item[0])[1]
     lines = [line.strip() for line in raw.splitlines() if line.strip()]
     return lines[-1] if lines else ""
 

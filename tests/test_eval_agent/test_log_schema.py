@@ -64,6 +64,24 @@ def _emit_every_event_type(run_dir) -> list[dict]:
     )
     logger.log_probe(0, {"self_consistency": res})
 
+    # In-cycle explore step: the real ExploratoryAnalysisReport shape (charts
+    # carry figure_path once rendered; adjudication is the host's in-sample dict).
+    from evalvitals.analysis.explorer import ExploratoryAnalysisReport
+
+    logger.log_explore(
+        0,
+        ExploratoryAnalysisReport(
+            question="q", ok=True, observations=["fail cases have long chains"],
+            charts=[{"name": "c", "title": "C", "kind": "bar",
+                     "figure_path": str(run_dir / "explore" / "figures" / "c.png")}],
+            tables={"t": "tables/t.csv"}, caveats=["in-sample"],
+            adjudication={"method": "e-BH", "alpha": 0.05, "split": "in_sample",
+                          "n_host_adjudicated": 1, "n_rejected": 0},
+        ),
+        out_dir=run_dir / "explore", duration_sec=1.5,
+    )
+    logger.log_explore(0, None, out_dir=None)   # the failed-before-a-report shape
+
     logger.log_analysis(
         0,
         StatsAnalysisReport(

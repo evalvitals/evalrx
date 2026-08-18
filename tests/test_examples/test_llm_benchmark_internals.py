@@ -18,6 +18,7 @@ plausible number rather than an error:
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -424,3 +425,231 @@ def test_hybrid_sparse_still_grants_the_attention_capability():
     from evalvitals.core.spec import AttnSemantics
 
     assert AttnSemantics.HYBRID_SPARSE is not AttnSemantics.NONE
+
+
+# ── regrade: a frozen batch's labels go stale, its generations do not ────────
+@pytest.fixture(scope="module")
+def rg():
+    return _load("regrade")
+
+
+def _batch(dataset="bbh_tracking7", cases=()):
+    return {
+        "model": "qwen3.5-9b", "dataset": dataset, "n": len(cases),
+        "accuracy": sum(c["label"] == "PASS" for c in cases) / max(len(cases), 1),
+        "cases": list(cases),
+    }
+
+
+def _rg_case(output, gold, label, truncated=False):
+    return {"prompt": "q", "gold": gold, "output": output, "label": label,
+            "finish_reason": "length" if truncated else "stop",
+            "truncated": truncated}
+
+
+def test_regrade_recovers_a_bare_option_label(rg):
+    """The exact shape that cost the 9B batch 99 cases."""
+    report = _batch(cases=[
+        _rg_case("Claire is dancing with **Lola**.\n\nAnswer: (A)", "(A)", "FAIL"),
+        _rg_case("Answer: (B)", "(B)", "PASS"),
+    ])
+    delta = rg.regrade(report)
+    assert delta["fail_to_pass"] == 1
+    assert delta["pass_to_fail"] == 0
+    assert delta["labels"] == ["PASS", "PASS"]
+    assert delta["new_accuracy"] == 1.0
+
+
+def test_regrade_does_not_mutate_its_input(rg):
+    """Dry run is the default, so the report must survive being inspected."""
+    report = _batch(cases=[_rg_case("Answer: (A)", "(A)", "FAIL")])
+    before = json.dumps(report, sort_keys=True)
+    rg.regrade(report)
+    assert json.dumps(report, sort_keys=True) == before
+
+
+def test_regrade_counts_recovered_truncated_cases_separately(rg):
+    """A cut-off generation that happens to regrade PASS is budget noise."""
+    report = _batch(cases=[_rg_case("Answer: (A)", "(A)", "FAIL", truncated=True)])
+    delta = rg.regrade(report)
+    assert delta["fail_to_pass"] == 1
+    assert delta["fail_to_pass_truncated"] == 1
+
+
+def test_apply_writes_labels_accuracy_and_the_fingerprint(rg):
+    report = _batch(cases=[
+        _rg_case("Answer: (A)", "(A)", "FAIL"),
+        _rg_case("Answer: (C)", "(B)", "PASS"),
+    ])
+    out = rg.apply(report, rg.regrade(report))
+    assert [c["label"] for c in out["cases"]] == ["PASS", "FAIL"]
+    assert out["accuracy"] == 0.5
+    assert out["n_pass"] == 1 and out["n_fail"] == 1
+    assert out["grader_fingerprint"] == rg.grader_fingerprint()
+
+
+def test_fingerprint_tracks_the_grading_source_not_a_version_constant(rg):
+    """Hand-bumped versions record only the changes someone remembered to."""
+    from evalvitals.analyzers.reasoning import _text
+
+    digest = rg.grader_fingerprint()
+    assert digest == rg.grader_fingerprint(), "must be deterministic"
+    assert len(digest) == 16
+    # it really is derived from that file's bytes
+    import hashlib
+    assert digest == hashlib.sha256(
+        Path(_text.__file__).read_bytes()).hexdigest()[:16]
+
+
+def test_a_freshly_built_batch_is_not_reported_stale():
+    """build_cases must stamp the same fingerprint run_pipeline checks."""
+    build_cases = _load("build_cases")
+    regrade = _load("regrade")
+    assert build_cases._grader_fingerprint() == regrade.grader_fingerprint()
+
+
+# ── --confirm-only reloads the LAST run's M2/M3, not the first ───────────────
+
+
+def _event(name, **payload):
+    return json.dumps({"event": name, **payload})
+
+
+def test_load_prior_run_reads_the_last_segment_and_rebuilds_the_report(pipe, tmp_path):
+    """run_log.jsonl is append-only across runs; three runs shared one file on
+    bbh_word_sorting and only the last had a diagnosis. Externalised stats
+    come back as StatsToolResult (ci a tuple), analyzer artifacts as Result."""
+    logs = tmp_path / "logs"
+    (logs / "artifacts").mkdir(parents=True)
+    (logs / "artifacts" / "c0_m2_stats_results.json").write_text(json.dumps([
+        {"tool": "signal_label_assoc", "ok": True, "effect": 0.5, "ci": [0.2, 0.8],
+         "reject": True, "p_value": 0.001, "config": {"signal": "a.b"},
+         "analysis_key": "signal_label_assoc:a.b", "correction_family": "bh",
+         "correction_method": "BH", "fdr_corrected": True, "raw_reject": True,
+         "summary": "s"},
+    ]))
+    (logs / "artifacts" / "c0_x.result.json").write_text(json.dumps(
+        {"analyzer": "x", "model": "m", "findings": {"per_case": {"c1": 1}}, "metadata": {}}))
+    old_run = [
+        _event("run_start", loop="VLDiagnoseLoop"),
+        _event("analysis", cycle=0, conclusion="OLD", severity="low",
+               stats_results={"path": "artifacts/nope.json"}),
+        _event("loop_end", stopped_by="no_hypotheses"),
+    ]
+    new_run = [
+        _event("run_start", loop="VLDiagnoseLoop"),
+        _event("probe", result_paths={"x": "artifacts/c0_x.result.json"}),
+        _event("analysis", cycle=0, conclusion="NEW", severity="medium",
+               narrative="n", evidence_chain=["e1"],
+               stats_results={"path": "artifacts/c0_m2_stats_results.json"},
+               corrected_rejections={"method": "BH", "n_tested": 1,
+                                     "rejected_result_keys": ["signal_label_assoc:a.b"]}),
+        _event("diagnosis", model_name="qwen", n_hypotheses=1,
+               hypotheses=[{"statement": "it breaks", "failure_mode": "fm",
+                            "status": "proposed", "test_design": "a.b"}]),
+        _event("loop_end", stopped_by="criteria_met"),
+    ]
+    (logs / "run_log.jsonl").write_text("\n".join(old_run + new_run) + "\n")
+
+    hyps, report = pipe.load_prior_run(logs)
+
+    assert [h.statement for h in hyps] == ["it breaks"] and hyps[0].test_design == "a.b"
+    assert report.conclusion == "NEW" and report.model_name == "qwen"
+    assert len(report.stats_results) == 1
+    r = report.stats_results[0]
+    assert r.ci == (0.2, 0.8) and r.fdr_corrected is True and r.correction_method == "BH"
+    assert report.corrected_rejections["rejected_result_keys"] == ["signal_label_assoc:a.b"]
+    assert set(report.raw_results) == {"x"}
+    assert report.raw_results["x"].findings["per_case"] == {"c1": 1}
+    assert report.descriptive_only is False
+
+
+def test_load_prior_run_refuses_a_run_that_never_reached_m3(pipe, tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "run_log.jsonl").write_text("\n".join([
+        _event("run_start"), _event("analysis", conclusion="c"),
+        _event("loop_end", stopped_by="no_hypotheses"),
+    ]) + "\n")
+    with pytest.raises(SystemExit, match="no M3 diagnosis"):
+        pipe.load_prior_run(logs)
+    with pytest.raises(SystemExit, match="missing"):
+        pipe.load_prior_run(tmp_path / "nowhere")
+
+
+# ── the in-cycle explore step is wired beside M2, and can be switched off ────
+
+def test_build_explorer_honours_the_config_switch(pipe, tmp_path, monkeypatch):
+    """`explore: false` (or --no-explore / EXPLORE=0) must leave the loop exactly
+    as before — no explorer, no explore/ dir, no extra coder call."""
+    codegen = pipe.build_codegen("claude")
+    monkeypatch.setitem(pipe.CFG, "explore", False)
+    assert pipe.build_explorer(codegen, tmp_path) is None
+    assert not (tmp_path / "explore").exists()
+
+
+def test_build_explorer_uses_the_m2_coder_and_a_durable_sandbox_under_the_run(pipe, tmp_path, monkeypatch):
+    from evalvitals.analysis import ExploratoryAnalysisAgent
+
+    codegen = pipe.build_codegen("claude")
+    monkeypatch.setitem(pipe.CFG, "explore", True)
+    monkeypatch.setitem(pipe.CFG, "explore_timeout_sec", 123)
+    monkeypatch.setitem(pipe.CFG, "explore_max_attempts", 3)
+    explorer = pipe.build_explorer(codegen, tmp_path)
+    assert isinstance(explorer, ExploratoryAnalysisAgent)
+    # same backend/model as M2's tool codegen (bundled figure skills may be
+    # added on top — that is the explorer's own default, not a different coder)
+    cfg = explorer._cli_config
+    assert cfg.provider == codegen.provider and cfg.model == codegen.model
+    assert explorer._timeout_sec == 123 and explorer._max_attempts == 3
+    # the sandbox lives under <run>/explore/sandbox so analysis.py/tables survive
+    assert Path(explorer._sandbox.workdir).resolve() == (tmp_path / "explore" / "sandbox").resolve()
+    assert explorer._sandbox._cleanup is False
+
+
+# ── smoke-run knobs: --max-cases (stratified subsample) and --out-tag ─────────
+
+def _frozen(tmp_path, pipe, model="m", dataset="d", n_fail=30, n_pass=70):
+    base = tmp_path / "outputs" / model / dataset
+    base.mkdir(parents=True)
+    cases = ([{"prompt": f"f{i}", "output": "x", "gold": "y", "label": "FAIL"} for i in range(n_fail)]
+             + [{"prompt": f"p{i}", "output": "y", "gold": "y", "label": "PASS"} for i in range(n_pass)])
+    base.joinpath("cases.json").write_text(json.dumps({
+        "n": len(cases), "n_fail": n_fail, "n_pass": n_pass, "accuracy": n_pass / len(cases),
+        "truncated_rate": 0.0, "cases": cases}))
+    return base
+
+
+def test_subsample_keeps_the_label_mix_and_is_deterministic(pipe, tmp_path, monkeypatch):
+    monkeypatch.setattr(pipe, "HERE", tmp_path)
+    _frozen(tmp_path, pipe)
+    batch, report = pipe.load_batch("m", "d")
+    sub, rep = pipe.subsample_batch(batch, report, 20)
+    assert len(list(sub)) == 20 and rep["n"] == 20
+    assert rep["n_fail"] == 6 and rep["n_pass"] == 14         # 30/70 preserved
+    assert rep["subsampled_from"] == 100 and abs(rep["accuracy"] - 0.7) < 1e-9
+    again, _ = pipe.subsample_batch(batch, report, 20)
+    assert [c.inputs.prompt for c in sub] == [c.inputs.prompt for c in again]
+    # 0 / oversize = the whole batch, report untouched
+    same, same_rep = pipe.subsample_batch(batch, report, 0)
+    assert same is batch and same_rep is report
+    same, _ = pipe.subsample_batch(batch, report, 500)
+    assert same is batch
+
+
+def test_out_tag_reads_the_frozen_batch_and_copies_it_without_touching_it(pipe, tmp_path, monkeypatch):
+    monkeypatch.setattr(pipe, "HERE", tmp_path)
+    base = _frozen(tmp_path, pipe)
+    before = base.joinpath("cases.json").read_text()
+    tagged = tmp_path / "outputs" / "m" / "d.smoke"
+    batch, report = pipe.load_batch("m", "d", out_dir=tagged)
+    assert len(list(batch)) == 100
+    assert (tagged / "cases.json").read_text() == before        # self-contained copy
+    assert base.joinpath("cases.json").read_text() == before    # frozen batch untouched
+    # a second load prefers the tagged copy (edit it to prove which one was read)
+    doc = json.loads((tagged / "cases.json").read_text()); doc["cases"] = doc["cases"][:5]
+    (tagged / "cases.json").write_text(json.dumps(doc))
+    batch2, _ = pipe.load_batch("m", "d", out_dir=tagged)
+    assert len(list(batch2)) == 5
+    # untagged load is unchanged
+    assert len(list(pipe.load_batch("m", "d")[0])) == 100

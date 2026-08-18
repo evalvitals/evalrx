@@ -241,3 +241,78 @@ def test_m1_selection_prompt_includes_test_designs():
     agent.probe(model, _labeled_batch(),
                 protocol=ExperimentProtocol(description="d"), prior_hypotheses=prior)
     assert "proposed test: run prompt_contrast describe_first" in judge.prompt
+
+# ── M5 must read the corrected verdict, not the raw one ─────────────────────
+def _bh_family_report() -> StatsAnalysisReport:
+    """Three signal_label_assoc results as correct_results() leaves them.
+
+    Numbers are qwen3.5-2b/bbh_word_sorting run3's deciding signals. BH over
+    the three keeps only changed_answer (p=.0013); cot_sentences (p=.039) and
+    max_value_drop (p=.143, n_signal=3) fail. All three carry raw reject=True
+    because signal_label_assoc rejects on a bootstrap CI, and a CI over three
+    cases cannot straddle zero — that is the arm M5 must not be allowed to read.
+    """
+    from evalvitals.analysis.stats_tools import fdr_correct
+
+    def _r(signal, effect, p, n, ci):
+        return StatsToolResult(
+            tool="signal_label_assoc", ok=True, effect=effect, ci=ci, reject=True,
+            p_value=p, config={"signal": signal},
+            analysis_key=f"signal_label_assoc:{signal}", correction_family="bh",
+            raw_reject=True, details={"n_signal": n},
+            summary=f"signal '{signal}' vs FAIL: effect=+{effect:.4f} -> REJECT H0",
+        )
+
+    results = [
+        _r("cot_faithfulness.cot_sentences", 0.5, 0.0391, 12, (0.17, 0.83)),
+        _r("self_repair.changed_answer", 0.5431, 0.00133, 9, (0.46, 0.64)),
+        _r("step_rollout_value.max_value_drop", 0.8, 0.1429, 3, (0.4, 1.0)),
+    ]
+    corrected = fdr_correct(results, alpha=0.05)
+    assert corrected["rejected_result_keys"] == ["signal_label_assoc:self_repair.changed_answer"]
+    return StatsAnalysisReport(
+        model_name="m", findings=[], severity="none", narrative="", raw_results={},
+        conclusion="c", stats_results=results, corrected_rejections=corrected,
+    )
+
+
+def test_a_signal_bh_killed_cannot_support_a_hypothesis():
+    """p=0.143 over three cases printed 'REJECT H0' and M5 said SUPPORTED.
+
+    `reject` stays raw for BH members on purpose (multiplicity.py keeps the
+    tool's own verdict visible to the loop); the corrected verdict lives in
+    fdr_corrected. M5 read the former.
+    """
+    h = _hyp("Value drops mid-chain cause the failure.",
+             design="step_rollout_value.max_value_drop")
+    tr = HypothesisTester().test([h], _bh_family_report(), _labeled_batch())[0]
+    assert tr.evidence["routed_by"] == "test_design"
+    assert tr.status == HypothesisStatus.INCONCLUSIVE
+    assert "[BH: NOT survived, p=0.143, n_signal=3]" in tr.verdict
+
+
+def test_the_borderline_one_is_not_rescued_by_a_sibling_that_survived():
+    """Every signal_label_assoc test shares one tool NAME. A tool-level
+    survivor set said 'rejected' for cot_sentences (p=.039, fails BH) because
+    changed_answer (p=.0013) survived under the same name."""
+    h = _hyp("Longer chains corrupt the set.", design="cot_faithfulness.cot_sentences")
+    tr = HypothesisTester().test([h], _bh_family_report(), _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.INCONCLUSIVE
+    assert "NOT survived" in tr.verdict
+
+
+def test_the_bh_survivor_still_supports():
+    h = _hyp("Self-repair changes the answer on failures.",
+             design="self_repair.changed_answer")
+    tr = HypothesisTester().test([h], _bh_family_report(), _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.SUPPORTED
+    assert "[BH: survived, p=0.00133, n_signal=9]" in tr.verdict
+
+
+def test_an_uncorrected_ci_only_result_keeps_its_own_verdict():
+    """Outside every family (no p, no e, correction never ran) the tool's own
+    reject flag is the only verdict there is — the pre-existing fixture path."""
+    h = _hyp("The model produces false negative answers on presence questions.")
+    tr = HypothesisTester().test([h], _report(), _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.SUPPORTED
+    assert "[BH" not in tr.verdict

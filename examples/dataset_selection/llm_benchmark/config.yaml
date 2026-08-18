@@ -74,10 +74,30 @@ codegen_effort: high
 codegen_budget_usd: 25.0
 codegen_timeout_sec: 1800
 
+# In-cycle explore step: a free-form EDA pass (the same coder as M2 codegen,
+# writing pandas in a sandbox) over the SAME per-case table the catalog M2
+# analyses, run between M1 and M2. It writes tables/*.csv + rendered figures/*.png
+# + exploratory_report.json under outputs/<model>/<dataset>/explore/ (the
+# dashboard picks them up), and its observations/charts reach M3 as UNCONFIRMED
+# notes that steer WHICH hypotheses get proposed. It never enters M2's
+# confirmatory family, M5, or the fix gate -- the catalog M2 runs unchanged
+# beside it. Cost: one coder-agent call per cycle (a few minutes) plus host-side
+# chart rendering. `explore: false` (or EXPLORE=0 / --no-explore) turns it off.
+explore: true
+explore_timeout_sec: 900     # per coder attempt; the coder is told the outcome column and asked
+                             # for FROZEN threshold-explicit recipes, so a normal pass is minutes
+explore_max_attempts: 2      # a failed script gets one repair round, then the step is skipped
+
 # M4 surgery
 fix_max_tier: L3b
-fix_validation_cases: 0     # 0 = validate on the whole batch
-fix_exec_timeout_sec: 1800
+fix_validation_cases: 40    # 0 = whole batch. Candidates run serially (~10 s/case on the 2B), and an
+                            # L2 coded pipeline makes 4-5 bridged calls per case: 250 cases cannot
+                            # finish inside fix_exec_timeout_sec, so it is killed as "timed out"
+                            # instead of being judged. The paired gate does not need the whole batch.
+fix_exec_timeout_sec: 3600  # measured 16 s per bridged call on the 2B (long direct answers):
+                            # 40 cases x ~5 calls x 16 s ~= 53 min worst case; the first attempt
+                            # must be able to finish, or every coded candidate spends its one
+                            # repair round on the timeout instead of on the repair.
 
 # Cap on how many cases each per-case analyzer generates for. 0 = library
 # defaults (128 for prompt_contrast / calibration / linear_probe, 48 for

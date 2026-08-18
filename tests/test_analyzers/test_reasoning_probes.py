@@ -87,10 +87,37 @@ def _case(prompt="q", observed=None, expected=None, label=Label.UNKNOWN, **kw):
 
 
 # ── shared helpers ────────────────────────────────────────────────────────────
-def test_extract_answer_prefers_boxed_then_tag_then_last_line():
-    assert extract_answer(r"work \boxed{18} more work\nAnswer: 3") == "18"
+def test_extract_answer_takes_the_last_marker_by_position_then_last_line():
+    """Whichever of ``\\boxed{}`` / ``Answer:`` comes LAST wins — not boxed-always.
+
+    This used to be a fixed ladder (drain every box, only then look at tags), so
+    a chain that boxed its intermediate working outranked its own final answer
+    line.  Measured on minervamath / Qwen3.5-9B: 28 of 272 were scored FAIL that
+    way (gold ``2.45e6``, the model closed with ``Answer: 2.45e6``, extraction
+    returned a mid-chain ``7.353e14``), and regrading flipped 28 FAIL->PASS with
+    zero PASS->FAIL.
+    """
+    assert extract_answer("work \\boxed{18} more work\nAnswer: 3") == "3"
+    assert extract_answer("Answer: 3\nwork \\boxed{18}") == "18"
     assert extract_answer("blah\nAnswer: 42") == "42"
     assert extract_answer("only a line") == "only a line"
+
+
+def test_extract_answer_keeps_a_bare_option_label():
+    """``(A)`` is a multiple-choice ANSWER, not an echo of the format hint.
+
+    The placeholder guard that skips ``Answer: <answer>`` matched ``Answer: (A)``
+    just as well, so extraction walked back into the chain-of-thought and picked
+    up the prose there.  Measured on BBH tracking_shuffled_objects_seven_objects
+    / Qwen3.5-9B: 244 of 250 final claims are a bare ``(X)``, 99 correct answers
+    scored FAIL, and the slice read 0.592 instead of 0.988.
+    """
+    assert extract_answer("Claire is dancing with **Lola**.\n\nAnswer: (A)") == "(A)"
+    assert extract_answer("Answer: (D)") == "(D)"
+    assert extract_answer("Answer: B.") == "B."
+    # a genuine format echo is still skipped
+    assert extract_answer("Answer: 42\nremember to write Answer: <answer>") == "42"
+    assert extract_answer("Answer: 42\nremember to write Answer: {answer}") == "42"
 
 
 def test_answer_equal_is_numeric_aware():

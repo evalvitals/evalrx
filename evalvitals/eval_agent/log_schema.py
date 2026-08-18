@@ -40,6 +40,7 @@ from evalvitals.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION
 EVENT_TYPES: tuple[str, ...] = (
     "run_start",
     "probe",
+    "explore",
     "analysis",
     "diagnosis",
     "surgery",
@@ -99,6 +100,8 @@ _EVENTS: dict[str, dict[str, Any]] = {
             # stage judge already covered by "judge") and its action-turn budget.
             "decision_judge": {"type": "string"},
             "max_actions": {"type": "integer"},
+            # In-cycle explore step configured (provider:model of its coder).
+            "explorer": {"type": "string"},
         },
     },
     "probe": {
@@ -131,6 +134,33 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "visualizations": {"type": "array"},
             "figures": {"type": "array"},
             "judge_io": _JUDGE_IO,
+            "duration_sec": {"type": "number"},
+        },
+    },
+    "explore": {
+        # Optional in-cycle explore step (VLDiagnoseLoop(explorer=...)): a
+        # free-form EDA pass over M1's per-case table between M1 and M2.
+        # DESCRIPTIVE ONLY — counts, observations, rendered figure paths and
+        # where the report/tables/figures were persisted; the explorer's
+        # in-sample candidate verdicts appear only as counts under
+        # `adjudication` and never enter the confirmatory M2 family.
+        "required": ["cycle", "ok", "n_observations", "n_charts", "n_tables"],
+        "properties": {
+            "ok": {"type": "boolean"},
+            "n_observations": {"type": "integer"},
+            "n_charts": {"type": "integer"},
+            "n_charts_rendered": {"type": "integer"},
+            "n_tables": {"type": "integer"},
+            "n_candidate_signals": {"type": "integer"},
+            "n_hypotheses": {"type": "integer"},
+            "adjudication": {"type": "object"},
+            "observations": {"type": "array", "items": {"type": "string"}},
+            "caveats": {"type": "array", "items": {"type": "string"}},
+            "figures": {"type": "array", "items": {"type": "string"}},
+            "attempts": {"type": "integer"},
+            "error": {"type": "string"},
+            "out_dir": {"type": "string"},
+            "report_path": {"type": "string"},
             "duration_sec": {"type": "number"},
         },
     },
