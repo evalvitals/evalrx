@@ -190,7 +190,7 @@ def test_standalone_dashboard_hypotheses_tab_falls_back_gracefully_when_absent(t
     assert any(e.label == "stdout" for e in at.expander)
     assert any(e.label == "stderr" for e in at.expander)
     assert any(e.label == "Raw JSON report" for e in at.expander)
-    assert any(b.label == "Download analysis.py" for b in at.download_button)
+    assert any(b.label == "Download analysis.py" for b in at.get("download_button"))
     assert any(c.label == "View full source" and c.value is False for c in at.checkbox)
     assert "Preview only" in " ".join(str(c.value) for c in at.caption)
     assert any("line_0 = 0" in str(c.value) for c in at.code)

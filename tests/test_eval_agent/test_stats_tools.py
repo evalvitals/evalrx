@@ -252,6 +252,34 @@ def test_llm_narrowing_never_drops_paired_tools():
     assert "mcnemar_evalue" in tools
 
 
+def test_llm_guided_conclusion_survives_an_unparseable_judge_response():
+    """A judge call that fails (quota message, empty string, wrong format —
+    anything without a CONCLUSION: line) must not overwrite the deterministic,
+    statistically-grounded conclusion _build_conclusion() already computed
+    with a useless one. Measured live: a real judge call that hit its
+    account's monthly spend limit returned the CLI's plain-text quota
+    message, which used to silently replace "Statistically supported:
+    signal 'perturbation_battery.noop_clause_flipped' ... effect +0.83" with
+    "Model: <object repr>" -- M3 then saw the latter and found zero
+    hypotheses from real, significant evidence."""
+    from evalvitals.eval_agent import StatsAnalysisAgent
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+
+    class QuotaExhaustedJudge:
+        def generate(self, prompt, **kw):
+            return "You've hit your monthly spend limit."
+
+    res = {"attention": _attention_result()}
+    agent = StatsAnalysisAgent(judge=QuotaExhaustedJudge())
+    rep = agent.analyze(
+        res, model_name="m", data=_labeled_cases(),
+        protocol=ExperimentProtocol(description="d"),
+    )
+    assert "spend limit" not in rep.conclusion.lower()
+    assert not rep.conclusion.startswith("Model:")
+    assert "statistically supported" in rep.conclusion.lower()
+
+
 def test_fdr_correct_signal_pvalues_use_bh():
     inp = build_stats_input({"attention": _attention_result()}, _labeled_cases())
     r = run_stats_tool("signal_label_assoc", inp, {"signal": "attention.low_img_attn"})

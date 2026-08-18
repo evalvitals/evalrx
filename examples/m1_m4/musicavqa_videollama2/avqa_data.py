@@ -128,20 +128,43 @@ def load_manifest(manifest_path: "str | Path"):
     raw = json.loads(path.read_text())
     cases = []
     for row in raw["cases"]:
+        metadata = {
+            "video_id": row["video_id"],
+            "question_id": row["question_id"],
+            "modality": row["modality"],
+            "qtype": row["qtype"],
+            "gold_answer": row["answer"],
+            "video_path": row["video_path"],
+        }
+        # "task": a literal fact about this case's answer format, not a guess --
+        # FixAgent's L3a paper-method gates (fix_agent.py:_l3_candidates, e.g.
+        # OPERA's tasks=={"yes_no"} check) key off metadata["task"], and this
+        # was never populated for Music-AVQA at all, so that gate silently
+        # read as tasks=={""} for every case regardless of how many of the
+        # dataset's Existential-type questions are genuinely yes/no. Deriving
+        # it from the gold answer itself (rather than qtype, which mixes
+        # yes/no and non-yes/no answers within "Comparative"/"Existential")
+        # is the only way to state it without fabricating a format the case
+        # doesn't actually have.
+        if row["answer"].strip().lower() in ("yes", "no"):
+            metadata["task"] = "yes_no"
+        # finish_reason/generation_config: only present when mine_cases.py ran
+        # against real weights (generate_with_meta) -- absent for --mock runs.
+        # FixAgent's L0 telemetry gate (fix_agent.py:_l0_candidates) reads
+        # exactly these two keys to propose "raise max_tokens" as a cheap,
+        # precise repair instead of relying on slower L1/L2 LLM-authored
+        # pipelines to reinvent it.
+        if "finish_reason" in row:
+            metadata["finish_reason"] = row["finish_reason"]
+        if "generation_config" in row:
+            metadata["generation_config"] = row["generation_config"]
         cases.append(FailureCase(
             inputs=Inputs(prompt=row["question"], video=row["video_path"]),
             expected=row["answer"],
             observed=row.get("observed"),
             label=Label.FAIL if row["label"] == "fail" else Label.PASS,
             tags={"audio-visual-qa", row["modality"].lower(), row["qtype"].lower()},
-            metadata={
-                "video_id": row["video_id"],
-                "question_id": row["question_id"],
-                "modality": row["modality"],
-                "qtype": row["qtype"],
-                "gold_answer": row["answer"],
-                "video_path": row["video_path"],
-            },
+            metadata=metadata,
         ))
     return CaseBatch(cases), raw
 

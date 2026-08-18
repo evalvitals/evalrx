@@ -57,6 +57,7 @@ the candidate repairs significantly more cases than it breaks.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import re
@@ -70,6 +71,7 @@ from evalvitals.eval_agent.prompts.fix_agent import (
     _L2_PROMPT,
     _L3_PROMPT,
     _L4_PROMPT,
+    _PAPER_METHOD_PROMPT,
     _REPAIR_PROMPT_BODY,
 )
 from evalvitals.eval_agent.stages.fix_internals import (
@@ -786,8 +788,16 @@ class FixAgent:
             )[:1000]
             or "- (none)"
         )
+        # A video frame is visual content too -- a video-only case batch (no
+        # .image ever set, only .video) must not silently read as "no images"
+        # and lock every image-gated L1/L2/L3 candidate out. This was found
+        # via a real run (musicavqa_videollama2): has_images was False for
+        # every case despite the task being audio-VISUAL QA, so no visual
+        # candidate at any tier was ever structurally eligible.
         has_images = any(
-            getattr(getattr(case, "inputs", None), "image", None) is not None for case in data
+            getattr(getattr(case, "inputs", None), "image", None) is not None
+            or getattr(getattr(case, "inputs", None), "video", None) is not None
+            for case in data
         )
         has_audio = any(
             getattr(getattr(case, "inputs", None), "audio", None) is not None for case in data
@@ -956,6 +966,54 @@ class FixAgent:
                     kind="vcd",
                     source="conditional_default",
                     payload={"alpha": 1.0, "beta": 0.1, "noise_step": 999},
+                    predicate=_false_yes_predicate,
+                )
+            )
+        # AAD (Hsu et al. 2025, arXiv:2506.07233) is VCD's same shape applied
+        # to audio instead of an image: contrasts real-audio decoding against
+        # the identical prompt with the waveform silenced, at every step. No
+        # internals read (no attention weights, no layer stability) -- just
+        # two generate()-compatible forward passes and a LogitsProcessor, the
+        # same cost/risk class as VCD, so it belongs at L0 next to it, not
+        # gated through the L3a judge-selected paper-method catalog.
+        paper_fidelity_early = getattr(model, "paper_method_fidelity", None)
+        aad_fidelity = (
+            paper_fidelity_early("aad") if callable(paper_fidelity_early) else "unavailable"
+        )
+        supports_aad = callable(getattr(model, "generate_aad", None))
+        if (
+            tasks == {"yes_no"}
+            and supports_aad
+            and aad_fidelity == "native_silence_contrast"
+            and hallucination_direction_supported
+            and "aad_silence_contrast" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="aad_silence_contrast",
+                    kind="aad",
+                    source="paper_default",
+                    payload={"alpha": 0.5},
+                )
+            )
+        # Gated sibling, same reasoning as vcd_diffusion_noise_gated_false_yes
+        # above: AAD is suppressive (promotes tokens whose probability rises
+        # WITH audio, i.e. demotes an audio-ungrounded over-affirmation), so
+        # it is the right direction only on false-Yes cases.
+        if (
+            tasks == {"yes_no"}
+            and supports_aad
+            and aad_fidelity == "native_silence_contrast"
+            and "aad_silence_contrast_gated_false_yes" not in prior_names
+        ):
+            out.append(
+                FixCandidate(
+                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    name="aad_silence_contrast_gated_false_yes",
+                    kind="aad",
+                    source="conditional_default",
+                    payload={"alpha": 0.5},
                     predicate=_false_yes_predicate,
                 )
             )
@@ -1693,131 +1751,146 @@ class FixAgent:
             if self._candidate_allowlist is not None:
                 options = [c for c in options if c.name in self._candidate_allowlist]
             return options[: self.max_judge_candidates]
-        # OPERA's first decoding branch evaluates each likely next token with
-        # its image attention and penalises candidates that neglect the image.
-        # POPE asks for a one-token Yes/No answer, so the paper's later
-        # retrospection/rollback branch has no opportunity to trigger.  Keep
-        # this route explicitly scoped to that binary specialization rather
-        # than presenting it as OPERA's general-purpose beam decoder.
+        # Paper-method routes (OPERA/ViCrop/IFCD/PAI/TCD): each targets ONE
+        # named failure mechanism, not "any failure this model/task shape can
+        # exhibit". The condition below for each is STRUCTURAL eligibility
+        # only -- can it physically run at all (capability, modality, task
+        # shape, paper_method_fidelity, tier ceiling, not already tried)?
+        # Whether its mechanism actually matches what was diagnosed is a
+        # judgment call, not a fact you can `in`-check off the hypothesis
+        # string -- so it is delegated to the judge below, over the catalog
+        # of only the structurally-eligible candidates. No judge configured
+        # -> _ask_judge returns [] -> no paper-method candidate is proposed;
+        # there is no keyword fallback (a substring match is not a decision,
+        # it is a hardcoded stand-in for one -- that was the actual gap here,
+        # not that TCD specifically lacked a keyword list PAI/OPERA had).
         paper_fidelity = getattr(model, "paper_method_fidelity", None)
         opera_fidelity = paper_fidelity("opera") if callable(paper_fidelity) else "unavailable"
-        diagnosis = hyp_lines.lower()
-        hallucination_mechanism = any(
-            signal in diagnosis
-            for signal in (
-                "hallucination",
-                "language prior",
-                "object presence",
-                "object hallucination",
-                "image-token neglect",
-            )
-        )
-        if (
-            has_images
-            and tasks == {"yes_no"}
-            and hallucination_mechanism
-            and binary_hallucination_supported
-            and callable(getattr(model, "generate_opera_binary", None))
-            and opera_fidelity == "native_binary_specialization"
-            and "opera_overtrust_binary" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="opera_overtrust_binary",
-                    kind="opera",
-                    source="paper_default_binary_specialization",
-                    payload={"num_attn_candidates": 5, "penalty_weight": 1.0},
-                )
-            )
-        # ViCrop (MLLMs Know Where to Look, ICLR 2025) is a read-only,
-        # architecture-native paper route: task/general attention ratio,
-        # adaptive crop, and an original+crop answer.  It must not be proposed
-        # for a model whose vision/attention contract differs from LLaVA.
         vicrop_fidelity = paper_fidelity("vicrop") if callable(paper_fidelity) else "unavailable"
-        # ViCrop is a resolution/local-detail repair, not a generic image
-        # transform.  Keep it tied to the diagnosed mechanism so an L3a run
-        # for object hallucination or chart reasoning does not spend a paper
-        # candidate on an unsupported failure mode.
-        vicrop_mechanism = any(
-            signal in diagnosis
-            for signal in ("small visual", "small detail", "local detail", "resolution", "tiny")
-        )
-        if (
-            has_images
-            and vicrop_mechanism
-            and callable(getattr(model, "generate_vicrop", None))
-            and vicrop_fidelity == "native_selector_specialization"
-            and "vicrop_relative_attention" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="vicrop_relative_attention",
-                    kind="vicrop",
-                    source="paper_default",
-                    payload={"layer": 14},
-                )
-            )
-        # This is a label-free deployment guard for transferring ViCrop to a
-        # new local-detail benchmark, not a claim that the paper used it.
-        if (
-            has_images
-            and vicrop_mechanism
-            and callable(getattr(model, "generate_vicrop_consensus", None))
-            and vicrop_fidelity == "native_selector_specialization"
-            and "vicrop_consensus_guard" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="vicrop_consensus_guard",
-                    kind="vicrop_consensus",
-                    source="safety_guard",
-                    payload={"layer": 14},
-                )
-            )
-        # PAI (ECCV 2024) is a distinct LLaVA mechanism: it changes the
-        # image-attention logits while decoding, so it is an L3b intervention.
-        # The native executor pairs the paper's attention branch with its
-        # classifier-free-guidance cache; the source's pinned LLaVA stack is
-        # still recorded as an architecture specialization.
         pai_fidelity = paper_fidelity("pai") if callable(paper_fidelity) else "unavailable"
         # IFCD needs a trained TruthX representation editor. The available
         # public Vicuna artifact is useful for a controlled transfer trial,
         # but it is not IFCD's MSCOCO-trained editor, so it is opt-in through
         # ``allow_adapted_paper_methods`` and never passed off as native.
         ifcd_fidelity = paper_fidelity("ifcd") if callable(paper_fidelity) else "unavailable"
+        # TCD (Li et al. 2026, arXiv:2604.15383) is a decoding-time repair for
+        # unified audio-language models -- not a POPE-style yes_no task, so
+        # scoped separately from the VCD/ICD/OPERA binary-hallucination
+        # candidates. Needs ATTENTION (the decoder's audio-attention ratio
+        # drives both the stability score and the per-step gate) on top of
+        # the audio encoder's own hidden states, so it belongs at L3a like
+        # OPERA, not L0 like VCD.
+        tcd_fidelity = paper_fidelity("tcd") if callable(paper_fidelity) else "unavailable"
+
+        _eligible: "list[tuple[str, FixCandidate, str]]" = []
+        if (
+            has_images
+            and tasks == {"yes_no"}
+            and binary_hallucination_supported
+            and callable(getattr(model, "generate_opera_binary", None))
+            and opera_fidelity == "native_binary_specialization"
+            and "opera_overtrust_binary" not in prior_names
+        ):
+            _eligible.append((
+                "opera_overtrust_binary",
+                FixCandidate(
+                    tier=FixTier.L3A_INTERNALS_READ,
+                    name="opera_overtrust_binary",
+                    kind="opera",
+                    source="paper_default_binary_specialization",
+                    payload={"num_attn_candidates": 5, "penalty_weight": 1.0},
+                ),
+                "OPERA: on binary yes/no questions, penalises next-token candidates "
+                "that neglect image attention during decoding -- targets object/"
+                "attribute hallucination caused by language priors overriding visual "
+                "evidence (POPE-style over-trust).",
+            ))
+        # ViCrop (MLLMs Know Where to Look, ICLR 2025) is a read-only,
+        # architecture-native paper route: task/general attention ratio,
+        # adaptive crop, and an original+crop answer.  It must not be proposed
+        # for a model whose vision/attention contract differs from LLaVA.
+        if (
+            has_images
+            and callable(getattr(model, "generate_vicrop", None))
+            and vicrop_fidelity == "native_selector_specialization"
+            and "vicrop_relative_attention" not in prior_names
+        ):
+            _eligible.append((
+                "vicrop_relative_attention",
+                FixCandidate(
+                    tier=FixTier.L3A_INTERNALS_READ,
+                    name="vicrop_relative_attention",
+                    kind="vicrop",
+                    source="paper_default",
+                    payload={"layer": 14},
+                ),
+                "ViCrop: uses attention to locate and crop the relevant image region "
+                "before re-answering -- targets SMALL or LOCAL visual detail missed at "
+                "the model's native resolution (tiny text, small objects, fine detail), "
+                "not general hallucination and not a knowledge gap.",
+            ))
+        # This is a label-free deployment guard for transferring ViCrop to a
+        # new local-detail benchmark, not a claim that the paper used it.
+        if (
+            has_images
+            and callable(getattr(model, "generate_vicrop_consensus", None))
+            and vicrop_fidelity == "native_selector_specialization"
+            and "vicrop_consensus_guard" not in prior_names
+        ):
+            _eligible.append((
+                "vicrop_consensus_guard",
+                FixCandidate(
+                    tier=FixTier.L3A_INTERNALS_READ,
+                    name="vicrop_consensus_guard",
+                    kind="vicrop_consensus",
+                    source="safety_guard",
+                    payload={"layer": 14},
+                ),
+                "ViCrop (consensus-guarded): the same small/local visual-detail "
+                "crop-and-reanswer repair as vicrop_relative_attention, but only "
+                "applies the cropped answer when it agrees with the original -- same "
+                "target mechanism, a safety variant, not a different mechanism.",
+            ))
         if (
             self.max_tier >= FixTier.L3B_INTERNALS_WRITE
             and has_images
             and tasks == {"yes_no"}
-            and hallucination_mechanism
             and binary_hallucination_supported
             and callable(getattr(model, "generate_ifcd", None))
             and ifcd_fidelity == "adapted_truthx_artifact"
             and self._allow_adapted_paper_methods
             and "ifcd_truthx_contrast" not in prior_names
         ):
-            out.append(
+            _eligible.append((
+                "ifcd_truthx_contrast",
                 FixCandidate(
                     tier=FixTier.L3B_INTERNALS_WRITE,
                     name="ifcd_truthx_contrast",
                     kind="ifcd",
                     source="paper_adapted_truthx_artifact",
                     payload={"alpha": 0.1, "beta": 0.1, "edit_strength": 0.5, "top_layers": 15},
-                )
-            )
+                ),
+                "IFCD: on binary yes/no questions, contrasts internal representations "
+                "against a trained truthfulness-editing direction -- targets the same "
+                "object/attribute hallucination (language priors overriding visual "
+                "evidence) as OPERA, via representation editing instead of "
+                "decoding-time attention.",
+            ))
+        # PAI (ECCV 2024) is a distinct LLaVA mechanism: it changes the
+        # image-attention logits while decoding, so it is an L3b intervention.
+        # The native executor pairs the paper's attention branch with its
+        # classifier-free-guidance cache; the source's pinned LLaVA stack is
+        # still recorded as an architecture specialization.
         if (
             self.max_tier >= FixTier.L3B_INTERNALS_WRITE
             and has_images
-            and hallucination_mechanism
             and (tasks != {"yes_no"} or binary_hallucination_supported)
             and callable(getattr(model, "generate_pai", None))
             and pai_fidelity == "native_attention_cfg_specialization"
             and "pai_image_attention" not in prior_names
         ):
-            out.append(
+            _eligible.append((
+                "pai_image_attention",
                 FixCandidate(
                     tier=FixTier.L3B_INTERNALS_WRITE,
                     name="pai_image_attention",
@@ -1829,18 +1902,12 @@ class FixAgent:
                         "start_layer": 2,
                         "end_layer": 32,
                     },
-                )
-            )
-        # TCD (Li et al. 2026, arXiv:2604.15383) is a decoding-time repair for
-        # unified audio-language models, targeting "temporal smoothing bias" on
-        # multi-choice audio QA (the paper's own benchmark, MMAU, is 4-way
-        # multiple choice) -- not a POPE-style yes_no task, so this is scoped
-        # separately from the VCD/ICD/OPERA binary-hallucination candidates
-        # above rather than folded into them. Needs ATTENTION (the decoder's
-        # audio-attention ratio drives both the stability score and the
-        # per-step gate) on top of the audio encoder's own hidden states, so
-        # it belongs at L3a like OPERA, not L0 like VCD.
-        tcd_fidelity = paper_fidelity("tcd") if callable(paper_fidelity) else "unavailable"
+                ),
+                "PAI: amplifies image-attention logits during decoding via "
+                "classifier-free guidance -- targets the same hallucination / "
+                "language-prior-override mechanism as OPERA/IFCD, for open-ended "
+                "(not just yes/no) tasks.",
+            ))
         if (
             has_audio
             and tasks == {"multiple_choice"}
@@ -1860,15 +1927,40 @@ class FixAgent:
             # update scale are already per-example adaptive (Eq. 5-6), so an
             # empty payload runs generate_tcd() at TCDHyperparams() defaults
             # rather than inventing a sweep the paper itself doesn't do.
-            out.append(
+            _eligible.append((
+                "tcd_temporal_blur",
                 FixCandidate(
                     tier=FixTier.L3A_INTERNALS_READ,
                     name="tcd_temporal_blur",
                     kind="tcd",
                     source="paper_default",
                     payload={},
+                ),
+                "TCD: contrasts decoding against a temporally-blurred version of the "
+                "audio -- targets under-weighting of TRANSIENT, fine-grained acoustic "
+                "detail (brief sounds, precise event timing/counting, telling multiple "
+                "speakers apart) in favour of temporally-smooth context or language "
+                "priors, on audio multiple-choice questions. Does NOT address a flat "
+                "audio-perception knowledge gap (the answer is never in the model's "
+                "sample pool at all) or a positional/letter-choice bias unrelated to "
+                "audio content.",
+            ))
+
+        if _eligible:
+            by_name = {name: cand for name, cand, _desc in _eligible}
+            catalog_lines = "\n".join(f"- {name}: {desc}" for name, _cand, desc in _eligible)
+            picked: "set[str]" = set()
+            for p in self._ask_judge(
+                _PAPER_METHOD_PROMPT.format(
+                    hypotheses=hyp_lines, catalog=catalog_lines, k=self.max_judge_candidates,
                 )
-            )
+                + prior_text
+            ):
+                name = str(p.get("name", ""))
+                if name in by_name and name not in picked:
+                    picked.add(name)
+                    out.append(by_name[name])
+
         catalog = primitives_catalog_text(model, self.max_tier)
         if not catalog:
             if not out:
@@ -2088,6 +2180,18 @@ class FixAgent:
                     return None
 
             return vcd
+        if candidate.kind == "aad":
+
+            def aad(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                try:
+                    generate_aad = getattr(model, "generate_aad")
+                    output = generate_aad(case.inputs, **candidate.payload)
+                    return score_to_bool(self._score(case, str(output)))
+                except Exception as exc:
+                    logger.debug("AAD generation failed on %s: %s", case.id, exc)
+                    return None
+
+            return aad
         if candidate.kind == "icd":
 
             def icd(model: "Model", case: "FailureCase") -> "Optional[bool]":
@@ -2212,8 +2316,6 @@ class FixAgent:
             template = candidate.payload["prompt_template"]
 
             def l1(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                from evalvitals.core.case import Inputs
-
                 inp = case.inputs
                 metadata = getattr(case, "metadata", {}) or {}
                 template_context = {str(key): value for key, value in metadata.items()}
@@ -2223,9 +2325,13 @@ class FixAgent:
                 # capable of failing as generating from it, and a single bad
                 # case must score None rather than abort the whole validation.
                 try:
-                    new_inputs = Inputs(
-                        prompt=safe_format(template, template_context),
-                        image=getattr(inp, "image", None),
+                    # dataclasses.replace, not a bare Inputs(prompt=..., image=...):
+                    # that silently dropped .video/.audio, so every L1 candidate was
+                    # unconditionally inapplicable (generate() raising on the
+                    # missing required modality field, caught below, scored as
+                    # None for every case) on any non-image FailureCase.
+                    new_inputs = dataclasses.replace(
+                        inp, prompt=safe_format(template, template_context)
                     )
                     return score_to_bool(self._score(case, str(model.generate(new_inputs))))
                 except Exception:

@@ -145,6 +145,26 @@ class TerminationAudit(Analyzer):
         truncated = looks_truncated(raw)
         gave_up = looks_like_give_up(raw)
 
+        # A bare short answer with no terminal punctuation and no <answer>/
+        # \boxed{} tag ("guitar", "two", "yes") is exactly what looks_truncated
+        # flags -- correctly, when it's a guess from text shape alone. But a
+        # short-answer dataset (VQA-style single word/number gold answers)
+        # produces that EXACT shape on every case that terminated perfectly
+        # normally. When the model itself has told us how generation actually
+        # ended (metadata["finish_reason"], populated by e.g. mine_cases.py's
+        # generate_with_meta -- see fix_agent.py's L0 telemetry gate for the
+        # other consumer of this same field), that real signal overrides the
+        # text-shape guess: "stop" means it did NOT hit the token budget,
+        # regardless of how terse the output looks; "length" confirms it did,
+        # even if the text happens to end in punctuation. No finish_reason on
+        # the case (API models, or examples that never wired mine_cases.py's
+        # meta path) falls back to the heuristic, unchanged from before.
+        finish_reason = (getattr(case, "metadata", {}) or {}).get("finish_reason")
+        if finish_reason == "stop":
+            truncated = False
+        elif finish_reason == "length":
+            truncated = True
+
         # Order matters: degeneration is checked first because a looping
         # generation also LOOKS truncated (it is cut off mid-loop), and the fix
         # for a loop is a decoding change, not a bigger budget.

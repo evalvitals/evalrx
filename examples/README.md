@@ -40,9 +40,10 @@ kept under their own names rather than forced into a stage bucket:
 | `m1_m4/deco_pope`, `deco_hallu`, `deco_miss`, `deco_chair` | `VLDiagnoseLoop` | M1→M2→M3→M5 | baked in |
 | `m1_m4/qwen_loop_claude` | `VLDiagnoseLoop` | M1→M2→M3→M5 | baked in |
 | `m1_m4/mllms_hallucination`, `mllms_small_object` | `VLDiagnoseLoop` | M1→M2→M3→M5 | baked in |
+| `m1_m4/musicavqa_videollama2` | `VLDiagnoseLoop` | M1→M2→M3→M5 | separate call (`loop.run_m4`/`run_fix`), right after `loop.run()` |
+| `m1_m4/mmau_qwen2_audio` | `VLDiagnoseLoop` | M1→M2→M3→M5 | `loop.run_fix()`, right after `loop.run()`; M1 pinned to a static audio-safe analyzer set (see run.py) |
 | `m1_m3/qwen_loop_agy`, `qwen_video_temporal` | `VLDiagnoseLoop` | M1→M2→M3→M5 | separate script, run after the loop |
 | `m1_m3/vlm_research_topics` | `VLDiagnoseLoop` | M1→M2→M3→M5 | none |
-| `m4/qwen2_audio_tcd_mmau` | `FixAgent` only | M4 (hand-supplied hypothesis) | is M4; held-out confirm split |
 | `m4/vlm_paper_benchmark/*` | `FixAgent` only | M4 only — **designed as M1→M4, M1–M3 discovery never built** | is M4; held-out confirm split |
 | `m2_m3/deco_hallu_explore`, `synthetic_yield_explore` | bare `explore()` | M2→M3 | n/a |
 | `m2_m3/vtcbench_diagnosis` | bare scripts | M1 → M2/M3 (`explore`) | n/a |
@@ -64,7 +65,8 @@ cd examples/m2_m3/deco_hallu_explore && bash run_web.sh           # ONE web page
                                                                    # to start a new M2+M3 run, plus the script outputs
                                                                    # above attached read-only in the same sidebar
 cd examples/m1_m3/qwen_loop_agy && docker compose up
-cd examples/m4/qwen2_audio_tcd_mmau && docker compose up  # TCD vs MMAU, FixAgent-only
+cd examples/m1_m4/musicavqa_videollama2 && docker compose up  # audio-visual QA, VideoLLaMA2.1-7B-AV
+cd examples/m1_m4/mmau_qwen2_audio && docker compose up  # TCD vs MMAU, full M1->M4 loop
 cd examples/agent_demos/visual_zoom_agent && docker compose up
 cd examples/m2_m3/vtcbench_diagnosis && docker compose up
 cd examples/paper_diagnosis_benchmark && docker compose up

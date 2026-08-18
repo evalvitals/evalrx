@@ -1,0 +1,47 @@
+# musicavqa_videollama2 — audio-visual QA failure diagnosis (VideoLLaMA2.1-7B-AV on
+# Music-AVQA). AVCD paper (arXiv 2505.20862) studies unimodal/cross-modal
+# hallucination in exactly this model on the related AVHBench; Music-AVQA is
+# a public audio-visual QA benchmark with the same Audio/Visual/Audio-Visual
+# question-type split, letting the loop discover the analogous failure here.
+model: videollama2.1-7b-av
+# A bare HF repo id, not a local/Colab path: transformers resolves this
+# against HF_HOME (already mounted the same way mmau_qwen2_audio's
+# docker-compose.yml does), so it works on any host with that cache mounted
+# -- no per-host absolute path to keep in sync. Bind-mounting a separate
+# local snapshot dir instead breaks: huggingface_hub's cache layout is
+# blobs/ + snapshots/<rev>/<file> -> ../../blobs/<hash> (relative symlinks),
+# so mounting only the snapshot subtree leaves those symlinks dangling.
+model_path: DAMO-NLP-SG/VideoLLaMA2.1-7B-AV
+
+# Judge for M1 selection / M2 / M3 / M5 + codegen coder — both are `claude -p`
+# CLI calls (this host's own authenticated `claude` binary).
+judge_model: sonnet
+judge_effort: low
+codegen_model: sonnet
+codegen_effort: low
+codegen_budget_usd: 2.0
+codegen_timeout_sec: 240
+
+# Fix module. VideoLLaMA2AVModel's forward() genuinely returns hidden_states
+# (always) and attentions (only when run.py is given --want-attention, which
+# forces eager attention at load time) — see videollama2_model.py's module
+# docstring for the one gap: no token_type_map yet (video/audio token span
+# boundaries are input-length-dependent; localizing them needs empirical
+# verification against real weights, not done on this CPU-only host), so
+# L3a analyzers that need per-token modality localization will not resolve
+# through this handle yet. L3b (write internals / modify forward pass) is
+# not implemented at all. L3a is the realistic ceiling; raise only once
+# --want-attention has been verified end-to-end on real weights.
+fix_max_tier: L3a
+fix_validation_cases: 24  # stratified subset (~12 FAIL + 12 PASS). A real run
+                           # measured "underpowered by design" at the old 12
+                           # (6 FAIL: even a perfect fix tops out at e=9.1,
+                           # below the e>=20 certification threshold; FixAgent's
+                           # own recommendation was ">= 8 failing cases"). Only
+                           # 27 FAIL cases exist in the 150-row manifest, so
+                           # this is close to the ceiling available without
+                           # mining more; lower back to 12 for CPU/mock smoke
+                           # tests where video-decode-per-case is what's slow,
+                           # not GPU compute.
+fix_exec_timeout_sec: 1200
+fix_repair_rounds: 2

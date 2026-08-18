@@ -408,8 +408,8 @@ def test_raw_text_consistency_is_a_constant_on_a_reasoning_model():
 
 
 def test_answer_fn_makes_consistency_measure_answers():
-    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
     from evalvitals.analyzers.reasoning._text import extract_answer
+    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 
     f = SelfConsistencyAnalyzer(n=5, semantic=False, answer_fn=extract_answer).run(
         _chain_model(["(C)"] * 5), _one_case()).findings
@@ -420,8 +420,8 @@ def test_answer_fn_makes_consistency_measure_answers():
 
 
 def test_answer_fn_still_detects_genuine_disagreement():
-    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
     from evalvitals.analyzers.reasoning._text import extract_answer
+    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 
     f = SelfConsistencyAnalyzer(n=4, semantic=False, answer_fn=extract_answer).run(
         _chain_model(["(A)", "(B)", "(A)", "(C)"]), _one_case()).findings

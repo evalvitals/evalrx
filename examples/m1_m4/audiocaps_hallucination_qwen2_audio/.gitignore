@@ -1,0 +1,5 @@
+# Downloaded AudioCaps audio/manifest and run outputs are reproducible
+# local artifacts, never repository inputs.
+data/
+outputs/
+__pycache__/

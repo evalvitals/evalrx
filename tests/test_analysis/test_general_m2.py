@@ -110,11 +110,15 @@ def test_bold_headings_parse_too():
     assert evidence == ["because"]
 
 
-def test_prose_without_sections_still_falls_back():
+def test_prose_without_sections_yields_no_conclusion_not_a_synthesized_one():
+    """No section => "" — so the caller keeps the deterministic conclusion it
+    already built. Returning base.narrative's first line here ("Model: <repr>")
+    was how a quota message from the CLI silently replaced a real M2 verdict.
+    """
     from evalvitals.analysis.stats_agent import _parse_llm_analysis
 
     conclusion, _, _ = _parse_llm_analysis("just prose", _base_report())
-    assert conclusion == "Model: EndpointModel(qwen3.5-2b)"
+    assert conclusion == ""
 
 
 # ── what the judge is shown about multiplicity ───────────────────────────────

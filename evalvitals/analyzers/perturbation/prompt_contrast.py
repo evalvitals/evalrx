@@ -22,6 +22,7 @@ pass ``strategies={name: template}`` for custom interventions (templates use
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -152,8 +153,6 @@ class PromptContrastAnalyzer(Analyzer):
         super().__init__(strategies=strategies, score_fn=score_fn, max_cases=max_cases)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        from evalvitals.core.case import Inputs
-
         score = self.score_fn or _default_score
         by_strategy: dict[str, dict[str, float]] = {s: {} for s in self.strategies}
         answers: dict[str, dict[str, str]] = {s: {} for s in self.strategies}
@@ -167,10 +166,15 @@ class PromptContrastAnalyzer(Analyzer):
         selected = cases.stratified_head(self.max_cases)
         for case in selected:
             prompt = str(getattr(case.inputs, "prompt", ""))
-            image = getattr(case.inputs, "image", None)
             for strat, template in self.strategies.items():
                 rewritten = template.format(prompt=prompt)
-                out = str(model.generate(Inputs(prompt=rewritten, image=image)))
+                # dataclasses.replace, not a bare Inputs(prompt=..., image=...):
+                # this analyzer is also compatible with audio models (it
+                # declares "text" in applies_to_modalities, which intersects
+                # any modality set that includes text prompts) — a fresh
+                # Inputs(image=...) silently dropped .audio, so the re-ask
+                # would have answered without hearing the clip.
+                out = str(model.generate(dataclasses.replace(case.inputs, prompt=rewritten)))
                 verdict = score(case, out)
                 answers[strat][case.id] = out[:200]
                 if verdict is None:
