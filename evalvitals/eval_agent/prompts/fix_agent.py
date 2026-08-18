@@ -76,6 +76,12 @@ EXECUTION CONTRACT:
   a clear yes/no for yes/no questions).
 - Standard library + numpy only.  No network, no file writes.  Keep it under
   ~80 lines.
+- REPAIR THE MODEL, NOT THE TASK.  Your code is re-run a second time with every
+  model_generate() call answered by the model's ORIGINAL recorded answer.  Any
+  failing case your pipeline gets right in THAT run was solved by your code,
+  not the model, and is excluded from the fix score — a pipeline that computes
+  the answer itself (sorting, arithmetic, lookup, a hard-coded default) scores
+  zero.  Verify, vote, re-ask, re-prompt, zoom: make the model get it right.
 
 Return ONLY the Python code{fences_hint}."""
 
@@ -100,6 +106,10 @@ using ONLY these tools:
 exactly:
   {marker}{{"per_case": [{{"sample_id": "<case id>", "output": "<final answer text>"}}]}}
 - standard library + numpy only; no network, no file writes; under ~80 lines.
+- repair the MODEL, not the task: the code is re-run with every model_generate() \
+call answered by the model's original recorded answer, and failing cases it still \
+gets right then are excluded from the score.  If it timed out, make FEWER model \
+calls per case — do not replace them with code that computes the answer itself.
 """
 
 _L3_PROMPT = """\

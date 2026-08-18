@@ -260,9 +260,15 @@ class FixValidation:
     n_applicable: int = 0  # cases the candidate actually touched
     coverage: "float | None" = None  # applicable FAILs / total FAILs in subset
     n_unstable: int = 0  # cases dropped as baseline-unstable (noise)
+    # Failing cases a coded pipeline ALSO got right with the model frozen to
+    # its recorded answers (fix_pipeline.frozen_model_control) — the repair was
+    # the pipeline's own computation, not the model's, so they leave the paired
+    # test. Baseline-correct cases are never dropped on this ground.
+    n_model_independent: int = 0
     e_value: "float | None" = None
     # Coarse verdict (defect 4): fixed | partial | unsafe | regressed |
-    # no_effect | not_executed.  Richer than the boolean ``fixed`` for triage.
+    # no_effect | not_executed | model_independent.  Richer than the boolean
+    # ``fixed`` for triage.
     verdict: str = ""
     # Non-empty when the candidate never EXECUTED (sandbox crash, timeout,
     # bridge contract violation) — distinct from "executed and not effective".
@@ -326,6 +332,7 @@ class FixOutcome:
                     "n_applicable": v.n_applicable,
                     "coverage": v.coverage,
                     "n_unstable": v.n_unstable,
+                    "n_model_independent": v.n_model_independent,
                     "e_value": v.e_value,
                     "verdict": v.verdict,
                 }
@@ -645,7 +652,11 @@ class FixAgent:
         * **genuinely exhausted** — executed, powered, still no fix; escalate.
         """
         executed = [v for v in attempted if v.n_pairs > 0]
-        never_ran = [v for v in attempted if v.n_pairs == 0]
+        # A model-independent candidate DID execute; it just is not a repair of
+        # the model. It is neither an engineering failure nor evidence the tier
+        # is exhausted, so it sits in neither list.
+        never_ran = [v for v in attempted
+                     if v.n_pairs == 0 and v.verdict != "model_independent"]
         if never_ran and not executed:
             return {
                 "recommend_tier": self.max_tier.label,
@@ -693,6 +704,14 @@ class FixAgent:
             }
 
         rec = self._recommend(routed_tiers, model=model)
+        solo = [v for v in attempted if v.verdict == "model_independent"]
+        if solo and rec is not None:
+            rec["reason"] += (
+                f" (note: {len(solo)} candidate(s) solved the task without the model "
+                "and were not counted as repairs: "
+                + ", ".join(v.candidate.name for v in solo[:3])
+                + ")"
+            )
         if never_ran and rec is not None:
             rec["reason"] += (
                 f" (caveat: {len(never_ran)} candidate(s) never executed: "
@@ -2353,6 +2372,8 @@ class FixAgent:
             return prim.run(model, data, self._score, candidate.payload.get("params"))
         if candidate.kind == "code":
             result = self._run_coded(candidate, model, data)
+            if result.ok:
+                self._frozen_model_control(candidate, data)
             return score_outputs(result, data, self._score)
         if candidate.kind == "finetune_spec":
             result = run_lora_repair(model, self._finetune_pool, data, candidate.payload, self._score)
@@ -2407,6 +2428,43 @@ class FixAgent:
         if not result.ok:
             logger.warning("FixAgent: coded pipeline produced no result: %s", result.error)
         return result
+
+    def _frozen_model_control(self, candidate: FixCandidate, data: "CaseBatch") -> None:
+        """Re-run a coded candidate with the model frozen; record what it still
+        gets right in ``payload["frozen_model_control"]``.
+
+        ``_validate`` reads ``solved`` and drops those failing cases from the
+        paired test: with every model call answered by the model's own recorded
+        output, a repair can only have come from the code. A control that does
+        not complete (the pipeline crashes or spins without a live model) is
+        evidence the pipeline needs the model — nothing is discounted, and the
+        reason is kept.
+        """
+        from pathlib import Path
+
+        from evalvitals.eval_agent.stages.fix_pipeline import frozen_model_control
+
+        workdir = Path(self._workdir(candidate.trial)) / "frozen_model_control"
+        ctrl = frozen_model_control(
+            candidate.payload["code"], data, workdir=workdir,
+            timeout_sec=self._exec_timeout_sec,
+        )
+        solved: "list[str]" = []
+        if ctrl.ok:
+            for cid, ok in score_outputs(ctrl, data, self._score).items():
+                if ok is True:
+                    solved.append(cid)
+        candidate.payload["frozen_model_control"] = {
+            "ok": ctrl.ok,
+            "error": ctrl.error,
+            "n_calls": ctrl.n_calls,
+            "solved": solved,
+        }
+        if solved:
+            logger.info(
+                "FixAgent: frozen-model control — %s still solves %d/%d case(s) with the "
+                "model held at its recorded answers", candidate.name, len(solved), len(data),
+            )
 
     def _repair_code(self, candidate: FixCandidate, error: str) -> "tuple[str, str, str]":
         """Ask the coder to fix its failed pipeline; returns (code, source, raw)."""
@@ -2473,10 +2531,19 @@ class FixAgent:
         applicable_fail = 0
         base_vec: "list[bool]" = []
         cand_vec: "list[bool]" = []
+        control = (candidate.payload.get("frozen_model_control") or {}
+                   if isinstance(candidate.payload, dict) else {})
+        solved_without_model = set(control.get("solved") or [])
         for case in data:
             b = score_to_bool(baseline.get(case.id))
             c = score_to_bool(scores.get(case.id))
             if b is None or c is None:
+                continue
+            # A failing case the pipeline also gets right with the model frozen
+            # to its recorded answer was repaired by the code, not the model:
+            # not a fix of the model, not a regression either — out of the test.
+            if not b and case.id in solved_without_model:
+                v.n_model_independent += 1
                 continue
             # Noise floor (defect 2): a case whose baseline flipped across
             # repeats is unreliable — excluding it stops a stochastic flip from
@@ -2504,6 +2571,15 @@ class FixAgent:
         v.n_candidate_correct = sum(cand_vec)
         v.n_applicable = v.n_pairs
         v.coverage = (applicable_fail / n_fail) if n_fail else None
+        if v.n_pairs == 0 and v.n_model_independent:
+            v.verdict = "model_independent"
+            v.summary = (
+                f"model-independent: all {v.n_model_independent} failing case(s) it "
+                "repairs it also repairs with the model frozen to its recorded answers "
+                "(frozen-model control) — the pipeline solves the task itself; no "
+                "model-attributable pair to test"
+            )
+            return v
         if v.n_pairs == 0:
             v.verdict = "not_executed"
             v.summary = (
@@ -2527,7 +2603,9 @@ class FixAgent:
         v.verdict = self._verdict(v)
         cov = "" if v.coverage is None else f", coverage={v.coverage:.0%}"
         noise = f", {v.n_unstable} unstable dropped" if v.n_unstable else ""
-        v.summary = f"{stat.summary()} [{v.verdict}{cov}{noise}]"
+        solo = (f", {v.n_model_independent} model-independent excluded"
+                if v.n_model_independent else "")
+        v.summary = f"{stat.summary()} [{v.verdict}{cov}{noise}{solo}]"
         return v
 
     @staticmethod

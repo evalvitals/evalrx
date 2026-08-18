@@ -106,12 +106,13 @@ class CodedPipelineResult:
 
 def run_coded_pipeline(
     code: str,
-    model: "Model",
+    model: "Model | None",
     cases: "CaseBatch",
     workdir: "Path | str",
     timeout_sec: int = 600,
     max_calls: "int | None" = None,
     enable_attend: bool = False,
+    reply_fn: "Callable[[Any, str], str] | None" = None,
 ) -> CodedPipelineResult:
     """Execute agent-written pipeline *code* with bridged model access.
 
@@ -119,6 +120,11 @@ def run_coded_pipeline(
     every bridge call is serviced here (image tools applied host-side, model
     invoked host-side).  Returns the per-case final answers for host-side
     scoring.
+
+    ``reply_fn(case, prompt) -> str``, when given, answers every bridged call
+    instead of the model (which is then never touched) — the hook
+    :func:`frozen_model_control` uses to re-run the same code with the model
+    held at its recorded answers.
     """
     from evalvitals.core.case import Inputs
 
@@ -180,7 +186,7 @@ def run_coded_pipeline(
                     proc.kill()
                     break
                 reply = _service_call(stripped[len(CALL_MARKER):], case_by_id,
-                                      model, Inputs, enable_attend)
+                                      model, Inputs, enable_attend, reply_fn)
                 try:
                     proc.stdin.write(json.dumps(reply) + "\n")  # type: ignore[union-attr]
                     proc.stdin.flush()  # type: ignore[union-attr]
@@ -248,9 +254,10 @@ def run_coded_pipeline(
 def _service_call(
     raw: str,
     case_by_id: "dict[str, Any]",
-    model: "Model",
+    model: "Model | None",
     inputs_cls: "type",
     enable_attend: bool = False,
+    reply_fn: "Callable[[Any, str], str] | None" = None,
 ) -> "dict[str, Any]":
     """Handle one bridged model call; never raises (errors travel as JSON)."""
     try:
@@ -289,10 +296,58 @@ def _service_call(
                     + (f"; unknown tool(s): {', '.join(unknown)}" if unknown else "")
                     + "; available tools: " + ", ".join(IMAGE_TOOLS)
                 )}
+        if reply_fn is not None:
+            # Same contract as the real bridge (unknown case, bad image_ops
+            # still error) — only the answer comes from elsewhere.
+            return {"output": str(reply_fn(case, str(prompt)))}
+        if ops:
             image = apply_image_ops(image, ops)
+        if model is None:
+            return {"error": "no model behind the bridge"}
         return {"output": str(model.generate(inputs_cls(prompt=str(prompt), image=image)))}
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def frozen_model_control(
+    code: str,
+    cases: "CaseBatch",
+    workdir: "Path | str",
+    timeout_sec: int = 600,
+    max_calls: "int | None" = None,
+) -> CodedPipelineResult:
+    """Re-run *code* with the model frozen: every bridged call is answered with
+    the case's recorded baseline output (``case.observed``; ``""`` when a case
+    has none).
+
+    A coded pipeline is only ever asked to repair the MODEL, but nothing in the
+    sandbox stops it from repairing the TASK: qwen3.5-2b / bbh_word_sorting
+    validated a pipeline whose final answer was ``sorted(input_words(prompt))``
+    with the model call accepted only when it already equalled that — 124/125
+    correct, e=8.6e15, "FIXED", and 113 model calls that changed nothing. Any
+    task with a mechanical oracle (sorting, arithmetic, dates: much of BBH)
+    invites the same move, and the timeout-repair round makes it worse.
+
+    Under this control the model cannot behave differently than it already
+    did, so a FAILING case that comes out right was solved by the pipeline's
+    own computation. The caller excludes such cases from the paired test
+    (baseline-correct cases are kept: replaying a right answer proves
+    nothing, and dropping them would hide what the candidate breaks).
+
+    Replaying the recorded answer rather than returning ``""`` matters:
+    real answers are non-empty and well-formed, so a solver gated on "the
+    model said something parseable" is still caught, and a legitimate
+    pipeline's benign empty-answer default is not tripped by an artefact of
+    the control.
+    """
+    def _replay(case: "Any", prompt: str) -> str:
+        observed = getattr(case, "observed", None)
+        return "" if observed is None else str(observed)
+
+    return run_coded_pipeline(
+        code, None, cases, workdir=workdir, timeout_sec=timeout_sec,
+        max_calls=max_calls, reply_fn=_replay,
+    )
 
 
 def score_outputs(

@@ -931,6 +931,8 @@ class RunLogger:
                 f"- cases broken: {a.get('n_broken')}",
                 f"- coverage of failures: {'—' if cov is None else f'{cov:.0%}'}",
                 f"- unstable cases dropped (noise): {a.get('n_unstable', 0)}",
+                f"- model-independent cases excluded (frozen-model control): "
+                f"{a.get('n_model_independent', 0)}",
                 f"- effect: {_eff(a.get('effect'))}",
                 f"- e-value: {_eff(a.get('e_value'))}",
                 f"- statistically significant (rejects H0): {a.get('reject')}",
