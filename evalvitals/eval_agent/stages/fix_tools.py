@@ -588,6 +588,46 @@ _SCAFFOLD_STRATEGIES = frozenset({
     "direct", "least_to_most", "self_refine", "chain_of_verification",
 })
 
+#: The ordered call chain each multi-call strategy issues, as
+#: ``(step label, instruction prepended for that call)``. An empty instruction
+#: means the call sends the task prompt with nothing added.
+#:
+#: Hoisted out of ``run_pipeline`` (which now formats from these) so that the
+#: dashboard can SHOW the text a strategy actually sends instead of
+#: paraphrasing it. ``analysis/case_studio.py`` keeps a mirror of this table —
+#: it may not import this package at runtime (analysis has to stay standalone)
+#: — and ``test_strategy_flow_matches_what_the_pipeline_sends`` asserts the two
+#: are equal, so re-wording a prompt here without updating the mirror fails the
+#: suite rather than silently leaving the UI describing a pipeline that is gone.
+STRATEGY_CALLS: "dict[str, tuple[tuple[str, str], ...]]" = {
+    "self_refine": (
+        ("answer", ""),
+        ("critique that answer",
+         "Check the attempted answer for factual, reasoning, arithmetic, and "
+         "instruction-following errors. Give concise correction advice only."),
+        ("revise it",
+         "Produce a corrected final answer to the original task using the "
+         "feedback. Do not discuss the revision process."),
+    ),
+    "least_to_most": (
+        ("break into subproblems",
+         "Break the following task into the smallest useful subproblems. "
+         "Do not answer the task yet."),
+        ("solve using the decomposition",
+         "Solve the original task using the decomposition. Give only the final "
+         "answer required by the task."),
+    ),
+    "chain_of_verification": (
+        ("answer", ""),
+        ("list verification checks",
+         "List short, independent checks needed to verify this attempted answer. "
+         "Do not answer the original task yet."),
+        ("answer after the checks",
+         "Answer the original task after applying the independent verification "
+         "checks. Give only the final answer required by the task."),
+    ),
+}
+
 
 def _safe_output_key_pattern(value: Any) -> str:
     """Accept one bounded capture regex for evaluator-declared answer formats."""
@@ -690,6 +730,8 @@ def run_pipeline(
     prompt-only and keep the underlying model unchanged. Returns ``None`` when
     the case cannot be scored (no rubric / all calls failed).
     """
+    import dataclasses
+
     from evalvitals.core.case import Inputs
 
     inp = getattr(case, "inputs", None)
@@ -701,45 +743,53 @@ def run_pipeline(
 
     def generate(text: str) -> str:
         try:
-            return str(model.generate(
-                Inputs(prompt=text, image=image), **spec.generation_kwargs
-            ))
+            # dataclasses.replace(inp, ...), not a bare Inputs(prompt=...,
+            # image=...): the bare form silently dropped .video/.audio, so
+            # every strategy (least_to_most/self_refine/chain_of_verification)
+            # was unconditionally inapplicable on any non-image FailureCase --
+            # generate() raising on the missing required modality field,
+            # caught below, every call returning "" (all outputs empty ->
+            # run_pipeline returns None -> unscoreable for every case). Only
+            # `image` is deliberately overridden (it may have been rewritten
+            # by spec.image_ops just above); no fallback needed for inp is
+            # None since FailureCase.inputs is never optional in practice.
+            new_inputs = (
+                dataclasses.replace(inp, prompt=text, image=image)
+                if inp is not None
+                else Inputs(prompt=text, image=image)
+            )
+            return str(model.generate(new_inputs, **spec.generation_kwargs))
         except Exception as exc:
             logger.debug("run_pipeline: generate failed on %s: %s", case.id, exc)
             return ""
 
     if spec.strategy == "least_to_most":
-        decomposition = generate(
-            "Break the following task into the smallest useful subproblems. "
-            "Do not answer the task yet.\n\n" + base_prompt
-        )
+        calls = STRATEGY_CALLS["least_to_most"]
+        decomposition = generate(calls[0][1] + "\n\n" + base_prompt)
         outputs = [generate(
-            "Solve the original task using the decomposition. Give only the final "
-            "answer required by the task.\n\nOriginal task:\n"
+            f"{calls[1][1]}\n\nOriginal task:\n"
             f"{base_prompt}\n\nDecomposition:\n{decomposition}"
         )]
     elif spec.strategy == "self_refine":
+        calls = STRATEGY_CALLS["self_refine"]
         draft = generate(base_prompt)
         feedback = generate(
-            "Check the attempted answer for factual, reasoning, arithmetic, and "
-            "instruction-following errors. Give concise correction advice only.\n\n"
+            f"{calls[1][1]}\n\n"
             f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
         )
         outputs = [generate(
-            "Produce a corrected final answer to the original task using the "
-            "feedback. Do not discuss the revision process.\n\n"
+            f"{calls[2][1]}\n\n"
             f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nFeedback:\n{feedback}"
         )]
     elif spec.strategy == "chain_of_verification":
+        calls = STRATEGY_CALLS["chain_of_verification"]
         draft = generate(base_prompt)
         checks = generate(
-            "List short, independent checks needed to verify this attempted answer. "
-            "Do not answer the original task yet.\n\n"
+            f"{calls[1][1]}\n\n"
             f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
         )
         outputs = [generate(
-            "Answer the original task after applying the independent verification "
-            "checks. Give only the final answer required by the task.\n\n"
+            f"{calls[2][1]}\n\n"
             f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nChecks:\n{checks}"
         )]
     else:

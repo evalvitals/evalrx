@@ -2,16 +2,29 @@
 
 Audio-visual analogue of examples/m1_m4/deco_chair: an audio-visual
 LLM (VideoLLaMA2.1-7B-AV) answers Music-AVQA questions that need audio AND
-video evidence (AVCD paper, arXiv 2505.20862, studies exactly this failure
-mode — unimodal/cross-modal hallucination in AV-LLMs). This run.py only
+video evidence (unimodal/cross-modal hallucination in AV-LLMs -- the failure
+mode AVCD, arXiv:2505.20862, studies; that paper's own released code turned
+out unusable here, see the Dockerfile's comment). This run.py only
 supplies INPUTS — frozen cases + an observation-only protocol; detection,
 diagnosis and repair are the loop's own job.
 
     1. load data/cases/{model}.json     (frozen Q/A + pass/fail labels, from mine_cases.py)
     2. drift check                      (re-answer a sample, compare correctness)
     3. ExperimentProtocol                (OBSERVATION ONLY — no mechanism named)
-    4. VLDiagnoseLoop M1->M5             (loop selects its own analyzers)
+    4. VLDiagnoseLoop M1->M5             (M1 pinned to PINNED_M1_ANALYZERS, see below)
     5. run_m4 + run_fix                  (loop proposes + validates its own fix)
+
+M1 is pinned (ProbeAgent(judge=None, probe=StrategyProbe(priority_override=...)))
+rather than left to LLM-guided catalog selection. Measured on real runs: the
+judge sometimes picks a weak, purely-hygiene combo (answer_extraction_audit /
+arith_audit / termination_audit) that surfaces no signal at all, and
+VLDiagnoseLoop.run() does not retry a fresh M1 selection on the next cycle
+when M3 finds zero hypotheses (loop.py: `stopped_by=no_hypotheses` on cycle 1
+is terminal, not "try again with different analyzers") -- so a weak first
+pick silently ends the whole run with no fix attempted. Pinning to a
+combination that DID surface a real, statistically-supported signal on this
+model/dataset (self_consistency + perturbation_battery) makes the loop
+reproducible instead of a coin flip on which cycle-1 draw the judge makes.
 
 The fix module is given an exact/substring answer-match score_fn: a candidate
 output counts as a success only if it still contains the gold answer for
@@ -35,6 +48,24 @@ from avqa_data import build_protocol, load_manifest, make_avqa_score_fn, answers
 
 OUT = Path(__file__).parent / "outputs"
 CFG = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
+
+# See the module docstring for why this is pinned rather than judge-selected.
+# self_consistency + perturbation_battery are the two analyzers that produced
+# a verified (statistically-supported, protocol-consistent) hypothesis on a
+# real run; answer_extraction_audit/termination_audit stay as cheap hygiene
+# checks (do the FAIL labels reflect a real wrong answer, or a truncated/
+# degenerate one?) since a real finding is not interpretable until those are
+# ruled out. prompt_contrast/cot_faithfulness are intentionally excluded here
+# too -- same reasoning as examples/m1_m4/mmau_qwen2_audio/run.py: their
+# default strategy templates are image-phrased ("describe what you see in the
+# image..."), nonsensical prompt content for a model that only ever gets
+# Inputs.video/.audio, never Inputs.image.
+PINNED_M1_ANALYZERS = [
+    "answer_extraction_audit",
+    "termination_audit",
+    "self_consistency",
+    "perturbation_battery",
+]
 
 
 def drift_check(model, cases, n: int = 3) -> None:
@@ -97,7 +128,17 @@ def main() -> None:
                      help="force eager attention at load time so ATTENTION capture "
                           "(not just HIDDEN_STATES/LOGITS) is available for M1/L3a; "
                           "costs more memory/compute, off by default")
+    ap.add_argument("--candidate-allowlist", default=None,
+                     help="comma-separated FixCandidate names to restrict run_fix to -- "
+                          "isolates a specific candidate's execution/effect from "
+                          "whether the judge would have picked it unprompted. Unset "
+                          "(default) = full free exploration, every admissible "
+                          "candidate competes.")
     args = ap.parse_args()
+    candidate_allowlist = (
+        [name.strip() for name in args.candidate_allowlist.split(",") if name.strip()]
+        if args.candidate_allowlist else None
+    )
     OUT.mkdir(exist_ok=True)
 
     manifest_path = Path(__file__).parent / "data" / "cases" / f"{args.model}.json"
@@ -116,6 +157,7 @@ def main() -> None:
     )
     from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
     from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+    from evalvitals.eval_agent.stages.probe import StrategyProbe
     from evalvitals.analysis.stats_agent import StatsAnalysisAgent
 
     judge = build_judge(args.judge_model, args.judge_effort)  # probe BEFORE weights load
@@ -143,8 +185,11 @@ def main() -> None:
 
     loop = VLDiagnoseLoop(
         model=model,
-        probe_agent=ProbeAgent(judge=judge, max_analyzers=args.max_analyzers,
-                                allow_codegen=True, codegen_config=codegen),
+        probe_agent=ProbeAgent(
+            probe=StrategyProbe(priority_override={k: PINNED_M1_ANALYZERS for k in ("vlm", "agent", "llm")}),
+            judge=None,  # pinned static selection -- see PINNED_M1_ANALYZERS above
+            max_analyzers=len(PINNED_M1_ANALYZERS),
+        ),
         stats_agent=StatsAnalysisAgent(judge=judge, allow_codegen=True,
                                         codegen_config=codegen, figure_dir=str(ctx.figures_dir)),
         diagnosis_agent=DiagnosisAgent(judge=judge),
@@ -153,6 +198,7 @@ def main() -> None:
             run_context=ctx),
         fix_agent=FixAgent(judge=judge, score_fn=avqa_score,
                             max_tier=str(CFG.get("fix_max_tier", "L2")),
+                            candidate_allowlist=candidate_allowlist,
                             cli_config=codegen, run_logger=ctx.logger,
                             max_validation_cases=int(CFG.get("fix_validation_cases", 12)),
                             exec_timeout_sec=int(CFG.get("fix_exec_timeout_sec", 1200)),

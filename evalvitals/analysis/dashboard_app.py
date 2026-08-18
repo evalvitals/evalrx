@@ -143,6 +143,11 @@ EXPLORE_TAB_LABELS = [
 # play the clip and answer the question before judging a repair.
 CASEBENCH_TAB_LABELS = ["1 Run Overview", "2 Case Study", "3 Repair Methods"]
 
+#: Keyed so `_jump_to_case` can move the reader to the Case Study tab, not just
+#: preselect a case there. `st.tabs` only tracks state when `on_change` is not
+#: "ignore", and both kwargs postdate this package's `streamlit>=1.30` floor.
+_CASEBENCH_TAB_KEY = "ev_cs_tab"
+
 #: Container MIME types Streamlit's <audio> element needs spelled out.
 _AUDIO_MIME = {
     ".wav": "audio/wav", ".mp3": "audio/mpeg", ".flac": "audio/flac",
@@ -174,13 +179,25 @@ def render_case_study_run(root: Path, session: dict[str, Any], selected: int = 0
     for note in study.notes:
         st.caption(f"⚠︎ {note}")
 
-    tabs = st.tabs(CASEBENCH_TAB_LABELS)
+    tabs = _casebench_tabs()
     with tabs[0]:
         _render_casebench_overview(study)
     with tabs[1]:
         _render_case_study_tab(study)
     with tabs[2]:
         _render_repair_methods_tab(study)
+
+
+def _casebench_tabs() -> Any:
+    """The three casebench tabs, keyed so a case jump can switch to tab 2.
+
+    On the declared `streamlit>=1.30` floor `key`/`on_change` are unknown
+    kwargs; fall back to plain tabs there, where a jump still preselects the
+    case and the reader clicks across themselves."""
+    try:
+        return st.tabs(CASEBENCH_TAB_LABELS, key=_CASEBENCH_TAB_KEY, on_change="rerun")
+    except TypeError:
+        return st.tabs(CASEBENCH_TAB_LABELS)
 
 
 def _render_casebench_header(root: Path, study: Any) -> None:
@@ -354,6 +371,9 @@ def _jump_to_case(study: Any, case_id: str) -> None:
     st.session_state[keys["case"]] = case_id
     st.session_state[keys["split"]] = "all"
     st.session_state[keys["outcome"]] = "all"
+    # Preselecting the case is useless if the reader is left on tab 3 looking
+    # at the button they just pressed — take them to the clip.
+    st.session_state[_CASEBENCH_TAB_KEY] = CASEBENCH_TAB_LABELS[1]
 
 
 def _filter_cases(cases: list[Any], *, split: str, outcome: str) -> list[Any]:
@@ -423,12 +443,21 @@ def _render_case_study_tab(study: Any) -> None:
 
     nav = st.columns([1, 1, 6])
     index = ids.index(case.id)
-    if nav[0].button("← Prev", disabled=index == 0, key=f"ev_cs_prev::{study.name}"):
-        st.session_state[keys["case"]] = ids[index - 1]
-        st.rerun()
-    if nav[1].button("Next →", disabled=index == len(ids) - 1, key=f"ev_cs_next::{study.name}"):
-        st.session_state[keys["case"]] = ids[index + 1]
-        st.rerun()
+
+    # Prev/Next move the selectbox itself, and a widget-keyed value may only be
+    # written before its widget runs — so step in an on_click callback, which
+    # fires ahead of the rerun instead of after the selectbox above.
+    def _step(delta: int, *, key: str = keys["case"], case_ids: list = ids, at: int = index) -> None:
+        st.session_state[key] = case_ids[at + delta]
+
+    nav[0].button(
+        "← Prev", disabled=index == 0, key=f"ev_cs_prev::{study.name}",
+        on_click=_step, args=(-1,),
+    )
+    nav[1].button(
+        "Next →", disabled=index == len(ids) - 1, key=f"ev_cs_next::{study.name}",
+        on_click=_step, args=(1,),
+    )
 
     _render_case_panel(study, case, blind=blind)
     _render_human_scoreboard(study)
@@ -630,42 +659,222 @@ def _render_repair_methods_tab(study: Any) -> None:
     for line in _fix_narrative(selection):
         st.markdown(f"- {line}")
 
+    _render_verdict_legend(study.candidates)
+
+    # The table answers "which candidates ran and how did each land"; the cards
+    # below answer "what was it". Splitting them keeps this scannable: a handle
+    # plus counts plus a verdict, no statistics to parse mid-row. The paired
+    # numbers (effect, CI, e-value) live on the card so they are read next to
+    # the method they belong to.
     best = str(selection.get("best") or "")
-    st.dataframe(pd.DataFrame([{
-        "": "🏆" if c["name"] == best else "",
-        "tier": c["tier"],
-        "candidate": c["name"],
+    handles = _candidate_handles(study.candidates)
+    table = pd.DataFrame([{
+        "candidate": f"🏆 {handle}" if c["name"] == best else handle,
         "kind": c["kind"],
         "source": c["source"],
         "repaired": c["n_fixed"],
         "broke": c["n_broken"],
         "pairs": c["n_pairs"],
-        "effect": c["effect"],
-        "e-value": c["e_value"],
         "verdict": c["verdict"],
-    } for c in study.candidates]), width="stretch", hide_index=True)
+    } for handle, c in zip(handles, study.candidates)])
+    # Styler needs jinja2; fall back to the plain frame rather than lose the
+    # table if a slim install lacks it.
+    try:
+        rendered = table.style.map(_verdict_cell_style, subset=["verdict"])
+    except Exception:
+        rendered = table
+    st.dataframe(rendered, width="stretch", hide_index=True)
+    st.caption(
+        "Candidates are keyed by tier — expand the matching card below for what "
+        "each one actually changes and how its verdict was reached."
+    )
     if not best:
         st.caption(
             "No `best`: no candidate was both individually significant and an e-BH "
             "survivor across the family, so nothing went on to confirmation."
         )
 
-    for candidate in study.candidates:
-        _render_candidate_card(study, candidate)
+    for handle, candidate in zip(handles, study.candidates):
+        _render_candidate_card(study, candidate, handle)
 
 
-def _render_candidate_card(study: Any, candidate: dict[str, Any]) -> None:
-    title = f"{candidate['tier']} · {candidate['name']} — {candidate['verdict'] or 'no verdict'}"
+#: The verdict a candidate earns is the single most compressed statement of
+#: what the repair did, so the UI has to say what each one MEANS rather than
+#: print a bare word. Rules mirror ``FixAgent._verdict`` (fix_agent.py) branch
+#: for branch — the legend explains that decision, so it must not paraphrase
+#: it. Ordered best -> worst so the strip reads as a spectrum.
+#: (name, css token, rule, what it means)
+_FIX_VERDICT_GUIDE = [
+    ("fixed", "--ev-ok", "rejects H0 AND effect > 0",
+     "Significantly better — repairs more than it breaks. The only verdict that counts as a win."),
+    ("partial", "--ev-warn", "no rejection, repaired > broke",
+     "Right direction, not enough evidence at this sample size."),
+    ("no_effect", "--ev-muted", "repaired == broke",
+     "Nothing moved either way."),
+    ("unsafe", "--ev-serious", "no rejection, broke > repaired",
+     "Wrong direction, and not significant either."),
+    ("regressed", "--ev-fail", "rejects H0 AND effect < 0",
+     "Significantly worse — the repair actively hurts."),
+    ("not_executed", "--ev-muted", "no scorable pair, or it crashed",
+     "Never ran. NOT evidence that this tier is exhausted."),
+]
+
+#: Same palette as the tokens above, as literals: a pandas Styler emits inline
+#: CSS that cannot resolve var(--ev-*). These status hex are theme-invariant by
+#: design (see the palette comment in _inject_css), and the cell tint is set in
+#: rgba so it sits correctly on both the light and dark table surface.
+_FIX_VERDICT_HEX = {
+    "fixed": "#0ca30c", "partial": "#fab219", "no_effect": "#898781",
+    "unsafe": "#ec835a", "regressed": "#d03b3b", "not_executed": "#898781",
+}
+
+
+def _verdict_cell_style(value: Any) -> str:
+    """Tint one `verdict` cell so the table's outcome column is scannable."""
+    hex_color = _FIX_VERDICT_HEX.get(str(value).strip())
+    if not hex_color:
+        return ""
+    red, green, blue = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    return (f"background-color: rgba({red},{green},{blue},0.16); "
+            f"color: {hex_color}; font-weight: 600;")
+
+
+def _render_verdict_legend(candidates: list[dict[str, Any]]) -> None:
+    """Legend for the verdict column, counting how this run actually landed.
+
+    A count per verdict turns the legend from decoration into a summary: four
+    cards reading 0 and one reading 3 says "everything regressed" before the
+    reader parses a single table row."""
+    cards = []
+    for name, token, rule, meaning in _FIX_VERDICT_GUIDE:
+        count = sum(1 for c in candidates if str(c.get("verdict") or "").strip() == name)
+        empty = "" if count else " ev-verdict-card-empty"
+        cards.append(
+            f'<div class="ev-verdict-card{empty}" style="--vc: var({token});">'
+            f'<div class="ev-verdict-top"><span class="ev-verdict-name">{name}</span>'
+            f'<span class="ev-verdict-count">{count}</span></div>'
+            f'<div class="ev-verdict-rule">{_html_escape(rule)}</div>'
+            f'<div class="ev-verdict-meaning">{_html_escape(meaning)}</div></div>'
+        )
+    st.markdown(f'<div class="ev-verdict-legend">{"".join(cards)}</div>',
+                unsafe_allow_html=True)
+    st.caption(
+        "The number on each card is how many of this run's candidates landed there. "
+        "`fixed` is necessary but not sufficient to be adopted as `best` — a candidate "
+        "must ALSO survive e-BH FDR control across the whole tested family, which is "
+        "what stops best-of-N selection from manufacturing a winner."
+    )
+
+
+#: An L1/L2 template wraps the benchmark's own prompt, which arrives as this
+#: placeholder. Splitting on it separates "what the repair added" from "what
+#: was already there".
+_PROMPT_SLOT = re.compile(r"(\{prompt\})")
+
+
+def _prompt_template_html(template: str) -> str:
+    """Render a prompt template as a diff: added wrapper text green, the
+    untouched benchmark prompt a neutral slot.
+
+    A flat code block hides the only thing that matters here — which words the
+    repair injected. Greening them makes a bare `{prompt}` visibly add nothing,
+    and makes a wrapper written for the wrong modality (`attend_carefully` says
+    "the image" on an audio benchmark) impossible to read past."""
+    chunks = []
+    for part in _PROMPT_SLOT.split(template):
+        if not part:
+            continue
+        if part == "{prompt}":
+            chunks.append('<span class="ev-prompt-slot">the benchmark\'s own prompt</span>')
+        else:
+            chunks.append(f'<span class="ev-prompt-added">{_html_escape(part)}</span>')
+    return f'<div class="ev-prompt-template">{"".join(chunks)}</div>'
+
+
+def _render_strategy_flow(steps: list[tuple[str, str]]) -> None:
+    """Draw an L2 multi-call strategy as the call chain it actually is, each
+    step hovering to reveal the instruction that call really sends.
+
+    For a spec candidate the chain IS the intervention — the prompt template
+    and the model are untouched — so the card's one concrete thing should be a
+    picture of the calls. The steps are NOT one repeated prompt: hovering is
+    how the reader sees that "critique" and "revise" ask for different things,
+    and the text comes from `fix_tools.STRATEGY_CALLS`, the same constant the
+    pipeline formats its calls from.
+
+    Rendered as a CSS reveal rather than a `title` attribute: the native
+    tooltip is browser-delayed by a second or more and drops entirely on a
+    fast pointer, and an absolutely-positioned popup would be clipped by the
+    expander. The text lands in a reserved row inside the same flex container,
+    so it appears on the first frame and cannot be cut off."""
+    chips, tips = [], []
+    for index, (label, prompt) in enumerate(steps, 1):
+        chips.append(
+            f'<span class="ev-flow-step" data-i="{index}">{_html_escape(label)}</span>'
+        )
+        tips.append(
+            f'<div class="ev-flow-tip" data-i="{index}">'
+            f'<span class="ev-flow-tip-label">{index}. {_html_escape(label)}</span>'
+            f"{_html_escape(prompt or 'Sends the task prompt as-is, with nothing prepended.')}"
+            "</div>"
+        )
+    chain = ' <span class="ev-flow-arrow">→</span> '.join(chips)
+    # An empty idle row, after every step so `:hover ~` can hide it. It holds
+    # the height open so revealing a prompt does not shove the card around —
+    # it carries no text, since a "hover me" label is noise once the dotted
+    # underline and help cursor already say so.
+    st.markdown(
+        f'<div class="ev-flow">{chain}{"".join(tips)}'
+        '<div class="ev-flow-tip ev-flow-tip-idle"></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+#: Streamlit's markdown palette, nearest match per verdict, so a collapsed
+#: card carries its outcome in the same colour language as the table. Only
+#: `fixed` is green: `unsafe` and `regressed` are both bad and share red, told
+#: apart by the word itself.
+_FIX_VERDICT_MD = {
+    "fixed": "green", "partial": "orange", "no_effect": "gray",
+    "unsafe": "red", "regressed": "red", "not_executed": "gray",
+}
+
+
+def _candidate_handles(candidates: list[dict[str, Any]]) -> list[str]:
+    """Short per-tier handles (`L2_1`, `L2_2`), positionally aligned to input.
+
+    The table shows the handle instead of `least_to_most`: a name is a label,
+    not a description — it never told the reader what the method does, and at
+    full width it crowded out the columns that carry the outcome. The handle
+    keeps the row narrow and points at the card that does explain it."""
+    per_tier: dict[str, int] = {}
+    handles = []
+    for candidate in candidates:
+        tier = str(candidate.get("tier") or "?")
+        per_tier[tier] = per_tier.get(tier, 0) + 1
+        handles.append(f"{tier}_{per_tier[tier]}")
+    return handles
+
+
+def _render_candidate_card(study: Any, candidate: dict[str, Any], handle: str) -> None:
+    verdict = str(candidate["verdict"] or "")
+    color = _FIX_VERDICT_MD.get(verdict, "gray")
+    label = f":{color}[**{verdict}**]" if verdict else "no verdict"
+    title = f"{handle} · {candidate['name']} — {label}"
     with st.expander(title, expanded=False):
         if candidate["note"]:
             st.markdown(candidate["note"])
-        st.caption(
-            f"kind `{candidate['kind']}` · source `{candidate['source']}` · "
-            f"{candidate['summary'] or 'no paired summary recorded'}"
-        )
-        if candidate["prompt_template"]:
+        if candidate.get("strategy_steps"):
+            _render_strategy_flow(candidate["strategy_steps"])
+        # A template that is bare `{prompt}` adds nothing, so it gets no
+        # section at all — an empty diff box under a caption promising green
+        # was misleading, and saying "prompt unchanged" is not worth a line
+        # when the strategy chain above already shows where the change is.
+        if _PROMPT_SLOT.sub("", candidate["prompt_template"]).strip():
             st.markdown("**Prompt template applied to every case**")
-            st.code(candidate["prompt_template"], language="text")
+            st.markdown(_prompt_template_html(candidate["prompt_template"]),
+                        unsafe_allow_html=True)
+            st.caption("Green is text this repair ADDED around the benchmark's own prompt.")
         if candidate["knobs"]:
             st.markdown("**Configuration**")
             st.dataframe(
@@ -680,7 +889,8 @@ def _render_candidate_card(study: Any, candidate: dict[str, Any]) -> None:
                                 ("Broke", candidate["broken_cases"])):
             if not case_ids:
                 continue
-            st.markdown(f"**{label} {len(case_ids)} case(s)** — open one in the Case Study tab:")
+            st.markdown(f"**{label} {len(case_ids)} case(s)** — click one to open it in "
+                        "the Case Study tab and play the stimulus:")
             for chunk_start in range(0, len(case_ids), 4):
                 chunk = case_ids[chunk_start:chunk_start + 4]
                 for col, case_id in zip(st.columns(4), chunk):
@@ -4187,6 +4397,132 @@ def _inject_css() -> None:
         .ev-unavailable-title { font-weight: 600; margin-bottom: .35rem; }
         .ev-unavailable p { margin: .15rem 0; color: var(--ev-muted); }
         .ev-unavailable-hint { font-size: .86rem; opacity: .85; }
+        /* Prompt template read as a diff: green = wording the repair injected,
+           dashed slot = the benchmark's own prompt it wrapped. Both tints are
+           color-mix()ed off the theme tokens so they re-tint in dark mode. */
+        .ev-prompt-template {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-size: .84rem;
+          line-height: 1.75;
+          padding: .75rem .9rem;
+          border: 1px solid var(--ev-border);
+          border-radius: var(--ev-radius-sm);
+          background: var(--ev-panel-elevated);
+          color: var(--ev-text);
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+        }
+        .ev-prompt-added {
+          background: color-mix(in srgb, var(--ev-ok) 18%, transparent);
+          color: color-mix(in srgb, var(--ev-ok) 65%, var(--ev-text));
+          box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ev-ok) 45%, transparent);
+          border-radius: 3px;
+          padding: .08rem .12rem;
+        }
+        .ev-prompt-slot {
+          background: color-mix(in srgb, var(--ev-muted) 14%, transparent);
+          color: var(--ev-text-secondary);
+          border: 1px dashed var(--ev-border-strong);
+          border-radius: 3px;
+          padding: .04rem .32rem;
+          font-style: italic;
+        }
+        /* Verdict legend: one card per FixAgent._verdict branch, each tinted
+           off its own --vc so the strip and the table's verdict column share
+           one colour language. Verdicts this run never produced fade back. */
+        .ev-verdict-legend {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+          gap: .55rem;
+          margin: .5rem 0 .8rem 0;
+        }
+        .ev-verdict-card {
+          border: 1px solid var(--ev-border);
+          border-left: 4px solid var(--vc);
+          border-radius: var(--ev-radius-sm);
+          background: color-mix(in srgb, var(--vc) 7%, var(--ev-panel));
+          padding: .55rem .7rem;
+        }
+        .ev-verdict-card-empty { opacity: .48; }
+        .ev-verdict-top {
+          display: flex; align-items: baseline;
+          justify-content: space-between; gap: .4rem;
+        }
+        .ev-verdict-name {
+          font-weight: 700; font-size: .88rem; color: var(--vc);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        .ev-verdict-count {
+          font-size: .72rem; font-weight: 600; color: var(--ev-text-secondary);
+          background: color-mix(in srgb, var(--ev-muted) 20%, transparent);
+          border-radius: 999px; padding: .05rem .45rem;
+        }
+        .ev-verdict-rule {
+          margin: .3rem 0 .25rem 0; font-size: .74rem;
+          color: var(--ev-text-secondary);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        .ev-verdict-meaning {
+          font-size: .78rem; line-height: 1.45; color: var(--ev-muted);
+        }
+        /* An L2 strategy's call chain, plus a reserved row that reveals the
+           hovered step's prompt. Deliberately NOT a title= tooltip (browser
+           delay, unreliable) and NOT an absolute popup (the expander would
+           clip it): the tip is a full-width flex row in this same container,
+           matched by `step:hover ~ tip` on data-i, so it paints instantly and
+           always fits. Rules are enumerated because CSS cannot compare two
+           siblings' attributes; 6 covers every chain fix_tools defines. */
+        .ev-flow {
+          display: flex; flex-wrap: wrap; align-items: center;
+          gap: .3rem .4rem; margin: .1rem 0 .7rem 0;
+        }
+        .ev-flow-tip {
+          flex-basis: 100%;
+          display: none;
+          margin-top: .1rem;
+          padding: .45rem .65rem;
+          border-radius: var(--ev-radius-sm);
+          border: 1px solid var(--ev-border);
+          background: var(--ev-panel-elevated);
+          color: var(--ev-text-secondary);
+          font-size: .78rem; line-height: 1.5;
+          min-height: 3.4em;
+        }
+        .ev-flow-tip-label {
+          display: block; font-weight: 600; color: var(--ev-text);
+          margin-bottom: .12rem;
+        }
+        /* Idle: holds the height open, shows nothing. */
+        .ev-flow-tip-idle {
+          display: block; background: transparent; border-color: transparent;
+        }
+        .ev-flow-step:hover ~ .ev-flow-tip-idle { display: none; }
+        .ev-flow-step[data-i="1"]:hover ~ .ev-flow-tip[data-i="1"],
+        .ev-flow-step[data-i="2"]:hover ~ .ev-flow-tip[data-i="2"],
+        .ev-flow-step[data-i="3"]:hover ~ .ev-flow-tip[data-i="3"],
+        .ev-flow-step[data-i="4"]:hover ~ .ev-flow-tip[data-i="4"],
+        .ev-flow-step[data-i="5"]:hover ~ .ev-flow-tip[data-i="5"],
+        .ev-flow-step[data-i="6"]:hover ~ .ev-flow-tip[data-i="6"] { display: block; }
+        .ev-flow-step {
+          font-size: .8rem; line-height: 1.3;
+          padding: .26rem .6rem;
+          border: 1px solid var(--ev-border);
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--ev-accent) 8%, var(--ev-panel));
+          color: var(--ev-text);
+          white-space: nowrap;
+          cursor: help;
+          border-bottom-style: dotted;
+          border-bottom-width: 2px;
+          border-bottom-color: var(--ev-border-strong);
+        }
+        .ev-flow-step:hover {
+          background: color-mix(in srgb, var(--ev-accent) 18%, var(--ev-panel));
+          border-color: var(--ev-accent);
+        }
+        .ev-flow-arrow {
+          color: var(--ev-muted); font-size: .85rem; line-height: 1;
+        }
         /* Color values are the validated dataviz-skill reference palette
            (references/palette.md) plugged straight into these token names —
            status/accent hex are unchanged across light/dark by design, only

@@ -71,19 +71,33 @@ def main() -> None:
 
     from evalvitals.core.case import Inputs
 
+    # generate_with_meta (real weights) also records finish_reason/
+    # generation_config per case -- FixAgent's L0 telemetry gate
+    # (fix_agent.py:_l0_candidates) needs this to propose the cheap, precise
+    # "raise max_tokens" repair instead of that hypothesis only ever reaching
+    # slow LLM-authored L1/L2 pipelines. MockAVModel has no such method (no
+    # real generation to introspect), so --mock runs fall back to plain
+    # generate() with no telemetry, same as before.
+    has_meta = hasattr(model, "generate_with_meta")
+
     records = []
     n_fail = 0
     for i, rec in enumerate(pool):
-        observed = model.generate(
-            Inputs(prompt=rec["question"] + " Answer concisely.", video=rec["video_path"]),
-            max_new_tokens=args.max_new_tokens, do_sample=False,
-        )
+        inputs = Inputs(prompt=rec["question"] + " Answer concisely.", video=rec["video_path"])
+        gen_meta: dict = {}
+        if has_meta:
+            observed, gen_meta = model.generate_with_meta(
+                inputs, max_new_tokens=args.max_new_tokens, do_sample=False,
+            )
+        else:
+            observed = model.generate(inputs, max_new_tokens=args.max_new_tokens, do_sample=False)
         ok = answers_match(observed, rec["answer"])
         n_fail += not ok
-        records.append({**rec, "observed": observed, "label": "pass" if ok else "fail"})
+        records.append({**rec, "observed": observed, "label": "pass" if ok else "fail", **gen_meta})
         print(f"  [{i + 1}/{len(pool)}] {rec['video_id']} q{rec['question_id']} "
               f"({rec['modality']}/{rec['qtype']}) gold={rec['answer']!r} "
-              f"got={observed[:60]!r} -> {'PASS' if ok else 'FAIL'}")
+              f"got={observed[:60]!r} -> {'PASS' if ok else 'FAIL'}"
+              f"{' [' + gen_meta['finish_reason'] + ']' if gen_meta else ''}")
 
     # Stratified explore/validate split by label (M2/M3 only ever see "explore";
     # "validate" is held out for M5-style confirmation the same way deco_chair does).
