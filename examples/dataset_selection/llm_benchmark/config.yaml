@@ -76,7 +76,10 @@ codegen_timeout_sec: 1800
 
 # M4 surgery
 fix_max_tier: L3b
-fix_validation_cases: 0     # 0 = validate on the whole batch
+fix_validation_cases: 40    # 0 = whole batch. Candidates run serially (~10 s/case on the 2B), and an
+                            # L2 coded pipeline makes 4-5 bridged calls per case: 250 cases cannot
+                            # finish inside fix_exec_timeout_sec, so it is killed as "timed out"
+                            # instead of being judged. The paired gate does not need the whole batch.
 fix_exec_timeout_sec: 1800
 
 # Cap on how many cases each per-case analyzer generates for. 0 = library
