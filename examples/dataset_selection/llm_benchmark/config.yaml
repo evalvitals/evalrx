@@ -80,7 +80,10 @@ fix_validation_cases: 40    # 0 = whole batch. Candidates run serially (~10 s/ca
                             # L2 coded pipeline makes 4-5 bridged calls per case: 250 cases cannot
                             # finish inside fix_exec_timeout_sec, so it is killed as "timed out"
                             # instead of being judged. The paired gate does not need the whole batch.
-fix_exec_timeout_sec: 1800
+fix_exec_timeout_sec: 3600  # measured 16 s per bridged call on the 2B (long direct answers):
+                            # 40 cases x ~5 calls x 16 s ~= 53 min worst case; the first attempt
+                            # must be able to finish, or every coded candidate spends its one
+                            # repair round on the timeout instead of on the repair.
 
 # Cap on how many cases each per-case analyzer generates for. 0 = library
 # defaults (128 for prompt_contrast / calibration / linear_probe, 48 for
