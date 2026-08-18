@@ -136,15 +136,18 @@ compatible analyzers for that kind (or an LLM judge picks them directly from
 the protocol description); `WhiteboxProbeGenerator`/`ProbeGenerator` write a
 bespoke probe when no standard analyzer covers the failure mode.
 
-**UI:** M1's raw output (`dict[str, Result]`) is never shown directly — it's
-too low-level (raw tensors/attention maps). What reaches the screen is the
-*derived* per-case feature table M2 builds from it, on **Tab 1 — Problem
-Setting**: case counts (total / FAIL / PASS / explore-confirm split), the
-reconstructed per-case signal columns (name + non-null coverage, as a small
-table), and a "stage map" chip strip showing which of M1–M5 this particular
-run actually reached (`_render_stage_map`, `_render_problem_setting`). If a
-run has no signal table to reconstruct, this tab falls back to the raw
-`data_profile` column schema instead.
+**UI:** In the existing dashboard, M1's raw output (`dict[str, Result]`) is
+never shown directly — only the *derived* per-case feature table M2 builds
+from it reaches the screen, on **Tab 1 — Problem Setting**: case counts
+(total / FAIL / PASS / explore-confirm split), the reconstructed per-case
+signal columns (name + non-null coverage, as a small table), and a "stage
+map" chip strip showing which of M1–M5 this particular run actually reached
+(`_render_stage_map`, `_render_problem_setting`). If a run has no signal
+table to reconstruct, this tab falls back to the raw `data_profile` column
+schema instead. **This is a known gap, not a pattern to keep** — the new UI
+is explicitly required to also show M1's own results (each analyzer's
+`findings` + rendered `artifacts`); see
+[Requirements for the new UI](#requirements-for-the-new-ui) below.
 
 ## M2 — analysis (threshold rules + statistics)
 
@@ -400,6 +403,43 @@ web workbench (`evalvitals web`, same renderer — see
 [web upload workbench](../examples/m2_m3/deco_hallu_explore/README.md)).
 Read this section as "what to reproduce" if you're building a new UI, and
 the function names as where to go read the exact rendering logic.
+
+### Requirements for the new UI
+
+Two explicit requirements on top of what's documented below:
+
+1. **Show the raw data exactly, not just a derived view of it.** The
+   existing pattern for this is `_render_raw_data_browser` — it loads
+   `records.json` verbatim (the tidy table M2 built, before any
+   analysis/aggregation) into a searchable, scrollable table. Today that's a
+   collapsed expander tucked inside Tab 2; **for the new UI this should be a
+   first-class, easy-to-find view of the actual rows**, not a buried
+   afterthought — a reader has to be able to go from "the analysis says X"
+   to "here is the literal row that's about" without hunting.
+2. **Show M1's results too, not just M2 through M5.** M1 produces
+   `dict[str, Result]` — one entry per analyzer that ran, each carrying
+   `findings` (light JSON: scores, flagged tokens, contingency tables, …)
+   and `artifacts` (heavy: attention maps, heatmaps, embeddings). **This is
+   the one stage the existing dashboard does not show at all** (see the M1
+   section's UI note above — its raw output was judged "too low-level" and
+   only a derived per-case table reaches Tab 1). That gap is explicitly
+   in scope for the new UI: surface each analyzer's `findings` (a JSON/table
+   view keyed by analyzer name is enough to start) and, where a `Result`
+   provides one, its rendered artifact (e.g. the attention/spatial overlay
+   PNGs described in [Result image overlays](architecture.md#result-image-overlays) —
+   `RunContext`'s `figures/`/`artifacts/` subdirectories are where these
+   already land on disk per run, see
+   [RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory)).
+
+**M2, M3, and M5 already have a good reference — reuse their existing
+Mode‑A panels rather than redesigning them:** `_render_standalone_analysis`
+(Tab 2), `_render_standalone_hypotheses` (Tab 3), and `_render_holdout_panel`
+(Tab 4) — see each stage's UI note above for exactly what they show and the
+business logic to preserve (plain-language-first, strict
+descriptive/confirmatory separation, held-out-verdict framing). M1 (raw
+results — see above) and M4 (Fix, `_render_fix_panel`) don't carry the same
+explicit endorsement, so treat their current panels as a starting point to
+verify against the input/output described above, not a spec to copy blindly.
 
 ### Two rendering modes — pick the one that matches your data source
 
