@@ -860,6 +860,15 @@ def main() -> None:
             # Declarative candidates run their cases in parallel against the
             # endpoint (coded pipelines stay serial through the bridge).
             concurrency=int(CFG.get("fix_concurrency", 1)),
+            # Noise model: the baseline is a per-case PASS RATE (frozen sample
+            # + k-1 fresh at the batch's own T), the paired test runs on rate
+            # differences (betting e-value) — sampling-unstable cases are
+            # weighed, not dropped, and one T=0.6 sample per arm no longer
+            # decides fixed/broken. Candidates default to one pass (coded
+            # pipelines can't repeat cheaply); raise fix_candidate_repeats to
+            # average template/spec candidates too.
+            baseline_repeats=int(CFG.get("fix_baseline_repeats", 1)),
+            candidate_repeats=int(CFG.get("fix_candidate_repeats", 1)),
             scoring_note=make_scoring_note(args.dataset, report_in.get("cases") or []),
             floor_candidates=tuple(CFG.get("fix_floor_candidates",
                                            ["self_consistency_5"]) or ()),
@@ -918,6 +927,8 @@ def main() -> None:
         "fix_validation_cases": (args.fix_validation_cases
                                  if args.fix_validation_cases is not None
                                  else int(CFG.get("fix_validation_cases", 0))),
+        "fix_baseline_repeats": int(CFG.get("fix_baseline_repeats", 1)),
+        "fix_candidate_repeats": int(CFG.get("fix_candidate_repeats", 1)),
         "n_hypotheses": len(getattr(report, "hypotheses", None)
                             or getattr(report, "all_hypotheses", None) or []),
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),

@@ -95,6 +95,56 @@ def compare(
                       e_value=e_value, underpowered=underpowered, details=details)
 
 
+def compare_paired_rates(
+    rate_a: Sequence[float],
+    rate_b: Sequence[float],
+    *,
+    alpha: float = 0.05,
+    n_boot: int = 2000,
+    seed: int = 0,
+    cluster_by: Optional[Sequence] = None,
+) -> StatResult:
+    """Paired comparison of per-example PASS RATES (each in [0, 1]) — A vs B.
+
+    The per-arm rates come from k samples per example (a stochastic model at
+    T>0 is a coin per example, not a fixed answer), so the paired quantity is
+    ``d_i = rate_b_i - rate_a_i`` in [-1, 1]. Effect = mean(d); CI by paired
+    (clustered) bootstrap; the decision is the one-sided betting e-value
+    :func:`~evalvitals.stats.evalue.evalue_bounded_mean` for "B better than A"
+    (``e_value``), with the mirror e-value for "A better than B" in
+    ``details["e_value_regression"]``. ``reject`` is True when either clears
+    ``1/alpha``; read the sign of ``effect`` for the direction.
+
+    With one sample per arm this reduces to d in {-1, 0, +1} — the McNemar
+    discordant pairs — but the e-value is the betting one, not the Bernoulli
+    mixture; use :func:`compare` for the classic single-sample paired test.
+    """
+    a = [float(x) for x in rate_a]
+    b = [float(x) for x in rate_b]
+    if len(a) != len(b):
+        raise ValueError("paired rates need equal-length vectors")
+    from evalvitals.stats.evalue import evalue_bounded_mean
+
+    boot = clustered_bootstrap_diff(a, b, clusters=cluster_by, n_boot=n_boot,
+                                    ci=1.0 - alpha, seed=seed, paired=True)
+    diffs = [y - x for x, y in zip(a, b)]
+    e_up = evalue_bounded_mean(diffs)
+    e_down = evalue_bounded_mean([-d for d in diffs])
+    threshold = 1.0 / alpha
+    reject = e_up >= threshold or e_down >= threshold
+    n_pos = sum(1 for d in diffs if d > 0)
+    n_neg = sum(1 for d in diffs if d < 0)
+    return StatResult(
+        effect=boot["effect"], ci=(boot["ci_low"], boot["ci_high"]), reject=reject,
+        method="paired rates + betting e-value (bounded mean)", alpha=alpha,
+        e_value=e_up, underpowered=False,
+        details={"e_value_regression": e_down, "n": len(diffs),
+                 "n_positive": n_pos, "n_negative": n_neg,
+                 "mean_a": (sum(a) / len(a)) if a else 0.0,
+                 "mean_b": (sum(b) / len(b)) if b else 0.0},
+    )
+
+
 def ab_test(success_a: Sequence, success_b: Sequence, **kwargs) -> StatResult:
     """Back-compat alias: pass per-example success vectors (bools/0-1)."""
     return compare(success_a, success_b, **kwargs)

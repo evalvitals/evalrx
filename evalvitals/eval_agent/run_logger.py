@@ -1026,6 +1026,22 @@ class RunLogger:
                 lines.append(
                     f"- model calls that hit the decode cap: {a.get('n_truncated')}"
                 )
+            if a.get("noise_model"):
+                lines.append(
+                    f"- noise model: {a['noise_model']} "
+                    f"(k={a.get('n_baseline_samples', 1)} baseline / "
+                    f"{a.get('n_candidate_samples', 1)} candidate samples per case)"
+                )
+                if a.get("baseline_rate") is not None and a.get("candidate_rate") is not None:
+                    lines.append(
+                        f"- mean per-case pass rate: baseline {a['baseline_rate']:.3f} -> "
+                        f"candidate {a['candidate_rate']:.3f}"
+                    )
+                if a.get("e_value_regression") is not None:
+                    lines.append(
+                        f"- e-value for the REVERSE direction (candidate worse): "
+                        f"{_eff(a.get('e_value_regression'))}"
+                    )
             if a.get("summary"):
                 lines.append(f"- summary: {a['summary']}")
             outputs = a.get("outputs")

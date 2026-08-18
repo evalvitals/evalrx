@@ -587,6 +587,7 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 | 判官/coder 看到的 | explore 半区的完整样例(prompt + 模型基线输出 + gold + PASS 对照)、评分规则(`make_scoring_note`)、基线解码、M2/M5/explore 证据、被 M4 反驳的假设 | 之前只有 160 字符的 prompt 开头 |
 | 家族地板 | `fix_floor_candidates: [self_consistency_5]`(文本任务) | 默认候选以前只在判官沉默时兜底,最基础的多数投票从没进过家族 |
 | 并发 | `fix_concurrency: 6`(声明式候选按 case 多线程打 endpoint) | 5 样本 × 80 例串行要一个多小时 |
+| **噪声模型** | `fix_baseline_repeats: 5`(基线 = 冻结样本 + 4 次新采样 → 每例通过率),`fix_candidate_repeats: 1` | 配对检验改为对每例通过率之差做 betting e-value(`compare_paired_rates`):不稳定的例子按幅度计权,不再丢弃,也不再让 T=0.6 的单次采样决定 fixed/broken(run7 差 1 个 break) |
 
 `n_samples` 对每种 strategy 都生效(整条 least_to_most / self_refine 链重复 n 次,
 按抽出的最终答案投票 —— 之前非 direct 策略会静默忽略 n_samples,而对 CoT 输出按全文投票等于不投票)。

@@ -2400,12 +2400,18 @@ class _OneFlakyModel(Model):
         raise NotImplementedError
 
 
-def test_baseline_repeats_flag_and_drop_unstable_cases():
+def test_baseline_repeats_flags_unstable_cases_and_weighs_them():
+    """baseline_repeats>1 measures each case's baseline as a PASS RATE. A case
+    whose baseline flips (c0: 1 pass in 2 samples -> rate 0.5) is reported as
+    unstable but stays in the paired test at its rate — the candidate's move on
+    it counts for what it is (here +0.5), instead of the case being dropped
+    (which removed exactly the cases a variance-reduction fix repairs)."""
     agent = FixAgent(judge=None, max_tier="L1", baseline_repeats=2)
     data = _gold_yes_batch(n=2)
     model = _OneFlakyModel()
     baseline, unstable = agent._baseline(model, data)
     assert "c0" in unstable and "c1" not in unstable
+    assert agent._baseline_rates["c0"] == 0.5 and agent._baseline_rates["c1"] == 0.0
 
     from evalvitals.eval_agent.stages.fix_agent import FixCandidate
 
@@ -2416,9 +2422,14 @@ def test_baseline_repeats_flag_and_drop_unstable_cases():
         payload={"prompt_template": "Look carefully. {prompt}"},
     )
     v = agent._validate(cand, model, data, baseline, unstable)
-    # c0 is noise -> dropped, not counted as fixed or broken; only c1 is judged.
-    assert v.n_unstable == 1 and v.n_pairs == 1
-    assert v.fixed_cases == ["c1"]
+    assert v.noise_model == "paired_rates" and v.n_baseline_samples == 2
+    assert v.n_unstable == 1 and v.n_pairs == 2          # reported, NOT dropped
+    assert v.baseline_rate == 0.25 and v.candidate_rate == 1.0
+    # modal flips: c1 (0 -> 1) is a fix; c0 (0.5 -> 1, ties count as modal
+    # pass) is not a modal flip, but its +0.5 is in the effect
+    assert v.fixed_cases == ["c1"] and v.n_broken == 0
+    assert v.effect == 0.75
+    assert "unstable weighed" in v.summary
 
 
 # ── defect 4: power-aware verdict ─────────────────────────────────────────────

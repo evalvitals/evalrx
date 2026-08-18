@@ -109,6 +109,15 @@ fix_floor_candidates:       # built-in defaults ALWAYS in the tested family for 
   - self_consistency_5      # next to the judge's proposals (5 samples, vote on the extracted
                             # final answer). Before 2026-08-18 defaults were only a fallback for
                             # a silent judge, so plain self-consistency was never tested. [] = off.
+fix_baseline_repeats: 5     # baseline samples per case = frozen Stage 0 output + 4 fresh at the
+                            # batch's own T. Each case gets a PASS RATE and the paired test runs
+                            # on rate differences (betting e-value): a case the baseline gets right
+                            # 2/5 of the time and a candidate gets right counts +0.6, not +1, and
+                            # a fragile "correct" case the candidate misses counts -(its rate), not
+                            # -1. On the 2B at T=0.6 one sample per arm let sampling noise decide
+                            # (run7: 10 fixed / 1 broken, e=15.5, one break short). 1 = old McNemar.
+fix_candidate_repeats: 1    # passes per template/spec candidate (coded pipelines always 1). >1
+                            # multiplies candidate cost; the baseline side is where the noise was.
 
 # Cap on how many cases each per-case analyzer generates for. 0 = library
 # defaults (128 for prompt_contrast / calibration / linear_probe, 48 for

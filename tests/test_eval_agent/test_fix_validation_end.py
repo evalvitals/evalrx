@@ -429,3 +429,145 @@ def test_recommendation_surfaces_inconclusive_positive_candidate():
     assert rec is not None and rec.get("promising", {}).get("candidate") == "good"
     assert "INCONCLUSIVE, not refuted" in rec["reason"]
     assert "baseline_repeats" in rec["reason"]
+
+
+# ── noise model: per-case pass rates on both arms ─────────────────────────────
+
+
+def test_bounded_mean_evalue_is_valid_and_directional():
+    from evalvitals.stats import compare_paired_rates, evalue_bounded_mean
+
+    assert evalue_bounded_mean([]) == 1.0
+    assert evalue_bounded_mean([0.0] * 50) == 1.0
+    up = evalue_bounded_mean([1.0] * 11)
+    assert up > 20  # 11 clean repairs, nothing broken, clears 1/alpha
+    assert evalue_bounded_mean([-1.0] * 11) < 1.0  # wrong direction: no evidence
+    # a fractional repair is worth less than a full one
+    assert evalue_bounded_mean([0.4] * 11) < up
+    # sampling noise (symmetric +/-1) accumulates no evidence in expectation:
+    # empirical false-rejection rate well under alpha
+    import random
+
+    rng = random.Random(0)
+    rejects = sum(
+        evalue_bounded_mean([rng.choice([-1.0, 1.0]) for _ in range(60)]) >= 20
+        for _ in range(500)
+    )
+    assert rejects <= 5  # <= 1% observed at alpha 5%
+
+    r = compare_paired_rates([0.4] * 10 + [0.9] * 70, [1.0] * 10 + [0.9] * 70)
+    assert r.effect == pytest.approx(0.075)
+    assert r.e_value > 1.0 and r.details["e_value_regression"] < 1.0
+    assert r.details["n_positive"] == 10 and r.details["n_negative"] == 0
+
+
+class _CoinModel(CountingModel):
+    """Baseline is a coin per case (deterministic script); 'carefully' is always right."""
+
+    def __init__(self, script):
+        super().__init__()
+        self._script = list(script)  # per baseline call: True -> right answer
+        self._i = 0
+
+    def generate(self, inputs, **kwargs):
+        self.calls.append(dict(kwargs))
+        p = str(getattr(inputs, "prompt", inputs))
+        if "carefully" in p.lower():
+            return "Chain.\nAnswer: (B)"
+        self._i += 1
+        ok = self._script[(self._i - 1) % len(self._script)]
+        return "Chain.\nAnswer: (B)" if ok else "Chain.\nAnswer: (C)"
+
+
+def test_paired_rates_uses_frozen_sample_plus_fresh_and_weighs_unstable():
+    """baseline_repeats=k: the frozen observed output is sample 1, k-1 are
+    generated; each case's baseline is a rate; unstable cases stay in."""
+    batch = _mc_batch(4, 4)  # 4 FAIL (observed wrong) + 4 PASS (observed right)
+    # fresh baseline samples: alternate right/wrong -> every case ends unstable
+    model = _CoinModel([True, False])
+    agent = FixAgent(judge=None, max_tier="L1", baseline_repeats=3, floor_candidates=())
+    baseline, unstable = agent._baseline(model, batch)
+    assert len(model.calls) == 2 * len(batch)  # k-1 fresh per case; frozen counted
+    assert all(0.0 < agent._baseline_rates[c.id] < 1.0 for c in batch)
+    assert len(unstable) == len(batch)
+    cand = FixCandidate(tier=FixTier.L1_PROMPT, name="careful", kind="template",
+                        payload={"prompt_template": "Carefully. {prompt}"})
+    v = agent._validate(cand, model, batch, baseline, unstable)
+    assert v.noise_model == "paired_rates"
+    assert v.n_pairs == len(batch) and v.n_unstable == len(batch)  # weighed, not dropped
+    assert v.candidate_rate == 1.0 and 0.0 < v.baseline_rate < 1.0
+    assert v.effect == pytest.approx(1.0 - v.baseline_rate)
+    assert v.n_broken == 0
+
+
+def test_paired_rates_certifies_a_real_fix_and_not_noise():
+    """A candidate that lifts every unstable case to certainty is certified;
+    an identity-like candidate that is just as flaky is not."""
+    batch = _mc_batch(12, 12)
+    real = FixAgent(judge=ScriptedJudge(json.dumps([
+        {"name": "careful", "prompt_template": "Carefully. {prompt}"}])),
+        max_tier="L1", baseline_repeats=5, floor_candidates=())
+    out = real.propose_and_validate(_CoinModel([True, False, False]), batch, [_hyp("h")])
+    v = out.attempted[0]
+    assert v.noise_model == "paired_rates" and v.n_baseline_samples == 5
+    assert v.fixed is True and out.fixed is True
+
+    class Flaky(_CoinModel):
+        def generate(self, inputs, **kwargs):
+            # the "fix" prompt is exactly as flaky as the baseline
+            self.calls.append(dict(kwargs))
+            self._i += 1
+            ok = self._script[(self._i - 1) % len(self._script)]
+            return "Chain.\nAnswer: (B)" if ok else "Chain.\nAnswer: (C)"
+
+    noise = FixAgent(judge=ScriptedJudge(json.dumps([
+        {"name": "same", "prompt_template": "Rephrased. {prompt}"}])),
+        max_tier="L1", baseline_repeats=5, floor_candidates=())
+    out2 = noise.propose_and_validate(Flaky([True, False, False]), batch, [_hyp("h")])
+    assert out2.fixed is False
+    assert out2.attempted[0].verdict in {"partial", "unsafe", "no_effect"}
+
+
+def test_candidate_repeats_apply_to_declarative_candidates_only(tmp_path):
+    batch = _mc_batch(2, 2)
+    agent = FixAgent(judge=None, max_tier="L2", candidate_repeats=3, floor_candidates=())
+    model = CountingModel()
+    baseline, unstable = agent._baseline(model, batch)
+    tmpl = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind="template",
+                        payload={"prompt_template": "Carefully. {prompt}"})
+    v = agent._validate(tmpl, model, batch, baseline, unstable)
+    assert v.n_candidate_samples == 3 and len(model.calls) == 3 * len(batch)
+    assert v.noise_model == "paired_rates"
+    code = FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded_pipeline", kind="code",
+                        payload={"code": (
+                            'import json\ncases=json.load(open("fix_cases.json"))["cases"]\n'
+                            'out=[{"sample_id":c["id"],"output":model_generate(c["id"])} for c in cases]\n'
+                            'print("FIX_PIPELINE_RESULT_JSON="+json.dumps({"per_case":out}))\n')})
+    agent._sandbox = None
+    agent._run_context = None
+    import evalvitals.eval_agent.stages.fix_agent as fa
+    from evalvitals.agent_runtime.sandbox import ExperimentSandbox
+
+    agent._sandbox = ExperimentSandbox(workdir=tmp_path / "sb", cleanup=False)
+    v2 = agent._validate(code, model, batch, baseline, unstable)
+    assert v2.n_candidate_samples == 1  # coded pipelines never repeat
+    del fa
+
+
+def test_rates_mode_power_ceiling_uses_baseline_rates():
+    from evalvitals.eval_agent.stages.fix_agent import FixValidation
+
+    agent = FixAgent(judge=None, max_tier="L2", baseline_repeats=5, allow_codegen=False,
+                     floor_candidates=())
+    batch = _mc_batch(2, 40)
+    agent._baseline_rates = {c.id: (0.9 if c.label == Label.PASS else 0.2) for c in batch}
+    weak = FixValidation(candidate=FixCandidate(tier=FixTier.L1_PROMPT, name="w", payload={},
+                                                kind="template"),
+                         n_pairs=42, n_fixed=2, n_broken=0, effect=0.02, e_value=1.5,
+                         reject=False, verdict="partial")
+    rec = agent._no_fix_recommendation([weak], [FixTier.L1_PROMPT], batch, CountingModel())
+    assert rec is not None  # ceiling with 42 cases of headroom is high -> not 'underpowered'
+    tiny = _mc_batch(1, 1)
+    agent._baseline_rates = {c.id: 0.9 for c in tiny}
+    rec2 = agent._no_fix_recommendation([weak], [FixTier.L1_PROMPT], tiny, CountingModel())
+    assert rec2 is not None and rec2.get("action") == "gather_more_failures"

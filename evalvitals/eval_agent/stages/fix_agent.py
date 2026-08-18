@@ -51,8 +51,14 @@ Executors by tier:
   executed, so the escalation decision always has something concrete to
   act on either way.
 
-A *fixed* verdict means: paired McNemar rejects with positive net effect —
-the candidate repairs significantly more cases than it breaks.
+A *fixed* verdict means: the paired test rejects with positive net effect —
+the candidate repairs significantly more cases than it breaks. With one
+sample per arm that is McNemar + the Bernoulli-mixture e-value on the
+discordant pairs; with ``baseline_repeats``/``candidate_repeats`` > 1 each
+case is a per-arm PASS RATE and the test is the betting e-value on the paired
+rate differences (:func:`evalvitals.stats.compare_paired_rates`) — a
+stochastic model's flaky cases are weighed by how far the candidate moves
+them, neither dropped nor mistaken for repairs.
 """
 
 from __future__ import annotations
@@ -94,7 +100,7 @@ from evalvitals.eval_agent.stages.fix_tools import (
     spec_changes_input,
 )
 from evalvitals.eval_agent.stages.probe_generator import _extract_code
-from evalvitals.stats import compare
+from evalvitals.stats import compare, compare_paired_rates
 from evalvitals.stats.ebh import ebh
 from evalvitals.stats.evalue import evalue_bernoulli
 
@@ -363,6 +369,19 @@ class FixValidation:
     # the backend has no such telemetry). A candidate whose breaks coincide
     # with truncations was undone by its decoding budget, not by its idea.
     n_truncated: "int | None" = None
+    # Which paired test decided: ``"mcnemar"`` (one sample per arm; McNemar +
+    # Bernoulli-mixture e-value) or ``"paired_rates"`` (per-case pass rates
+    # from k baseline / m candidate samples; betting e-value on the rate
+    # difference). ``n_fixed``/``n_broken`` are always MODAL flips (baseline
+    # rate < 0.5 -> candidate rate >= 0.5 and the reverse) so they read the
+    # same under both; the effect/e-value under paired_rates weigh each case
+    # by the size of the move, so an unstable case counts fractionally.
+    noise_model: str = "mcnemar"
+    baseline_rate: "float | None" = None   # mean per-case baseline pass rate (paired cases)
+    candidate_rate: "float | None" = None  # mean per-case candidate pass rate
+    n_baseline_samples: int = 1
+    n_candidate_samples: int = 1
+    e_value_regression: "float | None" = None  # mirror e-value (candidate WORSE), paired_rates only
 
 
 @dataclass
@@ -425,6 +444,12 @@ class FixOutcome:
                     "e_value": v.e_value,
                     "verdict": v.verdict,
                     "n_truncated": v.n_truncated,
+                    "noise_model": v.noise_model,
+                    "baseline_rate": v.baseline_rate,
+                    "candidate_rate": v.candidate_rate,
+                    "n_baseline_samples": v.n_baseline_samples,
+                    "n_candidate_samples": v.n_candidate_samples,
+                    "e_value_regression": v.e_value_regression,
                     "outputs": dict(v.outputs),
                 }
                 for v in self.attempted
@@ -517,11 +542,24 @@ class FixAgent:
                           (all-FAIL-first; deterministic).  Every candidate
                           validation costs >= one model call per case, so an
                           unbounded batch makes coded pipelines time out.
-        baseline_repeats: How many times to re-measure the unmodified baseline
-                          per case (default 1).  With > 1, a case whose baseline
-                          answer flips across repeats is *unstable* (sampling
-                          noise) and is held out of the paired test, so a
-                          stochastic flip is not scored as a regression.
+        baseline_repeats: Samples per case for the unmodified baseline
+                          (default 1 = the frozen ``observed`` output). With
+                          ``k > 1`` the frozen sample counts as one and ``k-1``
+                          fresh samples are drawn, giving each case a baseline
+                          PASS RATE; the paired test then runs on per-case rate
+                          differences (``noise_model="paired_rates"``, betting
+                          e-value) instead of one-sample McNemar. A case whose
+                          baseline flips across samples is *unstable* — it is
+                          REPORTED and weighed by how much the candidate moves
+                          its rate, no longer dropped (dropping removed exactly
+                          the cases a variance-reduction scaffold repairs;
+                          keeping one sample per arm let sampling noise pose as
+                          fixes and breaks — the 2B runs' one-break-short
+                          verdicts).
+        candidate_repeats: Passes per case for a template / spec candidate
+                          (default 1). Coded pipelines, internals primitives
+                          and fine-tune recipes always run once. Any value > 1
+                          also switches the test to paired rates.
         alpha:            Significance level for the e-value gate (default 0.05;
                           rejects when e >= 1/alpha).  Also sets the power
                           ceiling used to flag underpowered-by-design runs.
@@ -599,6 +637,7 @@ class FixAgent:
         exec_timeout_sec: int = 600,
         max_validation_cases: int = 0,
         baseline_repeats: int = 1,
+        candidate_repeats: int = 1,
         alpha: float = 0.05,
         run_context: "Any | None" = None,
         max_repair_rounds: int = 1,
@@ -636,6 +675,9 @@ class FixAgent:
         self._exec_timeout_sec = exec_timeout_sec
         self.max_validation_cases = max_validation_cases
         self._baseline_repeats = max(1, int(baseline_repeats))
+        self._candidate_repeats = max(1, int(candidate_repeats))
+        self._baseline_rates: "dict[str, Optional[float]]" = {}
+        self._baseline_n: "dict[str, int]" = {}
         self._alpha = float(alpha)
         self.max_repair_rounds = max(1, int(max_repair_rounds))
         self.max_judge_candidates = max(1, int(max_judge_candidates))
@@ -875,7 +917,18 @@ class FixAgent:
         # of any tier can be certified here — the bottleneck is sample size, and
         # a "promising" candidate (helped more than it hurt) confirms the lead.
         n_fail = sum(1 for c in data if getattr(c.label, "value", None) == "fail")
-        ceiling = evalue_bernoulli(n_fail, n_fail, p0=0.5) if n_fail > 0 else 1.0
+        if self._baseline_repeats > 1 or self._candidate_repeats > 1:
+            # Paired rates: the best any candidate can do is lift every case's
+            # rate to 1.0 -> the e-value of those differences is the ceiling.
+            from evalvitals.stats.evalue import evalue_bounded_mean
+
+            diffs = [
+                1.0 - r for c in data
+                for r in [self._baseline_rates.get(c.id)] if r is not None
+            ]
+            ceiling = evalue_bounded_mean(diffs) if diffs else 1.0
+        else:
+            ceiling = evalue_bernoulli(n_fail, n_fail, p0=0.5) if n_fail > 0 else 1.0
         promising = [v for v in executed if (v.n_fixed - v.n_broken) > 0 and not v.reject]
         if ceiling < 1.0 / self._alpha:
             need = self._min_failures_for_power()
@@ -2533,63 +2586,130 @@ class FixAgent:
     def _baseline(
         self, model: "Model", data: "CaseBatch"
     ) -> "tuple[dict[str, Optional[bool]], set[str]]":
-        """Measure the unmodified baseline; flag noise-unstable cases.
+        """Measure the unmodified baseline as a per-case PASS RATE.
 
-        Returns ``(scores, unstable_ids)``. When a case already carries an
-        ``observed`` output and ``baseline_repeats == 1``, that frozen baseline
-        is used directly. Re-generating it would make a supposedly paired
-        comparison depend on endpoint non-determinism and wastes one model
-        call per case. With more repeats, each case's modal fresh score is
-        used and any case that both passed and failed across repeats is
-        reported as unstable — its baseline is sampling noise, so blaming a
-        later candidate for "breaking" it would be spurious; such cases are
-        dropped from the paired test.
+        Returns ``(modal_scores, unstable_ids)`` for callers that think in
+        booleans, and stores the rates in ``self._baseline_rates`` /
+        ``self._baseline_n`` for the paired-rates test.
+
+        * ``baseline_repeats == 1`` — the frozen ``observed`` output is the
+          baseline (one sample; rate 0/1). Re-generating it would make a
+          supposedly paired comparison depend on endpoint non-determinism and
+          waste a call per case. Cases without an ``observed`` are generated
+          once.
+        * ``baseline_repeats == k > 1`` — the frozen sample counts as sample 1
+          and ``k-1`` fresh samples are drawn (all ``k`` fresh when there is no
+          frozen one), so each case gets a rate in ``{0, 1/k, ..., 1}``. A case
+          with ``0 < rate < 1`` is *unstable* (its baseline answer is a coin);
+          it is REPORTED, not dropped: the paired-rates test weighs it by how
+          much a candidate moves its rate, which is the honest accounting for
+          a stochastic model — dropping it removed exactly the cases a
+          variance-reduction scaffold repairs.
         """
-        if self._baseline_repeats == 1:
-            frozen: "dict[str, Optional[bool]]" = {}
-            missing = []
-            for case in data:
-                observed = getattr(case, "observed", None)
-                if observed is None:
-                    missing.append(case)
-                    continue
-                frozen[case.id] = score_to_bool(self._score(case, str(observed)))
-            if not missing:
-                return frozen, set()
-            # Preserve the frozen scores and generate only legacy cases that
-            # were constructed without an observed baseline.
-            fresh, unstable = self._baseline_fresh(model, missing)
-            frozen.update(fresh)
-            return frozen, unstable
-        return self._baseline_fresh(model, data)
+        k = max(1, int(self._baseline_repeats))
+        samples: "dict[str, list[bool]]" = {c.id: [] for c in data}
+        need: "list[tuple[Any, int]]" = []
+        for case in data:
+            observed = getattr(case, "observed", None)
+            if observed is not None:
+                s0 = score_to_bool(self._score(case, str(observed)))
+                if s0 is not None:
+                    samples[case.id].append(bool(s0))
+            fresh = k - len(samples[case.id])
+            if fresh > 0:
+                need.append((case, fresh))
+        if need:
+            self._sample_baseline(model, need, samples)
+        scores: "dict[str, Optional[bool]]" = {}
+        rates: "dict[str, Optional[float]]" = {}
+        counts: "dict[str, int]" = {}
+        unstable: "set[str]" = set()
+        for cid, obs in samples.items():
+            counts[cid] = len(obs)
+            if not obs:
+                scores[cid] = None
+                rates[cid] = None
+                continue
+            rate = sum(1 for o in obs if o) / len(obs)
+            rates[cid] = rate
+            scores[cid] = rate >= 0.5  # modal; ties -> True
+            if 0.0 < rate < 1.0:
+                unstable.add(cid)
+        self._baseline_rates = rates
+        self._baseline_n = counts
+        return scores, unstable
+
+    def _sample_baseline(
+        self,
+        model: "Model",
+        need: "list[tuple[Any, int]]",
+        samples: "dict[str, list[bool]]",
+    ) -> None:
+        """Draw the missing fresh baseline samples (threaded like candidates)."""
+        jobs = [case for case, n in need for _ in range(n)]
+
+        def one(case: Any) -> "tuple[str, Optional[bool]]":
+            try:
+                output = str(model.generate(case.inputs))
+            except Exception as exc:
+                logger.debug("FixAgent: baseline generate failed on %s: %s", case.id, exc)
+                return case.id, None
+            return case.id, score_to_bool(self._score(case, output))
+
+        if self._concurrency > 1 and len(jobs) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=self._concurrency) as pool:
+                results = list(pool.map(one, jobs))
+        else:
+            results = [one(case) for case in jobs]
+        for cid, s in results:
+            if s is not None:
+                samples[cid].append(bool(s))
 
     def _baseline_fresh(
         self, model: "Model", data: "CaseBatch"
     ) -> "tuple[dict[str, Optional[bool]], set[str]]":
-        """Generate a baseline when no frozen observation is available."""
-        counts: "dict[str, list[int]]" = {c.id: [0, 0] for c in data}  # [false, true]
-        for _ in range(self._baseline_repeats):
-            for case in data:
-                try:
-                    output = str(model.generate(case.inputs))
-                except Exception as exc:
-                    logger.debug("FixAgent: baseline generate failed on %s: %s", case.id, exc)
-                    continue
-                s = score_to_bool(self._score(case, output))
-                if s is True:
-                    counts[case.id][1] += 1
-                elif s is False:
-                    counts[case.id][0] += 1
+        """Generate a baseline ignoring any frozen observation (k fresh samples)."""
+        k = max(1, int(self._baseline_repeats))
+        samples: "dict[str, list[bool]]" = {c.id: [] for c in data}
+        self._sample_baseline(model, [(c, k) for c in data], samples)
         scores: "dict[str, Optional[bool]]" = {}
         unstable: "set[str]" = set()
-        for cid, (n_false, n_true) in counts.items():
-            if n_false + n_true == 0:
+        for cid, obs in samples.items():
+            if not obs:
                 scores[cid] = None
-            else:
-                scores[cid] = n_true >= n_false  # modal; ties -> True
-                if n_false > 0 and n_true > 0:
-                    unstable.add(cid)
+                continue
+            rate = sum(1 for o in obs if o) / len(obs)
+            scores[cid] = rate >= 0.5
+            if 0.0 < rate < 1.0:
+                unstable.add(cid)
         return scores, unstable
+
+    def _candidate_rates(
+        self, candidate: FixCandidate, model: "Model", data: "CaseBatch"
+    ) -> "tuple[dict[str, Optional[float]], int]":
+        """Per-case candidate PASS RATE over ``candidate_repeats`` passes.
+
+        Coded pipelines / internals primitives / fine-tune recipes run once
+        (they are expensive and vote internally when they want to); template
+        and spec candidates are repeated ``candidate_repeats`` times. Returns
+        ``(rates, n_passes)``; a case is ``None`` when every pass was unscorable.
+        """
+        m = int(self._candidate_repeats) if candidate.kind in ("template", "spec") else 1
+        m = max(1, m)
+        tallies: "dict[str, list[bool]]" = {c.id: [] for c in data}
+        for _ in range(m):
+            scores = self._candidate_scores(candidate, model, data)
+            for cid, s in scores.items():
+                b = score_to_bool(s)
+                if b is not None:
+                    tallies.setdefault(cid, []).append(bool(b))
+        rates = {
+            cid: (sum(1 for o in obs if o) / len(obs) if obs else None)
+            for cid, obs in tallies.items()
+        }
+        return rates, m
 
     def _applies(self, candidate: FixCandidate, case: "FailureCase") -> bool:
         """Whether *candidate* is applicable to *case* (defect 1).
@@ -2999,9 +3119,20 @@ class FixAgent:
     ) -> FixValidation:
         v = FixValidation(candidate=candidate)
         unstable = unstable or set()
+        rates_mode = self._baseline_repeats > 1 or self._candidate_repeats > 1
+        v.noise_model = "paired_rates" if rates_mode else "mcnemar"
         self._captured = {}
         truncated_before = _truncated_count(model)
-        scores = self._candidate_scores(candidate, model, data)
+        if rates_mode:
+            cand_rates, m = self._candidate_rates(candidate, model, data)
+            v.n_candidate_samples = m
+            scores: "dict[str, Optional[bool]]" = {
+                cid: (None if r is None else r >= 0.5) for cid, r in cand_rates.items()
+            }
+        else:
+            scores = self._candidate_scores(candidate, model, data)
+            cand_rates = {cid: (None if score_to_bool(sc) is None else float(bool(score_to_bool(sc))))
+                          for cid, sc in scores.items()}
         truncated_after = _truncated_count(model)
         if truncated_before is not None and truncated_after is not None:
             v.n_truncated = max(0, truncated_after - truncated_before)
@@ -3009,31 +3140,47 @@ class FixAgent:
         self._captured = {}
         if isinstance(candidate.payload, dict):
             v.exec_error = str(candidate.payload.get("exec_error", "") or "")
+        # Baseline rates: measured by _baseline (frozen sample + k-1 fresh);
+        # when a caller hands in bare booleans (tests, external drivers) they
+        # are 0/1 rates.
+        base_rates: "dict[str, Optional[float]]" = {}
+        for case in data:
+            r = self._baseline_rates.get(case.id) if self._baseline_rates else None
+            if r is None:
+                b = score_to_bool(baseline.get(case.id))
+                r = None if b is None else float(b)
+            base_rates[case.id] = r
+        if self._baseline_n:
+            v.n_baseline_samples = max([1] + [int(n) for n in self._baseline_n.values()])
 
         n_fail = sum(1 for c in data if getattr(c.label, "value", None) == "fail")
         applicable_fail = 0
-        base_vec: "list[bool]" = []
-        cand_vec: "list[bool]" = []
+        base_vec: "list[float]" = []
+        cand_vec: "list[float]" = []
         control = (candidate.payload.get("frozen_model_control") or {}
                    if isinstance(candidate.payload, dict) else {})
         solved_without_model = set(control.get("solved") or [])
         for case in data:
-            b = score_to_bool(baseline.get(case.id))
-            c = score_to_bool(scores.get(case.id))
-            if b is None or c is None:
+            rb = base_rates.get(case.id)
+            rc = cand_rates.get(case.id)
+            if rb is None or rc is None:
                 continue
+            b = rb >= 0.5  # modal baseline; ties -> True (as _baseline)
+            c = rc >= 0.5
             # A failing case the pipeline also gets right with the model frozen
             # to its recorded answer was repaired by the code, not the model:
             # not a fix of the model, not a regression either — out of the test.
             if not b and case.id in solved_without_model:
                 v.n_model_independent += 1
                 continue
-            # Noise floor (defect 2): a case whose baseline flipped across
-            # repeats is unreliable — excluding it stops a stochastic flip from
-            # masquerading as a fix or a regression.
             if case.id in unstable:
+                # One sample per arm (mcnemar): the case's baseline is a coin
+                # and a flip would masquerade as a fix/regression -> held out.
+                # Paired rates: it is REPORTED and stays in, weighed by how far
+                # the candidate moves its rate.
                 v.n_unstable += 1
-                continue
+                if not rates_mode:
+                    continue
             # Applicability (defect 1): the safety/coverage test runs only on
             # cases the candidate actually touches.
             if not self._applies(candidate, case):
@@ -3041,8 +3188,8 @@ class FixAgent:
             is_fail = getattr(case.label, "value", None) == "fail"
             if is_fail:
                 applicable_fail += 1
-            base_vec.append(b)
-            cand_vec.append(c)
+            base_vec.append(rb if rates_mode else float(b))
+            cand_vec.append(rc if rates_mode else float(c))
             if not b and c:
                 v.n_fixed += 1
                 v.fixed_cases.append(case.id)
@@ -3050,10 +3197,13 @@ class FixAgent:
                 v.n_broken += 1
                 v.broken_cases.append(case.id)
         v.n_pairs = len(base_vec)
-        v.n_baseline_correct = sum(base_vec)
-        v.n_candidate_correct = sum(cand_vec)
+        v.n_baseline_correct = sum(1 for x in base_vec if x >= 0.5)
+        v.n_candidate_correct = sum(1 for x in cand_vec if x >= 0.5)
         v.n_applicable = v.n_pairs
         v.coverage = (applicable_fail / n_fail) if n_fail else None
+        if v.n_pairs:
+            v.baseline_rate = sum(base_vec) / v.n_pairs
+            v.candidate_rate = sum(cand_vec) / v.n_pairs
         if v.n_pairs == 0 and v.n_model_independent:
             v.verdict = "model_independent"
             v.summary = (
@@ -3072,7 +3222,12 @@ class FixAgent:
             )
             return v
         try:
-            stat = compare(base_vec, cand_vec, paired=True, alpha=self._alpha)
+            if rates_mode:
+                stat = compare_paired_rates(base_vec, cand_vec, alpha=self._alpha)
+                v.e_value_regression = stat.details.get("e_value_regression")
+            else:
+                stat = compare([x >= 0.5 for x in base_vec], [x >= 0.5 for x in cand_vec],
+                               paired=True, alpha=self._alpha)
         except Exception as exc:
             v.verdict = "not_executed"
             v.summary = f"stats failed: {exc}"
@@ -3085,7 +3240,12 @@ class FixAgent:
         v.fixed = v.reject and (v.effect or 0.0) > 0
         v.verdict = self._verdict(v)
         cov = "" if v.coverage is None else f", coverage={v.coverage:.0%}"
-        noise = f", {v.n_unstable} unstable dropped" if v.n_unstable else ""
+        if rates_mode:
+            noise = (f", {v.n_unstable} unstable weighed (k={v.n_baseline_samples} baseline"
+                     f"/{v.n_candidate_samples} candidate samples)" if v.n_unstable else
+                     f", k={v.n_baseline_samples}/{v.n_candidate_samples} samples")
+        else:
+            noise = f", {v.n_unstable} unstable dropped" if v.n_unstable else ""
         solo = (f", {v.n_model_independent} model-independent excluded"
                 if v.n_model_independent else "")
         trunc = (f", {v.n_truncated} call(s) hit the decode cap"
