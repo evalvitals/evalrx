@@ -175,9 +175,10 @@ class AgenticDiagnoseLoop(VLDiagnoseLoop):
         verified = self.hypothesis_tester.best_hypotheses(state.all_test_results)
         report = VLDiagnoseReport(
             cycles=step,
+            resolved=bool(verified),
             stopped_by=stopped_by,
             verified_hypotheses=verified,
-            all_hypotheses=state.all_hypotheses,
+            final_hypotheses=state.all_hypotheses,
             all_test_results=state.all_test_results,
             final_stats_report=state.stats_report,
             store=self.store,

@@ -299,7 +299,7 @@ def test_write_diagnose_report_vl_style(tmp_path):
         cycles=2,
         stopped_by="criteria_met",
         verified_hypotheses=[test_result],
-        all_hypotheses=[hyp],
+        final_hypotheses=[hyp],
         all_test_results=[test_result],
     )
     discovery_rows = [{"id": "c0", "label": "fail"}, {"id": "c1", "label": "pass"}]

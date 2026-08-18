@@ -973,9 +973,11 @@ class RunLogger:
         event is flushed to disk as it is written, so an unclosed logger never
         loses data.)
 
-        Accepts both :class:`AutoDiagnoseReport` (``resolved``,
-        ``final_hypotheses``) and :class:`VLDiagnoseReport` (``stopped_by``,
-        ``verified_hypotheses``, ``all_hypotheses``) via duck typing.
+        *report* is an :class:`AutoDiagnoseReport` (all three loops return
+        this one unified class — ``VLDiagnoseReport`` is an alias for it).
+        The ``hasattr`` checks below stay duck-typed so a hand-built
+        ``SimpleNamespace`` with only a subset of fields (e.g. in tests) still
+        logs cleanly.
 
         *tokens_used* and *timings* (per-stage wall-clock totals in seconds)
         record the run's cost/latency profile when the loop supplies them.

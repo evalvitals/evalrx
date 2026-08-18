@@ -84,7 +84,7 @@ class _RecordingFixAgent:
 
 def _report():
     h = Hypothesis(statement="x", target_model="m", predicted_failure_mode="")
-    return VLDiagnoseReport(cycles=1, stopped_by="max_cycles", all_hypotheses=[h])
+    return VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[h])
 
 
 def test_run_fix_validates_on_confirm_partition():

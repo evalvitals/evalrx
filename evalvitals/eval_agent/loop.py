@@ -116,7 +116,7 @@ class VLDiagnoseLoop:
 
         # Phase 1 — analyse + propose, build the dashboard. No M5, no fix.
         report = loop.run_analysis(data)        # M1 → M2 → M3, stop
-        save(report.all_hypotheses, report.final_stats_report)
+        save(report.final_hypotheses, report.final_stats_report)
 
         # Phase 2 — later, reuse the saved artifacts to confirm + repair.
         report = loop.run_confirm(data, hypotheses, stats_report=stats)  # M5
@@ -613,9 +613,10 @@ class VLDiagnoseLoop:
 
         report = VLDiagnoseReport(
             cycles=cycle + 1 if self.max_cycles > 0 else 0,  # type: ignore[possibly-undefined]
+            resolved=bool(verified),
             stopped_by=stopped_by,
             verified_hypotheses=verified,
-            all_hypotheses=all_hypotheses,
+            final_hypotheses=all_hypotheses,
             all_test_results=all_test_results,
             final_stats_report=final_stats_report,
             store=self.store,
@@ -637,10 +638,10 @@ class VLDiagnoseLoop:
         repair.
 
         The returned :class:`VLDiagnoseReport` carries:
-          - ``all_hypotheses``     — the M3 proposals (UNCONFIRMED), and
+          - ``final_hypotheses``   — the M3 proposals (UNCONFIRMED), and
           - ``final_stats_report`` — the M2 report,
         with ``all_test_results`` / ``verified_hypotheses`` left empty (M5 has
-        not run). Persist ``all_hypotheses`` (via
+        not run). Persist ``final_hypotheses`` (via
         :func:`~evalvitals.eval_agent.hypothesis.hypothesis_to_dict`) and
         ``final_stats_report``, then hand them to :meth:`run_confirm` for the
         deferred confirmation + repair phase.
@@ -699,7 +700,7 @@ class VLDiagnoseLoop:
             cycles=1,
             stopped_by=stopped_by,
             verified_hypotheses=[],
-            all_hypotheses=all_hypotheses,
+            final_hypotheses=all_hypotheses,
             all_test_results=[],
             final_stats_report=final_stats_report,
             store=self.store,
@@ -767,7 +768,7 @@ class VLDiagnoseLoop:
                 )
                 report = VLDiagnoseReport(
                     cycles=1, stopped_by=_STOPPED_BY_NO_PROBE,
-                    all_hypotheses=hypotheses, store=self.store, _run_id=self._run_id,
+                    final_hypotheses=hypotheses, store=self.store, _run_id=self._run_id,
                 )
                 if self.run_logger:
                     self.run_logger.log_loop_end(
@@ -799,9 +800,10 @@ class VLDiagnoseLoop:
 
         report = VLDiagnoseReport(
             cycles=1,
+            resolved=bool(verified),
             stopped_by=stopped_by,
             verified_hypotheses=verified,
-            all_hypotheses=hypotheses,
+            final_hypotheses=hypotheses,
             all_test_results=test_results,
             final_stats_report=stats_report,
             store=self.store,
@@ -912,7 +914,7 @@ class VLDiagnoseLoop:
         agent = fix_agent or self.fix_agent
         hypotheses = [tr.hypothesis for tr in report.verified_hypotheses]
         if not hypotheses:
-            hypotheses = list(report.all_hypotheses)[-3:]
+            hypotheses = list(report.final_hypotheses)[-3:]
 
         if auto_escalate:
             _LADDER = [

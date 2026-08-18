@@ -29,6 +29,7 @@ nav:
   - Quickstart: quickstart.md
   - Exploratory Analysis (M2/M3): m2_analysis.md
   - Intervention & Verification (M4/M5): intervention.md
+  - Stage Input/Output Reference: stage_io.md
   - Analyzer Zoo: analyzers.md
   - Architecture: architecture.md
   - Extending: extending.md
