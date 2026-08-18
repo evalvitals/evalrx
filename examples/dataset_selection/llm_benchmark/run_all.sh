@@ -4,6 +4,8 @@
 #   ./run_all.sh qwen3.5-9b supergpqa_law            # full chain, ALL items
 #   ./run_all.sh qwen3.5-2b cruxeval_output 60       # cap at 60 items
 #   ANALYSIS_ONLY=1 ./run_all.sh qwen3.5-9b bamboogle 40   # M1->M3, no M5/M4
+#   SKIP_STAGE0=1 CONFIRM_ONLY=1 ./run_all.sh qwen3.5-2b bbh_word_sorting
+#                                     # M5->M4->fix only, on the last run's M2/M3
 #
 # Written for unattended/agent execution: absolute interpreter paths (no shell
 # variables carried between steps), an explicit readiness wait, a free-GPU probe,
@@ -15,6 +17,7 @@ DATASET="${2:-supergpqa_law}"
 NCASES="${3:-0}"   # 0 = every item in the slice
 PORT="${PORT:-8020}"
 ANALYSIS_ONLY="${ANALYSIS_ONLY:-0}"
+CONFIRM_ONLY="${CONFIRM_ONLY:-0}"    # reuse logs/ M2+M3; needs the frozen batch (SKIP_STAGE0=1)
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Walk up to the checkout root instead of counting directories: this example
@@ -171,6 +174,10 @@ if [ "$ANALYSIS_ONLY" = "1" ]; then
   stamp "STAGE 1 run_pipeline --analysis-only (M1->M2->M3)"
   "$EVAL_PY" -u "$HERE/run_pipeline.py" \
     --model "$MODEL" --dataset "$DATASET" --base-url "$BASE_URL" --analysis-only
+elif [ "$CONFIRM_ONLY" = "1" ]; then
+  stamp "STAGE 2' run_pipeline --confirm-only (M5->M4->fix on the last run's M2/M3; logs_confirm/)"
+  "$EVAL_PY" -u "$HERE/run_pipeline.py" \
+    --model "$MODEL" --dataset "$DATASET" --base-url "$BASE_URL" --confirm-only
 else
   stamp "STAGE 2 run_pipeline (M1->M2->M3->M5->M4)"
   "$EVAL_PY" -u "$HERE/run_pipeline.py" \

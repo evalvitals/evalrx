@@ -506,3 +506,72 @@ def test_a_freshly_built_batch_is_not_reported_stale():
     build_cases = _load("build_cases")
     regrade = _load("regrade")
     assert build_cases._grader_fingerprint() == regrade.grader_fingerprint()
+
+
+# ── --confirm-only reloads the LAST run's M2/M3, not the first ───────────────
+
+
+def _event(name, **payload):
+    return json.dumps({"event": name, **payload})
+
+
+def test_load_prior_run_reads_the_last_segment_and_rebuilds_the_report(pipe, tmp_path):
+    """run_log.jsonl is append-only across runs; three runs shared one file on
+    bbh_word_sorting and only the last had a diagnosis. Externalised stats
+    come back as StatsToolResult (ci a tuple), analyzer artifacts as Result."""
+    logs = tmp_path / "logs"
+    (logs / "artifacts").mkdir(parents=True)
+    (logs / "artifacts" / "c0_m2_stats_results.json").write_text(json.dumps([
+        {"tool": "signal_label_assoc", "ok": True, "effect": 0.5, "ci": [0.2, 0.8],
+         "reject": True, "p_value": 0.001, "config": {"signal": "a.b"},
+         "analysis_key": "signal_label_assoc:a.b", "correction_family": "bh",
+         "correction_method": "BH", "fdr_corrected": True, "raw_reject": True,
+         "summary": "s"},
+    ]))
+    (logs / "artifacts" / "c0_x.result.json").write_text(json.dumps(
+        {"analyzer": "x", "model": "m", "findings": {"per_case": {"c1": 1}}, "metadata": {}}))
+    old_run = [
+        _event("run_start", loop="VLDiagnoseLoop"),
+        _event("analysis", cycle=0, conclusion="OLD", severity="low",
+               stats_results={"path": "artifacts/nope.json"}),
+        _event("loop_end", stopped_by="no_hypotheses"),
+    ]
+    new_run = [
+        _event("run_start", loop="VLDiagnoseLoop"),
+        _event("probe", result_paths={"x": "artifacts/c0_x.result.json"}),
+        _event("analysis", cycle=0, conclusion="NEW", severity="medium",
+               narrative="n", evidence_chain=["e1"],
+               stats_results={"path": "artifacts/c0_m2_stats_results.json"},
+               corrected_rejections={"method": "BH", "n_tested": 1,
+                                     "rejected_result_keys": ["signal_label_assoc:a.b"]}),
+        _event("diagnosis", model_name="qwen", n_hypotheses=1,
+               hypotheses=[{"statement": "it breaks", "failure_mode": "fm",
+                            "status": "proposed", "test_design": "a.b"}]),
+        _event("loop_end", stopped_by="criteria_met"),
+    ]
+    (logs / "run_log.jsonl").write_text("\n".join(old_run + new_run) + "\n")
+
+    hyps, report = pipe.load_prior_run(logs)
+
+    assert [h.statement for h in hyps] == ["it breaks"] and hyps[0].test_design == "a.b"
+    assert report.conclusion == "NEW" and report.model_name == "qwen"
+    assert len(report.stats_results) == 1
+    r = report.stats_results[0]
+    assert r.ci == (0.2, 0.8) and r.fdr_corrected is True and r.correction_method == "BH"
+    assert report.corrected_rejections["rejected_result_keys"] == ["signal_label_assoc:a.b"]
+    assert set(report.raw_results) == {"x"}
+    assert report.raw_results["x"].findings["per_case"] == {"c1": 1}
+    assert report.descriptive_only is False
+
+
+def test_load_prior_run_refuses_a_run_that_never_reached_m3(pipe, tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "run_log.jsonl").write_text("\n".join([
+        _event("run_start"), _event("analysis", conclusion="c"),
+        _event("loop_end", stopped_by="no_hypotheses"),
+    ]) + "\n")
+    with pytest.raises(SystemExit, match="no M3 diagnosis"):
+        pipe.load_prior_run(logs)
+    with pytest.raises(SystemExit, match="missing"):
+        pipe.load_prior_run(tmp_path / "nowhere")

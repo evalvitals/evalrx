@@ -137,6 +137,9 @@ M1→M2→M3→M5→M4 → **无论成败都关掉 vLLM 释放显存**(EXIT trap
 # dataset: 见第 1 节的八个
 # 环境变量:
 #   ANALYSIS_ONLY=1   只跑 M1→M2→M3,不做 M5 确认和 M4 修复
+#   CONFIRM_ONLY=1    跳过 M1→M3:重用 logs/ 里上一轮的 M2 统计 + M3 假设,只跑
+#                     M5→M4→fix(要配 SKIP_STAGE0=1;日志写到 logs_confirm/,
+#                     摘要写到 summary_confirm.json,dashboard 会自动合并)
 #   GPU=3             指定显卡(默认自动挑第一张显存占用 <1GB 的)
 #   PORT=8021         换端口(默认 8020)
 #   WHITEBOX_PYTHON=  设了才会在主链路之后跑 Stage W(白盒 attention),

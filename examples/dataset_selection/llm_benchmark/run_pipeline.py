@@ -435,6 +435,89 @@ def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -
     return overrides
 
 
+def load_prior_run(logs_dir: Path):
+    """Reload the LAST run's M2 stats + M3 hypotheses from ``logs_dir``.
+
+    ``run_log.jsonl`` is append-only across runs, so everything is read from
+    the segment after the final ``run_start``. Returns
+    ``(hypotheses, stats_report)`` — the exact hypotheses that run proposed
+    and a StatsAnalysisReport carrying its per-signal tool results (with the
+    BH verdicts as serialised), its multiplicity summary, its conclusion, and
+    the M1 analyzer findings — everything M5, M4 and the fix module read.
+    Findings objects and figures are not rebuilt (nothing downstream needs
+    them). Raises SystemExit with the missing piece named when the logs do
+    not hold a completed M2->M3.
+    """
+    from evalvitals.analysis.stats_agent import StatsAnalysisReport
+    from evalvitals.analysis.stats_tools import StatsToolResult
+    from evalvitals.core.result import Result
+    from evalvitals.eval_agent.hypothesis import hypothesis_from_dict
+
+    log_path = logs_dir / "run_log.jsonl"
+    if not log_path.exists():
+        raise SystemExit(f"--confirm-only: {log_path} missing — no earlier run to reload")
+    events = []
+    for line in log_path.read_text(encoding="utf-8").splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    starts = [i for i, e in enumerate(events) if e.get("event") == "run_start"]
+    segment = events[starts[-1]:] if starts else events
+    by_event = {}
+    for e in segment:  # last of each kind wins inside the segment
+        by_event[e.get("event")] = e
+
+    diagnosis = by_event.get("diagnosis")
+    if not diagnosis or not diagnosis.get("hypotheses"):
+        raise SystemExit("--confirm-only: the last run has no M3 diagnosis with "
+                         "hypotheses — nothing to confirm")
+    hypotheses = [hypothesis_from_dict(h) for h in diagnosis["hypotheses"]]
+
+    analysis = by_event.get("analysis")
+    if not analysis:
+        raise SystemExit("--confirm-only: the last run has no M2 analysis event")
+
+    def _externalised(field):
+        v = analysis.get(field)
+        if isinstance(v, dict) and v.get("path"):
+            return json.loads((logs_dir / v["path"]).read_text(encoding="utf-8"))
+        return v or []
+
+    stats_results = []
+    for d in _externalised("stats_results"):
+        d = dict(d)
+        if d.get("ci") is not None:
+            d["ci"] = tuple(d["ci"])
+        stats_results.append(StatsToolResult(**d))
+    if not stats_results:
+        raise SystemExit("--confirm-only: the last run's M2 stats_results are empty")
+
+    raw_results = {}
+    probe = by_event.get("probe") or {}
+    for name, rel in (probe.get("result_paths") or {}).items():
+        path = logs_dir / rel
+        if not path.exists():
+            continue
+        d = json.loads(path.read_text(encoding="utf-8"))
+        raw_results[name] = Result(analyzer=d.get("analyzer", name), model=d.get("model", ""),
+                                   findings=d.get("findings") or {},
+                                   metadata=d.get("metadata") or {})
+
+    report = StatsAnalysisReport(
+        model_name=diagnosis.get("model_name") or "",
+        severity=analysis.get("severity") or "none",
+        narrative=analysis.get("narrative") or "",
+        raw_results=raw_results,
+        conclusion=analysis.get("conclusion") or "",
+        evidence_chain=list(analysis.get("evidence_chain") or []),
+        stats_results=stats_results,
+        corrected_rejections=dict(analysis.get("corrected_rejections") or {}),
+        descriptive_only=bool(analysis.get("descriptive_only", False)),
+    )
+    return hypotheses, report
+
+
 def build_codegen(backend: str):
     from evalvitals.eval_agent import CliAgentConfig
 
@@ -471,7 +554,14 @@ def main() -> None:
                     help="M1->M2->M3 and stop: propose hypotheses, skip M5 and M4")
     ap.add_argument("--skip-m4", action="store_true",
                     help="run M1->M5 but do not attempt a fix")
+    ap.add_argument("--confirm-only", action="store_true",
+                    help="skip M1->M3: reload the last run's M2 stats + M3 hypotheses "
+                         "from outputs/<model>/<dataset>/logs/ and run M5 -> M4 -> fix "
+                         "on them (logs go to logs_confirm/, summary to "
+                         "summary_confirm.json)")
     args = ap.parse_args()
+    if args.analysis_only and args.confirm_only:
+        ap.error("--analysis-only and --confirm-only are the two halves of one run")
 
     from evalvitals.analysis.stats_agent import StatsAnalysisAgent
     from evalvitals.eval_agent import (
@@ -488,6 +578,14 @@ def main() -> None:
     batch, report_in = load_batch(args.model, args.dataset)
     out = HERE / "outputs" / args.model / args.dataset
     out.mkdir(parents=True, exist_ok=True)
+
+    prior = None
+    if args.confirm_only:
+        prior = load_prior_run(out / "logs")
+        print(f"[confirm-only] reloaded {len(prior[0])} hypothesis(es) + "
+              f"{len(prior[1].stats_results)} M2 tool results from {out / 'logs'}")
+        for h in prior[0]:
+            print(f"  - {h.statement[:110]}")
 
     print(f"[batch] {args.dataset} n={report_in['n']} "
           f"PASS={report_in['n_pass']} FAIL={report_in['n_fail']} "
@@ -506,7 +604,10 @@ def main() -> None:
     codegen = build_codegen(args.backend)
     overrides = (build_analyzer_overrides(args.analyzer_max_cases, model=model)
                  if args.analyzer_max_cases > 0 else {})
-    logger = RunLogger(run_dir=out / "logs", verbose=True)
+    # A confirm-only pass logs beside the analysis it reuses, never over it —
+    # the dashboard merges every logs*/run_log.jsonl under the run dir.
+    logger = RunLogger(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
+                       verbose=True)
 
     # max_cases_per_analyzer is the BACKSTOP for analyzer_overrides: the
     # overrides can only turn a `max_cases` constructor knob, and the five
@@ -556,10 +657,17 @@ def main() -> None:
         report = loop.run_analysis(batch)
         print(f"[M1-M3] proposed {len(report.hypotheses)} hypotheses")
     else:
-        report = loop.run(batch)
-        print(f"[M1-M5] cycles={report.cycles} stopped_by={report.stopped_by} "
-              f"verified={len(report.verified_hypotheses)}/"
-              f"{len(report.all_test_results)}")
+        if args.confirm_only:
+            hypotheses, stats_report = prior
+            report = loop.run_confirm(batch, hypotheses, stats_report=stats_report)
+            print(f"[M5 confirm-only] stopped_by={report.stopped_by} "
+                  f"verified={len(report.verified_hypotheses)}/"
+                  f"{len(report.all_test_results)}")
+        else:
+            report = loop.run(batch)
+            print(f"[M1-M5] cycles={report.cycles} stopped_by={report.stopped_by} "
+                  f"verified={len(report.verified_hypotheses)}/"
+                  f"{len(report.all_test_results)}")
         for t in report.all_test_results:
             stmt = getattr(t.hypothesis, "statement", str(t.hypothesis))
             print(f"  - [{t.status}] conf={t.confidence:.2f} "
@@ -578,7 +686,9 @@ def main() -> None:
                   ("n", "accuracy", "n_pass", "n_fail", "truncated_rate")},
         "confirm_split": args.confirm_split,
         "analysis_only": args.analysis_only,
-        "n_hypotheses": len(getattr(report, "hypotheses", []) or []),
+        "confirm_only": args.confirm_only,
+        "n_hypotheses": len(getattr(report, "hypotheses", None)
+                            or getattr(report, "all_hypotheses", None) or []),
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),
         "model_calls": model.n_calls,
         "model_truncated": model.n_truncated,
@@ -594,8 +704,9 @@ def main() -> None:
         "analyzers_truncated": {k: list(v) for k, v
                                 in sorted(probe_agent.capped_analyzers.items())},
     }
-    (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False))
-    print(f"\nwrote {out/'summary.json'}")
+    summary_name = "summary_confirm.json" if args.confirm_only else "summary.json"
+    (out / summary_name).write_text(json.dumps(summary, indent=2, ensure_ascii=False))
+    print(f"\nwrote {out/summary_name}")
     print(f"dashboard: python -m evalvitals.cli dashboard {out}")
 
 
