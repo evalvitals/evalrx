@@ -284,10 +284,46 @@ def load_batch(model_id: str, dataset: str, out_dir: "Path | None" = None):
             observed=c["output"],
             expected=c["gold"] if not isinstance(c["gold"], list) else c["gold"][0],
             label=Label.PASS if c["label"] == "PASS" else Label.FAIL,
+            # the grader's gold, verbatim (a list carries aliases) — see make_score_fn
+            metadata={"gold": c["gold"]},
         )
         for c in report["cases"]
     ]
     return CaseBatch(cases), report
+
+
+def make_score_fn(dataset: str):
+    """``(case, output) -> bool | None`` — the SAME grader that labelled the batch.
+
+    The fix stage (and any analyzer that re-asks the model) must score a
+    candidate answer by the rule the PASS/FAIL labels were written under:
+    ``extract_answer`` (last ``\\boxed{}`` / ``Answer:`` span, else last line) →
+    the dataset spec's grader (default ``answer_equal``, which normalises
+    punctuation and case). The framework's default scorer instead checks that
+    the gold string appears VERBATIM inside the whole output — on
+    bbh_word_sorting a correct ``ANSWER: a, b, c`` (commas, as several fix
+    candidates asked for) does not contain the gold ``a b c`` and was scored
+    wrong: run5's L1/L2 candidates showed 0-2 correct of 40 (baseline 19),
+    i.e. "regressed" by format, not by content. Same shape on bbh_tracking7:
+    ``B`` vs gold ``(B)``.
+    """
+    spec = next(s for s in B.SPECS if s.name == dataset)
+    grade = spec.grader or B.answer_equal
+    raw = bool(getattr(spec, "grades_raw_output", False))
+
+    def score(case, output):
+        gold = (getattr(case, "metadata", None) or {}).get("gold", getattr(case, "expected", None))
+        if gold is None:
+            return None
+        text = str(output if output is not None else "")
+        graded = text if raw else B.extract_answer(text)
+        try:
+            return bool(grade(graded, gold))
+        except Exception:
+            return None
+
+    score.__name__ = f"grade_{dataset}"
+    return score
 
 
 def subsample_batch(batch, report: dict, n: int, seed: int = 0):
@@ -746,6 +782,9 @@ def main() -> None:
             max_tier=str(CFG.get("fix_max_tier", "L3b")),
             cli_config=codegen,
             run_logger=logger,
+            # Score candidates with the batch's own grader, not the framework's
+            # verbatim-substring default (see make_score_fn).
+            score_fn=make_score_fn(args.dataset),
             max_validation_cases=(args.fix_validation_cases
                                   if args.fix_validation_cases is not None
                                   else int(CFG.get("fix_validation_cases", 0))),
