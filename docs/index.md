@@ -69,6 +69,8 @@ report = loop.run(failure_cases)
   explore` — descriptive analysis + hypothesis proposal, no code required.
 - [Intervention & Verification (M4/M5)](intervention.md): `HypothesisTester`
   verification and `FixAgent`/`SurgeryAgent` tiered repair, loop-internal.
+- [Stage Input/Output Reference](stage_io.md): one page listing the exact
+  input and output type of every M1–M5 stage.
 - [Analyzer Zoo](analyzers.md): reference tables of implemented analyzers and registered models.
 - [Architecture](architecture.md): package structure and design contracts.
 - [Extending EvalVitals](extending.md): how to add analyzers, specs, and backends.

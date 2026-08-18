@@ -297,11 +297,13 @@ class RunContext:
     ) -> "dict[str, Path]":
         """Write the standard ``report/`` deliverables from a diagnose report.
 
-        Duck-typed across :class:`VLDiagnoseReport` (``all_hypotheses``,
-        ``all_test_results``, ``verified_hypotheses``, ``stopped_by``) and
-        :class:`AutoDiagnoseReport` (``final_hypotheses``, ``resolved``).  This
-        is the single home for the flattening logic previously copy-pasted into
-        every example's ``_write_report_artifacts``.
+        *report* is an :class:`AutoDiagnoseReport` (all three loops return
+        this one unified class — ``VLDiagnoseReport`` is an alias for it);
+        the ``getattr`` fallbacks below stay duck-typed so a hand-built
+        ``SimpleNamespace`` with only a subset of fields (e.g. in tests)
+        still writes cleanly. This is the single home for the flattening
+        logic previously copy-pasted into every example's
+        ``_write_report_artifacts``.
 
         *discovery* (optional) is a list of already-serialised case rows written
         verbatim to ``report/discovery_cases.json`` — examples that compute

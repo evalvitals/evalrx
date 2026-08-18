@@ -210,13 +210,20 @@ AgenticDiagnoseLoop  (agentic/loop.py — judge-decided, same M1-M5 stages)
 The agent touches models only through the `Model` protocol and stores all
 evidence in a `Store`.
 
+`.run()` on all three loops returns the same class, `AutoDiagnoseReport`
+(`loop_reports.py`; `VLDiagnoseReport` is a back-compat alias for the
+identical class). Each loop populates only the fields relevant to what it
+ran — see [Stage Input/Output Reference](stage_io.md#loop-level-output) for
+the full field table.
+
 ### Package layout
 
 ```text
 eval_agent/
 ├── loop.py               VLDiagnoseLoop (current)
 ├── legacy.py             AutoDiagnoseLoop, SelfEvolveLoop (kept for existing callers)
-├── loop_reports.py       AutoDiagnoseReport, VLDiagnoseReport
+├── loop_reports.py       AutoDiagnoseReport (VLDiagnoseReport is an alias — all
+│                         three loops return this one unified report class)
 ├── checkpoint.py         write_checkpoint / write_heartbeat / read_checkpoint
 ├── run_metadata.py       shared run-provenance + logging-wiring helpers
 ├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M5 (see below)
@@ -615,9 +622,10 @@ with RunContext("examples/foo/outputs", verbose=True) as ctx:
 ```
 
 `write_diagnose_report(report, cases, discovery=...)` writes the standard
-`report/` deliverables — duck-typed across `VLDiagnoseReport` and
-`AutoDiagnoseReport`, replacing the `_write_report_artifacts` boilerplate
-previously copy-pasted into every example.
+`report/` deliverables from an `AutoDiagnoseReport` (all three loops return
+this one class — see "Stage contracts" above), replacing the
+`_write_report_artifacts` boilerplate previously copy-pasted into every
+example.
 
 **Per-trial folders** (`ctx.new_trial("fixes" | "experiments", label)`):
 each fix candidate or M4 experiment gets its own numbered folder —
