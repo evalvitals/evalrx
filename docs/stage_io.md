@@ -154,7 +154,10 @@ to threshold rules only when absent/unlabeled).
 from the catalog: `signal_label_assoc`, `mcnemar_evalue`, `bootstrap_diff`,
 `friedman`, `rank_corr`, `single_rate_evalue`), `stats_plan` (which tools
 were selected and why), `corrected_rejections` (e-BH FDR correction across
-all tool e-values), and `figures` (paths to generated plots).
+all tool e-values), `figures` (paths to generated plots), and
+`llm_fallback_reason` (non-empty only when the LLM-guided narrative path was
+attempted and raised — `""` otherwise, whether it was never attempted or
+succeeded).
 
 ### Standalone `ExploratoryAnalysisAgent` (M2, no-code CLI path)
 
@@ -238,6 +241,15 @@ Tiers (`FixTier`, an input the caller bounds): L1 prompt rewrite, L2 scaffold
 (pipeline around the unchanged model), L3a internals-read, L3b
 internals-write, L4 parameter space (recorded; LoRA additionally executed
 when `finetune_pool=` is given).
+
+Each `FixValidation` in `attempted` can now also come back
+`verdict="model_independent"` (a new tier alongside `fixed` / `partial` /
+`unsafe` / `regressed` / `no_effect` / `not_executed`): an L2 candidate is
+re-run under `frozen_model_control` — every bridged model call answered with
+the case's recorded baseline output — and any FAILING case that comes out
+right anyway was solved by the pipeline's own computation, not a repair of
+the model. Those cases are excluded from the paired test
+(`n_model_independent`) rather than counted as `fixed`.
 
 ## M5 — `HypothesisTester` (statistical + protocol verification)
 
