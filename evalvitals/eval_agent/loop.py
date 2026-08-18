@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from evalvitals.eval_agent.loop_reports import VLDiagnoseReport
@@ -104,8 +105,9 @@ class VLDiagnoseLoop:
 
         for cycle in range(max_cycles):
             probe_results  = M1.probe(model, data, protocol)   # guided by protocol
+            explore_notes  = explorer.explore_records(...)      # optional, descriptive
             stats_report   = M2.analyze(probe_results, protocol)
-            diag           = M3.diagnose(stats_report)
+            diag           = M3.diagnose(stats_report, explore_context=explore_notes)
             test_results   = M5.test(diag.hypotheses, stats_report, data, protocol)
             if M5.stopping_criteria_met(test_results, protocol): break
 
@@ -144,6 +146,25 @@ class VLDiagnoseLoop:
         token_budget:       Stop early when accumulated token usage reaches
                             this limit (0 = unlimited).
         analysis_only:      Run only M1→M2 and stop before hypothesis generation.
+        explorer:           Optional :class:`~evalvitals.analysis.explorer.ExploratoryAnalysisAgent`.
+                            When given, every cycle runs a free-form EDA step
+                            between M1 and M2 over the same per-case table M2
+                            sees (M1 analyzer signals + labels). Its output is
+                            DESCRIPTIVE ONLY: observations/charts/caveats go to
+                            M3 as an ``ExploreContext`` (which hypotheses to
+                            propose) and to disk for the dashboard — never into
+                            M2's confirmatory family, M5, or the fix gate. The
+                            catalog M2 is unchanged. Best-effort: an explorer
+                            failure logs a warning and the cycle continues.
+        explore_dir:        Where the explore step persists
+                            ``exploratory_report.json`` + ``tables/`` +
+                            ``figures/`` (rendered chart PNGs, which M3 is shown).
+                            Defaults to ``<run_logger.run_dir>/../explore``
+                            (a sibling of ``logs/``, where the dashboard looks);
+                            with no run_logger, nothing is persisted.
+        explore_question:   The question handed to the explorer. Defaults to
+                            :func:`~evalvitals.eval_agent.prompts.explore_step.default_explore_question`
+                            built from *protocol*.
         verbose:            When ``True``, print live M1-M5 stage narration to
                             stdout (equivalent to calling
                             ``evalvitals.enable_console_logging()`` yourself).
@@ -172,6 +193,9 @@ class VLDiagnoseLoop:
         signal_recipes: "list | None" = None,
         bridge_analyzer_name: str = "explored",
         explore_report: "Any | None" = None,
+        explorer: "Any | None" = None,
+        explore_dir: "str | Path | None" = None,
+        explore_question: str = "",
         verbose: bool = False,
     ) -> None:
         from evalvitals.analysis.stats_agent import StatsAnalysisAgent
@@ -225,6 +249,15 @@ class VLDiagnoseLoop:
         # M2 confirmatory family, M5 testing, or the fix gate. Accepts an
         # ExploreContext, a report dict (fused_report.json), or None.
         self._explore_context = _coerce_explore_context(explore_report)
+        # In-cycle explore step (off by default): a free-form EDA pass over the
+        # M1 per-case table, run between M1 and M2. Same standing as a Step-1
+        # explore_report — descriptive notes for M3 + files for the dashboard.
+        # AgenticDiagnoseLoop overrides `self.explorer` after this constructor
+        # and drives it through its own judge-decided `explore_data` tool
+        # instead of the fixed in-cycle call (see run()/run_analysis()).
+        self.explorer = explorer
+        self._explore_dir = Path(explore_dir) if explore_dir is not None else None
+        self._explore_question = str(explore_question or "")
         self._tokens_used: int = 0
         self._run_id: str = ""
 
@@ -368,6 +401,112 @@ class VLDiagnoseLoop:
         # "explored" analyzer Result (no-op when none configured).
         self._bridge_signals(probe_results, data)
         return probe_results, artifact_pngs
+
+    def _explore_out_dir(self) -> "Path | None":
+        """Where the explore step persists its report/tables/figures.
+
+        Explicit ``explore_dir`` wins; otherwise a sibling of the run logger's
+        directory (``<run_dir>/../explore`` — beside ``logs*/``, which is where
+        the dashboard's ``_find_explore_report`` looks); ``None`` (nothing
+        persisted, context in memory only) when there is neither."""
+        if self._explore_dir is not None:
+            return self._explore_dir
+        run_dir = getattr(self.run_logger, "run_dir", None)
+        if run_dir is None:
+            return None
+        return Path(run_dir).parent / "explore"
+
+    def _do_explore(
+        self, cycle: int, probe_results: "dict[str, Any]", data: "Any",
+        timings: "dict[str, float]", *, log: bool = True,
+    ) -> "Any | None":
+        """Optional in-cycle explore step: free-form EDA over M1's per-case table.
+
+        Runs between M1 and M2 when an ``explorer`` is configured. The explorer
+        sees exactly what M2 sees — ``build_stats_input`` → ``per_case_to_records``
+        (M1 analyzer per-case signals + PASS/FAIL labels) — writes tables and
+        chart specs, and the host renders the charts. The result feeds:
+
+        - M3, as an :class:`~evalvitals.eval_agent.stages.diagnosis.ExploreContext`
+          (observations / rendered charts / caveats — descriptive, UNCONFIRMED,
+          used only to decide WHICH hypotheses to propose);
+        - the dashboard, via ``exploratory_report.json`` + ``tables/`` +
+          ``figures/`` under :meth:`_explore_out_dir` (one directory, rewritten
+          each cycle — it always holds what the *latest* M3 was shown; the
+          per-cycle ``explore`` run-log events keep every cycle's counts and
+          observations).
+
+        It never touches M2's confirmatory family, M5, or the fix gate: the
+        explorer's candidate-signal verdicts are host-adjudicated IN-SAMPLE
+        (labelled so) and dropped from the M3 context by construction. Held-out
+        confirmation of explorer recipes is the fused pipeline's job, not this
+        step's. Best-effort: any failure logs a warning and returns ``None`` —
+        an explorer outage must not cost the M2/M3 that already have their data.
+
+        Returns the explorer report (or ``None``)."""
+        if self.explorer is None:
+            return None
+        from evalvitals.analysis.operationalize import per_case_to_records
+        from evalvitals.analysis.stats_tools import build_stats_input
+        from evalvitals.eval_agent.stages.diagnosis import ExploreContext
+
+        _t0 = time.monotonic()
+        report: Any = None
+        out_dir = self._explore_out_dir()
+        try:
+            inp = build_stats_input(probe_results, data)
+            records = per_case_to_records(inp.per_case, inp.labels)
+            if not records:
+                logger.info("explore: M1 produced no per-case signals — skipping.")
+                return None
+            question = self._explore_question
+            if not question:
+                from evalvitals.eval_agent.prompts.explore_step import default_explore_question
+
+                question = default_explore_question(self.protocol)
+            report = self.explorer.explore_records(
+                records, question=question, outcome_col="label",
+            )
+            # Host firewall: recompute every candidate verdict from sufficient
+            # statistics with the M2 core (in-sample here — labelled as such so
+            # nothing downstream mistakes it for a held-out result).
+            try:
+                from evalvitals.analysis.adjudicate import adjudicate_report
+
+                adjudicate_report(report, split_label="in_sample")
+            except Exception as exc:  # adjudication is a verdict layer, not the data
+                logger.warning("explore: host adjudication failed: %s", exc)
+            if out_dir is not None:
+                from evalvitals.analysis.explore_run import write_report_artifacts
+
+                # Renders chart specs from the copied tables/ CSVs, so the
+                # persisted report carries each chart's absolute figure_path —
+                # the PNGs M3 is shown and the dashboard displays.
+                write_report_artifacts(report, out_dir)
+            ctx = ExploreContext.from_report(
+                report.to_dict() if hasattr(report, "to_dict") else None
+            )
+            if ctx is not None:
+                ctx.source = "loop_explorer"
+                self._explore_context = ctx
+            elif getattr(report, "ok", False):
+                logger.info("explore: report carried no observations/charts — "
+                            "M3 keeps its previous explore context.")
+        except Exception as exc:  # the explorer must never sink the loop
+            logger.warning(
+                "explore step failed at cycle %d (%s) — M2/M3 continue without "
+                "explorer notes.", cycle, exc,
+            )
+        _dt = time.monotonic() - _t0
+        timings["explore"] = timings.get("explore", 0.0) + _dt
+        if log and self.run_logger is not None:
+            try:
+                self.run_logger.log_explore(
+                    cycle, report, out_dir=out_dir, duration_sec=_dt,
+                )
+            except Exception as exc:  # logging must never break the run
+                logger.warning("explore: could not log the explore event: %s", exc)
+        return report
 
     def _do_m2(
         self, cycle: int, probe_results: "dict[str, Any]", data: "Any",
@@ -556,6 +695,9 @@ class VLDiagnoseLoop:
                 stopped_by = _STOPPED_BY_NO_PROBE
                 break
 
+            # ── explore (optional): free-form EDA on M1's table → M3 notes ──
+            self._do_explore(cycle, probe_results, data, timings)
+
             # ── M2: protocol-aware stats analysis ────────────────────
             stats_report = self._do_m2(
                 cycle, probe_results, data, artifact_pngs, timings
@@ -679,6 +821,8 @@ class VLDiagnoseLoop:
             logger.info("M1 produced no probe results — stopping.")
             stopped_by = _STOPPED_BY_NO_PROBE
         else:
+            # Optional explore step (descriptive EDA → M3 notes + dashboard files).
+            self._do_explore(0, probe_results, data, timings)
             # Descriptive M2: effect sizes + charts, but DEFER the e-BH validity
             # verdict to run_confirm so the analysis dashboard shows no
             # "supported/not-supported" claim (Q2: no validity before confirm).

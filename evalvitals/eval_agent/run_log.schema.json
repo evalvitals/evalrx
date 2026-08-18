@@ -18,6 +18,7 @@
           "enum": [
             "run_start",
             "probe",
+            "explore",
             "analysis",
             "diagnosis",
             "surgery",
@@ -89,6 +90,9 @@
             },
             "max_actions": {
               "type": "integer"
+            },
+            "explorer": {
+              "type": "string"
             }
           },
           "required": [
@@ -244,6 +248,86 @@
             "n_findings",
             "findings",
             "narrative"
+          ]
+        }
+      ]
+    },
+    "explore": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "const": "explore"
+            },
+            "ok": {
+              "type": "boolean"
+            },
+            "n_observations": {
+              "type": "integer"
+            },
+            "n_charts": {
+              "type": "integer"
+            },
+            "n_charts_rendered": {
+              "type": "integer"
+            },
+            "n_tables": {
+              "type": "integer"
+            },
+            "n_candidate_signals": {
+              "type": "integer"
+            },
+            "n_hypotheses": {
+              "type": "integer"
+            },
+            "adjudication": {
+              "type": "object"
+            },
+            "observations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "caveats": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "figures": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "attempts": {
+              "type": "integer"
+            },
+            "error": {
+              "type": "string"
+            },
+            "out_dir": {
+              "type": "string"
+            },
+            "report_path": {
+              "type": "string"
+            },
+            "duration_sec": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "event",
+            "cycle",
+            "ok",
+            "n_observations",
+            "n_charts",
+            "n_tables"
           ]
         }
       ]
@@ -806,6 +890,9 @@
     },
     {
       "$ref": "#/$defs/analysis"
+    },
+    {
+      "$ref": "#/$defs/explore"
     },
     {
       "$ref": "#/$defs/diagnosis"

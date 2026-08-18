@@ -9,8 +9,13 @@ it takes a plain Model plus an ExperimentProtocol whose target_modalities is
 {"text"} here, and nothing in it is vision-specific):
 
     M1 ProbeAgent          selects and runs analyzers against the batch
+       ExploratoryAnalysisAgent  (optional, config `explore`) free-form EDA over
+                          M1's per-case table: tables/ + rendered figures/ under
+                          outputs/<model>/<dataset>/explore/, and UNCONFIRMED
+                          notes for M3. Runs beside the catalog M2, not instead.
     M2 StatsAnalysisAgent  protocol-aware statistics over M1's per-case signals
-    M3 DiagnosisAgent      proposes hypotheses from the stats
+                          (the confirmatory tool catalog + e-BH; unchanged)
+    M3 DiagnosisAgent      proposes hypotheses from the stats (+ explore notes)
     M5 HypothesisTester    tests each hypothesis + checks protocol consistency
     M4 SurgeryAgent        proposes a fix for the best VERIFIED hypothesis
 
@@ -534,6 +539,27 @@ def build_codegen(backend: str):
     )
 
 
+def build_explorer(codegen, out: Path):
+    """The optional in-cycle explore step (free-form EDA beside the catalog M2).
+
+    Same coder backend as M2's tool codegen, its own durable sandbox under the
+    run dir so the generated ``analysis.py`` / ``tables/`` survive for audit.
+    ``explore: false`` in config.yaml (or ``EXPLORE=0`` in run_all.sh) turns the
+    step off; the loop then runs exactly as before.
+    """
+    if not bool(CFG.get("explore", True)):
+        return None
+    from evalvitals.agent_runtime.sandbox import ExperimentSandbox
+    from evalvitals.analysis import ExploratoryAnalysisAgent
+
+    return ExploratoryAnalysisAgent(
+        cli_config=codegen,
+        sandbox=ExperimentSandbox(workdir=out / "explore" / "sandbox", cleanup=False),
+        timeout_sec=int(CFG.get("explore_timeout_sec", 900)),
+        max_attempts=int(CFG.get("explore_max_attempts", 2)),
+    )
+
+
 # ---------------------------------------------------------------- main
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -554,6 +580,9 @@ def main() -> None:
                     help="M1->M2->M3 and stop: propose hypotheses, skip M5 and M4")
     ap.add_argument("--skip-m4", action="store_true",
                     help="run M1->M5 but do not attempt a fix")
+    ap.add_argument("--no-explore", action="store_true",
+                    help="skip the in-cycle explore step (free-form EDA beside the "
+                         "catalog M2) even when config.yaml has explore: true")
     ap.add_argument("--confirm-only", action="store_true",
                     help="skip M1->M3: reload the last run's M2 stats + M3 hypotheses "
                          "from outputs/<model>/<dataset>/logs/ and run M5 -> M4 -> fix "
@@ -602,6 +631,9 @@ def main() -> None:
                           logprobs_top_k=int(CFG.get("logprobs_top_k", 5)))
     judge = build_judge(args.judge_model, args.judge_effort)
     codegen = build_codegen(args.backend)
+    # A confirm-only pass never runs M1/M3, so there is nothing to explore.
+    explorer = (None if (args.confirm_only or args.no_explore)
+                else build_explorer(codegen, out))
     overrides = (build_analyzer_overrides(args.analyzer_max_cases, model=model)
                  if args.analyzer_max_cases > 0 else {})
     # A confirm-only pass logs beside the analysis it reuses, never over it —
@@ -634,8 +666,12 @@ def main() -> None:
         # none. Without it the cap reached 7 of 20 generating analyzers and the
         # rest ran the full batch serially.
         probe_agent=probe_agent,
+        # figure_dir: the catalog M2's forest plot (effect +- CI per tool)
+        # lands in logs/figures/m2_effects.png and is listed in the analysis
+        # event's `figures`; without it M2 stays JSON-only.
         stats_agent=StatsAnalysisAgent(judge=judge, allow_codegen=True,
-                                       codegen_config=codegen),
+                                       codegen_config=codegen,
+                                       figure_dir=str(logger.run_dir / "figures")),
         diagnosis_agent=DiagnosisAgent(judge=judge),
         hypothesis_tester=HypothesisTester(judge=judge),
         surgery_agent=SurgeryAgent(
@@ -651,6 +687,14 @@ def main() -> None:
         max_cycles=args.max_cycles,
         run_logger=logger,
         confirm_split=args.confirm_split,
+        # Explore beside the catalog M2, not instead of it: a free-form EDA pass
+        # over the same M1 per-case table, between M1 and M2. Its
+        # observations/charts reach M3 as UNCONFIRMED notes and land under
+        # outputs/<model>/<dataset>/explore/ (exploratory_report.json + tables/
+        # + figures/) for the dashboard. M2's confirmatory family, M5 and the
+        # fix gate never see it.
+        explorer=explorer,
+        explore_dir=out / "explore",
     )
 
     if args.analysis_only:
@@ -687,6 +731,7 @@ def main() -> None:
         "confirm_split": args.confirm_split,
         "analysis_only": args.analysis_only,
         "confirm_only": args.confirm_only,
+        "explore": explorer is not None,
         "n_hypotheses": len(getattr(report, "hypotheses", None)
                             or getattr(report, "all_hypotheses", None) or []),
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),

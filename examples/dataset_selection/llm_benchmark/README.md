@@ -128,7 +128,13 @@ cd <repo>/evalvitals/examples/dataset_selection/llm_benchmark
 **首次在一台新机器上跑,先看上面的「从零搭建」并跑 `preflight.py`。**
 
 它会依次:挑一张空闲 GPU → 起 vLLM → **等就绪** → Stage 0 生成并冻结 batch →
-M1→M2→M3→M5→M4 → **无论成败都关掉 vLLM 释放显存**(EXIT trap)。
+M1→[explore]→M2→M3→M5→M4 → **无论成败都关掉 vLLM 释放显存**(EXIT trap)。
+
+`explore` 是 M1 之后、catalog M2 之前的一步自由探索(与 M2 同一个 coder,在
+sandbox 里对 **M1 的同一张 per-case 信号表** 写 pandas):产出
+`outputs/<model>/<dataset>/explore/{exploratory_report.json,tables/*.csv,figures/*.png}`
+给 dashboard,观察/图表作为**未确认线索**进 M3(决定提哪些假设)。它不改动
+M2 的工具目录与 e-BH,也不进 M5 / fix 门 —— 证据仍然只来自 M2。
 
 ```bash
 ./run_all.sh <model> <dataset> [n_cases]   # n_cases 省略 = 全量
@@ -140,6 +146,8 @@ M1→M2→M3→M5→M4 → **无论成败都关掉 vLLM 释放显存**(EXIT trap
 #   CONFIRM_ONLY=1    跳过 M1→M3:重用 logs/ 里上一轮的 M2 统计 + M3 假设,只跑
 #                     M5→M4→fix(要配 SKIP_STAGE0=1;日志写到 logs_confirm/,
 #                     摘要写到 summary_confirm.json,dashboard 会自动合并)
+#   EXPLORE=0         关掉 M1 之后的 explore 步(自由 EDA:csv 表 + 渲染图 +
+#                     给 M3 的未确认线索;默认开,见 config.yaml `explore`)
 #   GPU=3             指定显卡(默认自动挑第一张显存占用 <1GB 的)
 #   PORT=8021         换端口(默认 8020)
 #   WHITEBOX_PYTHON=  设了才会在主链路之后跑 Stage W(白盒 attention),
@@ -760,8 +768,16 @@ outputs/
     └── <dataset>/                 # supergpqa_law / minervamath / ...
         ├── cases.json             # Stage 0:冻结的带标签 batch + 生成统计
         ├── summary.json           # 一行式结果:假设数、确认数、调用数
+        ├── explore/               # explore 步(config `explore`):自由 EDA 的产物
+        │   ├── exploratory_report.json   # 观察 / 候选信号(recipe) / 图表 spec
+        │   ├── tables/*.csv       # coder 写出的统计表
+        │   ├── figures/*.png      # host 从 spec + csv 渲染的图(M3 看到的就是这些)
+        │   ├── analysis.py        # coder 生成的分析代码(可审计、可重跑)
+        │   └── sandbox/           # 该步的工作目录
         └── logs/                  # RunLogger:M1-M5 逐阶段轨迹
-            └── run_log.jsonl
+            ├── run_log.jsonl      # 含 `explore` 事件(计数 + 路径,描述性)
+            ├── artifacts/         # M2 统计结果 JSON(c0_m2_stats_results.json 等)
+            └── figures/m2_effects.png   # catalog M2 的森林图(effect ± CI)
 ```
 
 `cases.json` 顶层字段:

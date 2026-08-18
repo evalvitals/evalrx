@@ -316,8 +316,8 @@ runs/exp_01/
     └── c1_attention_attn_weights.npy     ← cycle 1 after data refocus
 ```
 
-Each line in `run_log.jsonl` contains `event` (one of `probe`, `analysis`,
-`diagnosis`, `surgery`, `loop_end`), `cycle`, `ts` (ISO-8601), a
+Each line in `run_log.jsonl` contains `event` (one of `probe`, `explore`,
+`analysis`, `diagnosis`, `surgery`, `loop_end`, …), `cycle`, `ts` (ISO-8601), a
 `schema_version` (int — bumps only on a breaking field rename/removal, so a
 parser doesn't need to guess from `evalvitals_version`), and stage-specific
 fields:
@@ -325,6 +325,7 @@ fields:
 | `event` | Key fields |
 |---|---|
 | `probe` | `analyzers`, `findings` (JSON), `artifact_paths` |
+| `explore` | (optional, `VLDiagnoseLoop(explorer=...)`) `ok`, `n_observations`/`n_charts`/`n_charts_rendered`/`n_tables`/`n_candidate_signals`, `observations`, `figures` (rendered PNGs M3 was shown), `out_dir`/`report_path` (`exploratory_report.json` + `tables/` + `figures/`). Descriptive only — the explorer's in-sample verdicts appear as counts under `adjudication`, never in the confirmatory M2 family |
 | `analysis` | `severity`, `findings` (human-readable), `narrative`, `stats_tool_results`/`stats_results`/`stats_plan`/`corrected_rejections` (externalized to `artifacts/` above 4 KB) |
 | `diagnosis` | `hypotheses`, `raw_judge_output` (full LLM response) |
 | `surgery` | `hypothesis`, `status`, `fixed`, `evidence`, `n_refocused_cases` |

@@ -16,6 +16,9 @@ CaseBatch (labeled FailureCases)
    ▼
 M1  ProbeAgent.probe(model, data)              → dict[str, Result]
    │
+   ├─(optional) ExploratoryAnalysisAgent.explore_records(per-case table)
+   │            → ExploreContext for M3 + explore/ files for the dashboard
+   │              (descriptive; never enters M2's family, M5, or the fix gate)
    ▼
 M2  AnalysisModule.analyze(results)            → AnalysisReport
     StatsAnalysisAgent.analyze(results, data)  → StatsAnalysisReport (superset)
@@ -54,6 +57,7 @@ then probes. See [m2_analysis.md](m2_analysis.md#probe-search--hierarchical-mcts
 | M2 (loop) | `AnalysisModule` | `analyze(results, model_name)` | `dict[str, Result]` | `AnalysisReport` |
 | M2 (loop, confirmatory) | `StatsAnalysisAgent` | `analyze(results, model_name, protocol=, data=)` | `dict[str, Result]` + `CaseBatch` | `StatsAnalysisReport` |
 | M2 (standalone) | `ExploratoryAnalysisAgent` | `explore_path(path, question=)` | file/dir path or in-memory records | `exploratory_report.json` dict (takeaways, charts) |
+| explore (loop, optional) | `ExploratoryAnalysisAgent` via `VLDiagnoseLoop(explorer=)` | `explore_records(records, question=, outcome_col="label")` | M1's per-case table (`build_stats_input` → `per_case_to_records`) — the same rows M2 sees | `ExploreContext` (observations / rendered charts / caveats) for M3; `explore/{exploratory_report.json,tables/,figures/}` on disk; an `explore` run-log event |
 | M3 (loop) | `DiagnosisAgent` | `diagnose(analysis, prior_cycles=, explore_context=, failure_modes=)` | `AnalysisReport` (or `StatsAnalysisReport`) | `DiagnosisResult` (`.hypotheses: list[Hypothesis]`) |
 | M3 (standalone) | `HypothesisAgent` | `propose(report_dict)` | M2's report dict | `list[Hypothesis]` |
 | M4 (verify) | `SurgeryAgent` | `operate(hypothesis, model, results, data)` | one `Hypothesis` + `dict[str, Result]` + `CaseBatch` | `InterventionResult` |

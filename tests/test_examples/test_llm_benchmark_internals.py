@@ -575,3 +575,33 @@ def test_load_prior_run_refuses_a_run_that_never_reached_m3(pipe, tmp_path):
         pipe.load_prior_run(logs)
     with pytest.raises(SystemExit, match="missing"):
         pipe.load_prior_run(tmp_path / "nowhere")
+
+
+# ── the in-cycle explore step is wired beside M2, and can be switched off ────
+
+def test_build_explorer_honours_the_config_switch(pipe, tmp_path, monkeypatch):
+    """`explore: false` (or --no-explore / EXPLORE=0) must leave the loop exactly
+    as before — no explorer, no explore/ dir, no extra coder call."""
+    codegen = pipe.build_codegen("claude")
+    monkeypatch.setitem(pipe.CFG, "explore", False)
+    assert pipe.build_explorer(codegen, tmp_path) is None
+    assert not (tmp_path / "explore").exists()
+
+
+def test_build_explorer_uses_the_m2_coder_and_a_durable_sandbox_under_the_run(pipe, tmp_path, monkeypatch):
+    from evalvitals.analysis import ExploratoryAnalysisAgent
+
+    codegen = pipe.build_codegen("claude")
+    monkeypatch.setitem(pipe.CFG, "explore", True)
+    monkeypatch.setitem(pipe.CFG, "explore_timeout_sec", 123)
+    monkeypatch.setitem(pipe.CFG, "explore_max_attempts", 3)
+    explorer = pipe.build_explorer(codegen, tmp_path)
+    assert isinstance(explorer, ExploratoryAnalysisAgent)
+    # same backend/model as M2's tool codegen (bundled figure skills may be
+    # added on top — that is the explorer's own default, not a different coder)
+    cfg = explorer._cli_config
+    assert cfg.provider == codegen.provider and cfg.model == codegen.model
+    assert explorer._timeout_sec == 123 and explorer._max_attempts == 3
+    # the sandbox lives under <run>/explore/sandbox so analysis.py/tables survive
+    assert Path(explorer._sandbox.workdir).resolve() == (tmp_path / "explore" / "sandbox").resolve()
+    assert explorer._sandbox._cleanup is False
