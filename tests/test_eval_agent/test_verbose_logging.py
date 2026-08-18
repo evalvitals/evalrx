@@ -110,8 +110,23 @@ def test_m2_line_still_renders_the_inline_shape():
         "corrected_rejections": {"rejected_tools": ["mcnemar"]},
     })
     assert "['mcnemar', 'bootstrap']" in out
-    assert "fdr_survive: ['mcnemar']" in out
+    assert "fdr_survive: 1: ['mcnemar']" in out
     assert "stats_tool : mcnemar - p=0.01" in out
+
+
+def test_fdr_survive_lists_results_not_tool_names():
+    """42 signal_label_assoc tests collapsed to the one word 'signal_label_assoc'."""
+    out = _format_payload({
+        "event": "analysis", "cycle": 0, "severity": "low", "conclusion": "c",
+        "corrected_rejections": {
+            "n_tested": 42,
+            "rejected_tools": ["signal_label_assoc"],
+            "rejected_result_keys": ["signal_label_assoc:probe1.dropped",
+                                     "signal_label_assoc:self_repair.changed_answer"],
+        },
+    })
+    assert "fdr_survive: 2 of 42: ['signal_label_assoc:probe1.dropped'" in out
+    assert "['signal_label_assoc']" not in out
 
 
 def test_a_plan_entry_missing_its_tool_key_does_not_raise():

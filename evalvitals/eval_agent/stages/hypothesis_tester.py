@@ -317,16 +317,27 @@ class HypothesisTester:
     ) -> dict[str, Any]:
         """Derive a verdict from M2's effect-sized, FDR-aware tool results."""
         corrected = getattr(stats_report, "corrected_rejections", None) or {}
-        fdr_rejected = set(corrected.get("rejected_tools", []))
+        fdr_rejected_keys = set(corrected.get("rejected_result_keys") or [])
 
         def _decisive(r: "StatsToolResult") -> bool:
-            # A result decides direction only if it rejected H0.  When the tool
-            # produced an e-value, the e-BH FDR correction is the authority;
-            # CI-only tools (no e-value) use their own reject flag.
+            # A result decides direction only if it rejected H0 AFTER multiplicity
+            # correction. correct_results() files every p- or e-valued result into
+            # a BH / e-BH family and writes the family's verdict to fdr_corrected;
+            # `reject` is deliberately left raw for BH members (loop evidence, see
+            # multiplicity.py), so reading it here was the defect: on
+            # qwen3.5-2b/bbh_word_sorting a signal with p=0.14 over n_signal=3
+            # "supported" a hypothesis because a bootstrap CI over three cases
+            # cannot straddle zero. Per result, not per tool name — every
+            # signal_label_assoc test shares one name, so a tool-level set said
+            # "rejected" for all of them once any one survived.
             if not r.reject:
                 return False
+            if r.correction_method:
+                return bool(r.fdr_corrected)
             if r.e_value is not None:
-                return r.tool in fdr_rejected
+                # e-valued but never corrected (deferred report): only the
+                # report's own survivor list can vouch for it.
+                return bool(r.analysis_key) and r.analysis_key in fdr_rejected_keys
             return True
 
         relevant, global_res, routed_by = self._select_results(hypothesis, stats_results)
@@ -371,10 +382,16 @@ class HypothesisTester:
         confidence = _confidence_from_stat(
             chosen.effect, chosen.ci, chosen.e_value, chosen.underpowered, self.alpha
         )
+        # summary is baked at tool-run time, before correction, so it can still
+        # say "REJECT H0" on a result BH killed; carry the family verdict along.
+        from evalvitals.analysis.stats_agent import _multiplicity_note
+
+        note = _multiplicity_note(chosen).strip()
+        note = f" {note}" if note else ""
         if status == HypothesisStatus.INCONCLUSIVE:
-            verdict = f"No significant M2 result (best: {chosen.summary})"
+            verdict = f"No significant M2 result (best: {chosen.summary}{note})"
         else:
-            verdict = f"{chosen.tool}: {chosen.summary}"
+            verdict = f"{chosen.tool}: {chosen.summary}{note}"
 
         evidence = {
             "source": "m2_stats_results",

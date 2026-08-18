@@ -264,8 +264,14 @@ class _VerboseFormatter(logging.Formatter):
             elif stats_plan:
                 lines.append(f"     stats_tools: {[s.get('tool') for s in stats_plan]}")
             corrected = p.get("corrected_rejections") or {}
-            if isinstance(corrected, dict) and corrected.get("rejected_tools"):
-                lines.append(f"     fdr_survive: {corrected['rejected_tools']}")
+            if isinstance(corrected, dict):
+                # Per result, not per tool: every signal_label_assoc test shares
+                # one tool name, so the tool list read "survived" for all of them.
+                survivors = corrected.get("rejected_result_keys") or corrected.get("rejected_tools")
+                if survivors:
+                    n_tested = corrected.get("n_tested")
+                    tested = f" of {n_tested}" if n_tested else ""
+                    lines.append(f"     fdr_survive: {len(survivors)}{tested}: {survivors}")
             tool_results = p.get("stats_tool_results") or []
             if isinstance(tool_results, dict):
                 lines.append(f"     stats_tool : {_externalized(tool_results)}")
