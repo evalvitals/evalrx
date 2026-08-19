@@ -675,3 +675,123 @@ def test_run_fix_without_verified_uses_unverified_leads_and_says_so():
     agent = FixAgent(judge=judge, max_tier="L1")
     agent.propose_and_validate(CountingModel(), _mc_batch(), stub.hypotheses, context=stub.context)
     assert "UNVERIFIED: M5 found no statistically significant evidence" in judge.prompts[-1]
+
+
+# ── coded-pipeline bridge: concurrent, request-id tagged ─────────────────────
+
+
+class EchoPromptModel(Model):
+    """Replies with the prompt it was asked, after a short sleep: a threaded
+    pipeline whose replies were mis-routed would get another case's text."""
+
+    capabilities = frozenset({Capability.GENERATE})
+    modalities = frozenset({"text"})
+
+    def __init__(self, delay: float = 0.15) -> None:
+        self.delay = delay
+        self.n_truncated = 0
+        self._lock = __import__("threading").Lock()
+        self.max_in_flight = 0
+        self._in_flight = 0
+
+    def generate(self, inputs, **kwargs):
+        import time as _t
+        with self._lock:
+            self._in_flight += 1
+            self.max_in_flight = max(self.max_in_flight, self._in_flight)
+        _t.sleep(self.delay)
+        with self._lock:
+            self._in_flight -= 1
+        return "echo:" + str(inputs.prompt)
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+_THREADED_PIPELINE = """
+import json
+from concurrent.futures import ThreadPoolExecutor
+cases = json.load(open("fix_cases.json"))["cases"]
+def solve(c):
+    outs = [model_generate(c["id"], prompt="P-%s-%d" % (c["id"], k)) for k in range(3)]
+    return {"sample_id": c["id"], "output": "|".join(outs)}
+with ThreadPoolExecutor(max_workers=8) as ex:
+    res = list(ex.map(solve, cases))
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": res}))
+"""
+
+
+@pytest.mark.parametrize("concurrency", [1, 6])
+def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
+    """Eight sandbox threads in flight: every reply must land in the thread
+    that asked for it (old bridge: whichever thread read stdin next got it),
+    and with concurrency>1 the host really services calls in parallel."""
+    import time as _t
+
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    model = EchoPromptModel(delay=0.15)
+    batch = _mc_batch(n_fail=6, n_pass=6)
+    t0 = _t.monotonic()
+    result = run_coded_pipeline(_THREADED_PIPELINE, model, batch, workdir=tmp_path,
+                                timeout_sec=60, concurrency=concurrency)
+    elapsed = _t.monotonic() - t0
+    assert result.ok, result.error
+    assert result.n_calls == 36
+    for case in batch:
+        assert result.outputs[case.id] == "|".join(
+            f"echo:P-{case.id}-{k}" for k in range(3)), result.outputs[case.id]
+    if concurrency > 1:
+        assert model.max_in_flight > 1
+        assert elapsed < 36 * 0.15            # parallel: well under the serial sum
+    else:
+        assert model.max_in_flight == 1       # serial host: arrival order
+
+
+def test_bridge_reply_carries_rid_and_errors_route_to_the_caller(tmp_path):
+    """An unknown case id errors in the calling thread only; the other
+    thread's call still succeeds (replies are routed by id, not by order)."""
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    code = """
+import json
+from concurrent.futures import ThreadPoolExecutor
+cases = json.load(open("fix_cases.json"))["cases"]
+def bad(_):
+    try:
+        model_generate("no-such-case", prompt="x")
+        return "no error"
+    except RuntimeError as e:
+        return "err:" + str(e)
+def good(c):
+    return model_generate(c["id"], prompt="ok-" + c["id"])
+with ThreadPoolExecutor(max_workers=2) as ex:
+    fb = ex.submit(bad, None); fg = ex.submit(good, cases[0])
+    b, g = fb.result(), fg.result()
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": [
+    {"sample_id": cases[0]["id"], "output": g + "//" + b}]}))
+"""
+    batch = _mc_batch(n_fail=1, n_pass=0)
+    result = run_coded_pipeline(code, EchoPromptModel(delay=0.05), batch,
+                                workdir=tmp_path, timeout_sec=30, concurrency=4)
+    assert result.ok, result.error
+    out = result.outputs[batch[0].id]
+    assert out.startswith(f"echo:ok-{batch[0].id}//err:")
+    assert "unknown case_id" in out
+
+
+def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
+    from evalvitals.eval_agent.stages import fix_agent as fa
+    from evalvitals.eval_agent.stages.fix_pipeline import CodedPipelineResult
+
+    seen = {}
+
+    def fake_run(code, model, data, **kw):
+        seen.update(kw)
+        return CodedPipelineResult(outputs={c.id: "Answer: (B)" for c in data}, ok=True)
+
+    monkeypatch.setattr(fa, "run_coded_pipeline", fake_run)
+    agent = FixAgent(judge=ScriptedJudge("[]"), max_tier="L2", concurrency=5)
+    cand = fa.FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded", payload={"code": "x"})
+    agent._run_coded(cand, CountingModel(), _mc_batch())
+    assert seen["concurrency"] == 5

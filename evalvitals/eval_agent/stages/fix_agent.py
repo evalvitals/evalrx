@@ -580,9 +580,9 @@ class FixAgent:
                           floor is enforced. Both values are also shown to the
                           proposer.
         concurrency:      Threads used to run a declarative candidate over
-                          the validation batch (default 1 = serial, unchanged
-                          behaviour). Coded pipelines are inherently serial
-                          (one bridge) and unaffected.
+                          the validation batch, and how many bridged model
+                          calls the coded-pipeline host services at once
+                          (default 1 = serial, unchanged behaviour).
         scoring_note:     Free-text description of how outputs are scored /
                           the expected final-answer format, shown to the
                           proposer (a per-call ``FixContext.scoring_note``
@@ -2981,6 +2981,7 @@ class FixAgent:
             timeout_sec=self._exec_timeout_sec,
             enable_attend=bool(candidate.payload.get("enable_attend")),
             max_tokens_floor=self._max_tokens_floor,
+            concurrency=self._concurrency,
         )
         if not result.ok and self.codegen_available:
             logger.warning("FixAgent: coded pipeline failed (%s) — one repair round", result.error)
@@ -3004,6 +3005,7 @@ class FixAgent:
                     timeout_sec=self._exec_timeout_sec,
                     enable_attend=bool(candidate.payload.get("enable_attend")),
                     max_tokens_floor=self._max_tokens_floor,
+                    concurrency=self._concurrency,
                 )
         candidate.payload["exec_error"] = "" if result.ok else result.error
         if not result.ok:

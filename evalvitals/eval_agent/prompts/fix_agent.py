@@ -84,6 +84,10 @@ EXECUTION CONTRACT:
 - You may call the model SEVERAL times per case (budget ~6 calls/case) and
   branch on its outputs — e.g. ask where the finding could be, zoom there,
   re-ask; describe first, then decide; vote over variants.
+- model_generate is thread-safe and concurrent calls are serviced in
+  parallel: fan out over cases with concurrent.futures.ThreadPoolExecutor
+  (max_workers=8) — a serial loop over every case x several calls is slow and
+  risks the wall-clock limit.
 - The LAST line of stdout MUST be exactly:
   {marker}{{"per_case": [{{"sample_id": "<case id>", "output": "<final answer text>"}}]}}
 - Emit an entry for EVERY case.  The "output" is scored externally against the

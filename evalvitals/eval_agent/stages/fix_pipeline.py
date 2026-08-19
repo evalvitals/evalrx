@@ -11,10 +11,13 @@ collect-then-compute split does not apply.  Instead:
 * The generated code runs in a **sandbox subprocess** (never sees the repo,
   the weights, or the scoring rubric).
 * Model access goes through a **bridge**: the injected ``model_generate()``
-  helper writes a ``@@MODEL_CALL@@{json}`` line to stdout and reads the reply
-  from stdin; the host services each call (applies catalog image tools to the
-  case's image, runs ``model.generate``) under a per-session call budget and
-  wall-clock deadline.
+  helper writes a ``@@MODEL_CALL@@{json}`` line to stdout and waits for the
+  reply on stdin; the host services each call (applies catalog image tools to
+  the case's image, runs ``model.generate``) under a per-session call budget
+  and wall-clock deadline.  Requests carry a ``rid`` echoed by the reply, so
+  the sandbox helper is thread-safe and the host can service several calls at
+  once (``concurrency=``) — a pipeline that fans out over cases with a thread
+  pool really runs in parallel.
 * The script's final ``FIX_PIPELINE_RESULT_JSON=`` line carries per-case final
   answers; **scoring stays host-side** — the case payload shipped to the
   sandbox contains only ``id``, ``prompt`` and the model's own
@@ -30,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
@@ -50,26 +54,70 @@ RESULT_MARKER = "FIX_PIPELINE_RESULT_JSON="
 _PRELUDE = '''\
 import json as _json
 import sys as _sys
+import threading as _threading
+import itertools as _itertools
+
+# Bridge plumbing — request-id tagged so that CONCURRENT callers (threads) each
+# get their own reply.  One reader thread owns stdin and routes replies by id.
+_bridge_lock = _threading.Lock()
+_bridge_pending = {{}}
+_bridge_ids = _itertools.count(1)
+_bridge_reader = []
+
+
+def _bridge_read_loop():
+    while True:
+        line = _sys.stdin.readline()
+        if not line:
+            with _bridge_lock:
+                for slot in _bridge_pending.values():
+                    slot[1] = {{"error": "model bridge closed"}}
+                    slot[0].set()
+            return
+        try:
+            resp = _json.loads(line)
+        except Exception:
+            continue
+        with _bridge_lock:
+            slot = _bridge_pending.get(resp.get("rid"))
+        if slot is not None:
+            slot[1] = resp
+            slot[0].set()
+
+
+def _bridge_call(payload):
+    rid = next(_bridge_ids)
+    done = _threading.Event()
+    payload["rid"] = rid
+    with _bridge_lock:
+        if not _bridge_reader:
+            t = _threading.Thread(target=_bridge_read_loop, daemon=True)
+            t.start()
+            _bridge_reader.append(t)
+        _bridge_pending[rid] = [done, None]
+        _sys.stdout.write("{call_marker}" + _json.dumps(payload) + "\\n")
+        _sys.stdout.flush()
+    done.wait()
+    with _bridge_lock:
+        resp = _bridge_pending.pop(rid)[1] or {{"error": "model bridge closed"}}
+    if resp.get("error"):
+        raise RuntimeError(resp["error"])
+    return resp
 
 
 def model_generate(case_id, prompt=None, image_ops=None, generation_kwargs=None):
     """Call the original model on one case (host-mediated bridge).
 
+    Thread-safe: concurrent calls (e.g. from a ThreadPoolExecutor over cases)
+    are serviced in parallel by the host.
+
     generation_kwargs: optional bounded decoding controls
     ({{"max_tokens", "temperature", "top_p", "stop"}}); anything else is
     dropped host-side, and max_tokens can only RAISE the baseline budget.
     """
-    _sys.stdout.write("{call_marker}" + _json.dumps(
+    return _bridge_call(
         {{"case_id": case_id, "prompt": prompt, "image_ops": image_ops or [],
-          "generation_kwargs": generation_kwargs or {{}}}}) + "\\n")
-    _sys.stdout.flush()
-    line = _sys.stdin.readline()
-    if not line:
-        raise RuntimeError("model bridge closed")
-    resp = _json.loads(line)
-    if resp.get("error"):
-        raise RuntimeError(resp["error"])
-    return resp.get("output", "")
+          "generation_kwargs": generation_kwargs or {{}}}}).get("output", "")
 
 
 def model_attend(case_id, prompt=None):
@@ -78,19 +126,9 @@ def model_attend(case_id, prompt=None):
     Returns {{"grid": [[float, ...], ...], "shape": [H, W]}} — only available
     when the fix tier allows internals read (L3a+) on a white-box model.
     """
-    _sys.stdout.write("{call_marker}" + _json.dumps(
-        {{"op": "attend", "case_id": case_id, "prompt": prompt}}) + "\\n")
-    _sys.stdout.flush()
-    line = _sys.stdin.readline()
-    if not line:
-        raise RuntimeError("model bridge closed")
-    resp = _json.loads(line)
-    if resp.get("error"):
-        raise RuntimeError(resp["error"])
-    return resp
+    return _bridge_call({{"op": "attend", "case_id": case_id, "prompt": prompt}})
 
 '''
-
 
 def cases_payload(cases: "CaseBatch") -> "dict[str, Any]":
     """Serialise cases for the sandbox: id, prompt and the model's ORIGINAL
@@ -134,6 +172,7 @@ def run_coded_pipeline(
     enable_attend: bool = False,
     reply_fn: "Callable[[Any, str], str] | None" = None,
     max_tokens_floor: "int | None" = None,
+    concurrency: int = 1,
 ) -> CodedPipelineResult:
     """Execute agent-written pipeline *code* with bridged model access.
 
@@ -141,6 +180,14 @@ def run_coded_pipeline(
     every bridge call is serviced here (image tools applied host-side, model
     invoked host-side).  Returns the per-case final answers for host-side
     scoring.
+
+    ``concurrency``: how many bridged calls the host services at once. Every
+    request carries a ``rid`` and the reply echoes it, so the sandbox side is
+    thread-safe — generated code that fans out over cases with a thread pool
+    really runs in parallel (with ``concurrency=1`` calls are serviced strictly
+    in arrival order, the old behaviour). Without the ids a threaded pipeline
+    silently read each other's replies: the reply to case A's prompt could
+    land in case B's vote.
 
     ``reply_fn(case, prompt) -> str``, when given, answers every bridged call
     instead of the model (which is then never touched) — the hook
@@ -203,6 +250,31 @@ def run_coded_pipeline(
 
     result_line: "str | None" = None
     unmarked_tail: "list[str]" = []  # fallback: last non-marker stdout lines
+    stdin_lock = threading.Lock()
+    pool = (ThreadPoolExecutor(max_workers=max(1, int(concurrency)))
+            if int(concurrency) > 1 else None)
+
+    def _rid_of(raw: str) -> "Any":
+        try:
+            return json.loads(raw).get("rid")
+        except Exception:
+            return None
+
+    def _send(reply: "dict[str, Any]") -> bool:
+        with stdin_lock:
+            try:
+                proc.stdin.write(json.dumps(reply) + "\n")  # type: ignore[union-attr]
+                proc.stdin.flush()  # type: ignore[union-attr]
+                return True
+            except (BrokenPipeError, OSError, ValueError):
+                return False
+
+    def _serve(raw: str) -> None:
+        reply = _service_call(raw, case_by_id, model, Inputs, enable_attend,
+                              reply_fn, max_tokens_floor=max_tokens_floor)
+        reply["rid"] = _rid_of(raw)
+        _send(reply)
+
     try:
         for line in proc.stdout:  # type: ignore[union-attr]
             stripped = line.strip()
@@ -212,14 +284,16 @@ def run_coded_pipeline(
                     res.error = f"model-call budget exhausted ({budget} calls)"
                     proc.kill()
                     break
-                reply = _service_call(stripped[len(CALL_MARKER):], case_by_id,
-                                      model, Inputs, enable_attend, reply_fn,
-                                      max_tokens_floor=max_tokens_floor)
-                try:
-                    proc.stdin.write(json.dumps(reply) + "\n")  # type: ignore[union-attr]
-                    proc.stdin.flush()  # type: ignore[union-attr]
-                except (BrokenPipeError, OSError):
-                    break
+                raw = stripped[len(CALL_MARKER):]
+                if pool is not None:
+                    pool.submit(_serve, raw)
+                else:
+                    reply = _service_call(raw, case_by_id, model, Inputs,
+                                          enable_attend, reply_fn,
+                                          max_tokens_floor=max_tokens_floor)
+                    reply["rid"] = _rid_of(raw)
+                    if not _send(reply):
+                        break
             elif stripped.startswith(RESULT_MARKER):
                 result_line = stripped[len(RESULT_MARKER):]
             elif stripped:
@@ -231,6 +305,10 @@ def run_coded_pipeline(
         proc.kill()
     finally:
         watchdog.cancel()
+        if pool is not None:
+            # In-flight model calls finish on their own (the reply is dropped
+            # on a closed pipe); queued ones are cancelled.
+            pool.shutdown(wait=False, cancel_futures=True)
 
     if result_line is None and not timed_out.is_set():
         # A judge-written pipeline sometimes gets the JSON payload right but
