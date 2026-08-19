@@ -480,9 +480,16 @@ def label_leak_score(sigmap: dict[str, float], labels: dict[str, bool]) -> dict[
 #: stay; strategy outcomes are compared PAIRED through ``groups``.
 #: Matched on the metric name (the part after the analyzer prefix).
 OUTCOME_REGRADE_METRICS: frozenset = frozenset({
-    "gold_in_output", "gold_in_answer_region", "strict_match",
-    "answer_correct", "baseline_correct", "revised_correct", "decomposed_correct",
-    "own_facts_correct", "majority_correct", "any_correct", "pass_at_k",
+    # the baseline answer re-graded
+    "gold_in_output", "gold_in_answer_region", "strict_match", "answer_correct",
+    "baseline_correct", "final_correct", "is_correct",
+    # an intervention arm's answer graded (same item, same model: the
+    # association with the label is the baseline's; the arm's VALUE is the
+    # analyzer's gain scalar / derived flag, or a paired test)
+    "revised_correct", "decomposed_correct", "own_facts_correct",
+    "open_book_correct", "direct_correct", "reask_correct", "verify_correct",
+    "continuation_correct", "told_correct",
+    "majority_correct", "any_correct", "pass_at_k",
 })
 
 
