@@ -428,10 +428,15 @@ def build_protocol(dataset: str):
     )
 
 
-def build_judge(model_name: str, effort: str):
+def build_judge(model_name: str, effort: str, timeout_sec: int = 240):
+    """The judge CLI wrapper. ``timeout_sec`` bounds ONE judge call: M2's
+    prompt over 10+ analyzers with a high-effort opus can exceed the wrapper's
+    240 s default (bbh_causal_judgement 2026-08-18: M2 fell back to the
+    threshold narrative on a 240 s timeout), so config ``judge_timeout_sec``
+    raises it."""
     from evalvitals.eval_agent import ClaudeModel
 
-    judge = ClaudeModel(model=model_name, effort=effort)
+    judge = ClaudeModel(model=model_name, effort=effort, timeout_sec=int(timeout_sec))
     if not judge.generate("Reply with exactly the word OK").strip():
         raise SystemExit(
             f"judge probe: claude --model {model_name} returned empty "
@@ -797,7 +802,8 @@ def main() -> None:
                           logprobs_mode=str(CFG.get("logprobs_mode", "answer")),
                           logprobs_max_tokens=int(CFG.get("logprobs_max_tokens", 64)),
                           logprobs_top_k=int(CFG.get("logprobs_top_k", 5)))
-    judge = build_judge(args.judge_model, args.judge_effort)
+    judge = build_judge(args.judge_model, args.judge_effort,
+                        timeout_sec=int(CFG.get("judge_timeout_sec", 240)))
     codegen = build_codegen(args.backend)
     # A confirm-only pass never runs M1/M3, so there is nothing to explore —
     # but the analysis run's explore report is still useful to the fix

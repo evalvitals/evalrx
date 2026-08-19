@@ -73,6 +73,10 @@ codegen_effort: high
 # which costs far more than the difference.
 codegen_budget_usd: 25.0
 codegen_timeout_sec: 1800
+judge_timeout_sec: 600      # ONE judge call (M2 narrative, M3, M5, fix proposals). The wrapper's 240 s
+                            # default was exceeded by M2's 11-analyzer prompt at opus/high on
+                            # bbh_causal_judgement (2026-08-18) -> silent fallback to the threshold
+                            # narrative. 600 s is still a bound, not an invitation to hang.
 
 # In-cycle explore step: a free-form EDA pass (the same coder as M2 codegen,
 # writing pandas in a sandbox) over the SAME per-case table the catalog M2
