@@ -460,3 +460,17 @@ def test_expected_sign_parser_cases():
 def test_diagnosis_prompt_asks_for_the_direction():
     from evalvitals.eval_agent.prompts.diagnosis import _DIAGNOSE_PROMPT
     assert "HIGHER or LOWER on failing cases" in _DIAGNOSE_PROMPT
+
+
+def test_an_outcome_regrade_cannot_be_m5_evidence_even_from_an_old_m2():
+    """h3 on minervamath named `gold_in_answer_region` = 0; the old M2 results
+    still carry that column (84% label copy). It must not decide the verdict
+    in either direction — the design is unmet, not refuted / supported."""
+    h = _hyp("A minority of FAILs are last-step target errors",
+             design="subgroup on `answer_extraction_audit.gold_in_output == 1 & "
+                    "gold_in_answer_region == 0`, then a targeted re-ask")
+    tr = HypothesisTester().test(
+        [h], _signed_report("answer_extraction_audit.gold_in_answer_region", -0.63),
+        _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.INCONCLUSIVE
+    assert tr.evidence["routed_by"] == "test_design_unmet"

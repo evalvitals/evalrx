@@ -345,6 +345,14 @@ class HypothesisTester:
                 return bool(r.analysis_key) and r.analysis_key in fdr_rejected_keys
             return True
 
+        # Outcome re-grades ("is the answer correct" by an analyzer's own
+        # matcher) are tautological evidence in either direction; M2 isolates
+        # them to the sanity lane since 2026-08-19, but a confirm-only run
+        # reloads an older M2's results, so they are dropped here as well.
+        from evalvitals.analysis.stats_tools import _is_outcome_regrade
+
+        stats_results = [r for r in stats_results
+                         if not _is_outcome_regrade(_tool_signal(r))]
         relevant, global_res, routed_by = self._select_results(hypothesis, stats_results)
         decisive = [r for r in relevant if (r.effect or 0.0) != 0 and _decisive(r)]
         # A signal's effect > 0 means "the signal group fails MORE". Whether that
