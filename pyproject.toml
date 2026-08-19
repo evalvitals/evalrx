@@ -56,6 +56,9 @@ data = [
     "datasets>=2.0",
     "pillow>=9.0",
 ]
+# Machine-readable M1-M5 stage contract (evalvitals.contract): runtime validation
+# of what crosses each stage boundary + JSON Schema / TypeScript generation.
+contract = ["pydantic>=2.7"]
 viz = ["matplotlib>=3.7"]
 # Inferential stats for the outcome-driver-analysis agent skill's Python path
 # (logistic/GLM fits with real inference, VIF, calibration, ROC).
