@@ -141,11 +141,17 @@ class AnswerExtractionAudit(Analyzer):
         from evalvitals.core.case import Label
 
         text = case.observed
+        truncated = looks_truncated(text)
+        finish_reason = (getattr(case, "metadata", {}) or {}).get("finish_reason")
+        if finish_reason == "stop":
+            truncated = False
+        elif finish_reason == "length":
+            truncated = True
         entry: dict[str, Any] = {
             "sample_id": case.id,
             "has_output": int(bool(str(text or "").strip())),
             "has_answer_tag": int(has_answer_tag(text)),
-            "output_truncated": int(looks_truncated(text)),
+            "output_truncated": int(truncated),
             "gave_up": int(looks_like_give_up(text)),
             "output_chars": len(str(text or "")),
         }

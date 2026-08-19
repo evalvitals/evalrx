@@ -13,6 +13,7 @@ from pathlib import Path
 
 from evalvitals.analysis.explorer import _skills_hint
 from evalvitals.eval_agent.cli_agent import (
+    AntigravityAgent,
     ClaudeCodeAgent,
     CliAgentConfig,
     create_cli_agent,
@@ -80,6 +81,12 @@ def test_claude_cmd_adds_skill_tool_only_when_enabled(tmp_path):
     allowed = withskill[withskill.index("--allowed-tools") + 1]
     assert "Skill" in allowed
     assert "Bash" in allowed and "Write" in allowed  # base tools preserved
+
+
+def test_antigravity_codegen_is_always_filesystem_sandboxed(tmp_path):
+    cmd = AntigravityAgent(binary_path="agy")._build_cmd("write pipeline.py", tmp_path)
+    assert "--sandbox" in cmd
+    assert cmd[cmd.index("--add-dir") + 1] == str(tmp_path)
 
 
 def test_create_cli_agent_threads_skills():

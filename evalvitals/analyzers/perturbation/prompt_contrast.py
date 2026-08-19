@@ -97,6 +97,10 @@ def _default_score(case: "FailureCase", observed: str) -> Optional[bool]:
     expected = getattr(case, "expected", None)
     if expected is None:
         return None
+    if isinstance(expected, (list, tuple, set, frozenset)):
+        from evalvitals.analyzers.reasoning._text import default_grader
+
+        return default_grader(observed, case)
     text = re.sub(r"\s+", " ", str(observed).lower())
     if isinstance(expected, dict):
         if any(_word_in(t, text) for t in expected.get("none_of", [])):

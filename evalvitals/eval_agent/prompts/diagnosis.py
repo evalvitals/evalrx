@@ -13,7 +13,7 @@ Analysis conclusion (the analyst's interpretation):
 Raw findings (JSON):
 {findings_json}
 
-{available_signals_section}Propose 1-3 hypotheses. For each write exactly three lines:
+{available_signals_section}Propose 1-3 hypotheses. For each write exactly four lines:
 HYPOTHESIS: <one-sentence falsifiable claim about the failure mode>
 FAILURE_MODE: <short snake_case tag naming the MECHANISM, not the symptom.
   Vision/agent: attention_sink / hallucination / loop / ignored_obs / language_prior_bias
@@ -26,6 +26,11 @@ TEST: <which evidence verifies this claim — name a signal/analyzer from the
 available evidence list when one fits (e.g. "relative_attention.max_relative_weight"
 or "prompt_contrast describe_first contrast"); otherwise describe the analyzer
 or intervention that should be run next cycle>
+EXPECTED_ASSOCIATION: <higher_on_failures if larger/present values of the named
+signal support the hypothesis, or lower_on_failures if smaller/absent values
+support it. Pre-register this direction from the claim; do not infer it from an
+observed effect. For an intervention expected to repair failures, use
+higher_on_failures for a fixed_by_* signal.>
 
 Base your hypotheses on the analysis conclusion and evidence above — an analyzer
 can surface a real failure mode even when no numeric threshold fired, so do NOT

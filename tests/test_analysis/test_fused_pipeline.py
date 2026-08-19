@@ -248,22 +248,23 @@ def test_label_restatements_are_dropped_from_the_plan():
     from evalvitals.analysis.planner import label_restating_signals, plan_stats_input
 
     inp = _observed_shape()
-    assert label_restating_signals(inp) == [
+    assert set(label_restating_signals(inp)) == {
+        "answer_extraction_audit.extraction_suspect",
         "answer_extraction_audit.labelled_fail",
         "calibration.correct",
         "self_repair.revised_correct",
-    ]
+    }
     planned = {item.config.get("signal") for item in plan_stats_input(inp)}
     assert "answer_extraction_audit.labelled_fail" not in planned
     assert "calibration.correct" not in planned
 
 
-def test_a_perfect_conditional_rate_is_not_enough_to_drop_a_signal():
-    """extraction_suspect had P(FAIL | signal) = 1.000 and is a REAL finding.
+def test_sparse_gold_derived_extraction_flag_is_descriptive_only():
+    """``extraction_suspect`` includes FAIL and gold in its own definition.
 
-    Screening on the conditional would have discarded the one signal in that run
-    worth keeping. What separates it is that it says nothing about the other 30
-    cases: agreement with the label is 0.56, not 1.0.
+    Low whole-batch agreement does not make testing it against FAIL valid:
+    ``P(FAIL | signal)=1`` is guaranteed by construction. Keep the finding in
+    the analyzer report, but never put it in the confirmatory family.
     """
     from evalvitals.analysis.planner import plan_stats_input, restates_label
 
@@ -271,6 +272,21 @@ def test_a_perfect_conditional_rate_is_not_enough_to_drop_a_signal():
     sig = "answer_extraction_audit.extraction_suspect"
     fails_when_set = [k for k, v in inp.per_case[sig].items() if v and inp.labels[k]]
     assert len(fails_when_set) == 2, "every case with the signal set does fail"
+    assert restates_label(inp, sig)
+    assert sig not in {item.config.get("signal") for item in plan_stats_input(inp)}
+
+
+def test_sparse_independent_flag_with_perfect_conditional_rate_is_kept():
+    """An independently measured sparse signal must not be removed by rate alone."""
+    from evalvitals.analysis.planner import plan_stats_input, restates_label
+
+    inp = _observed_shape()
+    sig = "vision.small_object_flag"
+    inp.per_case[sig] = {
+        case_id: (1.0 if case_id in ("c0", "c1") else 0.0)
+        for case_id in inp.labels
+    }
+
     assert not restates_label(inp, sig)
     assert sig in {item.config.get("signal") for item in plan_stats_input(inp)}
 

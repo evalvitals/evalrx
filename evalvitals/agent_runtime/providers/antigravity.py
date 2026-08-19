@@ -17,6 +17,10 @@ class AntigravityAgent(CliAgentBase):
             self._binary,
             "-p",
             prompt,
+            # Limit terminal/file access to the explicitly added workdir. A
+            # repair author must never inspect benchmark manifests, gold labels,
+            # or confirmation outputs while selecting a candidate.
+            "--sandbox",
             "--dangerously-skip-permissions",
             "--add-dir",
             str(workdir),

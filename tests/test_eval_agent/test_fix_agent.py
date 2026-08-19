@@ -21,7 +21,7 @@ from evalvitals.eval_agent import (
     route_min_tier,
 )
 from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.stages.fix_agent import FixCandidate
+from evalvitals.eval_agent.stages.fix_agent import FixCandidate, FixValidation
 
 # ── tiers ─────────────────────────────────────────────────────────────────────
 
@@ -324,6 +324,23 @@ def test_pipeline_passes_bounded_generation_kwargs():
     assert spec is not None
     assert spec.generation_kwargs == {"max_tokens": 512}
     assert run_pipeline(DecodeBudgetModel(), case, spec, _label_score) is True
+
+
+def test_pipeline_normalizes_zero_temperature_and_empty_stop():
+    from evalvitals.eval_agent.stages.fix_tools import PipelineSpec
+
+    greedy = PipelineSpec.from_dict({
+        "name": "greedy",
+        "generation_kwargs": {"temperature": 0.0, "stop": []},
+    })
+    sampled = PipelineSpec.from_dict({
+        "name": "sampled",
+        "generation_kwargs": {"temperature": 0.7, "stop": ["DONE"]},
+    })
+    assert greedy is not None and greedy.generation_kwargs == {"do_sample": False}
+    assert sampled is not None and sampled.generation_kwargs == {
+        "temperature": 0.7, "do_sample": True, "stop": ["DONE"]
+    }
 
 
 def test_pipeline_self_refine_is_a_label_blind_reviewed_multicall_strategy():
@@ -770,6 +787,46 @@ def test_l1_judge_candidate_validates_and_fixes():
     # max_tier=L1 -> no L2 candidates were attempted
     assert all(v.candidate.tier is FixTier.L1_PROMPT for v in out.attempted)
     assert out.repair_rounds == 1  # single-shot by default
+
+
+def test_heldout_authoring_uses_only_proposal_data_and_one_round():
+    """Confirmation failures must not enter prompts or drive a retry."""
+    judge = ScriptedJudge(
+        '[{"name": "careful", "prompt_template": "Look carefully. {prompt}"}]'
+    )
+    confirm = _gold_yes_batch()
+    for case in confirm:
+        case.inputs.prompt = "CONFIRM_SECRET"
+    explore = _gold_yes_batch()
+    for case in explore:
+        case.inputs.prompt = "EXPLORE_VISIBLE"
+
+    agent = FixAgent(judge=judge, max_tier="L1", max_repair_rounds=2)
+    out = agent.propose_and_validate(
+        HopelessModel(),
+        confirm,
+        [_hyp("the prompt phrasing underspecifies the task")],
+        proposal_data=explore,
+    )
+
+    assert out.fixed is False
+    assert out.repair_rounds == 1
+    assert len(judge.prompts) == 1
+    assert "EXPLORE_VISIBLE" in judge.prompts[0]
+    assert "CONFIRM_SECRET" not in judge.prompts[0]
+
+
+def test_code_only_allowlist_skips_discarded_judge_proposals():
+    judge = ScriptedJudge("[]")
+    agent = FixAgent(
+        judge=judge,
+        max_tier="L3a",
+        allow_codegen=False,
+        candidate_allowlist={"coded_pipeline"},
+    )
+
+    assert agent._propose([_hyp("x")], _gold_yes_batch(image=_img()), HopelessModel()) == []
+    assert judge.prompts == []
 
 
 def test_l1_template_candidate_preserves_non_image_modality_fields():
@@ -1366,6 +1423,30 @@ def test_feedback_round_one_fails_round_two_fixes():
     assert any(judge.saw_feedback)
 
 
+def test_feedback_includes_helped_prompts_and_previous_code():
+    batch = _gold_yes_batch(3)
+    candidate = FixCandidate(
+        tier=FixTier.L2_SCAFFOLD,
+        name="coded_pipeline",
+        kind="code",
+        payload={"code": "print('prior implementation')"},
+    )
+    validation = FixValidation(
+        candidate=candidate,
+        n_pairs=3,
+        n_fixed=1,
+        n_broken=0,
+        fixed_cases=["c1"],
+        effect=1 / 3,
+    )
+
+    feedback = FixAgent._format_prior([validation], batch)
+
+    assert "Is there a lesion 1?" in feedback
+    assert "EXPLORE-TESTED IMPLEMENTATION" in feedback
+    assert "print('prior implementation')" in feedback
+
+
 def test_single_round_does_not_retry_on_failure():
     """max_repair_rounds=1 (default) keeps the original single-shot behaviour:
     the useless round-1 proposal is never re-proposed, outcome recommends up."""
@@ -1610,7 +1691,11 @@ import json
 cases = json.load(open("fix_cases.json"))["cases"]
 out = []
 for c in cases:
-    ans = model_generate(c["id"], image_ops=[{"tool": "upscale", "params": {"factor": 2.0}}])
+    model_generate(c["id"])
+    ops = [{"tool": "upscale", "params": {"factor": 2.0}}]
+    ans = model_generate(c["id"], prompt="zoom one", image_ops=ops)
+    model_generate(c["id"], prompt="zoom two", image_ops=ops)
+    model_generate(c["id"], prompt="zoom three", image_ops=ops)
     out.append({"sample_id": c["id"], "output": ans})
 print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 """
@@ -1646,9 +1731,125 @@ def test_coded_pipeline_bridge_round_trip(tmp_path):
     result = run_coded_pipeline(
         _UPSCALE_PIPELINE, ZoomSensitiveModel(), cases, workdir=tmp_path, timeout_sec=30
     )
-    assert result.ok and result.n_calls == 3
+    assert result.ok and result.n_calls == 12
     scores = score_outputs(result, cases, _default_score)
     assert all(scores[c.id] is True for c in cases)  # upscale repairs every case
+
+
+def test_coded_pipeline_host_guard_rejects_singleton_override(tmp_path):
+    """The host, not codegen prompt compliance, owns the consensus invariant."""
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    pipeline = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = []
+for c in cases:
+    baseline = model_generate(c["id"])
+    candidate = model_generate(c["id"], prompt="enhanced one")
+    model_generate(c["id"], prompt="enhanced two")
+    model_generate(c["id"], prompt="enhanced three")
+    out.append({"sample_id": c["id"], "output": candidate})
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+
+    def replies(case, prompt):
+        return "Final Answer: Yes." if prompt == "enhanced one" else "Final Answer: No."
+
+    cases = _gold_yes_batch(n=2)
+    result = run_coded_pipeline(
+        pipeline, None, cases, workdir=tmp_path, timeout_sec=20,
+        reply_fn=replies, consensus_min_support=2,
+    )
+    assert result.ok and result.n_guarded == 2
+    assert result.guarded_ids == ["c0", "c1"]
+    assert all(value == "Final Answer: No." for value in result.outputs.values())
+
+
+def test_coded_pipeline_host_guard_accepts_two_independent_supporters(tmp_path):
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    pipeline = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = []
+for c in cases:
+    model_generate(c["id"])
+    candidate = model_generate(c["id"], prompt="enhanced one")
+    model_generate(c["id"], prompt="enhanced two")
+    model_generate(c["id"], prompt="enhanced three")
+    out.append({"sample_id": c["id"], "output": "yes"})
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+
+    def replies(case, prompt):
+        if prompt in {"enhanced one", "enhanced two"}:
+            return "Reasoning...\nFinal Answer: Yes."
+        return "Final Answer: No."
+
+    cases = _gold_yes_batch(n=1)
+    result = run_coded_pipeline(
+        pipeline, None, cases, workdir=tmp_path, timeout_sec=20,
+        reply_fn=replies, consensus_min_support=2,
+    )
+    assert result.ok and result.n_guarded == 0
+    assert result.outputs["c0"] == "yes"
+
+
+def test_coded_pipeline_host_guard_requires_direct_baseline(tmp_path):
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    pipeline = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = []
+for c in cases:
+    answer = model_generate(c["id"], prompt="enhanced")
+    out.append({"sample_id": c["id"], "output": answer})
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+    result = run_coded_pipeline(
+        pipeline, None, _gold_yes_batch(n=1), workdir=tmp_path,
+        timeout_sec=20, reply_fn=lambda case, prompt: "Yes.",
+        consensus_min_support=2,
+    )
+    assert result.ok is False
+    assert "no direct baseline" in result.error
+
+
+def test_coded_pipeline_host_guard_deduplicates_support_and_caps_calls(tmp_path):
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    repeated = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = []
+for c in cases:
+    model_generate(c["id"])
+    answer = model_generate(c["id"], prompt="same enhancement")
+    model_generate(c["id"], prompt="same enhancement")
+    out.append({"sample_id": c["id"], "output": answer})
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+    cases = _gold_yes_batch(n=1)
+    result = run_coded_pipeline(
+        repeated, None, cases, workdir=tmp_path / "dedupe", timeout_sec=20,
+        reply_fn=lambda case, prompt: "Yes." if prompt == "same enhancement" else "No.",
+        consensus_min_support=2, max_calls_per_case=4,
+    )
+    assert result.ok and result.n_guarded == 1 and result.outputs["c0"] == "No."
+
+    too_many = repeated.replace(
+        'out.append({"sample_id": c["id"], "output": answer})',
+        'model_generate(c["id"], prompt="fourth")\n'
+        '    model_generate(c["id"], prompt="fifth")\n'
+        '    out.append({"sample_id": c["id"], "output": answer})',
+    )
+    capped = run_coded_pipeline(
+        too_many, None, cases, workdir=tmp_path / "cap", timeout_sec=20,
+        reply_fn=lambda case, prompt: "No.", max_calls_per_case=4,
+    )
+    assert capped.ok is False and "more than 4 model calls" in capped.error
 
 
 def test_score_outputs_coerces_label_scores():
@@ -2656,7 +2857,10 @@ import json
 cases = json.load(open("fix_cases.json"))["cases"]
 out = []
 for c in cases:
-    ans = model_generate(c["id"], prompt="SECRET_MARKER " + c["prompt"])
+    model_generate(c["id"])
+    marked = "SECRET_MARKER " + c["prompt"]
+    ans = model_generate(c["id"], prompt=marked)
+    model_generate(c["id"], prompt=marked + " verify")
     out.append({"sample_id": c["id"], "output": ans})
 print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 """
@@ -2871,8 +3075,6 @@ def test_baseline_correct_cases_are_never_dropped_by_the_control():
     """Replaying a right answer proves nothing; dropping such cases would hide
     what a candidate breaks. A pipeline that hard-codes 'No.' breaks the
     baseline-correct cases and must be seen breaking them."""
-    from evalvitals.eval_agent.stages.fix_agent import FixValidation
-
     yes = {"all_of": ["yes"], "none_of": ["no"]}
     data = CaseBatch([
         FailureCase(id=f"c{i}", inputs=Inputs(prompt=f"q{i}"), expected=yes,
@@ -2898,4 +3100,16 @@ def test_the_coder_is_told_the_rule():
 
     assert "REPAIR THE MODEL, NOT THE TASK" in _L2_CODE_PROMPT
     assert "ORIGINAL recorded answer" in _L2_CODE_PROMPT
+    assert "{selection_guidance}" in _L2_CODE_PROMPT
+    assert "at most\n  4 calls" in _L2_CODE_PROMPT
     assert "not the task" in _REPAIR_PROMPT_BODY
+
+
+def test_coder_guidance_distinguishes_explore_revision_and_one_shot():
+    explore = FixAgent(max_repair_rounds=2)._code_selection_guidance()
+    revision = FixAgent(max_repair_rounds=2)._code_selection_guidance("prior result")
+    one_shot = FixAgent(max_repair_rounds=1)._code_selection_guidance()
+
+    assert "controlled 2-of-3" in explore
+    assert "FEEDBACK-DRIVEN" in revision and "abandon" in revision
+    assert "all 3" in one_shot and "safety baseline" in one_shot
