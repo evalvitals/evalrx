@@ -81,9 +81,10 @@ EXECUTION CONTRACT:
   {{"tool": "<name>", "params": {{...}}}} dicts using ONLY these tools
   (anything else is rejected with an error):
 {catalog}{attend_hint}
-- You may call the model SEVERAL times per case (budget ~6 calls/case) and
-  branch on its outputs — e.g. ask where the finding could be, zoom there,
-  re-ask; describe first, then decide; vote over variants.
+- You may call the model SEVERAL times per case, but keep the total to at most
+  4 calls including the direct baseline (baseline + up to 3 genuinely
+  independent enhanced/reasoned passes).
+{selection_guidance}
 - The LAST line of stdout MUST be exactly:
   {marker}{{"per_case": [{{"sample_id": "<case id>", "output": "<final answer text>"}}]}}
 - Emit an entry for EVERY case.  The "output" is scored externally against the

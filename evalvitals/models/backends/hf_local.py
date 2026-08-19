@@ -538,6 +538,22 @@ class HFLocalModel(Model):
             max_new = kwargs.pop("max_tokens", self.runtime.max_new_tokens)
         else:
             kwargs.pop("max_tokens", None)
+        # PipelineSpec uses backend-neutral decoding controls. Translate the
+        # two controls that Hugging Face does not accept verbatim instead of
+        # letting run_pipeline swallow a ValueError and report 0 coverage.
+        temperature = kwargs.get("temperature")
+        if temperature is not None:
+            if float(temperature) <= 0.0:
+                kwargs.pop("temperature", None)
+                kwargs["do_sample"] = False
+                kwargs.pop("top_p", None)
+                kwargs.pop("top_k", None)
+            else:
+                kwargs.setdefault("do_sample", True)
+        stop = kwargs.pop("stop", None)
+        if stop:
+            kwargs["stop_strings"] = stop
+            kwargs["tokenizer"] = tok
         with torch.no_grad():
             out = model.generate(**enc, max_new_tokens=max_new, **kwargs)
         new = out[0][enc["input_ids"].shape[1] :]

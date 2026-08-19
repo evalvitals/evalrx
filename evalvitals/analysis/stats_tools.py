@@ -468,6 +468,17 @@ def label_leak_score(sigmap: dict[str, float], labels: dict[str, bool]) -> dict[
                        f"(best-split accuracy {acc:.3f})") if leak else ""}
 
 
+_KNOWN_LABEL_DERIVED = (
+    "answer_extraction_audit.extraction_suspect",
+    "answer_extraction_audit.extraction_point_miss",
+    "answer_extraction_audit.gold_in_output",
+    "answer_extraction_audit.gold_in_answer_region",
+    "answer_extraction_audit.strict_match",
+    "answer_extraction_audit.label_disagrees",
+    "answer_extraction_audit.labelled_fail",
+)
+
+
 def isolate_label_leaks(inp: StatsInput, *, denylist: "tuple[str, ...]" = ()) -> dict[str, str]:
     """Move label-reconstructing per-case columns from ``per_case`` to ``sanity``.
 
@@ -479,10 +490,11 @@ def isolate_label_leaks(inp: StatsInput, *, denylist: "tuple[str, ...]" = ()) ->
     isolated ones either.
     """
     moved: dict[str, str] = {}
+    denylist = _KNOWN_LABEL_DERIVED + tuple(denylist)
     for name in list(inp.per_case):
         reason = ""
-        if denylist and any(d in name for d in denylist):
-            reason = "name matches leak denylist"
+        if any(name.endswith(d) for d in denylist):
+            reason = "signal is derived from gold/label and is descriptive only"
         else:
             sc = label_leak_score(inp.per_case[name], inp.labels)
             if sc["leak"]:

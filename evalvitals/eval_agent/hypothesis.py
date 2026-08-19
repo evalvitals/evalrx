@@ -34,6 +34,11 @@ class Hypothesis:
                                 ``"prompt_contrast describe_first"``).  M5 uses
                                 it to route evidence deterministically and M1
                                 uses it for cycle-2 targeted probing.
+        expected_association:   Pre-registered direction for the named test:
+                                ``higher_on_failures`` or ``lower_on_failures``.
+                                This prevents a protective-valued signal (for
+                                example ``n_correct``) from being interpreted
+                                backwards after its effect is observed.
         status:                 Lifecycle state (:class:`HypothesisStatus`).
         parent_id:              Hypothesis this one was mutated from, if any.
         id:                     Stable identifier.
@@ -45,6 +50,7 @@ class Hypothesis:
     target_model: str
     predicted_failure_mode: str
     test_design: str = ""
+    expected_association: str = ""
     status: HypothesisStatus = HypothesisStatus.PROPOSED
     parent_id: str | None = None
     id: str = ""
@@ -79,6 +85,7 @@ def hypothesis_to_dict(h: Hypothesis) -> dict[str, Any]:
         "target_model": h.target_model,
         "predicted_failure_mode": h.predicted_failure_mode,
         "test_design": h.test_design,
+        "expected_association": h.expected_association,
         "status": h.status.value if h.status else HypothesisStatus.PROPOSED.value,
         "parent_id": h.parent_id,
         "id": h.id,
@@ -99,6 +106,7 @@ def hypothesis_from_dict(data: dict[str, Any]) -> Hypothesis:
         target_model=str(data.get("target_model", "")),
         predicted_failure_mode=str(data.get("predicted_failure_mode", "")),
         test_design=str(data.get("test_design", "")),
+        expected_association=str(data.get("expected_association", "")),
         status=status,
         parent_id=data.get("parent_id"),
         id=str(data.get("id", "")),

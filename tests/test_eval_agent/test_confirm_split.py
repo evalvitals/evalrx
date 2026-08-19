@@ -15,6 +15,8 @@ from evalvitals.core.model import Model
 from evalvitals.eval_agent.hypothesis import Hypothesis
 from evalvitals.eval_agent.loop import VLDiagnoseLoop
 from evalvitals.eval_agent.loop_reports import VLDiagnoseReport
+from evalvitals.eval_agent.stages.fix_agent import FixCandidate, FixOutcome, FixValidation
+from evalvitals.eval_agent.stages.fix_tiers import FixTier
 from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
 
 
@@ -73,13 +75,54 @@ class _RecordingFixAgent:
     """Captures which cases reach the fix module."""
 
     run_logger = None
+    max_tier = FixTier.L2_SCAFFOLD
 
     def __init__(self):
         self.seen_ids = None
+        self.proposal_ids = None
+        self.confirm_ids = None
+        self.calls = 0
 
-    def propose_and_validate(self, model, data, hypotheses):
+    def propose_and_validate(self, model, data, hypotheses, proposal_data=None):
+        self.calls += 1
         self.seen_ids = {id(c) for c in data}
-        return object()
+        self.proposal_ids = (
+            {id(c) for c in proposal_data} if proposal_data is not None else None
+        )
+        candidate = FixCandidate(
+            tier=FixTier.L2_SCAFFOLD,
+            name="stub",
+            payload={"prompt_template": "{prompt}"},
+        )
+        validation = FixValidation(
+            candidate=candidate,
+            n_pairs=len(list(data)),
+            n_fixed=1,
+            n_broken=0,
+            effect=0.1,
+        )
+        return FixOutcome(
+            max_tier=self.max_tier,
+            attempted=[validation],
+            repair_rounds=1,
+        )
+
+    def validate_candidate(self, model, data, candidate):
+        self.confirm_ids = {id(c) for c in data}
+        return FixValidation(
+            candidate=candidate,
+            n_pairs=len(list(data)),
+            n_fixed=1,
+            n_broken=0,
+            effect=0.1,
+            e_value=1.0,
+        )
+
+    def _ebh_survivors(self, tested):
+        return set()
+
+    def _refine_signal(self, attempted, data):
+        return None
 
 
 def _report():
@@ -91,13 +134,21 @@ def test_run_fix_validates_on_confirm_partition():
     batch = _batch()
     stub = _RecordingFixAgent()
     loop = _loop(fix_agent=stub, confirm_split=0.5)
-    _, confirm = loop._split_explore_confirm(batch)
+    explore, confirm = loop._split_explore_confirm(batch)
+    explore_ids = {id(c) for c in explore}
     confirm_ids = {id(c) for c in confirm}
 
-    loop.run_fix(_report(), batch)
-    # the fix saw ONLY the held-out confirm cases (disjoint from explore)
-    assert stub.seen_ids == confirm_ids
-    assert len(stub.seen_ids) == 12
+    outcome = loop.run_fix(_report(), batch)
+    # Candidate iteration/selection sees ONLY explore; the one frozen candidate
+    # is then scored ONLY on confirm.
+    assert stub.seen_ids == explore_ids
+    assert stub.proposal_ids is None
+    assert stub.confirm_ids == confirm_ids
+    assert stub.seen_ids.isdisjoint(stub.confirm_ids)
+    assert len(stub.confirm_ids) == 12
+    assert outcome.selected_on_explore == "stub"
+    assert outcome.selection_attempted[0]["n_fixed"] == 1
+    assert len(outcome.attempted) == 1  # only the CONFIRM validation is final
 
 
 def test_run_fix_off_uses_full_batch():
@@ -106,3 +157,19 @@ def test_run_fix_off_uses_full_batch():
     loop = _loop(fix_agent=stub)  # confirm_split defaults to 0
     loop.run_fix(_report(), batch)
     assert stub.seen_ids == {id(c) for c in batch}  # unchanged: full batch
+    assert stub.proposal_ids is None
+    assert stub.confirm_ids is None
+
+
+def test_run_fix_disables_feedback_escalation_on_confirm_partition():
+    batch = _batch()
+    stub = _RecordingFixAgent()
+    loop = _loop(fix_agent=stub, confirm_split=0.5)
+
+    loop.run_fix(_report(), batch, auto_escalate=True)
+
+    # Adaptive tier 2 would be authored from tier 1's holdout failures.  The
+    # held-out path therefore executes one pre-registered repair family only.
+    assert stub.calls == 1
+    assert stub.seen_ids is not None
+    assert stub.confirm_ids is not None

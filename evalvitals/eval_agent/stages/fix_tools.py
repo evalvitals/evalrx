@@ -703,8 +703,11 @@ def _safe_generation_kwargs(value: Any) -> "dict[str, Any]":
         pass
     try:
         temperature = float(raw.get("temperature"))
-        if 0.0 <= temperature <= 2.0:
+        if 0.0 < temperature <= 2.0:
             out["temperature"] = temperature
+            out["do_sample"] = True
+        elif temperature == 0.0:
+            out["do_sample"] = False
     except (TypeError, ValueError):
         pass
     try:
@@ -714,9 +717,9 @@ def _safe_generation_kwargs(value: Any) -> "dict[str, Any]":
     except (TypeError, ValueError):
         pass
     stop = raw.get("stop")
-    if isinstance(stop, str) and len(stop) <= 128:
+    if isinstance(stop, str) and stop and len(stop) <= 128:
         out["stop"] = stop
-    elif isinstance(stop, list) and len(stop) <= 4 and all(
+    elif isinstance(stop, list) and stop and len(stop) <= 4 and all(
         isinstance(item, str) and len(item) <= 128 for item in stop
     ):
         out["stop"] = list(stop)

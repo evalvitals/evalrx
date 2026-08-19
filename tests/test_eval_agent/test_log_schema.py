@@ -141,6 +141,31 @@ def test_real_log_output_conforms_to_schema(tmp_path):
     assert not errors, f"real log output violates the published schema: {errors}"
 
 
+def test_fix_outcome_markdown_includes_explore_selection_audit(tmp_path):
+    from evalvitals.eval_agent.run_logger import RunLogger
+
+    logger = RunLogger(run_dir=tmp_path)
+    logger.log_fix(SimpleNamespace(to_dict=lambda: {
+        "attempted": [],
+        "fixed": False,
+        "max_tier": "L3a",
+        "best": None,
+        "recommendation": None,
+        "selection_attempted": [{
+            "tier": "L2", "name": "coded_pipeline", "verdict": "unsafe",
+            "n_fixed": 2, "n_broken": 9, "effect": -0.0275,
+        }],
+        "selected_on_explore": None,
+    }))
+    logger.close()
+
+    text = (tmp_path / "fixes" / "outcome.md").read_text(encoding="utf-8")
+    assert "EXPLORE selection attempts (1)" in text
+    assert "2 | 9 | -0.0275" in text
+    assert "Selected on EXPLORE:** none" in text
+    assert "Attempts (0)" in text
+
+
 def test_validation_rejects_malformed_events():
     """The schema must actually reject the breakage it claims to catch."""
     from evalvitals.eval_agent.log_schema import validate_event

@@ -71,9 +71,12 @@ def _letter(choices: list[str], answer: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--limit", type=int, default=140, help="rows to keep after filtering")
+    parser.add_argument("--limit", type=int, default=1000, help="rows to keep after filtering")
     parser.add_argument("--seed", type=int, default=20260814)
-    parser.add_argument("--scan-rows", type=int, default=400, help="rows to scan before giving up")
+    parser.add_argument(
+        "--scan-rows", type=int, default=1000,
+        help="rows to scan before giving up (the official test-mini split has 1000 rows)",
+    )
     args = parser.parse_args()
 
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:

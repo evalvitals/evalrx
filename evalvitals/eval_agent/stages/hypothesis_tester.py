@@ -278,10 +278,27 @@ class HypothesisTester:
         stats_results = list(getattr(stats_report, "stats_results", None) or [])
         if stats_results:
             core = self._verdict_from_stats_results(hypothesis, stats_report, stats_results)
-            if core.get("evidence_grade") == "none":
+            # An explicit M3 test design is a preregistration, not a hint. If
+            # that experiment was not run, unrelated signals must not be used
+            # to support/refute the claim. The next loop cycle can run it.
+            if core.get("evidence_grade") == "none" and not hypothesis.test_design.strip():
                 core = self._verdict_fallback(hypothesis, stats_report, data, family_size)
-        else:
+        elif not hypothesis.test_design.strip():
             core = self._verdict_fallback(hypothesis, stats_report, data, family_size)
+        else:
+            core = {
+                "status": HypothesisStatus.INCONCLUSIVE,
+                "effect_size": None,
+                "confidence": 0.0,
+                "verdict": "The preregistered test was not run; no substitute evidence was used.",
+                "test_name": "preregistered_test_unavailable",
+                "evidence_grade": "none",
+                "evidence": {
+                    "source": "preregistered_test",
+                    "test_design": hypothesis.test_design,
+                    "reason": "no M2 statistical result for the named test",
+                },
+            }
 
         status: HypothesisStatus = core["status"]
         verdict: str = core["verdict"]
@@ -342,16 +359,20 @@ class HypothesisTester:
 
         relevant, global_res, routed_by = self._select_results(hypothesis, stats_results)
         decisive = [r for r in relevant if _decisive(r)]
-        harmful = [r for r in decisive if (r.effect or 0.0) > 0]
-        protective = [r for r in decisive if (r.effect or 0.0) < 0]
+        positive = [r for r in decisive if (r.effect or 0.0) > 0]
+        negative = [r for r in decisive if (r.effect or 0.0) < 0]
+        expected = str(getattr(hypothesis, "expected_association", "") or "").lower()
+        expected_sign = -1 if expected == "lower_on_failures" else 1
+        supporting = positive if expected_sign > 0 else negative
+        contradicting = negative if expected_sign > 0 else positive
 
         consulted = [r.tool for r in relevant] + [r.tool for r in global_res]
 
-        if harmful:
-            chosen = max(harmful, key=lambda r: abs(r.effect or 0.0))
+        if supporting:
+            chosen = max(supporting, key=lambda r: abs(r.effect or 0.0))
             status = HypothesisStatus.SUPPORTED
-        elif protective:
-            chosen = max(protective, key=lambda r: abs(r.effect or 0.0))
+        elif contradicting:
+            chosen = max(contradicting, key=lambda r: abs(r.effect or 0.0))
             status = HypothesisStatus.REFUTED
         else:
             # Descriptive tools (single_rate_evalue's rate − p0) must not be the
@@ -403,6 +424,7 @@ class HypothesisTester:
             "underpowered": chosen.underpowered,
             "consulted_tools": consulted,
             "routed_by": routed_by,
+            "expected_association": expected or "higher_on_failures",
             "evidence_grade": grade,
             "fdr": corrected,
         }
@@ -446,9 +468,24 @@ class HypothesisTester:
         design = (hypothesis.test_design or "").replace("_", " ").replace(".", " ")
         if design.strip():
             design_kw = _keywords(design)
-            designed = [r for r in signal_res if design_kw & _keywords(_tool_text(r))]
+            # A single generic overlap ("attention", "score", "contrast")
+            # is not enough to claim that the preregistered experiment ran.
+            # Require two identifying tokens; exact dotted signal names easily
+            # satisfy this after normalization.
+            designed = [
+                r for r in signal_res
+                if (
+                    bool(r.config.get("signal"))
+                    and str(r.config.get("signal")).lower() in hypothesis.test_design.lower()
+                )
+                or len(design_kw & _keywords(_tool_text(r))) >= 2
+            ]
             if designed:
                 return designed, global_res, "test_design"
+            # The named experiment has not run yet. Falling through to a
+            # keyword match let generic words such as `n_correct` validate an
+            # attention or causal-intervention hypothesis with the wrong test.
+            return [], global_res, "test_design_unavailable"
 
         kw = _keywords(hypothesis.statement + " "
                        + hypothesis.predicted_failure_mode.replace("_", " "))

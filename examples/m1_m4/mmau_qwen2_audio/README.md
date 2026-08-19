@@ -27,9 +27,31 @@ see `docker-compose.yml`) — it's the M2/M3/M5 judge and FixAgent's L1/L2
 proposer, no API key needed (reuses your local OAuth session).
 
 ```bash
-python download_mmau.py --limit 120
-python run.py --model qwen2-audio-7b-instruct --limit 120
+python download_mmau.py --limit 1000 --scan-rows 1000
+python run.py --model qwen2-audio-7b-instruct --limit 896
 python run.py --smoke-test   # wiring check, no GPU/model/judge needed — see below
+```
+
+To confirm the TCD candidate already selected in the original 120-row pilot,
+without asking M3 to select a repair again, run it only on the newly added rows:
+
+```bash
+python run.py --model qwen2-audio-7b-instruct --limit 896 \
+  --validate-tcd-only --pilot-size 120 --run-dir outputs/tcd_confirm_896
+```
+
+This excludes all 120 pilot rows and computes the paired e-value on 776
+previously unseen cases. It is the appropriate path for increasing power of
+the existing repair claim; the normal command remains the full discovery loop.
+
+If more rows are frozen later, validate only the non-overlapping increment and
+accumulate the anytime-valid paired evidence without rerunning earlier cases:
+
+```bash
+python run.py --model qwen2-audio-7b-instruct --limit 896 \
+  --validate-tcd-only --pilot-size 500 \
+  --prior-confirm-result outputs/tcd_confirm_500/fixes/01_L3a_tcd_temporal_blur_confirm/result.json \
+  --run-dir outputs/tcd_confirm_896
 ```
 
 ## Pipeline
@@ -115,10 +137,9 @@ tcd_temporal_blur: fixed=2 broken=0 effect=+0.500
 Smoke test passed.
 ```
 
-This confirms the wiring is correct. It does **not** substitute for a real
-GPU run against Qwen2-Audio-7B-Instruct and a real `claude` judge — that
-takes GPU + CLI access this rewrite has not yet exercised end-to-end; run
-`docker compose up` to do that.
+This confirms the wiring is correct but does not substitute for the real run.
+The full 500-row discovery pass and the 776-row post-pilot TCD confirmation
+have now also been exercised on an A100; the measured result is reported below.
 
 ## What this does and does not claim
 
@@ -133,29 +154,30 @@ takes GPU + CLI access this rewrite has not yet exercised end-to-end; run
   fires and the run completes having tested nothing) and
   `paper_method_fidelity("tcd")` to be `"native_layer_matched_stability"` (or
   `"adapted_..."` with `--allow-adapted-paper-methods`).
-- `--limit 120` (default) is a small proof run, not test-mini's full 1000
-  rows — this establishes the loop runs correctly end to end on real data,
-  not a certified accuracy claim. `FixAgent`'s e-value martingale needs
-  roughly 25+ discordant pairs at a 4:1 ratio to clear its e≥20 certification
-  threshold (see `examples/m4/vlm_paper_benchmark/experiments_s_tier_2026-08.md`
-  for what that looks like on a comparable paper-method run); a small run can
-  legitimately land on "correct direction, not yet certified" rather than a
-  clean win, and that is a valid outcome to report, not a bug to chase away
-  by re-splitting the data. Raise `--limit` (up to 1000, after
-  `download_mmau.py --limit 1000 --scan-rows 1000`) for a better-powered run.
+- `--limit 896` is the full eligible test-mini sample under the audio encoder
+  window: 104/1000 clips exceed 29.5 seconds and are transparently excluded.
+  The original 120-row pilot had 8 repaired / 2 broken among 72 confirmation
+  pairs (e=2.07). Confirming that frozen candidate on all 776 post-pilot rows
+  produced 69 repaired / 34 broken, effect +4.51 pp (95% bootstrap CI
+  +2.06..+7.09 pp), e=49.75 — above the anytime-valid e≥20 certification
+  threshold. The first 380-row increment alone was still inconclusive
+  (31/15, e=2.93); the result was not obtained by re-splitting or case filtering.
 - MMAU clips over Qwen2-Audio's 30s encoder window are skipped at download
   time (`download_mmau.py`'s `MAX_DURATION_SEC`), with the skip count printed
   — never silently truncated mid-run.
 
 ## `--unrestricted`: what does the agent propose on its own?
 
-By default `run.py` pins the fix candidate pool to `tcd_temporal_blur`
-(`candidate_allowlist=["tcd_temporal_blur"]`) — TCD is proposed the same way
-OPERA/VCD/ICD/PAI/IFCD already are elsewhere in this repo: an unconditional,
-structurally-gated Python default in `fix_agent.py::_l3_candidates`, not
-something an LLM invents at runtime. `--unrestricted` drops that allowlist so
-every admissible candidate — paper defaults AND whatever the Claude judge
-proposes at L1/L2 — competes on equal footing.
+By default `run.py` limits the fix pool to `tcd_temporal_blur`
+(`candidate_allowlist=["tcd_temporal_blur"]`). Structural gates first require
+an audio multiple-choice batch and a compatible native backend; the
+paper-method judge then selects TCD only if M3 diagnosed the matching temporal
+mechanism. Thus a normal full discovery run can legitimately attempt no fix
+when it diagnoses a different mechanism. `--validate-tcd-only` is the separate
+confirmatory path for the TCD candidate already selected by the original pilot;
+it freezes that choice and does not ask M3 or the paper-method judge to select
+it again. `--unrestricted` drops the allowlist so every admissible candidate —
+paper defaults and judge-proposed L1/L2 candidates — can compete.
 
 ### Prior result (old FixAgent-only script, hand-supplied hypothesis)
 

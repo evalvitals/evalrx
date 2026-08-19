@@ -128,6 +128,7 @@ def test_answer_equal_is_numeric_aware():
     # short golds need a standalone token, not a substring of a word
     assert not answer_equal("probably", "b")
     assert answer_equal("Answer: B", "B")
+    assert answer_equal("Answer: B", ["A", "B"])
 
 
 def test_safe_eval_rejects_non_arithmetic():
@@ -233,6 +234,19 @@ def test_termination_audit_trusts_recorded_finish_reason_over_text_shape():
     assert classes[0] != "truncated" and truncated_flags[0] == 0
     assert classes[1] == "truncated" and truncated_flags[1] == 1
     assert classes[2] == "truncated" and truncated_flags[2] == 1  # heuristic fallback intact
+
+
+def test_answer_extraction_audit_trusts_recorded_finish_reason():
+    batch = CaseBatch([
+        _case("q1", "guitar", ["guitar", "instrument"], Label.PASS,
+              metadata={"finish_reason": "stop"}),
+        _case("q2", "guitar", "guitar", Label.PASS,
+              metadata={"finish_reason": "length"}),
+    ])
+    rows = AnswerExtractionAudit().run(ScriptModel([]), batch).findings["per_case"]
+    assert rows[0]["strict_match"] == 1
+    assert rows[0]["output_truncated"] == 0
+    assert rows[1]["output_truncated"] == 1
 
 
 # ── arith_audit ───────────────────────────────────────────────────────────────

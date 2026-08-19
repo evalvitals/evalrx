@@ -40,8 +40,8 @@ hand-supplied hypothesis and lets the loop discover its own:
                                    discovery never saw (``--confirm-split``).
 
 Usage:
-    python download_mmau.py --limit 120
-    python run.py --model qwen2-audio-7b-instruct --limit 120
+    python download_mmau.py --limit 1000 --scan-rows 1000
+    python run.py --model qwen2-audio-7b-instruct --limit 896
     python run.py --smoke-test     # fast wiring check, no GPU/model/judge —
                                     # exercises the REAL VLDiagnoseLoop + FixAgent
                                     # against a synthetic model+cases, specifically
@@ -298,7 +298,10 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
     class _SmokeDiagnosisAgent:
         def diagnose(self, analysis, prior_cycles=None):
             h = Hypothesis(
-                statement="The model defaults to option A when it cannot resolve the clip.",
+                statement=(
+                    "The synthetic audio model defaults to option A when it cannot "
+                    "resolve the clip."
+                ),
                 target_model=analysis.model_name,
                 predicted_failure_mode="temporal_smoothing_bias",
             )
@@ -308,6 +311,14 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
                 findings_summary={n: r.findings for n, r in analysis.raw_results.items()},
                 raw_judge_output="HYPOTHESIS: defaults to A.\nFAILURE_MODE: temporal_smoothing_bias",
             )
+
+    class _SmokeFixJudge:
+        """Select the structurally eligible paper method without an external CLI."""
+
+        def generate(self, prompt, **kwargs) -> str:
+            if "PAPER-METHOD" in str(prompt):
+                return '[{"name": "tcd_temporal_blur"}]'
+            return "[]"
 
     ctx = RunContext(args.run_dir, verbose=True, config={"smoke_test": True})
     loop = VLDiagnoseLoop(
@@ -323,6 +334,7 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
         diagnosis_agent=_SmokeDiagnosisAgent(),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
         fix_agent=FixAgent(
+            judge=_SmokeFixJudge(),
             score_fn=score_case,
             max_tier=args.fix_max_tier,
             candidate_allowlist=None if args.unrestricted else ["tcd_temporal_blur"],
@@ -355,6 +367,200 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
     print("Smoke test passed.")
 
 
+def _run_tcd_confirmation(args: argparse.Namespace) -> int:
+    """Validate the pilot-selected TCD candidate on newly added frozen rows only.
+
+    This is deliberately separate from M1-M5: once a candidate was selected in
+    the original pilot, re-selecting it after looking at a larger discovery set
+    is unnecessary and can only weaken the confirmatory design. Rows before
+    ``pilot_size`` are excluded, so every pair in this test was absent from the
+    120-row pilot that motivated the sample-size increase.
+    """
+    all_rows = load_records()
+    if len(all_rows) < args.limit:
+        raise SystemExit(f"only {len(all_rows)} rows available, fewer than --limit {args.limit}")
+    if not 0 <= args.pilot_size < args.limit:
+        raise SystemExit("--pilot-size must be >= 0 and smaller than --limit")
+    rows = all_rows[args.pilot_size:args.limit]
+
+    from evalvitals.models.backends.base import RuntimeConfig
+    from evalvitals.models.backends.hf_local import HFLocalModel
+    from evalvitals.specs import get_spec
+
+    model = HFLocalModel(
+        get_spec(args.model),
+        RuntimeConfig(device=args.device, dtype="bfloat16", max_new_tokens=args.max_tokens),
+    )
+    model.load()
+    fidelity = model.paper_method_fidelity("tcd")
+    print(f"paper_method_fidelity(tcd) = {fidelity!r}")
+    allowed = {"native_layer_matched_stability"}
+    if args.allow_adapted_paper_methods:
+        allowed.add("adapted_truncated_layer_stability")
+    if fidelity not in allowed:
+        raise SystemExit(f"TCD confirmation requires fidelity in {sorted(allowed)}, got {fidelity!r}")
+
+    baseline = evaluate(
+        rows,
+        lambda row: model.generate_tcd_baseline(
+            row_inputs(row), max_new_tokens=args.max_tokens
+        ),
+    )
+    print(
+        f"fresh baseline on {len(rows)} post-pilot rows: {baseline['accuracy']:.1%} "
+        f"({baseline['correct']}/{baseline['n']})"
+    )
+    cases = make_cases(rows, baseline)
+
+    from evalvitals.eval_agent import (
+        FixAgent,
+        FixCandidate,
+        FixOutcome,
+        FixTier,
+        RunContext,
+    )
+
+    ctx = RunContext(
+        args.run_dir,
+        verbose=True,
+        config={
+            "mode": "preregistered_tcd_confirmation",
+            "model": args.model,
+            "limit": args.limit,
+            "pilot_size_excluded": args.pilot_size,
+            "n_confirmation": len(rows),
+            "prior_confirm_result": args.prior_confirm_result,
+        },
+    )
+    (ctx.artifacts_dir / "baseline.json").write_text(
+        json.dumps(baseline, indent=2), encoding="utf-8"
+    )
+    candidate = FixCandidate(
+        tier=FixTier.L3A_INTERNALS_READ,
+        name="tcd_temporal_blur",
+        kind="tcd",
+        source="preregistered_paper_default",
+        payload={},
+        trial=ctx.new_trial("fixes", "L3a_tcd_temporal_blur_confirm"),
+    )
+    validation = FixAgent(score_fn=score_case).validate_candidate(model, cases, candidate)
+    incremental_summary = {
+        "n_pairs": validation.n_pairs,
+        "n_fixed": validation.n_fixed,
+        "n_broken": validation.n_broken,
+        "effect": validation.effect,
+        "e_value": validation.e_value,
+        "verdict": validation.verdict,
+    }
+    if args.prior_confirm_result:
+        prior_path = Path(args.prior_confirm_result)
+        # Results written by this mode live at <run>/fixes/<trial>/result.json.
+        # Require the earlier run's upper manifest boundary to equal this run's
+        # lower boundary, so an accidental overlap cannot inflate the evidence.
+        try:
+            prior_manifest = json.loads(
+                (prior_path.resolve().parents[2] / "manifest.json").read_text(encoding="utf-8")
+            )
+            prior_limit = int(prior_manifest["config"]["limit"])
+        except (IndexError, KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise SystemExit(
+                "--prior-confirm-result must come from a finalized "
+                "--validate-tcd-only RunContext"
+            ) from exc
+        if prior_limit != args.pilot_size:
+            raise SystemExit(
+                f"non-overlap check failed: prior limit is {prior_limit}, but the new "
+                f"batch starts at --pilot-size {args.pilot_size}"
+            )
+        prior = json.loads(prior_path.read_text(encoding="utf-8"))
+        if "attempted" in prior:
+            attempts = prior.get("attempted") or []
+            if len(attempts) != 1:
+                raise SystemExit("--prior-confirm-result outcome must contain exactly one attempt")
+            prior = attempts[0]
+        if prior.get("name") != "tcd_temporal_blur":
+            raise SystemExit("--prior-confirm-result is not a tcd_temporal_blur result")
+
+        # The e-value depends only on the paired 2x2 sufficient statistics.
+        # Reconstruct the combined binary vectors from those exact counts; the
+        # two batches are non-overlapping because --pilot-size is the prior
+        # batch's upper manifest index.
+        validation.n_pairs += int(prior["n_pairs"])
+        validation.n_baseline_correct += int(prior["n_baseline_correct"])
+        validation.n_candidate_correct += int(prior["n_candidate_correct"])
+        validation.n_fixed += int(prior["n_fixed"])
+        validation.n_broken += int(prior["n_broken"])
+        validation.fixed_cases = list(prior.get("fixed_cases") or []) + validation.fixed_cases
+        validation.broken_cases = list(prior.get("broken_cases") or []) + validation.broken_cases
+        validation.n_applicable += int(prior.get("n_applicable", prior["n_pairs"]))
+        validation.n_unstable += int(prior.get("n_unstable", 0))
+        validation.n_model_independent += int(prior.get("n_model_independent", 0))
+        validation.coverage = 1.0
+
+        both_correct = validation.n_baseline_correct - validation.n_broken
+        both_wrong = (
+            validation.n_pairs - both_correct - validation.n_fixed - validation.n_broken
+        )
+        if min(both_correct, both_wrong) < 0:
+            raise SystemExit("invalid paired sufficient statistics in --prior-confirm-result")
+        base_vec = (
+            [True] * both_correct
+            + [False] * validation.n_fixed
+            + [True] * validation.n_broken
+            + [False] * both_wrong
+        )
+        cand_vec = (
+            [True] * both_correct
+            + [True] * validation.n_fixed
+            + [False] * validation.n_broken
+            + [False] * both_wrong
+        )
+        from evalvitals.stats import compare
+
+        stat = compare(base_vec, cand_vec, paired=True)
+        validation.effect = stat.effect
+        validation.reject = bool(stat.reject)
+        validation.e_value = stat.e_value
+        validation.fixed = validation.reject and (validation.effect or 0.0) > 0
+        validation.verdict = FixAgent._verdict(validation)
+        validation.summary = f"{stat.summary()} [{validation.verdict}, coverage=100%]"
+        candidate.source = "preregistered_paper_default_sequential"
+        (ctx.artifacts_dir / "incremental_result.json").write_text(
+            json.dumps(
+                {
+                    "prior_result": str(prior_path.resolve()),
+                    **incremental_summary,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    outcome = FixOutcome(
+        max_tier=FixTier.L3A_INTERNALS_READ,
+        attempted=[validation],
+        best=validation if validation.fixed else None,
+        fixed=validation.fixed,
+        ebh_survivors=[candidate.name] if validation.fixed else [],
+    )
+    ctx.logger.log_fix(outcome)
+    ctx.finalize()
+
+    print("\nPREREGISTERED TCD CONFIRMATION")
+    if args.prior_confirm_result:
+        print(
+            f"  new batch: pairs={incremental_summary['n_pairs']} "
+            f"repaired={incremental_summary['n_fixed']} "
+            f"broken={incremental_summary['n_broken']}"
+        )
+    print(
+        f"  pairs={validation.n_pairs} repaired={validation.n_fixed} "
+        f"broken={validation.n_broken} effect={validation.effect:+.4f} "
+        f"e={validation.e_value:.2f} verdict={validation.verdict}"
+    )
+    print(f"  Full guide -> {ctx.root / 'README.txt'}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -363,7 +569,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="qwen2-audio-7b-instruct")
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--limit", type=int, default=120)
+    parser.add_argument(
+        "--limit", type=int, default=896,
+        help="number of frozen MMAU rows to evaluate. 896 is the full eligible "
+             "test-mini set after the deterministic 29.5-second audio-window filter.",
+    )
     parser.add_argument(
         "--max-tokens", type=int, default=24,
         help="subject-model generation budget (baseline scoring AND every M1 "
@@ -400,6 +610,21 @@ def main() -> int:
         "--analysis-only", action="store_true",
         help="run M1+M2 only (skip M3/M5/fix)",
     )
+    parser.add_argument(
+        "--validate-tcd-only", action="store_true",
+        help="skip M1-M5 and confirm the already pilot-selected TCD candidate "
+             "on frozen rows added after --pilot-size",
+    )
+    parser.add_argument(
+        "--pilot-size", type=int, default=120,
+        help="under --validate-tcd-only, exclude this many original pilot rows "
+             "so validation uses only newly added cases",
+    )
+    parser.add_argument(
+        "--prior-confirm-result",
+        help="under --validate-tcd-only, combine this earlier non-overlapping "
+             "TCD result's paired sufficient statistics with the new batch",
+    )
     parser.add_argument("--run-dir", default=str(HERE / "outputs"))
     parser.add_argument(
         "--smoke-test", action="store_true",
@@ -410,6 +635,8 @@ def main() -> int:
     if args.smoke_test:
         _run_smoke_test(args)
         return 0
+    if args.validate_tcd_only:
+        return _run_tcd_confirmation(args)
 
     rows = shuffled_rows(load_records(), args.seed)
     if len(rows) < args.limit:
@@ -505,7 +732,7 @@ def main() -> int:
 
     # --analysis-only never reaches run_fix, so nothing would ever read the
     # held-out CONFIRM partition -- reserving one anyway would silently starve
-    # M1/M2 of rows the user believes they gave it (--limit 120 but M1/M2 only
+    # M1/M2 of rows the user believes they gave it (--limit 896 but M1/M2 only
     # ever seeing the ~40% EXPLORE share). Force it off in that mode.
     confirm_split = 0.0 if args.analysis_only else args.confirm_split
     n_confirm = round(len(cases) * confirm_split) if 0.0 < confirm_split < 1.0 else 0
