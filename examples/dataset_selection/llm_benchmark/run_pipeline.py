@@ -292,6 +292,22 @@ def load_batch(model_id: str, dataset: str, out_dir: "Path | None" = None):
     except Exception as exc:  # never block a run on the staleness check itself
         print(f"  NOTE could not check grader freshness: {exc}")
 
+    # Band position (build_cases writes it since 2026-08-18; older batches
+    # carry only the accuracy). Out-of-band is a warning, never a stop: the
+    # run is legitimate, its paired tests are just short of power.
+    try:
+        from build_cases import MAX_ACC, MIN_ACC, band_position
+        acc = float(report.get("accuracy", 0.0))
+        position = report.get("band_position") or band_position(acc)
+        if position != "in":
+            print(f"  WARNING batch accuracy {acc:.3f} is outside the usable band "
+                  f"[{MIN_ACC}, {MAX_ACC}] ({position}: {report.get('n_fail')} FAIL / "
+                  f"{report.get('n_pass')} PASS) — M2 has little to contrast and every "
+                  f"paired test downstream is short of power. Results are valid but weak; "
+                  f"a mid-band dataset for this model size would use the GPU hours better.")
+    except Exception as exc:  # advisory only
+        print(f"  NOTE could not check band position: {exc}")
+
     cases = [
         FailureCase(
             inputs=Inputs(prompt=c["prompt"]),

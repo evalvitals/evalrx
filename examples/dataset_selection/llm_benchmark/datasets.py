@@ -152,7 +152,7 @@ CATALOG: tuple = (
                "same widening moved accuracy +8.8 points. It also carried an 8% "
                "budget signal at 4096, two points under the veto, which the wider "
                "budget should relieve. Expect the census to read higher than "
-               "0.440; build_cases refuses outside [0.15, 0.85] either way.",
+               "0.440; build_cases WARNS outside [0.15, 0.85] (refuses only with --strict-band).",
     ),
     Entry(
         name="bbh_tracking7",
