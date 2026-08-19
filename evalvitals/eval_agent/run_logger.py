@@ -1003,6 +1003,7 @@ class RunLogger:
             num = slug.split("_", 1)[0]
             verdict = a.get("verdict") or ("FIXED" if a.get("fixed") else "did not fix")
             cov = a.get("coverage")
+            rates_mode = a.get("noise_model") == "paired_rates"
             lines = [
                 f"# Fix attempt {num} — {name}  [{tier}]",
                 "",
@@ -1010,11 +1011,16 @@ class RunLogger:
                 f"(verdict: {verdict})",
                 f"**Kind:** {a.get('kind')}    **Source:** {a.get('source')}",
                 "",
+                "## Validation (paired per-case pass rates vs. unmodified baseline)"
+                if rates_mode else
                 "## Validation (paired McNemar vs. unmodified baseline)",
                 f"- pairs tested (applicable): {a.get('n_pairs')}",
                 f"- cases fixed: {a.get('n_fixed')}",
                 f"- cases broken: {a.get('n_broken')}",
                 f"- coverage of failures: {'—' if cov is None else f'{cov:.0%}'}",
+                (f"- unstable cases (baseline flips across its samples; weighed, "
+                 f"not dropped): {a.get('n_unstable', 0)}")
+                if rates_mode else
                 f"- unstable cases dropped (noise): {a.get('n_unstable', 0)}",
                 f"- model-independent cases excluded (frozen-model control): "
                 f"{a.get('n_model_independent', 0)}",
