@@ -17,9 +17,9 @@ collect-then-compute split does not apply.  Instead:
   wall-clock deadline.
 * The script's final ``FIX_PIPELINE_RESULT_JSON=`` line carries per-case final
   answers; **scoring stays host-side** — the case payload shipped to the
-  sandbox contains only ``id`` and ``prompt`` (no labels, no expected rubric),
-  so generated code cannot cheat by echoing gold answers or flipping known
-  failures.
+  sandbox contains only ``id``, ``prompt`` and the model's own
+  ``baseline_output`` (no labels, no expected rubric), so generated code
+  cannot cheat by echoing gold answers or flipping known failures.
 """
 
 from __future__ import annotations
@@ -52,10 +52,16 @@ import json as _json
 import sys as _sys
 
 
-def model_generate(case_id, prompt=None, image_ops=None):
-    """Call the original model on one case (host-mediated bridge)."""
+def model_generate(case_id, prompt=None, image_ops=None, generation_kwargs=None):
+    """Call the original model on one case (host-mediated bridge).
+
+    generation_kwargs: optional bounded decoding controls
+    ({{"max_tokens", "temperature", "top_p", "stop"}}); anything else is
+    dropped host-side, and max_tokens can only RAISE the baseline budget.
+    """
     _sys.stdout.write("{call_marker}" + _json.dumps(
-        {{"case_id": case_id, "prompt": prompt, "image_ops": image_ops or []}}) + "\\n")
+        {{"case_id": case_id, "prompt": prompt, "image_ops": image_ops or [],
+          "generation_kwargs": generation_kwargs or {{}}}}) + "\\n")
     _sys.stdout.flush()
     line = _sys.stdin.readline()
     if not line:
@@ -87,11 +93,25 @@ def model_attend(case_id, prompt=None):
 
 
 def cases_payload(cases: "CaseBatch") -> "dict[str, Any]":
-    """Serialise cases for the sandbox: id + prompt ONLY (no label/rubric)."""
-    return {"cases": [
-        {"id": c.id, "prompt": str(getattr(getattr(c, "inputs", None), "prompt", ""))}
-        for c in cases
-    ]}
+    """Serialise cases for the sandbox: id, prompt and the model's ORIGINAL
+    answer — never a label, expected answer, or rubric.
+
+    ``baseline_output`` is the recorded baseline generation (``case.observed``,
+    ``None`` when the case carries none). It is not a label: it is what the
+    unchanged model already said, which a scaffold may legitimately compare
+    against, vote with, or ask the model to double-check. It carries no
+    information about correctness — the frozen-model control replays exactly
+    this text, so a pipeline that merely echoes it scores as the baseline.
+    """
+    out = []
+    for c in cases:
+        observed = getattr(c, "observed", None)
+        out.append({
+            "id": c.id,
+            "prompt": str(getattr(getattr(c, "inputs", None), "prompt", "")),
+            "baseline_output": None if observed is None else str(observed),
+        })
+    return {"cases": out}
 
 
 @dataclass
@@ -113,6 +133,7 @@ def run_coded_pipeline(
     max_calls: "int | None" = None,
     enable_attend: bool = False,
     reply_fn: "Callable[[Any, str], str] | None" = None,
+    max_tokens_floor: "int | None" = None,
 ) -> CodedPipelineResult:
     """Execute agent-written pipeline *code* with bridged model access.
 
@@ -125,6 +146,12 @@ def run_coded_pipeline(
     instead of the model (which is then never touched) — the hook
     :func:`frozen_model_control` uses to re-run the same code with the model
     held at its recorded answers.
+
+    ``max_tokens_floor``: the baseline decode budget. A bridged call's
+    ``generation_kwargs["max_tokens"]`` below it is raised to it — a scaffold
+    may give the model MORE room than the baseline had, never less (a shorter
+    budget truncates the chain and scores as a wrong answer, which is a
+    decoding artefact, not evidence about the repair).
     """
     from evalvitals.core.case import Inputs
 
@@ -186,7 +213,8 @@ def run_coded_pipeline(
                     proc.kill()
                     break
                 reply = _service_call(stripped[len(CALL_MARKER):], case_by_id,
-                                      model, Inputs, enable_attend, reply_fn)
+                                      model, Inputs, enable_attend, reply_fn,
+                                      max_tokens_floor=max_tokens_floor)
                 try:
                     proc.stdin.write(json.dumps(reply) + "\n")  # type: ignore[union-attr]
                     proc.stdin.flush()  # type: ignore[union-attr]
@@ -258,8 +286,13 @@ def _service_call(
     inputs_cls: "type",
     enable_attend: bool = False,
     reply_fn: "Callable[[Any, str], str] | None" = None,
+    max_tokens_floor: "int | None" = None,
 ) -> "dict[str, Any]":
     """Handle one bridged model call; never raises (errors travel as JSON)."""
+    import dataclasses
+
+    from evalvitals.eval_agent.stages.fix_tools import _safe_generation_kwargs
+
     try:
         req = json.loads(raw)
         case = case_by_id.get(str(req.get("case_id", "")))
@@ -304,7 +337,20 @@ def _service_call(
             image = apply_image_ops(image, ops)
         if model is None:
             return {"error": "no model behind the bridge"}
-        return {"output": str(model.generate(inputs_cls(prompt=str(prompt), image=image)))}
+        gen_kwargs = _safe_generation_kwargs(req.get("generation_kwargs"))
+        if (
+            max_tokens_floor
+            and "max_tokens" in gen_kwargs
+            and gen_kwargs["max_tokens"] < int(max_tokens_floor)
+        ):
+            gen_kwargs["max_tokens"] = int(max_tokens_floor)
+        # dataclasses.replace keeps .video/.audio (a bare Inputs(prompt=,
+        # image=) dropped them — the same modality bug run_pipeline had).
+        if inp is not None and dataclasses.is_dataclass(inp):
+            new_inputs = dataclasses.replace(inp, prompt=str(prompt), image=image)
+        else:
+            new_inputs = inputs_cls(prompt=str(prompt), image=image)
+        return {"output": str(model.generate(new_inputs, **gen_kwargs))}
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
