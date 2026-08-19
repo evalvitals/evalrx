@@ -38,3 +38,61 @@ def e_value_test(successes: int, n: int, p0: float = 0.5, alpha: float = 0.05) -
     """Convenience wrapper: e-value + reject decision at level *alpha*."""
     e = evalue_bernoulli(successes, n, p0)
     return {"e_value": e, "reject": e >= 1.0 / alpha, "threshold": 1.0 / alpha, "alpha": alpha}
+
+
+#: Fixed betting fractions the bounded-mean e-value mixes over (a convex mixture
+#: of e-values is an e-value). Spread on a log-ish scale so both a few large
+#: differences and many small ones can accumulate evidence.
+_LAMBDA_GRID = (0.05, 0.1, 0.2, 0.35, 0.5, 0.7, 0.9)
+
+
+def evalue_bounded_mean(
+    diffs,
+    *,
+    low: float = -1.0,
+    high: float = 1.0,
+    null_mean: float = 0.0,
+    lambdas=None,
+) -> float:
+    """Betting (capital-process) e-value for H0: E[d] <= ``null_mean``, d in [low, high].
+
+    For each betting fraction λ the capital ``Π_i (1 + λ·(d_i − null_mean)/(null_mean − low))``
+    is a non-negative supermartingale under H0 (each factor is ≥ 0 and has
+    expectation ≤ 1), so it is an e-value; the returned value is the average
+    over a fixed λ grid, itself an e-value. One-sided: it accumulates evidence
+    that the mean is ABOVE ``null_mean``; pass ``-d`` to test the other side.
+
+    Use for PAIRED per-case rate differences (candidate rate − baseline rate,
+    each estimated from k samples): unlike McNemar on one sample per arm, a
+    case whose baseline passes 2/5 of the time and which the candidate gets
+    right contributes +0.6, not +1 — sampling-unstable cases are weighed, not
+    dropped and not mistaken for repairs.
+
+    Betting e-values for bounded means:
+      Waudby-Smith & Ramdas (2023), JRSSB — https://arxiv.org/abs/2010.09686
+    """
+    xs = [float(d) for d in diffs]
+    if not xs:
+        return 1.0
+    if not (low < null_mean < high):
+        raise ValueError("need low < null_mean < high")
+    scale = null_mean - low  # largest step down; keeps every factor >= 0 for λ <= 1
+    grid = tuple(lambdas) if lambdas is not None else _LAMBDA_GRID
+    log_caps = []
+    for lam in grid:
+        if not (0.0 < lam <= 1.0):
+            raise ValueError("betting fractions must lie in (0, 1]")
+        total = 0.0
+        for x in xs:
+            x = min(max(x, low), high)
+            factor = 1.0 + lam * (x - null_mean) / scale
+            if factor <= 0.0:
+                total = -math.inf
+                break
+            total += math.log(factor)
+        log_caps.append(total)
+    finite = [v for v in log_caps if v > -math.inf]
+    if not finite:
+        return 0.0
+    m = max(finite)
+    return math.exp(m) * sum(math.exp(v - m) for v in finite) / len(grid)

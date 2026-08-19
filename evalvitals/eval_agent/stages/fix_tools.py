@@ -56,6 +56,39 @@ def score_to_bool(value: Any) -> "Optional[bool]":
     return None
 
 
+#: ``{identifier}`` — the only thing a prompt template may substitute.
+_TEMPLATE_FIELD = re.compile(r"\{(\w+)\}")
+
+
+def safe_format(template: str, context: "dict[str, Any]") -> str:
+    r"""Fill ``{known}`` placeholders and leave every other brace group alone.
+
+    ``str.format`` treats EVERY ``{...}`` as a replacement field, but a prompt
+    template is model-authored prose about a task whose text legitimately
+    contains braces — LaTeX above all.  Measured against the real thing:
+
+        "{prompt} \frac{a}{b}"  -> KeyError: 'a'
+        "{prompt} 10^{33}"      -> IndexError: Replacement index 33
+        "{prompt} ${~m}$"       -> KeyError: '~m'
+        "{prompt} {}"           -> IndexError: Replacement index 0
+
+    The third is not hypothetical: it ended a qwen3.5-2b/minervamath run
+    *after* M4 had produced its fix, because the formatting sat outside the
+    per-case ``try``, so a template the model wrote for a LaTeX dataset took
+    down the process instead of scoring one case as ``None``.
+
+    Substituting by regex rather than forgiving ``format_map`` because the
+    failures above are three different exception types from two different
+    causes (unknown name, positional index), and a rule of "replace exactly the
+    ``{identifier}`` groups I know" has none of them: unknown names stay
+    literal, and nothing else is even looked at.  The cost is format specs
+    (``{value:.2f}``), which a prompt template has no use for.
+    """
+    return _TEMPLATE_FIELD.sub(
+        lambda m: str(context.get(m.group(1), m.group(0))), template
+    )
+
+
 # ---------------------------------------------------------------------------
 # Image tool catalog
 # ---------------------------------------------------------------------------
@@ -531,7 +564,9 @@ class PipelineSpec:
         name:            Short identifier for logs.
         image_ops:       Tool applications, in order (see :data:`IMAGE_TOOLS`).
         prompt_template: Must contain ``{prompt}``; identity by default.
-        n_samples:       Model calls per case (majority vote when > 1).
+        n_samples:       Independent passes per case (majority vote on the
+                         extracted final answer when > 1). Applies to every
+                         strategy — a multi-call strategy is repeated end-to-end.
         generation_kwargs: Safe, backend-neutral decoding overrides. This is
                            deliberately part of the serialized candidate: a
                            length stop is an execution-health failure, not a
@@ -641,6 +676,16 @@ def _safe_output_key_pattern(value: Any) -> str:
     return pattern if compiled.groups >= 1 else ""
 
 
+#: Upper bound on a candidate's ``max_tokens``. This is an audit ceiling, not a
+#: budget: it only stops a judge from smuggling an absurd number in. It sits
+#: well above every baseline budget this repo runs (20480 for the long-form
+#: llm_benchmark datasets) — the old 8192 was BELOW those, so a candidate could
+#: never even match the baseline on them. The floor (a candidate may not decode
+#: with LESS than the baseline budget) is enforced by the fix agent, which
+#: knows the baseline; see ``FixAgent._enforce_generation_floor``.
+MAX_TOKENS_CAP = 32768
+
+
 def _safe_generation_kwargs(value: Any) -> "dict[str, Any]":
     """Keep only portable, bounded decoding controls from a candidate spec.
 
@@ -652,7 +697,7 @@ def _safe_generation_kwargs(value: Any) -> "dict[str, Any]":
     out: "dict[str, Any]" = {}
     try:
         max_tokens = int(raw.get("max_tokens"))
-        if 1 <= max_tokens <= 8192:
+        if 1 <= max_tokens <= MAX_TOKENS_CAP:
             out["max_tokens"] = max_tokens
     except (TypeError, ValueError):
         pass
@@ -715,20 +760,101 @@ def spec_changes_input(spec: PipelineSpec, case: "FailureCase") -> bool:
         return True  # cannot prove it is a no-op — treat as applicable
 
 
+def _run_strategy_once(
+    generate: "Callable[[str], str]", strategy: str, base_prompt: str
+) -> str:
+    """One pass of a reviewed multi-call strategy; returns its final output."""
+    if strategy == "least_to_most":
+        calls = STRATEGY_CALLS["least_to_most"]
+        decomposition = generate(calls[0][1] + "\n\n" + base_prompt)
+        return generate(
+            f"{calls[1][1]}\n\nOriginal task:\n"
+            f"{base_prompt}\n\nDecomposition:\n{decomposition}"
+        )
+    if strategy == "self_refine":
+        calls = STRATEGY_CALLS["self_refine"]
+        draft = generate(base_prompt)
+        feedback = generate(
+            f"{calls[1][1]}\n\n"
+            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
+        )
+        return generate(
+            f"{calls[2][1]}\n\n"
+            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nFeedback:\n{feedback}"
+        )
+    if strategy == "chain_of_verification":
+        calls = STRATEGY_CALLS["chain_of_verification"]
+        draft = generate(base_prompt)
+        checks = generate(
+            f"{calls[1][1]}\n\n"
+            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
+        )
+        return generate(
+            f"{calls[2][1]}\n\n"
+            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nChecks:\n{checks}"
+        )
+    return generate(base_prompt)
+
+
+def answer_key(output: str, pattern: str = "") -> str:
+    """Label-free key two samples must share to count as the same answer.
+
+    *pattern* (evaluator-declared, one capture group) wins when it matches.
+    Otherwise the key is the FINAL ANSWER span — last ``Answer:`` tag /
+    ``\\boxed{}`` / last non-empty line, normalised — via the same
+    ``extract_answer`` + ``normalize_answer`` the reasoning analyzers use.
+
+    Why not the whole normalised text (the previous fallback): with a
+    chain-of-thought model no two samples are ever byte-identical, so every
+    sample sat in its own group and ``n_samples=5`` silently degenerated to
+    "return the first sample" — five calls, no vote. Measured on the
+    qwen3.5-2b/bbh_tracking7 candidates: the judge's ``n_samples=5`` proposals
+    voted on nothing. Neither path reads the gold answer.
+    """
+    text = str(output or "")
+    if pattern:
+        try:
+            key_re = re.compile(pattern, flags=re.IGNORECASE | re.DOTALL)
+        except re.error:
+            key_re = None
+        if key_re is not None:
+            matches = list(key_re.finditer(text))
+            if matches and matches[-1].lastindex:
+                return matches[-1].group(1).strip().lower()
+    try:
+        from evalvitals.analyzers.reasoning._text import extract_answer, normalize_answer
+
+        key = normalize_answer(extract_answer(text))
+        if key:
+            return key
+    except Exception:  # analyzers are optional at this layer; degrade gracefully
+        pass
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
 def run_pipeline(
     model: "Model",
     case: "FailureCase",
     spec: PipelineSpec,
     score_fn: "Callable[[FailureCase, str], Optional[bool]]",
+    capture: "dict[str, Any] | None" = None,
 ) -> "Optional[bool]":
     """Execute *spec* on one case; aggregate outputs before host-side scoring.
 
-    Multiple samples vote on an evaluator-declared final-answer key when one is
-    available, otherwise on normalized final text. The scoring rubric is
-    applied *after* aggregation, so a pipeline cannot use the hidden gold
-    answer to select its preferred sample. Reviewed multi-call strategies are
-    prompt-only and keep the underlying model unchanged. Returns ``None`` when
-    the case cannot be scored (no rubric / all calls failed).
+    ``n_samples`` applies to EVERY strategy: a multi-call strategy is run
+    ``n_samples`` times end-to-end and its final outputs vote (previously only
+    ``direct`` honoured ``n_samples`` — a judge's ``least_to_most, n_samples=3``
+    silently ran once). Samples vote on an evaluator-declared final-answer key
+    when one is available, otherwise on the extracted final answer
+    (:func:`answer_key`). The scoring rubric is applied *after* aggregation, so
+    a pipeline cannot use the hidden gold answer to select its preferred
+    sample. Reviewed multi-call strategies are prompt-only and keep the
+    underlying model unchanged. Returns ``None`` when the case cannot be scored
+    (no rubric / all calls failed).
+
+    *capture*, when a dict, receives ``{"prompt", "outputs", "winner",
+    "n_calls"}`` so the caller can persist WHAT the candidate produced (the
+    only way to tell a truncated answer from a wrong one after the fact).
     """
     import dataclasses
 
@@ -739,9 +865,16 @@ def run_pipeline(
     image = getattr(inp, "image", None) if inp is not None else None
     if spec.image_ops:
         image = apply_image_ops(image, spec.image_ops, case=case)
-    base_prompt = spec.prompt_template.format(prompt=prompt)
+    # safe_format, not str.format: a judge-written template legitimately
+    # contains braces (LaTeX, sets like "{1,2,3}", JSON) — str.format raised
+    # KeyError OUTSIDE the per-case try and took down a whole fix stage
+    # (qwen3.5-2b/bbh_tracking7 run8: template with "{1,2,3,4,5,6,7}").
+    base_prompt = safe_format(spec.prompt_template, {"prompt": prompt})
+    n_calls = 0
 
     def generate(text: str) -> str:
+        nonlocal n_calls
+        n_calls += 1
         try:
             # dataclasses.replace(inp, ...), not a bare Inputs(prompt=...,
             # image=...): the bare form silently dropped .video/.audio, so
@@ -763,38 +896,14 @@ def run_pipeline(
             logger.debug("run_pipeline: generate failed on %s: %s", case.id, exc)
             return ""
 
-    if spec.strategy == "least_to_most":
-        calls = STRATEGY_CALLS["least_to_most"]
-        decomposition = generate(calls[0][1] + "\n\n" + base_prompt)
-        outputs = [generate(
-            f"{calls[1][1]}\n\nOriginal task:\n"
-            f"{base_prompt}\n\nDecomposition:\n{decomposition}"
-        )]
-    elif spec.strategy == "self_refine":
-        calls = STRATEGY_CALLS["self_refine"]
-        draft = generate(base_prompt)
-        feedback = generate(
-            f"{calls[1][1]}\n\n"
-            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
-        )
-        outputs = [generate(
-            f"{calls[2][1]}\n\n"
-            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nFeedback:\n{feedback}"
-        )]
-    elif spec.strategy == "chain_of_verification":
-        calls = STRATEGY_CALLS["chain_of_verification"]
-        draft = generate(base_prompt)
-        checks = generate(
-            f"{calls[1][1]}\n\n"
-            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
-        )
-        outputs = [generate(
-            f"{calls[2][1]}\n\n"
-            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nChecks:\n{checks}"
-        )]
-    else:
-        outputs = [generate(base_prompt) for _ in range(spec.n_samples)]
+    outputs = [
+        _run_strategy_once(generate, spec.strategy, base_prompt)
+        for _ in range(max(1, spec.n_samples))
+    ]
     outputs = [output for output in outputs if output]
+    if capture is not None:
+        capture.update({"prompt": base_prompt, "outputs": list(outputs),
+                        "winner": None, "n_calls": n_calls})
     if not outputs:
         return None
     # Keep the first original response for the winning normalized key; stable
@@ -802,17 +911,10 @@ def run_pipeline(
     pattern = spec.output_key_pattern or str(
         (getattr(case, "metadata", {}) or {}).get("output_key_pattern", "")
     )
-    try:
-        key_re = re.compile(pattern, flags=re.IGNORECASE | re.DOTALL) if pattern else None
-    except re.error:
-        key_re = None
     grouped: "dict[str, list[str]]" = {}
     for output in outputs:
-        matches = list(key_re.finditer(output)) if key_re is not None else []
-        key = (
-            matches[-1].group(1).strip().lower()
-            if matches and matches[-1].lastindex else re.sub(r"\s+", " ", output.strip().lower())
-        )
-        grouped.setdefault(key, []).append(output)
+        grouped.setdefault(answer_key(output, pattern), []).append(output)
     winner = max(grouped.values(), key=len)[0]
+    if capture is not None:
+        capture["winner"] = winner
     return score_to_bool(score_fn(case, winner))

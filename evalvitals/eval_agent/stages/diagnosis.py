@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -250,12 +251,39 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
     ]
 
 
+# A judge that answers in Markdown decorates the labels — ``**HYPOTHESIS:**``,
+# ``**HYPOTHESIS**:``, ``- HYPOTHESIS:``, ``1. TEST:``, ``### FAILURE_MODE:`` —
+# and the bare ``startswith("HYPOTHESIS:")`` check saw none of them: a live
+# qwen3.5-2b/bbh_word_sorting run had three well-formed hypotheses in the
+# response and M3 reported zero. Normalise the label, leave the text alone.
+_LABEL_LINE = re.compile(
+    r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]*\s*"
+    r"(HYPOTHESIS|FAILURE_MODE|TEST|KEEP|REJECT)\s*[*_`]*\s*:\s*[*_`]*\s*",
+    re.IGNORECASE,
+)
+
+
+def _normalise_label_line(line: str) -> str:
+    """``**HYPOTHESIS:** foo`` / ``- FAILURE_MODE: bar`` → ``HYPOTHESIS: foo`` /
+    ``FAILURE_MODE: bar``. Lines without a recognised label are returned
+    stripped and otherwise untouched (emphasis inside the statement stays)."""
+    line = line.strip()
+    m = _LABEL_LINE.match(line)
+    if not m:
+        return line
+    rest = line[m.end():].strip()
+    # a trailing closing emphasis left over from ``**HYPOTHESIS:** ... **``
+    rest = re.sub(r"[*_`]+$", "", rest).strip()
+    return f"{m.group(1).upper()}: {rest}"
+
+
 def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
     """Parse hypothesis objects from LLM output.
 
     Tries JSON structured format first (more reliable), then falls back to the
     line-oriented ``HYPOTHESIS:`` / ``FAILURE_MODE:`` text format.  This makes
     the parser resilient to both output modes without requiring a hard migration.
+    Labels may carry Markdown decoration (see :func:`_normalise_label_line`).
     """
     json_result = _parse_hypotheses_json(raw, model_name)
     if json_result is not None:
@@ -265,7 +293,7 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
     hypotheses: list[Hypothesis] = []
     statement: str | None = None
     for line in raw.splitlines():
-        line = line.strip()
+        line = _normalise_label_line(line)
         if line.upper().startswith("HYPOTHESIS:"):
             statement = line[len("HYPOTHESIS:"):].strip()
         elif line.upper().startswith("FAILURE_MODE:") and statement:
@@ -326,7 +354,7 @@ def _validate_hypotheses(
 
     kept: set[str] = set()
     for line in str(raw).splitlines():
-        line = line.strip()
+        line = _normalise_label_line(line)
         if line.upper().startswith("KEEP:"):
             stmt = line[len("KEEP:"):].strip().lower()
             for h in hypotheses:

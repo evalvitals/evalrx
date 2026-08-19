@@ -119,18 +119,32 @@ class EndpointModel(Model):
         self.n_calls = 0
         self.n_truncated = 0
         self.n_logprob_calls = 0
+        # M1 analyzers and the fix module's declarative candidates call
+        # generate() from worker threads; the counters are read as telemetry
+        # (the fix module diffs n_truncated around each candidate), so they
+        # must not lose increments.
+        import threading
+        self._lock = threading.Lock()
 
     def generate(self, inputs, **kwargs) -> str:
         B.MODEL_ID, B.BASE_URL = self.model_id, self.base_url
-        self.n_calls += 1
+        with self._lock:
+            self.n_calls += 1
+        # Portable decoding overrides a fix candidate may carry: max_tokens /
+        # temperature / top_p (top_p and any other sampling key ride in the
+        # sampling dict; unknown keys are ignored, never forwarded).
+        sampling = {k: v for k, v in self.sampling.items() if k != "temperature"}
+        if "top_p" in kwargs:
+            sampling["top_p"] = kwargs["top_p"]
         text, reason = B.generate(
             str(getattr(inputs, "prompt", inputs)),
             kwargs.get("max_tokens", self.max_tokens),
             kwargs.get("temperature", self.sampling["temperature"]),
-            sampling={k: v for k, v in self.sampling.items() if k != "temperature"},
+            sampling=sampling,
         )
         if reason == "length":
-            self.n_truncated += 1
+            with self._lock:
+                self.n_truncated += 1
         return text
 
     def logprobs(self, inputs, max_new_tokens: "int | None" = None,
@@ -284,10 +298,53 @@ def load_batch(model_id: str, dataset: str, out_dir: "Path | None" = None):
             observed=c["output"],
             expected=c["gold"] if not isinstance(c["gold"], list) else c["gold"][0],
             label=Label.PASS if c["label"] == "PASS" else Label.FAIL,
+            # the grader's gold, verbatim (a list carries aliases) — see make_score_fn
+            # + the generation telemetry Stage 0 recorded (finish_reason /
+            # budget), which the fix module's L0 tier reads: without it a
+            # truncated baseline can never be repaired by raising max_tokens.
+            metadata={
+                "gold": c["gold"],
+                "finish_reason": c.get("finish_reason"),
+                "generation_config": {"max_tokens": report.get("max_tokens")},
+            },
         )
         for c in report["cases"]
     ]
     return CaseBatch(cases), report
+
+
+def make_score_fn(dataset: str):
+    """``(case, output) -> bool | None`` — the SAME grader that labelled the batch.
+
+    The fix stage (and any analyzer that re-asks the model) must score a
+    candidate answer by the rule the PASS/FAIL labels were written under:
+    ``extract_answer`` (last ``\\boxed{}`` / ``Answer:`` span, else last line) →
+    the dataset spec's grader (default ``answer_equal``, which normalises
+    punctuation and case). The framework's default scorer instead checks that
+    the gold string appears VERBATIM inside the whole output — on
+    bbh_word_sorting a correct ``ANSWER: a, b, c`` (commas, as several fix
+    candidates asked for) does not contain the gold ``a b c`` and was scored
+    wrong: run5's L1/L2 candidates showed 0-2 correct of 40 (baseline 19),
+    i.e. "regressed" by format, not by content. Same shape on bbh_tracking7:
+    ``B`` vs gold ``(B)``.
+    """
+    spec = next(s for s in B.SPECS if s.name == dataset)
+    grade = spec.grader or B.answer_equal
+    raw = bool(getattr(spec, "grades_raw_output", False))
+
+    def score(case, output):
+        gold = (getattr(case, "metadata", None) or {}).get("gold", getattr(case, "expected", None))
+        if gold is None:
+            return None
+        text = str(output if output is not None else "")
+        graded = text if raw else B.extract_answer(text)
+        try:
+            return bool(grade(graded, gold))
+        except Exception:
+            return None
+
+    score.__name__ = f"grade_{dataset}"
+    return score
 
 
 def subsample_batch(batch, report: dict, n: int, seed: int = 0):
@@ -568,6 +625,36 @@ def load_prior_run(logs_dir: Path):
     return hypotheses, report
 
 
+def make_scoring_note(dataset: str, cases: list) -> str:
+    """One paragraph telling the fix proposer HOW an output is scored.
+
+    The judge/coder previously had to guess the answer format from 160
+    characters of prompt; this states the rule the labels were written under
+    (see ``make_score_fn``) and shows a gold sample so the format is explicit.
+    """
+    spec = next(s for s in B.SPECS if s.name == dataset)
+    grader = getattr(spec.grader, "__name__", "custom grader") if spec.grader else "answer_equal"
+    raw = bool(getattr(spec, "grades_raw_output", False))
+    golds = []
+    for c in cases:
+        g = c.get("gold")
+        if g is not None and str(g) not in golds:
+            golds.append(str(g))
+        if len(golds) >= 3:
+            break
+    how = ("the WHOLE output is graded" if raw else
+           "extract_answer() takes the LAST 'Answer:'-tagged span (or the last "
+           "\\boxed{} / the last non-empty line when there is no tag) and grades "
+           "ONLY that span")
+    return (
+        f"{how} with {grader}() against the gold answer (normalised: case, "
+        "surrounding punctuation and '(X)' vs 'X' do not matter, wording does). "
+        "The final answer must therefore appear on a final 'Answer: <answer>' line; "
+        f"anything after it that looks like an answer wins. Gold looks like: "
+        + " | ".join(repr(g)[:60] for g in golds)
+    )
+
+
 def build_codegen(backend: str):
     from evalvitals.eval_agent import CliAgentConfig
 
@@ -635,6 +722,11 @@ def main() -> None:
                          "instead of the untagged run dir (the frozen batch is "
                          "read from there or copied in) so a smoke run never "
                          "appends to a real run's logs/ or overwrites its explore/")
+    ap.add_argument("--fix-validation-cases", type=int, default=None,
+                    help="override config fix_validation_cases for this run (0 = the "
+                         "whole confirm half). A thin-FAIL batch needs more than the "
+                         "default 40 stratified cases for the paired gate to have any "
+                         "power; a long-generation batch may need fewer to fit the timeout")
     ap.add_argument("--no-explore", action="store_true",
                     help="skip the in-cycle explore step (free-form EDA beside the "
                          "catalog M2) even when config.yaml has explore: true")
@@ -691,9 +783,19 @@ def main() -> None:
                           logprobs_top_k=int(CFG.get("logprobs_top_k", 5)))
     judge = build_judge(args.judge_model, args.judge_effort)
     codegen = build_codegen(args.backend)
-    # A confirm-only pass never runs M1/M3, so there is nothing to explore.
+    # A confirm-only pass never runs M1/M3, so there is nothing to explore —
+    # but the analysis run's explore report is still useful to the fix
+    # proposer, so it is reloaded as read-only context (explore_report=).
     explorer = (None if (args.confirm_only or args.no_explore)
                 else build_explorer(codegen, out))
+    explore_report = None
+    if args.confirm_only:
+        prior_explore = out / "explore" / "exploratory_report.json"
+        if prior_explore.exists():
+            try:
+                explore_report = json.loads(prior_explore.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                explore_report = None
     overrides = (build_analyzer_overrides(args.analyzer_max_cases, model=model)
                  if args.analyzer_max_cases > 0 else {})
     # A confirm-only pass logs beside the analysis it reuses, never over it —
@@ -741,8 +843,35 @@ def main() -> None:
             max_tier=str(CFG.get("fix_max_tier", "L3b")),
             cli_config=codegen,
             run_logger=logger,
-            max_validation_cases=int(CFG.get("fix_validation_cases", 0)),
+            # Score candidates with the batch's own grader, not the framework's
+            # verbatim-substring default (see make_score_fn).
+            score_fn=make_score_fn(args.dataset),
+            max_validation_cases=(args.fix_validation_cases
+                                  if args.fix_validation_cases is not None
+                                  else int(CFG.get("fix_validation_cases", 0))),
             exec_timeout_sec=int(CFG.get("fix_exec_timeout_sec", 1800)),
+            # The baseline's decoding budget is the FLOOR for every candidate:
+            # a judge-proposed max_tokens below it is raised to it (tracking7's
+            # judge set 900 against a 4096 baseline whose median output was 806
+            # tokens -> "regressed" by truncation). Also shown to the proposer.
+            baseline_generation_kwargs={"max_tokens": max_tokens,
+                                        "temperature": float(CFG["temperature"]),
+                                        "top_p": float(CFG["top_p"])},
+            # Declarative candidates run their cases in parallel against the
+            # endpoint (coded pipelines stay serial through the bridge).
+            concurrency=int(CFG.get("fix_concurrency", 1)),
+            # Noise model: the baseline is a per-case PASS RATE (frozen sample
+            # + k-1 fresh at the batch's own T), the paired test runs on rate
+            # differences (betting e-value) — sampling-unstable cases are
+            # weighed, not dropped, and one T=0.6 sample per arm no longer
+            # decides fixed/broken. Candidates default to one pass (coded
+            # pipelines can't repeat cheaply); raise fix_candidate_repeats to
+            # average template/spec candidates too.
+            baseline_repeats=int(CFG.get("fix_baseline_repeats", 1)),
+            candidate_repeats=int(CFG.get("fix_candidate_repeats", 1)),
+            scoring_note=make_scoring_note(args.dataset, report_in.get("cases") or []),
+            floor_candidates=tuple(CFG.get("fix_floor_candidates",
+                                           ["self_consistency_5"]) or ()),
         ),
         max_cycles=args.max_cycles,
         run_logger=logger,
@@ -755,6 +884,7 @@ def main() -> None:
         # fix gate never see it.
         explorer=explorer,
         explore_dir=out / "explore",
+        explore_report=explore_report,
     )
 
     if args.analysis_only:
@@ -794,6 +924,11 @@ def main() -> None:
         "explore": explorer is not None,
         "max_cases": args.max_cases or None,
         "out_tag": args.out_tag or None,
+        "fix_validation_cases": (args.fix_validation_cases
+                                 if args.fix_validation_cases is not None
+                                 else int(CFG.get("fix_validation_cases", 0))),
+        "fix_baseline_repeats": int(CFG.get("fix_baseline_repeats", 1)),
+        "fix_candidate_repeats": int(CFG.get("fix_candidate_repeats", 1)),
         "n_hypotheses": len(getattr(report, "hypotheses", None)
                             or getattr(report, "all_hypotheses", None) or []),
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),

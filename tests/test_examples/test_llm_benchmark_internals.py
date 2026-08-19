@@ -653,3 +653,40 @@ def test_out_tag_reads_the_frozen_batch_and_copies_it_without_touching_it(pipe, 
     assert len(list(batch2)) == 5
     # untagged load is unchanged
     assert len(list(pipe.load_batch("m", "d")[0])) == 100
+
+
+# ── the fix stage scores with the batch's own grader ─────────────────────────
+
+def test_fix_score_fn_is_the_batch_grader_not_a_substring_check(pipe):
+    """run5 (2026-08-18) scored every format-changing candidate as 'regressed':
+    a correct comma-separated `ANSWER: a, b, c` does not contain the gold `a b c`
+    verbatim. The fix gate must grade like Stage 0 did."""
+    from evalvitals.analyzers.perturbation.prompt_contrast import _default_score
+    from evalvitals.core.case import FailureCase, Inputs, Label
+
+    score = pipe.make_score_fn("bbh_word_sorting")
+    gold = "cheddar edt from oblivion pang poignant yuh"
+    case = FailureCase(inputs=Inputs(prompt="q"), expected=gold, label=Label.PASS,
+                       metadata={"gold": gold})
+    comma = "reasoning...\nANSWER: cheddar, edt, from, oblivion, pang, poignant, yuh"
+    assert _default_score(case, comma) is False          # the framework default
+    assert score(case, comma) is True                    # the batch's grader
+    assert score(case, "ANSWER: " + gold) is True
+    assert score(case, "ANSWER: cheddar edt from oblivion pang yuh poignant") is False
+    assert score(case, "") is False
+
+    # option-letter golds: "B" vs "(B)" is the same answer to the grader
+    score7 = pipe.make_score_fn("bbh_tracking7")
+    c7 = FailureCase(inputs=Inputs(prompt="q"), expected="(B)", label=Label.PASS,
+                     metadata={"gold": "(B)"})
+    assert score7(c7, "so the answer is B\nAnswer: B") is True
+    assert score7(c7, "Answer: (C)") is False
+    # no gold at all → None (not applicable), never a silent False
+    assert score(FailureCase(inputs=Inputs(prompt="q")), "x") is None
+
+
+def test_load_batch_keeps_the_verbatim_gold_for_grading(pipe, tmp_path, monkeypatch):
+    monkeypatch.setattr(pipe, "HERE", tmp_path)
+    _frozen(tmp_path, pipe, n_fail=1, n_pass=1)
+    batch, _ = pipe.load_batch("m", "d")
+    assert all(c.metadata.get("gold") == "y" for c in batch)
