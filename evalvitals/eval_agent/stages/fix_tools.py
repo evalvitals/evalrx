@@ -56,6 +56,39 @@ def score_to_bool(value: Any) -> "Optional[bool]":
     return None
 
 
+#: ``{identifier}`` — the only thing a prompt template may substitute.
+_TEMPLATE_FIELD = re.compile(r"\{(\w+)\}")
+
+
+def safe_format(template: str, context: "dict[str, Any]") -> str:
+    r"""Fill ``{known}`` placeholders and leave every other brace group alone.
+
+    ``str.format`` treats EVERY ``{...}`` as a replacement field, but a prompt
+    template is model-authored prose about a task whose text legitimately
+    contains braces — LaTeX above all.  Measured against the real thing:
+
+        "{prompt} \frac{a}{b}"  -> KeyError: 'a'
+        "{prompt} 10^{33}"      -> IndexError: Replacement index 33
+        "{prompt} ${~m}$"       -> KeyError: '~m'
+        "{prompt} {}"           -> IndexError: Replacement index 0
+
+    The third is not hypothetical: it ended a qwen3.5-2b/minervamath run
+    *after* M4 had produced its fix, because the formatting sat outside the
+    per-case ``try``, so a template the model wrote for a LaTeX dataset took
+    down the process instead of scoring one case as ``None``.
+
+    Substituting by regex rather than forgiving ``format_map`` because the
+    failures above are three different exception types from two different
+    causes (unknown name, positional index), and a rule of "replace exactly the
+    ``{identifier}`` groups I know" has none of them: unknown names stay
+    literal, and nothing else is even looked at.  The cost is format specs
+    (``{value:.2f}``), which a prompt template has no use for.
+    """
+    return _TEMPLATE_FIELD.sub(
+        lambda m: str(context.get(m.group(1), m.group(0))), template
+    )
+
+
 # ---------------------------------------------------------------------------
 # Image tool catalog
 # ---------------------------------------------------------------------------
@@ -832,7 +865,11 @@ def run_pipeline(
     image = getattr(inp, "image", None) if inp is not None else None
     if spec.image_ops:
         image = apply_image_ops(image, spec.image_ops, case=case)
-    base_prompt = spec.prompt_template.format(prompt=prompt)
+    # safe_format, not str.format: a judge-written template legitimately
+    # contains braces (LaTeX, sets like "{1,2,3}", JSON) — str.format raised
+    # KeyError OUTSIDE the per-case try and took down a whole fix stage
+    # (qwen3.5-2b/bbh_tracking7 run8: template with "{1,2,3,4,5,6,7}").
+    base_prompt = safe_format(spec.prompt_template, {"prompt": prompt})
     n_calls = 0
 
     def generate(text: str) -> str:

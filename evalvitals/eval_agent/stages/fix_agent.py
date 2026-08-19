@@ -96,6 +96,7 @@ from evalvitals.eval_agent.stages.fix_tools import (
     PipelineSpec,
     catalog_text,
     run_pipeline,
+    safe_format,
     score_to_bool,
     spec_changes_input,
 )
@@ -113,38 +114,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
-#: ``{identifier}`` — the only thing a prompt template may substitute.
-_TEMPLATE_FIELD = re.compile(r"\{(\w+)\}")
-
-
-def safe_format(template: str, context: "dict[str, Any]") -> str:
-    r"""Fill ``{known}`` placeholders and leave every other brace group alone.
-
-    ``str.format`` treats EVERY ``{...}`` as a replacement field, but a prompt
-    template is model-authored prose about a task whose text legitimately
-    contains braces — LaTeX above all.  Measured against the real thing:
-
-        "{prompt} \frac{a}{b}"  -> KeyError: 'a'
-        "{prompt} 10^{33}"      -> IndexError: Replacement index 33
-        "{prompt} ${~m}$"       -> KeyError: '~m'
-        "{prompt} {}"           -> IndexError: Replacement index 0
-
-    The third is not hypothetical: it ended a qwen3.5-2b/minervamath run
-    *after* M4 had produced its fix, because the formatting sat outside the
-    per-case ``try``, so a template the model wrote for a LaTeX dataset took
-    down the process instead of scoring one case as ``None``.
-
-    Substituting by regex rather than forgiving ``format_map`` because the
-    failures above are three different exception types from two different
-    causes (unknown name, positional index), and a rule of "replace exactly the
-    ``{identifier}`` groups I know" has none of them: unknown names stay
-    literal, and nothing else is even looked at.  The cost is format specs
-    (``{value:.2f}``), which a prompt template has no use for.
-    """
-    return _TEMPLATE_FIELD.sub(
-        lambda m: str(context.get(m.group(1), m.group(0))), template
-    )
 
 _MAX_JUDGE_CANDIDATES = 3
 #: How many FAIL / PASS cases the proposer sees in full (prompt, the model's
@@ -2962,13 +2931,24 @@ class FixAgent:
             return result.scores
         strategy = self._strategy(candidate)
         cases = list(data)
+
+        def guarded(case: "FailureCase") -> "tuple[str, Optional[bool]]":
+            # One case's failure (a template that cannot render, an adapter
+            # error) scores None for THAT case; it must never abort the whole
+            # candidate — let alone the fix stage.
+            try:
+                return case.id, strategy(model, case)
+            except Exception as exc:
+                logger.warning("FixAgent: %s failed on case %s: %s", candidate.name, case.id, exc)
+                return case.id, None
+
         if self._concurrency > 1 and len(cases) > 1:
             from concurrent.futures import ThreadPoolExecutor
 
             with ThreadPoolExecutor(max_workers=self._concurrency) as pool:
-                results = list(pool.map(lambda c: (c.id, strategy(model, c)), cases))
+                results = list(pool.map(guarded, cases))
             return dict(results)
-        return {case.id: strategy(model, case) for case in cases}
+        return dict(guarded(case) for case in cases)
 
     def _record_output(self, case_id: str, output: Any) -> None:
         """Remember what a candidate produced for *case_id* (see FixValidation.outputs)."""

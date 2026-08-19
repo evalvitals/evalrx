@@ -571,3 +571,40 @@ def test_rates_mode_power_ceiling_uses_baseline_rates():
     agent._baseline_rates = {c.id: 0.9 for c in tiny}
     rec2 = agent._no_fix_recommendation([weak], [FixTier.L1_PROMPT], tiny, CountingModel())
     assert rec2 is not None and rec2.get("action") == "gather_more_failures"
+
+
+# ── a template with literal braces must not take the stage down ─────────────
+
+
+def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
+    """qwen3.5-2b/bbh_tracking7 run8: the judge's L2 template contained a
+    literal "{1,2,3,4,5,6,7}"; str.format raised KeyError outside the per-case
+    try and the whole fix stage (2 h in) died. The spec path must render with
+    safe_format like the L1 path, and a per-case exception of any kind must
+    score None for that case, not propagate."""
+    spec = PipelineSpec(name="braces",
+                        prompt_template="{prompt}\nUse the set {1,2,3,4,5,6,7} and \\frac{a}{b}.")
+    model = CountingModel()
+    case = list(_mc_batch(1, 0))[0]
+    capture: dict = {}
+    assert run_pipeline(model, case, spec, _mc_score, capture=capture) is True
+    assert "{1,2,3,4,5,6,7}" in capture["prompt"] and "\\frac{a}{b}" in capture["prompt"]
+
+    class Exploding(CountingModel):
+        def generate(self, inputs, **kwargs):
+            if "q1" in str(getattr(inputs, "prompt", "")):
+                raise RuntimeError("adapter hiccup")
+            return super().generate(inputs, **kwargs)
+
+    agent = FixAgent(judge=None, max_tier="L1", concurrency=3, floor_candidates=())
+
+    def raising_strategy(model, case):
+        if case.id == "q1":
+            raise KeyError("boom")
+        return True
+
+    agent._strategy = lambda candidate: raising_strategy  # type: ignore[assignment]
+    cand = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind="template",
+                        payload={"prompt_template": "x {prompt}"})
+    scores = agent._candidate_scores(cand, Exploding(), _mc_batch(2, 1))
+    assert scores["q1"] is None and scores["q0"] is True and scores["q2"] is True
