@@ -214,7 +214,7 @@ def test_cot_faithfulness_trajectory_flags_drift_away():
     ).findings
     entry = f["per_case"][0]
     assert entry["final_correct"] == 0
-    assert entry["answer_trajectory"] == [1, 0]
+    assert f["answer_trajectory_by_case"][entry["sample_id"]] == [1, 0]
     assert entry["drift_away"] == 1 and entry["late_rescue"] == 0
     assert f["drift_away_rate"] == 1.0
 

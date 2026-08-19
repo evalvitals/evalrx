@@ -319,7 +319,7 @@ def test_step_rollout_locates_the_break_step():
         model, batch
     ).findings
     entry = f["per_case"][0]
-    assert entry["step_values"] == [1.0, 0.0, 0.0]
+    assert f["step_values_by_case"][entry["sample_id"]] == [1.0, 0.0, 0.0]
     assert entry["break_step_idx"] == 1        # the value collapses entering step 2
     assert entry["recoverable"] == 0
 
