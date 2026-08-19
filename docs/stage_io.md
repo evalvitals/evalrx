@@ -7,11 +7,16 @@ covers *why* the pipeline is shaped this way and how the three loops
 same stages differently; [Exploratory Analysis (M2/M3)](m2_analysis.md) and
 [Intervention & Verification (M4/M5)](intervention.md) cover usage. This page
 covers the shape of the data crossing each boundary, and — since that shape
-is exactly what a viewer has to render — [what to put on screen for it](#ui-reference--building-a-viewer-on-this-pipeline).
+is exactly what a viewer has to render — [what to put on screen for it](#ui-reference-building-a-viewer-on-this-pipeline).
 Building a new UI on this pipeline? Read the stage you're rendering below,
-then [UI Reference](#ui-reference--building-a-viewer-on-this-pipeline) at the
+then [UI Reference](#ui-reference-building-a-viewer-on-this-pipeline) at the
 bottom for the existing dashboard's page layout, tab-to-stage mapping, and
 the conventions it uses (source: `evalvitals/analysis/dashboard_app.py`).
+For an implementation hand-off, start with
+[Frontend implementation contract](#frontend-implementation-contract): it
+defines the files to load, event fields, joins, state derivation, null/error
+semantics, and TypeScript-friendly shapes that are not visible from the Python
+method signatures alone.
 
 ## Pipeline data flow
 
@@ -51,7 +56,7 @@ produce the same per-stage types described below — only the wiring differs.
 **Pre-M1 (optional):** `ProbeSearchAgent.run(model, seed_pool)` synthesizes
 *new* test cases rather than analyzing an already-collected dataset —
 `result.failure_cases` is a `CaseBatch` that can seed or extend the data M1
-then probes. See [m2_analysis.md](m2_analysis.md#probe-search--hierarchical-mcts-failure-discovery-vlm).
+then probes. See [m2_analysis.md](m2_analysis.md#probe-search-hierarchical-mcts-failure-discovery-vlm).
 
 ## Quick reference
 
@@ -200,7 +205,7 @@ code), `records.json` (the tidy table it built), and `figures/`/`tables/`.
 
 **UI (Tab 2 — Exploratory Analysis):** for the artifact-based rendering path
 (`_render_standalone_analysis` — see
-[UI reference](#ui-reference--building-a-viewer-on-this-pipeline) for the
+[UI reference](#ui-reference-building-a-viewer-on-this-pipeline) for the
 two rendering modes), the tab shows: an
 optional data-structure/raw-data browser, then each `takeaway` as a card —
 badge number, headline (`plain_title` shown first, technical `title`
@@ -394,13 +399,488 @@ for the structured event each stage emits per cycle.
 
 ---
 
+## Frontend implementation contract
+
+This section is the practical contract for a UI implementation. The Python
+types above explain what each stage computes; this section explains what a
+browser or UI backend can actually read from disk, how records relate, and how
+to distinguish a valid empty result from a failed or unfinished stage.
+
+### 1. Choose a source of truth
+
+A normal persisted loop run has this shape (some folders are optional):
+
+```text
+<run>/
+├── manifest.json
+├── run_log.jsonl
+├── report/
+│   ├── summary.json
+│   ├── summary.md
+│   ├── hypotheses.json
+│   ├── m5_results.json
+│   └── discovery_cases.json
+├── artifacts/
+│   ├── c0_<analyzer>.result.json
+│   ├── c0_<artifact>.npy|json|png
+│   └── c0_m2_<large-field>.json
+├── prompts/
+│   └── c0_m{1,2,3}_*.prompt.txt|response.txt
+├── explore/
+│   ├── exploratory_report.json
+│   ├── tables/
+│   └── figures/
+└── fixes/
+    ├── outcome.md
+    └── <trial>/
+        ├── record.md
+        ├── result.json
+        └── workspace/
+```
+
+Use one of these two contracts; do not silently merge conflicting values from
+both:
+
+| UI use case | Primary source | Secondary source |
+|---|---|---|
+| Live progress / per-cycle story | append-only `run_log.jsonl` | linked artifacts as they appear |
+| Finished run / stable report | `manifest.json` + `report/` + `artifacts/` | `run_log.jsonl` for provenance and detail |
+| Standalone Explore upload | `exploratory_report.json` and optional sibling `confirm_report.json` / `fix_report.json` | the uploaded records |
+
+For a finished run, `manifest.json` is the file inventory. Its current shape is:
+
+```json
+{
+  "run_id": "auto_fix_v12",
+  "root": "/app/example/outputs/auto_fix_v12",
+  "generated_at": "2026-08-18T00:00:00+00:00",
+  "config": {
+    "benchmark": "spatial457",
+    "model": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "n_cases": 512,
+    "confirm_split": 0.5,
+    "fix_tier": "L3a",
+    "allow_codegen": true
+  },
+  "files": {
+    "report": ["report/summary.json", "report/hypotheses.json"],
+    "artifacts": ["artifacts/c0_attention.result.json"],
+    "prompts": ["prompts/c0_m2_analysis.prompt.txt"],
+    "fixes": ["fixes/outcome.md"],
+    "other": ["run_log.jsonl"]
+  }
+}
+```
+
+`config` is intentionally extensible: render recognized values as summary
+chips and preserve the remainder in a raw configuration view.
+
+#### Artifact path resolution
+
+Paths recorded by a container may be absolute inside that container, while the
+UI is serving an extracted/copy-mounted run elsewhere. Therefore:
+
+1. Treat the directory containing `manifest.json` as `runRoot`.
+2. Resolve every relative path against `runRoot`.
+3. Do **not** use `manifest.root` as the server filesystem root; it is provenance
+   and may say `/app/example/...` even when the UI sees another path.
+4. For an absolute path in an event, first strip the recorded `manifest.root`
+   prefix and resolve the suffix below `runRoot`; otherwise match its longest
+   unambiguous suffix against `manifest.files`.
+5. If no in-run match exists, show “artifact unavailable” and the recorded path
+   as text. Never let a client-provided path escape `runRoot`.
+6. Serve artifacts through a backend route such as
+   `/api/runs/:runId/artifacts/:relativePath`; do not expose host paths in URLs.
+
+### 2. Shared serialized objects
+
+All JSON objects are additive: a producer may add fields without increasing
+`schema_version`. Frontend decoders should validate the fields they consume and
+retain unknown fields for the raw JSON inspector.
+
+#### Failure case
+
+`FailureCase.to_dict()` serializes one case as:
+
+```json
+{
+  "id": "sample-0042",
+  "inputs": {
+    "prompt": "Which square is closest to the red circle?",
+    "image": "images/0042.png",
+    "audio": null,
+    "video": null
+  },
+  "expected": "B",
+  "observed": "C",
+  "trajectory": null,
+  "label": "fail",
+  "tags": ["spatial-reasoning"],
+  "provenance": {"source": "dataset", "metadata": {}},
+  "metadata": {"split": "explore"}
+}
+```
+
+Field rules:
+
+| Field | Type | UI meaning |
+|---|---|---|
+| `id` | `string` | stable sample join key; display and search it |
+| `inputs.prompt` | `string` | always present |
+| `inputs.image/audio/video` | `unknown \| null` | normally a path/URL; an in-memory rich object may degrade to a descriptor such as `<image 640x480>` |
+| `expected`, `observed` | `unknown \| null` | render strings directly and objects in a structured/raw view |
+| `label` | `"pass" \| "fail" \| "unknown"` | outcome, not a statistical verdict |
+| `tags` | `string[]` | filter chips; order is not semantically meaningful |
+| `provenance.source` | `"human" \| "dataset" \| "agent"` | where the case originated |
+| `metadata` | `Record<string, unknown>` | dataset-specific columns; never assume a fixed schema |
+| `trajectory` | `Trajectory \| null` | agent runs only; steps contain `idx`, `role`, `content`, tool call/observation, span metrics, and optional error annotations |
+
+Media descriptors are not media bytes. Only offer a preview when the value can
+be resolved to an allowed file/URL; otherwise display the descriptor.
+
+#### M1 result artifact
+
+Each `artifacts/c<cycle>_<analyzer>.result.json` contains the lightweight,
+complete serialized `Result`:
+
+```json
+{
+  "analyzer": "attention",
+  "model": "Qwen/Qwen2.5-VL-7B-Instruct",
+  "findings": {
+    "summary_score": 0.41,
+    "per_case": [
+      {"sample_id": "sample-0042", "attention_entropy": 0.73}
+    ]
+  },
+  "metadata": {"layer": 20},
+  "n_cases": 512
+}
+```
+
+`findings` is analyzer-specific. The UI should support scalar cards, a dynamic
+key/value view, and a virtualized table for `findings.per_case`. Join a per-case
+row to raw data using `sample_id` ↔ `FailureCase.id`. Heavy arrays/images are
+not embedded here; locate them through the `probe.artifact_paths` map or the
+manifest inventory.
+
+#### Hypothesis
+
+The full in-memory hypothesis has the following logical shape:
+
+```ts
+type HypothesisStatus =
+  | "proposed" | "testing" | "supported" | "refuted" | "inconclusive";
+
+interface Hypothesis {
+  id?: string;
+  statement: string;
+  target_model?: string;
+  predicted_failure_mode?: string;
+  failure_mode?: string; // run-log alias of predicted_failure_mode
+  test_design?: string;
+  expected_association?: "higher_on_failures" | "lower_on_failures" | string;
+  status?: HypothesisStatus | null;
+  parent_id?: string | null;
+  evidence?: string[];
+  metadata?: Record<string, unknown>;
+}
+```
+
+Not every persisted view contains every field. In particular, a `diagnosis`
+event emits only `statement`, `failure_mode`, `status`, and `test_design`.
+Normalize `failure_mode` and `predicted_failure_mode` into one view-model field,
+but keep the original JSON untouched.
+
+### 3. `run_log.jsonl` envelope and event contract
+
+Each complete line is one independent JSON object. Every current event has:
+
+```ts
+interface RunEventBase {
+  event: string;
+  schema_version: number; // currently 3; branch on it, do not hard-fail on newer
+  ts: string;             // ISO-8601 UTC
+  trace_id: string;       // run-level correlation id
+  span_id?: string;       // e.g. c0.m1, c0.m2, c0.m3, c0.m5, fix
+  cycle?: number;         // normal cycles start at 0; post-loop fix uses -1
+  [extra: string]: unknown;
+}
+```
+
+Events are ordered by file position. `ts` is for display and cross-service
+correlation, not for re-sorting lines with equal or skewed timestamps. While
+tailing a live file, retain an incomplete final line and retry it after the next
+chunk; an incomplete line is not a run error.
+
+| Event | Stage | Required/important payload | UI interpretation |
+|---|---|---|---|
+| `run_start` | run | model/judge/config, `n_cases`, protocol, budgets, version/git/data fingerprint when available | create run header; missing optional provenance is “unknown,” not failure |
+| `probe` | M1 | `cycle`, `analyzers`, `findings`, `result_paths`, `artifact_paths`; optional `selected_analyzers`, rationale, `failed_analyzers`, `judge_io`, duration | one analyzer card per selected analyzer; a name in `failed_analyzers` is a local analyzer failure |
+| `explore` | descriptive side path | `cycle`, `ok`, counts, observations, caveats, figures; optional error/report path | `ok: false` fails this optional step, but does not by itself fail the diagnosis loop |
+| `analysis` | M2 | `cycle`, severity, findings, narrative, `descriptive_only`; optional stats outputs, conclusion, figures, `llm_fallback_reason`, `judge_io` | label descriptive and confirmatory analysis explicitly; a fallback can still be a successful M2 |
+| `diagnosis` | M3 | `cycle`, model, `n_hypotheses`, `hypotheses`, raw output; optional referenced charts/context flags, `judge_io` | zero parsed hypotheses is a completed empty/abstained M3 unless an explicit error exists elsewhere |
+| `surgery` | M4 or M5 | `cycle`, `module`, hypothesis text, failure mode, status, `fixed`, confidence/evidence, refocused-case count | route by `module`; do not infer M4 vs M5 from the event name alone |
+| `experiment` | M4 | `cycle`, `module`, hypothesis, status/fixed; optional provider, metrics, exit/timing, code/output/workspace paths, record | generated verification execution detail; failure of one experiment need not fail the whole run |
+| `fix` | post-loop Fix | `cycle: -1`, `max_tier`, selection/final attempts, best, fixed, recommendation/refine signal, records | distinguish EXPLORE selection from held-out FINAL confirmation; see below |
+| `loop_end` | diagnosis loop | cycles, resolved/stopped reason, final and verified hypotheses, tokens/timings | diagnosis loop ended; **not necessarily the last event in the run** |
+| `agent_decision` | agentic loop | `step`, action/params/rationale, validity/repair/fallback, judge I/O | trajectory node; `valid: false` means host fallback, not automatically run failure |
+| `agent_tool` | agentic loop | `step`, tool, `ok`, summary/error, duration | dispatch result; stage-specific event remains the source for stage payload |
+| `tool_codegen` | support | cycle/module/tool/need/source/`ok`, error/code paths | one tool-generation attempt, not a stage verdict |
+| `tool_registry` | support | cycle/module/tool inventory | diagnostic/debug inventory only |
+
+Large M2 fields (`stats_results`, `stats_tool_results`, `stats_plan`, or
+`corrected_rejections`) are inline until they exceed 4096 serialized bytes.
+Then their value becomes a pointer:
+
+```json
+{"path": "artifacts/c0_m2_stats_results.json", "n_items": 37, "bytes": 18942}
+```
+
+Detect an externalized value by shape (`path` plus `bytes`), lazy-load it, and
+keep the count visible while loading. Do not treat the pointer itself as one
+statistics result.
+
+### 4. Stage and run state derivation
+
+Use these UI states; a single generic “N/A” loses information the user needs:
+
+| State | Meaning | Typical display |
+|---|---|---|
+| `not_started` | no evidence that the stage was scheduled | muted step |
+| `running` | prerequisite exists and the stage has started, but no terminal stage event yet | spinner + elapsed time |
+| `succeeded` | terminal event has a usable non-empty result | green/complete |
+| `empty` | stage completed correctly with zero items | neutral “No hypotheses/findings produced” |
+| `abstained` | evaluator intentionally could not make a supported choice | neutral warning with reason |
+| `partial` | some analyzers/candidates succeeded and some failed | amber + per-item errors |
+| `failed` | explicit stage-level error/no usable result | red + error and logs |
+| `skipped` | run configuration or stopping rule intentionally omitted the stage | grey + reason |
+| `unavailable` | persisted run references data that cannot be loaded | grey + recorded path/recovery hint |
+
+Recommended derivation rules:
+
+1. Partition stage events by `(trace_id, cycle, logicalStage)`. Map a `surgery`
+   event using its `module`; treat `fix` as the post-loop stage even though its
+   cycle is `-1`.
+2. The first matching terminal event completes that item; later matching events
+   append/replace item detail rather than rewinding an already completed stage.
+3. `diagnosis.n_hypotheses === 0` means M3 completed with an empty result. Do not
+   show a network/runtime error unless there is explicit error evidence.
+4. `probe.failed_analyzers` with at least one successful analyzer means partial;
+   all selected analyzers failed means failed.
+5. `explore.ok === false` marks only Explore failed. M2/M3 may continue.
+6. `analysis.llm_fallback_reason` means the judge path failed and a fallback
+   path ran. Show the fallback badge while deriving M2 success from the actual
+   analysis payload.
+7. A hypothesis status of `inconclusive` is a valid abstention, not an exception.
+8. `loop_end` terminates M1→M5 orchestration, but M4 verification and Fix can be
+   logged after it. Do not mark the entire run immutable merely because
+   `loop_end` appeared. A live transport/process terminal signal or a finalized
+   manifest is the run-level completion signal.
+9. Missing events in an older/in-progress run mean “not observed”; do not invent
+   a failure. Use `schema_version` and run configuration to decide skipped vs.
+   not started.
+
+A simple per-cycle reducer can look like:
+
+```ts
+function reduceEvent(state: RunView, e: RunEventBase): RunView {
+  state.events.push(e); // preserve source order for raw/audit view
+  if (e.event === "probe") updateM1(state, e);
+  if (e.event === "explore") updateExplore(state, e);
+  if (e.event === "analysis") updateM2(state, e);
+  if (e.event === "diagnosis") updateM3(state, e);
+  if (e.event === "surgery" && e.module === "m4") updateM4(state, e);
+  if (e.event === "surgery" && e.module === "m5") updateM5(state, e);
+  if (e.event === "fix") updateFix(state, e);
+  if (e.event === "loop_end") state.diagnosisLoopEnded = true;
+  return state;
+}
+```
+
+### 5. Join and identity rules
+
+There is no single ID present in every persisted representation, so use this
+precedence and expose ambiguous joins instead of hiding them:
+
+| Objects to join | Preferred key | Fallback |
+|---|---|---|
+| run events | `trace_id` | enclosing run directory; never merge two directories merely because model/config match |
+| analyzer per-case row ↔ raw case | `sample_id` ↔ `FailureCase.id` | no fuzzy matching |
+| full hypothesis objects | hypothesis `id` | `(cycle, normalized statement)` |
+| M3 ↔ M4/M5 run-log records | `(cycle, exact statement)` | normalized whitespace/case only; mark collisions ambiguous |
+| fix candidate across selection/final | `trial_root` when present | `(tier, name, list ordinal)`; name alone is not unique across repair rounds |
+| agent decision ↔ dispatch result | `step` | file adjacency within the same trace |
+| stage artifact ↔ event | exact relative path | unique manifest suffix match |
+
+Do not slugify hypothesis text and assume it is globally unique. If two
+hypotheses in one cycle have the same normalized statement, retain both as
+separate cards and show the shared outcome as an ambiguous association until a
+stable ID is available.
+
+### 6. Fix event: selection is not confirmation
+
+The Fix UI must keep two datasets separate:
+
+- `selection_attempted`: exploratory candidate trials used to choose a repair.
+- `attempted`: final/holdout confirmation attempts. These are the attempts that
+  may justify the top-level `fixed` claim.
+
+The full useful attempt shape is:
+
+```ts
+type FixVerdict =
+  | "fixed" | "partial" | "unsafe" | "regressed"
+  | "no_effect" | "not_executed" | "model_independent";
+
+interface FixAttempt {
+  tier: string;
+  name: string;
+  kind?: string;
+  source?: string;
+  payload?: Record<string, unknown>;
+  trial_root?: string | null;
+  n_pairs: number;
+  n_baseline_correct: number;
+  n_candidate_correct: number;
+  n_fixed: number;
+  n_broken: number;
+  fixed_cases: string[];
+  broken_cases: string[];
+  effect: number | null;
+  reject: boolean;
+  fixed: boolean;
+  n_applicable?: number;
+  coverage?: number | null;
+  n_unstable?: number;
+  n_model_independent?: number;
+  e_value?: number | null;
+  verdict: FixVerdict;
+  summary?: string;
+}
+
+interface FixEvent extends RunEventBase {
+  event: "fix";
+  cycle: -1;
+  max_tier: string;
+  routed: unknown[];
+  selection_attempted: Array<Record<string, unknown>>;
+  selected_on_explore: string | null;
+  attempted: FixAttempt[];
+  best: FixAttempt | null;
+  fixed: boolean;
+  recommendation: Record<string, unknown> | null;
+  refine_signal: Record<string, unknown> | null;
+  repair_rounds: number;
+  ebh_survivors: string[];
+  record?: string;
+}
+```
+
+Render paired changes, not candidate accuracy alone: “fixed 18 / broke 1,”
+coverage, effect, rejection/e-value, and verdict. Useful outcome distinctions:
+
+| Payload | Correct UI state |
+|---|---|
+| `fixed: true`, `best != null` | confirmed fix; show best and final evidence |
+| `attempted.length > 0`, no fixed attempt | completed, no validated fix; show all failures and recommendation |
+| `selection_attempted.length > 0`, `selected_on_explore == null`, `attempted: []` | abstained during selection; confirmation was not run |
+| selected candidate exists, `attempted: []` | selected but unconfirmed/unfinished; never label fixed |
+| `verdict: "unsafe"` or `"regressed"` | prominent safety failure, including `broken_cases` |
+| `verdict: "model_independent"` | apparent gain was not attributable to the target model |
+
+`exec_error` exists in the in-memory validation type but is not currently
+included in `FixOutcome.to_dict()`. The UI must not depend on that field; use the
+attempt `summary`, `verdict`, trial record, and captured execution artifacts.
+
+### 7. Missing, null, empty, zero, and false
+
+These values are not interchangeable:
+
+| JSON value | Meaning |
+|---|---|
+| field absent | producer/version did not emit it, or it was optional; “unknown/not recorded” |
+| `null` | producer explicitly knows no value exists, e.g. no best fix or no refocused batch |
+| `[]` / `{}` | valid collection with zero entries; often a completed empty result |
+| `""` | empty narrative/reason; do not substitute an invented explanation |
+| `0` | measured/count value of zero; display it |
+| `false` | explicit negative boolean; display it and do not fall back with `value || default` |
+
+In TypeScript, prefer nullish fallback (`value ?? default`) over truthiness
+fallback when zero/false are valid. Preserve the original distinction in the
+raw view even if the summary UI groups some cases together.
+
+### 8. Rendering contract by stage
+
+Every stage page/card should have three layers: an answer-first summary, a
+structured detail view, and the unmodified raw source/artifact link.
+
+| Stage | Summary | Detail/drill-down | Empty/error treatment |
+|---|---|---|---|
+| Problem / input | model, benchmark/protocol, case/label counts, split | searchable raw cases; prompt/media/expected/observed; trajectory steps | unresolved media is unavailable, not a missing case |
+| M1 | analyzers run/succeeded/failed; top scalar findings | analyzer-specific JSON/table; per-case rows; PNG overlay/heatmap; `.npy` download | selected analyzer with error gets its own failed card |
+| Explore | observations/candidate-signal/chart counts; descriptive badge | charts/tables/caveats and source rows | show explicit explorer error while allowing later stages |
+| M2 | severity, conclusion, descriptive/confirmatory badge | findings/evidence chain, stats plan/results, corrected decisions, figures, judge-I/O audit link | no findings can be a successful empty result; fallback reason is a warning |
+| M3 | hypothesis count and short statements | failure mode, test design, parent/evidence where available, cited charts | zero hypotheses is neutral empty/abstained, not red failure |
+| M4 verify | mechanism status, confidence, whether intervention changed outcome | evidence dimensions, experiment metrics, generated files/stdout/stderr/workspace record | inconclusive is valid; execution error belongs to the experiment card |
+| M5 | supported/refuted/inconclusive count | test, effect, confidence, protocol consistency, evidence grade and evidence | descriptive M2 rejection must never appear as M5 support |
+| Fix | confirmed status and best candidate | separate EXPLORE selection and FINAL confirmation tables; fixed/broken case links; code and record | distinguish no validated fix, abstention, unsafe, and unfinished |
+
+For arbitrary dictionaries, render a bounded structured view first and place
+the complete JSON in a collapsible raw panel. Long text generated by a model is
+untrusted content: escape HTML/Markdown by default, and never execute generated
+code or load arbitrary local paths in the browser.
+
+### 9. Live loading, scale, and failures
+
+- Parse JSONL incrementally and deduplicate by file byte offset, not by event
+  content; repeated-looking candidate events can be legitimate.
+- Debounce visual updates, but append events in source order. A 250–500 ms UI
+  refresh is enough for normal stage durations.
+- Virtualize `per_case`/raw-case tables and load heavy JSON, `.npy`, images,
+  prompts, responses, and workspaces on demand.
+- Do not request an artifact before its event line is complete. If a referenced
+  file is still being written, show loading and retry with bounded backoff.
+- Distinguish HTTP/read failure from JSON parse failure and from a valid empty
+  payload. Include the relative path and retry action in the error panel.
+- Preserve the last valid UI state when a live read fails; add a stale/disconnected
+  badge rather than clearing completed stages.
+- Use explicit size limits and confirmation before rendering very large text or
+  arrays. `.npy` should normally be summarized/rendered server-side, not parsed
+  by the browser.
+- Redact credentials and authorization headers from raw config, prompts, tool
+  calls, stdout/stderr, and metadata at the server boundary.
+
+### 10. UI acceptance checklist
+
+A UI hand-off is complete when the implementation can demonstrate all of the
+following against both a live and a persisted run:
+
+- All M1–M5 stages remain visible even when later stages were skipped.
+- Raw cases and raw M1 analyzer output are discoverable without developer tools.
+- An M1 per-case row opens the exact raw case via `sample_id`.
+- Descriptive M2/Explore evidence is visually distinct from confirmatory M5.
+- An empty M3, failed Explore, inconclusive M5, and missing artifact render as
+  four different states.
+- An externalized M2 payload lazy-loads from its `{path, n_items, bytes}` pointer.
+- A `loop_end` followed by M4/Fix updates the existing run instead of creating a
+  second run or freezing the first one.
+- Fix selection and final confirmation appear in separate sections, and the UI
+  never claims “fixed” from selection evidence alone.
+- Container-absolute artifact paths resolve inside the selected run root and
+  cannot traverse outside it.
+- Unknown additive event/config fields do not crash parsing and remain inspectable
+  in the raw view.
+
+---
+
 ## UI reference — building a viewer on this pipeline
 
 There is already a working viewer for this exact data: `evalvitals dashboard`
 (Streamlit, `evalvitals/analysis/dashboard_app.py`) and the upload/explore
 web workbench (`evalvitals web`, same renderer — see
 [m2_analysis.md](m2_analysis.md) and the `deco_hallu_explore` example's
-[web upload workbench](../examples/m2_m3/deco_hallu_explore/README.md)).
+[web upload workbench](https://github.com/evalvitals/evalvitals/blob/main/examples/m2_m3/deco_hallu_explore/README.md)).
 Read this section as "what to reproduce" if you're building a new UI, and
 the function names as where to go read the exact rendering logic.
 
