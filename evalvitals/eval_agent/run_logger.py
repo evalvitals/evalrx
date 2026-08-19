@@ -1090,7 +1090,13 @@ class RunLogger:
         rec = d.get("recommendation")
         if rec:
             tier = rec.get("recommend_tier")
-            if tier:
+            if tier and tier == d.get("max_tier"):
+                # Same tier as the ceiling = "stay here and do X" (e.g. more
+                # failing cases / fewer candidates), not an escalation.
+                head.append(
+                    f"**Recommendation:** stay within {tier} — {rec.get('reason', '')}"
+                )
+            elif tier:
                 head.append(
                     f"**Recommendation:** escalate to {tier} — {rec.get('reason', '')}"
                 )
