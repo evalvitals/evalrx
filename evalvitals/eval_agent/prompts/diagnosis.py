@@ -23,9 +23,11 @@ FAILURE_MODE: <short snake_case tag naming the MECHANISM, not the symptom.
     degenerate_repetition
   Use a tag from these lists when one fits; invent one only when none does.>
 TEST: <which evidence verifies this claim — name a signal/analyzer from the
-available evidence list when one fits (e.g. "relative_attention.max_relative_weight"
-or "prompt_contrast describe_first contrast"); otherwise describe the analyzer
-or intervention that should be run next cycle>
+available evidence list when one fits (e.g. "relative_attention.max_relative_weight
+HIGHER on failing cases" or "prompt_contrast describe_first contrast"), and for a
+per-case signal SAY whether it should be HIGHER or LOWER on failing cases — that
+is the prediction the test checks; otherwise describe the analyzer or
+intervention that should be run next cycle>
 
 Base your hypotheses on the analysis conclusion and evidence above — an analyzer
 can surface a real failure mode even when no numeric threshold fired, so do NOT

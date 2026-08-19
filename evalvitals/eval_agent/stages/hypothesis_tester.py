@@ -346,17 +346,32 @@ class HypothesisTester:
             return True
 
         relevant, global_res, routed_by = self._select_results(hypothesis, stats_results)
-        decisive = [r for r in relevant if _decisive(r)]
-        harmful = [r for r in decisive if (r.effect or 0.0) > 0]
-        protective = [r for r in decisive if (r.effect or 0.0) < 0]
+        decisive = [r for r in relevant if (r.effect or 0.0) != 0 and _decisive(r)]
+        # A signal's effect > 0 means "the signal group fails MORE". Whether that
+        # SUPPORTS the hypothesis depends on what the hypothesis predicted: one
+        # that says a signal is LOW / absent / "sits at 0" on failures (minervamath:
+        # "step_rollout_value.initial_value ... 5/8 chains sit at 0.0 from step
+        # 0") predicts a NEGATIVE effect, and reading every negative effect as
+        # "protective -> refuted" rejected hypotheses the data agreed with. The
+        # predicted direction is read from the hypothesis text (TEST line first);
+        # absent any cue the classic reading (signal marks the failure) stands.
+        expected = {id(r): _expected_sign(hypothesis, _tool_signal(r)) for r in decisive}
+
+        def _agrees(r: "StatsToolResult") -> bool:
+            exp = expected[id(r)]
+            eff = float(r.effect or 0.0)
+            return eff > 0 if exp is None else (eff > 0) == (exp > 0)
+
+        supporting = [r for r in decisive if _agrees(r)]
+        contradicting = [r for r in decisive if not _agrees(r)]
 
         consulted = [r.tool for r in relevant] + [r.tool for r in global_res]
 
-        if harmful:
-            chosen = max(harmful, key=lambda r: abs(r.effect or 0.0))
+        if supporting:
+            chosen = max(supporting, key=lambda r: abs(r.effect or 0.0))
             status = HypothesisStatus.SUPPORTED
-        elif protective:
-            chosen = max(protective, key=lambda r: abs(r.effect or 0.0))
+        elif contradicting:
+            chosen = max(contradicting, key=lambda r: abs(r.effect or 0.0))
             status = HypothesisStatus.REFUTED
         else:
             # Descriptive tools (single_rate_evalue's rate − p0) must not be the
@@ -410,14 +425,25 @@ class HypothesisTester:
 
         note = _multiplicity_note(chosen).strip()
         note = f" {note}" if note else ""
+        exp_sign = _expected_sign(hypothesis, _tool_signal(chosen))
+        direction_note = ""
+        if exp_sign is not None and status != HypothesisStatus.INCONCLUSIVE:
+            direction_note = (
+                f" [hypothesis predicts the signal {'HIGHER' if exp_sign > 0 else 'LOWER'}"
+                f" on failures; observed effect {float(chosen.effect or 0.0):+.3f} -> "
+                + ("consistent" if status == HypothesisStatus.SUPPORTED else "opposite")
+                + "]"
+            )
         if status == HypothesisStatus.INCONCLUSIVE:
             verdict = f"No significant M2 result (best: {chosen.summary}{note})"
         else:
-            verdict = f"{chosen.tool}: {chosen.summary}{note}"
+            verdict = f"{chosen.tool}: {chosen.summary}{note}{direction_note}"
 
         evidence = {
             "source": "m2_stats_results",
             "chosen_tool": chosen.tool,
+            "expected_direction": (None if exp_sign is None
+                                   else ("higher_in_fail" if exp_sign > 0 else "lower_in_fail")),
             "effect_size": chosen.effect,
             "ci": list(chosen.ci) if chosen.ci is not None else None,
             "e_value": chosen.e_value,
@@ -774,6 +800,96 @@ def _tool_signal(r: "StatsToolResult") -> str:
     cfg = getattr(r, "config", None) or {}
     det = getattr(r, "details", None) or {}
     return str(cfg.get("signal") or det.get("signal") or "").lower()
+
+
+# Direction cues. Explicit "<higher|lower> on/in FAIL" phrases are read first
+# (the M3 TEST line asks for them); otherwise cue words within a short window
+# after the signal's mention ("sits at 0", "= 0", "absent", "low" -> LOWER on
+# failures; "= 1", "elevated", "present", "high" -> HIGHER). Both / neither ->
+# None, and the classic reading (signal marks the failure: effect > 0 supports)
+# applies.
+_DIR_EXPLICIT_HIGH = re.compile(
+    r"\b(?:higher|high|elevated|greater|larger|more|raised|increased|present)\b"
+    r"[^.;\n]{0,40}?\b(?:on|in|for|among|across)\s+(?:the\s+)?(?:fail\w*|failing|failures?)"
+    r"|\b(?:lower|low|absent|smaller|less|reduced|decreased|missing|zero)\b"
+    r"[^.;\n]{0,40}?\b(?:on|in|for|among|across)\s+(?:the\s+)?(?:pass\w*|passing|successes?)")
+_DIR_EXPLICIT_LOW = re.compile(
+    r"\b(?:lower|low|absent|smaller|less|reduced|decreased|missing|zero)\b"
+    r"[^.;\n]{0,40}?\b(?:on|in|for|among|across)\s+(?:the\s+)?(?:fail\w*|failing|failures?)"
+    r"|\b(?:higher|high|elevated|greater|larger|more|raised|increased|present)\b"
+    r"[^.;\n]{0,40}?\b(?:on|in|for|among|across)\s+(?:the\s+)?(?:pass\w*|passing|successes?)")
+_DIR_CUE_LOW = re.compile(
+    r"(?:^|[\s(`])(?:=|==|is|are|at|of|sits?\s+at|sit\s+at|stuck\s+at|stays?\s+at|"
+    r"equals?|reads?|drops?\s+to|falls?\s+to)\s*0(?:\.0+)?(?![.\d%])"
+    r"|\b(?:low|lower|absent|zero|null|missing|lacking|drops?|falls?|"
+    r"decreas\w*|never\s+fires?|does\s+not\s+fire|=\s*false)\b")
+_DIR_CUE_HIGH = re.compile(
+    r"(?:^|[\s(`])(?:=|==|is|are|at|of|sits?\s+at|equals?|reads?)\s*1(?:\.0+)?(?![.\d%])"
+    r"|\b(?:high|higher|elevated|present|raised|increas\w*|spikes?|rises?|fires?|"
+    r"=\s*true|dominat\w*)\b")
+_DIR_WINDOW = 110
+_DIR_EQ = re.compile(r"[`'\")\]]*\s*(?:==|=|is|equals?)\s*(0(?:\.0+)?|1(?:\.0+)?)(?![.\d%])(?!\s*[-–]\s*\d|\s*(?:to|vs|or)\b)")
+
+
+def _expected_sign(hypothesis: "Hypothesis", signal: str) -> "int | None":
+    """+1 if *hypothesis* predicts *signal* HIGHER on failing cases, -1 if LOWER,
+    None when it says nothing legible about the direction (the caller then
+    falls back to the classic reading: the signal marks the failure)."""
+    if not signal:
+        return None
+    sig = str(signal).lower()
+    names = {sig}
+    if "." in sig:
+        names.add(sig.split(".", 1)[1])  # bare metric name
+    texts = [str(getattr(hypothesis, "test_design", "") or ""),
+             str(getattr(hypothesis, "statement", "") or "")]
+    for text in texts:
+        low = text.lower()
+        for name in sorted(names, key=len, reverse=True):
+            start = 0
+            votes_high = votes_low = 0
+            while True:
+                i = low.find(name, start)
+                if i < 0:
+                    break
+                # whole-identifier match only (avoid "majority_correct" inside
+                # "majority_correctness" etc.)
+                before = low[i - 1] if i > 0 else " "
+                after_i = i + len(name)
+                after = low[after_i] if after_i < len(low) else " "
+                if before.isalnum() or before == "_" or after.isalnum() or after == "_":
+                    start = i + 1
+                    continue
+                window = low[max(0, i - 40):after_i + _DIR_WINDOW]
+                tail = low[after_i:after_i + _DIR_WINDOW]
+                # an equality right after the name ("`x` = 0", "x == 1", "x=0")
+                # is decisive on its own and must not be diluted by a second
+                # identifier's equality further along the sentence
+                near = _DIR_EQ.match(low[after_i:after_i + 16])
+                if near:
+                    if near.group(1).startswith("0"):
+                        votes_low += 1
+                    else:
+                        votes_high += 1
+                elif _DIR_EXPLICIT_HIGH.search(window):
+                    votes_high += 1
+                elif _DIR_EXPLICIT_LOW.search(window):
+                    votes_low += 1
+                else:
+                    lo = bool(_DIR_CUE_LOW.search(tail))
+                    hi = bool(_DIR_CUE_HIGH.search(tail))
+                    if lo and not hi:
+                        votes_low += 1
+                    elif hi and not lo:
+                        votes_high += 1
+                start = after_i
+            if votes_high and not votes_low:
+                return 1
+            if votes_low and not votes_high:
+                return -1
+            if votes_high and votes_low:
+                return None
+    return None
 
 
 def _tool_ids(r: "StatsToolResult", *, level: str = "signal") -> set[str]:

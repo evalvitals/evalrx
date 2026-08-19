@@ -382,3 +382,81 @@ def test_identifier_helpers():
     assert _tool_ids(r, level="analyzer") == {"answer_extraction_audit"}
     assert "gold_in_answer_region" in _tool_ids(r) and "answer_extraction_audit.gold_in_answer_region" in _tool_ids(r)
     assert "answer" not in _tool_keywords(r) and {"gold", "region", "extraction"} <= _tool_keywords(r)
+
+
+# ── direction-aware verdicts (2026-08-19) ───────────────────────────────────
+
+
+def _signed_report(signal: str, effect: float) -> StatsAnalysisReport:
+    """One decisive (uncorrected, CI-only) signal_label_assoc result."""
+    lo, hi = (effect - 0.2, effect + 0.2)
+    return StatsAnalysisReport(
+        model_name="m", findings=[], severity="none", narrative="", raw_results={},
+        conclusion="c",
+        stats_results=[
+            StatsToolResult(tool="signal_label_assoc", ok=True, effect=effect,
+                            ci=(lo, hi), reject=True, config={"signal": signal},
+                            summary=f"{signal} vs FAIL"),
+        ],
+    )
+
+
+def test_a_hypothesis_predicting_a_low_signal_is_supported_by_a_negative_effect():
+    """minervamath: 'step_rollout_value.initial_value — 5/8 chains sit at 0.0 from
+    step 0' predicts the signal LOWER on failures; the observed effect was
+    negative (low initial value <-> FAIL). Reading every negative effect as
+    'protective -> refuted' rejected the hypothesis the data agreed with."""
+    h = _hyp("Set-up failures at step 0: the chain starts wrong.",
+             design="corroborate with `step_rollout_value.initial_value` (5/8 chains "
+                    "sit at 0.0 from step 0)")
+    tr = HypothesisTester().test(
+        [h], _signed_report("step_rollout_value.initial_value", -0.67), _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.SUPPORTED
+    assert tr.evidence["expected_direction"] == "lower_in_fail"
+    assert "predicts the signal LOWER on failures" in tr.verdict and "consistent" in tr.verdict
+
+
+def test_a_hypothesis_predicting_a_low_signal_is_refuted_by_a_positive_effect():
+    h = _hyp("x", design="self_consistency.consistency is LOWER on failing cases")
+    tr = HypothesisTester().test(
+        [h], _signed_report("self_consistency.consistency", +0.5), _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.REFUTED
+    assert "opposite" in tr.verdict
+
+
+def test_without_a_direction_cue_the_classic_reading_stands():
+    """No cue: effect > 0 (signal group fails more) supports, < 0 refutes."""
+    h = _hyp("Repetition marks the failures.", design="termination_audit.repetition_score")
+    up = HypothesisTester().test(
+        [h], _signed_report("termination_audit.repetition_score", +0.4), _labeled_batch())[0]
+    down = HypothesisTester().test(
+        [h], _signed_report("termination_audit.repetition_score", -0.4), _labeled_batch())[0]
+    assert up.status == HypothesisStatus.SUPPORTED and up.evidence["expected_direction"] is None
+    assert down.status == HypothesisStatus.REFUTED
+
+
+def test_expected_sign_parser_cases():
+    from evalvitals.eval_agent.stages.hypothesis_tester import _expected_sign
+
+    def sign(design: str, signal: str, statement: str = "x"):
+        return _expected_sign(_hyp(statement, design=design), signal)
+
+    assert sign("`gold_in_output` = 1 with `gold_in_answer_region` = 0",
+                "answer_extraction_audit.gold_in_output") == 1
+    assert sign("`gold_in_output` = 1 with `gold_in_answer_region` = 0",
+                "answer_extraction_audit.gold_in_answer_region") == -1
+    assert sign("termination_audit.repetition_score should be HIGHER on failing cases",
+                "termination_audit.repetition_score") == 1
+    assert sign("signal 'self_repair.self_says_incorrect' absent on FAIL",
+                "self_repair.self_says_incorrect") == -1
+    assert sign("`foo.bar` = 0.5 vs 1", "foo.bar") is None            # a threshold, not a level
+    assert sign("check perturbation_battery.noop_clause_flipped",
+                "perturbation_battery.noop_clause_flipped") is None
+    assert sign("coverage_verification_gap.majority_share (>=0.6 vs <=0.4)",
+                "coverage_verification_gap.majority_share") is None
+    assert sign("", "foo.bar") is None
+
+
+def test_diagnosis_prompt_asks_for_the_direction():
+    from evalvitals.eval_agent.prompts.diagnosis import _DIAGNOSE_PROMPT
+    assert "HIGHER or LOWER on failing cases" in _DIAGNOSE_PROMPT
