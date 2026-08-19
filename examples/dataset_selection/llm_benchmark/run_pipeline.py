@@ -731,6 +731,13 @@ def main() -> None:
                          "on M1 wall-clock; it costs power, not correctness")
     ap.add_argument("--analysis-only", action="store_true",
                     help="M1->M2->M3 and stop: propose hypotheses, skip M5 and M4")
+    ap.add_argument("--fix-unverified", dest="fix_unverified", action="store_true", default=None,
+                    help="when M5 verified nothing, still run the M4 intervention experiment "
+                         "on the best UNVERIFIED hypothesis and then the fix stage on the "
+                         "best unverified leads (flagged as unverified to the proposer). "
+                         "Default: config fix_on_unverified")
+    ap.add_argument("--no-fix-unverified", dest="fix_unverified", action="store_false",
+                    help="require a verified hypothesis for M4 + fix (the old behaviour)")
     ap.add_argument("--skip-m4", action="store_true",
                     help="run M1->M5 but do not attempt a fix")
     ap.add_argument("--max-cases", type=int, default=0,
@@ -929,9 +936,20 @@ def main() -> None:
             print(f"  - [{t.status}] conf={t.confidence:.2f} "
                   f"grade={t.evidence_grade} {stmt[:100]}")
         if not args.skip_m4:
-            fix = loop.run_m4(report, batch)
-            print(f"[M4] {'fix proposed' if fix else 'no verified hypothesis to fix'}")
+            fix_unverified = (args.fix_unverified if args.fix_unverified is not None
+                              else bool(CFG.get("fix_on_unverified", True)))
+            fix = loop.run_m4(report, batch, allow_unverified=fix_unverified)
             if fix is not None:
+                tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
+                print(f"[M4] experiment run on the {tag} hypothesis: status={fix.status}")
+            else:
+                print("[M4] no hypothesis to experiment on"
+                      + ("" if fix_unverified else " (no verified hypothesis; "
+                         "--fix-unverified / fix_on_unverified to proceed anyway)"))
+            if fix is not None or (fix_unverified and report.final_hypotheses):
+                if not report.verified_hypotheses:
+                    print("[fix] no verified hypothesis — proposing on the best unverified "
+                          "leads (flagged to the proposer); the candidate validation decides")
                 outcome = loop.run_fix(report, batch)
                 print("[fix]", getattr(outcome, "recommendation", None) or outcome)
 
@@ -950,6 +968,8 @@ def main() -> None:
                                  if args.fix_validation_cases is not None
                                  else int(CFG.get("fix_validation_cases", 0))),
         "fix_baseline_repeats": int(CFG.get("fix_baseline_repeats", 1)),
+        "fix_on_unverified": (args.fix_unverified if args.fix_unverified is not None
+                              else bool(CFG.get("fix_on_unverified", True))),
         "fix_candidate_repeats": int(CFG.get("fix_candidate_repeats", 1)),
         "n_hypotheses": len(getattr(report, "hypotheses", None)
                             or getattr(report, "all_hypotheses", None) or []),

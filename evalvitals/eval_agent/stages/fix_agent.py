@@ -470,6 +470,9 @@ class FixContext:
                             ``max_tokens`` as the floor a candidate may not go
                             below.
         task_note:          One-paragraph task / protocol description.
+        hypotheses_note:    Status caveat printed right under the hypotheses
+                            (e.g. "UNVERIFIED: M5 found no significant evidence
+                            …") when the loop hands the fix unverified leads.
     """
 
     example_cases: "Any | None" = None
@@ -478,6 +481,7 @@ class FixContext:
     scoring_note: str = ""
     baseline_decoding: "dict[str, Any]" = field(default_factory=dict)
     task_note: str = ""
+    hypotheses_note: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1038,6 +1042,8 @@ class FixAgent:
             )
             or "- (no verified hypotheses; failures are unexplained)"
         )
+        if context.hypotheses_note:
+            hyp_lines = f"({context.hypotheses_note.strip()})\n{hyp_lines}"
         # Full examples (prompt + the model's own output + expected answer)
         # come from cases the proposer may see in full — the loop's EXPLORE
         # split. Without such cases the examples are drawn from the validation

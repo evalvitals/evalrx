@@ -596,6 +596,11 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 按抽出的最终答案投票 —— 之前非 direct 策略会静默忽略 n_samples,而对 CoT 输出按全文投票等于不投票)。
 `run_fix` 会**剔除被 M4 实验反驳的假设**,并把它作为 "REFUTED — do not build on" 传给 proposer。
 
+**没有 verified 假设时**(`fix_on_unverified: true`,CLI `--[no-]fix-unverified`):M4 干预实验照做,
+对象是 M5 打分最高、未被反驳的 **unverified** 假设;随后 fix 阶段用这些 unverified 线索(标注
+"UNVERIFIED … treat as hints")继续提候选 —— fix 的门是候选的配对验证,不是假设本身。
+`false` 回到旧行为(只有 verified 才进 M4/fix)。
+
 ### 三个尺寸都跑
 
 `run_all.sh` 每次都自己起停 vLLM,所以串行跑三个尺寸不会撞车:

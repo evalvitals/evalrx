@@ -608,3 +608,70 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
                         payload={"prompt_template": "x {prompt}"})
     scores = agent._candidate_scores(cand, Exploding(), _mc_batch(2, 1))
     assert scores["q1"] is None and scores["q0"] is True and scores["q2"] is True
+
+
+# ── no verified hypothesis: M4 + fix on the best unverified lead (opt-in) ────
+
+
+def _inconclusive_report():
+    from evalvitals.eval_agent import VLDiagnoseReport
+    from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+
+    hs = [_hyp("lead A (weak)"), _hyp("lead B (best)"), _hyp("lead C (refuted)")]
+    for i, h in enumerate(hs):
+        h.id = f"h{i}"
+    trs = [
+        HypothesisTestResult(hypothesis=hs[0], status=HypothesisStatus.INCONCLUSIVE, test_name="t",
+                             effect_size=0.05, is_consistent_with_protocol=True, confidence=0.1,
+                             verdict="weak"),
+        HypothesisTestResult(hypothesis=hs[1], status=HypothesisStatus.INCONCLUSIVE, test_name="t",
+                             effect_size=0.2, is_consistent_with_protocol=True, confidence=0.4,
+                             verdict="best"),
+        HypothesisTestResult(hypothesis=hs[2], status=HypothesisStatus.REFUTED, test_name="t",
+                             effect_size=-0.3, is_consistent_with_protocol=True, confidence=0.5,
+                             verdict="refuted"),
+    ]
+    return VLDiagnoseReport(cycles=1, stopped_by="max_cycles", verified_hypotheses=[],
+                            all_test_results=trs, final_hypotheses=hs), hs
+
+
+def test_run_m4_default_still_requires_verified_but_allow_unverified_uses_best_lead():
+    from evalvitals.eval_agent import VLDiagnoseLoop
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+
+    report, hs = _inconclusive_report()
+    loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"))
+    assert loop.run_m4(report, _mc_batch()) is None                       # unchanged default
+    iv = loop.run_m4(report, _mc_batch(), allow_unverified=True)
+    assert iv is not None and iv.hypothesis is hs[1]                     # best non-refuted lead
+    assert iv.evidence.get("hypothesis_was_verified") is False
+    assert report.fix_proposal is iv
+
+
+def test_run_fix_without_verified_uses_unverified_leads_and_says_so():
+    from evalvitals.eval_agent import VLDiagnoseLoop
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+
+    report, hs = _inconclusive_report()
+
+    class Recorder:
+        run_logger = None
+        hypotheses = None
+        context = None
+
+        def propose_and_validate(self, model, data, hypotheses, prior_attempts=None, context=None):
+            self.hypotheses = list(hypotheses)
+            self.context = context
+            return object()
+
+    stub = Recorder()
+    loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
+                          fix_agent=stub)
+    loop.run_fix(report, _mc_batch())
+    assert [h.id for h in stub.hypotheses] == ["h1", "h0"]               # best first, refuted dropped
+    assert stub.context.hypotheses_note.startswith("UNVERIFIED")
+    # the proposer sees the caveat right under the hypotheses heading
+    judge = ScriptedJudge("[]")
+    agent = FixAgent(judge=judge, max_tier="L1")
+    agent.propose_and_validate(CountingModel(), _mc_batch(), stub.hypotheses, context=stub.context)
+    assert "UNVERIFIED: M5 found no statistically significant evidence" in judge.prompts[-1]

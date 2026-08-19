@@ -122,6 +122,11 @@ fix_baseline_repeats: 5     # baseline samples per case = frozen Stage 0 output 
                             # (run7: 10 fixed / 1 broken, e=15.5, one break short). 1 = old McNemar.
 fix_candidate_repeats: 1    # passes per template/spec candidate (coded pipelines always 1). >1
                             # multiplies candidate cost; the baseline side is where the noise was.
+fix_on_unverified: true     # when M5 verified nothing: still run the M4 intervention experiment on
+                            # the best UNVERIFIED hypothesis, then the fix stage on the best
+                            # unverified leads (flagged "UNVERIFIED" to the proposer). The fix gate
+                            # is the paired candidate validation, not the hypothesis, so this is
+                            # safe; false = old behaviour (verified only). CLI: --[no-]fix-unverified.
 
 # Cap on how many cases each per-case analyzer generates for. 0 = library
 # defaults (128 for prompt_contrast / calibration / linear_probe, 48 for
