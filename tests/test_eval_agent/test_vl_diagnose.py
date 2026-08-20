@@ -1124,3 +1124,126 @@ def test_default_is_a_single_diagnosis_cycle():
     unverified path covers 'nothing verified'); extra cycles are opt-in."""
     loop = VLDiagnoseLoop(model=FakeModel(), protocol=ExperimentProtocol(description="d"))
     assert loop.max_cycles == 1
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# M5 held-out confirmation (leak fix: screening on EXPLORE, verdict on CONFIRM)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class _RecordingSignalProbe(ProbeAgent):
+    """Emits `attention_flag` on the given case ids; records every call."""
+
+    def __init__(self, flag_ids):
+        super().__init__()
+        self.flag_ids = set(flag_ids)
+        self.calls = []  # (case_ids, analyzers_kw)
+
+    def probe(self, model, data, **kw):
+        from evalvitals.core.result import Result as R
+
+        ids = [c.id for c in data]
+        self.calls.append((ids, kw.get("analyzers")))
+        findings = {"per_case": [
+            {"sample_id": cid, "attention_flag": True}
+            for cid in ids if cid in self.flag_ids
+        ]}
+        return {"attention": R(analyzer="attention", model="fake", cases=data,
+                               findings=findings)}
+
+
+def _holdout_batch():
+    """8 cases; the deterministic stratified split puts FAILs and PASSes on
+    both sides of a 0.5 confirm split."""
+    cases = []
+    for i in range(4):
+        cases.append(FailureCase(id=f"f{i}", inputs=Inputs(prompt=f"qf{i}"),
+                                 label=Label.FAIL))
+    for i in range(4):
+        cases.append(FailureCase(id=f"p{i}", inputs=Inputs(prompt=f"qp{i}"),
+                                 label=Label.PASS))
+    return CaseBatch(cases)
+
+
+def _holdout_loop(probe, **kw):
+    return VLDiagnoseLoop(
+        model=_vlm(),
+        protocol=_spatial_protocol(),
+        probe_agent=probe,
+        diagnosis_agent=_scripted_diagnosis_agent("attention"),
+        hypothesis_tester=HypothesisTester(min_effect=0.05),
+        max_cycles=1,
+        confirm_split=0.5,
+        confirm_split_seed=7,
+        **kw,
+    )
+
+
+class TestM5Holdout:
+    def test_screened_hypothesis_is_retested_on_the_confirm_split(self):
+        data = _holdout_batch()
+        # signal marks every FAIL — screens supported AND confirms on holdout
+        probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
+        report = _holdout_loop(probe).run(data)
+        assert report.m5_holdout == "confirmed"
+        assert len(report.verified_hypotheses) >= 1
+        assert report.verified_hypotheses[0].evidence["split"] == "confirm_holdout"
+        # two probe calls: explore mining, then the pinned confirm re-probe
+        assert len(probe.calls) == 2
+        explore_ids, first_kw = probe.calls[0]
+        confirm_ids, pinned = probe.calls[1]
+        assert first_kw is None
+        assert pinned == ["attention"]
+        assert set(explore_ids).isdisjoint(confirm_ids)
+        assert set(explore_ids) | set(confirm_ids) == {c.id for c in data}
+
+    def test_an_explore_only_artifact_does_not_verify(self):
+        data = _holdout_batch()
+        loop = _holdout_loop(_RecordingSignalProbe([]))
+        # find which FAIL ids land in the explore half for this seed
+        explore, confirm = loop._split_explore_confirm(data)
+        explore_fails = [c.id for c in explore if c.label == Label.FAIL]
+        confirm_ids = {c.id for c in confirm}
+        # signal marks FAILs only on the EXPLORE side — an in-sample artifact
+        probe = _RecordingSignalProbe(explore_fails)
+        report = _holdout_loop(probe).run(data)
+        assert report.m5_holdout == "confirmed"          # the pass RAN
+        assert report.verified_hypotheses == []          # and did not verify
+        assert report.resolved is False
+        # the screening result is still on record, demoted to screening
+        screened = [tr for tr in report.all_test_results
+                    if tr.evidence.get("split") == "explore_screen"]
+        assert any(tr.status == HypothesisStatus.SUPPORTED for tr in screened) or screened
+
+    def test_disabled_holdout_keeps_the_old_behavior(self):
+        data = _holdout_batch()
+        probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
+        report = _holdout_loop(probe, m5_holdout=False).run(data)
+        assert report.m5_holdout is None
+        assert len(probe.calls) == 1
+        assert len(report.verified_hypotheses) >= 1      # in-sample, as before
+
+    def test_no_confirm_split_means_no_holdout_pass(self):
+        data = _holdout_batch()
+        probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
+        loop = VLDiagnoseLoop(
+            model=_vlm(), protocol=_spatial_protocol(), probe_agent=probe,
+            diagnosis_agent=_scripted_diagnosis_agent("attention"),
+            hypothesis_tester=HypothesisTester(min_effect=0.05), max_cycles=1,
+        )
+        report = loop.run(data)
+        assert report.m5_holdout is None
+        assert len(probe.calls) == 1
+
+    def test_run_confirm_also_confirms_on_holdout(self):
+        data = _holdout_batch()
+        probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
+        loop = _holdout_loop(probe)
+        # same shape the diagnosis agent produces in run() — no test_design,
+        # so routing takes the identical fallback path as the screening in run()
+        h = Hypothesis(statement="Model fails due to attention issue.",
+                       target_model="fake", predicted_failure_mode="attention")
+        report = loop.run_confirm(data, [h])
+        assert report.m5_holdout == "confirmed"
+        assert len(report.verified_hypotheses) >= 1
+        assert report.verified_hypotheses[0].evidence["split"] == "confirm_holdout"

@@ -69,6 +69,7 @@ class AutoDiagnoseReport:
         final_stats_report:   M2 report from the last cycle (M5-path shape;
                               same object as ``final_analysis`` when set).
         fix_proposal:         Populated by ``run_m4`` when called after ``run``.
+        m5_holdout:           Held-out M5 confirmation status (see field note).
         fix_outcome:          Populated by ``run_fix`` — tiered fix attempts +
                               escalation recommendation.
         store:                Accumulated results and hypotheses.
@@ -86,6 +87,13 @@ class AutoDiagnoseReport:
     fix_proposal: "Any | None" = None
     fix_outcome: "Any | None" = None
     store: Store = field(default_factory=InMemoryStore)
+    #: How M5's held-out confirmation resolved (``VLDiagnoseLoop`` only):
+    #: ``"confirmed"`` — verified_hypotheses passed on the held-out split;
+    #: ``"nothing_screened"`` — no hypothesis screened SUPPORTED in-sample;
+    #: ``"failed"`` — the confirm-split re-probe produced nothing, so the
+    #: verified list is IN-SAMPLE ONLY (flagged loudly in the log);
+    #: ``None`` — no confirm split / holdout disabled / legacy loop.
+    m5_holdout: "str | None" = None
     # Internal — set by the loops for evolution/git integration
     _run_id: str = field(default="", repr=False)
 
