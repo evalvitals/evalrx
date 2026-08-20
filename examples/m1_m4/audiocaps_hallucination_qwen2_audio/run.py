@@ -366,7 +366,7 @@ def main() -> int:
         help="subject-model generation budget (baseline scoring AND every M1 "
              "probe re-ask) -- a bare Yes/No answer needs very little room.",
     )
-    parser.add_argument("--max-cycles", type=int, default=2)
+    parser.add_argument("--max-cycles", type=int, default=1)
     parser.add_argument("--max-analyzers", type=int, default=len(PINNED_M1_ANALYZERS))
     parser.add_argument(
         "--confirm-split", type=float, default=0.6,

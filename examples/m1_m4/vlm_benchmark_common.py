@@ -142,7 +142,7 @@ def main(config: BenchmarkConfig) -> None:
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--manifest", default=config.manifest)
     parser.add_argument("--limit", type=int, default=128)
-    parser.add_argument("--max-cycles", type=int, default=2)
+    parser.add_argument("--max-cycles", type=int, default=1)
     parser.add_argument("--judge-provider", choices=["agy", "claude"], default="agy")
     parser.add_argument("--judge-model", default="")
     parser.add_argument("--judge-effort", default="high")
