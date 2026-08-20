@@ -69,6 +69,17 @@ class AgyModel:
         self.capabilities = frozenset({Capability.GENERATE})
         self.modalities = frozenset({"text"})
 
+    # ``-p`` passes the prompt as a literal argv element. M2/M3 judge prompts
+    # in this framework routinely embed a full per-case evidence dump (every
+    # M1 analyzer's findings across every EXPLORE-split case) and can exceed
+    # the kernel's argv+envp size limit -- observed in practice as
+    # ``OSError: [Errno 7] Argument list too long`` on exec, which the caller
+    # (StatsAnalysisAgent/DiagnosisAgent) then silently treats as "judge
+    # returned nothing" and falls back to a threshold-only conclusion / zero
+    # hypotheses. Conservative threshold: well under any real ARG_MAX
+    # (2 MiB is typical on Linux, shared with the environment).
+    _LARGE_PROMPT_BYTES = 60_000
+
     def generate(
         self,
         inputs: object,
@@ -79,22 +90,42 @@ class AgyModel:
         """Run ``agy -p <inputs>`` and return the text response."""
         fd, log_path = tempfile.mkstemp(prefix="agy_", suffix=".log")
         os.close(fd)
-        img_dir: str | None = None
+        workspace_dir: str | None = None
         try:
             prompt_text = str(inputs)
+            img_names: list[str] = []
             if images:
                 valid = [p for p in images if isinstance(p, pathlib.Path) and p.exists()]
                 if valid:
-                    img_dir = tempfile.mkdtemp(prefix="agy_imgs_")
+                    workspace_dir = workspace_dir or tempfile.mkdtemp(prefix="agy_ws_")
                     for path in valid:
-                        shutil.copy2(path, pathlib.Path(img_dir) / path.name)
-                    names = ", ".join(path.name for path in valid)
-                    prompt_text = f"Images available in workspace: {names}\n\n{prompt_text}"
+                        shutil.copy2(path, pathlib.Path(workspace_dir) / path.name)
+                    img_names = [path.name for path in valid]
+
+            # Above the threshold, spill the prompt to a file in the same
+            # isolated per-call workspace instead of passing it inline --
+            # this exposes nothing the inline prompt didn't already contain,
+            # it just relocates it out of argv.
+            if len(prompt_text.encode("utf-8", errors="replace")) > self._LARGE_PROMPT_BYTES:
+                workspace_dir = workspace_dir or tempfile.mkdtemp(prefix="agy_ws_")
+                prompt_path = pathlib.Path(workspace_dir) / "prompt.txt"
+                prompt_path.write_text(prompt_text, encoding="utf-8")
+                cli_prompt = (
+                    "Your full task instructions are in the file `prompt.txt` "
+                    "in this workspace (too large to pass inline). Read it "
+                    "completely and respond exactly as it instructs -- do not "
+                    "summarize, truncate, or skip any part of it."
+                )
+            else:
+                cli_prompt = prompt_text
+            if img_names:
+                names = ", ".join(img_names)
+                cli_prompt = f"Images available in workspace: {names}\n\n{cli_prompt}"
 
             cmd = [
                 self._binary,
                 "-p",
-                prompt_text,
+                cli_prompt,
                 # A judge receives the evidence explicitly in its prompt. It
                 # must not inspect repository files, benchmark manifests, or
                 # held-out labels through terminal tools.
@@ -103,8 +134,8 @@ class AgyModel:
                 "--log-file",
                 log_path,
             ]
-            if img_dir:
-                cmd += ["--add-dir", img_dir]
+            if workspace_dir:
+                cmd += ["--add-dir", workspace_dir]
             if self._model:
                 cmd += ["--model", self._model]
 
@@ -141,8 +172,8 @@ class AgyModel:
             return output
         finally:
             safe_unlink(log_path)
-            if img_dir:
-                shutil.rmtree(img_dir, ignore_errors=True)
+            if workspace_dir:
+                shutil.rmtree(workspace_dir, ignore_errors=True)
 
     def __repr__(self) -> str:
         return f"AgyModel(binary={self._binary!r})"

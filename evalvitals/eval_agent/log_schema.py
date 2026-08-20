@@ -62,6 +62,7 @@ _HYPOTHESIS = {
     "type": "object",
     "properties": {
         "statement": {"type": "string"},
+        "plain_statement": {"type": ["string", "null"]},
         "failure_mode": {"type": ["string", "null"]},
         "status": {"type": ["string", "null"]},
         "test_design": {"type": ["string", "null"]},

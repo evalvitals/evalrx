@@ -19,6 +19,15 @@ class CliAgentBase:
 
     _provider_name: str = "unknown"
 
+    # Every provider's ``_build_cmd`` places *prompt* directly in argv (``-p
+    # <prompt>`` / ``exec <prompt>`` / ``--message <prompt>``). This
+    # framework's prompts (a full M1 evidence dump, an L1/L2 fix-candidate
+    # brief with per-case tables, ...) can exceed the kernel's argv+envp size
+    # limit -- observed in practice as ``OSError: [Errno 7] Argument list
+    # too long`` on exec. Above this conservative threshold, ``run()`` spills
+    # the prompt to a file in *workdir* instead of passing it inline.
+    _LARGE_PROMPT_BYTES = 60_000
+
     def __init__(
         self,
         binary_path: str,
@@ -56,7 +65,16 @@ class CliAgentBase:
         timeout = timeout_sec if timeout_sec is not None else self._timeout_sec
         workdir.mkdir(parents=True, exist_ok=True)
         self._install_skills(workdir)
-        cmd = self._build_cmd(prompt, workdir)
+        cli_prompt = prompt
+        if len(prompt.encode("utf-8", errors="replace")) > self._LARGE_PROMPT_BYTES:
+            (workdir / "prompt.txt").write_text(prompt, encoding="utf-8")
+            cli_prompt = (
+                "Your full task instructions are in the file `prompt.txt` in "
+                "this workspace (too large to pass inline). Read it "
+                "completely and follow it exactly -- do not summarize, "
+                "truncate, or skip any part of it."
+            )
+        cmd = self._build_cmd(cli_prompt, workdir)
         logger.debug("%s: running %s", self._provider_name, cmd[0])
 
         run = self._run_subprocess(cmd, workdir, timeout)

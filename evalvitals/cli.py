@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from evalvitals.analysis.dashboard import launch_dashboard, launch_upload_app
 from evalvitals.analysis.explore_run import run_explore
@@ -185,6 +186,25 @@ def main(argv: list[str] | None = None) -> int:
              "in the sidebar alongside uploads. Repeatable.",
     )
 
+    report_cmd = sub.add_parser(
+        "report",
+        help="Generate a self-contained, plain-language HTML diagnostic report for a run.",
+        description="Renders a finished diagnostic run into a single self-contained HTML report with full M1-M5 trace, case browser, and plain-language explanations.",
+    )
+    report_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run_log.jsonl or logs/")
+    report_cmd.add_argument("--example-dir", default=None, help="Root holding data/ manifest.")
+    report_cmd.add_argument("--out", "-o", default=None, help="Output HTML path (default: <run_dir>/report.html).")
+    report_cmd.add_argument("--no-audio", action="store_true", help="Skip audio transcoding.")
+
+    langfuse_cmd = sub.add_parser(
+        "export-langfuse",
+        help="Export a diagnostic run to Langfuse trace JSON format or sync live.",
+        description="Map an EvalVitals run (M1-M5, fixes, scores) to Langfuse Traces, Spans, and Scores.",
+    )
+    langfuse_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory.")
+    langfuse_cmd.add_argument("--out", "-o", default=None, help="Output JSON path.")
+    langfuse_cmd.add_argument("--sync", action="store_true", help="Sync live to Langfuse server.")
+
     args = parser.parse_args(argv)
     if args.verbose:
         from evalvitals.logging_utils import enable_console_logging
@@ -263,6 +283,24 @@ def main(argv: list[str] | None = None) -> int:
             timeout_sec=args.timeout_sec,
             attach=args.attach,
         )
+    if args.command == "report":
+        from evalvitals.reporting.html_report import build_html_report
+
+        build_html_report(
+            run_dir=args.run_dir,
+            example_dir=args.example_dir,
+            out_path=args.out,
+            no_audio=args.no_audio,
+        )
+        return 0
+    if args.command == "export-langfuse":
+        from evalvitals.reporting.langfuse_exporter import export_to_langfuse_bundle, sync_to_langfuse_live
+
+        if args.sync:
+            return 0 if sync_to_langfuse_live(args.run_dir) else 1
+        out_p = args.out or (Path(args.run_dir) / "langfuse_trace.json")
+        export_to_langfuse_bundle(args.run_dir, out_p)
+        return 0
 
     parser.print_help()
     return 0
