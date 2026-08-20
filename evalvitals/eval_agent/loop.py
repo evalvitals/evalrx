@@ -111,6 +111,45 @@ def _propose_and_validate(agent: "Any", model: "Any", data: "Any", hypotheses: "
     return agent.propose_and_validate(model, data, hypotheses, **passed)
 
 
+def _unverified_hypotheses(report: "Any") -> "list[Any]":
+    """Best-first UNVERIFIED hypotheses: M5-tested and not refuted, highest
+    confidence first; then untested proposals from the last cycle."""
+    seen: set[str] = set()
+    out: list[Any] = []
+    tested = list(getattr(report, "all_test_results", None) or [])
+    ranked = sorted(
+        tested,
+        key=lambda tr: float(getattr(tr, "confidence", 0.0) or 0.0),
+        reverse=True,
+    )
+    for tr in ranked:
+        h = getattr(tr, "hypothesis", None)
+        if h is None or _hyp_key(h) in seen:
+            continue
+        seen.add(_hyp_key(h))  # tested (in any way) -> never re-added as "untested"
+        status = getattr(tr, "status", None)
+        status_s = str(getattr(status, "value", status) or "").lower()
+        if status_s == "refuted":
+            continue
+        out.append(h)
+    for h in reversed(list(getattr(report, "final_hypotheses", None) or [])):
+        if _hyp_key(h) not in seen:
+            seen.add(_hyp_key(h))
+            out.append(h)
+    return out
+
+
+def _m4_supported_key(report: "Any") -> "str | None":
+    """Key of the hypothesis M4's experiment SUPPORTED, if any."""
+    iv = getattr(report, "fix_proposal", None)
+    status = getattr(iv, "status", None)
+    status_s = str(getattr(status, "value", status) or "").lower()
+    hyp = getattr(iv, "hypothesis", None)
+    if iv is None or hyp is None or status_s != "supported":
+        return None
+    return _hyp_key(hyp)
+
+
 def _hyp_key(hypothesis: "Any") -> str:
     """Identity of a hypothesis for matching across M5/M4 results."""
     hid = str(getattr(hypothesis, "id", "") or "")
@@ -1106,22 +1145,44 @@ class VLDiagnoseLoop:
         self,
         report: VLDiagnoseReport,
         data: "CaseBatch",
+        *,
+        allow_unverified: bool = False,
     ) -> "Any | None":
-        """Plan A: propose a fix for the best verified hypothesis (post-loop M4).
+        """Plan A: run the M4 intervention experiment on the best hypothesis.
 
         Called *after* :meth:`run` to avoid polluting the inner loop with
         fix-execution noise.  Operates on the highest-confidence verified
-        hypothesis from :attr:`VLDiagnoseReport.verified_hypotheses`.
+        hypothesis from :attr:`VLDiagnoseReport.verified_hypotheses`; with
+        ``allow_unverified=True`` and no verified hypothesis it falls back to
+        the best *unverified* one (see :func:`_unverified_hypotheses`) — the
+        experiment is then a genuine test of a lead M5 could not decide, and
+        its verdict (supported / refuted) is what ``run_fix`` reads.
 
         Args:
             report: Returned by :meth:`run`.
             data:   Original case batch (needed by the surgery agent).
+            allow_unverified: Fall back to the best unverified hypothesis when
+                    M5 verified none (default False: verified only).
 
         Returns:
             :class:`~evalvitals.eval_agent.surgery.InterventionResult` or
-            ``None`` if there are no verified hypotheses to fix.
+            ``None`` if there is no hypothesis to act on.
         """
-        if not report.verified_hypotheses:
+        if report.verified_hypotheses:
+            best_hyp = report.verified_hypotheses[0].hypothesis
+            unverified = False
+        elif allow_unverified:
+            candidates = _unverified_hypotheses(report)
+            if not candidates:
+                logger.info("run_m4: no hypotheses at all to act on.")
+                return None
+            best_hyp = candidates[0]
+            unverified = True
+            logger.info(
+                "run_m4: no verified hypothesis — experimenting on the best UNVERIFIED "
+                "one (allow_unverified=True): %s", str(getattr(best_hyp, "statement", best_hyp))[:120],
+            )
+        else:
             logger.info("run_m4: no verified hypotheses to act on.")
             return None
 
@@ -1132,25 +1193,29 @@ class VLDiagnoseLoop:
         if confirm is not None:
             data = confirm
 
-        best_tr = report.verified_hypotheses[0]
         results: dict[str, Any] = (
             report.final_stats_report.raw_results
             if report.final_stats_report is not None
             else {}
         )
         iv = self.surgery_agent.operate(
-            best_tr.hypothesis,
+            best_hyp,
             self.model,
             results,
             data,
         )
+        try:
+            iv.evidence = dict(getattr(iv, "evidence", None) or {})
+            iv.evidence["hypothesis_was_verified"] = not unverified
+        except Exception:  # evidence is informational
+            pass
         report.fix_proposal = iv
         # M4 runs *after* the loop, so log its experiment separately — the
         # generated script(s), the run output, the agent's thinking and a
         # snapshot of the workspace.  ``cycle=-1`` marks it as post-loop.
         if self.run_logger is not None:
             try:
-                self.run_logger.log_experiment(-1, best_tr.hypothesis, iv, module="m4")
+                self.run_logger.log_experiment(-1, best_hyp, iv, module="m4")
             except Exception as exc:  # logging must never break the fix step
                 logger.warning("run_m4: log_experiment failed: %s", exc)
         return iv
@@ -1222,11 +1287,27 @@ class VLDiagnoseLoop:
             tr.hypothesis for tr in report.verified_hypotheses
             if _hyp_key(tr.hypothesis) not in refuted_ids
         ]
+        hypotheses_note = ""
         if not hypotheses:
+            # No verified hypothesis: the fix still runs on the best UNVERIFIED
+            # leads (M5-tested, non-refuted, highest confidence first; else the
+            # last cycle's proposals). They reach the proposer flagged as
+            # leads, not facts — the fix gate is the candidate validation, not
+            # the hypothesis, so this is safe; an M4 experiment that supported
+            # one of them upgrades it in the note.
             hypotheses = [
-                h for h in list(report.final_hypotheses)[-3:]
+                h for h in _unverified_hypotheses(report)
                 if _hyp_key(h) not in refuted_ids
-            ]
+            ][:3]
+            supported = _m4_supported_key(report)
+            hypotheses_note = (
+                "UNVERIFIED: M5 found no statistically significant evidence for these "
+                "hypotheses (they are the best-scoring leads, not established mechanisms)"
+                + ("; the M4 intervention experiment SUPPORTED the first one"
+                   if supported and hypotheses and _hyp_key(hypotheses[0]) == supported else "")
+                + ". Treat them as hints about WHERE to intervene; the candidate "
+                "validation, not the hypothesis, decides."
+            )
         context = _fix_context_from_report(
             report,
             example_cases=explore if confirm is not None else None,
@@ -1235,6 +1316,7 @@ class VLDiagnoseLoop:
             refuted=refuted_notes,
             refuted_ids=refuted_ids,
         )
+        context.hypotheses_note = hypotheses_note
 
         if auto_escalate:
             _LADDER = [

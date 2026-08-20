@@ -126,7 +126,8 @@ def test_unavailable_preregistered_design_does_not_use_keyword_substitute():
     tr = HypothesisTester().test([h], _report(), _labeled_batch())[0]
     assert tr.status == HypothesisStatus.INCONCLUSIVE
     assert tr.test_name == "stats_results"
-    assert tr.evidence["routed_by"] == "test_design_unavailable"
+    # one canonical marker for "design named evidence M2 did not measure"
+    assert tr.evidence["routed_by"] == "test_design_unmet"
     assert tr.evidence_grade == "none"
 
 
@@ -372,3 +373,161 @@ def test_an_uncorrected_ci_only_result_keeps_its_own_verdict():
     tr = HypothesisTester().test([h], _report(), _labeled_batch())[0]
     assert tr.status == HypothesisStatus.SUPPORTED
     assert "[BH" not in tr.verdict
+
+
+# ── routing precision (2026-08-18, qwen3.5-2b/bbh_causal_judgement) ─────────
+
+
+def _cj_report() -> StatsAnalysisReport:
+    """What M2 measured on causal_judgement: a strong PROTECTIVE
+    answer_extraction_audit signal plus a cot_faithfulness signal."""
+    return StatsAnalysisReport(
+        model_name="m", findings=[], severity="none", narrative="", raw_results={},
+        conclusion="c",
+        stats_results=[
+            StatsToolResult(tool="signal_label_assoc", ok=True, effect=-0.4756,
+                            ci=(-0.65, -0.27), reject=True,
+                            config={"signal": "answer_extraction_audit.gold_in_answer_region"},
+                            summary="gold_in_answer_region vs FAIL"),
+            StatsToolResult(tool="signal_label_assoc", ok=True, effect=0.42,
+                            ci=(0.08, 0.75), reject=True,
+                            config={"signal": "cot_faithfulness.cot_sentences"},
+                            summary="cot_sentences vs FAIL"),
+        ],
+    )
+
+
+def test_generic_words_in_a_design_do_not_route_to_an_unrelated_signal():
+    """The overthinking hypothesis's design says 'answer_trajectory' and 'answer';
+    it must route to cot_faithfulness (its named analyzer), not be REFUTED by
+    answer_extraction_audit.gold_in_answer_region via the word 'answer'."""
+    h = _hyp("The model reaches the correct answer early and then argues itself out of it.",
+             mode="overthinking",
+             design="cot_faithfulness paired columns on held-out cases — drift_away vs "
+                    "late_rescue and answer_trajectory at the 0.25/0.5/0.75 truncations")
+    tr = HypothesisTester().test([h], _cj_report(), _labeled_batch())[0]
+    assert tr.evidence["routed_by"] == "test_design"
+    assert "cot_sentences" in tr.verdict and "gold_in_answer_region" not in tr.verdict
+    assert tr.status == HypothesisStatus.SUPPORTED
+
+
+def test_design_naming_unmeasured_evidence_stays_inconclusive_not_refuted():
+    """A design that names signals M2 did not test ('generated:probe1.answers_yes',
+    'self_repair.self_says_incorrect') is not judged on whatever else M2
+    measured — it is inconclusive with the designated names in the verdict."""
+    h = _hyp("The Yes/No verdict is fixed by the prompt encoding before any deliberation.",
+             mode="post_hoc_rationalization",
+             design="self_repair.self_says_incorrect x self_repair.changed_answer, plus "
+                    "generated:probe1.answers_yes stratified by but-for dependence")
+    tr = HypothesisTester().test([h], _cj_report(), _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.INCONCLUSIVE
+    assert tr.evidence["routed_by"] == "test_design_unmet"
+    assert "not measured" in tr.verdict and "self_repair" in tr.verdict
+
+
+def test_identifier_helpers():
+    from evalvitals.eval_agent.stages.hypothesis_tester import (
+        _identifiers, _signal_keywords, _tool_ids, _tool_keywords,
+    )
+
+    assert _identifiers("Re-run `perturbation_battery` and cot_faithfulness.drift_away") == {
+        "perturbation_battery", "cot_faithfulness.drift_away"}
+    assert "answer" not in _signal_keywords("the answer region and the gold string")
+    assert {"gold", "region", "string"} <= _signal_keywords("the answer region and the gold string")
+    r = StatsToolResult(tool="signal_label_assoc", ok=True, effect=0.1, ci=(0, 0.2), reject=False,
+                        config={"signal": "answer_extraction_audit.gold_in_answer_region"})
+    assert _tool_ids(r, level="analyzer") == {"answer_extraction_audit"}
+    assert "gold_in_answer_region" in _tool_ids(r) and "answer_extraction_audit.gold_in_answer_region" in _tool_ids(r)
+    assert "answer" not in _tool_keywords(r) and {"gold", "region", "extraction"} <= _tool_keywords(r)
+
+
+# ── direction-aware verdicts (2026-08-19) ───────────────────────────────────
+
+
+def _signed_report(signal: str, effect: float) -> StatsAnalysisReport:
+    """One decisive (uncorrected, CI-only) signal_label_assoc result."""
+    lo, hi = (effect - 0.2, effect + 0.2)
+    return StatsAnalysisReport(
+        model_name="m", findings=[], severity="none", narrative="", raw_results={},
+        conclusion="c",
+        stats_results=[
+            StatsToolResult(tool="signal_label_assoc", ok=True, effect=effect,
+                            ci=(lo, hi), reject=True, config={"signal": signal},
+                            summary=f"{signal} vs FAIL"),
+        ],
+    )
+
+
+def test_a_hypothesis_predicting_a_low_signal_is_supported_by_a_negative_effect():
+    """minervamath: 'step_rollout_value.initial_value — 5/8 chains sit at 0.0 from
+    step 0' predicts the signal LOWER on failures; the observed effect was
+    negative (low initial value <-> FAIL). Reading every negative effect as
+    'protective -> refuted' rejected the hypothesis the data agreed with."""
+    h = _hyp("Set-up failures at step 0: the chain starts wrong.",
+             design="corroborate with `step_rollout_value.initial_value` (5/8 chains "
+                    "sit at 0.0 from step 0)")
+    tr = HypothesisTester().test(
+        [h], _signed_report("step_rollout_value.initial_value", -0.67), _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.SUPPORTED
+    assert tr.evidence["expected_direction"] == "lower_in_fail"
+    assert "predicts the signal LOWER on failures" in tr.verdict and "consistent" in tr.verdict
+
+
+def test_a_hypothesis_predicting_a_low_signal_is_refuted_by_a_positive_effect():
+    h = _hyp("x", design="self_consistency.consistency is LOWER on failing cases")
+    tr = HypothesisTester().test(
+        [h], _signed_report("self_consistency.consistency", +0.5), _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.REFUTED
+    assert "opposite" in tr.verdict
+
+
+def test_without_a_direction_cue_the_classic_reading_stands():
+    """No cue: effect > 0 (signal group fails more) supports, < 0 refutes."""
+    h = _hyp("Repetition marks the failures.", design="termination_audit.repetition_score")
+    up = HypothesisTester().test(
+        [h], _signed_report("termination_audit.repetition_score", +0.4), _labeled_batch())[0]
+    down = HypothesisTester().test(
+        [h], _signed_report("termination_audit.repetition_score", -0.4), _labeled_batch())[0]
+    assert up.status == HypothesisStatus.SUPPORTED and up.evidence["expected_direction"] is None
+    assert down.status == HypothesisStatus.REFUTED
+
+
+def test_expected_sign_parser_cases():
+    from evalvitals.eval_agent.stages.hypothesis_tester import _expected_sign
+
+    def sign(design: str, signal: str, statement: str = "x"):
+        return _expected_sign(_hyp(statement, design=design), signal)
+
+    assert sign("`gold_in_output` = 1 with `gold_in_answer_region` = 0",
+                "answer_extraction_audit.gold_in_output") == 1
+    assert sign("`gold_in_output` = 1 with `gold_in_answer_region` = 0",
+                "answer_extraction_audit.gold_in_answer_region") == -1
+    assert sign("termination_audit.repetition_score should be HIGHER on failing cases",
+                "termination_audit.repetition_score") == 1
+    assert sign("signal 'self_repair.self_says_incorrect' absent on FAIL",
+                "self_repair.self_says_incorrect") == -1
+    assert sign("`foo.bar` = 0.5 vs 1", "foo.bar") is None            # a threshold, not a level
+    assert sign("check perturbation_battery.noop_clause_flipped",
+                "perturbation_battery.noop_clause_flipped") is None
+    assert sign("coverage_verification_gap.majority_share (>=0.6 vs <=0.4)",
+                "coverage_verification_gap.majority_share") is None
+    assert sign("", "foo.bar") is None
+
+
+def test_diagnosis_prompt_asks_for_the_direction():
+    from evalvitals.eval_agent.prompts.diagnosis import _DIAGNOSE_PROMPT
+    assert "HIGHER or LOWER on failing cases" in _DIAGNOSE_PROMPT
+
+
+def test_an_outcome_regrade_cannot_be_m5_evidence_even_from_an_old_m2():
+    """h3 on minervamath named `gold_in_answer_region` = 0; the old M2 results
+    still carry that column (84% label copy). It must not decide the verdict
+    in either direction — the design is unmet, not refuted / supported."""
+    h = _hyp("A minority of FAILs are last-step target errors",
+             design="subgroup on `answer_extraction_audit.gold_in_output == 1 & "
+                    "gold_in_answer_region == 0`, then a targeted re-ask")
+    tr = HypothesisTester().test(
+        [h], _signed_report("answer_extraction_audit.gold_in_answer_region", -0.63),
+        _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.INCONCLUSIVE
+    assert tr.evidence["routed_by"] == "test_design_unmet"

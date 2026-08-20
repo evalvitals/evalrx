@@ -292,6 +292,22 @@ def load_batch(model_id: str, dataset: str, out_dir: "Path | None" = None):
     except Exception as exc:  # never block a run on the staleness check itself
         print(f"  NOTE could not check grader freshness: {exc}")
 
+    # Band position (build_cases writes it since 2026-08-18; older batches
+    # carry only the accuracy). Out-of-band is a warning, never a stop: the
+    # run is legitimate, its paired tests are just short of power.
+    try:
+        from build_cases import MAX_ACC, MIN_ACC, band_position
+        acc = float(report.get("accuracy", 0.0))
+        position = report.get("band_position") or band_position(acc)
+        if position != "in":
+            print(f"  WARNING batch accuracy {acc:.3f} is outside the usable band "
+                  f"[{MIN_ACC}, {MAX_ACC}] ({position}: {report.get('n_fail')} FAIL / "
+                  f"{report.get('n_pass')} PASS) — M2 has little to contrast and every "
+                  f"paired test downstream is short of power. Results are valid but weak; "
+                  f"a mid-band dataset for this model size would use the GPU hours better.")
+    except Exception as exc:  # advisory only
+        print(f"  NOTE could not check band position: {exc}")
+
     cases = [
         FailureCase(
             inputs=Inputs(prompt=c["prompt"]),
@@ -412,10 +428,15 @@ def build_protocol(dataset: str):
     )
 
 
-def build_judge(model_name: str, effort: str):
+def build_judge(model_name: str, effort: str, timeout_sec: int = 240):
+    """The judge CLI wrapper. ``timeout_sec`` bounds ONE judge call: M2's
+    prompt over 10+ analyzers with a high-effort opus can exceed the wrapper's
+    240 s default (bbh_causal_judgement 2026-08-18: M2 fell back to the
+    threshold narrative on a 240 s timeout), so config ``judge_timeout_sec``
+    raises it."""
     from evalvitals.eval_agent import ClaudeModel
 
-    judge = ClaudeModel(model=model_name, effort=effort)
+    judge = ClaudeModel(model=model_name, effort=effort, timeout_sec=int(timeout_sec))
     if not judge.generate("Reply with exactly the word OK").strip():
         raise SystemExit(
             f"judge probe: claude --model {model_name} returned empty "
@@ -710,6 +731,13 @@ def main() -> None:
                          "on M1 wall-clock; it costs power, not correctness")
     ap.add_argument("--analysis-only", action="store_true",
                     help="M1->M2->M3 and stop: propose hypotheses, skip M5 and M4")
+    ap.add_argument("--fix-unverified", dest="fix_unverified", action="store_true", default=None,
+                    help="when M5 verified nothing, still run the M4 intervention experiment "
+                         "on the best UNVERIFIED hypothesis and then the fix stage on the "
+                         "best unverified leads (flagged as unverified to the proposer). "
+                         "Default: config fix_on_unverified")
+    ap.add_argument("--no-fix-unverified", dest="fix_unverified", action="store_false",
+                    help="require a verified hypothesis for M4 + fix (the old behaviour)")
     ap.add_argument("--skip-m4", action="store_true",
                     help="run M1->M5 but do not attempt a fix")
     ap.add_argument("--max-cases", type=int, default=0,
@@ -781,7 +809,8 @@ def main() -> None:
                           logprobs_mode=str(CFG.get("logprobs_mode", "answer")),
                           logprobs_max_tokens=int(CFG.get("logprobs_max_tokens", 64)),
                           logprobs_top_k=int(CFG.get("logprobs_top_k", 5)))
-    judge = build_judge(args.judge_model, args.judge_effort)
+    judge = build_judge(args.judge_model, args.judge_effort,
+                        timeout_sec=int(CFG.get("judge_timeout_sec", 240)))
     codegen = build_codegen(args.backend)
     # A confirm-only pass never runs M1/M3, so there is nothing to explore —
     # but the analysis run's explore report is still useful to the fix
@@ -907,9 +936,20 @@ def main() -> None:
             print(f"  - [{t.status}] conf={t.confidence:.2f} "
                   f"grade={t.evidence_grade} {stmt[:100]}")
         if not args.skip_m4:
-            fix = loop.run_m4(report, batch)
-            print(f"[M4] {'fix proposed' if fix else 'no verified hypothesis to fix'}")
+            fix_unverified = (args.fix_unverified if args.fix_unverified is not None
+                              else bool(CFG.get("fix_on_unverified", True)))
+            fix = loop.run_m4(report, batch, allow_unverified=fix_unverified)
             if fix is not None:
+                tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
+                print(f"[M4] experiment run on the {tag} hypothesis: status={fix.status}")
+            else:
+                print("[M4] no hypothesis to experiment on"
+                      + ("" if fix_unverified else " (no verified hypothesis; "
+                         "--fix-unverified / fix_on_unverified to proceed anyway)"))
+            if fix is not None or (fix_unverified and report.final_hypotheses):
+                if not report.verified_hypotheses:
+                    print("[fix] no verified hypothesis — proposing on the best unverified "
+                          "leads (flagged to the proposer); the candidate validation decides")
                 outcome = loop.run_fix(report, batch)
                 print("[fix]", getattr(outcome, "recommendation", None) or outcome)
 
@@ -928,6 +968,8 @@ def main() -> None:
                                  if args.fix_validation_cases is not None
                                  else int(CFG.get("fix_validation_cases", 0))),
         "fix_baseline_repeats": int(CFG.get("fix_baseline_repeats", 1)),
+        "fix_on_unverified": (args.fix_unverified if args.fix_unverified is not None
+                              else bool(CFG.get("fix_on_unverified", True))),
         "fix_candidate_repeats": int(CFG.get("fix_candidate_repeats", 1)),
         "n_hypotheses": len(getattr(report, "hypotheses", None)
                             or getattr(report, "all_hypotheses", None) or []),

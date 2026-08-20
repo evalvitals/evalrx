@@ -477,6 +477,9 @@ class FixContext:
                             ``max_tokens`` as the floor a candidate may not go
                             below.
         task_note:          One-paragraph task / protocol description.
+        hypotheses_note:    Status caveat printed right under the hypotheses
+                            (e.g. "UNVERIFIED: M5 found no significant evidence
+                            …") when the loop hands the fix unverified leads.
     """
 
     example_cases: "Any | None" = None
@@ -485,6 +488,7 @@ class FixContext:
     scoring_note: str = ""
     baseline_decoding: "dict[str, Any]" = field(default_factory=dict)
     task_note: str = ""
+    hypotheses_note: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -583,9 +587,9 @@ class FixAgent:
                           floor is enforced. Both values are also shown to the
                           proposer.
         concurrency:      Threads used to run a declarative candidate over
-                          the validation batch (default 1 = serial, unchanged
-                          behaviour). Coded pipelines are inherently serial
-                          (one bridge) and unaffected.
+                          the validation batch, and how many bridged model
+                          calls the coded-pipeline host services at once
+                          (default 1 = serial, unchanged behaviour).
         scoring_note:     Free-text description of how outputs are scored /
                           the expected final-answer format, shown to the
                           proposer (a per-call ``FixContext.scoring_note``
@@ -1054,6 +1058,8 @@ class FixAgent:
             )
             or "- (no verified hypotheses; failures are unexplained)"
         )
+        if context.hypotheses_note:
+            hyp_lines = f"({context.hypotheses_note.strip()})\n{hyp_lines}"
         # Full examples (prompt + the model's own output + expected answer)
         # come from cases the proposer may see in full — the loop's EXPLORE
         # split. Without such cases the examples are drawn from the validation
@@ -3064,6 +3070,7 @@ class FixAgent:
             timeout_sec=self._exec_timeout_sec,
             enable_attend=bool(candidate.payload.get("enable_attend")),
             max_tokens_floor=self._max_tokens_floor,
+            concurrency=self._concurrency,
             consensus_min_support=int(candidate.payload.get("consensus_min_support", 0)),
             max_calls_per_case=int(candidate.payload.get("max_calls_per_case", 0)),
         )
@@ -3089,6 +3096,7 @@ class FixAgent:
                     timeout_sec=self._exec_timeout_sec,
                     enable_attend=bool(candidate.payload.get("enable_attend")),
                     max_tokens_floor=self._max_tokens_floor,
+                    concurrency=self._concurrency,
                     consensus_min_support=int(
                         candidate.payload.get("consensus_min_support", 0)
                     ),

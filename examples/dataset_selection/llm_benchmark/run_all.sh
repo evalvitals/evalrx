@@ -26,7 +26,7 @@ EXPLORE="${EXPLORE:-1}"              # 0 = skip the in-cycle explore step (free-
 RUN_TAG="${RUN_TAG:-}"               # set = write to outputs/<model>/<dataset>.<tag>/ (smoke runs; needs SKIP_STAGE0=1)
 MAX_CASES="${MAX_CASES:-0}"          # >0 = label-stratified subsample of the frozen batch (smoke runs)
 PIPELINE_ARGS="${PIPELINE_ARGS:-}"   # extra run_pipeline.py flags, e.g. "--analyzer-max-cases 16"
-BUILD_ARGS="${BUILD_ARGS:-}"         # extra build_cases.py flags, e.g. "--force" (write an out-of-band batch)
+BUILD_ARGS="${BUILD_ARGS:-}"         # extra build_cases.py flags, e.g. "--strict-band" (refuse an out-of-band batch)
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Walk up to the checkout root instead of counting directories: this example
@@ -186,9 +186,10 @@ else
     --model "$MODEL" --dataset "$DATASET" --n "$NCASES" --base-url "$BASE_URL" "${BEXTRA[@]}"
   rc=$?
   if [ $rc -ne 0 ]; then
-    # exit 1 here is usually the deliberate out-of-band refusal, not a crash
-    stamp "build_cases exited $rc — if it refused on band position, pick a dataset"
-    stamp "that sits mid-band for THIS model size (see README section 1)."
+    # An out-of-band batch is WRITTEN with a warning by default (BUILD_ARGS=--strict-band
+    # restores the old refusal, exit 1); any other non-zero here is a real failure.
+    stamp "build_cases exited $rc — see the lines above (with --strict-band, exit 1 is"
+    stamp "the deliberate out-of-band refusal: pick a dataset mid-band for THIS model size)."
     exit $rc
   fi
 fi

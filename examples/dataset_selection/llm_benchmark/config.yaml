@@ -73,6 +73,10 @@ codegen_effort: high
 # which costs far more than the difference.
 codegen_budget_usd: 25.0
 codegen_timeout_sec: 1800
+judge_timeout_sec: 600      # ONE judge call (M2 narrative, M3, M5, fix proposals). The wrapper's 240 s
+                            # default was exceeded by M2's 11-analyzer prompt at opus/high on
+                            # bbh_causal_judgement (2026-08-18) -> silent fallback to the threshold
+                            # narrative. 600 s is still a bound, not an invitation to hang.
 
 # In-cycle explore step: a free-form EDA pass (the same coder as M2 codegen,
 # writing pandas in a sandbox) over the SAME per-case table the catalog M2
@@ -96,15 +100,17 @@ fix_validation_cases: 40    # 0 = whole batch. Candidates run serially (~10 s/ca
                             # L2 coded pipeline makes 4-5 bridged calls per case: 250 cases cannot
                             # finish inside fix_exec_timeout_sec, so it is killed as "timed out"
                             # instead of being judged. The paired gate does not need the whole batch.
-fix_exec_timeout_sec: 7200  # measured 16 s per bridged call on the 2B (long direct answers):
-                            # 40 cases x ~5 calls x 16 s ~= 53 min worst case, and
-                            # --fix-validation-cases 80 doubles it; the first attempt must be
-                            # able to finish, or every coded candidate spends its one repair
-                            # round on the timeout instead of on the repair. The bridge is
-                            # serial (one call at a time), so this is wall-clock, not load.
-fix_concurrency: 6          # threads per DECLARATIVE candidate (L1 templates / L2 specs) over
-                            # the validation batch; the endpoint serves them in parallel. Coded
-                            # pipelines are serial through the bridge regardless. 1 = old behaviour.
+fix_exec_timeout_sec: 7200  # wall-clock per coded-pipeline run. Measured 16 s per bridged call
+                            # on the 2B (long direct answers): 80 cases x ~5 calls serial would be
+                            # ~1.8 h, which is why the bridge now services calls concurrently
+                            # (fix_concurrency below; since 2026-08-19 requests are id-tagged and
+                            # the coder is told model_generate is thread-safe). The first attempt
+                            # must be able to finish, or every coded candidate spends its one
+                            # repair round on the timeout instead of on the repair.
+fix_concurrency: 12         # parallel model calls in the fix stage: threads per DECLARATIVE
+                            # candidate (L1 templates / L2 specs) over the validation batch, the
+                            # 5-sample baseline, AND how many bridged calls a coded pipeline gets
+                            # serviced at once. vLLM batches them; Stage 0 runs 16. 1 = serial.
 fix_floor_candidates:       # built-in defaults ALWAYS in the tested family for a text-only batch,
   - self_consistency_5      # next to the judge's proposals (5 samples, vote on the extracted
                             # final answer). Before 2026-08-18 defaults were only a fallback for
@@ -118,6 +124,11 @@ fix_baseline_repeats: 5     # baseline samples per case = frozen Stage 0 output 
                             # (run7: 10 fixed / 1 broken, e=15.5, one break short). 1 = old McNemar.
 fix_candidate_repeats: 1    # passes per template/spec candidate (coded pipelines always 1). >1
                             # multiplies candidate cost; the baseline side is where the noise was.
+fix_on_unverified: true     # when M5 verified nothing: still run the M4 intervention experiment on
+                            # the best UNVERIFIED hypothesis, then the fix stage on the best
+                            # unverified leads (flagged "UNVERIFIED" to the proposer). The fix gate
+                            # is the paired candidate validation, not the hypothesis, so this is
+                            # safe; false = old behaviour (verified only). CLI: --[no-]fix-unverified.
 
 # Cap on how many cases each per-case analyzer generates for. 0 = library
 # defaults (128 for prompt_contrast / calibration / linear_probe, 48 for

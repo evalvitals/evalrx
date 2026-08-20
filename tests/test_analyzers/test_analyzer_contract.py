@@ -691,8 +691,12 @@ def _check_self_repair(f):
 
 
 def _check_step_rollout_value(f):
+    # trajectories live at findings level; a numeric vector in a per-case row
+    # would read as a signal and reach no statistic (contract: PerCaseRow)
     for entry in f["per_case"]:
-        for value in entry.get("step_values", []):
+        assert "step_values" not in entry
+    for values in f.get("step_values_by_case", {}).values():
+        for value in values:
             _check_unit_interval(value, "step_value")
 
 
