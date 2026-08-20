@@ -1,0 +1,9 @@
+{
+  "run_id": "outputs",
+  "cycles": 1,
+  "stopped_by": "criteria_met",
+  "resolved": true,
+  "n_cases": 896,
+  "n_hypotheses": 1,
+  "n_verified": 1
+}

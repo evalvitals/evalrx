@@ -506,20 +506,22 @@ def main() -> int:
     print(f"  explore/confirm split: {len(cases) - n_confirm} explore "
           f"(M1-M5 discovery) / {n_confirm} confirm (held out for run_fix)")
 
+    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
+    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+
+    coder_cfg = CliAgentConfig(
+        provider="claude_code",
+        model=args.judge_model,
+        timeout_sec=900,
+        extra_args=(("--effort", args.judge_effort) if args.judge_effort else ()),
+    )
     explorer = None
     if args.explore and not args.analysis_only:
         from evalvitals.agent_runtime.sandbox import ExperimentSandbox
         from evalvitals.analysis import ExploratoryAnalysisAgent
-        from evalvitals.eval_agent import CliAgentConfig
 
         explorer = ExploratoryAnalysisAgent(
-            cli_config=CliAgentConfig(
-                provider="claude_code",
-                model=args.judge_model,
-                timeout_sec=900,
-                extra_args=(("--effort", args.judge_effort)
-                            if args.judge_effort else ()),
-            ),
+            cli_config=coder_cfg,
             sandbox=ExperimentSandbox(
                 workdir=Path(args.run_dir) / "explore" / "sandbox",
                 cleanup=False),
@@ -539,6 +541,8 @@ def main() -> int:
         analysis_only=args.analysis_only,
         confirm_split=confirm_split,
         confirm_split_seed=args.seed,
+        surgery_agent=None if args.analysis_only else SurgeryAgent(
+            judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer,
         explore_dir=Path(args.run_dir) / "explore",
     )

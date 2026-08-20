@@ -809,9 +809,14 @@ class VLDiagnoseLoop:
     def _do_m5(
         self, cycle: int, hypotheses: "list[Any]", stats_report: "Any",
         data: "Any", timings: "dict[str, float]", *, log: bool = True,
+        split_label: "str | None" = None,
     ) -> "list[Any]":
         """M5: statistical test + protocol consistency for each hypothesis,
-        writing the verdict back onto ``hypothesis.status``."""
+        writing the verdict back onto ``hypothesis.status``.
+
+        ``split_label`` tags each result's evidence with which data split the
+        test read (``"confirm_holdout"`` for the held-out pass) BEFORE the
+        result is logged, so the marker reaches the run log too."""
         _t0 = time.monotonic()
         test_results = self.hypothesis_tester.test(
             hypotheses,
@@ -823,6 +828,8 @@ class VLDiagnoseLoop:
         timings["m5"] = timings.get("m5", 0.0) + _dt
         for tr in test_results:
             tr.hypothesis.status = tr.status
+            if split_label and isinstance(getattr(tr, "evidence", None), dict):
+                tr.evidence["split"] = split_label
         if log and self.run_logger:
             # Reuse the surgery log slot for M5 results (backward compat).
             for tr in test_results:
@@ -893,10 +900,8 @@ class VLDiagnoseLoop:
         stats_confirm = self._do_m2(
             -1, probe_results, confirm, [], timings, confirmatory=True
         )
-        results = self._do_m5(-1, hypotheses, stats_confirm, confirm, timings)
-        for tr in results:
-            if isinstance(getattr(tr, "evidence", None), dict):
-                tr.evidence["split"] = "confirm_holdout"
+        results = self._do_m5(-1, hypotheses, stats_confirm, confirm, timings,
+                              split_label="confirm_holdout")
         return results, "confirmed"
 
     # ──────────────────────────────────────────────────────────────────

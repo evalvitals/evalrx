@@ -302,18 +302,22 @@ def main(config: BenchmarkConfig) -> None:
         # rather than inheriting the text-agent default.
         exec_timeout_sec=2400,
     )
+    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+    from evalvitals.eval_agent import SurgeryAgent
+
+    coder_cfg = CliAgentConfig(
+        provider=coder_provider,
+        model=args.judge_model,
+        timeout_sec=900,
+        extra_args=coder_extra_args,
+    )
     explorer = None
     if args.explore:
         from evalvitals.agent_runtime.sandbox import ExperimentSandbox
         from evalvitals.analysis import ExploratoryAnalysisAgent
 
         explorer = ExploratoryAnalysisAgent(
-            cli_config=CliAgentConfig(
-                provider=coder_provider,
-                model=args.judge_model,
-                timeout_sec=900,
-                extra_args=coder_extra_args,
-            ),
+            cli_config=coder_cfg,
             sandbox=ExperimentSandbox(
                 workdir=run_dir / "explore" / "sandbox", cleanup=False),
             timeout_sec=900,
@@ -331,6 +335,8 @@ def main(config: BenchmarkConfig) -> None:
         run_logger=ctx.logger,
         confirm_split=0.5,
         confirm_split_seed=20260818,
+        surgery_agent=SurgeryAgent(
+            judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer,
         explore_dir=run_dir / "explore",
         verbose=True,
