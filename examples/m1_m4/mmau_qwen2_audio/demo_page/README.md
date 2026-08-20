@@ -5,32 +5,45 @@ the supported way to browse a run; this exists for the case where a demo needs
 a page you can hand someone — no Streamlit, no `pip install`, no `./data` on
 their machine — and where the whole loop matters, not only the case book.
 
-## From a fresh clone
+## Run it
 
-The page is rendered *from a finished run*; it does not carry one. Starting
-from nothing, in order:
+If `./outputs` holds a finished run and `./data` holds the benchmark, there is
+nothing to set up — rendering is the whole job:
 
 ```bash
-pip install -e ".[dashboard]"                  # from the repo root
 cd examples/m1_m4/mmau_qwen2_audio
-python download_mmau.py --limit 1000 --scan-rows 1000   # writes ./data
-docker compose up --build                      # the run itself — writes ./outputs
-python demo_page/build_page.py                 # writes ./demo_page/index.html
+python demo_page/build_page.py
 open demo_page/index.html
 ```
 
-Only the last step is this directory's; the three before it are the example's
-own, documented in `../README.md`. The run needs a GPU and a `claude` CLI on
-the host (it is the M2/M3/M5 judge) and takes roughly 25 minutes at
-`--limit 896`.
+Defaults are `--run-dir outputs --example-dir . --out demo_page/index.html`, so
+a run kept elsewhere just needs pointing at:
 
-**`run.py --smoke-test` is not enough.** It exercises the loop in-process
-against synthetic cases and never persists a repair attempt, so there is no M4
-to render; the script says so and exits. A page needs a real run.
+```bash
+python demo_page/build_page.py --run-dir ~/some/other/run
+```
 
-Defaults are `--run-dir outputs --example-dir . --out demo_page/index.html`.
 `--run-dir` takes either the directory holding `run_log.jsonl`, or a parent
-holding `logs/` + `explore/` — the layout `run.py` writes.
+holding `logs/` + `explore/` — the layout `run.py` writes. The script imports
+nothing from `evalvitals`; it only reads the run's own JSON, so it does not
+need the package installed.
+
+### If you do not have a run yet
+
+The page renders *from* a run; it does not carry one. Producing one is the
+example's own workflow, not this directory's — see `../README.md`:
+
+```bash
+pip install -e ".[dashboard]"                          # from the repo root
+cd examples/m1_m4/mmau_qwen2_audio
+python download_mmau.py --limit 1000 --scan-rows 1000  # writes ./data
+docker compose up --build                              # writes ./outputs, ~25 min
+```
+
+That step needs a GPU and a `claude` CLI on the host (it is the M2/M3/M5
+judge). **`run.py --smoke-test` is not a substitute**: it exercises the loop
+in-process against synthetic cases and never persists a repair attempt, so
+there is no M4 to render — the script says so and exits.
 
 ## What it renders
 
@@ -65,13 +78,12 @@ whatever overlaps, and the page states the count rather than implying coverage.
 
 ## Requirements
 
-- `evalvitals` importable — `pip install -e .` from the repo root. The script
-  itself imports nothing from the package, but the run that feeds it does.
 - `ffmpeg` on PATH — clips are re-encoded to 48 kbit/s mono AAC before being
   inlined, which is what keeps the page near 7 MB instead of ~50 MB. Without it
   the script warns and the case book renders without players; `--no-audio`
   skips the step deliberately.
-- A populated `./data` (from `download_mmau.py`) and a finished `./outputs`.
+- A populated `./data` (from `download_mmau.py`) and a finished run.
+- No `evalvitals` install — rendering reads JSON, nothing more.
 
 ## Caveats
 
