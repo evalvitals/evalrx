@@ -685,7 +685,8 @@ def sync_to_langfuse_live(run_dir: str | Path) -> bool:
                     comment=score.get("comment", ""),
                 )
 
-        root.end(output={"spans": len(bundle["spans"]), "generations": len(bundle.get("generations", []))})
+        root.update(output={"spans": len(bundle["spans"]), "generations": len(bundle.get("generations", []))})
+        root.end()
         langfuse.flush()
         print(f"[✓] Successfully pushed trace to Langfuse dashboard: {trace_info['name']}")
         return True
