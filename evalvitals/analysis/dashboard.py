@@ -54,7 +54,9 @@ def launch_dashboard(run_dir: str | Path, *, port: int | None = None) -> int:
         )
         return 1
 
-    app_path = Path(__file__).with_name("dashboard_app.py")
+    # ``dashboard`` and ``web`` now enter the same two-workspace shell.  A
+    # dashboard invocation is simply a read-only shell with one attached run.
+    app_path = Path(__file__).with_name("upload_app.py")
     cmd = [sys.executable, "-m", "streamlit", "run", str(app_path)]
     if port is not None:
         cmd += ["--server.port", str(port)]
@@ -62,7 +64,8 @@ def launch_dashboard(run_dir: str | Path, *, port: int | None = None) -> int:
     # phone-home usage stats.
     cmd += ["--client.toolbarMode", "minimal", "--browser.gatherUsageStats", "false"]
     cmd += _THEME_FLAGS
-    cmd += ["--", str(run_dir)]
+    cmd += ["--", "evalvitals_web_runs", "--read-only", "--initial-workspace", "auto",
+            "--attach", str(run_dir)]
     return subprocess.call(cmd)
 
 

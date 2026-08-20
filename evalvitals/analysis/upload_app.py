@@ -37,7 +37,7 @@ import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from evalvitals.analysis.workbench import (
     EventSink,
@@ -602,93 +602,7 @@ def _cancel_job(active_dir: Path, job: dict[str, Any], *, thread_id: str, turn_i
     return True
 
 
-# ── streamlit app ────────────────────────────────────────────────────────────
-
-
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("workspace", nargs="?", default="evalvitals_web_runs")
-    parser.add_argument("--backend", default="claude_code", choices=list(BACKENDS))
-    parser.add_argument("--model", default="")
-    parser.add_argument("--timeout-sec", type=int, default=1200)
-    parser.add_argument(
-        "--attach", action="append", default=[], metavar="DIR",
-        help="Existing result directory (explore output or loop run) to list "
-             "alongside uploads. Repeatable.",
-    )
-    args, _ = parser.parse_known_args(sys.argv[1:])
-    return args
-
-
-def _local_state(path: Path) -> str:
-    """Sidebar state for an attached (read-only) result directory."""
-    if (path / "exploratory_report.json").exists() or (path / "fused_report.json").exists():
-        return "done"
-    if (path / "run_log.jsonl").exists() or any(path.glob("logs*/run_log.jsonl")):
-        return "done"  # a loop run — renders through the loop story view
-    return "stale"
-
-
-def main() -> None:
-    import streamlit as st
-
-    from evalvitals.analysis import dashboard_app as dapp
-
-    args = _parse_args()
-    workspace = Path(args.workspace).resolve()
-    workspace.mkdir(parents=True, exist_ok=True)
-
-    st.set_page_config(
-        page_title="EvalVitals — Upload & Explore", layout="wide",
-        initial_sidebar_state="expanded",
-    )
-    dapp._inject_css()
-    _inject_workbench_css(st)
-
-    new_label = NEW_ANALYSIS_LABEL
-    runs = list_runs(workspace)
-    states = {d.name: job_status(_active_turn_dir(d))["state"] for d in runs}
-    # Attached read-only result dirs (e.g. an example's committed outputs) sit
-    # in the same sidebar as uploads; option values carry an "@" prefix so a
-    # local path can never collide with an upload's run name.
-    attached = []
-    for raw in args.attach:
-        p = Path(raw).resolve()
-        if p.is_dir() and p not in attached:
-            attached.append(p)
-    local_states = {f"@{p}": _local_state(p) for p in attached}
-
-    def _label(v: str) -> str:
-        if v == new_label:
-            return v
-        if v.startswith("@"):
-            return f"📁 {_STATE_ICONS.get(local_states.get(v, 'stale'), '⚪')} {_pretty_name(Path(v[1:]))}"
-        return f"{_STATE_ICONS.get(states.get(v, 'stale'), '⚪')} {_pretty_name(v)}"
-
-    st.sidebar.markdown('<div class="ev-sidebar-title">EvalVitals</div>',
-                        unsafe_allow_html=True)
-    st.sidebar.caption("Investigate why your eval failed — and prove the fix")
-    # Streamlit forbids changing a widget key after the widget has been
-    # instantiated in the current run.  A just-created thread therefore sets
-    # this pending value; it is consumed before constructing the radio on the
-    # next rerun.
-    pending_choice = st.session_state.pop("ev_pending_run_choice", None)
-    if pending_choice is not None:
-        st.session_state["ev_run_choice"] = pending_choice
-    choice = st.sidebar.radio(
-        "Runs",
-        [new_label] + [f"@{p}" for p in attached] + [d.name for d in runs],
-        key="ev_run_choice",
-        format_func=_label,
-    )
-    st.sidebar.markdown("---")
-
-    if choice == new_label:
-        _render_new_analysis(st, workspace, args, new_label)
-    elif choice.startswith("@"):
-        _render_local(st, dapp, Path(choice[1:]))
-    else:
-        _render_run(st, dapp, workspace / choice)
+# ── data-analysis workflow views ────────────────────────────────────────────
 
 
 def _render_new_analysis(st: Any, workspace: Path, args: argparse.Namespace,
@@ -859,25 +773,6 @@ def _pretty_name(raw: str | Path) -> str:
     return name.title() if name else str(raw)
 
 
-def _render_local(st: Any, dapp: Any, path: Path) -> None:
-    """Render an attached (read-only) result directory — an explore output or
-    a loop run — with the same views `evalvitals dashboard` would use."""
-    from evalvitals.analysis.dashboard import load_run
-
-    st.markdown(f"## 📁 {_pretty_name(path)}")
-    st.caption("Reference result · read-only")
-
-    session = load_run(path)
-    if session.get("kind") == "loop" and session.get("story"):
-        dapp._render_loop_story(Path(session["root"]), session["story"], session["runs"])
-        return
-    if session["runs"]:
-        dapp.render_explore_report(Path(session["root"]), session["runs"][0])
-        return
-    st.warning("No exploratory_report.json / fused_report.json / run_log.jsonl "
-               "found in this directory.")
-
-
 def _render_followup_input(st: Any, thread_dir: Path, job: dict[str, Any]) -> None:
     question = st.chat_input("Ask a follow-up about this dataset")
     if not question:
@@ -918,7 +813,13 @@ def _render_followup_input(st: Any, thread_dir: Path, job: dict[str, Any]) -> No
     st.rerun()
 
 
-def _render_run(st: Any, dapp: Any, run_dir: Path) -> None:
+def _render_run(
+    st: Any,
+    dapp: Any,
+    run_dir: Path,
+    *,
+    report_renderer: Callable[[Path, dict[str, Any]], None] | None = None,
+) -> None:
     active_dir = _active_turn_dir(run_dir)
     try:
         job = json.loads((active_dir / "job.json").read_text(encoding="utf-8"))
@@ -993,10 +894,11 @@ def _render_run(st: Any, dapp: Any, run_dir: Path) -> None:
                 partial = None
             if isinstance(partial, dict):
                 st.caption("M2 is complete; M3 is still running. The partial analysis is available now.")
-                dapp.render_explore_report(
-                    partial_path.parent,
-                    {"name": "partial", "dir": str(partial_path.parent), "report": partial},
-                )
+                partial_turn = {"name": "partial", "dir": str(partial_path.parent), "report": partial}
+                if report_renderer:
+                    report_renderer(partial_path.parent, partial_turn)
+                else:
+                    dapp.render_explore_report(partial_path.parent, partial_turn)
         if st.button("Cancel this turn", type="secondary"):
             if _cancel_job(
                 active_dir, job, thread_id=str(job.get("thread_id") or run_dir.name),
@@ -1056,8 +958,18 @@ def _render_run(st: Any, dapp: Any, run_dir: Path) -> None:
                    f"was produced. Error: {turn['report'].get('error') or 'unknown'}")
     _render_agent_audit(st, out_dir)
     with st.chat_message("assistant"):
-        dapp.render_explore_report(Path(session["root"]), turn)
+        if report_renderer:
+            report_renderer(Path(session["root"]), turn)
+        else:
+            dapp.render_explore_report(Path(session["root"]), turn)
     _render_followup_input(st, run_dir, job)
+
+
+def main() -> None:
+    """Launch the unified two-workspace EvalVitals web application."""
+    from evalvitals.analysis.workbench_app import main as workbench_main
+
+    workbench_main()
 
 
 if __name__ == "__main__":

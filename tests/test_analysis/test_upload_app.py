@@ -362,15 +362,17 @@ def test_finished_run_renders_explore_tabs(tmp_path):
     radio.set_value(run.name)
     at.run()
     assert not at.exception
-    # uploads share the dashboard's FIXED five-tab layout; the stages this
-    # M3-only run never reached grey out instead of disappearing
+    # Uploads now share the unified action-ordered analysis workspace.  M5
+    # validation and M4 repair are visible stages without pretending they ran.
     assert [t.label for t in at.tabs] == [
-        "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Validation results", "5 Fix",
+        "Overview", "M2 Evidence", "M3 Hypotheses", "M5 Validate",
+        "M4 Intervene & repair", "Raw data & artifacts",
     ]
     blob = " ".join(str(m.value) for m in at.markdown)
     assert "Peaked attention marks hallucinations." in blob
-    assert blob.count("not available for this run") == 2
+    info = " ".join(str(i.value) for i in at.info)
+    assert "No M5 held-out validation artifact" in info
+    assert "No M4 intervention or repair artifact" in info
 
 
 def test_finished_upload_run_uses_non_speculative_hypothesis_empty_state(tmp_path):
@@ -438,8 +440,8 @@ def test_attached_local_dir_renders_in_sidebar_and_body(tmp_path):
     at.run()
     assert not at.exception
     assert [t.label for t in at.tabs] == [
-        "1 Problem Setting", "2 Exploratory Analysis", "3 Hypotheses",
-        "4 Validation results", "5 Fix",
+        "Overview", "M2 Evidence", "M3 Hypotheses", "M5 Validate",
+        "M4 Intervene & repair", "Raw data & artifacts",
     ]
     # The on-disk location is provenance, not chrome: it must not be printed
     # beside the title where a screenshot or screen-share would carry it. It
@@ -448,7 +450,9 @@ def test_attached_local_dir_renders_in_sidebar_and_body(tmp_path):
     leaked = [str(c.value) for c in at.caption if str(local) in str(c.value)]
     assert leaked and all(t.startswith("Bundle:") for t in leaked), leaked
     blob = " ".join(str(m.value) for m in at.markdown)
-    assert blob.count("not available for this run") == 2
+    info = " ".join(str(i.value) for i in at.info)
+    assert "No M5 held-out validation artifact" in info
+    assert "No M4 intervention or repair artifact" in info
 
 
 def test_failed_run_shows_log_and_hint(tmp_path):

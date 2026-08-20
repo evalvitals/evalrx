@@ -892,118 +892,66 @@ Two explicit requirements on top of what's documented below:
    existing pattern for this is `_render_raw_data_browser` — it loads
    `records.json` verbatim (the tidy table M2 built, before any
    analysis/aggregation) into a searchable, scrollable table. Today that's a
-   collapsed expander tucked inside Tab 2; **for the new UI this should be a
-   first-class, easy-to-find view of the actual rows**, not a buried
+   collapsed expander tucked inside Tab 2; **the unified workbench makes this
+   a first-class, easy-to-find view of the actual rows**, not a buried
    afterthought — a reader has to be able to go from "the analysis says X"
    to "here is the literal row that's about" without hunting.
 2. **Show M1's results too, not just M2 through M5.** M1 produces
    `dict[str, Result]` — one entry per analyzer that ran, each carrying
    `findings` (light JSON: scores, flagged tokens, contingency tables, …)
-   and `artifacts` (heavy: attention maps, heatmaps, embeddings). **This is
-   the one stage the existing dashboard does not show at all** (see the M1
-   section's UI note above — its raw output was judged "too low-level" and
-   only a derived per-case table reaches Tab 1). That gap is explicitly
-   in scope for the new UI: surface each analyzer's `findings` (a JSON/table
-   view keyed by analyzer name is enough to start) and, where a `Result`
-   provides one, its rendered artifact (e.g. the attention/spatial overlay
-   PNGs described in [Result image overlays](architecture.md#result-image-overlays) —
-   `RunContext`'s `figures/`/`artifacts/` subdirectories are where these
-   already land on disk per run, see
+   and `artifacts` (heavy: attention maps, heatmaps, embeddings). The
+   Diagnostic Runs workspace now surfaces each analyzer pass in its M1
+   Measure view. Keep `findings` readable as JSON/table and expose rendered
+   artifacts where available (e.g. the attention/spatial overlay PNGs
+   described in [Result image overlays](architecture.md#result-image-overlays));
+   `RunContext`'s `figures/`/`artifacts/` subdirectories are where they land
+   on disk per run, see
    [RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory)).
 
-**M2, M3, and M5 already have a good reference — reuse their existing
-Mode‑A panels rather than redesigning them:** `_render_standalone_analysis`
-(Tab 2), `_render_standalone_hypotheses` (Tab 3), and `_render_holdout_panel`
-(Tab 4) — see each stage's UI note above for exactly what they show and the
-business logic to preserve (plain-language-first, strict
-descriptive/confirmatory separation, held-out-verdict framing). M1 (raw
-results — see above) and M4 (Fix, `_render_fix_panel`) don't carry the same
-explicit endorsement, so treat their current panels as a starting point to
-verify against the input/output described above, not a spec to copy blindly.
+**The current reference UI is one workbench, not two dashboards.** Its
+entry point is `evalvitals/analysis/workbench_app.py`; `evalvitals web` and
+`evalvitals dashboard <run-dir>` both open it. The source format is normalized
+by `RunView`, so an uploaded exploratory report and an attached diagnostic
+run share the same navigation and stage names.
 
-### Two rendering modes — pick the one that matches your data source
+### One workbench, two user workspaces
 
-The existing dashboard's entry point branches on what it's pointed at
-(`main()`, keyed off `session["kind"]`), and renders it one of two ways.
-**If you're building the new UI, decide up front which of these two your
-viewer is: a live-run inspector, or a finished-artifact viewer** — they read
-different files and use different tab structures; don't try to merge them
-into one layout.
+The workbench separates different *user tasks*, not different historical
+renderer implementations:
 
-**A — Explore-artifact mode (`render_explore_report`)** — reads persisted
-JSON artifacts (`exploratory_report.json` + optional sibling
-`confirm_report.json` / `fix_report.json`) with no dependency on a live
-run's log. This is what the `deco_hallu_explore` web upload workbench uses
-end to end (every uploaded `.zip` becomes one `explore` run, rendered
-through this exact path) — **it is the reference to copy** if the new UI is
-"upload/point at a result directory and view it." **One fixed five-tab
-layout for every result**, stages the run didn't reach greyed out rather
-than the tab disappearing (`EXPLORE_TAB_LABELS`):
+| Workspace | Purpose | Views |
+|---|---|---|
+| Data Analysis | Upload or revisit a dataset for the interactive, descriptive-to-confirmatory M2/M3 workflow. | Overview → M2 Evidence → M3 Hypotheses → M5 Validate → M4 Intervene & repair → Raw data & artifacts |
+| Diagnostic Runs | Inspect a backend-launched M1→M5 run, including its raw analyzer outputs. | Overview → M1 Measure → M2 Evidence → M3 Hypotheses → M5 Validate → M4 Intervene & repair → Cases & artifacts |
 
-| # | Tab | Fed by | Source function |
-|---|---|---|---|
-| 1 | Problem Setting | M1 (derived per-case table) + run metadata | `_render_problem_setting` |
-| 2 | Exploratory Analysis | M2 (`exploratory_report.json`) | `_render_standalone_analysis` |
-| 3 | Hypotheses | M3 (`hypotheses` in the same report) | `_render_standalone_hypotheses` |
-| 4 | Validation results | M5 (`confirm_report.json`, optional) | `_render_holdout_panel` |
-| 5 | Fix | M4 (`fix_report.json`, optional) | `_render_fix_panel` |
+The Data Analysis workspace deliberately starts at M2: standalone exploratory
+artifacts do not guarantee that raw M1 probe output was persisted. The
+Diagnostic Runs workspace makes M1 first-class when that output is available.
+Both use the same action order: evidence first, hypotheses next, validation
+before intervention or repair. Missing optional M5/M4 artifacts retain their
+place and explain that the stage was not recorded; the tab list never changes
+with run completeness.
 
-**B — Loop mode (`_render_loop_story`)** — reads a live/finished loop run's
-`run_log.jsonl` directly (`session["kind"] == "loop"`), i.e. the actual
-per-cycle event stream from `AutoDiagnoseLoop`/`VLDiagnoseLoop`/
-`AgenticDiagnoseLoop`, not a compiled report. Tabs are **Problem Setting →
-(Agent Trajectory, agentic runs only) → Analysis → Hypotheses** — M5/M4
-results are joined *inline* into each hypothesis card
-(`_hypotheses_with_outcomes` matches M3 statements to their M4/M5 test
-results by text) rather than getting their own tabs, and a descriptive vs.
-confirmatory banner (🔍 vs. ✅) sits inside the Analysis/Hypotheses panels
-instead of being a separate tab boundary. Use this shape if the new UI needs
-to show a run *while it's still going* or wants per-cycle granularity —
-Mode A has no concept of "cycle," only a finished report.
-
-Everything documented per-stage above (Tabs 1–5, business logic to
-preserve) describes **Mode A** — it's the simpler, more reusable contract
-(pure JSON artifacts, no log-parsing) and the one the reference UI
-(`deco_hallu_explore`) is built on. Mode B is worth knowing exists so a
-"live progress" view isn't accidentally built by reinventing Mode A's log
-parsing from scratch — go read `_render_loop_story` and its helpers
-directly if that's the one you need.
+`dashboard_app.py` remains a compatibility renderer for its old direct
+callers, but new UI work should add a stage-focused view in `stage_views.py`
+and consume the normalized `RunView`. This keeps source-specific loading out
+of the visual layer and prevents the upload and dashboard paths from drifting.
 
 ### Page layout
 
-Above the tabs, a header band always shows an answer-first summary before
-any stage-by-stage detail — but the two modes use different functions for
-it, so copy the one matching your mode:
-- **Mode A** (`_render_report_overview`): title (plain-language question), a
-  one-line verdict sentence, an "analysis stage" label (how far this run
-  got — explore-only / validated / fixed), a status pill
-  (`finished`/`failed`), and a metrics row (`_render_overview_metrics`:
-  cases, explore/confirm split sizes, candidate-signal count, chart count —
-  whichever apply).
-- **Mode B** (`_render_hero_band`): a run-kind kicker (Analysis Phase /
-  Diagnostic Loop Run / Agentic Diagnosis Run), a verdict pill + one-line
-  conclusion, the protocol description being investigated (if any), and a
-  KPI tile row (stages run, hypotheses proposed/verified, case counts,
-  duration, and — for agentic runs — actions taken vs. budget).
-
-Both modes put a sidebar alongside the tabs listing every other run/result
-found in the attached directories, so the reader can switch between them
-without losing their place.
+The common header identifies the workspace and selected run, then a stage
+rail shows every M1–M5 state in the action order M1 → M2 → M3 → M5 → M4.
+The rail is orientation, not a replacement for the stage views: a reader can
+move from a count/status to the full evidence, raw event, or artifact without
+switching to a different application. The sidebar selects the workspace and
+available uploaded/attached runs without changing the product shell.
 
 ### The "not available" pattern — the most important convention to copy
 
-This is a **Mode A** convention (Mode B has no Tabs 4/5 to begin with — see
-above). Tabs 4 and 5 are **genuinely optional** — a run may stop at M3
-(proposal only) and never reach M5/M4. Rather than hiding the tab, the
-dashboard always renders all five and shows a greyed placeholder
-(`_render_unavailable_panel`) for a stage the run didn't reach: a title
-("⚪ Validation results — not available for this run"), one line on *what
-happened* ("this run stopped at M3: hypotheses were proposed but not
-re-tested on held-out data"), and one line on *how to get it* (which command
-produces the missing artifact and where it needs to land on disk). This is
-why the reader never has to relearn the page between a quick M2/M3 look and
-a full M1→M5→fix run — replicate the fixed-tabs-plus-placeholder shape
-rather than a tab list that changes with what the run reached.
+M5 and M4 are genuinely optional — a run may stop at M3 and never reach
+validation or repair. Keep their tabs visible and render a clear stage-local
+empty state instead of deleting navigation. This lets a reader compare a
+quick M2/M3 analysis with a full M1→M5→M4 run without relearning the layout.
 
 ### Cross-cutting conventions worth copying
 
@@ -1015,14 +963,11 @@ rather than a tab list that changes with what the run reached.
   [m2_analysis.md](m2_analysis.md)), not just a UI nicety; a new viewer can
   rely on `plain_title`/`plain_statement`/`plain_question` being genuinely
   jargon-free rather than re-deriving a summary itself.
-- **Descriptive vs. confirmatory framing is never blurred, in either mode.**
-  Mode A keeps it apart by tab: M2 (Tab 2, may include in-sample `reject`
-  flags) never uses "supported"/"rejected" language; that's reserved for M5
-  (Tab 4, held-out). Mode B keeps it apart in-panel instead, with an explicit
-  🔍-descriptive vs. ✅-confirmatory banner switched by whether a test phase
-  has actually run for that hypothesis (`_story_is_descriptive`). This is the
-  single most load-bearing convention in the existing UI — getting it wrong
-  makes an exploratory finding read as a validated one.
+- **Descriptive vs. confirmatory framing is never blurred.** M2 may show
+  exploratory/in-sample signals but never calls them supported; that wording
+  is reserved for M5 validation. This is the single most load-bearing UI
+  convention — getting it wrong makes an exploratory finding read as a
+  validated one.
 - **Referenced-but-missing artifacts say so explicitly** rather than
   silently dropping the reference (a takeaway naming a chart that isn't in
   `report["charts"]` renders a visible "referenced evidence not found"
@@ -1031,7 +976,7 @@ rather than a tab list that changes with what the run reached.
 - **Paired-comparison numbers are always framed against the unmodified
   baseline**, never as a bare rate — "repaired N / broke N" on the fix
   panel, "fail rate flagged vs. unflagged" on the validation panel.
-- Stage completeness for the *current* run is visualized as a small chip
-  strip (`_render_stage_map`, shared by both modes) — every M1–M5 stage
-  listed, the ones this run actually reached highlighted — so a reader gets
-  pipeline-position context before reading any specific stage's content.
+- Stage completeness for the *current* run is visualized by the shared stage
+  rail (`_render_stage_rail`) — every M1–M5 stage is listed, with the stages
+  actually reached highlighted, so a reader gets pipeline-position context
+  before reading any specific stage's content.

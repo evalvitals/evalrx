@@ -1459,8 +1459,8 @@ def _render_problem_setting(
             ]
             if not descriptive:
                 surgeries = story.get("surgeries") or []
-                stages.append(("M4/M5 tests", len(surgeries)))
-                stages.append(("Fixes", len(story.get("fixes") or [])))
+                stages.append(("M5 validations", sum(s.get("module") == "m5" for s in surgeries)))
+                stages.append(("M4 interventions / fixes", sum(s.get("module") == "m4" for s in surgeries) + len(story.get("fixes") or [])))
         method_text = (
             "Exploratory (descriptive) — no confirm/test phase has run yet for this hypothesis"
             if descriptive else
@@ -3086,8 +3086,7 @@ def _render_hypothesis_card(h: dict[str, Any], *, descriptive: bool = True) -> N
 
 
 def _render_loop_flow(story, explore_report, explore_dir) -> None:
-    """The ordered narrative: explore notes → M2 → M3 hypotheses → (when this
-    run isn't descriptive-only) M4/M5 tests and Fix outcomes."""
+    """The ordered narrative: explore notes → M2 → M3 → M5 validation → M4 repair."""
     if explore_report:
         with st.expander("Step 1 — exploratory observations (UNCONFIRMED; fed to M3 only)", expanded=False):
             for o in (explore_report.get("observations") or [])[:10]:
@@ -3141,8 +3140,8 @@ def _render_loop_flow(story, explore_report, explore_dir) -> None:
         m4 = [s for s in surgeries if s.get("module") == "m4"]
         m5 = [s for s in surgeries if s.get("module") == "m5"]
         if m4 or m5:
-            st.markdown("### M4/M5 — mechanism + repair tests")
-            for s in m4 + m5:
+            st.markdown("### M5 — hypothesis validation; M4 — intervention and repair")
+            for s in m5 + m4:
                 cls, label = _VERDICT_PILL.get(
                     str(s.get("status")), ("ev-pill", str(s.get("status") or "untested"))
                 )

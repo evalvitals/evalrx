@@ -144,7 +144,7 @@ def test_loop_dashboard_renders_analysis_panel_without_error(tmp_path):
     assert "Takeaway:" in blob
     assert "Agent-authored dashboard narrative for this run." in blob
     assert "M1" in blob and "M2" in blob and "M3" in blob
-    assert "Mechanism test" in blob and "Repair / surgery test" in blob
+    assert "Intervention &amp; repair" in blob and "Hypothesis validation" in blob
     # the supported M5 verdict reaches both the hero band and the hypothesis card.
     assert ">Supported</span>" in blob
 
