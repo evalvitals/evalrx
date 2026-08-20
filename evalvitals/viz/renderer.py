@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,28 @@ from evalvitals.viz.style import NATURE_COLORS_FALLBACK, load_nature_style
 
 logger = logging.getLogger(__name__)
 
-_KINDS = {"bar", "line", "scatter", "timeseries"}
+_KINDS = {"bar", "line", "scatter", "timeseries", "forest"}
+
+# Chart-type policy (agent-side counterpart: the eval-chart-style skill).
+# "A bar's filled area means amount accumulated from zero — use bars only for
+# counts." Rates, proportions, means and effect sizes must not be bars.
+_COUNT_Y = re.compile(r"(count$|^n$|_n$|n_cases|ncases|num_|_num$|samples|draws|frequency|^total$)", re.I)
+_EFFECT_Y = re.compile(r"(effect|separation|smd|odds|ratio|coefficient|importance|weight|score|mean|avg|average|delta|diff|lift|gain)", re.I)
+
+
+def _is_count_like(y: Any, ys: list[float]) -> bool:
+    """True only when the y column plausibly holds raw counts."""
+    name = str(y or "")
+    if _EFFECT_Y.search(name):
+        return False  # a mean/effect column is never a count even if integer-valued
+    if not _COUNT_Y.search(name):
+        return False
+    return all(float(v).is_integer() for v in ys)
+
+
+def _demote_bar(spec: dict[str, Any], y: Any, ys: list[float]) -> str:
+    """Pick the policy-compliant kind a 'bar' spec must be rendered as instead."""
+    return "forest" if _EFFECT_Y.search(str(y or "")) else "line"
 
 
 def render_chart_specs(
@@ -210,6 +232,22 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
     xs_num = [_to_float(v) for v in xs_raw]
     x_is_num = all(v is not None for v in xs_num)
 
+    # Chart-type policy enforcement (eval-chart-style): a bar may only encode
+    # raw counts. A rate/mean/effect bar is demoted to the policy-compliant
+    # kind — line for binned rates, forest (horizontal dot plot) for ranked
+    # effects — so the skill's rule holds even when the agent ignores it.
+    if kind == "bar" and not _is_count_like(y, ys):
+        kind = _demote_bar(spec, y, ys)
+        spec["kind"] = kind
+        spec["render_note"] = (
+            f"kind=bar demoted to {kind}: y column {str(y)!r} is not a count "
+            "(bars are for counts only — eval-chart-style policy)"
+        )
+        logger.warning(
+            "render_chart_specs: %r demoted bar -> %s (%r is not a count)",
+            spec.get("name"), kind, y,
+        )
+
     rc = (style or {}).get("rc", {})
     colors = (style or {}).get("colors") or NATURE_COLORS_FALLBACK
     primary = colors[0]
@@ -239,6 +277,31 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
             if not x_is_num:
                 ax.set_xticks(range(len(xs_raw)))
                 ax.set_xticklabels([str(v) for v in xs_raw], rotation=35, ha="right", fontsize=9)
+        elif kind == "forest":
+            # Horizontal dot plot (lollipop): the policy-compliant form for
+            # ranked effects / means — position encodes the value, no filled
+            # area faking "accumulated amount". Sorted so the strongest is on top.
+            order = sorted(range(len(ys)), key=lambda i: ys[i])
+            labels = [str(xs_raw[i]) for i in order]
+            vals = [ys[i] for i in order]
+            ypos = list(range(len(vals)))
+            ax.hlines(ypos, [min(0, v) for v in vals], vals,
+                      color="#cbd5e1", linewidth=1.8, zorder=2)
+            ax.axvline(0, color="#94a3b8", linewidth=0.9, zorder=1)
+            pt_colors = _get_bar_colors(labels, colors)
+            ax.scatter(vals, ypos, s=68, c=pt_colors,
+                       edgecolor="white", linewidth=0.8, zorder=3)
+            has_neg = any(v < 0 for v in vals)
+            for yi, v in zip(ypos, vals):
+                ax.annotate(
+                    f"{v:+.2f}" if has_neg else f"{v:.2f}",
+                    (v, yi), textcoords="offset points", xytext=(7, -3.5),
+                    fontsize=8.5, color="#334155",
+                )
+            ax.set_yticks(ypos)
+            ax.set_yticklabels(labels, fontsize=9.5)
+            ax.grid(axis="x", linewidth=0.6, color="#e2e8f0", alpha=0.7, zorder=0)
+            ax.set_axisbelow(True)
         elif kind in {"line", "timeseries"}:
             x_vals = xs_num if x_is_num else range(len(xs_raw))
             ax.plot(x_vals, ys, marker="o", color=primary, linewidth=2.0, markersize=5.5, zorder=3)
@@ -262,8 +325,13 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
             ax.grid(axis="y", linewidth=0.6, color="#e2e8f0", alpha=0.7, zorder=0)
             ax.set_axisbelow(True)
 
-        ax.set_xlabel(clean_x, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
-        ax.set_ylabel(clean_y, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
+        if kind == "forest":
+            # Forest: the value axis is horizontal — swap the axis labels.
+            ax.set_xlabel(clean_y, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
+            ax.set_ylabel(clean_x, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
+        else:
+            ax.set_xlabel(clean_x, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
+            ax.set_ylabel(clean_y, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
         ax.set_title(title, fontsize=11.5, fontweight="bold", color="#0f172a", pad=10)
         fig.tight_layout()
         fig.savefig(png, dpi=160, metadata={"Software": "evalvitals", "Creation Time": None})

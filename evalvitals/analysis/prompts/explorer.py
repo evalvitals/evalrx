@@ -122,23 +122,27 @@ First build a "visual_plan" list. Each item should be a dict:
     "display_name": "<short human title, no raw generated/probe id>",
     "question": "<what this visual answers>",
     "data_shape": "<numeric-vs-binary | numeric-vs-categorical | numeric-vs-numeric | many-numeric | paired | unsupervised | ...>",
-    "plot_kind": "<chosen plot type, e.g. bar, line, scatter, box, violin, heatmap, paired_slope>",
-    "fallback_kind": "<bar|line|scatter when a deterministic host chart is useful>",
+    "plot_kind": "<chosen plot type, e.g. violin, box, strip, scatter, line, forest, heatmap, paired_slope, ECDF>",
+    "fallback_kind": "<bar|line|scatter|forest when a deterministic host chart is useful>",
     "required_columns": ["..."],
     "rationale": "<why this plot type fits the data and avoids misleading summaries>",
     "disposition": "<primary|supporting|skipped>",
     "not_promoted_reason": "<required when supporting; why this is context/diagnostic material rather than a ranked takeaway>"
   }}
 
-Use these decision principles:
-  - categorical/binary outcome: rate/count bar with n annotated in the table.
+Use these decision principles (chart-type policy: a bar's filled area means
+"amount accumulated from zero" — BARS ARE FOR COUNTS ONLY; never a rate, a
+mean, a proportion, or an effect size):
+  - categorical/binary outcome: a count bar with n annotated in the table is
+    fine for raw counts; a RATE by group or bin is a line (or dot plot), never a bar.
   - numeric predictor vs categorical/binary outcome: prefer distribution views
     (box/violin/strip) when writing rich PNG plots; include a deterministic
     summary chart only when useful.
   - binned numeric trend (event rate, or mean of a continuous outcome): line
     over ordered bins/percentiles.
   - numeric vs numeric: scatter, optionally colored/stratified by outcome or group.
-  - many numeric signals: ranked effect/association bar plus correlation heatmap.
+  - many numeric signals: ranked effect/association DOT plot (forest) plus
+    correlation heatmap — never green/grey effect bars.
   - paired/intervention data: paired slope or discordant-count visual.
   - no outcome column: prioritize distributions, missingness, correlation
     structure, and group contrasts over any label-vs-label story.
@@ -151,10 +155,12 @@ Use these decision principles:
 For EVERY chart you report in "charts":
 - write its plotted data as a CSV under "tables/<name>.csv"
 - add a spec {{"name","display_name","kind","data","x","y","title"}} with data="tables/<name>.csv"
-  and kind in {{"bar","line","scatter"}}. The HOST renders these deterministically,
+  and kind in {{"bar","line","scatter","forest"}}. The HOST renders these deterministically,
   so PRE-AGGREGATE distributions into the CSV (histogram = bin->count; outcome
   rate or mean-outcome curve = bin->value; group comparison = group->value) —
-  never rely on a raw dump.
+  never rely on a raw dump. The host enforces the chart-type policy: kind="bar"
+  is rendered as a bar ONLY for raw counts (integer counts of cases/samples);
+  a rate/mean/effect bar is automatically demoted to a line or forest plot.
 ADDITIONALLY you MAY draw richer figures (box / violin / heatmap / scatter-matrix)
 directly as PNG under "figures/" and list them in "plots"; a figure-styling skill
 (when available) will make these publication-quality.
