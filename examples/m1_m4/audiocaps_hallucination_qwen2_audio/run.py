@@ -386,6 +386,11 @@ def main() -> int:
              "ones) competes on equal footing",
     )
     parser.add_argument(
+        "--explore", action=argparse.BooleanOptionalAction, default=True,
+        help="In-cycle free-form EDA between M1 and M2 (claude coder); charts "
+             "+ tables land under <run-dir>/explore. --no-explore disables.",
+    )
+    parser.add_argument(
         "--analysis-only", action="store_true",
         help="run M1+M2 only (skip M3/M5/fix)",
     )
@@ -447,8 +452,10 @@ def main() -> int:
         VLDiagnoseLoop,
     )
 
+    # llm_benchmark layout: run log + artifacts under <run-dir>/logs, explore
+    # as its sibling <run-dir>/explore (dashboard merges logs*/run_log.jsonl).
     ctx = RunContext(
-        args.run_dir, verbose=True,
+        Path(args.run_dir) / "logs", verbose=True,
         config={
             "model": args.model,
             "judge_model": args.judge_model,
@@ -499,6 +506,26 @@ def main() -> int:
     print(f"  explore/confirm split: {len(cases) - n_confirm} explore "
           f"(M1-M5 discovery) / {n_confirm} confirm (held out for run_fix)")
 
+    explorer = None
+    if args.explore and not args.analysis_only:
+        from evalvitals.agent_runtime.sandbox import ExperimentSandbox
+        from evalvitals.analysis import ExploratoryAnalysisAgent
+        from evalvitals.eval_agent import CliAgentConfig
+
+        explorer = ExploratoryAnalysisAgent(
+            cli_config=CliAgentConfig(
+                provider="claude_code",
+                model=args.judge_model,
+                timeout_sec=900,
+                extra_args=(("--effort", args.judge_effort)
+                            if args.judge_effort else ()),
+            ),
+            sandbox=ExperimentSandbox(
+                workdir=Path(args.run_dir) / "explore" / "sandbox",
+                cleanup=False),
+            timeout_sec=900,
+            max_attempts=2,
+        )
     loop = VLDiagnoseLoop(
         model=model,
         protocol=protocol,
@@ -512,6 +539,8 @@ def main() -> int:
         analysis_only=args.analysis_only,
         confirm_split=confirm_split,
         confirm_split_seed=args.seed,
+        explorer=explorer,
+        explore_dir=Path(args.run_dir) / "explore",
     )
 
     print(f"\n{'='*64}\nVLDiagnoseLoop  model={args.model}  max_cycles={args.max_cycles}\n{'='*64}")
@@ -528,6 +557,13 @@ def main() -> int:
               f"  protocol_ok={vr.is_consistent_with_protocol}")
 
     if not args.analysis_only:
+        print(f"\n{'='*64}\nM4  Intervention experiment\n{'='*64}")
+        fix_proposal = loop.run_m4(report, cases, allow_unverified=True)
+        if fix_proposal is not None:
+            tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
+            print(f"  M4 experiment on the {tag} hypothesis: status={fix_proposal.status}")
+        else:
+            print("  M4: no hypothesis to experiment on")
         print(f"\n{'='*64}\nFIX  Tiered repair attempts (max tier = {args.fix_max_tier})\n{'='*64}")
         outcome = loop.run_fix(report, cases)
         for v in outcome.attempted:

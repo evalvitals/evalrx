@@ -13,7 +13,9 @@ RUN pip install --no-cache-dir \
     torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
 COPY . /evalvitals
-RUN pip install --no-cache-dir "/evalvitals[local,data]"
+# viz: matplotlib for M2 figures + explore chart rendering; pandas for the
+# explorer's generated analysis.py (both were silently skipped without it).
+RUN pip install --no-cache-dir "/evalvitals[local,data,viz]" pandas
 
 WORKDIR /app/example
 COPY examples/m1_m4/audiocaps_hallucination_qwen2_audio/ .

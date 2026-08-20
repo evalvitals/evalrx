@@ -160,3 +160,8 @@ max_cycles: 1
 # dataset leaves ~30 PASS and ~30 FAIL per half. Raise n_cases with this, or the
 # split buys leak-freedom with intervals too wide to conclude from.
 confirm_split: 0.5
+# M5 held-out confirmation (framework default true): hypotheses that screen
+# SUPPORTED on the explore half are re-tested on the confirm half (the same
+# analyzers re-run there) and only those count as verified — the same
+# discipline the fix gate uses. false = old behaviour (verify in-sample).
+m5_holdout: true
