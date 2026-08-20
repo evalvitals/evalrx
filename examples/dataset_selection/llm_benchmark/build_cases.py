@@ -9,11 +9,16 @@ PASS/FAIL labels.
 
 Writes outputs/<model>/<dataset>/cases.json.
 
-Why it refuses to write outside [0.15, 0.85]: M2 contrasts PASS against FAIL, so
-a batch with almost none of either carries no signal, and every mechanism number
-downstream would be computed on a pool that cannot support it. The band was
-measured on Qwen3.5-9B; on 2B/4B the SAME slice can be floored or saturated,
-which is a property of the pair, not a bug.
+Band check: outside [0.15, 0.85] the batch is WRITTEN with a loud WARNING
+(2026-08-18; it used to refuse). M2 contrasts PASS against FAIL, so a batch
+with almost none of either carries little signal, and every mechanism number
+downstream sits on a pool that can barely support it — but that is a power
+problem for the caller to weigh, not a reason to stop them (the 2B/tracking7
+runs, 0.912, were exactly such a batch and still taught us plenty). The band
+was measured on Qwen3.5-9B; on 2B/4B the SAME slice can be floored or
+saturated, which is a property of the pair, not a bug. ``--strict-band``
+restores the refusal for scripted sweeps that want to skip such pairs; the
+band position is also recorded in cases.json (``band_position``).
 """
 
 from __future__ import annotations
@@ -44,8 +49,18 @@ from regrade import grader_fingerprint as _grader_fingerprint  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
 
-#: Outside this range the batch has too little of one class to diagnose.
+#: Outside this range the batch has too little of one class to diagnose well
+#: — a warning (or, with --strict-band, a refusal); see the module docstring.
 MIN_ACC, MAX_ACC = 0.15, 0.85
+
+
+def band_position(acc: float) -> str:
+    """``"in"`` / ``"low"`` / ``"high"`` relative to [MIN_ACC, MAX_ACC]."""
+    if acc < MIN_ACC:
+        return "low"
+    if acc > MAX_ACC:
+        return "high"
+    return "in"
 
 
 def build(model_id: str, base_url: str, dataset: str, n: int,
@@ -144,7 +159,12 @@ def main() -> None:
                     help="0 (default) = the dataset's own measured budget if it "
                          "declares one, else config max_tokens")
     ap.add_argument("--force", action="store_true",
-                    help="write the batch even if it is outside the usable band")
+                    help="(no-op since 2026-08-18: out-of-band batches are written with a "
+                         "warning by default; kept so older scripts keep working)")
+    ap.add_argument("--strict-band", action="store_true",
+                    help="refuse to write a batch whose accuracy is outside "
+                         f"[{MIN_ACC}, {MAX_ACC}] (the old default) — for sweeps that "
+                         "want to skip such (model, dataset) pairs")
     args = ap.parse_args()
 
     sampling = {"temperature": float(CFG["temperature"]),
@@ -175,12 +195,19 @@ def main() -> None:
     if trunc > 0.10:
         print(f"  WARNING truncation {trunc:.0%} > 10%: some FAIL labels are budget "
               f"artefacts, not capability. Raise --max-tokens before trusting M2.")
-    if not (MIN_ACC <= acc <= MAX_ACC) and not args.force:
-        raise SystemExit(
-            f"  REFUSING to write: accuracy {acc:.3f} outside [{MIN_ACC}, {MAX_ACC}] "
-            f"— one class is too thin for M2 to contrast. Pick another dataset for "
-            f"this model size, or pass --force if you know why you want it."
-        )
+    position = band_position(acc)
+    report["band"] = [MIN_ACC, MAX_ACC]
+    report["band_position"] = position
+    if position != "in":
+        thin = "FAIL" if position == "high" else "PASS"
+        msg = (f"accuracy {acc:.3f} is outside the usable band [{MIN_ACC}, {MAX_ACC}] "
+               f"({position}): the {thin} class is thin ({report['n_fail']} FAIL / "
+               f"{report['n_pass']} PASS), so M2 has little to contrast and every paired "
+               f"test downstream is short of power. A dataset that sits mid-band for "
+               f"THIS model size would be a better use of the GPU hours.")
+        if args.strict_band and not args.force:
+            raise SystemExit(f"  REFUSING to write (--strict-band): {msg}")
+        print(f"  WARNING {msg}")
 
     out = HERE / "outputs" / args.model / args.dataset
     out.mkdir(parents=True, exist_ok=True)

@@ -690,3 +690,28 @@ def test_load_batch_keeps_the_verbatim_gold_for_grading(pipe, tmp_path, monkeypa
     _frozen(tmp_path, pipe, n_fail=1, n_pass=1)
     batch, _ = pipe.load_batch("m", "d")
     assert all(c.metadata.get("gold") == "y" for c in batch)
+
+
+# ── Stage 0 band check: warn, never refuse (2026-08-18) ─────────────────────
+
+
+def test_band_position_and_out_of_band_is_a_warning_not_a_refusal(pipe, tmp_path, monkeypatch, capsys):
+    build_cases = _load("build_cases")
+    assert build_cases.band_position(0.5) == "in"
+    assert build_cases.band_position(0.912) == "high"
+    assert build_cases.band_position(0.05) == "low"
+    # an out-of-band frozen batch loads with a WARNING line, no SystemExit
+    monkeypatch.setattr(pipe, "HERE", tmp_path)
+    _frozen(tmp_path, pipe, n_fail=2, n_pass=98)  # accuracy 0.98 > 0.85
+    batch, report = pipe.load_batch("m", "d")
+    assert len(list(batch)) == 100
+    out = capsys.readouterr().out
+    assert "WARNING" in out and "outside the usable band" in out and "high" in out
+    # in-band: quiet
+    _frozen(tmp_path, pipe, model="m2", n_fail=40, n_pass=60)
+    pipe.load_batch("m2", "d")
+    assert "outside the usable band" not in capsys.readouterr().out
+    # --strict-band is the only way to get the old refusal; --force is kept as a no-op
+    src = Path(build_cases.__file__).read_text()
+    assert '"--strict-band"' in src and "REFUSING to write (--strict-band)" in src
+    assert '"--force"' in src and "no-op" in src

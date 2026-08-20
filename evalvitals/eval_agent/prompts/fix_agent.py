@@ -83,7 +83,13 @@ EXECUTION CONTRACT:
 {catalog}{attend_hint}
 - You may call the model SEVERAL times per case, but keep the total to at most
   4 calls including the direct baseline (baseline + up to 3 genuinely
-  independent enhanced/reasoned passes).
+  independent enhanced/reasoned passes); the host enforces this per-case cap.
+  Branch on outputs within that budget — e.g. describe first, then decide;
+  vote over independent variants.
+- model_generate is thread-safe and concurrent calls are serviced in
+  parallel: fan out over CASES with concurrent.futures.ThreadPoolExecutor
+  (max_workers=8) — a serial loop over every case x several calls is slow and
+  risks the wall-clock limit.
 {selection_guidance}
 - The LAST line of stdout MUST be exactly:
   {marker}{{"per_case": [{{"sample_id": "<case id>", "output": "<final answer text>"}}]}}

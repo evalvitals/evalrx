@@ -468,33 +468,54 @@ def label_leak_score(sigmap: dict[str, float], labels: dict[str, bool]) -> dict[
                        f"(best-split accuracy {acc:.3f})") if leak else ""}
 
 
-_KNOWN_LABEL_DERIVED = (
-    "answer_extraction_audit.extraction_suspect",
-    "answer_extraction_audit.extraction_point_miss",
-    "answer_extraction_audit.gold_in_output",
-    "answer_extraction_audit.gold_in_answer_region",
-    "answer_extraction_audit.strict_match",
-    "answer_extraction_audit.label_disagrees",
-    "answer_extraction_audit.labelled_fail",
-)
+#: Per-case signals that are the OUTCOME re-graded, not a mechanism: "is the
+#: model's (baseline or strategy) answer correct" by an analyzer's own matcher.
+#: They agree with the official label at 80-95% — below the leak threshold
+#: (the matchers differ), above anything a real mechanism signal reaches — so
+#: left in the family they are the BH survivors every time (qwen3.5-2b/
+#: minervamath: all 6 survivors of 41 tests were these, effect -0.63 each) and
+#: M5 then "refutes" or "supports" hypotheses on a tautology. The mechanism
+#: content of these analyzers lives in their DERIVED flags (extraction_suspect,
+#: label_disagrees, coverage_gap, majority_share, changed_answer, …), which
+#: stay; strategy outcomes are compared PAIRED through ``groups``.
+#: Matched on the metric name (the part after the analyzer prefix).
+OUTCOME_REGRADE_METRICS: frozenset = frozenset({
+    # the baseline answer re-graded
+    "gold_in_output", "gold_in_answer_region", "strict_match", "answer_correct",
+    "baseline_correct", "final_correct", "is_correct",
+    # an intervention arm's answer graded (same item, same model: the
+    # association with the label is the baseline's; the arm's VALUE is the
+    # analyzer's gain scalar / derived flag, or a paired test)
+    "revised_correct", "decomposed_correct", "own_facts_correct",
+    "open_book_correct", "direct_correct", "reask_correct", "verify_correct",
+    "continuation_correct", "told_correct",
+    "majority_correct", "any_correct", "pass_at_k",
+})
+
+
+def _is_outcome_regrade(name: str) -> bool:
+    metric = str(name).rsplit(".", 1)[-1].lower()
+    return metric in OUTCOME_REGRADE_METRICS
 
 
 def isolate_label_leaks(inp: StatsInput, *, denylist: "tuple[str, ...]" = ()) -> dict[str, str]:
     """Move label-reconstructing per-case columns from ``per_case`` to ``sanity``.
 
     Idempotent. A column is isolated when :func:`label_leak_score` flags it (a
-    near-perfect label stand-in) or its name contains a *denylist* substring.
-    Returns ``{name -> reason}`` for the moved columns so callers can audit them.
-    Leak-free columns are untouched, so the tested family holds only genuine
-    candidate discriminators — and the explorer (fed ``per_case``) won't chart the
-    isolated ones either.
+    near-perfect label stand-in), when it is an outcome re-grade
+    (:data:`OUTCOME_REGRADE_METRICS`), or its name contains a *denylist*
+    substring. Returns ``{name -> reason}`` for the moved columns so callers can
+    audit them. Leak-free columns are untouched, so the tested family holds only
+    genuine candidate discriminators — and the explorer (fed ``per_case``) won't
+    chart the isolated ones either.
     """
     moved: dict[str, str] = {}
-    denylist = _KNOWN_LABEL_DERIVED + tuple(denylist)
     for name in list(inp.per_case):
         reason = ""
-        if any(name.endswith(d) for d in denylist):
-            reason = "signal is derived from gold/label and is descriptive only"
+        if denylist and any(d in name for d in denylist):
+            reason = "name matches leak denylist"
+        elif _is_outcome_regrade(name):
+            reason = "outcome re-grade (the answer's correctness, not a mechanism signal)"
         else:
             sc = label_leak_score(inp.per_case[name], inp.labels)
             if sc["leak"]:

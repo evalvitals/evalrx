@@ -283,6 +283,11 @@ class HypothesisTester:
             # to support/refute the claim. The next loop cycle can run it.
             if core.get("evidence_grade") == "none" and not hypothesis.test_design.strip():
                 core = self._verdict_fallback(hypothesis, stats_report, data, family_size)
+            elif core.get("evidence_grade") == "unmet":
+                # The design named evidence nobody measured: stay inconclusive
+                # rather than let the generic per-case fallback (any truthy
+                # analyzer value vs FAIL) manufacture a verdict about it.
+                core["evidence_grade"] = "none"
         elif not hypothesis.test_design.strip():
             core = self._verdict_fallback(hypothesis, stats_report, data, family_size)
         else:
@@ -357,14 +362,42 @@ class HypothesisTester:
                 return bool(r.analysis_key) and r.analysis_key in fdr_rejected_keys
             return True
 
+        # Outcome re-grades ("is the answer correct" by an analyzer's own
+        # matcher) are tautological evidence in either direction; M2 isolates
+        # them to the sanity lane since 2026-08-19, but a confirm-only run
+        # reloads an older M2's results, so they are dropped here as well.
+        from evalvitals.analysis.stats_tools import _is_outcome_regrade
+
+        stats_results = [r for r in stats_results
+                         if not _is_outcome_regrade(_tool_signal(r))]
         relevant, global_res, routed_by = self._select_results(hypothesis, stats_results)
-        decisive = [r for r in relevant if _decisive(r)]
-        positive = [r for r in decisive if (r.effect or 0.0) > 0]
-        negative = [r for r in decisive if (r.effect or 0.0) < 0]
+        decisive = [r for r in relevant if (r.effect or 0.0) != 0 and _decisive(r)]
+        # A signal's effect > 0 means "the signal group fails MORE". Whether that
+        # SUPPORTS the hypothesis depends on what the hypothesis predicted: one
+        # that says a signal is LOW / absent / "sits at 0" on failures (minervamath:
+        # "step_rollout_value.initial_value ... 5/8 chains sit at 0.0 from step
+        # 0") predicts a NEGATIVE effect, and reading every negative effect as
+        # "protective -> refuted" rejected hypotheses the data agreed with. The
+        # preregistered EXPECTED_ASSOCIATION field is the structured form of
+        # that prediction and takes precedence for every routed signal; absent
+        # it, the direction is read from the hypothesis text (TEST line first)
+        # per signal; absent any cue the classic reading (signal marks the
+        # failure) stands.
         expected = str(getattr(hypothesis, "expected_association", "") or "").lower()
-        expected_sign = -1 if expected == "lower_on_failures" else 1
-        supporting = positive if expected_sign > 0 else negative
-        contradicting = negative if expected_sign > 0 else positive
+        declared_sign = {"lower_on_failures": -1, "higher_on_failures": 1}.get(expected)
+        expected_by_result = {
+            id(r): (declared_sign if declared_sign is not None
+                    else _expected_sign(hypothesis, _tool_signal(r)))
+            for r in decisive
+        }
+
+        def _agrees(r: "StatsToolResult") -> bool:
+            exp = expected_by_result[id(r)]
+            eff = float(r.effect or 0.0)
+            return eff > 0 if exp is None else (eff > 0) == (exp > 0)
+
+        supporting = [r for r in decisive if _agrees(r)]
+        contradicting = [r for r in decisive if not _agrees(r)]
 
         consulted = [r.tool for r in relevant] + [r.tool for r in global_res]
 
@@ -384,6 +417,23 @@ class HypothesisTester:
             chosen = max(pool, key=lambda r: abs(r.effect or 0.0)) if pool else None
             status = HypothesisStatus.INCONCLUSIVE
 
+        if routed_by == "test_design_unmet":
+            named = sorted(_identifiers(hypothesis.test_design or ""))[:6]
+            return {
+                "status": HypothesisStatus.INCONCLUSIVE,
+                "effect_size": None,
+                "confidence": 0.0,
+                "verdict": (
+                    "designated evidence not measured this cycle: the test design names "
+                    + (", ".join(named) if named else "signals")
+                    + " but M2 has no result for them — not judged on unrelated signals "
+                    "(next cycle's M1 targets the design)"
+                ),
+                "test_name": "stats_results",
+                "evidence_grade": "unmet",
+                "evidence": {"source": "m2_stats_results", "consulted_tools": consulted,
+                             "routed_by": routed_by, "designated": named},
+            }
         if chosen is None:
             return {
                 "status": HypothesisStatus.INCONCLUSIVE,
@@ -409,14 +459,25 @@ class HypothesisTester:
 
         note = _multiplicity_note(chosen).strip()
         note = f" {note}" if note else ""
+        exp_sign = _expected_sign(hypothesis, _tool_signal(chosen))
+        direction_note = ""
+        if exp_sign is not None and status != HypothesisStatus.INCONCLUSIVE:
+            direction_note = (
+                f" [hypothesis predicts the signal {'HIGHER' if exp_sign > 0 else 'LOWER'}"
+                f" on failures; observed effect {float(chosen.effect or 0.0):+.3f} -> "
+                + ("consistent" if status == HypothesisStatus.SUPPORTED else "opposite")
+                + "]"
+            )
         if status == HypothesisStatus.INCONCLUSIVE:
             verdict = f"No significant M2 result (best: {chosen.summary}{note})"
         else:
-            verdict = f"{chosen.tool}: {chosen.summary}{note}"
+            verdict = f"{chosen.tool}: {chosen.summary}{note}{direction_note}"
 
         evidence = {
             "source": "m2_stats_results",
             "chosen_tool": chosen.tool,
+            "expected_direction": (None if exp_sign is None
+                                   else ("higher_in_fail" if exp_sign > 0 else "lower_in_fail")),
             "effect_size": chosen.effect,
             "ci": list(chosen.ci) if chosen.ci is not None else None,
             "e_value": chosen.e_value,
@@ -465,31 +526,51 @@ class HypothesisTester:
             return (f"{r.tool} {r.config.get('signal', '')} {strategies} "
                     f"{r.details.get('signal', '')}")
 
-        design = (hypothesis.test_design or "").replace("_", " ").replace(".", " ")
-        if design.strip():
-            design_kw = _keywords(design)
-            # A single generic overlap ("attention", "score", "contrast")
-            # is not enough to claim that the preregistered experiment ran.
-            # Require two identifying tokens; exact dotted signal names easily
-            # satisfy this after normalization.
-            designed = [
-                r for r in signal_res
-                if (
-                    bool(r.config.get("signal"))
-                    and str(r.config.get("signal")).lower() in hypothesis.test_design.lower()
-                )
-                or len(design_kw & _keywords(_tool_text(r))) >= 2
-            ]
+        # 1. Identifiers first. M3 is told to name analyzers / per-case signals
+        #    ("cot_faithfulness.drift_away", "perturbation_battery"); those are
+        #    the underscore/dotted tokens of the design. Matching on them, and
+        #    only them, keeps a design that says "... the answer ..." from
+        #    routing to answer_extraction_audit.gold_in_answer_region — which
+        #    is exactly what happened on qwen3.5-2b/bbh_causal_judgement: six
+        #    hypotheses about overthinking / counterfactuals / prompt encoding
+        #    all "refuted" by that one unrelated (protective) signal.
+        design_raw = hypothesis.test_design or ""
+        design_ids = _identifiers(design_raw)
+        if design_ids:
+            exact = [r for r in signal_res if _tool_ids(r, level="signal") & design_ids]
+            if exact:
+                return exact, global_res, "test_design"
+            by_analyzer = [r for r in signal_res if _tool_ids(r, level="analyzer") & design_ids]
+            if by_analyzer:
+                return by_analyzer, global_res, "test_design"
+            # The design named EXACT identifiers and none of them is in M2's
+            # results. Falling through to fuzzy words here let one generic
+            # overlap ("attention") claim the preregistered experiment ran on
+            # an unrelated signal; a named-but-unmeasured design is unmet.
+            return [], global_res, "test_design_unmet"
+        # 2. Prose designs only (no identifiers): words of the design (generic
+        #    tokens removed) against the SIGNAL's own words — never the tool
+        #    name ("signal_label_assoc" is in every tool text), never a stop word.
+        design_kw = _signal_keywords(design_raw)
+        if design_kw:
+            designed = [r for r in signal_res if design_kw & _tool_keywords(r)]
             if designed:
                 return designed, global_res, "test_design"
-            # The named experiment has not run yet. Falling through to a
-            # keyword match let generic words such as `n_correct` validate an
-            # attention or causal-intervention hypothesis with the wrong test.
-            return [], global_res, "test_design_unavailable"
-
-        kw = _keywords(hypothesis.statement + " "
-                       + hypothesis.predicted_failure_mode.replace("_", " "))
-        matched = [r for r in signal_res if kw & _keywords(_tool_text(r))]
+        if design_ids or design_kw:
+            # The design named evidence M2 did not measure this cycle. Judging
+            # the hypothesis on whatever else M2 happened to test is not a
+            # test of THIS hypothesis; say so (M1's next cycle targets the
+            # design) instead of borrowing an unrelated verdict.
+            return [], global_res, "test_design_unmet"
+        kw = _signal_keywords(hypothesis.statement + " "
+                              + hypothesis.predicted_failure_mode.replace("_", " "))
+        stmt_ids = _identifiers(hypothesis.statement)
+        matched = [
+            r for r in signal_res
+            if (_tool_ids(r, level="signal") & stmt_ids)
+            or (_tool_ids(r, level="analyzer") & stmt_ids)
+            or (kw & _tool_keywords(r))
+        ]
         if matched:
             return matched, global_res, "keywords"
         return signal_res, global_res, "shared"
@@ -718,6 +799,167 @@ def _fallback_case_signals(data: CaseBatch, hypothesis: Hypothesis) -> dict[str,
 def _keywords(text: str) -> set[str]:
     """Significant (4+ char) lowercase word tokens of *text*."""
     return set(re.findall(r"[a-z]{4,}", text.lower()))
+
+
+#: Underscore / dotted names — how M3 refers to analyzers and per-case signals
+#: ("perturbation_battery", "cot_faithfulness.drift_away", "noop_break_rate").
+_IDENT_RE = re.compile(r"[a-z][a-z0-9]*(?:[._][a-z0-9]+)+")
+
+#: Words that appear in nearly every signal name / test design and therefore
+#: route nothing: matching on them is what sent unrelated hypotheses to
+#: answer_extraction_audit.gold_in_answer_region ("answer") on causal_judgement.
+_GENERIC_KW = frozenset({
+    "answer", "answers", "output", "outputs", "case", "cases", "rate", "rates",
+    "final", "score", "scores", "model", "prompt", "prompts", "label", "labels",
+    "signal", "signals", "text", "value", "values", "step", "steps", "chain",
+    "token", "tokens", "index", "count", "number", "numbers", "flag", "flags",
+    "match", "matched", "matches", "held", "split", "test", "tests", "control",
+    "cases", "correct", "incorrect", "true", "false", "fail", "fails", "failed",
+    "pass", "passed", "with", "without", "that", "this", "from", "into", "only",
+    "each", "every", "after", "before", "versus", "against", "across", "between",
+    "using", "under", "over", "more", "less", "most", "least", "some", "none",
+    "then", "than", "when", "while", "should", "would", "could", "must",
+    "still", "also", "both", "same", "other", "their", "there", "these", "those",
+    "which", "where", "what", "does", "will", "have", "been", "were", "they",
+    "them", "much", "many", "very", "just", "like", "such", "here", "mean",
+    "median", "batch", "data", "audit", "battery", "probe", "probes",
+})
+
+
+def _identifiers(text: str) -> set[str]:
+    """Underscore / dotted identifiers in *text*, lower-cased (backticks ignored)."""
+    return {m.group(0) for m in _IDENT_RE.finditer(str(text or "").lower())}
+
+
+def _signal_keywords(text: str) -> set[str]:
+    """Non-generic 4+ letter words of *text* (for word-level routing)."""
+    return _keywords(text) - _GENERIC_KW
+
+
+def _tool_signal(r: "StatsToolResult") -> str:
+    cfg = getattr(r, "config", None) or {}
+    det = getattr(r, "details", None) or {}
+    return str(cfg.get("signal") or det.get("signal") or "").lower()
+
+
+# Direction cues. Explicit "<higher|lower> on/in FAIL" phrases are read first
+# (the M3 TEST line asks for them); otherwise cue words within a short window
+# after the signal's mention ("sits at 0", "= 0", "absent", "low" -> LOWER on
+# failures; "= 1", "elevated", "present", "high" -> HIGHER). Both / neither ->
+# None, and the classic reading (signal marks the failure: effect > 0 supports)
+# applies.
+_DIR_EXPLICIT_HIGH = re.compile(
+    r"\b(?:higher|high|elevated|greater|larger|more|raised|increased|present)\b"
+    r"[^.;\n]{0,40}?\b(?:on|in|for|among|across)\s+(?:the\s+)?(?:fail\w*|failing|failures?)"
+    r"|\b(?:lower|low|absent|smaller|less|reduced|decreased|missing|zero)\b"
+    r"[^.;\n]{0,40}?\b(?:on|in|for|among|across)\s+(?:the\s+)?(?:pass\w*|passing|successes?)")
+_DIR_EXPLICIT_LOW = re.compile(
+    r"\b(?:lower|low|absent|smaller|less|reduced|decreased|missing|zero)\b"
+    r"[^.;\n]{0,40}?\b(?:on|in|for|among|across)\s+(?:the\s+)?(?:fail\w*|failing|failures?)"
+    r"|\b(?:higher|high|elevated|greater|larger|more|raised|increased|present)\b"
+    r"[^.;\n]{0,40}?\b(?:on|in|for|among|across)\s+(?:the\s+)?(?:pass\w*|passing|successes?)")
+_DIR_CUE_LOW = re.compile(
+    r"(?:^|[\s(`])(?:=|==|is|are|at|of|sits?\s+at|sit\s+at|stuck\s+at|stays?\s+at|"
+    r"equals?|reads?|drops?\s+to|falls?\s+to)\s*0(?:\.0+)?(?![.\d%])"
+    r"|\b(?:low|lower|absent|zero|null|missing|lacking|drops?|falls?|"
+    r"decreas\w*|never\s+fires?|does\s+not\s+fire|=\s*false)\b")
+_DIR_CUE_HIGH = re.compile(
+    r"(?:^|[\s(`])(?:=|==|is|are|at|of|sits?\s+at|equals?|reads?)\s*1(?:\.0+)?(?![.\d%])"
+    r"|\b(?:high|higher|elevated|present|raised|increas\w*|spikes?|rises?|fires?|"
+    r"=\s*true|dominat\w*)\b")
+_DIR_WINDOW = 110
+_DIR_EQ = re.compile(r"[`'\")\]]*\s*(?:==|=|is|equals?)\s*(0(?:\.0+)?|1(?:\.0+)?)(?![.\d%])(?!\s*[-–]\s*\d|\s*(?:to|vs|or)\b)")
+
+
+def _expected_sign(hypothesis: "Hypothesis", signal: str) -> "int | None":
+    """+1 if *hypothesis* predicts *signal* HIGHER on failing cases, -1 if LOWER,
+    None when it says nothing legible about the direction (the caller then
+    falls back to the classic reading: the signal marks the failure)."""
+    if not signal:
+        return None
+    sig = str(signal).lower()
+    names = {sig}
+    if "." in sig:
+        names.add(sig.split(".", 1)[1])  # bare metric name
+    texts = [str(getattr(hypothesis, "test_design", "") or ""),
+             str(getattr(hypothesis, "statement", "") or "")]
+    for text in texts:
+        low = text.lower()
+        for name in sorted(names, key=len, reverse=True):
+            start = 0
+            votes_high = votes_low = 0
+            while True:
+                i = low.find(name, start)
+                if i < 0:
+                    break
+                # whole-identifier match only (avoid "majority_correct" inside
+                # "majority_correctness" etc.)
+                before = low[i - 1] if i > 0 else " "
+                after_i = i + len(name)
+                after = low[after_i] if after_i < len(low) else " "
+                if before.isalnum() or before == "_" or after.isalnum() or after == "_":
+                    start = i + 1
+                    continue
+                window = low[max(0, i - 40):after_i + _DIR_WINDOW]
+                tail = low[after_i:after_i + _DIR_WINDOW]
+                # an equality right after the name ("`x` = 0", "x == 1", "x=0")
+                # is decisive on its own and must not be diluted by a second
+                # identifier's equality further along the sentence
+                near = _DIR_EQ.match(low[after_i:after_i + 16])
+                if near:
+                    if near.group(1).startswith("0"):
+                        votes_low += 1
+                    else:
+                        votes_high += 1
+                elif _DIR_EXPLICIT_HIGH.search(window):
+                    votes_high += 1
+                elif _DIR_EXPLICIT_LOW.search(window):
+                    votes_low += 1
+                else:
+                    lo = bool(_DIR_CUE_LOW.search(tail))
+                    hi = bool(_DIR_CUE_HIGH.search(tail))
+                    if lo and not hi:
+                        votes_low += 1
+                    elif hi and not lo:
+                        votes_high += 1
+                start = after_i
+            if votes_high and not votes_low:
+                return 1
+            if votes_low and not votes_high:
+                return -1
+            if votes_high and votes_low:
+                return None
+    return None
+
+
+def _tool_ids(r: "StatsToolResult", *, level: str = "signal") -> set[str]:
+    """Identifiers a tool result answers to.
+
+    ``level="signal"``: the full ``analyzer.signal`` key, the bare signal name
+    and the strategy names; ``level="analyzer"``: the analyzer prefix only.
+    """
+    sig = _tool_signal(r)
+    cfg = getattr(r, "config", None) or {}
+    ids: set[str] = set()
+    if level == "analyzer":
+        if sig:
+            ids.add(sig.split(".", 1)[0])
+        return ids
+    if sig:
+        ids.add(sig)
+        parts = sig.split(".", 1)
+        if len(parts) > 1 and parts[1]:
+            ids.add(parts[1])
+    for strategy in cfg.get("strategies", []) or []:
+        ids.add(str(strategy).lower())
+    return ids
+
+
+def _tool_keywords(r: "StatsToolResult") -> set[str]:
+    """Non-generic words of the tool's signal key + strategies (NOT the tool name)."""
+    cfg = getattr(r, "config", None) or {}
+    words = " ".join([_tool_signal(r)] + [str(x) for x in (cfg.get("strategies", []) or [])])
+    return _signal_keywords(words.replace("_", " ").replace(".", " "))
 
 
 def _confidence_from_stat(

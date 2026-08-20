@@ -103,6 +103,7 @@ class StepRolloutValueAnalyzer(Analyzer):
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         per_case: list[dict[str, Any]] = []
+        step_values_by_case: dict[str, list[float]] = {}
         for case in cases.stratified_head(self.max_cases):
             if case.expected is None:
                 per_case.append({"sample_id": case.id, "skipped": "no gold answer"})
@@ -116,7 +117,16 @@ class StepRolloutValueAnalyzer(Analyzer):
                         )
                     )
                 )
-            per_case.append(self._probe_case(model, case, str(chain)))
+            entry = self._probe_case(model, case, str(chain))
+            # Contract: a per-case row carries one level of scalars — a numeric
+            # vector there looks like a signal and reaches no statistic. The
+            # trajectory moves to findings["step_values_by_case"]; every scalar
+            # the stats read (initial/final/min/max_value_drop/break_step_idx)
+            # stays on the row.
+            values = entry.pop("step_values", None)
+            if values is not None:
+                step_values_by_case[entry["sample_id"]] = values
+            per_case.append(entry)
 
         scored = [c for c in per_case if "break_step_idx" in c]
         breaks = [c["break_step_idx"] for c in scored if c["break_step_idx"] is not None]
@@ -131,6 +141,7 @@ class StepRolloutValueAnalyzer(Analyzer):
                                        if c.get("break_depth") is not None]),
             "n_with_break": len(breaks),
             "per_case": per_case,
+            "step_values_by_case": step_values_by_case,
             "_caveat": (
                 "Step values are Monte-Carlo estimates from n_rollouts "
                 "completions: with n_rollouts=3 a value is one of {0, .33, .67, "

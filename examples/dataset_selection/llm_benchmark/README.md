@@ -172,17 +172,20 @@ M2 的工具目录与 e-BH,也不进 M5 / fix 门 —— 证据仍然只来自 M
 | 码 | 含义 | 该怎么办 |
 |---|---|---|
 | 0 | 成功 | 读 `outputs/<model>/<dataset>/summary.json` |
-| 1 | `build_cases.py` **拒绝写文件** | **不是崩溃**。这个(模型, 数据集)配对不在带内。换数据集,见下 |
+| 1 | `build_cases.py` 因 `--strict-band` **拒绝写文件**(默认不再拒绝,只 WARNING) | **不是崩溃**。这个(模型, 数据集)配对不在带内。换数据集,见下 |
 | 2 | 模型名不认识 | 只能是 `qwen3.5-2b` / `-4b` / `-9b`,**不是** HF repo id |
 | 3 | 没有空闲 GPU | 等,或 `GPU=<idx>` 指定 |
 | 4 / 5 | vLLM 启动失败 / 超时 | 看 `outputs/<model>/<dataset>/vllm.log` |
 | 6 | 找不到 python 或 vllm | 环境没装好。见「从零搭建」,或 `export EVALVITALS_PYTHON=` / `VLLM_BIN=` |
 | 7 | **preflight 未通过** | 照它每条 FAIL 后面给的命令装。`SKIP_PREFLIGHT=1` 可强行跳过(不建议) |
 
-### 退出码 1 时怎么换数据集
+### 准确率落到带外时怎么换数据集
 
-`build_cases.py` 在准确率落到 [0.15, 0.85] 之外时**故意拒绝写文件**——
-一类样本太少,M2 无从对比,继续跑只会产出无意义的归因。
+`build_cases.py` 在准确率落到 [0.15, 0.85] 之外时会**照写批次并打一条 WARNING**
+(2026-08-18 起;之前是拒绝写、退出码 1,`BUILD_ARGS=--strict-band` 可恢复旧行为)。
+`cases.json` 里多了 `band_position: in|low|high`,`run_pipeline` 加载时会再提示一次。
+带外不是错误,是功效问题:一类样本太少,M2 无从对比,下游每个配对检验都缺功效
+(tracking7 在 2B 上 0.912 就是这样,fix 阶段两个候选各自过门却过不了 e-BH)。
 
 带位是**(模型, 数据集)配对**的属性。下表按 9B 分数排序;
 **模型越小,越该往表的上方选**:
@@ -198,7 +201,7 @@ supergpqa_law            0.460
 supergpqa_medicine_hard  0.360   ← 9B 上就已经偏难,小模型大概率地板
 ```
 
-**不要用 `--force` 硬闯**,除非你明确知道为什么要一个带外的 batch。
+`--force` 现在是空操作(保留只为兼容旧脚本);要拦住带外配对用 `--strict-band`。
 
 ### 前置条件(脚本不会替你装)
 
@@ -226,8 +229,8 @@ M2 用配对统计对比 PASS 与 FAIL,所以一个数据集**只有在两类都
 
 > **⚠️ 带位是(模型, 数据集)这个「配对」的属性,不是数据集的属性。**
 > 下表全部测于 **Qwen3.5-9B**。同一个切片在 2B/4B 上可能落到地板区。
-> `build_cases.py` 会打印实际命中的准确率,并在落到 [0.15, 0.85] 之外时**拒绝写文件**。
-> 这不是 bug,是它该做的事。
+> `build_cases.py` 会打印实际命中的准确率,落到 [0.15, 0.85] 之外时**照写但 WARNING**
+> (`--strict-band` 才拒绝)。带外批次能跑,只是功效低,结论要打折。
 
 ---
 
@@ -530,8 +533,8 @@ $PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law
 
 它会在两种情况下叫停或警告:
 
-- 准确率落在 **[0.15, 0.85] 之外 → 拒绝写文件**。一类样本太少,M2 无从对比。
-  换个数据集,或者你确实知道自己要干什么时加 `--force`
+- 准确率落在 **[0.15, 0.85] 之外 → WARNING(仍写文件)**。一类样本太少,M2 无从对比,
+  下游功效不足;想换数据集就换,想拦住就加 `--strict-band`
 - 截断率 **> 10% → 警告**。此时部分 FAIL 标签是预算产物而非能力信号,
   下游会把"没写完"当成"不会做"去归因。先加 `--max-tokens`
 
@@ -593,6 +596,11 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 按抽出的最终答案投票 —— 之前非 direct 策略会静默忽略 n_samples,而对 CoT 输出按全文投票等于不投票)。
 `run_fix` 会**剔除被 M4 实验反驳的假设**,并把它作为 "REFUTED — do not build on" 传给 proposer。
 
+**没有 verified 假设时**(`fix_on_unverified: true`,CLI `--[no-]fix-unverified`):M4 干预实验照做,
+对象是 M5 打分最高、未被反驳的 **unverified** 假设;随后 fix 阶段用这些 unverified 线索(标注
+"UNVERIFIED … treat as hints")继续提候选 —— fix 的门是候选的配对验证,不是假设本身。
+`false` 回到旧行为(只有 verified 才进 M4/fix)。
+
 ### 三个尺寸都跑
 
 `run_all.sh` 每次都自己起停 vLLM,所以串行跑三个尺寸不会撞车:
@@ -611,10 +619,10 @@ setsid nohup bash -c 'for M in qwen3.5-2b qwen3.5-4b qwen3.5-9b; do
   ./run_all.sh "$M" supergpqa_law; done' > sweep.log 2>&1 &
 ```
 
-某个尺寸退出码为 1 是**正常的**——那个配对不在带内,循环会继续跑下一个。
+某个尺寸的批次带外是**正常的**——默认只警告并继续跑(加 `BUILD_ARGS=--strict-band` 才会退出码 1 跳过)。
 
 **2B/4B 上预期会有数据集掉出带外。** 这正是要测的东西:哪个失效机制随规模变化。
-`build_cases.py` 拒绝写文件时,换一个 9B 上分数更高的数据集
+`build_cases.py` 报带外 WARNING 时,换一个 9B 上分数更高的数据集
 (如 `cruxeval_output` 0.700 或 `bbh_causal_judgement` 0.600)——
 它们在小模型上更可能落进带内。
 
@@ -816,8 +824,9 @@ outputs/
 **vLLM 起不来,报 free memory 不足**
 → 漏了 `export CUDA_DEVICE_ORDER=PCI_BUS_ID`,`CUDA_VISIBLE_DEVICES=0` 解析到了别的卡。
 
-**`build_cases.py` 拒绝写文件**
-→ 这个(模型, 数据集)配对不在带内。换数据集,别加 `--force`,除非你明确知道理由。
+**`build_cases.py` 报 `WARNING accuracy … outside the usable band`**
+→ 这个(模型, 数据集)配对不在带内。批次照样写了、链路照样跑,但 M2/fix 功效低;
+换一个带内数据集更划算。要让脚本在这种情况下直接退出:`BUILD_ARGS=--strict-band`。
 
 **截断率很高**
 → 加 `--max-tokens`。但要注意截断有**两种病因**:一种是"推导本身长,空间不够",
