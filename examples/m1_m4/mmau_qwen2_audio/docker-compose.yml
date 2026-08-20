@@ -31,4 +31,4 @@ services:
               count: all
               capabilities: [gpu]
     command: >
-      sh -c "python download_mmau.py --limit 120 && python run.py --model qwen2-audio-7b-instruct --limit 120 --judge-model sonnet --judge-effort high"
+      sh -c "python download_mmau.py --limit 1000 --scan-rows 1000 && python run.py --model qwen2-audio-7b-instruct --limit 896 --judge-model sonnet --judge-effort high"

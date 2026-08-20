@@ -209,6 +209,7 @@ _HYPOTHESIS_SCHEMA: dict = {
         "properties": {
             "hypothesis":   {"type": "string", "minLength": 10},
             "failure_mode": {"type": "string", "minLength": 2},
+            "expected_association": {"type": "string"},
         },
     },
 }
@@ -245,6 +246,7 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
             target_model=model_name,
             predicted_failure_mode=item["failure_mode"],
             test_design=str(item.get("test", "")),
+            expected_association=str(item.get("expected_association", "")),
         )
         for item in data
         if item.get("hypothesis") and item.get("failure_mode")
@@ -309,6 +311,10 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
         elif line.upper().startswith("TEST:") and hypotheses:
             # Attach the test design to the most recent hypothesis.
             hypotheses[-1].test_design = line[len("TEST:"):].strip()
+        elif line.upper().startswith("EXPECTED_ASSOCIATION:") and hypotheses:
+            hypotheses[-1].expected_association = (
+                line[len("EXPECTED_ASSOCIATION:"):].strip().lower()
+            )
     return hypotheses
 
 
@@ -353,21 +359,35 @@ def _validate_hypotheses(
         return hypotheses  # validation failed — keep originals
 
     kept: set[str] = set()
+    saw_decision = False
     for line in str(raw).splitlines():
         line = _normalise_label_line(line)
         if line.upper().startswith("KEEP:"):
+            saw_decision = True
             stmt = line[len("KEEP:"):].strip().lower()
             for h in hypotheses:
                 if h.statement.lower()[:60] in stmt or stmt in h.statement.lower():
                     kept.add(h.statement)
+        elif line.upper().startswith("REJECT:"):
+            saw_decision = True
 
     if not kept:
-        # Critic rejected everything or parse failed — return originals so the
-        # loop doesn't deadlock, but log the event
+        if saw_decision:
+            # A successful adversarial review that rejects every claim is
+            # evidence, not a parser outage. Passing those same claims to M5
+            # recreates the confirmation-bias loop this critic exists to stop.
+            import logging as _logging
+            _logging.getLogger(__name__).info(
+                "DiagnosisAgent validation: critic rejected all %d hypothesis(es)",
+                len(hypotheses),
+            )
+            return []
+        # Malformed/empty critic output is an infrastructure failure, so retain
+        # the proposals rather than silently deleting them.
         import logging as _logging
         _logging.getLogger(__name__).warning(
-            "DiagnosisAgent validation: critic rejected all %d hypothesis(es) "
-            "or could not be parsed — keeping originals",
+            "DiagnosisAgent validation: critic response could not be parsed for "
+            "%d hypothesis(es) — keeping originals",
             len(hypotheses),
         )
         return hypotheses

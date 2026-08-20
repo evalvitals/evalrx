@@ -117,6 +117,7 @@ def _run_config(loop: Any, data: Any, *, loop_name: str) -> dict[str, Any]:
     cfg["allow_codegen"] = bool(
         getattr(getattr(loop, "probe_agent", None), "allow_codegen", False)
         or getattr(getattr(loop, "stats_agent", None), "_allow_codegen", False)
+        or getattr(getattr(loop, "fix_agent", None), "_allow_codegen", False)
     )
     # Whether the in-cycle explore step (free-form EDA beside M2) is configured —
     # so a run with explorer notes in M3 is distinguishable from one without.

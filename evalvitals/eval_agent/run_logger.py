@@ -1114,6 +1114,26 @@ class RunLogger:
         refine = d.get("refine_signal")
         if refine:
             head.append(f"**Re-diagnose:** {refine.get('message', '')}")
+        selection = d.get("selection_attempted") or []
+        if selection:
+            head += [
+                "",
+                f"## EXPLORE selection attempts ({len(selection)})",
+                "",
+                "These results were used only to choose a candidate; they are "
+                "not confirmation evidence.",
+                "",
+                "| # | tier | candidate | verdict | n_fixed | n_broken | effect |",
+                "|---|------|-----------|---------|---------|----------|--------|",
+            ]
+            for i, attempt in enumerate(selection, start=1):
+                head.append(
+                    f"| {i:02d} | {attempt.get('tier')} | {attempt.get('name')} | "
+                    f"{attempt.get('verdict')} | {attempt.get('n_fixed')} | "
+                    f"{attempt.get('n_broken')} | {_eff(attempt.get('effect'))} |"
+                )
+            selected = d.get("selected_on_explore")
+            head += ["", f"**Selected on EXPLORE:** {selected or 'none'}"]
         head += ["", f"## Attempts ({len(attempts)})", ""]
         if rows:
             head.append("| # | tier | candidate | verdict | n_fixed | n_broken "

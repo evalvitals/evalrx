@@ -379,6 +379,11 @@ class FixOutcome:
     # candidate is eligible to be `best` only if it is BOTH individually `fixed`
     # AND in this set. Empty when no candidate carried an e-value.
     ebh_survivors: "list[str]" = field(default_factory=list)
+    # In held-out mode candidates are authored/tuned on EXPLORE, then exactly
+    # one frozen candidate is sent to CONFIRM.  Keep a compact audit trail of
+    # that selection phase without mixing its statistics into the final gate.
+    selection_attempted: "list[dict[str, Any]]" = field(default_factory=list)
+    selected_on_explore: "str | None" = None
 
     def to_dict(self) -> "dict[str, Any]":
         return {
@@ -428,6 +433,8 @@ class FixOutcome:
             "recommendation": self.recommendation,
             "refine_signal": self.refine_signal,
             "ebh_survivors": self.ebh_survivors,
+            "selection_attempted": self.selection_attempted,
+            "selected_on_explore": self.selected_on_explore,
         }
 
 
@@ -692,13 +699,16 @@ class FixAgent:
         hypotheses: "list[Hypothesis]",
         prior_attempts: "list[FixValidation] | None" = None,
         context: "FixContext | None" = None,
+        proposal_data: "CaseBatch | None" = None,
     ) -> FixOutcome:
         """Generate candidates within the allowed tiers, validate, recommend.
 
         *context* (optional :class:`FixContext`) is what the proposer sees
         besides the hypotheses — full example cases from a DISJOINT split,
         the M2/M5/explore evidence, M4-refuted hypotheses, the scoring rule
-        and the baseline decoding budget.
+        and the baseline decoding budget.  ``proposal_data``, when supplied,
+        is the discovery partition available to the repair author; ``data``
+        remains untouched confirmation data and permits only one round.
         """
         outcome = FixOutcome(max_tier=self.max_tier)
         self._max_tokens_floor = self._resolve_max_tokens_floor(model, data)
@@ -715,6 +725,7 @@ class FixAgent:
             )
 
         data = self._validation_subset(data)
+        authoring_data = proposal_data if proposal_data is not None else data
         baseline, unstable = self._baseline(model, data)
         if not any(v is not None for v in baseline.values()):
             logger.warning("FixAgent: no scorable case (no rubrics); nothing to validate")
@@ -732,13 +743,18 @@ class FixAgent:
         # ask for DIFFERENT candidates within the same tier (never escalating).
         # Stop on first validated fix or when a round adds no new candidate.
         seen: "set[tuple[str, str, str]]" = set()
-        for round_idx in range(self.max_repair_rounds):
+        round_limit = 1 if proposal_data is not None else self.max_repair_rounds
+        for round_idx in range(round_limit):
             combined_prior = list(prior_attempts or []) + outcome.attempted
-            prior_text = self._format_prior(combined_prior) if combined_prior else ""
+            prior_text = (
+                self._format_prior(combined_prior, authoring_data)
+                if combined_prior
+                else ""
+            )
             prior_names: "frozenset[str]" = frozenset(v.candidate.name for v in combined_prior)
             new_candidates: "list[FixCandidate]" = []
             for candidate in self._propose(
-                hypotheses, data, model, prior_text, prior_names, context=context
+                hypotheses, authoring_data, model, prior_text, prior_names, context=context
             ):
                 sig = self._signature(candidate)
                 if sig in seen:
@@ -767,7 +783,7 @@ class FixAgent:
             outcome.repair_rounds = round_idx + 1
             if round_fixed:
                 break
-            if round_idx + 1 < self.max_repair_rounds:
+            if round_idx + 1 < round_limit:
                 logger.info(
                     "FixAgent: repair round %d validated no fix; feeding "
                     "%d failed attempt(s) back for round %d",
@@ -1079,9 +1095,19 @@ class FixAgent:
         )
 
         candidates: "list[FixCandidate]" = []
-        if self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
+        # A code-only run is a pre-registered autonomous-repair experiment.
+        # Do not spend three judge calls inventing L0/L1/declarative/L3
+        # candidates that the allowlist will discard afterwards; apart from
+        # latency and quota waste, those calls can fail before the requested
+        # coding agent is ever reached.
+        code_only = self._candidate_allowlist == frozenset({"coded_pipeline"})
+        if not code_only and self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
             candidates += self._l0_candidates(data, prior_names, model=model)
-        if self.max_tier >= FixTier.L1_PROMPT and not self._paper_methods_only:
+        if (
+            not code_only
+            and self.max_tier >= FixTier.L1_PROMPT
+            and not self._paper_methods_only
+        ):
             candidates += self._l1_candidates(
                 hyp_lines,
                 examples,
@@ -1092,7 +1118,7 @@ class FixAgent:
                 binary_hallucination_supported=binary_hallucination_supported,
                 context_block=context_block,
             )
-        if self.max_tier >= FixTier.L2_SCAFFOLD:
+        if not code_only and self.max_tier >= FixTier.L2_SCAFFOLD:
             candidates += self._l2_candidates(
                 hyp_lines,
                 examples,
@@ -1123,7 +1149,7 @@ class FixAgent:
                     context_block=context_block, catalog=catalog,
                     text_only=not has_images,
                 )
-        if self.max_tier >= FixTier.L3A_INTERNALS_READ:
+        if not code_only and self.max_tier >= FixTier.L3A_INTERNALS_READ:
             candidates += self._l3_candidates(
                 hyp_lines,
                 model,
@@ -1134,7 +1160,7 @@ class FixAgent:
                 tasks=tasks,
                 binary_hallucination_supported=binary_hallucination_supported,
             )
-        if self.max_tier >= FixTier.L4_PARAMETERS:
+        if not code_only and self.max_tier >= FixTier.L4_PARAMETERS:
             candidates += self._l4_candidates(hyp_lines)
         if self._candidate_allowlist is not None:
             candidates = [c for c in candidates if c.name in self._candidate_allowlist]
@@ -2022,6 +2048,7 @@ class FixAgent:
         code, source, prompt, raw = "", "", "", ""
         if catalog is None:
             catalog = _TEXT_ONLY_CATALOG_NOTE if text_only else catalog_text()
+        selection_guidance = self._code_selection_guidance(prior_text)
         base = dict(
             hypotheses=hyp_lines,
             examples=examples,
@@ -2030,6 +2057,7 @@ class FixAgent:
             marker=RESULT_MARKER,
             attend_hint=attend_hint,
             context=context_block,
+            selection_guidance=selection_guidance,
         )
         if self._cli_config is not None and self._cli_config.provider != "llm":
             prompt = (
@@ -2071,12 +2099,46 @@ class FixAgent:
                 tier=tier,
                 name="coded_pipeline",
                 kind="code",
-                payload={"code": code, "enable_attend": enable_attend,
-                         "text_only": bool(text_only)},
+                payload={
+                    "code": code,
+                    "enable_attend": enable_attend,
+                    "text_only": bool(text_only),
+                    # Prompt instructions are advisory; the host bridge also
+                    # enforces the selection rule without seeing gold labels.
+                    "consensus_min_support": 2 if self.max_repair_rounds > 1 else 3,
+                    "max_calls_per_case": 4,
+                },
                 source=source,
                 trial=trial,
             )
         ]
+
+    def _code_selection_guidance(self, prior_text: str = "") -> str:
+        """Tell codegen whether this is discovery, revision, or one-shot use."""
+        if prior_text:
+            return (
+                "- This is a FEEDBACK-DRIVEN EXPLORE revision. Use the prior "
+                "helped/hurt prompts and implementation below as training "
+                "feedback. Gate the revised fix on a prompt/task subtype that "
+                "actually benefited and return the direct baseline elsewhere. "
+                "If the prior attempt repaired zero cases, abandon its "
+                "override mechanism instead of merely retuning it."
+            )
+        if self.max_repair_rounds > 1:
+            return (
+                "- This is EXPLORE round 1, used to learn which task subtypes "
+                "benefit before a later candidate is frozen. Treat the direct "
+                "answer as the baseline and keep it on ties, but you may use "
+                "a controlled 2-of-3 alternative consensus so the paired "
+                "helped/hurt feedback is informative. Never hard-code answers "
+                "or compute the benchmark task outside the model."
+            )
+        return (
+            "- Treat the ORIGINAL direct answer as the safety baseline. Keep "
+            "it unless all 3 independent enhanced/reasoned passes agree on a "
+            "different answer and none supports the baseline. Do not use "
+            "unconditional majority replacement."
+        )
 
     def _write_code_cli(self, prompt: str, trial: "Trial | None" = None) -> "tuple[str, str]":
         from pathlib import Path
@@ -2113,7 +2175,9 @@ class FixAgent:
         return str(self._sandbox.workdir)
 
     @staticmethod
-    def _format_prior(attempts: "list[FixValidation]") -> str:
+    def _format_prior(
+        attempts: "list[FixValidation]", data: "CaseBatch | None" = None
+    ) -> str:
         """Format failed prior attempts as a context block for judge prompts.
 
         Beyond "try a different mechanism", this surfaces the *partition* a
@@ -2122,7 +2186,12 @@ class FixAgent:
         candidate that helps one subset and breaks another is asking to be
         gated by a predicate, not replaced (defect 3).
         """
+        prompt_by_id = {
+            case.id: str(getattr(getattr(case, "inputs", None), "prompt", ""))
+            for case in (data or [])
+        }
         items = []
+        implementations = []
         heterogeneous = []
         for v in attempts:
             c = v.candidate
@@ -2135,16 +2204,31 @@ class FixAgent:
                 "truncation, not the idea: give the model MORE room, never less"
                 if v.n_truncated else ""
             )
+            helped_prompts = [
+                prompt_by_id.get(case_id, "")[:180]
+                for case_id in v.fixed_cases[:8]
+            ]
+            hurt_prompts = [
+                prompt_by_id.get(case_id, "")[:180]
+                for case_id in v.broken_cases[:8]
+            ]
             items.append(
                 f"- [{c.tier.label}/{c.kind}] {c.name}: "
-                f"{v.n_fixed} fixed / {v.n_broken} broken ({effect}{broken}{trunc})"
+                f"{v.n_fixed} fixed / {v.n_broken} broken ({effect}{broken}{trunc}); "
+                f"helped prompts={helped_prompts}; hurt prompts={hurt_prompts}"
             )
+            code = c.payload.get("code") if c.kind == "code" else None
+            if isinstance(code, str) and code.strip():
+                implementations.append(
+                    f"PREVIOUS IMPLEMENTATION ({c.name}):\n{code[:3000]}"
+                )
             if v.n_fixed > 0 and v.n_broken > 0:
                 heterogeneous.append(
                     f"  '{c.name}' HELPED {v.fixed_cases[:4]} but HURT "
                     f"{v.broken_cases[:4]} — these two groups differ; either gate "
                     "the fix so it only applies to the helped group, or target the "
-                    "mechanism that separates them."
+                    f"mechanism that separates them. HELPED PROMPTS={helped_prompts}; "
+                    f"HURT PROMPTS={hurt_prompts}."
                 )
         if not items:
             return ""
@@ -2158,6 +2242,11 @@ class FixAgent:
                 "\n\nHETEROGENEITY — a prior fix helped some cases and broke "
                 "others. Prefer a CONDITIONAL fix (apply only where it helps) "
                 "over a stronger global transform:\n" + "\n".join(heterogeneous)
+            )
+        if implementations:
+            block += (
+                "\n\nEXPLORE-TESTED IMPLEMENTATION(S) TO REVISE:\n"
+                + "\n\n".join(implementations)
             )
         return block
 
@@ -2982,6 +3071,8 @@ class FixAgent:
             enable_attend=bool(candidate.payload.get("enable_attend")),
             max_tokens_floor=self._max_tokens_floor,
             concurrency=self._concurrency,
+            consensus_min_support=int(candidate.payload.get("consensus_min_support", 0)),
+            max_calls_per_case=int(candidate.payload.get("max_calls_per_case", 0)),
         )
         if not result.ok and self.codegen_available:
             logger.warning("FixAgent: coded pipeline failed (%s) — one repair round", result.error)
@@ -3006,8 +3097,17 @@ class FixAgent:
                     enable_attend=bool(candidate.payload.get("enable_attend")),
                     max_tokens_floor=self._max_tokens_floor,
                     concurrency=self._concurrency,
+                    consensus_min_support=int(
+                        candidate.payload.get("consensus_min_support", 0)
+                    ),
+                    max_calls_per_case=int(candidate.payload.get("max_calls_per_case", 0)),
                 )
         candidate.payload["exec_error"] = "" if result.ok else result.error
+        candidate.payload["selection_guard"] = {
+            "min_support": int(candidate.payload.get("consensus_min_support", 0)),
+            "n_guarded": result.n_guarded,
+            "guarded_ids": result.guarded_ids,
+        }
         if not result.ok:
             logger.warning("FixAgent: coded pipeline produced no result: %s", result.error)
         return result
@@ -3031,6 +3131,8 @@ class FixAgent:
         ctrl = frozen_model_control(
             candidate.payload["code"], data, workdir=workdir,
             timeout_sec=self._exec_timeout_sec,
+            consensus_min_support=int(candidate.payload.get("consensus_min_support", 0)),
+            max_calls_per_case=int(candidate.payload.get("max_calls_per_case", 0)),
         )
         solved: "list[str]" = []
         if ctrl.ok:

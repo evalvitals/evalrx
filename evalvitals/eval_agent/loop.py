@@ -1263,6 +1263,18 @@ class VLDiagnoseLoop:
         if confirm is not None:
             data = confirm
 
+        # Tier escalation is feedback-driven: the next tier is authored after
+        # observing which CONFIRM cases the previous tier repaired/broke.  That
+        # invalidates the holdout just as surely as tuning a prompt on it.  A
+        # held-out run therefore pre-registers one repair family at the caller's
+        # configured ceiling; a failed attempt needs a fresh split/run seed.
+        if confirm is not None and auto_escalate:
+            logger.warning(
+                "run_fix: disabling adaptive tier escalation on held-out "
+                "confirmation data; use a fresh split for another attempt"
+            )
+            auto_escalate = False
+
         agent = fix_agent or self.fix_agent
         # M4's intervention experiment (run_m4) can REFUTE the very hypothesis
         # M5 verified. A refuted hypothesis must not reach the proposer as
@@ -1378,9 +1390,115 @@ class VLDiagnoseLoop:
             report.fix_outcome = last_outcome
             return last_outcome
 
-        # Non-escalating path: single shot at the requested tier.
+        # Non-escalating path.  With a held-out split this is a genuine
+        # two-stage repair experiment: the agent may iterate and select on
+        # EXPLORE, then exactly one frozen candidate is tested on CONFIRM.
+        # Selection statistics are descriptive only; the final paired gate is
+        # computed from CONFIRM alone.
         if max_tier is not None:
             agent.max_tier = parse_tier(max_tier)
+        if confirm is not None:
+            from evalvitals.eval_agent.stages.fix_agent import FixOutcome
+
+            agent_logger = getattr(agent, "run_logger", None)
+            agent.run_logger = None
+            try:
+                selection = _propose_and_validate(
+                    agent, self.model, explore, hypotheses, context=context
+                )
+            finally:
+                agent.run_logger = agent_logger
+
+            # Custom/legacy agents may return an opaque application-specific
+            # result rather than FixOutcome.  They cannot participate in the
+            # built-in frozen-candidate confirmation protocol, but preserving
+            # their return contract is preferable to turning a diagnostic run
+            # into an AttributeError.
+            if not hasattr(selection, "attempted"):
+                report.fix_outcome = selection
+                return selection
+
+            executed = [
+                validation
+                for validation in selection.attempted
+                if validation.n_pairs > 0 and validation.effect is not None
+            ]
+            improving = [
+                validation
+                for validation in executed
+                if validation.n_fixed > validation.n_broken
+            ]
+            selected = max(
+                improving,
+                key=lambda validation: (
+                    validation.effect or 0.0,
+                    -validation.n_broken,
+                    validation.n_fixed,
+                ),
+                default=None,
+            )
+            audit = [
+                {
+                    "name": validation.candidate.name,
+                    "tier": validation.candidate.tier.label,
+                    "n_pairs": validation.n_pairs,
+                    "n_fixed": validation.n_fixed,
+                    "n_broken": validation.n_broken,
+                    "effect": validation.effect,
+                    "verdict": validation.verdict,
+                }
+                for validation in selection.attempted
+            ]
+            if selected is None:
+                outcome = FixOutcome(
+                    max_tier=agent.max_tier,
+                    repair_rounds=selection.repair_rounds,
+                    selection_attempted=audit,
+                    recommendation={
+                        "recommend_tier": agent.max_tier.label,
+                        "reason": (
+                            "no EXPLORE candidate had positive net repairs; "
+                            "CONFIRM was left untouched"
+                        ),
+                    },
+                )
+            else:
+                validation = agent.validate_candidate(
+                    self.model,
+                    confirm,
+                    selected.candidate,
+                )
+                survivors = agent._ebh_survivors(
+                    [validation] if validation.e_value is not None else []
+                )
+                survived = id(validation) in survivors
+                outcome = FixOutcome(
+                    max_tier=agent.max_tier,
+                    attempted=[validation],
+                    best=validation if validation.fixed and survived else None,
+                    fixed=bool(validation.fixed and survived),
+                    repair_rounds=selection.repair_rounds,
+                    ebh_survivors=[validation.candidate.name] if survived else [],
+                    selection_attempted=audit,
+                    selected_on_explore=selected.candidate.name,
+                )
+                if not outcome.fixed:
+                    outcome.recommendation = {
+                        "recommend_tier": agent.max_tier.label,
+                        "reason": (
+                            "the candidate selected on EXPLORE did not validate "
+                            "on untouched CONFIRM"
+                        ),
+                    }
+                outcome.refine_signal = agent._refine_signal([validation], confirm)
+            try:
+                if agent_logger is not None:
+                    agent_logger.log_fix(outcome)
+            except Exception as exc:
+                logger.debug("run_fix: held-out log_fix failed: %s", exc)
+            report.fix_outcome = outcome
+            return outcome
+
         outcome = _propose_and_validate(agent, self.model, data, hypotheses, context=context)
         report.fix_outcome = outcome
         return outcome

@@ -268,3 +268,15 @@ def test_hf_local_generate_treats_max_tokens_as_max_new_tokens_alias():
     assert recorder.captured["max_new_tokens"] == 7
     assert "max_tokens" not in recorder.captured
     assert out2 == "t99"
+
+    # Backend-neutral PipelineSpec controls must not leak invalid HF kwargs.
+    m.generate(Inputs(prompt="hi"), temperature=0.0, stop=[])
+    assert recorder.captured["do_sample"] is False
+    assert "temperature" not in recorder.captured
+    assert "stop" not in recorder.captured
+
+    m.generate(Inputs(prompt="hi"), temperature=0.7, stop=["DONE"])
+    assert recorder.captured["do_sample"] is True
+    assert recorder.captured["temperature"] == 0.7
+    assert recorder.captured["stop_strings"] == ["DONE"]
+    assert recorder.captured["tokenizer"] is m._hf[1]

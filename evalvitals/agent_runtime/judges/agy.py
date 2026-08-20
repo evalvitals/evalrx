@@ -95,6 +95,10 @@ class AgyModel:
                 self._binary,
                 "-p",
                 prompt_text,
+                # A judge receives the evidence explicitly in its prompt. It
+                # must not inspect repository files, benchmark manifests, or
+                # held-out labels through terminal tools.
+                "--sandbox",
                 "--dangerously-skip-permissions",
                 "--log-file",
                 log_path,

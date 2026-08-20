@@ -278,15 +278,32 @@ class HypothesisTester:
         stats_results = list(getattr(stats_report, "stats_results", None) or [])
         if stats_results:
             core = self._verdict_from_stats_results(hypothesis, stats_report, stats_results)
-            if core.get("evidence_grade") == "none":
+            # An explicit M3 test design is a preregistration, not a hint. If
+            # that experiment was not run, unrelated signals must not be used
+            # to support/refute the claim. The next loop cycle can run it.
+            if core.get("evidence_grade") == "none" and not hypothesis.test_design.strip():
                 core = self._verdict_fallback(hypothesis, stats_report, data, family_size)
             elif core.get("evidence_grade") == "unmet":
                 # The design named evidence nobody measured: stay inconclusive
                 # rather than let the generic per-case fallback (any truthy
                 # analyzer value vs FAIL) manufacture a verdict about it.
                 core["evidence_grade"] = "none"
-        else:
+        elif not hypothesis.test_design.strip():
             core = self._verdict_fallback(hypothesis, stats_report, data, family_size)
+        else:
+            core = {
+                "status": HypothesisStatus.INCONCLUSIVE,
+                "effect_size": None,
+                "confidence": 0.0,
+                "verdict": "The preregistered test was not run; no substitute evidence was used.",
+                "test_name": "preregistered_test_unavailable",
+                "evidence_grade": "none",
+                "evidence": {
+                    "source": "preregistered_test",
+                    "test_design": hypothesis.test_design,
+                    "reason": "no M2 statistical result for the named test",
+                },
+            }
 
         status: HypothesisStatus = core["status"]
         verdict: str = core["verdict"]
@@ -361,12 +378,21 @@ class HypothesisTester:
         # "step_rollout_value.initial_value ... 5/8 chains sit at 0.0 from step
         # 0") predicts a NEGATIVE effect, and reading every negative effect as
         # "protective -> refuted" rejected hypotheses the data agreed with. The
-        # predicted direction is read from the hypothesis text (TEST line first);
-        # absent any cue the classic reading (signal marks the failure) stands.
-        expected = {id(r): _expected_sign(hypothesis, _tool_signal(r)) for r in decisive}
+        # preregistered EXPECTED_ASSOCIATION field is the structured form of
+        # that prediction and takes precedence for every routed signal; absent
+        # it, the direction is read from the hypothesis text (TEST line first)
+        # per signal; absent any cue the classic reading (signal marks the
+        # failure) stands.
+        expected = str(getattr(hypothesis, "expected_association", "") or "").lower()
+        declared_sign = {"lower_on_failures": -1, "higher_on_failures": 1}.get(expected)
+        expected_by_result = {
+            id(r): (declared_sign if declared_sign is not None
+                    else _expected_sign(hypothesis, _tool_signal(r)))
+            for r in decisive
+        }
 
         def _agrees(r: "StatsToolResult") -> bool:
-            exp = expected[id(r)]
+            exp = expected_by_result[id(r)]
             eff = float(r.effect or 0.0)
             return eff > 0 if exp is None else (eff > 0) == (exp > 0)
 
@@ -459,6 +485,7 @@ class HypothesisTester:
             "underpowered": chosen.underpowered,
             "consulted_tools": consulted,
             "routed_by": routed_by,
+            "expected_association": expected or "higher_on_failures",
             "evidence_grade": grade,
             "fdr": corrected,
         }
@@ -516,9 +543,14 @@ class HypothesisTester:
             by_analyzer = [r for r in signal_res if _tool_ids(r, level="analyzer") & design_ids]
             if by_analyzer:
                 return by_analyzer, global_res, "test_design"
-        # 2. Words of the design (generic tokens removed) against the SIGNAL's
-        #    own words — never the tool name ("signal_label_assoc" is in every
-        #    tool text) and never a stop word.
+            # The design named EXACT identifiers and none of them is in M2's
+            # results. Falling through to fuzzy words here let one generic
+            # overlap ("attention") claim the preregistered experiment ran on
+            # an unrelated signal; a named-but-unmeasured design is unmet.
+            return [], global_res, "test_design_unmet"
+        # 2. Prose designs only (no identifiers): words of the design (generic
+        #    tokens removed) against the SIGNAL's own words — never the tool
+        #    name ("signal_label_assoc" is in every tool text), never a stop word.
         design_kw = _signal_keywords(design_raw)
         if design_kw:
             designed = [r for r in signal_res if design_kw & _tool_keywords(r)]

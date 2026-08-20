@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import subprocess
 import sys
 import threading
@@ -160,6 +161,8 @@ class CodedPipelineResult:
     n_calls: int = 0
     ok: bool = False
     error: str = ""
+    n_guarded: int = 0
+    guarded_ids: "list[str]" = field(default_factory=list)
 
 
 def run_coded_pipeline(
@@ -173,6 +176,8 @@ def run_coded_pipeline(
     reply_fn: "Callable[[Any, str], str] | None" = None,
     max_tokens_floor: "int | None" = None,
     concurrency: int = 1,
+    consensus_min_support: int = 0,
+    max_calls_per_case: int = 0,
 ) -> CodedPipelineResult:
     """Execute agent-written pipeline *code* with bridged model access.
 
@@ -249,8 +254,11 @@ def run_coded_pipeline(
     deadline = time.monotonic() + timeout_sec
 
     result_line: "str | None" = None
+    call_records: "dict[str, list[tuple[bool, str, str]]]" = {}
+    calls_per_case: "dict[str, int]" = {}
     unmarked_tail: "list[str]" = []  # fallback: last non-marker stdout lines
     stdin_lock = threading.Lock()
+    records_lock = threading.Lock()
     pool = (ThreadPoolExecutor(max_workers=max(1, int(concurrency)))
             if int(concurrency) > 1 else None)
 
@@ -269,30 +277,78 @@ def run_coded_pipeline(
             except (BrokenPipeError, OSError, ValueError):
                 return False
 
-    def _serve(raw: str) -> None:
+    def _serve(raw: str, request: "dict[str, Any]", case_id: str) -> bool:
         reply = _service_call(raw, case_by_id, model, Inputs, enable_attend,
                               reply_fn, max_tokens_floor=max_tokens_floor)
         reply["rid"] = _rid_of(raw)
-        _send(reply)
+        # Record the call for the gold-free consensus guard: was it the direct
+        # baseline (untouched prompt, no ops), and what did it answer?
+        try:
+            if "output" in reply and case_id in case_by_id:
+                original_prompt = str(
+                    getattr(getattr(case_by_id[case_id], "inputs", None), "prompt", "")
+                )
+                supplied_prompt = request.get("prompt")
+                is_direct = (
+                    request.get("op") is None
+                    and not request.get("image_ops")
+                    and (supplied_prompt is None or str(supplied_prompt) == original_prompt)
+                )
+                signature = json.dumps(
+                    {
+                        "prompt": supplied_prompt,
+                        "image_ops": request.get("image_ops") or [],
+                    },
+                    sort_keys=True,
+                )
+                with records_lock:
+                    call_records.setdefault(case_id, []).append(
+                        (is_direct, signature, str(reply.get("output", "")))
+                    )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+        return _send(reply)
 
     try:
         for line in proc.stdout:  # type: ignore[union-attr]
             stripped = line.strip()
             if stripped.startswith(CALL_MARKER):
                 res.n_calls += 1
+                if res.n_calls % 100 == 0:
+                    logger.info(
+                        "fix_pipeline: serviced %d model calls (budget=%d)",
+                        res.n_calls,
+                        budget,
+                    )
                 if res.n_calls > budget or time.monotonic() > deadline:
                     res.error = f"model-call budget exhausted ({budget} calls)"
                     proc.kill()
                     break
                 raw = stripped[len(CALL_MARKER):]
+                # Selection-safety accounting runs on THIS (serial) reader
+                # thread before dispatch, so the per-case cap is deterministic
+                # under concurrency too; the reply itself may be serviced by
+                # the pool.
+                try:
+                    request = json.loads(raw)
+                    case_id = str(request.get("case_id", ""))
+                    calls_per_case[case_id] = calls_per_case.get(case_id, 0) + 1
+                    if (
+                        max_calls_per_case > 0
+                        and calls_per_case[case_id] > max_calls_per_case
+                    ):
+                        res.error = (
+                            "selection-safety contract violated: more than "
+                            f"{max_calls_per_case} model calls for case {case_id!r}"
+                        )
+                        proc.kill()
+                        break
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    request, case_id = {}, ""
                 if pool is not None:
-                    pool.submit(_serve, raw)
+                    pool.submit(_serve, raw, request, case_id)
                 else:
-                    reply = _service_call(raw, case_by_id, model, Inputs,
-                                          enable_attend, reply_fn,
-                                          max_tokens_floor=max_tokens_floor)
-                    reply["rid"] = _rid_of(raw)
-                    if not _send(reply):
+                    if not _serve(raw, request, case_id):
                         break
             elif stripped.startswith(RESULT_MARKER):
                 result_line = stripped[len(RESULT_MARKER):]
@@ -353,8 +409,61 @@ def run_coded_pipeline(
     for entry in per_case:
         if isinstance(entry, dict) and str(entry.get("sample_id", "")) in case_by_id:
             res.outputs[str(entry["sample_id"])] = str(entry.get("output", ""))
+    if consensus_min_support > 0:
+        missing_direct = []
+        for case_id, final_output in list(res.outputs.items()):
+            records = call_records.get(case_id, [])
+            direct = next(
+                (output for is_direct, _signature, output in records if is_direct), None
+            )
+            if direct is None:
+                missing_direct.append(case_id)
+                continue
+            if _answers_match(final_output, direct):
+                continue
+            support = len({
+                signature for is_direct, signature, output in records
+                if not is_direct and _answers_match(final_output, output)
+            })
+            if support < consensus_min_support:
+                res.outputs[case_id] = direct
+                res.guarded_ids.append(case_id)
+        if missing_direct:
+            res.outputs.clear()
+            res.error = (
+                "selection-safety contract violated: no direct baseline "
+                f"model_generate(case_id) call for {len(missing_direct)} case(s)"
+            )
+            return res
+        res.n_guarded = len(res.guarded_ids)
     res.ok = bool(res.outputs)
     return res
+
+
+def _answer_key(value: str) -> str:
+    """Best-effort answer-only key used by the gold-free consensus guard."""
+    text = str(value or "").strip()
+    matches = re.findall(
+        r"(?:final\s+answer|answer)\s*[:=]\s*([^\n]+)", text,
+        flags=re.IGNORECASE,
+    )
+    if matches:
+        text = matches[-1]
+    else:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if lines:
+            text = lines[-1]
+    text = re.sub(r"[`*_]+", "", text).strip().lower()
+    text = re.sub(r"^(?:the\s+answer\s+is|it\s+is)\s+", "", text)
+    text = text.strip(" .,:;!?\"'")
+    return re.sub(r"[^\w.%+\-/]+", " ", text).strip()
+
+
+def _answers_match(left: str, right: str) -> bool:
+    left_key, right_key = _answer_key(left), _answer_key(right)
+    if not left_key or not right_key:
+        return False
+    return left_key == right_key
 
 
 def _service_call(
@@ -416,6 +525,11 @@ def _service_call(
         if model is None:
             return {"error": "no model behind the bridge"}
         gen_kwargs = _safe_generation_kwargs(req.get("generation_kwargs"))
+        # ``do_sample`` is an internal normalization used by declarative
+        # PipelineSpec execution.  The code bridge exposes only the documented
+        # portable controls; adapters infer their sampling mode from a positive
+        # temperature where appropriate.
+        gen_kwargs.pop("do_sample", None)
         if (
             max_tokens_floor
             and "max_tokens" in gen_kwargs
@@ -439,6 +553,8 @@ def frozen_model_control(
     workdir: "Path | str",
     timeout_sec: int = 600,
     max_calls: "int | None" = None,
+    consensus_min_support: int = 0,
+    max_calls_per_case: int = 0,
 ) -> CodedPipelineResult:
     """Re-run *code* with the model frozen: every bridged call is answered with
     the case's recorded baseline output (``case.observed``; ``""`` when a case
@@ -471,6 +587,8 @@ def frozen_model_control(
     return run_coded_pipeline(
         code, None, cases, workdir=workdir, timeout_sec=timeout_sec,
         max_calls=max_calls, reply_fn=_replay,
+        consensus_min_support=consensus_min_support,
+        max_calls_per_case=max_calls_per_case,
     )
 
 

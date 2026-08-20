@@ -118,6 +118,36 @@ def test_keyword_fallback_when_no_design():
     assert tr.evidence_grade == "observational"
 
 
+def test_unavailable_preregistered_design_does_not_use_keyword_substitute():
+    h = _hyp(
+        "Zero correct samples indicate a visual attention lock-on.",
+        design="new_attention_probe.target_region_mass",
+    )
+    tr = HypothesisTester().test([h], _report(), _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.INCONCLUSIVE
+    assert tr.test_name == "stats_results"
+    # one canonical marker for "design named evidence M2 did not measure"
+    assert tr.evidence["routed_by"] == "test_design_unmet"
+    assert tr.evidence_grade == "none"
+
+
+def test_preregistered_lower_on_failures_direction_supports_negative_effect():
+    report = _report()
+    report.stats_results[1].reject = True
+    report.stats_results[1].ci = (-0.7, -0.1)
+    h = Hypothesis(
+        statement="Failures have depressed target-region attention.",
+        target_model="m",
+        predicted_failure_mode="attention_sink",
+        test_design="relative_attention.max_relative_weight",
+        expected_association="lower_on_failures",
+    )
+    tr = HypothesisTester().test([h], report, _labeled_batch())[0]
+    assert tr.status == HypothesisStatus.SUPPORTED
+    assert tr.effect_size == -0.3
+    assert tr.evidence["expected_association"] == "lower_on_failures"
+
+
 def test_descriptive_tool_never_becomes_inconclusive_headline():
     """single_rate_evalue (rate−0.5 = large |effect|) must NOT be surfaced as the
     'best' result when nothing discriminates — that printed a meaningless
@@ -196,15 +226,39 @@ class ScriptedJudge(FakeModel):
         return self._answer
 
 
+class TwoAnswerJudge(FakeModel):
+    def __init__(self, answers: list[str]) -> None:
+        super().__init__(capabilities={Capability.GENERATE})
+        self._answers = iter(answers)
+
+    def generate(self, inputs, **kw) -> str:
+        return next(self._answers)
+
+
 def test_diagnosis_parses_test_line_into_design():
     judge = ScriptedJudge(
         "HYPOTHESIS: the model ignores the image\n"
         "FAILURE_MODE: visual_blindness\n"
         "TEST: relative_attention.max_relative_weight association\n"
+        "EXPECTED_ASSOCIATION: lower_on_failures\n"
     )
     diag = DiagnosisAgent(judge=judge).diagnose(_report())
     assert len(diag.hypotheses) == 1
     assert diag.hypotheses[0].test_design == "relative_attention.max_relative_weight association"
+    assert diag.hypotheses[0].expected_association == "lower_on_failures"
+
+
+def test_successful_critic_rejection_does_not_restore_rejected_hypothesis():
+    judge = TwoAnswerJudge([
+        "HYPOTHESIS: the model ignores visual evidence entirely\n"
+        "FAILURE_MODE: visual_blindness\n"
+        "TEST: relative_attention.max_relative_weight\n"
+        "EXPECTED_ASSOCIATION: lower_on_failures\n",
+        "REJECT: the model ignores visual evidence entirely\n"
+        "REASON: the cited evidence does not test that mechanism\n",
+    ])
+    diag = DiagnosisAgent(judge=judge).diagnose(_report())
+    assert diag.hypotheses == []
 
 
 def test_diagnosis_prompt_lists_available_evidence():
@@ -218,7 +272,10 @@ def test_diagnosis_prompt_lists_available_evidence():
 
 def test_hypothesis_test_design_round_trips():
     h = _hyp("s", design="pope.false_negative")
-    assert hypothesis_from_dict(hypothesis_to_dict(h)).test_design == "pope.false_negative"
+    h.expected_association = "higher_on_failures"
+    restored = hypothesis_from_dict(hypothesis_to_dict(h))
+    assert restored.test_design == "pope.false_negative"
+    assert restored.expected_association == "higher_on_failures"
 
 
 # ── P3 M1: designs reach cycle-2 selection prompt ───────────────────────────

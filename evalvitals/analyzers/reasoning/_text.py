@@ -130,6 +130,8 @@ def answer_equal(prediction: Any, gold: Any, rel_tol: float = 1e-6) -> bool:
     "the answer is 18" convention); short non-numeric golds — MC letters, yes/no
     — need a standalone token match so that ``"b"`` does not match "probably".
     """
+    if isinstance(gold, (list, tuple, set, frozenset)):
+        return any(answer_equal(prediction, item, rel_tol=rel_tol) for item in gold)
     pred = normalize_answer(prediction)
     exp = normalize_answer(gold)
     if not exp:
@@ -159,7 +161,8 @@ def default_grader(prediction: Any, case: "FailureCase") -> Optional[bool]:
     """Grade *prediction* against ``case.expected`` (``None`` = ungradable)."""
     if case.expected is None:
         return None
-    return answer_equal(extract_answer(prediction), case.expected)
+    tolerance = float((getattr(case, "metadata", {}) or {}).get("numeric_tolerance", 1e-6))
+    return answer_equal(extract_answer(prediction), case.expected, rel_tol=tolerance)
 
 
 # ----------------------------------------------------------------------

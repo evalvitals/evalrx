@@ -74,6 +74,20 @@ _CORRECTNESS_NAME = re.compile(
     r"(?:^|_)(?:correct|incorrect|label|labelled|passed|is_pass)(?:_|$)"
     r"|_match$|^match$"
 )
+# These answer-audit fields are defined using the gold and/or the stored
+# PASS/FAIL label.  A sparse flag can have low whole-batch agreement while
+# still making ``P(FAIL | flag)=1`` by construction, so an association test is
+# circular.  They remain useful descriptive sanity signals, never candidate
+# discriminators for M2/M5.
+_LABEL_DERIVED_SUFFIXES = frozenset({
+    "answer_extraction_audit.extraction_suspect",
+    "answer_extraction_audit.extraction_point_miss",
+    "answer_extraction_audit.gold_in_output",
+    "answer_extraction_audit.gold_in_answer_region",
+    "answer_extraction_audit.strict_match",
+    "answer_extraction_audit.label_disagrees",
+    "answer_extraction_audit.labelled_fail",
+})
 
 
 def restates_label(inp: Any, signal: str) -> bool:
@@ -104,19 +118,21 @@ def restates_label(inp: Any, signal: str) -> bool:
 
     Two further things this deliberately does NOT do:
 
-    * It does not judge by the conditional rate. ``extraction_suspect`` also had
-      ``P(FAIL | signal) = 1.000`` and is a REAL finding covering 2 of 16
-      failures; what separates it is that it says nothing about the other 30
-      cases, so its agreement with the label is 0.56, not 1.0. Screening on the
-      conditional would have discarded the one signal worth keeping.
+    * It does not judge arbitrary signals by the conditional rate. A sparse,
+      independently measured flag may legitimately have
+      ``P(FAIL | signal)=1``. The explicit answer-audit exceptions above are
+      removed by provenance because their definitions use gold/labels, not
+      because of their observed conditional rate.
     * It does not touch continuous signals. Restatement is an identity claim,
       and a continuous measure binarised at some threshold can drift into high
       agreement without being the label at all.
     """
+    labels = getattr(inp, "labels", {}) or {}
+    if str(signal).lower() in _LABEL_DERIVED_SUFFIXES:
+        return bool(labels)
     if not _CORRECTNESS_NAME.search(str(signal).rsplit(".", 1)[-1].lower()):
         return False
     sigmap = (getattr(inp, "per_case", {}) or {}).get(signal, {})
-    labels = getattr(inp, "labels", {}) or {}
     shared = [key for key in sigmap if key in labels]
     if len(shared) < _MIN_CASES_TO_JUDGE_RESTATEMENT:
         return False
