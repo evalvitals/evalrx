@@ -998,6 +998,30 @@ def test_l0_vcd_is_proposed_when_false_yes_hallucinations_dominate():
     assert "vcd_diffusion_noise" in {candidate.name for candidate in candidates}
 
 
+def test_l0_vcd_is_not_proposed_on_an_audio_only_batch():
+    """A multimodal backend exposes generate_vcd even when the batch carries
+    no image (live: audiocaps_hallucination_qwen2_audio proposed both VCD
+    candidates for an audio-only yes/no batch; each ran as not_executed)."""
+
+    class AudioBackendWithVCD(AADSensitiveModel):
+        def generate_vcd(self, inputs, **kwargs):
+            return "Yes."
+
+    batch = _gold_audio_yes_batch(n=8)
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.expected = "No"
+        case.observed = "Yes"
+    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override audio evidence")], batch, AudioBackendWithVCD()
+    )
+
+    names = {candidate.name for candidate in candidates}
+    assert "vcd_diffusion_noise" not in names
+    assert "vcd_diffusion_noise_gated_false_yes" not in names
+    assert "aad_silence_contrast" in names  # the audio method still is
+
+
 def test_l0_aad_candidate_repairs_binary_audio_grounding():
     batch = _gold_audio_yes_batch(n=8)
 

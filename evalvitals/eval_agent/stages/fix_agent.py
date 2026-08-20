@@ -1397,6 +1397,16 @@ class FixAgent:
             model is not None and Capability.LOGPROBS in getattr(model, "capabilities", frozenset())
         )
         supports_vcd = supports_logprobs and callable(getattr(model, "generate_vcd", None))
+        # VCD distorts an IMAGE; a multimodal backend exposes generate_vcd even
+        # when this batch is audio-only (caught live: audiocaps_hallucination
+        # proposed both VCD candidates, each ran as not_executed). Require a
+        # visual input on at least one case, like every other visual tier.
+        has_visual = any(
+            getattr(getattr(case, "inputs", None), "image", None) is not None
+            or getattr(getattr(case, "inputs", None), "video", None) is not None
+            for case in data
+        )
+        supports_vcd = supports_vcd and has_visual
         hallucination_direction_supported, _, _ = _binary_hallucination_direction(data)
         if (
             tasks == {"yes_no"}

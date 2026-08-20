@@ -597,7 +597,11 @@ def main() -> int:
         elif outcome.recommendation is not None:
             rec = outcome.recommendation
             print(f"  VERDICT    : not fixed within {args.fix_max_tier}")
-            print(f"  RECOMMEND  : raise the intervention tier to {rec['recommend_tier']}")
+            if str(rec["recommend_tier"]).lower() == str(args.fix_max_tier).lower():
+                print(f"  RECOMMEND  : stay within {rec['recommend_tier']} -- {rec['reason']}")
+            else:
+                print(f"  RECOMMEND  : raise the intervention tier to {rec['recommend_tier']} "
+                      f"-- {rec['reason']}")
         else:
             print(f"  VERDICT    : not fixed; already at the highest tier ({args.fix_max_tier})")
 
