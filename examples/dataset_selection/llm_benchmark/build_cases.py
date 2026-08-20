@@ -188,7 +188,8 @@ def main() -> None:
     acc, trunc = report["accuracy"], report["truncated_rate"]
     census = " (CENSUS of the slice)" if report["is_census"] else ""
     print(f"  accuracy {report['n_pass']}/{report['n']} = {acc:.3f}{census} "
-          f"(9B reference {report['reference_9b_accuracy']:.3f})")
+          f"(catalog anchor: qwen3.5-9b scored {report['reference_9b_accuracy']:.3f} "
+          f"on this slice — band-selection reference, not this model)")
     print(f"  truncated {trunc:.0%}   errors {report['error_rate']:.0%}   "
           f"{report['seconds']:.0f}s")
 

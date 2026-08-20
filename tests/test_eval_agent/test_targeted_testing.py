@@ -248,7 +248,11 @@ def test_diagnosis_parses_test_line_into_design():
     assert diag.hypotheses[0].expected_association == "lower_on_failures"
 
 
-def test_successful_critic_rejection_does_not_restore_rejected_hypothesis():
+def test_critic_rejection_annotates_instead_of_deleting():
+    """A critic that rejects every proposal used to end the run at
+    '0 hypothesis/es' (three llm_benchmark runs on 2026-08-20) with no
+    M5/M4/fix. The verdict is provenance now: the hypothesis stays, flagged,
+    and the held-out M5 decides."""
     judge = TwoAnswerJudge([
         "HYPOTHESIS: the model ignores visual evidence entirely\n"
         "FAILURE_MODE: visual_blindness\n"
@@ -258,7 +262,12 @@ def test_successful_critic_rejection_does_not_restore_rejected_hypothesis():
         "REASON: the cited evidence does not test that mechanism\n",
     ])
     diag = DiagnosisAgent(judge=judge).diagnose(_report())
-    assert diag.hypotheses == []
+    assert len(diag.hypotheses) == 1
+    h = diag.hypotheses[0]
+    assert h.metadata["critic"] == "reject"
+    assert h.metadata["critic_reason"] == "the cited evidence does not test that mechanism"
+    assert diag.n_critic_rejected == 1 and diag.n_critic_kept == 0
+    assert "REJECT:" in diag.critic_raw_output
 
 
 def test_diagnosis_prompt_lists_available_evidence():

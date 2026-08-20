@@ -117,9 +117,14 @@ def _unverified_hypotheses(report: "Any") -> "list[Any]":
     seen: set[str] = set()
     out: list[Any] = []
     tested = list(getattr(report, "all_test_results", None) or [])
+
+    def _critic_ok(tr: "Any") -> int:
+        meta = getattr(getattr(tr, "hypothesis", None), "metadata", None) or {}
+        return 0 if meta.get("critic") == "reject" else 1
+
     ranked = sorted(
         tested,
-        key=lambda tr: float(getattr(tr, "confidence", 0.0) or 0.0),
+        key=lambda tr: (float(getattr(tr, "confidence", 0.0) or 0.0), _critic_ok(tr)),
         reverse=True,
     )
     for tr in ranked:

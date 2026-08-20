@@ -74,7 +74,48 @@ class _Critic(FakeModel):
 
 def test_critic_keep_lines_in_markdown_are_honoured():
     hs = _parse_hypotheses(_LIVE_STYLE, "qwen")
-    kept = _validate_hypotheses(
+    out = _validate_hypotheses(
         hs, "{}", _Critic("Verdicts:\n- **KEEP:** the long-list failures are multiset errors on an otherwise ordered output.\n- **REJECT:** the probe one"),
     )
-    assert [h.predicted_failure_mode for h in kept] == ["computation_slip"]
+    # annotate, never filter: every proposal comes back, kept ones first
+    assert len(out) == len(hs)
+    assert out[0].predicted_failure_mode == "computation_slip"
+    assert out[0].metadata["critic"] == "keep"
+    assert {h.metadata["critic"] for h in out[1:]} <= {"reject", "unparsed"}
+
+
+def test_critic_rejecting_everything_keeps_flagged_leads():
+    hs = _parse_hypotheses(_LIVE_STYLE, "qwen")
+    cap = {}
+    out = _validate_hypotheses(
+        hs, "{}",
+        _Critic("\n".join(
+            f"REJECT: {h.statement}\nREASON: n=32 cannot separate this from chance"
+            for h in hs)),
+        capture=cap,
+    )
+    assert len(out) == len(hs)
+    assert all(h.metadata["critic"] == "reject" for h in out)
+    assert all(h.metadata["critic_reason"].startswith("n=32") for h in out)
+    assert cap["n_rejected"] == len(hs) and cap["n_kept"] == 0
+    assert "REJECT:" in cap["raw"]
+
+
+def test_unparsable_critic_marks_hypotheses_unreviewed():
+    hs = _parse_hypotheses(_LIVE_STYLE, "qwen")
+    out = _validate_hypotheses(hs, "{}", _Critic("I cannot review these."))
+    assert len(out) == len(hs)
+    assert all(h.metadata["critic"] == "unparsed" for h in out)
+
+
+def test_markdown_expected_association_label_is_normalised():
+    raw = (
+        "**HYPOTHESIS:** the chain breaks on long lists of words\n"
+        "**FAILURE_MODE:** chain_break\n"
+        "**TEST:** step_rollout_value.max_value_drop HIGHER on failing cases\n"
+        "**EXPECTED_ASSOCIATION:** higher_on_failures\n"
+    )
+    hs = _parse_hypotheses(raw, "m")
+    assert len(hs) == 1
+    assert hs[0].expected_association == "higher_on_failures"
+    assert hs[0].test_design.startswith("step_rollout_value.max_value_drop")

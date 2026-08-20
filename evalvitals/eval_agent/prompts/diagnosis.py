@@ -56,6 +56,7 @@ Findings summary (the evidence the hypotheses were drawn from):
 Hypotheses to review:
 {hypotheses_text}
 
-For each hypothesis output exactly two lines:
+For each hypothesis output two lines:
 KEEP: <hypothesis statement>  or  REJECT: <hypothesis statement>
+REASON: <one or two sentences naming the flaw you found, or why it survives>
 REASON: <specific flaw, or "evidence directly supports this claim" if keeping>"""
