@@ -1,0 +1,72 @@
+[
+  {
+    "hypothesis": "The rotation-only format-sensitivity probe undercounts the true bias \u2014 the model is not fixed on a specific letter but on a shifted-index heuristic (e.g., \"the option after the one it means to pick\"), which cyclic rotation alone cannot distinguish from genuine letter-prior and would only surface under full (non-cyclic) permutation testing.",
+    "failure_mode": "language_prior_bias",
+    "status": "supported",
+    "effect_size": 0.4363636363636364,
+    "confidence": 0.444,
+    "protocol_consistent": true,
+    "verdict": "signal_label_assoc: signal 'format_sensitivity.positional_bias' vs FAIL: [clustered bootstrap (unpaired)] effect=+0.4364 (B>A) CI=+0.1455..+0.6909 -> REJECT H0 [BH: survived, p=0.0114, n_signal=15]",
+    "evidence": {
+      "source": "m2_stats_results",
+      "chosen_tool": "signal_label_assoc",
+      "expected_direction": null,
+      "effect_size": 0.4363636363636364,
+      "ci": [
+        0.14545454545454545,
+        0.6909090909090909
+      ],
+      "e_value": null,
+      "reject": true,
+      "underpowered": false,
+      "consulted_tools": [
+        "signal_label_assoc",
+        "rank_corr",
+        "rank_corr",
+        "rank_corr",
+        "rank_corr",
+        "rank_corr",
+        "rank_corr"
+      ],
+      "routed_by": "test_design",
+      "expected_association": "higher_on_failures",
+      "evidence_grade": "observational",
+      "fdr": {
+        "method": "BH",
+        "alpha": 0.05,
+        "n_tested": 12,
+        "rejected_tools": [
+          "signal_label_assoc"
+        ],
+        "rejected_result_keys": [
+          "signal_label_assoc:coverage_verification_gap.n_correct",
+          "signal_label_assoc:answer_extraction_audit.output_chars",
+          "signal_label_assoc:answer_extraction_audit.output_truncated",
+          "signal_label_assoc:termination_audit.recovered_by_continuation",
+          "signal_label_assoc:termination_audit.output_chars",
+          "signal_label_assoc:termination_audit.looks_truncated",
+          "signal_label_assoc:calibration.conf_logprob",
+          "signal_label_assoc:format_sensitivity.positional_bias",
+          "signal_label_assoc:format_sensitivity.format_flip_rate"
+        ],
+        "families": {
+          "bh": {
+            "method": "BH",
+            "n_tested": 12,
+            "rejected_result_keys": [
+              "signal_label_assoc:coverage_verification_gap.n_correct",
+              "signal_label_assoc:answer_extraction_audit.output_chars",
+              "signal_label_assoc:answer_extraction_audit.output_truncated",
+              "signal_label_assoc:termination_audit.recovered_by_continuation",
+              "signal_label_assoc:termination_audit.output_chars",
+              "signal_label_assoc:termination_audit.looks_truncated",
+              "signal_label_assoc:calibration.conf_logprob",
+              "signal_label_assoc:format_sensitivity.positional_bias",
+              "signal_label_assoc:format_sensitivity.format_flip_rate"
+            ]
+          }
+        }
+      }
+    }
+  }
+]

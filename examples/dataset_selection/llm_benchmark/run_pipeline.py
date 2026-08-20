@@ -905,6 +905,9 @@ def main() -> None:
         max_cycles=args.max_cycles,
         run_logger=logger,
         confirm_split=args.confirm_split,
+        # M5 verifies on the held-out confirm half (screening stays on
+        # explore); costs one extra pinned M1+M2 pass over confirm.
+        m5_holdout=bool(CFG.get("m5_holdout", True)),
         # Explore beside the catalog M2, not instead of it: a free-form EDA pass
         # over the same M1 per-case table, between M1 and M2. Its
         # observations/charts reach M3 as UNCONFIRMED notes and land under

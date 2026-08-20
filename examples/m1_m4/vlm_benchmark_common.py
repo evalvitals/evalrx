@@ -142,7 +142,7 @@ def main(config: BenchmarkConfig) -> None:
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--manifest", default=config.manifest)
     parser.add_argument("--limit", type=int, default=128)
-    parser.add_argument("--max-cycles", type=int, default=2)
+    parser.add_argument("--max-cycles", type=int, default=1)
     parser.add_argument("--judge-provider", choices=["agy", "claude"], default="agy")
     parser.add_argument("--judge-model", default="")
     parser.add_argument("--judge-effort", default="high")
@@ -154,6 +154,11 @@ def main(config: BenchmarkConfig) -> None:
     parser.add_argument(
         "--auto-escalate", action=argparse.BooleanOptionalAction, default=False,
         help="Automatically continue from L2 into L3a when lower tiers do not validate.",
+    )
+    parser.add_argument(
+        "--explore", action=argparse.BooleanOptionalAction, default=True,
+        help="In-cycle free-form EDA between M1 and M2 (same coder CLI as the "
+             "repair pipeline); charts + tables land under <run-dir>/explore.",
     )
     parser.add_argument("--run-dir", default="outputs")
     parser.add_argument("--smoke-test", action="store_true")
@@ -234,7 +239,10 @@ def main(config: BenchmarkConfig) -> None:
         case.metadata["finish_reason"] = "stop"
 
     run_dir = Path(args.run_dir)
-    ctx = RunContext(run_dir, verbose=True, config={
+    # llm_benchmark layout: the run log + artifacts under <run-dir>/logs, the
+    # explore report as its sibling <run-dir>/explore (where the dashboard's
+    # logs*/run_log.jsonl merge and explore lookup both expect them).
+    ctx = RunContext(run_dir / "logs", verbose=True, config={
         "benchmark": config.name,
         "model": args.model,
         "n_cases": len(cases),
@@ -294,6 +302,27 @@ def main(config: BenchmarkConfig) -> None:
         # rather than inheriting the text-agent default.
         exec_timeout_sec=2400,
     )
+    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+    from evalvitals.eval_agent import SurgeryAgent
+
+    coder_cfg = CliAgentConfig(
+        provider=coder_provider,
+        model=args.judge_model,
+        timeout_sec=900,
+        extra_args=coder_extra_args,
+    )
+    explorer = None
+    if args.explore:
+        from evalvitals.agent_runtime.sandbox import ExperimentSandbox
+        from evalvitals.analysis import ExploratoryAnalysisAgent
+
+        explorer = ExploratoryAnalysisAgent(
+            cli_config=coder_cfg,
+            sandbox=ExperimentSandbox(
+                workdir=run_dir / "explore" / "sandbox", cleanup=False),
+            timeout_sec=900,
+            max_attempts=2,
+        )
     loop = VLDiagnoseLoop(
         model=model,
         protocol=protocol,
@@ -306,6 +335,10 @@ def main(config: BenchmarkConfig) -> None:
         run_logger=ctx.logger,
         confirm_split=0.5,
         confirm_split_seed=20260818,
+        surgery_agent=SurgeryAgent(
+            judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
+        explorer=explorer,
+        explore_dir=run_dir / "explore",
         verbose=True,
     )
     report = loop.run(cases)
@@ -321,6 +354,12 @@ def main(config: BenchmarkConfig) -> None:
         f"Diagnosis: stopped_by={report.stopped_by}, cycles={report.cycles}, "
         f"verified={len(report.verified_hypotheses)}"
     )
+    fix_proposal = loop.run_m4(report, cases, allow_unverified=True)
+    if fix_proposal is not None:
+        tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
+        print(f"M4 experiment on the {tag} hypothesis: status={fix_proposal.status}")
+    else:
+        print("M4: no hypothesis to experiment on")
     outcome = loop.run_fix(
         report,
         cases,

@@ -71,9 +71,18 @@ VLDiagnoseLoop M1→M5
                                 selection; see "Why M1 is pinned" below
   M2  StatsAnalysisAgent       e-BH FDR-corrected stats + Claude-written
                                 evidence chain
+  explore (in-cycle EDA)       claude coder writes analysis.py over M1's
+                                per-case table; charts + tables land under
+                                <run-dir>/explore (--no-explore disables)
   M3  DiagnosisAgent           Claude judge proposes hypotheses from M1+M2
-  M5  HypothesisTester         statistical test + protocol-consistency check
         │
+  M5  HypothesisTester         runs ONCE after the loop, on the held-out
+                                CONFIRM split (the explore cycle's analyzers
+                                re-run there, pinned) — never on the explore
+                                data the hypotheses were mined from
+        │
+loop.run_m4                   intervention experiment on the best (verified
+                               or best-lead) hypothesis, on CONFIRM
 loop.run_fix                  FixAgent's tiered candidates (default: only
                                tcd_temporal_blur is admitted -- see
                                --unrestricted below), validated on a held-out
@@ -81,9 +90,10 @@ loop.run_fix                  FixAgent's tiered candidates (default: only
                                never saw (VLDiagnoseLoop's confirm_split)
 ```
 
-Outputs land under `--run-dir` (default `./outputs/`) via the shared
-`RunContext` — `run_log.jsonl`, `artifacts/`, `prompts/`, `experiments/` —
-same layout as every other `m1_m4/` example.
+Outputs use the llm_benchmark layout under `--run-dir` (default `./outputs/`):
+the run log + artifacts under `logs/` (`run_log.jsonl`, `artifacts/`,
+`prompts/`, `experiments/`, `figures/` — matplotlib is in the image, so the M2
+forest plot renders) with `explore/` as its sibling.
 
 ## Why M1 is pinned, not LLM-guided
 

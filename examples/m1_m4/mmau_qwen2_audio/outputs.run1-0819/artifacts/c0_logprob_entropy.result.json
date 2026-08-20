@@ -1,0 +1,20 @@
+{
+  "analyzer": "logprob_entropy",
+  "model": "HFLocalModel(key='qwen2-audio-7b-instruct', loaded)",
+  "findings": {
+    "n_tokens": 2,
+    "mean_logprob": -0.0193,
+    "perplexity": 1.0195,
+    "min_token_logprob": -0.028,
+    "mean_top_entropy": 0.0964
+  },
+  "metadata": {
+    "experiment": {},
+    "fingerprint": "499412308956387a"
+  },
+  "n_cases": 358,
+  "summary": "[logprob_entropy] on HFLocalModel(key='qwen2-audio-7b-instruct', loaded)\n  n_tokens: 2\n  mean_logprob: -0.0193\n  perplexity: 1.0195\n  min_token_logprob: -0.028\n  mean_top_entropy: 0.0964",
+  "artifact_names": [
+    "token_logprobs"
+  ]
+}

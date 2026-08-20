@@ -1,0 +1,7 @@
+[
+  {
+    "statement": "The rotation-only format-sensitivity probe undercounts the true bias \u2014 the model is not fixed on a specific letter but on a shifted-index heuristic (e.g., \"the option after the one it means to pick\"), which cyclic rotation alone cannot distinguish from genuine letter-prior and would only surface under full (non-cyclic) permutation testing.",
+    "failure_mode": "language_prior_bias",
+    "status": "supported"
+  }
+]

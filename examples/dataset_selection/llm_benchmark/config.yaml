@@ -145,7 +145,13 @@ fix_on_unverified: true     # when M5 verified nothing: still run the M4 interve
 # in summary.json, so a wide interval downstream is not misread as a null.
 analyzer_max_cases: 32
 
-max_cycles: 3
+# M1->explore->M2->M3->M5 iterations before M4/fix. The loop still stops early
+# when M5 verifies a hypothesis; extra cycles only matter when nothing
+# verifies, and on the 2B runs (minervamath 08-19: 3 cycles, 0/9 verified,
+# +7 h) they re-diagnosed the same floor. Default 1 = single diagnosis pass,
+# then M4 + fix (fix_on_unverified covers the no-verified case). Raise (or
+# --max-cycles N) to let each cycle's M5 test designs steer the next M1.
+max_cycles: 1
 # Fraction of the batch held out from M1-M5 so M4 validates its fix on data the
 # loop never mined. 0.5 is a 1:1 explore/confirm split -- the loop mines half and
 # the fix is scored on the other half, which it never saw.
@@ -154,3 +160,9 @@ max_cycles: 3
 # dataset leaves ~30 PASS and ~30 FAIL per half. Raise n_cases with this, or the
 # split buys leak-freedom with intervals too wide to conclude from.
 confirm_split: 0.5
+# M5 on held-out data (framework default true): the cycle only mines
+# (M1->explore->M2->M3); after the loop every proposed hypothesis is tested
+# ONCE on the confirm half (the same analyzers re-run there) — the same
+# discipline the fix gate uses. M5's verdict never steers the loop (no early
+# stop / extra cycles). false = old behaviour (in-cycle M5 on explore data).
+m5_holdout: true

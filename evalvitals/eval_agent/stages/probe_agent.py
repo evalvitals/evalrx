@@ -188,6 +188,7 @@ class ProbeAgent:
         protocol: "ExperimentProtocol | None" = None,
         prior_hypotheses: list[Any] | None = None,
         hint_failure_modes: list[str] | None = None,
+        analyzers: list[str] | None = None,
     ) -> dict[str, "Result"]:
         """Select analyzers and run each one, returning a ``{name: Result}`` dict.
 
@@ -218,10 +219,22 @@ class ProbeAgent:
                                  the judge as context for focused follow-up.
             hint_failure_modes:  Failure-mode tags for the static fallback path
                                  (e.g. from :class:`~evalvitals.eval_agent.legacy.AutoDiagnoseLoop`).
+            analyzers:           Exact analyzer names to run, bypassing selection
+                                 entirely (still filtered for applicability).
+                                 Used by the loop's held-out M5 confirmation to
+                                 re-run the same set on the confirm split.
         """
         rationale: str
         self._last_need_custom = None
-        if self.judge is not None and protocol is not None:
+        if analyzers is not None:
+            # Pinned re-run: the caller already knows exactly which analyzers to
+            # execute (M5's held-out confirmation re-runs the last explore
+            # cycle's set so the designated signals exist on the confirm split
+            # too — a fresh judge selection could pick a different set and turn
+            # a real signal into a spurious "designated evidence not measured").
+            names = list(dict.fromkeys(analyzers))
+            rationale = "Pinned by caller (held-out confirmation re-run)."
+        elif self.judge is not None and protocol is not None:
             names, rationale = self._llm_select(protocol, model, prior_hypotheses, data)
         else:
             names = self.selector.select(
