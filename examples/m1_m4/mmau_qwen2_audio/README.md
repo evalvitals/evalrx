@@ -224,3 +224,16 @@ The dashboard reads every `outputs/*.json` here and re-joins case ids to
 `data/mmau_test_mini.jsonl`, so each case shows up with its `.wav` in an
 audio player, its question and its four options. Requires `./data` to be
 populated — playback needs the audio files `download_mmau.py` fetched.
+
+## Demo page: the whole loop as one shareable HTML file
+
+```bash
+python demo_page/build_page.py
+open demo_page/index.html
+```
+
+A one-off demo artifact — the dashboard above is the supported viewer. This
+renders one finished run as a single self-contained page (every figure and clip
+inlined) covering all eight `STAGE_IO` stages, including the ones the run
+skipped. Useful when someone needs to see the run without installing anything.
+Needs `ffmpeg`; see `demo_page/README.md`.
