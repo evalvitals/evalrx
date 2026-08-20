@@ -1117,3 +1117,10 @@ class TestM3FaultTolerance:
         assert isinstance(report, VLDiagnoseReport)
         assert report.stopped_by == "no_hypotheses"
         assert report.all_hypotheses == []
+
+
+def test_default_is_a_single_diagnosis_cycle():
+    """One M1→M5 pass by default, then the caller moves on to M4/fix (the
+    unverified path covers 'nothing verified'); extra cycles are opt-in."""
+    loop = VLDiagnoseLoop(model=FakeModel(), protocol=ExperimentProtocol(description="d"))
+    assert loop.max_cycles == 1

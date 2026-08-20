@@ -302,7 +302,13 @@ class VLDiagnoseLoop:
         surgery_agent:      M4 — used only by :meth:`run_m4`, never inside
                             the main loop.  Defaults to ``SurgeryAgent()``.
         store:              Persistent memory.
-        max_cycles:         Hard cap on M1→M5 iterations.
+        max_cycles:         Hard cap on M1→M5 iterations (default 1: one
+                            diagnosis pass, then the caller moves on to
+                            M4/fix — with fix-on-unverified enabled the
+                            extra cycles rarely verified anything and
+                            tripled the wall-clock; raise it to keep
+                            mining when a cycle's M5 designs feed the
+                            next cycle's M1).
         run_logger:         Optional :class:`~evalvitals.eval_agent.run_logger.RunLogger`.
         token_budget:       Stop early when accumulated token usage reaches
                             this limit (0 = unlimited).
@@ -347,7 +353,7 @@ class VLDiagnoseLoop:
         surgery_agent: "Any | None" = None,
         fix_agent: "Any | None" = None,
         store: Store | None = None,
-        max_cycles: int = 5,
+        max_cycles: int = 1,
         run_logger: "Any | None" = None,
         token_budget: int = 0,
         analysis_only: bool = False,
