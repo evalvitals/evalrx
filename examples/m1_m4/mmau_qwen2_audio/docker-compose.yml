@@ -6,7 +6,7 @@ services:
     image: evalvitals-mmau-qwen2-audio
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID
-      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-7}
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
       - HF_HOME=/hf_cache
       # claude reads its OAuth state from $HOME; IS_SANDBOX lets it accept
@@ -23,6 +23,13 @@ services:
       - ${CLAUDE_PATH:-~/.local/bin/claude}:/usr/local/bin/claude:ro
       - ~/.claude:/home/user/.claude
       - ~/.claude.json:/home/user/.claude.json
+      # Optional alternate judge/coder: --judge-provider agy (Antigravity CLI,
+      # no Anthropic API key needed — see evalvitals/agent_runtime/judges/agy.py).
+      # Only exercised when run.py is invoked with --judge-provider agy; harmless
+      # to mount otherwise. Set AGY_PATH if `agy` isn't at ~/.local/bin/agy.
+      - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
+      - ~/.gemini:/home/user/.gemini
+      - ~/.cache/antigravity:/home/user/.cache/antigravity
     deploy:
       resources:
         reservations:
@@ -31,4 +38,4 @@ services:
               count: all
               capabilities: [gpu]
     command: >
-      sh -c "python download_mmau.py --limit 1000 --scan-rows 1000 && python run.py --model qwen2-audio-7b-instruct --limit 896 --judge-model sonnet --judge-effort high"
+      sh -c "python download_mmau.py --limit 1000 --scan-rows 1000 && python run.py --model qwen2-audio-7b-instruct --limit 896 --judge-provider agy"
