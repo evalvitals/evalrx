@@ -345,6 +345,7 @@ def _extract_agent_layer(logs_dir: Path, explore_dir: "Path | None") -> dict[str
         ed = Path(explore_dir)
         for key, fname in (
             ("raw_output", "agent_raw_output.txt"),
+            ("raw_streams", "agent_raw_streams.txt"),
             ("code", "analysis.py"),
             ("stdout", "stdout.txt"),
             ("stderr", "stderr.txt"),
@@ -1017,12 +1018,15 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
 
     explore_boxes = []
     if agent_explore:
-        n_attempts = (agent_explore.get("raw_output") or "").count("--- attempt ---") + (1 if agent_explore.get("raw_output") else 0)
-        if agent_explore.get("raw_output"):
+        # Prefer the UNTRUNCATED streams when present; fall back to the
+        # capped rendering.
+        explore_stream_text = agent_explore.get("raw_streams") or agent_explore.get("raw_output") or ""
+        n_attempts = explore_stream_text.count("--- attempt") or (1 if explore_stream_text else 0)
+        if explore_stream_text:
             explore_boxes.append(f"""
       <details class="collapsible-box">
-        <summary>Explore Coder Agent — Raw CLI Trajectory ({n_attempts} attempt{'s' if n_attempts != 1 else ''})</summary>
-        <div class="content"><pre class="code-block" style="max-height:340px;">{esc(agent_explore['raw_output'])}</pre></div>
+        <summary>Explore Coder Agent — Raw CLI Trajectory ({n_attempts} attempt{'s' if n_attempts != 1 else ''}{' · full untruncated streams' if agent_explore.get('raw_streams') else ' · truncated rendering'})</summary>
+        <div class="content"><pre class="code-block" style="max-height:340px;">{esc(explore_stream_text)}</pre></div>
       </details>""")
         if agent_explore.get("code"):
             explore_boxes.append(f"""
