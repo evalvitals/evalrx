@@ -196,6 +196,9 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "evidence": {"type": ["object", "null"]},
             "n_refocused_cases": {"type": ["integer", "null"]},
             "duration_sec": {"type": "number"},
+            # Additive: M5 protocol-consistency judge prompt/response, persisted
+            # under prompts/ (same pattern as probe/analysis/diagnosis).
+            "judge_io": _JUDGE_IO,
         },
     },
     "experiment": {

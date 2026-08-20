@@ -187,6 +187,9 @@ class ExploratoryAnalysisReport:
     workdir: str = ""
     raw_outputs: list[str] = field(default_factory=list)
     agent_audits: list[dict[str, Any]] = field(default_factory=list)
+    # UNTRUNCATED raw CLI streams, one per attempt (the truncated renderings
+    # above exist for compact UIs; these are the full audit trail).
+    raw_streams: list[str] = field(default_factory=list)
 
     @property
     def candidate_signal_names(self) -> list[str]:
@@ -420,6 +423,7 @@ class ExploratoryAnalysisAgent:
             )
 
         raw_outputs: list[str] = []
+        raw_streams: list[str] = []
         agent_audits: list[dict[str, Any]] = []
         code = ""
         last_result: SandboxResult | None = None
@@ -442,6 +446,8 @@ class ExploratoryAnalysisAgent:
                         question, profile, code, last_result, last_error
                     )
                 raw_outputs.append(raw)
+                raw_streams.append(self._last_raw_stream)
+                self._last_raw_stream = ""
                 if self._last_agent_audit is not None:
                     agent_audits.append(self._last_agent_audit)
                     self._last_agent_audit = None
@@ -485,6 +491,7 @@ class ExploratoryAnalysisAgent:
                 workdir=Path(self._sandbox.workdir),
             )
             report.raw_outputs = raw_outputs
+            report.raw_streams = raw_streams
             report.agent_audits = agent_audits
             if report.ok:
                 violations = _plain_language_violations(report)

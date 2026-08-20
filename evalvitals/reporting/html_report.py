@@ -28,10 +28,6 @@ from pathlib import Path
 from typing import Any
 
 
-# ---------------------------------------------------------------------------
-# Plain-English Glossary & Metadata
-# ---------------------------------------------------------------------------
-
 STAGE_METADATA: dict[str, dict[str, str]] = {
     "overview": {
         "code": "SUMMARY",
@@ -87,12 +83,19 @@ STAGE_METADATA: dict[str, dict[str, str]] = {
         "short_role": "Case-Level Inspection & Audio",
         "plain_desc": "Inspect real failure vs repaired cases with before-and-after model answering comparisons and playable audio clips.",
     },
+    "agents": {
+        "code": "AGENTS",
+        "name": "Agent Trajectories",
+        "short_role": "Judge & Coder Agent I/O",
+        "plain_desc": "Every agent invocation behind the diagnosis, layer by layer: verbatim judge prompts and responses (M1 selection, M2 screening, M3 diagnosis, M5 adjudication), the explore coder-agent's raw CLI trajectory, and every synthesized tool's codegen attempt. This is the audit trail for debugging and case studies.",
+    },
 }
 
-ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
+ANALYZER_GLOSSARY: dict[str, tuple[str, str, str, list[tuple[str, str, str]]]] = {
     "answer_extraction_audit": (
         "Answer Extraction Audit",
         "Did the model actually answer wrong, or did our parser fail to extract its response?",
+        "Checks whether formatting quirks (e.g. missing tags, preamble chatter) prevented the parser from extracting the answer even when the model understood the problem.",
         [
             ("Extraction Failure Rate on Errors", "suspect_rate", "pct"),
             ("Missing Format Tag Rate", "missing_tag_rate", "pct"),
@@ -101,6 +104,7 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "termination_audit": (
         "Truncation & Early Stop Audit",
         "Did the model finish its thought, or was it abruptly cut off by length caps?",
+        "Identifies whether premature token limits or sudden EOS tokens clipped the model's reasoning chain mid-sentence.",
         [
             ("Suspected Truncation Rate", "truncation_rate", "pct"),
             ("Recovery Rate upon Continuation", "recovered_rate", "pct"),
@@ -109,6 +113,7 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "calibration": (
         "Confidence & Overconfidence (ECE)",
         "When the model sounds certain, is its actual correctness probability truly high?",
+        "Measures Expected Calibration Error (ECE) across token logprobs and verbalized confidence. High ECE indicates dangerous overconfidence on incorrect answers.",
         [
             ("Token Logprob Calibration Error (ECE)", "logprob_channel.ece", "num"),
             ("Verbalized Confidence Error (ECE)", "verbalized_channel.ece", "num"),
@@ -117,6 +122,7 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "format_sensitivity": (
         "Option Order Sensitivity (Position Bias)",
         "If we shuffle choices (A/B/C/D), does the model arbitrarily flip its answer?",
+        "Permutes multiple-choice options across variants. If answer flips across orderings, the model suffers from severe positional shortcutting rather than semantic understanding.",
         [
             ("Answer Flip Rate after Shuffling", "mean_flip_rate", "pct"),
         ],
@@ -124,6 +130,7 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "coverage_verification_gap": (
         "Pass@k Knowledge Blindspot (Coverage)",
         "Over 5 repeat attempts, does the model ever produce the right answer even once?",
+        "Samples temperature completions k=5 times. If pass@5 is 0%, the capability is completely missing from weights; if pass@5 is high but greedy fails, the model suffers from search/ranking misalignment.",
         [
             ("Persistent Failure Rate (0/5 correct)", "no_coverage_rate", "pct"),
             ("Pass@5 Coverage Rate", "mean_pass_at_k", "pct"),
@@ -132,6 +139,7 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "self_consistency": (
         "Sampling Consistency",
         "When sampled repeatedly with temperature, does the answer waver wildly?",
+        "Measures whether model predictions stabilize on a single consensus choice or disperse across inconsistent alternatives.",
         [
             ("Majority Answer Agreement Rate", "consistency", "pct"),
         ],
@@ -139,6 +147,7 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "logprob_entropy": (
         "Predictive Uncertainty (Output Entropy)",
         "Is the model confident or internally hesitating when generating key tokens?",
+        "Computes Shannon entropy across the top candidate tokens to measure decision ambivalence.",
         [
             ("Top-Token Prediction Entropy", "mean_top_entropy", "num"),
             ("Model Perplexity", "perplexity", "num"),
@@ -147,6 +156,7 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "selfcheck_consistency": (
         "Self-Contradiction Detection",
         "Does the model contradict its own claims across repeat samplings?",
+        "Probes whether the model generates assertions in one sample that directly contradict its claims in another sample.",
         [
             ("Self-Contradiction Index", "mean_inconsistency", "num"),
         ],
@@ -154,6 +164,7 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "hallucination": (
         "Hallucination Probe",
         "Does the model generate details unsupported by the source stimulus?",
+        "Measures semantic grounding against the audible stimulus to catch fabricated details.",
         [
             ("Hallucination Deviation Score", "hallucination_score", "num"),
         ],
@@ -161,16 +172,13 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, list[tuple[str, str, str]]]] = {
     "qwen_attention": (
         "Attention Focus & Sparsity",
         "Does model attention properly focus on critical prompt and media cues?",
+        "Examines cross-attention maps between audio tokens and query tokens to verify sensory uptake.",
         [
             ("Core Cue Attention Share", "focus_share", "pct"),
         ],
     ),
 }
 
-
-# ---------------------------------------------------------------------------
-# Data Resolution & Extraction
-# ---------------------------------------------------------------------------
 
 def clean_model_display_name(raw: str) -> str:
     """Format raw python class repr like HFLocalModel(key='...') into a human-readable title."""
@@ -276,6 +284,137 @@ def find_manifest(example_dir: Path, logs_dir: Path) -> tuple[Path | None, dict[
     return None, {}
 
 
+def _extract_agent_layer(logs_dir: Path, explore_dir: "Path | None") -> dict[str, Any]:
+    """The agent layer of a run: verbatim judge I/O, the explore coder-agent's
+    trajectory, synthesized tool codegen attempts, and the Langfuse trace bundle.
+
+    This is what makes the report drill below the pipeline stages: a reader who
+    sees a probe or a hypothesis and asks "what did the agent actually see and
+    say?" can expand down to the raw prompt/response text.
+    """
+    agents: dict[str, Any] = {
+        "judge_calls": [],
+        "explore": {},
+        "tool_codegen": [],
+        "langfuse": {},
+    }
+
+    # -- Verbatim judge calls (prompts/<stem>.prompt.txt + .response.txt) ----
+    def _stage_of(stem: str) -> str:
+        if "_m1_" in stem:
+            return "M1 Analyzer Selection"
+        if "_m2_" in stem:
+            return "M2 Statistical Screening"
+        if "_m3_" in stem:
+            return "M3 AI Doctor Diagnosis"
+        if "_m5_" in stem:
+            return "M5 Protocol Consistency"
+        if "_m4_" in stem:
+            return "M4 Intervention"
+        if "_agent_decision" in stem:
+            return "Agentic Loop Decision"
+        return "Other"
+
+    prompts_dir = logs_dir / "prompts"
+    if prompts_dir.exists():
+        for pf in sorted(prompts_dir.glob("*.prompt.txt")):
+            stem = pf.name[: -len(".prompt.txt")]
+            rf = pf.with_name(stem + ".response.txt")
+            try:
+                prompt = pf.read_text(encoding="utf-8")
+            except Exception:
+                prompt = ""
+            try:
+                response = rf.read_text(encoding="utf-8") if rf.exists() else ""
+            except Exception:
+                response = ""
+            if not prompt and not response:
+                continue
+            agents["judge_calls"].append({
+                "stem": stem,
+                "stage": _stage_of(stem),
+                "prompt": prompt,
+                "response": response,
+                "prompt_chars": len(prompt),
+                "raw_chars": len(response),
+            })
+
+    # -- Explore coder-agent trajectory --------------------------------------
+    exp: dict[str, Any] = {}
+    if explore_dir is not None and Path(explore_dir).exists():
+        ed = Path(explore_dir)
+        for key, fname in (
+            ("raw_output", "agent_raw_output.txt"),
+            ("code", "analysis.py"),
+            ("stdout", "stdout.txt"),
+            ("stderr", "stderr.txt"),
+        ):
+            p = ed / fname
+            if p.exists():
+                try:
+                    exp[key] = p.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+        audit_p = ed / "agent_audit.json"
+        if audit_p.exists():
+            try:
+                exp["audit"] = json.loads(audit_p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    agents["explore"] = exp
+
+    # -- Synthesized tool codegen attempts (tools/) --------------------------
+    tools_dir = logs_dir / "tools"
+    if tools_dir.exists():
+        groups: dict[str, dict[str, str]] = {}
+        order: list[str] = []
+        for f in sorted(tools_dir.iterdir()):
+            if not f.is_file():
+                continue
+            name = f.name
+            for suffix, kind in (
+                ("_code.py", "code"), ("_prompt.txt", "prompt"),
+                ("_agent_thinking.txt", "agent_thinking"), ("_stdout.txt", "stdout"),
+            ):
+                if name.endswith(suffix):
+                    stem = name[: -len(suffix)]
+                    if stem not in groups:
+                        groups[stem] = {}
+                        order.append(stem)
+                    try:
+                        groups[stem][kind] = f.read_text(encoding="utf-8")
+                    except Exception:
+                        pass
+                    break
+        for stem in order:
+            if groups[stem]:
+                agents["tool_codegen"].append({"stem": stem, "files": groups[stem]})
+
+    # -- Langfuse trace bundle summary ---------------------------------------
+    lf = logs_dir / "langfuse_trace.json"
+    if lf.exists():
+        try:
+            b = json.loads(lf.read_text(encoding="utf-8"))
+            agents["langfuse"] = {
+                "trace_id": (b.get("trace") or {}).get("id"),
+                "n_spans": len(b.get("spans") or []),
+                "n_generations": len(b.get("generations") or []),
+                "n_scores": len(b.get("scores") or []),
+                "spans": [
+                    {
+                        "name": s.get("name"),
+                        "stage": s.get("stage"),
+                        "status": s.get("status", "completed"),
+                    }
+                    for s in (b.get("spans") or [])
+                ],
+            }
+        except Exception:
+            pass
+
+    return agents
+
+
 def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str, Any]:
     """Parse all run artifacts dynamically into a unified dictionary."""
     logs_dir, explore_dir, fixes_dir = resolve_run_dirs(run_dir)
@@ -319,7 +458,10 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     pre_m1_ran = bool(probe_searches)
     pre_m1_cases = probe_searches[0].get("n_synthesized") if pre_m1_ran else 0
 
-    # M1: Measurements
+    # Probe Case Map for reverse-lookup of anomalies per sample
+    probe_case_flags: dict[str, list[str]] = {}
+
+    # M1: Measurements & Per-case probe drilldowns
     probes = by_event("probe")
     p0 = probes[0] if probes else {}
     analyzers = p0.get("analyzers") or p0.get("selected_analyzers") or []
@@ -329,18 +471,33 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     for name in analyzers:
         p = logs_dir / "artifacts" / f"c0_{name}.result.json"
         findings, n = {}, None
+        per_case_rows = []
         if p.exists():
             try:
                 raw = json.loads(p.read_text())
                 findings = raw.get("findings") or {}
                 n = findings.get("n_cases") or findings.get("n_scored")
+                per_case_rows = findings.get("per_case") or []
+                for pc in per_case_rows:
+                    sid = str(pc.get("sample_id", ""))
+                    if sid:
+                        if sid not in probe_case_flags:
+                            probe_case_flags[sid] = []
+                        if pc.get("format_flip_rate", 0) > 0:
+                            probe_case_flags[sid].append(f"Option Order Flip ({pc['format_flip_rate']:.0%})")
+                        if pc.get("conf_logprob", 0) > 0.8 and pc.get("correct") == 0:
+                            probe_case_flags[sid].append(f"Overconfident on Error ({pc['conf_logprob']:.0%})")
+                        if pc.get("pass_at_k") == 1.0:
+                            probe_case_flags[sid].append("Pass@5 Capable")
+                        elif pc.get("pass_at_k") == 0.0:
+                            probe_case_flags[sid].append("Pass@5 Zero-Coverage")
             except Exception:
                 pass
         meta = ANALYZER_GLOSSARY.get(
-            name, (name.replace("_", " ").title(), "Measures model behavior across this dimension", [])
+            name, (name.replace("_", " ").title(), "Measures model behavior across this dimension", "Standard diagnostic probe.", [])
         )
         headline = []
-        for label, path, fmt in meta[2]:
+        for label, path, fmt in meta[3]:
             v = _dig(findings, path)
             if isinstance(v, (int, float)):
                 headline.append({
@@ -353,9 +510,11 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "name": name,
             "display_name": meta[0],
             "question": meta[1],
+            "description": meta[2],
             "n": n,
             "headline": headline,
             "findings": findings,
+            "per_case": per_case_rows,
         })
     m1_results.sort(key=lambda r: -(r["n"] or 0))
 
@@ -497,6 +656,7 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
                         "image_path": image_p,
                         "duration": float(m.get("duration_sec") or 0.0),
                         "task": (m.get("metadata") or {}).get("mmau_task") or (m.get("metadata") or {}).get("category") or "",
+                        "probe_flags": probe_case_flags.get(cid, []),
                     })
                 except Exception:
                     pass
@@ -560,6 +720,7 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
                 "image_path": image_p,
                 "duration": float(m.get("duration_sec") or 0.0),
                 "task": (m.get("metadata") or {}).get("mmau_task") or (m.get("metadata") or {}).get("category") or "",
+                "probe_flags": probe_case_flags.get(cid, []),
             })
 
     order = {"fixed": 0, "broken": 1, "unchanged": 2, "untested": 3}
@@ -620,15 +781,12 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "prompt_template": (confirmed_fix.get("payload") or {}).get("prompt_template") or "",
         },
         "cases": cases,
+        "agents": _extract_agent_layer(logs_dir, explore_dir),
         "logs_dir": logs_dir,
         "explore_dir": explore_dir,
         "example_dir": example_dir or logs_dir.parent,
     }
 
-
-# ---------------------------------------------------------------------------
-# Media & Figure Embedding
-# ---------------------------------------------------------------------------
 
 def embed_figures(explore_dir: Path | None, logs_dir: Path) -> dict[str, str]:
     """Find all PNG charts and convert to base64 Data URIs."""
@@ -718,10 +876,6 @@ def embed_media(cases: list[dict], example_dir: Path, cache_dir: Path, no_audio:
     return audio_map, image_map
 
 
-# ---------------------------------------------------------------------------
-# HTML Template & Rendering
-# ---------------------------------------------------------------------------
-
 def esc(s: Any) -> str:
     if s is None:
         return ""
@@ -729,7 +883,6 @@ def esc(s: Any) -> str:
 
 
 def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_map: dict[str, str], image_map: dict[str, str]) -> str:
-    """Render the full diagnostic report page with a sleek modern English Tabbed UI."""
     run = data["run"]
     m1 = data["m1"]
     m2 = data["m2"]
@@ -830,15 +983,110 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         ),
     ]
 
-    tiles_html = "\n".join(
+    tiles_html = "\n".join([
         f'<div class="kpi-card kpi-card--{tone}">'
         f'<div class="kpi-label">{esc(lab)}</div>'
         f'<div class="kpi-val">{esc(val)}</div>'
         f'<div class="kpi-sub">{note}</div></div>'
         for lab, val, note, tone in tiles_data
-    )
+    ])
 
-    # Navigation Tabs
+    # ── Agent Trajectory layer ────────────────────────────────────────────
+    agents = data.get("agents") or {}
+    agent_judges = agents.get("judge_calls") or []
+    agent_explore = agents.get("explore") or {}
+    agent_codegen = agents.get("tool_codegen") or []
+    agent_langfuse = agents.get("langfuse") or {}
+    agents_n = len(agent_judges) + len(agent_codegen) + (1 if agent_explore else 0)
+    agents_summary = f"{len(agent_judges) + len(agent_codegen) + (1 if agent_explore else 0)} Calls"
+
+    judge_boxes = []
+    for jc in agent_judges:
+        judge_boxes.append(f"""
+      <details class="collapsible-box">
+        <summary>{esc(jc['stage'])} — <span class="mono" style="font-size:12px;">{esc(jc['stem'])}</span>
+          <span class="text-muted" style="font-weight:400; font-size:12px;">&nbsp;(prompt {jc['prompt_chars']:,} chars · response {jc['raw_chars']:,} chars)</span></summary>
+        <div class="content">
+          <div class="section-subhead">Agent Input (Prompt)</div>
+          <pre class="code-block" style="max-height:260px;">{esc(jc['prompt'])}</pre>
+          <div class="section-subhead" style="margin-top:12px;">Agent Output (Response)</div>
+          <pre class="code-block" style="max-height:260px;">{esc(jc['response']) or '<span class="text-muted">(empty)</span>'}</pre>
+        </div>
+      </details>""")
+    judge_boxes_html = "\n".join(judge_boxes) or '<p class="text-muted">No judge calls were recorded for this run.</p>'
+
+    explore_boxes = []
+    if agent_explore:
+        n_attempts = (agent_explore.get("raw_output") or "").count("--- attempt ---") + (1 if agent_explore.get("raw_output") else 0)
+        if agent_explore.get("raw_output"):
+            explore_boxes.append(f"""
+      <details class="collapsible-box">
+        <summary>Explore Coder Agent — Raw CLI Trajectory ({n_attempts} attempt{'s' if n_attempts != 1 else ''})</summary>
+        <div class="content"><pre class="code-block" style="max-height:340px;">{esc(agent_explore['raw_output'])}</pre></div>
+      </details>""")
+        if agent_explore.get("code"):
+            explore_boxes.append(f"""
+      <details class="collapsible-box">
+        <summary>Explore Synthesized Analysis Code (analysis.py)</summary>
+        <div class="content"><pre class="code-block" style="max-height:340px;">{esc(agent_explore['code'])}</pre></div>
+      </details>""")
+        if agent_explore.get("audit"):
+            explore_boxes.append(f"""
+      <details class="collapsible-box">
+        <summary>Explore Agent Audit (provider, commands, artifacts)</summary>
+        <div class="content"><pre class="code-block" style="max-height:260px;">{esc(json.dumps(agent_explore['audit'], indent=2, ensure_ascii=False))}</pre></div>
+      </details>""")
+        if agent_explore.get("stdout"):
+            explore_boxes.append(f"""
+      <details class="collapsible-box">
+        <summary>Explore Execution stdout</summary>
+        <div class="content"><pre class="code-block" style="max-height:260px;">{esc(agent_explore['stdout'])}</pre></div>
+      </details>""")
+    explore_boxes_html = "\n".join(explore_boxes) or '<p class="text-muted">The explore step did not run or left no trajectory for this run.</p>'
+
+    codegen_boxes = []
+    for cg in agent_codegen:
+        files = cg.get("files") or {}
+        inner = []
+        for kind, label in (
+            ("prompt", "Agent Input (Task Prompt)"),
+            ("agent_thinking", "Agent Output (Raw CLI Trajectory)"),
+            ("code", "Synthesized Code"),
+            ("stdout", "Validation stdout"),
+        ):
+            if files.get(kind):
+                inner.append(
+                    f'<div class="section-subhead" style="margin-top:10px;">{label}</div>'
+                    f'<pre class="code-block" style="max-height:260px;">{esc(files[kind])}</pre>'
+                )
+        codegen_boxes.append(f"""
+      <details class="collapsible-box">
+        <summary>Tool Codegen — <span class="mono" style="font-size:12px;">{esc(cg['stem'])}</span>
+          <span class="text-muted" style="font-weight:400; font-size:12px;">&nbsp;({len(files)} artifacts)</span></summary>
+        <div class="content">{''.join(inner)}</div>
+      </details>""")
+    codegen_boxes_html = "\n".join(codegen_boxes) or '<p class="text-muted">No tools were synthesized in this run.</p>'
+
+    if agent_langfuse:
+        span_rows = "".join(
+            f'<tr><td class="mono font-semibold" style="font-size:12px;">{esc(s.get("stage") or "")}</td>'
+            f'<td style="font-size:12.5px;">{esc(s.get("name") or "")}</td>'
+            f'<td><span class="badge badge--{"good" if s.get("status", "completed") == "completed" else "mute"}">{esc(s.get("status", "completed"))}</span></td></tr>'
+            for s in agent_langfuse.get("spans") or []
+        )
+        langfuse_html = f"""
+      <details class="collapsible-box" open>
+        <summary>Langfuse Trace Bundle — {agent_langfuse.get('n_spans', 0)} spans · {agent_langfuse.get('n_generations', 0)} generations · {agent_langfuse.get('n_scores', 0)} scores</summary>
+        <div class="content">
+          <p class="text-muted" style="font-size:12.5px;">Trace id <span class="mono">{esc(agent_langfuse.get('trace_id') or '')}</span> — the same id used by <span class="mono">run_log.jsonl</span> and (when live-synced) the Langfuse dashboard. Every span below is also mirrored there.</p>
+          <div class="table-wrapper" style="max-height:300px; overflow-y:auto;">
+            <table class="data-table"><thead><tr><th>Stage</th><th>Span</th><th>Status</th></tr></thead><tbody>{span_rows}</tbody></table>
+          </div>
+        </div>
+      </details>"""
+    else:
+        langfuse_html = '<p class="text-muted">No Langfuse trace bundle (langfuse_trace.json) was written for this run.</p>'
+
     tab_items = [
         ("tab_overview", "Overview", "Executive Summary", "SUMMARY", "good"),
         ("tab_pre_m1", "PRE-M1", "Case Synthesis", "PRE-M1", "skip" if not data["pre_m1"]["ran"] else "neutral"),
@@ -848,23 +1096,23 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         ("tab_m5", "M5", "Adjudication", m5_status, m5_tone),
         ("tab_m4_surgery", "M4-Surgery", "Causal Surgery", "Skipped" if not m4_s["ran"] else "Executed", "skip" if not m4_s["ran"] else "neutral"),
         ("tab_m4_fix", "M4-Fix", "Targeted Repair", m4_status, m4_tone),
+        ("tab_agents", "AGENTS", "Agent Trajectories", f"{agents_summary}", "neutral" if agents_n else "skip"),
         ("tab_case_book", "Case Studio", "Interactive Cases", f"{len(cases)} Cases", "neutral"),
     ]
 
-    tabs_html = "\n".join(
+    tabs_html = "\n".join([
         f'<button type="button" class="tab-btn {"is-active" if tid == "tab_overview" else ""}" data-tab="{tid}">'
         f'<span class="tab-code">{esc(code)}</span>'
         f'<span class="tab-label">{esc(label)}</span>'
         f'<span class="tab-badge badge--{tone}">{esc(badge)}</span>'
         f'</button>'
         for tid, code, label, badge, tone in tab_items
-    )
+    ])
 
-    # M1 Probes Table
     cov_max = max((r["n"] or 0) for r in m1["results"]) if m1["results"] else 1
     cov_max = max(cov_max, 1)
-    m1_rows = []
-    for r in m1["results"]:
+    m1_blocks = []
+    for idx, r in enumerate(m1["results"], 1):
         n = r["n"] or 0
         hl_items = []
         for h in r["headline"]:
@@ -874,26 +1122,61 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
                 hl_items.append(f'<div class="hl-pill hl-pill--none"><span class="hl-v">—</span><span class="hl-l">{esc(h["label"])}</span></div>')
         hl_html = "".join(hl_items) or '<span class="text-muted">No scalar headlines</span>'
 
-        if r["n"] is None:
-            count_cell = '<td class="num text-muted">Batch Aggregate</td>'
-            bar_cell = '<td class="barcell"><span class="barpct">Run-level summary</span></td>'
-        else:
-            count_cell = f'<td class="num">{n:,} cases</td>'
-            pct_val = (n / n_total) if n_total > 0 else 0
-            bar_cell = (
-                f'<td class="barcell"><div class="bar-track"><span class="bar-fill" style="width:{n / cov_max * 100:.1f}%"></span></div>'
-                f'<span class="barpct">{pct_val:.0%} coverage</span></td>'
-            )
-
-        m1_rows.append(
-            f'<tr><td><div class="probe-title">{esc(r["display_name"])} <span class="probe-code mono">{esc(r["name"])}</span></div>'
-            f'<div class="probe-q">{esc(r["question"])}</div></td>'
-            f'{count_cell}{bar_cell}'
-            f'<td><div class="hl-wrap">{hl_html}</div></td></tr>'
+        pct_val = (n / n_total) if n_total > 0 else 0
+        cov_bar = (
+            f'<div class="bar-track"><span class="bar-fill" style="width:{n / cov_max * 100:.1f}%"></span></div>'
+            f'<span class="barpct">{pct_val:.0%} coverage ({n:,} cases scored)</span>'
         )
-    m1_table_html = "\n".join(m1_rows) if m1_rows else "<tr><td colspan='4'>No probes recorded.</td></tr>"
 
-    # M2 Screening Table
+        # Build Per-Case Drilldown Table
+        per_case_rows = r.get("per_case") or []
+        case_rows_html = []
+        for pc in per_case_rows[:30]:
+            sid = str(pc.get("sample_id", "case"))
+            metrics_summary = ", ".join(f"<b>{k}</b>: {v}" for k, v in pc.items() if k != "sample_id")
+            case_rows_html.append(
+                f'<tr><td class="mono font-bold" style="font-size:12px; color:var(--brand);">{esc(sid[:12])}</td>'
+                f'<td style="font-size:12.5px;">{metrics_summary}</td>'
+                f'<td><button type="button" class="mini-btn" onclick="openCaseModal(&apos;{esc(sid)}&apos;)">Inspect Case & Audio</button></td></tr>'
+            )
+        per_case_table = (
+            f'<div class="table-wrapper" style="margin-top:12px; max-height:280px; overflow-y:auto;">'
+            f'<table class="data-table"><thead><tr><th>Sample ID</th><th>Probe Model Output & Decision Metrics</th><th>Action</th></tr></thead>'
+            f'<tbody>{"".join(case_rows_html)}</tbody></table></div>'
+            if case_rows_html else '<p class="text-muted" style="font-size:12px; margin-top:8px;">No per-case drilldown records for this probe.</p>'
+        )
+
+        findings_json_str = esc(json.dumps(r.get("findings", {}), indent=2, ensure_ascii=False))
+
+        m1_blocks.append(f"""
+        <div class="probe-card">
+          <div class="probe-header" onclick="toggleProbe('probe_detail_{idx}')">
+            <div style="flex:1;">
+              <div class="probe-title">{esc(r["display_name"])} <span class="probe-code mono">{esc(r["name"])}</span></div>
+              <div class="probe-q">{esc(r["question"])}</div>
+            </div>
+            <div style="width:160px; margin:0 16px;">{cov_bar}</div>
+            <div class="hl-wrap" style="margin-right:16px;">{hl_html}</div>
+            <div class="expand-icon" id="icon_probe_detail_{idx}">▼</div>
+          </div>
+          <div class="probe-body" id="probe_detail_{idx}" style="display:none;">
+            <div class="probe-desc-box">
+              <div class="section-subhead">Clinical Methodology & Rationale</div>
+              <p>{esc(r.get("description", ""))}</p>
+            </div>
+            <div style="margin-top:14px;">
+              <div class="section-subhead">Sample-Level Probe Execution & Model Decisions ({len(per_case_rows)} samples recorded)</div>
+              {per_case_table}
+            </div>
+            <details class="collapsible-box" style="margin-top:14px;">
+              <summary>View Complete Probe Findings JSON & Attention Parameters</summary>
+              <div class="content"><pre class="code-block">{findings_json_str}</pre></div>
+            </details>
+          </div>
+        </div>""")
+
+    m1_cards_html = "\\n".join(m1_blocks) if m1_blocks else "<p class='text-muted'>No probes recorded.</p>"
+
     stat_rows_sig = []
     stat_rows_null = []
     for s in m2["stats"]:
@@ -921,7 +1204,6 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
     stats_sig_html = "\n".join(stat_rows_sig) if stat_rows_sig else "<tr><td colspan='5'>No statistically significant signals found.</td></tr>"
     stats_null_html = "\n".join(stat_rows_null) if stat_rows_null else "<tr><td colspan='5'>No null signals recorded.</td></tr>"
 
-    # Figures
     fig_blocks = []
     for k, v in figures.items():
         if k in ("test", "m2_effects"):
@@ -934,7 +1216,6 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         )
     all_figs_html = "\n".join(fig_blocks) if fig_blocks else "<p class='text-muted' style='padding:16px;'>No exploratory charts generated for this run.</p>"
 
-    # M4 Candidates Table
     sel_rows = []
     max_eff = max([abs(s.get("effect") or 0) for s in m4_f["selection"]] + [0.01])
     for s in m4_f["selection"]:
@@ -955,14 +1236,14 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         )
     sel_table_html = "\n".join(sel_rows) if sel_rows else "<tr><td colspan='7'>No repair candidate sweep recorded.</td></tr>"
 
-    meta_chips = "".join(f"<span class='tag-pill'>{esc(m)}</span>" for m in [
+    meta_chips = "".join([f"<span class='tag-pill'>{esc(m)}</span>" for m in [
         run["benchmark_name"],
         f"{n_total:,} Cases",
         f"{run['cycles']} Cycles",
         f"{len(m1['analyzers'])} Probes",
         f"{run['duration_sec']:.0f}s Duration" if run['duration_sec'] else "Completed",
         f"EvalVitals v{run['version']}",
-    ])
+    ]])
 
     pre_m1_desc = f"Active probe search generated {data['pre_m1']['n_cases']} synthetic test cases to probe failure mechanisms." if data["pre_m1"]["ran"] else "Testing ran directly on fixed benchmark cases (automated Pre-M1 adversarial probe synthesis was not configured)."
     pre_m1_sub = f"{data['pre_m1']['n_cases']} Probes Synthesized" if data["pre_m1"]["ran"] else "Standard Benchmark"
@@ -1020,8 +1301,7 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
           <div class="kpi-card"><div class="kpi-label">Confidence Score</div><div class="kpi-val">{conf_str}</div></div>
           <div class="kpi-card"><div class="kpi-label">Evidence Grade</div><div class="kpi-val">{ev_grade}</div></div>
         </div>
-        <pre class="code-block"><b>Adjudication Audit Log:</b>
-{verdict_raw}</pre>"""
+        <pre class="code-block"><b>Adjudication Audit Log:</b>\n{verdict_raw}</pre>"""
 
     m4_s_cls = "stage--skip" if not m4_s["ran"] else ""
     m4_s_desc = f"Executed {len(m4_s['surgeries'])} causal model interventions / ablations." if m4_s["ran"] else "Focused on black-box prompt and scaffold optimizations (white-box surgery was not invoked)."
@@ -1049,846 +1329,435 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
     audio_json = json.dumps(audio_map)
     images_json = json.dumps(image_map)
 
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EvalVitals · {esc(run['model'])} Diagnostic Report</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<style>
-:root {{
-  --bg: #0b0f19;
-  --surface: #111827;
-  --surface-raised: #1f2937;
-  --surface-hover: #374151;
-  --border: #374151;
-  --border-subtle: #242d3d;
-  --text: #f9fafb;
-  --text-muted: #9ca3af;
-  --text-sub: #6b7280;
-  --brand: #6366f1;
-  --brand-soft: rgba(99, 102, 241, 0.12);
-  --brand-border: rgba(99, 102, 241, 0.35);
-  --good: #10b981;
-  --good-soft: rgba(16, 185, 129, 0.12);
-  --good-border: rgba(16, 185, 129, 0.35);
-  --warn: #f59e0b;
-  --warn-soft: rgba(245, 158, 11, 0.12);
-  --warn-border: rgba(245, 158, 11, 0.35);
-  --bad: #ef4444;
-  --bad-soft: rgba(239, 68, 68, 0.12);
-  --bad-border: rgba(239, 68, 68, 0.35);
-  --radius: 10px;
-  --radius-sm: 6px;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, Monaco, monospace;
-}}
-
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 14.5px;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-}}
-
-.container {{ max-width: 1240px; margin: 0 auto; padding: 0 24px; }}
-
-header.app-header {{
-  border-bottom: 1px solid var(--border-subtle);
-  background: rgba(17, 24, 39, 0.95);
-  backdrop-filter: blur(12px);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}}
-.header-inner {{
-  padding: 16px 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}}
-.brand-group {{
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}}
-.brand-icon {{
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--brand), #8b5cf6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 16px;
-  font-weight: 700;
-}}
-.brand-titles {{ display: flex; flex-direction: column; }}
-.brand-model {{ font-size: 17px; font-weight: 700; color: #ffffff; letter-spacing: -0.02em; }}
-.brand-benchmark {{ font-size: 12.5px; color: var(--text-muted); }}
-
-.header-badges {{ display: flex; gap: 8px; flex-wrap: wrap; }}
-
-nav.tabs-nav {{
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 65px;
-  z-index: 90;
-}}
-.tabs-scroll {{
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding: 10px 0;
-  scrollbar-width: none;
-}}
-.tabs-scroll::-webkit-scrollbar {{ display: none; }}
-
-.tab-btn {{
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font-sans);
-  font-size: 13.5px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}}
-.tab-btn:hover {{
-  background: var(--surface-raised);
-  color: var(--text);
-}}
-.tab-btn.is-active {{
-  background: var(--surface-raised);
-  border-color: var(--border);
-  color: #ffffff;
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-}}
-.tab-code {{
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--brand);
-}}
-.tab-badge {{
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  padding: 2px 6px;
-  border-radius: 99px;
-}}
-
-.tab-pane {{
-  display: none;
-  padding: 32px 0 80px;
-  animation: fadeIn 0.15s ease-in-out;
-}}
-.tab-pane.is-active {{ display: block; }}
-@keyframes fadeIn {{
-  from {{ opacity: 0; transform: translateY(4px); }}
-  to {{ opacity: 1; transform: translateY(0); }}
-}}
-
-.card {{
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 24px;
-  margin-bottom: 24px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-}}
-.card-head {{
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 12px;
-  padding-bottom: 16px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--border-subtle);
-}}
-.card-tag {{
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--brand);
-  background: var(--brand-soft);
-  border: 1px solid var(--brand-border);
-  padding: 3px 8px;
-  border-radius: 4px;
-}}
-.card-title {{ font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: #ffffff; }}
-.card-subtext {{ flex: 1 1 100%; font-size: 13.5px; color: var(--text-muted); }}
-
-.story-box {{
-  background: linear-gradient(180deg, rgba(31, 41, 55, 0.6) 0%, rgba(17, 24, 39, 0.9) 100%);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 22px 26px;
-  margin-bottom: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}}
-.story-box p {{ font-size: 15px; color: var(--text); line-height: 1.6; }}
-.story-box b {{ color: #ffffff; }}
-
-.kpi-grid {{
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 14px;
-  margin-bottom: 24px;
-}}
-.kpi-card {{
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}}
-.kpi-label {{
-  font-size: 11.5px;
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  color: var(--text-sub);
-  letter-spacing: 0.05em;
-}}
-.kpi-val {{
-  font-size: 26px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  letter-spacing: -0.02em;
-}}
-.kpi-sub {{ font-size: 12px; color: var(--text-muted); }}
-
-.kpi-card--good {{ border-color: var(--good-border); }}
-.kpi-card--good .kpi-val {{ color: var(--good); }}
-.kpi-card--warn {{ border-color: var(--warn-border); }}
-.kpi-card--warn .kpi-val {{ color: var(--warn); }}
-.kpi-card--bad {{ border-color: var(--bad-border); }}
-.kpi-card--bad .kpi-val {{ color: var(--bad); }}
-
-.callout {{
-  padding: 16px 20px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  border-left: 4px solid var(--border);
-  font-size: 14px;
-  color: var(--text);
-  margin-bottom: 20px;
-}}
-.callout--accent {{ border-left-color: var(--brand); background: var(--brand-soft); }}
-.callout--good {{ border-left-color: var(--good); background: var(--good-soft); }}
-.callout--warn {{ border-left-color: var(--warn); background: var(--warn-soft); }}
-.callout b {{ color: #ffffff; }}
-
-.table-wrapper {{
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  margin-bottom: 20px;
-}}
-table.data-table {{
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  text-align: left;
-}}
-table.data-table th {{
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-sub);
-  background: var(--surface-raised);
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--border);
-}}
-table.data-table td {{
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--border-subtle);
-  vertical-align: middle;
-}}
-table.data-table tr:hover td {{
-  background: rgba(255, 255, 255, 0.02);
-}}
-.num {{ text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }}
-.mono {{ font-family: var(--font-mono); font-size: 0.92em; }}
-.font-semibold {{ font-weight: 600; }}
-.font-bold {{ font-weight: 700; }}
-.text-muted {{ color: var(--text-muted); }}
-.text-good {{ color: var(--good); }}
-.text-warn {{ color: var(--warn); }}
-.text-bad {{ color: var(--bad); }}
-
-.badge {{
-  display: inline-flex;
-  align-items: center;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 99px;
-  border: 1px solid transparent;
-}}
-.badge--brand {{ color: #818cf8; background: var(--brand-soft); border-color: var(--brand-border); }}
-.badge--good {{ color: var(--good); background: var(--good-soft); border-color: var(--good-border); }}
-.badge--warn {{ color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }}
-.badge--bad {{ color: var(--bad); background: var(--bad-soft); border-color: var(--bad-border); }}
-.badge--mute {{ color: var(--text-muted); background: var(--surface-raised); border-color: var(--border); }}
-
-.tag-pill {{
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-muted);
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  padding: 4px 12px;
-  border-radius: 99px;
-}}
-
-.probe-title {{ font-weight: 600; font-size: 14px; color: #ffffff; }}
-.probe-code {{ color: var(--brand); font-size: 11px; margin-left: 6px; }}
-.probe-q {{ font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }}
-
-.barcell {{ width: 150px; }}
-.bar-track {{ height: 6px; border-radius: 3px; background: var(--surface-raised); overflow: hidden; margin-bottom: 3px; }}
-.bar-fill {{ display: block; height: 100%; background: var(--brand); border-radius: 3px; }}
-.barpct {{ font-family: var(--font-mono); font-size: 11px; color: var(--text-sub); }}
-
-.hl-wrap {{ display: flex; flex-direction: column; gap: 4px; }}
-.hl-pill {{ display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; }}
-.hl-v {{ font-family: var(--font-mono); font-weight: 700; color: var(--text); min-width: 44px; text-align: right; }}
-.hl-l {{ color: var(--text-muted); font-size: 11.5px; }}
-.hl-pill--none .hl-v {{ color: var(--text-sub); }}
-
-.diverge-cell {{ position: relative; width: 120px; height: 20px; }}
-.diverge-axis {{ position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }}
-.diverge-bar {{ position: absolute; top: 6px; height: 8px; border-radius: 2px; }}
-.diverge-bar--pos {{ left: 50%; background: var(--good); }}
-.diverge-bar--neg {{ right: 50%; background: var(--bad); }}
-.eff-cell--pos {{ color: var(--good); font-weight: 700; }}
-.eff-cell--neg {{ color: var(--bad); font-weight: 700; }}
-
-.hypothesis-card {{
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  padding: 18px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 14px;
-}}
-.hyp-head {{ display: flex; justify-content: space-between; align-items: center; }}
-.hyp-statement {{ font-size: 16px; font-weight: 600; color: #ffffff; line-height: 1.45; }}
-.card-detail {{ font-size: 13px; color: var(--text-muted); }}
-.card-detail .label {{ font-weight: 600; color: var(--text); margin-right: 6px; }}
-
-.charts-grid {{
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 18px;
-}}
-.chart-card {{
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  overflow: hidden;
-}}
-.chart-head {{
-  padding: 11px 16px;
-  background: rgba(0, 0, 0, 0.25);
-  border-bottom: 1px solid var(--border-subtle);
-}}
-.chart-title {{ font-size: 13.5px; font-weight: 600; color: var(--text); }}
-.chart-card img {{ display: block; width: 100%; height: auto; }}
-
-details.collapsible-box {{
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  margin-bottom: 16px;
-}}
-details.collapsible-box summary {{
-  padding: 13px 18px;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--text-muted);
-  user-select: none;
-}}
-details.collapsible-box summary:hover {{ color: var(--text); }}
-details.collapsible-box .content {{ padding: 0 18px 18px; }}
-
-pre.code-block {{
-  background: #06090e;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 16px;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: #e2e8f0;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}}
-.section-subhead {{
-  font-size: 12px;
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-sub);
-  margin-bottom: 8px;
-}}
-
-.case-controls {{
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 20px;
-}}
-.filter-btn-group {{
-  display: flex;
-  gap: 6px;
-  background: var(--surface-raised);
-  padding: 4px;
-  border-radius: 99px;
-  border: 1px solid var(--border);
-}}
-.filter-btn {{
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  padding: 6px 14px;
-  border-radius: 99px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}}
-.filter-btn:hover {{ color: var(--text); }}
-.filter-btn.is-active {{
-  background: var(--brand);
-  color: white;
-  font-weight: 600;
-}}
-.search-box {{
-  margin-left: auto;
-  padding: 8px 16px;
-  border-radius: 99px;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: var(--text);
-  font-size: 13.5px;
-  outline: none;
-  width: 280px;
-}}
-.search-box:focus {{ border-color: var(--brand); }}
-
-.case-grid {{
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 18px;
-}}
-.case-item {{
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}}
-.case-item-header {{
-  padding: 11px 16px;
-  background: rgba(0, 0, 0, 0.3);
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}}
-.case-dur {{ margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-sub); }}
-.case-q {{
-  padding: 16px;
-  font-size: 14.5px;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.45;
-}}
-.case-media-box {{ padding: 0 16px 12px; }}
-.case-media-box audio {{ width: 100%; height: 34px; }}
-.case-media-box img {{ width: 100%; max-height: 220px; object-fit: contain; border-radius: 4px; border: 1px solid var(--border); }}
-.case-choices {{
-  list-style: none;
-  padding: 0 16px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}}
-.case-choices li {{
-  font-size: 13px;
-  padding: 7px 12px;
-  border-radius: 6px;
-  background: var(--surface);
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-}}
-.case-choices li.is-gold {{
-  background: var(--good-soft);
-  border-color: var(--good-border);
-  color: #ffffff;
-  font-weight: 600;
-}}
-.case-item-foot {{
-  margin-top: auto;
-  padding: 11px 16px;
-  background: rgba(0, 0, 0, 0.3);
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-}}
-.case-id-tag {{
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-sub);
-}}
-
-footer.app-footer {{
-  border-top: 1px solid var(--border-subtle);
-  padding: 32px 0 48px;
-  color: var(--text-sub);
-  font-size: 13px;
-}}
-</style>
-</head>
-<body>
-
-<header class="app-header">
-  <div class="container header-inner">
-    <div class="brand-group">
-      <div class="brand-icon">⚡</div>
-      <div class="brand-titles">
-        <span class="brand-model">{esc(run['model'])}</span>
-        <span class="brand-benchmark">{esc(run['benchmark_name'])}</span>
-      </div>
-    </div>
-    <div class="header-badges">{meta_chips}</div>
-  </div>
-</header>
-
-<nav class="tabs-nav">
-  <div class="container">
-    <div class="tabs-scroll">
-      {tabs_html}
-    </div>
-  </div>
-</nav>
-
-<div class="container">
-
-  <!-- TAB: OVERVIEW -->
-  <div class="tab-pane is-active" id="tab_overview">
-    <div class="story-box">
-      <p>{story_p1}</p>
-      {f"<p>{story_p2}</p>" if story_p2 else ""}
-      {f"<p>{story_p3}</p>" if story_p3 else ""}
-    </div>
-
-    <div class="kpi-grid">{tiles_html}</div>
-
-    <div class="card">
-      <div class="card-head">
-        <span class="card-tag">PIPELINE SUMMARY</span>
-        <h2 class="card-title">Diagnostic Stages Breakdown</h2>
-        <p class="card-subtext">Click on any tab above to inspect deep-dive evidence, statistical tests, or interactive case media.</p>
-      </div>
-
-      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">
-        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab('tab_m1')">
-          <div class="hyp-head"><span class="badge badge--brand">STAGE M1</span><span class="mono text-muted">{len(m1['analyzers'])} Probes</span></div>
-          <div class="font-bold">Multi-Modal Checkup</div>
-          <div class="text-muted" style="font-size:13px;">Clinical vital signs (order sensitivity, pass@5 coverage, uncertainty, calibration).</div>
-        </div>
-
-        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab('tab_m2')">
-          <div class="hyp-head"><span class="badge badge--good">STAGE M2</span><span class="mono text-muted">{len(stats_sig)} Significant</span></div>
-          <div class="font-bold">Screening & Confirmatory Signals</div>
-          <div class="text-muted" style="font-size:13px;">Identified key anomaly signals strongly correlated with errors under Benjamini–Hochberg FDR control.</div>
-        </div>
-
-        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab('tab_m3')">
-          <div class="hyp-head"><span class="badge badge--brand">STAGE M3 & M5</span><span class="mono text-muted">{m5_status}</span></div>
-          <div class="font-bold">Diagnosis & Validation</div>
-          <div class="text-muted" style="font-size:13px;">Falsifiable root-cause mechanism hypotheses verified on held-out test data.</div>
-        </div>
-
-        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab('tab_m4_fix')">
-          <div class="hyp-head"><span class="badge badge--good">STAGE M4</span><span class="mono text-muted">{m4_status}</span></div>
-          <div class="font-bold">Targeted Repair & Case Studio</div>
-          <div class="text-muted" style="font-size:13px;">Validated repair strategies with paired McNemar confirmation (+{repair_effect * 100:.1f}% net gain).</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- TAB: PRE-M1 -->
-  <div class="tab-pane" id="tab_pre_m1">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-tag">PRE-M1</span>
-        <h2 class="card-title">Case Synthesis & Adversarial Probes</h2>
-        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{pre_m1_sub}</span>
-        <p class="card-subtext">{STAGE_METADATA['pre_m1']['plain_desc']}</p>
-      </div>
-      <div class="callout">
-        <b>Stage Status:</b> {pre_m1_desc}
-      </div>
-    </div>
-  </div>
-
-  <!-- TAB: M1 -->
-  <div class="tab-pane" id="tab_m1">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-tag">M1</span>
-        <h2 class="card-title">Checkup & Vital Signals</h2>
-        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m1_duration_str}</span>
-        <p class="card-subtext">{STAGE_METADATA['m1']['plain_desc']}</p>
-      </div>
-
-      <div class="callout callout--accent">
-        <b>Measurement Summary:</b> Executed <b>{len(m1['analyzers'])} clinical probes</b>. Each probe measures a specific behavioral dimension without making premature failure attributions.
-      </div>
-
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Probe & Diagnostic Question</th>
-              <th class="num">Cases Scored</th>
-              <th>Dataset Coverage</th>
-              <th>Core Measured Headlines</th>
-            </tr>
-          </thead>
-          <tbody>{m1_table_html}</tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- TAB: M2 -->
-  <div class="tab-pane" id="tab_m2">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-tag">M2</span>
-        <h2 class="card-title">Screening & Confirmatory Signals</h2>
-        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m2_duration_str}</span>
-        <p class="card-subtext">{STAGE_METADATA['m2']['plain_desc']}</p>
-      </div>
-
-      <div class="callout callout--good">
-        <b>Screening Outcome:</b> Out of {len(m2['stats'])} tested feature associations, <b>{len(stat_rows_sig)} signals passed rigorous Benjamini–Hochberg statistical significance correction</b>.
-      </div>
-
-      {m2_conclusion_box}
-
-      <div class="table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Anomalous Feature Signal</th>
-              <th class="num">Effect Size</th>
-              <th class="num">95% Conf. Interval</th>
-              <th class="num">p-value</th>
-              <th>FDR Screening Verdict</th>
-            </tr>
-          </thead>
-          <tbody>{stats_sig_html}</tbody>
-        </table>
-      </div>
-
-      <details class="collapsible-box">
-        <summary>View {len(stat_rows_null)} Non-Significant Feature Signals</summary>
-        <div class="content">
-          <div class="table-wrapper">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Feature Signal</th>
-                  <th class="num">Effect Size</th>
-                  <th class="num">95% Conf. Interval</th>
-                  <th class="num">p-value</th>
-                  <th>Verdict</th>
-                </tr>
-              </thead>
-              <tbody>{stats_null_html}</tbody>
-            </table>
-          </div>
-        </div>
-      </details>
-
-      <details class="collapsible-box" open>
-        <summary>Exploratory Data Analysis Charts ({len(figures)} plots)</summary>
-        <div class="content">
-          <div class="charts-grid">{all_figs_html}</div>
-        </div>
-      </details>
-    </div>
-  </div>
-
-  <!-- TAB: M3 -->
-  <div class="tab-pane" id="tab_m3">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-tag">M3</span>
-        <h2 class="card-title">Root-Cause Diagnosis (AI Doctor)</h2>
-        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{len(m3['hypotheses'])} Hypotheses</span>
-        <p class="card-subtext">{STAGE_METADATA['m3']['plain_desc']}</p>
-      </div>
-
-      <div class="callout">
-        <b>Diagnostician Rationale:</b> Proposed mechanisms must be <b>falsifiable</b> and pre-register their expected direction of effect to be verified on holdout data.
-      </div>
-
-      {m3_hypotheses_html}
-    </div>
-  </div>
-
-  <!-- TAB: M5 -->
-  <div class="tab-pane" id="tab_m5">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-tag">M5</span>
-        <h2 class="card-title">Independent Blind Adjudication</h2>
-        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m5_status}</span>
-        <p class="card-subtext">{STAGE_METADATA['m5']['plain_desc']}</p>
-      </div>
-
-      <div class="callout {m5_tone_cls}">
-        {m5_plain_text}
-      </div>
-
-      {m5_detail_html}
-    </div>
-  </div>
-
-  <!-- TAB: M4-SURGERY -->
-  <div class="tab-pane" id="tab_m4_surgery">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-tag">M4-SURGERY</span>
-        <h2 class="card-title">Causal Surgery & Interventions</h2>
-        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m4_s_sub}</span>
-        <p class="card-subtext">{STAGE_METADATA['m4_surgery']['plain_desc']}</p>
-      </div>
-
-      <div class="callout">
-        <b>Stage Status:</b> {m4_s_desc}
-      </div>
-    </div>
-  </div>
-
-  <!-- TAB: M4-FIX -->
-  <div class="tab-pane" id="tab_m4_fix">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-tag">M4-FIX</span>
-        <h2 class="card-title">Targeted Repair & Paired Confirmation</h2>
-        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m4_status}</span>
-        <p class="card-subtext">{STAGE_METADATA['m4_fix']['plain_desc']}</p>
-      </div>
-
-      <div class="callout {m4_f_tone_cls}">
-        {m4_f_plain}
-      </div>
-
-      <details class="collapsible-box" open>
-        <summary>Repair Candidate Sweep ({len(m4_f['selection'])} candidates evaluated)</summary>
-        <div class="content">
-          <div class="table-wrapper">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Tier</th>
-                  <th>Candidate Strategy</th>
-                  <th>Screening Verdict</th>
-                  <th class="num">Cured (+)</th>
-                  <th class="num">Broken (-)</th>
-                  <th class="num">Net Accuracy Shift</th>
-                  <th>Balance Direction</th>
-                </tr>
-              </thead>
-              <tbody>{sel_table_html}</tbody>
-            </table>
-          </div>
-        </div>
-      </details>
-
-      {m4_f_tmpl_html}
-    </div>
-  </div>
-
-  <!-- TAB: CASE STUDIO -->
-  <div class="tab-pane" id="tab_case_book">
-    <div class="card">
-      <div class="card-head">
-        <span class="card-tag">CASE-STUDIO</span>
-        <h2 class="card-title">Interactive Case Studio</h2>
-        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{len(cases)} Cases Available</span>
-        <p class="card-subtext">{STAGE_METADATA['case_book']['plain_desc']}</p>
-      </div>
-
-      <div class="case-controls">
-        <div class="filter-btn-group">
-          <button type="button" class="filter-btn is-active" data-f="all">All ({len(cases)})</button>
-          <button type="button" class="filter-btn" data-f="fixed">Cured (+{sum(1 for c in cases if c['status'] == 'fixed')})</button>
-          <button type="button" class="filter-btn" data-f="broken">Broken (-{sum(1 for c in cases if c['status'] == 'broken')})</button>
-          <button type="button" class="filter-btn" data-f="unchanged">Unchanged ({sum(1 for c in cases if c['status'] == 'unchanged')})</button>
-        </div>
-        <input type="text" class="search-box" id="csearch" placeholder="Search prompt, question, or ID...">
-      </div>
-
-      <div class="case-grid" id="cases_grid"></div>
-    </div>
-  </div>
-
-</div>
-
-<footer class="app-footer">
-  <div class="container" style="display:flex; flex-direction:column; gap:6px;">
-    <div>Generated by <b>EvalVitals Diagnostic Engine</b> · Single-page tabbed interactive report · Zero external runtime dependencies</div>
-    <div>Model: <code>{esc(run['model'])}</code> · Fingerprint: <code>{esc(run['data_fingerprint'])}</code> · Path: <code>{esc(run['logs_dir'])}</code></div>
-  </div>
-</footer>
-
-<script>
-const CASES = {cases_json};
-const AUDIO = {audio_json};
-const IMAGES = {images_json};
-
+    html_lines = [
+        '<!DOCTYPE html>',
+        '<html lang="en">',
+        '<head>',
+        '<meta charset="UTF-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+        f'<title>EvalVitals · {esc(run["model"])} Diagnostic Report</title>',
+        '<link rel="preconnect" href="https://fonts.googleapis.com">',
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
+        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">',
+        '<style>',
+        ':root {',
+        '  --bg: #0b0f19;',
+        '  --surface: #111827;',
+        '  --surface-raised: #1f2937;',
+        '  --surface-hover: #374151;',
+        '  --border: #374151;',
+        '  --border-subtle: #242d3d;',
+        '  --text: #f9fafb;',
+        '  --text-muted: #9ca3af;',
+        '  --text-sub: #6b7280;',
+        '  --brand: #6366f1;',
+        '  --brand-soft: rgba(99, 102, 241, 0.12);',
+        '  --brand-border: rgba(99, 102, 241, 0.35);',
+        '  --good: #10b981;',
+        '  --good-soft: rgba(16, 185, 129, 0.12);',
+        '  --good-border: rgba(16, 185, 129, 0.35);',
+        '  --warn: #f59e0b;',
+        '  --warn-soft: rgba(245, 158, 11, 0.12);',
+        '  --warn-border: rgba(245, 158, 11, 0.35);',
+        '  --bad: #ef4444;',
+        '  --bad-soft: rgba(239, 68, 68, 0.12);',
+        '  --bad-border: rgba(239, 68, 68, 0.35);',
+        '  --radius: 10px;',
+        '  --radius-sm: 6px;',
+        '  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
+        '  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Monaco, monospace;',
+        '}',
+        '* { box-sizing: border-box; margin: 0; padding: 0; }',
+        'body { background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 14.5px; line-height: 1.6; -webkit-font-smoothing: antialiased; }',
+        '.container { max-width: 1240px; margin: 0 auto; padding: 0 24px; }',
+        'header.app-header { border-bottom: 1px solid var(--border-subtle); background: rgba(17, 24, 39, 0.95); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 100; }',
+        '.header-inner { padding: 16px 0; display: flex; justify-content: space-between; align-items: center; gap: 16px; }',
+        '.brand-group { display: flex; align-items: center; gap: 14px; }',
+        '.brand-icon { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, var(--brand), #8b5cf6); display: flex; align-items: center; justify-content: center; color: white; font-size: 16px; font-weight: 700; }',
+        '.brand-titles { display: flex; flex-direction: column; }',
+        f'.brand-model {{ font-size: 17px; font-weight: 700; color: #ffffff; letter-spacing: -0.02em; }}',
+        f'.brand-benchmark {{ font-size: 12.5px; color: var(--text-muted); }}',
+        f'.header-badges {{ display: flex; gap: 8px; flex-wrap: wrap; }}',
+        'nav.tabs-nav { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 65px; z-index: 90; }',
+        '.tabs-scroll { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0; scrollbar-width: none; }',
+        '.tabs-scroll::-webkit-scrollbar { display: none; }',
+        '.tab-btn { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--text-muted); font-family: var(--font-sans); font-size: 13.5px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all 0.15s ease; }',
+        '.tab-btn:hover { background: var(--surface-raised); color: var(--text); }',
+        '.tab-btn.is-active { background: var(--surface-raised); border-color: var(--border); color: #ffffff; font-weight: 600; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }',
+        '.tab-code { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--brand); }',
+        '.tab-badge { font-family: var(--font-mono); font-size: 10.5px; padding: 2px 6px; border-radius: 99px; }',
+        '.tab-pane { display: none; padding: 32px 0 80px; animation: fadeIn 0.15s ease-in-out; }',
+        '.tab-pane.is-active { display: block; }',
+        '@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }',
+        '.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 24px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }',
+        '.card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; padding-bottom: 16px; margin-bottom: 20px; border-bottom: 1px solid var(--border-subtle); }',
+        '.card-tag { font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--brand); background: var(--brand-soft); border: 1px solid var(--brand-border); padding: 3px 8px; border-radius: 4px; }',
+        '.card-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: #ffffff; }',
+        '.card-subtext { flex: 1 1 100%; font-size: 13.5px; color: var(--text-muted); }',
+        '.story-box { background: linear-gradient(180deg, rgba(31, 41, 55, 0.6) 0%, rgba(17, 24, 39, 0.9) 100%); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 26px; margin-bottom: 24px; display: flex; flex-direction: column; gap: 10px; }',
+        '.story-box p { font-size: 15px; color: var(--text); line-height: 1.6; }',
+        '.story-box b { color: #ffffff; }',
+        '.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 24px; }',
+        '.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; display: flex; flex-direction: column; gap: 5px; }',
+        '.kpi-label { font-size: 11.5px; font-family: var(--font-mono); text-transform: uppercase; color: var(--text-sub); letter-spacing: 0.05em; }',
+        '.kpi-val { font-size: 26px; font-weight: 700; font-family: var(--font-mono); letter-spacing: -0.02em; }',
+        '.kpi-sub { font-size: 12px; color: var(--text-muted); }',
+        '.kpi-card--good { border-color: var(--good-border); } .kpi-card--good .kpi-val { color: var(--good); }',
+        '.kpi-card--warn { border-color: var(--warn-border); } .kpi-card--warn .kpi-val { color: var(--warn); }',
+        '.kpi-card--bad { border-color: var(--bad-border); } .kpi-card--bad .kpi-val { color: var(--bad); }',
+        '.callout { padding: 16px 20px; border-radius: var(--radius-sm); background: var(--surface-raised); border-left: 4px solid var(--border); font-size: 14px; color: var(--text); margin-bottom: 20px; }',
+        '.callout--accent { border-left-color: var(--brand); background: var(--brand-soft); }',
+        '.callout--good { border-left-color: var(--good); background: var(--good-soft); }',
+        '.callout--warn { border-left-color: var(--warn); background: var(--warn-soft); }',
+        '.callout b { color: #ffffff; }',
+        '.table-wrapper { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 20px; }',
+        'table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }',
+        'table.data-table th { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-sub); background: var(--surface-raised); padding: 11px 14px; border-bottom: 1px solid var(--border); }',
+        'table.data-table td { padding: 11px 14px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }',
+        'table.data-table tr:hover td { background: rgba(255, 255, 255, 0.02); }',
+        '.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }',
+        '.mono { font-family: var(--font-mono); font-size: 0.92em; }',
+        '.font-semibold { font-weight: 600; }',
+        '.font-bold { font-weight: 700; }',
+        '.text-muted { color: var(--text-muted); }',
+        '.text-good { color: var(--good); }',
+        '.text-warn { color: var(--warn); }',
+        '.text-bad { color: var(--bad); }',
+        '.badge { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid transparent; }',
+        '.badge--brand { color: #818cf8; background: var(--brand-soft); border-color: var(--brand-border); }',
+        '.badge--good { color: var(--good); background: var(--good-soft); border-color: var(--good-border); }',
+        '.badge--warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }',
+        '.badge--bad { color: var(--bad); background: var(--bad-soft); border-color: var(--bad-border); }',
+        '.badge--mute { color: var(--text-muted); background: var(--surface-raised); border-color: var(--border); }',
+        '.tag-pill { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); background: var(--surface-raised); border: 1px solid var(--border); padding: 4px 12px; border-radius: 99px; }',
+        '.probe-card { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); margin-bottom: 16px; overflow: hidden; }',
+        '.probe-header { padding: 16px 20px; display: flex; align-items: center; cursor: pointer; transition: background 0.15s ease; user-select: none; }',
+        '.probe-header:hover { background: var(--surface-raised); }',
+        '.probe-title { font-weight: 700; font-size: 15px; color: #ffffff; display: flex; align-items: center; }',
+        '.probe-code { color: var(--brand); font-size: 11.5px; margin-left: 8px; }',
+        '.probe-q { font-size: 13px; color: var(--text-muted); margin-top: 3px; }',
+        '.probe-body { padding: 20px 24px; background: rgba(0, 0, 0, 0.2); border-top: 1px solid var(--border-subtle); }',
+        '.probe-desc-box { background: var(--surface-raised); padding: 14px 18px; border-radius: var(--radius-sm); border-left: 3px solid var(--brand); font-size: 13.5px; }',
+        '.expand-icon { font-size: 12px; color: var(--text-sub); transition: transform 0.2s ease; margin-left: 12px; }',
+        '.expand-icon.is-open { transform: rotate(180deg); }',
+        '.mini-btn { padding: 4px 10px; font-size: 11px; font-family: var(--font-mono); border-radius: 4px; border: 1px solid var(--border); background: var(--surface-raised); color: var(--text); cursor: pointer; }',
+        '.mini-btn:hover { background: var(--brand); color: white; border-color: var(--brand); }',
+        '.bar-track { height: 6px; border-radius: 3px; background: var(--surface-raised); overflow: hidden; margin-bottom: 3px; }',
+        '.bar-fill { display: block; height: 100%; background: var(--brand); border-radius: 3px; }',
+        '.barpct { font-family: var(--font-mono); font-size: 11px; color: var(--text-sub); }',
+        '.hl-wrap { display: flex; flex-direction: column; gap: 4px; }',
+        '.hl-pill { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; }',
+        '.hl-v { font-family: var(--font-mono); font-weight: 700; color: var(--text); min-width: 44px; text-align: right; }',
+        '.hl-l { color: var(--text-muted); font-size: 11.5px; }',
+        '.hl-pill--none .hl-v { color: var(--text-sub); }',
+        '.diverge-cell { position: relative; width: 120px; height: 20px; }',
+        '.diverge-axis { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }',
+        '.diverge-bar { position: absolute; top: 6px; height: 8px; border-radius: 2px; }',
+        '.diverge-bar--pos { left: 50%; background: var(--good); }',
+        '.diverge-bar--neg { right: 50%; background: var(--bad); }',
+        '.eff-cell--pos { color: var(--good); font-weight: 700; }',
+        '.eff-cell--neg { color: var(--bad); font-weight: 700; }',
+        '.hypothesis-card { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }',
+        '.hyp-head { display: flex; justify-content: space-between; align-items: center; }',
+        '.hyp-statement { font-size: 16px; font-weight: 600; color: #ffffff; line-height: 1.45; }',
+        '.card-detail { font-size: 13px; color: var(--text-muted); }',
+        '.card-detail .label { font-weight: 600; color: var(--text); margin-right: 6px; }',
+        '.charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; }',
+        '.chart-card { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); overflow: hidden; cursor: pointer; }',
+        '.chart-head { padding: 11px 16px; background: rgba(0, 0, 0, 0.25); border-bottom: 1px solid var(--border-subtle); }',
+        '.chart-title { font-size: 13.5px; font-weight: 600; color: var(--text); }',
+        '.chart-card img { display: block; width: 100%; height: auto; transition: transform 0.2s ease; }',
+        '.chart-card:hover img { transform: scale(1.02); }',
+        'details.collapsible-box { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); margin-bottom: 16px; }',
+        'details.collapsible-box summary { padding: 13px 18px; cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text-muted); user-select: none; }',
+        'details.collapsible-box summary:hover { color: var(--text); }',
+        'details.collapsible-box .content { padding: 0 18px 18px; }',
+        'pre.code-block { background: #06090e; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 16px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; color: #e2e8f0; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }',
+        '.section-subhead { font-size: 12px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-sub); margin-bottom: 8px; }',
+        '.case-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 20px; }',
+        '.filter-btn-group { display: flex; gap: 6px; background: var(--surface-raised); padding: 4px; border-radius: 99px; border: 1px solid var(--border); }',
+        '.filter-btn { font-family: var(--font-mono); font-size: 12.5px; padding: 6px 14px; border-radius: 99px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s ease; }',
+        '.filter-btn:hover { color: var(--text); }',
+        '.filter-btn.is-active { background: var(--brand); color: white; font-weight: 600; }',
+        '.search-box { margin-left: auto; padding: 8px 16px; border-radius: 99px; border: 1px solid var(--border); background: var(--surface-raised); color: var(--text); font-size: 13.5px; outline: none; width: 280px; }',
+        '.search-box:focus { border-color: var(--brand); }',
+        '.case-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; }',
+        '.case-item { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); display: flex; flex-direction: column; overflow: hidden; }',
+        '.case-item-header { padding: 11px 16px; background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 8px; }',
+        '.case-dur { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-sub); }',
+        '.case-q { padding: 16px; font-size: 14.5px; font-weight: 600; color: var(--text); line-height: 1.45; }',
+        '.case-media-box { padding: 0 16px 12px; }',
+        '.case-media-box audio { width: 100%; height: 34px; }',
+        '.case-media-box img { width: 100%; max-height: 220px; object-fit: contain; border-radius: 4px; border: 1px solid var(--border); }',
+        '.case-choices { list-style: none; padding: 0 16px 14px; display: flex; flex-direction: column; gap: 6px; }',
+        '.case-choices li { font-size: 13px; padding: 7px 12px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border-subtle); display: flex; gap: 8px; align-items: baseline; }',
+        '.case-choices li.is-gold { background: var(--good-soft); border-color: var(--good-border); color: #ffffff; font-weight: 600; }',
+        '.case-item-foot { margin-top: auto; padding: 11px 16px; background: rgba(0, 0, 0, 0.3); border-top: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 8px; font-size: 12.5px; }',
+        '.case-id-tag { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-sub); }',
+        '.case-probe-tags { padding: 0 16px 10px; display: flex; flex-wrap: wrap; gap: 4px; }',
+        '.case-probe-tag { font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--brand-soft); color: var(--brand); border: 1px solid var(--brand-border); }',
+        '.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 24px; }',
+        '.modal-backdrop.is-open { display: flex; animation: fadeIn 0.15s ease; }',
+        '.modal-content { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); max-width: 820px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 28px; position: relative; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); }',
+        '.modal-close { position: absolute; top: 16px; right: 16px; background: transparent; border: none; font-size: 22px; color: var(--text-muted); cursor: pointer; line-height: 1; padding: 4px 8px; }',
+        '.modal-close:hover { color: #ffffff; }',
+        'footer.app-footer { border-top: 1px solid var(--border-subtle); padding: 32px 0 48px; color: var(--text-sub); font-size: 13px; }',
+        '</style>',
+        '</head>',
+        '<body>',
+        '<header class="app-header">',
+        '  <div class="container header-inner">',
+        '    <div class="brand-group">',
+        '      <div class="brand-icon">⚡</div>',
+        '      <div class="brand-titles">',
+        f'        <span class="brand-model">{esc(run["model"])}</span>',
+        f'        <span class="brand-benchmark">{esc(run["benchmark_name"])}</span>',
+        '      </div>',
+        '    </div>',
+        f'    <div class="header-badges">{meta_chips}</div>',
+        '  </div>',
+        '</header>',
+        '<nav class="tabs-nav">',
+        '  <div class="container">',
+        f'    <div class="tabs-scroll">{tabs_html}</div>',
+        '  </div>',
+        '</nav>',
+        '<div class="container">',
+        '  <div class="tab-pane is-active" id="tab_overview">',
+        '    <div class="story-box">',
+        f'      <p>{story_p1}</p>',
+        f'      <p>{story_p2}</p>' if story_p2 else '',
+        f'      <p>{story_p3}</p>' if story_p3 else '',
+        '    </div>',
+        f'    <div class="kpi-grid">{tiles_html}</div>',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">PIPELINE SUMMARY</span>',
+        '        <h2 class="card-title">Diagnostic Stages Breakdown</h2>',
+        '        <p class="card-subtext">Click on any tab above to inspect deep-dive evidence, statistical tests, or interactive case media.</p>',
+        '      </div>',
+        '      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">',
+        '        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab(&apos;tab_m1&apos;)">',
+        f'          <div class="hyp-head"><span class="badge badge--brand">STAGE M1</span><span class="mono text-muted">{len(m1["analyzers"])} Probes</span></div>',
+        '          <div class="font-bold">Multi-Modal Checkup</div>',
+        '          <div class="text-muted" style="font-size:13px;">Clinical vital signs (order sensitivity, pass@5 coverage, uncertainty, calibration).</div>',
+        '        </div>',
+        '        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab(&apos;tab_m2&apos;)">',
+        f'          <div class="hyp-head"><span class="badge badge--good">STAGE M2</span><span class="mono text-muted">{len(stats_sig)} Significant</span></div>',
+        '          <div class="font-bold">Screening & Confirmatory Signals</div>',
+        '          <div class="text-muted" style="font-size:13px;">Identified key anomaly signals strongly correlated with errors under Benjamini–Hochberg FDR control.</div>',
+        '        </div>',
+        '        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab(&apos;tab_m3&apos;)">',
+        f'          <div class="hyp-head"><span class="badge badge--brand">STAGE M3 & M5</span><span class="mono text-muted">{m5_status}</span></div>',
+        '          <div class="font-bold">Diagnosis & Validation</div>',
+        '          <div class="text-muted" style="font-size:13px;">Falsifiable root-cause mechanism hypotheses verified on held-out test data.</div>',
+        '        </div>',
+        '        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab(&apos;tab_m4_fix&apos;)">',
+        f'          <div class="hyp-head"><span class="badge badge--good">STAGE M4</span><span class="mono text-muted">{m4_status}</span></div>',
+        '          <div class="font-bold">Targeted Repair & Case Studio</div>',
+        f'          <div class="text-muted" style="font-size:13px;">Validated repair strategies with paired McNemar confirmation {f"(+{repair_effect * 100:.1f}% net gain)" if repair_effect is not None else "(targeted repair)"}.</div>',
+        '        </div>',
+        '      </div>',
+        '    </div>',
+        '  </div>',
+        '  <div class="tab-pane" id="tab_pre_m1">',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">PRE-M1</span>',
+        '        <h2 class="card-title">Case Synthesis & Adversarial Probes</h2>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{pre_m1_sub}</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["pre_m1"]["plain_desc"]}</p>',
+        '      </div>',
+        f'      <div class="callout"><b>Stage Status:</b> {pre_m1_desc}</div>',
+        '    </div>',
+        '  </div>',
+        '  <div class="tab-pane" id="tab_m1">',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">M1</span>',
+        '        <h2 class="card-title">Checkup & Vital Signals (Hierarchical Probe Inspector)</h2>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m1_duration_str}</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["m1"]["plain_desc"]} Click any probe below to expand clinical rationale, per-case sample executions, and exact model outputs.</p>',
+        '      </div>',
+        f'      <div class="callout callout--accent"><b>Measurement Summary:</b> Executed <b>{len(m1["analyzers"])} clinical probes</b> across {n_total:,} benchmark cases. Click on any probe to expand its multi-tier audit drawer.</div>',
+        f'      <div style="display:flex; flex-direction:column; gap:14px;">{m1_cards_html}</div>',
+        '    </div>',
+        '  </div>',
+        '  <div class="tab-pane" id="tab_m2">',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">M2</span>',
+        '        <h2 class="card-title">Screening & Confirmatory Signals</h2>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m2_duration_str}</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["m2"]["plain_desc"]}</p>',
+        '      </div>',
+        f'      <div class="callout callout--good"><b>Screening Outcome:</b> Out of {len(m2["stats"])} tested feature associations, <b>{len(stat_rows_sig)} signals passed rigorous Benjamini–Hochberg statistical significance correction</b>.</div>',
+        f'      {m2_conclusion_box}',
+        '      <div class="table-wrapper">',
+        '        <table class="data-table">',
+        '          <thead>',
+        '            <tr>',
+        '              <th>Anomalous Feature Signal</th>',
+        '              <th class="num">Effect Size</th>',
+        '              <th class="num">95% Conf. Interval</th>',
+        '              <th class="num">p-value</th>',
+        '              <th>FDR Screening Verdict</th>',
+        '            </tr>',
+        '          </thead>',
+        f'          <tbody>{stats_sig_html}</tbody>',
+        '        </table>',
+        '      </div>',
+        '      <details class="collapsible-box">',
+        f'        <summary>View {len(stat_rows_null)} Non-Significant Feature Signals</summary>',
+        '        <div class="content">',
+        '          <div class="table-wrapper">',
+        '            <table class="data-table">',
+        '              <thead>',
+        '                <tr>',
+        '                  <th>Feature Signal</th>',
+        '                  <th class="num">Effect Size</th>',
+        '                  <th class="num">95% Conf. Interval</th>',
+        '                  <th class="num">p-value</th>',
+        '                  <th>Verdict</th>',
+        '                </tr>',
+        '              </thead>',
+        f'              <tbody>{stats_null_html}</tbody>',
+        '            </table>',
+        '          </div>',
+        '        </div>',
+        '      </details>',
+        '      <details class="collapsible-box" open>',
+        f'        <summary>Exploratory Data Analysis Charts ({len(figures)} plots)</summary>',
+        f'        <div class="content"><div class="charts-grid">{all_figs_html}</div></div>',
+        '      </details>',
+        '    </div>',
+        '  </div>',
+        '  <div class="tab-pane" id="tab_m3">',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">M3</span>',
+        '        <h2 class="card-title">Root-Cause Diagnosis (AI Doctor)</h2>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{len(m3["hypotheses"])} Hypotheses</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["m3"]["plain_desc"]}</p>',
+        '      </div>',
+        '      <div class="callout"><b>Diagnostician Rationale:</b> Proposed mechanisms must be <b>falsifiable</b> and pre-register their expected direction of effect to be verified on holdout data.</div>',
+        f'      {m3_hypotheses_html}',
+        '    </div>',
+        '  </div>',
+        '  <div class="tab-pane" id="tab_m5">',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">M5</span>',
+        '        <h2 class="card-title">Independent Blind Adjudication</h2>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m5_status}</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["m5"]["plain_desc"]}</p>',
+        '      </div>',
+        f'      <div class="callout {m5_tone_cls}">{m5_plain_text}</div>',
+        f'      {m5_detail_html}',
+        '    </div>',
+        '  </div>',
+        '  <div class="tab-pane" id="tab_m4_surgery">',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">M4-SURGERY</span>',
+        '        <h2 class="card-title">Causal Surgery & Interventions</h2>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m4_s_sub}</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["m4_surgery"]["plain_desc"]}</p>',
+        '      </div>',
+        f'      <div class="callout"><b>Stage Status:</b> {m4_s_desc}</div>',
+        '    </div>',
+        '  </div>',
+        '  <div class="tab-pane" id="tab_m4_fix">',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">M4-FIX</span>',
+        '        <h2 class="card-title">Targeted Repair & Paired Confirmation</h2>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m4_status}</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["m4_fix"]["plain_desc"]}</p>',
+        '      </div>',
+        f'      <div class="callout {m4_f_tone_cls}">{m4_f_plain}</div>',
+        '      <details class="collapsible-box" open>',
+        f'        <summary>Repair Candidate Sweep ({len(m4_f["selection"])} candidates evaluated)</summary>',
+        '        <div class="content">',
+        '          <div class="table-wrapper">',
+        '            <table class="data-table">',
+        '              <thead>',
+        '                <tr>',
+        '                  <th>Tier</th>',
+        '                  <th>Candidate Strategy</th>',
+        '                  <th>Screening Verdict</th>',
+        '                  <th class="num">Cured (+)</th>',
+        '                  <th class="num">Broken (-)</th>',
+        '                  <th class="num">Net Accuracy Shift</th>',
+        '                  <th>Balance Direction</th>',
+        '                </tr>',
+        '              </thead>',
+        f'              <tbody>{sel_table_html}</tbody>',
+        '            </table>',
+        '          </div>',
+        '        </div>',
+        '      </details>',
+        f'      {m4_f_tmpl_html}',
+        '    </div>',
+        '  </div>',
+        '  <div class="tab-pane" id="tab_agents">',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">AGENTS</span>',
+        '        <h2 class="card-title">Agent Trajectories — Layer-by-Layer Audit</h2>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{agents_n} Agent Invocations</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["agents"]["plain_desc"]}</p>',
+        '      </div>',
+        '      <div class="callout neutral">Every pipeline stage above is driven by agent calls (LLM judges and CLI coder agents). This tab is the bottom layer of the drill-down: pipeline stage → probe / hypothesis → the raw agent input and output that produced it.</div>',
+        '      <div class="section-subhead" style="margin-top:18px;">Judge Calls (verbatim prompt → response)</div>',
+        f'      {judge_boxes_html}',
+        '      <div class="section-subhead" style="margin-top:18px;">Explore Coder Agent</div>',
+        f'      {explore_boxes_html}',
+        '      <div class="section-subhead" style="margin-top:18px;">Tool Codegen Attempts</div>',
+        f'      {codegen_boxes_html}',
+        '      <div class="section-subhead" style="margin-top:18px;">Unified Trace (Langfuse Bundle)</div>',
+        f'      {langfuse_html}',
+        '    </div>',
+        '  </div>',
+        '  <div class="tab-pane" id="tab_case_book">',
+        '    <div class="card">',
+        '      <div class="card-head">',
+        '        <span class="card-tag">CASE-STUDIO</span>',
+        '        <h2 class="card-title">Interactive Case Studio</h2>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{len(cases)} Cases Available</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["case_book"]["plain_desc"]}</p>',
+        '      </div>',
+        '      <div class="case-controls">',
+        '        <div class="filter-btn-group">',
+        f'          <button type="button" class="filter-btn is-active" data-f="all">All ({len(cases)})</button>',
+        f'          <button type="button" class="filter-btn" data-f="fixed">Cured (+{sum(1 for c in cases if c["status"] == "fixed")})</button>',
+        f'          <button type="button" class="filter-btn" data-f="broken">Broken (-{sum(1 for c in cases if c["status"] == "broken")})</button>',
+        f'          <button type="button" class="filter-btn" data-f="unchanged">Unchanged ({sum(1 for c in cases if c["status"] == "unchanged")})</button>',
+        '        </div>',
+        '        <input type="text" class="search-box" id="csearch" placeholder="Search prompt, question, or ID...">',
+        '      </div>',
+        '      <div class="case-grid" id="cases_grid"></div>',
+        '    </div>',
+        '  </div>',
+        '</div>',
+        '<!-- MODAL LIGHTBOX & CASE AUDIT DRAWER -->',
+        '<div class="modal-backdrop" id="app_modal" onclick="closeModal(event)">',
+        '  <div class="modal-content" onclick="event.stopPropagation()">',
+        '    <button type="button" class="modal-close" onclick="closeModal()">&times;</button>',
+        '    <div id="modal_body"></div>',
+        '  </div>',
+        '</div>',
+        '<footer class="app-footer">',
+        '  <div class="container" style="display:flex; flex-direction:column; gap:6px;">',
+        '    <div>Generated by <b>EvalVitals Diagnostic Engine</b> · Native Langfuse OpenTelemetry Schema · Single-page zero external dependencies</div>',
+        f'    <div>Model: <code>{esc(run["model"])}</code> · Fingerprint: <code>{esc(run["data_fingerprint"])}</code> · Path: <code>{esc(run["logs_dir"])}</code></div>',
+        '  </div>',
+        '</footer>',
+        '<script>',
+        f'const CASES = {cases_json};',
+        f'const AUDIO = {audio_json};',
+        f'const IMAGES = {images_json};',
+        """
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => {
     b.classList.toggle('is-active', b.dataset.tab === tabId);
@@ -1899,6 +1768,55 @@ function switchTab(tabId) {
   if (history.replaceState) {
     history.replaceState(null, null, '#' + tabId.replace('tab_', ''));
   }
+}
+
+function toggleProbe(detailId) {
+  const el = document.getElementById(detailId);
+  const icon = document.getElementById('icon_' + detailId);
+  if (!el) return;
+  const isHidden = el.style.display === 'none';
+  el.style.display = isHidden ? 'block' : 'none';
+  if (icon) icon.classList.toggle('is-open', isHidden);
+}
+
+function openLightbox(imgSrc, title) {
+  const modal = document.getElementById('app_modal');
+  const body = document.getElementById('modal_body');
+  body.innerHTML = '<div style="font-size:18px; font-weight:700; margin-bottom:12px;">' + esc(title) + '</div>' +
+    '<img src="' + imgSrc + '" style="width:100%; border-radius:6px; border:1px solid var(--border);">';
+  modal.classList.add('is-open');
+}
+
+function openCaseModal(caseId) {
+  const c = CASES.find(item => item.id === caseId);
+  if (!c) return;
+  const modal = document.getElementById('app_modal');
+  const body = document.getElementById('modal_body');
+  const audioSrc = AUDIO[c.id];
+  const imgSrc = IMAGES[c.id];
+  const probeFlagsHtml = (c.probe_flags && c.probe_flags.length > 0) ?
+    '<div style="margin-bottom:14px;"><div class="section-subhead">Anomalies Detected on This Case</div><div style="display:flex; flex-wrap:wrap; gap:6px;">' +
+    c.probe_flags.map(f => '<span class="badge badge--warn" style="font-size:11px;">⚠️ ' + esc(f) + '</span>').join('') +
+    '</div></div>' : '';
+
+  body.innerHTML = '<div style="font-size:18px; font-weight:700; margin-bottom:4px;">Case Drilldown: <span class="mono" style="color:var(--brand);">' + esc(c.id) + '</span></div>' +
+    '<div style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">Task Domain: ' + esc(c.task || 'General Audio Understanding') + '</div>' +
+    probeFlagsHtml +
+    '<div class="callout"><b>Prompt / Instruction:</b> ' + esc(c.instruction) + '</div>' +
+    (audioSrc ? '<div style="margin-bottom:16px;"><div class="section-subhead">Audible Stimulus (AAC 16kHz)</div><audio controls src="' + audioSrc + '" style="width:100%;"></audio></div>' : '') +
+    (imgSrc ? '<div style="margin-bottom:16px;"><img src="' + imgSrc + '" style="max-height:300px; width:100%; object-fit:contain;"></div>' : '') +
+    '<div class="section-subhead">Options & Ground Truth</div>' +
+    '<ul class="case-choices" style="padding:0; margin-bottom:16px;">' + formatChoices(c) + '</ul>' +
+    '<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">' +
+    '<div class="kpi-card"><div class="kpi-label">Ground Truth Expected</div><div class="kpi-val text-good">' + esc(c.expected || '—') + '</div></div>' +
+    '<div class="kpi-card"><div class="kpi-label">Repaired Model Output</div><div class="kpi-val">' + esc(c.output || '—') + '</div></div>' +
+    '</div>';
+  modal.classList.add('is-open');
+}
+
+function closeModal(e) {
+  const modal = document.getElementById('app_modal');
+  modal.classList.remove('is-open');
 }
 
 document.querySelectorAll('.tab-btn').forEach(b => {
@@ -1917,7 +1835,13 @@ const searchInput = document.getElementById('csearch');
 let currentFilter = 'all';
 let searchKeyword = '';
 
-const esc = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esc = s => String(s || '').replace(/[&<>"']/g, c => {
+  if (c === '&') return '&amp;';
+  if (c === '<') return '&lt;';
+  if (c === '>') return '&gt;';
+  if (c === '"') return '&quot;';
+  return '&#39;';
+});
 
 function formatChoices(c) {
   if (!Array.isArray(c.choices) || c.choices.length === 0) return '';
@@ -1929,7 +1853,9 @@ function formatChoices(c) {
       text = m[2];
     }
     const isGold = letter && (letter === String(c.expected).trim().toUpperCase());
-    return `<li class="${isGold ? 'is-gold' : ''}"><span class="mono font-bold">${esc(letter || '·')}</span> <span>${esc(text)}</span> ${isGold ? '<span class="badge badge--good" style="margin-left:auto; font-size:10px;">Ground Truth</span>' : ''}</li>`;
+    const goldBadge = isGold ? '<span class="badge badge--good" style="margin-left:auto; font-size:10px;">Ground Truth</span>' : '';
+    const goldClass = isGold ? 'is-gold' : '';
+    return '<li class="' + goldClass + '"><span class="mono font-bold">' + esc(letter || '·') + '</span> <span>' + esc(text) + '</span> ' + goldBadge + '</li>';
   }).join('');
 }
 
@@ -1940,26 +1866,23 @@ function renderCard(c) {
 
   const audioSrc = AUDIO[c.id];
   const imgSrc = IMAGES[c.id];
+  const audioHtml = audioSrc ? '<audio controls preload="none" src="' + audioSrc + '"></audio>' : '';
+  const imgHtml = imgSrc ? '<img src="' + imgSrc + '" alt="Stimulus" loading="lazy">' : '';
+  const taskHtml = c.task ? '<span class="mono text-muted" style="font-size:11px;">' + esc(c.task) + '</span>' : '';
+  const durHtml = c.duration ? '<span class="case-dur">' + c.duration.toFixed(1) + 's</span>' : '';
+  const probeTagsHtml = (c.probe_flags && c.probe_flags.length > 0) ?
+    '<div class="case-probe-tags">' + c.probe_flags.map(f => '<span class="case-probe-tag">' + esc(f) + '</span>').join('') + '</div>' : '';
 
-  return `
-  <article class="case-item">
-    <div class="case-item-header">
-      <span class="badge ${badgeClass}">${badgeText}</span>
-      ${c.task ? `<span class="mono text-muted" style="font-size:11px;">${esc(c.task)}</span>` : ''}
-      ${c.duration ? `<span class="case-dur">${c.duration.toFixed(1)}s</span>` : ''}
-    </div>
-    <div class="case-q">${esc(c.instruction)}</div>
-    <div class="case-media-box">
-      ${audioSrc ? `<audio controls preload="none" src="${audioSrc}"></audio>` : ''}
-      ${imgSrc ? `<img src="${imgSrc}" alt="Stimulus" loading="lazy">` : ''}
-    </div>
-    <ul class="case-choices">${formatChoices(c)}</ul>
-    <div class="case-item-foot">
-      <span class="text-muted font-semibold" style="font-size:11px; text-transform:uppercase;">Repaired Output:</span>
-      <span class="mono font-bold" style="color:#ffffff;">${esc(c.output || '—')}</span>
-      <span class="case-id-tag">ID: ${esc(c.id.slice(0, 10))}</span>
-    </div>
-  </article>`;
+  return '<article class="case-item">' +
+    '<div class="case-item-header"><span class="badge ' + badgeClass + '">' + badgeText + '</span>' + taskHtml + durHtml + '</div>' +
+    '<div class="case-q">' + esc(c.instruction) + '</div>' +
+    probeTagsHtml +
+    '<div class="case-media-box">' + audioHtml + imgHtml + '</div>' +
+    '<ul class="case-choices">' + formatChoices(c) + '</ul>' +
+    '<div class="case-item-foot"><span class="text-muted font-semibold" style="font-size:11px; text-transform:uppercase;">Repaired Output:</span>' +
+    '<span class="mono font-bold" style="color:#ffffff;">' + esc(c.output || '—') + '</span>' +
+    '<button type="button" class="mini-btn" style="margin-left:auto;" onclick="openCaseModal(&apos;' + esc(c.id) + '&apos;)">Deep Audit</button></div>' +
+    '</article>';
 }
 
 function updateGrid() {
@@ -1994,10 +1917,12 @@ if (searchInput) {
 }
 
 updateGrid();
-</script>
-</body>
-</html>
-"""
+""",
+        '</script>',
+        '</body>',
+        '</html>',
+    ]
+    return '\n'.join(html_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -2010,6 +1935,7 @@ def build_html_report(
     out_path: str | Path | None = None,
     no_audio: bool = False,
 ) -> Path:
+    """Collect data from *run_dir* and write a self-contained HTML report."""
     run_dir = Path(run_dir).resolve()
     example_dir = Path(example_dir).resolve() if example_dir else run_dir.parent
     out_path = Path(out_path).resolve() if out_path else run_dir / "report.html"
@@ -2024,7 +1950,7 @@ def build_html_report(
 
     cache_dir = out_path.parent / ".media_cache"
     audio_map, image_map = embed_media(data["cases"], example_dir, cache_dir, no_audio=no_audio)
-    print(f"[*] Embedded {len(audio_map)} audio clips and {len(image_map)} images ({len(data["cases"])} joined cases)")
+    print(f"[*] Embedded {len(audio_map)} audio clips and {len(image_map)} images ({len(data['cases'])} joined cases)")
 
     html_content = generate_html_report(data, figures, audio_map, image_map)
 

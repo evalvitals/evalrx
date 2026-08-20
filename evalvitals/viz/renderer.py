@@ -179,6 +179,22 @@ def _to_float(value: str) -> float | None:
         return None
 
 
+def _get_bar_colors(xs_raw: list[Any], default_palette: list[str]) -> list[str]:
+    """Map categories to semantic palette colors (FAIL-red, PASS-green, else palette)."""
+    colors = []
+    for idx, label in enumerate(xs_raw):
+        s = str(label).strip().lower()
+        if any(w in s for w in ("fail", "broken", "error", "loss", "regression")):
+            colors.append("#d03b3b")
+        elif any(w in s for w in ("pass", "fixed", "cured", "correct", "gain", "survivor")):
+            colors.append("#0ca30c")
+        elif any(w in s for w in ("inconclusive", "warn", "unverified", "middle")):
+            colors.append("#fab219")
+        else:
+            colors.append(default_palette[idx % len(default_palette)])
+    return colors
+
+
 def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
     kind = str(spec.get("kind", "bar")).lower()
     if kind not in _KINDS:
@@ -204,38 +220,53 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
     name = _safe_filename(spec.get("name") or spec.get("title") or f"chart_{idx}")
     png = figures / f"{idx:02d}_{name}.png"
 
-    # Apply the nature-figure style in a scoped rc_context (no global leak; fully
-    # deterministic → same spec + CSV yields byte-identical PNGs).
+    # Clean label helpers
+    clean_x = str(x).replace("_", " ").title() if x else ""
+    clean_y = str(y).replace("_", " ").title() if y else ""
+
+    # Apply the nature-figure style in a scoped rc_context
     with plt.rc_context(rc):
-        fig, ax = plt.subplots(figsize=(6.4, 4.0))
+        fig, ax = plt.subplots(figsize=(6.8, 4.2))
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_color("#cbd5e1")
+        ax.spines["bottom"].set_color("#cbd5e1")
+
         if kind == "scatter":
-            ax.scatter(xs_num if x_is_num else range(len(xs_raw)), ys, s=26,
-                       color=primary, edgecolor="white", linewidth=0.4, zorder=3)
+            pt_colors = _get_bar_colors(xs_raw, colors) if not x_is_num else [primary] * len(ys)
+            ax.scatter(xs_num if x_is_num else range(len(xs_raw)), ys, s=36,
+                       c=pt_colors, edgecolor="white", linewidth=0.6, zorder=3, alpha=0.85)
             if not x_is_num:
                 ax.set_xticks(range(len(xs_raw)))
-                ax.set_xticklabels([str(v) for v in xs_raw], rotation=45, ha="right")
+                ax.set_xticklabels([str(v) for v in xs_raw], rotation=35, ha="right", fontsize=9)
         elif kind in {"line", "timeseries"}:
-            ax.plot(xs_num if x_is_num else range(len(xs_raw)), ys, marker="o",
-                    color=primary, linewidth=1.8, markersize=5, zorder=3)
+            x_vals = xs_num if x_is_num else range(len(xs_raw))
+            ax.plot(x_vals, ys, marker="o", color=primary, linewidth=2.0, markersize=5.5, zorder=3)
+            ax.fill_between(x_vals, ys, color=primary, alpha=0.08, zorder=2)
             if not x_is_num:
                 ax.set_xticks(range(len(xs_raw)))
-                ax.set_xticklabels([str(v) for v in xs_raw], rotation=45, ha="right")
+                ax.set_xticklabels([str(v) for v in xs_raw], rotation=35, ha="right", fontsize=9)
         else:  # bar
             positions = range(len(xs_raw))
-            ax.bar(positions, ys, color=primary, width=0.72, zorder=3)
+            bar_colors = _get_bar_colors(xs_raw, colors)
+            bars = ax.bar(positions, ys, color=bar_colors, width=0.62, zorder=3, edgecolor="white", linewidth=0.5)
             ax.set_xticks(list(positions))
-            ax.set_xticklabels([str(v) for v in xs_raw], rotation=45, ha="right")
+            ax.set_xticklabels([str(v) for v in xs_raw], rotation=35, ha="right", fontsize=9)
+            # Format value labels on top of bars
+            is_pct = all(0.0 <= val <= 1.0 for val in ys) and max(ys, default=0) <= 1.0 and ("rate" in clean_y.lower() or "pct" in clean_y.lower() or "share" in clean_y.lower())
+            fmt = "%.1f%%" if is_pct else ("%.2f" if any(isinstance(v, float) and not v.is_integer() for v in ys) else "%d")
+            labels = [fmt % (v * 100 if is_pct else v) for v in ys]
+            ax.bar_label(bars, labels=labels, padding=3, fontsize=8.5, color="#334155")
 
-        if kind in {"bar", "line", "timeseries"}:
-            ax.grid(axis="y", linewidth=0.6, alpha=0.25, zorder=0)
+        if kind in {"bar", "line", "timeseries", "scatter"}:
+            ax.grid(axis="y", linewidth=0.6, color="#e2e8f0", alpha=0.7, zorder=0)
             ax.set_axisbelow(True)
 
-        ax.set_xlabel(str(x))
-        ax.set_ylabel(str(y))
-        ax.set_title(title, fontweight="bold")
+        ax.set_xlabel(clean_x, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
+        ax.set_ylabel(clean_y, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
+        ax.set_title(title, fontsize=11.5, fontweight="bold", color="#0f172a", pad=10)
         fig.tight_layout()
-        # Pin metadata so the same spec + CSV yields byte-identical PNGs.
-        fig.savefig(png, dpi=130, metadata={"Software": "evalvitals", "Creation Time": None})
+        fig.savefig(png, dpi=160, metadata={"Software": "evalvitals", "Creation Time": None})
         plt.close(fig)
     return png
 

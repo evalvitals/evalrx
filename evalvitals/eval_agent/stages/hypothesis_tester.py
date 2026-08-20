@@ -110,6 +110,11 @@ class HypothesisTestResult:
     verdict: str
     evidence_grade: str = "observational"
     evidence: dict[str, Any] = field(default_factory=dict)
+    # Verbatim protocol-consistency judge I/O (empty when the heuristic check
+    # ran or no judge is configured) — forwarded to RunLogger.log_surgery so
+    # the M5 judge call is persisted under prompts/ like M1/M2/M3.
+    judge_prompt: str = ""
+    judge_raw: str = ""
 
 
 # Evidence-strength ordering for the P4 depth-tiered stopping criterion.
@@ -166,6 +171,10 @@ class HypothesisTester:
         self._judge = judge
         self.alpha = alpha
         self.min_effect = min_effect
+        # Verbatim I/O of the most recent protocol-consistency judge call
+        # (captured by _llm_consistency_check, consumed by _test_one).
+        self._last_judge_prompt: "str | None" = None
+        self._last_judge_raw: "str | None" = None
         if min_evidence_grade not in _GRADE_ORDER:
             raise ValueError(
                 f"min_evidence_grade must be one of {sorted(_GRADE_ORDER)}, "
@@ -309,6 +318,8 @@ class HypothesisTester:
         verdict: str = core["verdict"]
 
         # ── Protocol consistency check ────────────────────────────────
+        self._last_judge_prompt: "str | None" = None
+        self._last_judge_raw: "str | None" = None
         is_consistent = self._check_protocol_consistency(
             hypothesis, stats_report, protocol
         )
@@ -325,6 +336,8 @@ class HypothesisTester:
             verdict=verdict,
             evidence_grade=core.get("evidence_grade", "observational"),
             evidence=core["evidence"],
+            judge_prompt=self._last_judge_prompt or "",
+            judge_raw=self._last_judge_raw or "",
         )
 
     # ------------------------------------------------------------------
@@ -758,6 +771,11 @@ class HypothesisTester:
             raw = self._judge.generate(prompt, temperature=0)  # type: ignore[union-attr]
         else:
             raw = self._judge.generate(prompt)  # type: ignore[union-attr]
+
+        # Retain the verbatim judge I/O so the caller can persist it (M5 was
+        # the one stage whose judge calls left no record under prompts/).
+        self._last_judge_prompt = prompt
+        self._last_judge_raw = str(raw)
 
         first_line = str(raw).strip().splitlines()[0].upper()
         return first_line.startswith("YES")

@@ -97,6 +97,19 @@ class CliAgentBase:
         elif run.returncode != 0 and not files:
             error = f"Exited {run.returncode}: {run.stderr[:500]}"
 
+        # Persist the UNTRUNCATED raw agent stream before any rendering caps
+        # apply — this is the most detailed audit layer (every tool call and
+        # tool result). The truncated rendering stays in CliAgentResult.raw_output
+        # for UIs; the full stream is durable evidence in the workdir.
+        raw_stream_path = ""
+        if run.stdout:
+            try:
+                stream_file = workdir / "agent_raw_stream.txt"
+                stream_file.write_text(run.stdout, encoding="utf-8")
+                raw_stream_path = "agent_raw_stream.txt"
+            except OSError:
+                logger.debug("could not persist raw agent stream for %s", self._provider_name)
+
         raw_output, usage = self._postprocess_output(run.stdout)
         audit = build_agent_audit(
             provider=self._provider_name,
@@ -110,6 +123,8 @@ class CliAgentBase:
             files=files,
             error=error,
         )
+        if audit is not None and raw_stream_path:
+            audit.setdefault("execution", {})["raw_stream"] = raw_stream_path
         logger.debug(
             "%s: rc=%d files=%s elapsed=%.1fs timed_out=%s",
             self._provider_name,
@@ -126,4 +141,5 @@ class CliAgentBase:
             usage=usage,
             error=error,
             audit=audit,
+            raw_stream_path=raw_stream_path,
         )

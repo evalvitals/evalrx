@@ -834,7 +834,11 @@ class VLDiagnoseLoop:
             # Reuse the surgery log slot for M5 results (backward compat).
             for tr in test_results:
                 _iv = _make_intervention_result_from_test(tr)
-                self.run_logger.log_surgery(cycle, tr.hypothesis, _iv, duration_sec=_dt)
+                self.run_logger.log_surgery(
+                    cycle, tr.hypothesis, _iv, duration_sec=_dt,
+                    judge_prompt=getattr(tr, "judge_prompt", None) or None,
+                    judge_raw=getattr(tr, "judge_raw", None) or None,
+                )
         return test_results
 
     def _m5_holdout_pass(

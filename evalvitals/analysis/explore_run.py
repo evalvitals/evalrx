@@ -278,6 +278,14 @@ def write_report_artifacts(
             encoding="utf-8",
         )
 
+    # Clean up redundant nested sandbox directory so out_dir is the single clean source of truth
+    workdir = Path(getattr(report, "workdir", "") or "")
+    try:
+        if workdir.exists() and workdir.resolve() != out_dir.resolve() and workdir.is_relative_to(out_dir):
+            shutil.rmtree(workdir)
+    except Exception:
+        pass
+
 
 def _copy_artifact_dirs(report: Any, out_dir: Path) -> None:
     workdir = Path(getattr(report, "workdir", "") or "")
