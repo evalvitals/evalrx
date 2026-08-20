@@ -303,12 +303,14 @@ class VLDiagnoseLoop:
                             the main loop.  Defaults to ``SurgeryAgent()``.
         store:              Persistent memory.
         m5_holdout:         When a confirm split is in play (default on),
-                            hypotheses that screen SUPPORTED on the explore
-                            split are re-tested on the held-out confirm split
-                            (same analyzers re-run there) and only those that
-                            pass count as verified — M5's in-sample pass is
-                            SCREENING, the held-out pass is the verdict, the
-                            same discipline the fix gate already follows.
+                            M5 is taken OUT of the cycle entirely: the cycles
+                            only mine (M1→explore→M2→M3), and after the loop
+                            every proposed hypothesis is tested ONCE on the
+                            held-out confirm split (the last cycle's analyzers
+                            re-run there, pinned). The loop neither stops
+                            early nor keeps cycling based on M5 verdicts —
+                            the same discipline the fix gate follows. Without
+                            a confirm split M5 stays in-cycle as before.
         max_cycles:         Hard cap on M1→M5 iterations (default 1: one
                             diagnosis pass, then the caller moves on to
                             M4/fix — with fix-on-unverified enabled the
@@ -830,69 +832,55 @@ class VLDiagnoseLoop:
 
     def _m5_holdout_pass(
         self,
-        all_hypotheses: "list[Any]",
-        screening_results: "list[Any]",
+        hypotheses: "list[Any]",
         confirm: "Any",
         analyzer_names: "list[str]",
         timings: "dict[str, float]",
     ) -> "tuple[list[Any], str]":
-        """Confirmatory M5 on the held-out split.
+        """The M5 pass — on the held-out confirm split.
 
-        Hypotheses that screened SUPPORTED on the explore split are re-tested
-        against stats computed on the confirm split — the same analyzers are
-        re-run there (pinned, no fresh judge selection), so the designated
-        signals exist on both sides. In-sample M5 is thereby demoted to
-        screening; a hypothesis mined and "verified" on the same cases never
-        counts as verified on its own.
+        With a confirm split in play this is the ONLY hypothesis test: M3's
+        hypotheses are taken straight to data M1/M2/M3 never mined. The same
+        analyzers as the last explore cycle are re-run on the confirm split
+        (pinned via ``ProbeAgent.probe(analyzers=)`` — a fresh judge selection
+        could miss the designated signals); with no names to pin (a reloaded
+        run without a stats report) the probe agent selects normally.
 
-        Returns ``(holdout_test_results, status)`` where status is
-        ``"confirmed"`` / ``"nothing_screened"`` / ``"failed"`` (see
-        :class:`~evalvitals.eval_agent.loop_reports.DiagnoseReport.m5_holdout`).
+        Returns ``(test_results, status)`` with status ``"confirmed"`` (the
+        pass ran) or ``"failed"`` (the confirm re-probe produced nothing — no
+        hypothesis can be verified this run).
         """
-        from evalvitals.eval_agent.hypothesis import HypothesisStatus
-
-        for tr in screening_results:
-            if isinstance(getattr(tr, "evidence", None), dict):
-                tr.evidence.setdefault("split", "explore_screen")
-        screened: list[Any] = []
-        seen: set[int] = set()
-        for tr in screening_results:
-            if tr.status == HypothesisStatus.SUPPORTED and id(tr.hypothesis) not in seen:
-                seen.add(id(tr.hypothesis))
-                screened.append(tr.hypothesis)
-        if not screened:
-            return [], "nothing_screened"
-
         pinned = [n for n in analyzer_names if not n.startswith("generated:")]
         logger.info(
-            "M5 holdout: re-testing %d screened hypothesis(es) on the %d-case "
-            "confirm split (analyzers: %s)",
-            len(screened), len(list(confirm)), ", ".join(pinned) or "<generated only>",
+            "M5 (held-out): testing %d hypothesis(es) on the %d-case confirm "
+            "split (analyzers: %s)",
+            len(hypotheses), len(list(confirm)),
+            ", ".join(pinned) or "<probe agent's own selection>",
         )
         _t0 = time.monotonic()
         try:
-            probe_results = self.probe_agent.probe(
-                self.model,
-                confirm,
-                protocol=self.protocol,
-                prior_hypotheses=all_hypotheses or None,
-                analyzers=pinned,
-            )
+            if pinned:
+                probe_results = self.probe_agent.probe(
+                    self.model, confirm, protocol=self.protocol,
+                    prior_hypotheses=hypotheses or None, analyzers=pinned,
+                )
+            else:
+                probe_results = self.probe_agent.probe(
+                    self.model, confirm, protocol=self.protocol,
+                    prior_hypotheses=hypotheses or None,
+                )
         except TypeError:
-            # A custom probe agent that predates the ``analyzers=`` hook —
-            # fall back to its own selection on the confirm split.
+            # A custom probe agent that predates the ``analyzers=`` hook.
             probe_results = self.probe_agent.probe(
-                self.model,
-                confirm,
-                protocol=self.protocol,
-                prior_hypotheses=all_hypotheses or None,
+                self.model, confirm, protocol=self.protocol,
+                prior_hypotheses=hypotheses or None,
             )
         timings["m5_holdout_m1"] = timings.get("m5_holdout_m1", 0.0) + (
             time.monotonic() - _t0)
         if not probe_results:
             logger.warning(
-                "M5 holdout: the confirm-split re-probe produced no results — "
-                "the verified hypotheses below are IN-SAMPLE ONLY."
+                "M5 (held-out): the confirm-split re-probe produced no results "
+                "— no hypothesis can be verified this run."
             )
             return [], "failed"
         self._bridge_signals(probe_results, confirm)
@@ -905,7 +893,7 @@ class VLDiagnoseLoop:
         stats_confirm = self._do_m2(
             -1, probe_results, confirm, [], timings, confirmatory=True
         )
-        results = self._do_m5(-1, screened, stats_confirm, confirm, timings)
+        results = self._do_m5(-1, hypotheses, stats_confirm, confirm, timings)
         for tr in results:
             if isinstance(getattr(tr, "evidence", None), dict):
                 tr.evidence["split"] = "confirm_holdout"
@@ -947,6 +935,11 @@ class VLDiagnoseLoop:
                 len(list(explore)), len(list(confirm)), self.confirm_split,
             )
             data = explore
+
+        # With a confirm split (and m5_holdout on), M5 runs ONCE after the
+        # loop, on the held-out split — the cycles only mine (M1→M3). Without
+        # one there is no held-out data, so M5 stays in-cycle as before.
+        holdout_mode = confirm is not None and self.m5_holdout
 
         # Forward the RunLogger into the agents so the probe / stats tool
         # generators record their tool-synthesis attempts ("tool_codegen" events).
@@ -1003,20 +996,26 @@ class VLDiagnoseLoop:
             all_hypotheses.extend(diag.hypotheses)
 
             # ── M5: hypothesis testing (stats + protocol consistency) ─
-            test_results = self._do_m5(
-                cycle, diag.hypotheses, stats_report, data, timings
-            )
-            all_test_results.extend(test_results)
-
-            # ── Stopping criteria ────────────────────────────────────
-            if self.hypothesis_tester.stopping_criteria_met(test_results, self.protocol):
-                logger.info(
-                    "Stopping criteria met at cycle %d: verified, protocol-consistent "
-                    "hypothesis found.",
-                    cycle,
+            # In holdout mode M5 is deferred to the single held-out pass
+            # after the loop: testing here would re-use the explore data
+            # the hypotheses were mined from, and its verdict must not
+            # steer the loop (no early stop / no extra cycles keyed on
+            # SUPPORTED-or-not).
+            if not holdout_mode:
+                test_results = self._do_m5(
+                    cycle, diag.hypotheses, stats_report, data, timings
                 )
-                stopped_by = _STOPPED_BY_CRITERIA
-                break
+                all_test_results.extend(test_results)
+
+                # ── Stopping criteria ────────────────────────────────────
+                if self.hypothesis_tester.stopping_criteria_met(test_results, self.protocol):
+                    logger.info(
+                        "Stopping criteria met at cycle %d: verified, protocol-consistent "
+                        "hypothesis found.",
+                        cycle,
+                    )
+                    stopped_by = _STOPPED_BY_CRITERIA
+                    break
 
             # Build prior-cycles context for next M3 call
             prior_cycles.append({
@@ -1032,24 +1031,15 @@ class VLDiagnoseLoop:
                 ],
             })
 
-        # Held-out M5 confirmation: with a confirm split in play the in-sample
-        # results only SCREEN; the verified list is decided on the confirm
-        # split (the same discipline run_fix already applies to candidates).
+        # The M5 pass: with a confirm split in play the hypotheses are tested
+        # ONCE, on the held-out split — the same discipline run_fix already
+        # applies to candidates. Without one, the in-cycle results stand.
         m5_holdout_status: "str | None" = None
-        if confirm is not None and self.m5_holdout and all_test_results:
-            holdout_results, m5_holdout_status = self._m5_holdout_pass(
-                all_hypotheses, all_test_results, confirm,
-                last_analyzer_names, timings,
+        if holdout_mode and all_hypotheses:
+            all_test_results, m5_holdout_status = self._m5_holdout_pass(
+                all_hypotheses, confirm, last_analyzer_names, timings,
             )
-            if m5_holdout_status == "confirmed":
-                all_test_results = all_test_results + holdout_results
-                verified = self.hypothesis_tester.best_hypotheses(holdout_results)
-            else:
-                verified = (self.hypothesis_tester.best_hypotheses(all_test_results)
-                            if m5_holdout_status == "failed" else [])
-        else:
-            # Collect best verified hypotheses (sorted by confidence)
-            verified = self.hypothesis_tester.best_hypotheses(all_test_results)
+        verified = self.hypothesis_tester.best_hypotheses(all_test_results)
 
         report = VLDiagnoseReport(
             cycles=cycle + 1 if self.max_cycles > 0 else 0,  # type: ignore[possibly-undefined]
@@ -1233,31 +1223,26 @@ class VLDiagnoseLoop:
             self.run_logger.log_analysis(0, stats_report)
 
         test_results: list[Any] = []
+        m5_holdout_status: "str | None" = None
         if hypotheses:
             for h in hypotheses:
                 self.store.add_hypothesis(h)
-            test_results = self._do_m5(0, hypotheses, stats_report, data, timings)
+            if confirm is not None and self.m5_holdout:
+                # The one M5 pass, on the held-out split (never the explore
+                # stats the hypotheses were mined from). The analyzer set to
+                # re-run there is recovered from the supplied/regenerated
+                # stats report's signal keys; with none recoverable the probe
+                # agent selects on the confirm split itself.
+                analyzer_names = _analyzer_names_from_stats(stats_report)
+                test_results, m5_holdout_status = self._m5_holdout_pass(
+                    hypotheses, confirm, analyzer_names, timings,
+                )
+            else:
+                test_results = self._do_m5(0, hypotheses, stats_report, data, timings)
         else:
             logger.info("run_confirm: no hypotheses to confirm.")
 
-        # Held-out confirmation, exactly as in run(): the screening pass above
-        # read stats from the same explore cases the hypotheses were mined
-        # from, so on its own it cannot verify anything. The analyzer set to
-        # re-run on CONFIRM is recovered from the stats report's results.
-        m5_holdout_status: "str | None" = None
-        if confirm is not None and self.m5_holdout and test_results:
-            analyzer_names = _analyzer_names_from_stats(stats_report)
-            holdout_results, m5_holdout_status = self._m5_holdout_pass(
-                hypotheses, test_results, confirm, analyzer_names, timings,
-            )
-            if m5_holdout_status == "confirmed":
-                test_results = test_results + holdout_results
-                verified = self.hypothesis_tester.best_hypotheses(holdout_results)
-            else:
-                verified = (self.hypothesis_tester.best_hypotheses(test_results)
-                            if m5_holdout_status == "failed" else [])
-        else:
-            verified = self.hypothesis_tester.best_hypotheses(test_results)
+        verified = self.hypothesis_tester.best_hypotheses(test_results)
         stopped_by = _STOPPED_BY_CRITERIA if verified else _STOPPED_BY_MAX
 
         report = VLDiagnoseReport(

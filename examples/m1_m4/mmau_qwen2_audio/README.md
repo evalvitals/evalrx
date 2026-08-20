@@ -75,10 +75,11 @@ VLDiagnoseLoop M1→M5
                                 per-case table; charts + tables land under
                                 <run-dir>/explore (--no-explore disables)
   M3  DiagnosisAgent           Claude judge proposes hypotheses from M1+M2
-  M5  HypothesisTester         SCREENS on explore; hypotheses that screen
-                                SUPPORTED are re-tested on the held-out
-                                CONFIRM split (same analyzers re-run there)
-                                and only those count as verified
+        │
+  M5  HypothesisTester         runs ONCE after the loop, on the held-out
+                                CONFIRM split (the explore cycle's analyzers
+                                re-run there, pinned) — never on the explore
+                                data the hypotheses were mined from
         │
 loop.run_m4                   intervention experiment on the best (verified
                                or best-lead) hypothesis, on CONFIRM

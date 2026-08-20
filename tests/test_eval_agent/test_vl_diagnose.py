@@ -1127,7 +1127,7 @@ def test_default_is_a_single_diagnosis_cycle():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# M5 held-out confirmation (leak fix: screening on EXPLORE, verdict on CONFIRM)
+# M5 on held-out data (leak fix: cycles mine on EXPLORE, M5 tests on CONFIRM)
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -1166,13 +1166,13 @@ def _holdout_batch():
 
 
 def _holdout_loop(probe, **kw):
+    kw.setdefault("max_cycles", 1)
     return VLDiagnoseLoop(
         model=_vlm(),
         protocol=_spatial_protocol(),
         probe_agent=probe,
         diagnosis_agent=_scripted_diagnosis_agent("attention"),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
-        max_cycles=1,
         confirm_split=0.5,
         confirm_split_seed=7,
         **kw,
@@ -1180,14 +1180,18 @@ def _holdout_loop(probe, **kw):
 
 
 class TestM5Holdout:
-    def test_screened_hypothesis_is_retested_on_the_confirm_split(self):
+    def test_m5_runs_only_on_the_confirm_split(self):
         data = _holdout_batch()
-        # signal marks every FAIL — screens supported AND confirms on holdout
+        # signal marks every FAIL on both splits — verifies on holdout
         probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
         report = _holdout_loop(probe).run(data)
         assert report.m5_holdout == "confirmed"
         assert len(report.verified_hypotheses) >= 1
         assert report.verified_hypotheses[0].evidence["split"] == "confirm_holdout"
+        # every M5 result this run came from the held-out pass — no in-cycle M5
+        assert report.all_test_results
+        assert all(tr.evidence.get("split") == "confirm_holdout"
+                   for tr in report.all_test_results)
         # two probe calls: explore mining, then the pinned confirm re-probe
         assert len(probe.calls) == 2
         explore_ids, first_kw = probe.calls[0]
@@ -1203,17 +1207,23 @@ class TestM5Holdout:
         # find which FAIL ids land in the explore half for this seed
         explore, confirm = loop._split_explore_confirm(data)
         explore_fails = [c.id for c in explore if c.label == Label.FAIL]
-        confirm_ids = {c.id for c in confirm}
         # signal marks FAILs only on the EXPLORE side — an in-sample artifact
         probe = _RecordingSignalProbe(explore_fails)
         report = _holdout_loop(probe).run(data)
         assert report.m5_holdout == "confirmed"          # the pass RAN
         assert report.verified_hypotheses == []          # and did not verify
         assert report.resolved is False
-        # the screening result is still on record, demoted to screening
-        screened = [tr for tr in report.all_test_results
-                    if tr.evidence.get("split") == "explore_screen"]
-        assert any(tr.status == HypothesisStatus.SUPPORTED for tr in screened) or screened
+
+    def test_no_early_stop_on_supported_with_multiple_cycles(self):
+        """In holdout mode the cycles only mine: a strong in-sample signal
+        must NOT stop the loop early (M5's verdict never steers mining)."""
+        data = _holdout_batch()
+        probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
+        report = _holdout_loop(probe, max_cycles=2).run(data)
+        assert report.stopped_by == "max_cycles"
+        assert report.cycles == 2
+        # probe calls: 2 mining cycles + 1 confirm re-probe
+        assert len(probe.calls) == 3
 
     def test_disabled_holdout_keeps_the_old_behavior(self):
         data = _holdout_batch()
@@ -1222,8 +1232,9 @@ class TestM5Holdout:
         assert report.m5_holdout is None
         assert len(probe.calls) == 1
         assert len(report.verified_hypotheses) >= 1      # in-sample, as before
+        assert report.stopped_by == "criteria_met"       # old early stop
 
-    def test_no_confirm_split_means_no_holdout_pass(self):
+    def test_no_confirm_split_means_in_cycle_m5(self):
         data = _holdout_batch()
         probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
         loop = VLDiagnoseLoop(
@@ -1235,12 +1246,10 @@ class TestM5Holdout:
         assert report.m5_holdout is None
         assert len(probe.calls) == 1
 
-    def test_run_confirm_also_confirms_on_holdout(self):
+    def test_run_confirm_tests_on_holdout(self):
         data = _holdout_batch()
         probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
         loop = _holdout_loop(probe)
-        # same shape the diagnosis agent produces in run() — no test_design,
-        # so routing takes the identical fallback path as the screening in run()
         h = Hypothesis(statement="Model fails due to attention issue.",
                        target_model="fake", predicted_failure_mode="attention")
         report = loop.run_confirm(data, [h])

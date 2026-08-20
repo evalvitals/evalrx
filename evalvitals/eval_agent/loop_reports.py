@@ -87,11 +87,11 @@ class AutoDiagnoseReport:
     fix_proposal: "Any | None" = None
     fix_outcome: "Any | None" = None
     store: Store = field(default_factory=InMemoryStore)
-    #: How M5's held-out confirmation resolved (``VLDiagnoseLoop`` only):
-    #: ``"confirmed"`` — verified_hypotheses passed on the held-out split;
-    #: ``"nothing_screened"`` — no hypothesis screened SUPPORTED in-sample;
-    #: ``"failed"`` — the confirm-split re-probe produced nothing, so the
-    #: verified list is IN-SAMPLE ONLY (flagged loudly in the log);
+    #: How the held-out M5 pass resolved (``VLDiagnoseLoop`` only):
+    #: ``"confirmed"`` — M5 ran on the held-out confirm split (the only M5
+    #: this run: in-cycle testing is skipped when a confirm split is in play);
+    #: ``"failed"`` — the confirm-split re-probe produced nothing, so no
+    #: hypothesis could be verified (flagged loudly in the log);
     #: ``None`` — no confirm split / holdout disabled / legacy loop.
     m5_holdout: "str | None" = None
     # Internal — set by the loops for evolution/git integration
