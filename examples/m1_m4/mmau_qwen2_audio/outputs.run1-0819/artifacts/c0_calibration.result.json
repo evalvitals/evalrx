@@ -1,0 +1,720 @@
+{
+  "analyzer": "calibration",
+  "model": "HFLocalModel(key='qwen2-audio-7b-instruct', loaded)",
+  "findings": {
+    "n_cases": 128,
+    "n_unlabelled_skipped": 0,
+    "n_bins": 10,
+    "logprob_channel": {
+      "n": 128,
+      "ece": 0.3361,
+      "brier": 0.3295,
+      "overconfidence_gap": 0.3361
+    },
+    "verbalized_channel": {
+      "n": 49,
+      "ece": 0.4827,
+      "brier": 0.4572,
+      "overconfidence_gap": 0.4663
+    },
+    "per_case": [
+      {
+        "sample_id": "f4327b02-a5bc-413b-b758-32d8c977371d",
+        "correct": 1,
+        "conf_logprob": 0.9809
+      },
+      {
+        "sample_id": "a0d0ebbe-cf7f-4ee4-9e12-e46ffc058370",
+        "correct": 0,
+        "conf_logprob": 0.837
+      },
+      {
+        "sample_id": "fd9e4dd4-dddd-4bfc-90f9-cb6c0740f9e2",
+        "correct": 0,
+        "conf_logprob": 0.8446,
+        "conf_verbal": 0.7
+      },
+      {
+        "sample_id": "becaaa03-b09e-4d3e-bf28-c119d646666d",
+        "correct": 0,
+        "conf_logprob": 0.979
+      },
+      {
+        "sample_id": "0ea9b39c-178b-4704-886f-f745b6fa2f8c",
+        "correct": 0,
+        "conf_logprob": 0.8941
+      },
+      {
+        "sample_id": "3c1fabe8-c232-4f12-a7b8-0dcab4f4c888",
+        "correct": 0,
+        "conf_logprob": 0.6846,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "87012840-8132-49d0-8c15-9dd0878d8487",
+        "correct": 0,
+        "conf_logprob": 0.942
+      },
+      {
+        "sample_id": "560ff634-8f18-41c2-acc8-d4b0e16bbd66",
+        "correct": 0,
+        "conf_logprob": 0.752
+      },
+      {
+        "sample_id": "e442b6e0-f628-48e0-960c-0a8239af872f",
+        "correct": 1,
+        "conf_logprob": 0.8595,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "353218c9-5e92-4b6f-a874-344b8ca65268",
+        "correct": 1,
+        "conf_logprob": 0.791
+      },
+      {
+        "sample_id": "25cac2de-ffe8-45c8-beef-29c7a7c00bf0",
+        "correct": 1,
+        "conf_logprob": 0.9639
+      },
+      {
+        "sample_id": "be86c21b-e761-49ef-864a-7b5bbd391db7",
+        "correct": 1,
+        "conf_logprob": 0.8906
+      },
+      {
+        "sample_id": "8ee655ce-b0c7-4def-856c-68ec352ea175",
+        "correct": 0,
+        "conf_logprob": 0.6384
+      },
+      {
+        "sample_id": "9ebc1037-d01d-4078-879c-1ab873f71ab0",
+        "correct": 0,
+        "conf_logprob": 0.9488
+      },
+      {
+        "sample_id": "a1517078-ff3b-4090-983e-0b0ce4ccadd5",
+        "correct": 1,
+        "conf_logprob": 0.7889,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "b8bb62d9-2324-47ab-976a-9dcc29344a84",
+        "correct": 0,
+        "conf_logprob": 0.8537,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "69d6594d-b582-4f98-9f20-0662ff891b3f",
+        "correct": 1,
+        "conf_logprob": 0.9127
+      },
+      {
+        "sample_id": "02f57e88-2b85-413e-96a9-c6c233015bf6",
+        "correct": 0,
+        "conf_logprob": 0.8278
+      },
+      {
+        "sample_id": "edcfc8ec-34ee-413c-bab6-84ee88d1b6ff",
+        "correct": 1,
+        "conf_logprob": 0.9008
+      },
+      {
+        "sample_id": "6557d2cd-7a11-471f-ae43-415d01f34397",
+        "correct": 0,
+        "conf_logprob": 0.8092,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "43bac539-b249-4ad3-b923-b100e4134ac3",
+        "correct": 1,
+        "conf_logprob": 0.9442,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "adc2f2fd-9b3b-4e84-a745-ede485660b1b",
+        "correct": 0,
+        "conf_logprob": 0.7016,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "7ee54d52-f3de-4913-b9c9-286701e18fc4",
+        "correct": 1,
+        "conf_logprob": 0.8875
+      },
+      {
+        "sample_id": "5e398782-d659-4b0c-bc19-ac3cfbd9a113",
+        "correct": 0,
+        "conf_logprob": 0.7265,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "7722117e-32fc-4786-813a-3a5666e449e0",
+        "correct": 1,
+        "conf_logprob": 0.7248
+      },
+      {
+        "sample_id": "61f96ee9-f225-483b-b51e-cd379cec0dc4",
+        "correct": 1,
+        "conf_logprob": 0.828
+      },
+      {
+        "sample_id": "a2c53160-fc50-4897-b614-0b2b7eed0e0b",
+        "correct": 1,
+        "conf_logprob": 0.7668,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "10aa3be4-8a6f-42af-bff0-850a4c1fee43",
+        "correct": 0,
+        "conf_logprob": 0.6076,
+        "conf_verbal": 0.7
+      },
+      {
+        "sample_id": "9a394489-4d24-4e85-8148-b89e87e363b2",
+        "correct": 0,
+        "conf_logprob": 0.8828
+      },
+      {
+        "sample_id": "3d9d2c50-6cb1-4a73-8b4f-2d205ef23d83",
+        "correct": 0,
+        "conf_logprob": 0.9715
+      },
+      {
+        "sample_id": "9c233b8e-4daf-4405-b873-67b7542d4605",
+        "correct": 0,
+        "conf_logprob": 0.9101,
+        "conf_verbal": 0.7
+      },
+      {
+        "sample_id": "392b9839-0a43-4f9a-824c-3249d1c5a818",
+        "correct": 0,
+        "conf_logprob": 0.8637
+      },
+      {
+        "sample_id": "62d48c58-b173-40ee-8872-19fed4126ea1",
+        "correct": 0,
+        "conf_logprob": 0.7122
+      },
+      {
+        "sample_id": "c90b3626-ad19-4b68-be2b-cd725ba74567",
+        "correct": 1,
+        "conf_logprob": 0.9151
+      },
+      {
+        "sample_id": "c840f9cc-8b26-4f0b-b8a8-1a2b5e12301a",
+        "correct": 1,
+        "conf_logprob": 0.7608,
+        "conf_verbal": 0.7
+      },
+      {
+        "sample_id": "b7701ab1-c37e-49f2-8ad9-7177fe0465e9",
+        "correct": 1,
+        "conf_logprob": 0.7403,
+        "conf_verbal": 0.75
+      },
+      {
+        "sample_id": "8399f1ff-a7aa-40d0-a2de-b3e8af17ecfa",
+        "correct": 1,
+        "conf_logprob": 0.9886
+      },
+      {
+        "sample_id": "ce3ee541-5ccd-43d5-b9b5-d2e8b2d77dfd",
+        "correct": 1,
+        "conf_logprob": 0.9791,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "ecff09e3-ce7e-4b0e-ad97-3933abd8181b",
+        "correct": 0,
+        "conf_logprob": 0.9627,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "b09b362f-110a-4829-b94a-8337cd1a906b",
+        "correct": 0,
+        "conf_logprob": 0.6342
+      },
+      {
+        "sample_id": "717fa1c9-5403-4e8d-8a46-afa615ed4ea2",
+        "correct": 0,
+        "conf_logprob": 0.6402,
+        "conf_verbal": 0.7
+      },
+      {
+        "sample_id": "1c2c6dfa-f114-4e9a-89b0-4532fd9a7c1d",
+        "correct": 1,
+        "conf_logprob": 0.9769
+      },
+      {
+        "sample_id": "5c5150cb-d0ee-43ac-8887-dc067b4c3cb2",
+        "correct": 1,
+        "conf_logprob": 0.9019
+      },
+      {
+        "sample_id": "6c327eac-b976-4536-94cf-2f42ccc8b786",
+        "correct": 1,
+        "conf_logprob": 0.9907,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "b96baa27-d2d2-4fed-942c-447ba1e0463a",
+        "correct": 0,
+        "conf_logprob": 0.6026
+      },
+      {
+        "sample_id": "c88697d9-c243-4433-8def-abebc253a941",
+        "correct": 1,
+        "conf_logprob": 0.7963
+      },
+      {
+        "sample_id": "133fa99a-4ea4-48a7-bb62-97c5421617a0",
+        "correct": 0,
+        "conf_logprob": 0.951
+      },
+      {
+        "sample_id": "2ed50dd0-e496-4df4-b5e1-a380f08320d3",
+        "correct": 1,
+        "conf_logprob": 0.9153
+      },
+      {
+        "sample_id": "b92bda7e-43ab-4a69-a600-fe2547479ed4",
+        "correct": 0,
+        "conf_logprob": 0.774,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "e277d88f-fc07-41a4-9c22-de21dfbc8ab3",
+        "correct": 0,
+        "conf_logprob": 0.6802
+      },
+      {
+        "sample_id": "36aad8e9-b351-4865-ab51-02f7400da0ff",
+        "correct": 1,
+        "conf_logprob": 0.944,
+        "conf_verbal": 0.6
+      },
+      {
+        "sample_id": "64bf6371-ba11-45b4-aad5-27f53f7eaa17",
+        "correct": 0,
+        "conf_logprob": 0.8974,
+        "conf_verbal": 0.75
+      },
+      {
+        "sample_id": "6658e43e-f56d-44a2-ab80-6c73a40ee713",
+        "correct": 1,
+        "conf_logprob": 0.8626
+      },
+      {
+        "sample_id": "44df6584-e1b2-4edc-b810-b80e9f636f17",
+        "correct": 1,
+        "conf_logprob": 0.9353
+      },
+      {
+        "sample_id": "94588e32-db48-45b7-af24-b50f26bdc6cd",
+        "correct": 0,
+        "conf_logprob": 0.736
+      },
+      {
+        "sample_id": "82c84931-2431-41ab-b217-f6844e72bc45",
+        "correct": 1,
+        "conf_logprob": 0.9286
+      },
+      {
+        "sample_id": "7a771394-3d0d-4e49-b828-63cae297ccda",
+        "correct": 1,
+        "conf_logprob": 0.8409
+      },
+      {
+        "sample_id": "5369af10-79a9-44b8-9054-a69038bc205f",
+        "correct": 1,
+        "conf_logprob": 0.7282,
+        "conf_verbal": 0.9
+      },
+      {
+        "sample_id": "f486cf13-9168-4d65-9a86-7dec25d30962",
+        "correct": 1,
+        "conf_logprob": 0.901
+      },
+      {
+        "sample_id": "78c2cba3-44a8-4001-869c-960b71eed932",
+        "correct": 1,
+        "conf_logprob": 0.8916
+      },
+      {
+        "sample_id": "520aea17-b159-4d22-ad68-978fcc152e27",
+        "correct": 1,
+        "conf_logprob": 0.6345
+      },
+      {
+        "sample_id": "692ba369-6437-4e4e-9c1b-54a80abd868f",
+        "correct": 0,
+        "conf_logprob": 0.5543,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "8f8ce566-7bad-458b-92b6-845654636a6d",
+        "correct": 1,
+        "conf_logprob": 0.9283
+      },
+      {
+        "sample_id": "45b81135-c9bf-497e-8c80-942904a96dd8",
+        "correct": 0,
+        "conf_logprob": 0.9789
+      },
+      {
+        "sample_id": "dfe60f5c-2788-4fa8-aca5-5082c524edca",
+        "correct": 0,
+        "conf_logprob": 0.8254
+      },
+      {
+        "sample_id": "5441f799-08ba-4ec6-a29b-8ddd933b37d0",
+        "correct": 1,
+        "conf_logprob": 0.9693
+      },
+      {
+        "sample_id": "bc20ab9d-7cd0-4c0e-985b-00234b32f791",
+        "correct": 1,
+        "conf_logprob": 0.9793,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "a31e08e3-7c8f-468c-a78c-64e6b5f2bdec",
+        "correct": 1,
+        "conf_logprob": 0.7681,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "7aa85650-7df8-42cd-a612-0d1706ce5fec",
+        "correct": 0,
+        "conf_logprob": 0.7725
+      },
+      {
+        "sample_id": "dfa46c20-8a36-43d1-8ee6-7301990fe60b",
+        "correct": 0,
+        "conf_logprob": 0.6601,
+        "conf_verbal": 0.7
+      },
+      {
+        "sample_id": "30bc8aca-be42-484e-bb87-d61ba2068096",
+        "correct": 1,
+        "conf_logprob": 0.9846
+      },
+      {
+        "sample_id": "386dbb06-a2f9-4390-b599-aee87167ca74",
+        "correct": 1,
+        "conf_logprob": 0.924
+      },
+      {
+        "sample_id": "0fbc3dde-70c0-4352-a4ff-66551d9f2a43",
+        "correct": 1,
+        "conf_logprob": 0.8146
+      },
+      {
+        "sample_id": "d225da40-65bc-4e2b-9ffe-786a1ace32b4",
+        "correct": 1,
+        "conf_logprob": 0.9439
+      },
+      {
+        "sample_id": "adb0e4fb-5233-44d1-8a0e-6eec45e58b79",
+        "correct": 0,
+        "conf_logprob": 0.8047,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "ebb0a52f-ee20-45f7-acba-1ba42d7f2d3c",
+        "correct": 0,
+        "conf_logprob": 0.7361
+      },
+      {
+        "sample_id": "cc82c7fe-bd52-474d-8942-b65b42c848ef",
+        "correct": 1,
+        "conf_logprob": 0.9255
+      },
+      {
+        "sample_id": "2cebba23-f719-48c0-8b66-5aceda2e5d61",
+        "correct": 0,
+        "conf_logprob": 0.9114
+      },
+      {
+        "sample_id": "33c7e8e9-5ccb-402d-9d6a-abea75cbd782",
+        "correct": 1,
+        "conf_logprob": 0.904
+      },
+      {
+        "sample_id": "a5a89c0c-5c74-46b4-b947-3dfe66667310",
+        "correct": 1,
+        "conf_logprob": 0.7037
+      },
+      {
+        "sample_id": "29e34d22-f6c7-431a-9b32-a9d4a8c33d4d",
+        "correct": 0,
+        "conf_logprob": 0.8755,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "12ea6970-e532-4549-80c7-353c7ae6ce8b",
+        "correct": 1,
+        "conf_logprob": 0.8144,
+        "conf_verbal": 0.95
+      },
+      {
+        "sample_id": "100bcc54-c059-427a-8d70-643fe9ee99e6",
+        "correct": 1,
+        "conf_logprob": 0.8749,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "b4180fa8-96a9-4211-8059-d03d65eb2f04",
+        "correct": 1,
+        "conf_logprob": 0.7793
+      },
+      {
+        "sample_id": "d7a38f80-0e1b-437f-bd7f-0eddb15758b4",
+        "correct": 1,
+        "conf_logprob": 0.9353
+      },
+      {
+        "sample_id": "22ceec8a-7842-42da-bf59-3a2e6d115c62",
+        "correct": 0,
+        "conf_logprob": 0.8091,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "3fab8a5c-b9b7-48d1-b486-c06021ff7cf1",
+        "correct": 1,
+        "conf_logprob": 0.9629
+      },
+      {
+        "sample_id": "efdba5dd-13ef-4556-a3d4-866a068124f3",
+        "correct": 1,
+        "conf_logprob": 0.9625
+      },
+      {
+        "sample_id": "7045c825-5b6a-490d-96c2-75969c184b87",
+        "correct": 1,
+        "conf_logprob": 0.9767,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "9e1c3db1-745c-47fc-8b8a-f32497ace7de",
+        "correct": 0,
+        "conf_logprob": 0.872,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "f4c0c09c-7023-4874-83ee-46a8b944a1aa",
+        "correct": 1,
+        "conf_logprob": 0.9072,
+        "conf_verbal": 0.95
+      },
+      {
+        "sample_id": "4cb67be7-9227-4ba4-b63e-cff1b06ca1f4",
+        "correct": 1,
+        "conf_logprob": 0.6604
+      },
+      {
+        "sample_id": "8b092633-c60c-4d2e-820e-4c92bb650db9",
+        "correct": 1,
+        "conf_logprob": 0.9799,
+        "conf_verbal": 0.7
+      },
+      {
+        "sample_id": "f995bc92-74f6-4e69-94b8-bf6e073fa19f",
+        "correct": 0,
+        "conf_logprob": 0.8355,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "2b6096e7-a66f-451f-886b-8210e362f84b",
+        "correct": 1,
+        "conf_logprob": 0.764
+      },
+      {
+        "sample_id": "3ad5159e-a728-4089-a4d0-3ff8681c158f",
+        "correct": 1,
+        "conf_logprob": 0.9354,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "107510b7-f372-4cf7-abb4-0a042b7d7db8",
+        "correct": 1,
+        "conf_logprob": 0.9221
+      },
+      {
+        "sample_id": "620627a8-5011-4d90-9935-172ec9c82de1",
+        "correct": 0,
+        "conf_logprob": 0.7188
+      },
+      {
+        "sample_id": "6976d332-711d-45ca-aba5-c5c5109220c9",
+        "correct": 1,
+        "conf_logprob": 0.9302
+      },
+      {
+        "sample_id": "b11438e7-7867-429e-9a45-b35c2642a75c",
+        "correct": 1,
+        "conf_logprob": 0.8877,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "b38ee2c1-1acc-4ff1-96d3-2a7ad2b6a4d0",
+        "correct": 0,
+        "conf_logprob": 0.7144,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "e086523d-bcbb-4a1e-9dc8-8ab88759af84",
+        "correct": 1,
+        "conf_logprob": 0.7817
+      },
+      {
+        "sample_id": "103a6aa6-4378-42a9-98f2-1da4a9e27b6e",
+        "correct": 1,
+        "conf_logprob": 0.9775
+      },
+      {
+        "sample_id": "470b1564-0152-4abe-8874-9295a4f9ee09",
+        "correct": 1,
+        "conf_logprob": 0.9643
+      },
+      {
+        "sample_id": "6e4953fb-1a8b-46ef-a7c8-fee3fe3b603e",
+        "correct": 1,
+        "conf_logprob": 0.9022
+      },
+      {
+        "sample_id": "92277724-8e35-48c7-a911-0781ccfc963f",
+        "correct": 0,
+        "conf_logprob": 0.5833
+      },
+      {
+        "sample_id": "a0dfb542-d77d-4303-bd11-34f20167a1e1",
+        "correct": 1,
+        "conf_logprob": 0.8999
+      },
+      {
+        "sample_id": "5398e7ca-79c1-439b-80dd-fff437aaa772",
+        "correct": 1,
+        "conf_logprob": 0.9523
+      },
+      {
+        "sample_id": "5aa2de62-b811-4337-ae42-45ea9325a445",
+        "correct": 0,
+        "conf_logprob": 0.6153,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "239ec016-c087-4a7b-a64e-b99e4dece85e",
+        "correct": 0,
+        "conf_logprob": 0.8958
+      },
+      {
+        "sample_id": "13adbaa8-9500-47cd-b397-1409d21cc8db",
+        "correct": 0,
+        "conf_logprob": 0.7122,
+        "conf_verbal": 0.7
+      },
+      {
+        "sample_id": "9de3c090-27e0-4b4b-9e58-d8549460d664",
+        "correct": 0,
+        "conf_logprob": 0.6332,
+        "conf_verbal": 0.95
+      },
+      {
+        "sample_id": "fe564c9e-e077-4aaa-a6c6-c1f662fa5b3d",
+        "correct": 0,
+        "conf_logprob": 0.9049,
+        "conf_verbal": 0.7
+      },
+      {
+        "sample_id": "7aaa4a0e-0b25-494f-8df1-20bdbc57166b",
+        "correct": 0,
+        "conf_logprob": 0.9781,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "47ae81d9-8cb5-4267-9394-2f511cc84871",
+        "correct": 0,
+        "conf_logprob": 0.8673
+      },
+      {
+        "sample_id": "1bc97ba7-d567-4218-be11-4f281306c5fb",
+        "correct": 0,
+        "conf_logprob": 0.8767,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "04e0a1bc-59f1-497b-86fd-7d7ba5b311fa",
+        "correct": 0,
+        "conf_logprob": 0.5925,
+        "conf_verbal": 0.8
+      },
+      {
+        "sample_id": "dbd4b69c-fb56-4f42-89a7-622a5ad83f07",
+        "correct": 0,
+        "conf_logprob": 0.8398
+      },
+      {
+        "sample_id": "8d19063c-5251-4f16-9361-de98fdc8c43c",
+        "correct": 0,
+        "conf_logprob": 0.7421
+      },
+      {
+        "sample_id": "a6571f36-993f-4c5f-8bd0-31610d787bed",
+        "correct": 0,
+        "conf_logprob": 0.6966
+      },
+      {
+        "sample_id": "404456b5-a841-4f9c-a005-31596fd3cc4f",
+        "correct": 0,
+        "conf_logprob": 0.9348,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "2783e849-9174-4f84-abe6-45abf50f6d2b",
+        "correct": 0,
+        "conf_logprob": 0.7022
+      },
+      {
+        "sample_id": "09c7e96d-956d-4faa-ac6b-3f73f98d628f",
+        "correct": 0,
+        "conf_logprob": 0.9693
+      },
+      {
+        "sample_id": "427c439a-1d2c-4d89-8a74-a6fd7478e1dc",
+        "correct": 0,
+        "conf_logprob": 0.702
+      },
+      {
+        "sample_id": "49795e51-3d67-4311-af46-3b3b46527c6e",
+        "correct": 0,
+        "conf_logprob": 0.7038
+      },
+      {
+        "sample_id": "ff7bff97-342e-4285-bbb9-15841364b072",
+        "correct": 0,
+        "conf_logprob": 0.7719
+      },
+      {
+        "sample_id": "ac85ba57-edc0-4ccb-aa61-ce50f4af7650",
+        "correct": 0,
+        "conf_logprob": 0.7026,
+        "conf_verbal": 1.0
+      },
+      {
+        "sample_id": "3b495f9c-af77-4ecf-8dc1-82d919b0af2f",
+        "correct": 0,
+        "conf_logprob": 0.7795,
+        "conf_verbal": 0.7
+      }
+    ],
+    "_caveat": "Needs PASS/FAIL labels \u2014 unlabeled cases are skipped, and ECE on few labelled cases is unstable (aim for >= ~50). conf_logprob is the geometric-mean token probability of the model's own continuation \u2014 a proxy, not an answer probability; on API backends it reflects only the returned top-k. A positive overconfidence_gap on FAIL-heavy slices argues for abstention/recalibration fixes rather than capability fixes."
+  },
+  "metadata": {
+    "experiment": {},
+    "fingerprint": "bbcff218b5931b6f"
+  },
+  "n_cases": 358,
+  "summary": "[calibration] on HFLocalModel(key='qwen2-audio-7b-instruct', loaded)\n  n_cases: 128\n  n_unlabelled_skipped: 0\n  n_bins: 10\n  logprob_channel: {'n': 128, 'ece': 0.3361, 'brier': 0.3295, 'overconfidence_gap': 0.3361}\n  verbalized_channel: {'n': 49, 'ece': 0.4827, 'brier': 0.4572, 'overconfidence_gap': 0.4663}\n  per_case: [{'sample_id': 'f4327b02-a5bc-413b-b758-32d8c977371d', 'correct': 1, 'conf_logprob': 0.9809}, {'sample_id': 'a0d0ebbe-cf7f-4ee4-9e12-e46ffc058370', 'correct': 0, 'conf_logprob': 0.837}, {'sample_id': 'fd9e4dd4-dddd-4bfc-90f9-cb6c0740f9e2', 'correct': 0, 'conf_logprob': 0.8446, 'conf_verbal': 0.7}, {'sample_id': 'becaaa03-b09e-4d3e-bf28-c119d646666d', 'correct': 0, 'conf_logprob': 0.979}, {'sample_id': '0ea9b39c-178b-4704-886f-f745b6fa2f8c', 'correct': 0, 'conf_logprob': 0.8941}, {'sample_id': '3c1fabe8-c232-4f12-a7b8-0dcab4f4c888', 'correct': 0, 'conf_logprob': 0.6846, 'conf_verbal': 0.8}, {'sample_id': '87012840-8132-49d0-8c15-9dd0878d8487', 'correct': 0, 'conf_logprob': 0.942}, {'sample_id': '560ff634-8f18-41c2-acc8-d4b0e16bbd66', 'correct': 0, 'conf_logprob': 0.752}, {'sample_id': 'e442b6e0-f628-48e0-960c-0a8239af872f', 'correct': 1, 'conf_logprob': 0.8595, 'conf_verbal': 0.8}, {'sample_id': '353218c9-5e92-4b6f-a874-344b8ca65268', 'correct': 1, 'conf_logprob': 0.791}, {'sample_id': '25cac2de-ffe8-45c8-beef-29c7a7c00bf0', 'correct': 1, 'conf_logprob': 0.9639}, {'sample_id': 'be86c21b-e761-49ef-864a-7b5bbd391db7', 'correct': 1, 'conf_logprob': 0.8906}, {'sample_id': '8ee655ce-b0c7-4def-856c-68ec352ea175', 'correct': 0, 'conf_logprob': 0.6384}, {'sample_id': '9ebc1037-d01d-4078-879c-1ab873f71ab0', 'correct': 0, 'conf_logprob': 0.9488}, {'sample_id': 'a1517078-ff3b-4090-983e-0b0ce4ccadd5', 'correct': 1, 'conf_logprob': 0.7889, 'conf_verbal': 1.0}, {'sample_id': 'b8bb62d9-2324-47ab-976a-9dcc29344a84', 'correct': 0, 'conf_logprob': 0.8537, 'conf_verbal': 0.8}, {'sample_id': '69d6594d-b582-4f98-9f20-0662ff891b3f', 'correct': 1, 'conf_logprob': 0.9127}, {'sample_id': '02f57e88-2b85-413e-96a9-c6c233015bf6', 'correct': 0, 'conf_logprob': 0.8278}, {'sample_id': 'edcfc8ec-34ee-413c-bab6-84ee88d1b6ff', 'correct': 1, 'conf_logprob': 0.9008}, {'sample_id': '6557d2cd-7a11-471f-ae43-415d01f34397', 'correct': 0, 'conf_logprob': 0.8092, 'conf_verbal': 1.0}, {'sample_id': '43bac539-b249-4ad3-b923-b100e4134ac3', 'correct': 1, 'conf_logprob': 0.9442, 'conf_verbal': 1.0}, {'sample_id': 'adc2f2fd-9b3b-4e84-a745-ede485660b1b', 'correct': 0, 'conf_logprob': 0.7016, 'conf_verbal': 1.0}, {'sample_id': '7ee54d52-f3de-4913-b9c9-286701e18fc4', 'correct': 1, 'conf_logprob': 0.8875}, {'sample_id': '5e398782-d659-4b0c-bc19-ac3cfbd9a113', 'correct': 0, 'conf_logprob': 0.7265, 'conf_verbal': 1.0}, {'sample_id': '7722117e-32fc-4786-813a-3a5666e449e0', 'correct': 1, 'conf_logprob': 0.7248}, {'sample_id': '61f96ee9-f225-483b-b51e-cd379cec0dc4', 'correct': 1, 'conf_logprob': 0.828}, {'sample_id': 'a2c53160-fc50-4897-b614-0b2b7eed0e0b', 'correct': 1, 'conf_logprob': 0.7668, 'conf_verbal': 1.0}, {'sample_id': '10aa3be4-8a6f-42af-bff0-850a4c1fee43', 'correct': 0, 'conf_logprob': 0.6076, 'conf_verbal': 0.7}, {'sample_id': '9a394489-4d24-4e85-8148-b89e87e363b2', 'correct': 0, 'conf_logprob': 0.8828}, {'sample_id': '3d9d2c50-6cb1-4a73-8b4f-2d205ef23d83', 'correct': 0, 'conf_logprob': 0.9715}, {'sample_id': '9c233b8e-4daf-4405-b873-67b7542d4605', 'correct': 0, 'conf_logprob': 0.9101, 'conf_verbal': 0.7}, {'sample_id': '392b9839-0a43-4f9a-824c-3249d1c5a818', 'correct': 0, 'conf_logprob': 0.8637}, {'sample_id': '62d48c58-b173-40ee-8872-19fed4126ea1', 'correct': 0, 'conf_logprob': 0.7122}, {'sample_id': 'c90b3626-ad19-4b68-be2b-cd725ba74567', 'correct': 1, 'conf_logprob': 0.9151}, {'sample_id': 'c840f9cc-8b26-4f0b-b8a8-1a2b5e12301a', 'correct': 1, 'conf_logprob': 0.7608, 'conf_verbal': 0.7}, {'sample_id': 'b7701ab1-c37e-49f2-8ad9-7177fe0465e9', 'correct': 1, 'conf_logprob': 0.7403, 'conf_verbal': 0.75}, {'sample_id': '8399f1ff-a7aa-40d0-a2de-b3e8af17ecfa', 'correct': 1, 'conf_logprob': 0.9886}, {'sample_id': 'ce3ee541-5ccd-43d5-b9b5-d2e8b2d77dfd', 'correct': 1, 'conf_logprob': 0.9791, 'conf_verbal': 1.0}, {'sample_id': 'ecff09e3-ce7e-4b0e-ad97-3933abd8181b', 'correct': 0, 'conf_logprob': 0.9627, 'conf_verbal': 1.0}, {'sample_id': 'b09b362f-110a-4829-b94a-8337cd1a906b', 'correct': 0, 'conf_logprob': 0.6342}, {'sample_id': '717fa1c9-5403-4e8d-8a46-afa615ed4ea2', 'correct': 0, 'conf_logprob': 0.6402, 'conf_verbal': 0.7}, {'sample_id': '1c2c6dfa-f114-4e9a-89b0-4532fd9a7c1d', 'correct': 1, 'conf_logprob': 0.9769}, {'sample_id': '5c5150cb-d0ee-43ac-8887-dc067b4c3cb2', 'correct': 1, 'conf_logprob': 0.9019}, {'sample_id': '6c327eac-b976-4536-94cf-2f42ccc8b786', 'correct': 1, 'conf_logprob': 0.9907, 'conf_verbal': 0.8}, {'sample_id': 'b96baa27-d2d2-4fed-942c-447ba1e0463a', 'correct': 0, 'conf_logprob': 0.6026}, {'sample_id': 'c88697d9-c243-4433-8def-abebc253a941', 'correct': 1, 'conf_logprob': 0.7963}, {'sample_id': '133fa99a-4ea4-48a7-bb62-97c5421617a0', 'correct': 0, 'conf_logprob': 0.951}, {'sample_id': '2ed50dd0-e496-4df4-b5e1-a380f08320d3', 'correct': 1, 'conf_logprob': 0.9153}, {'sample_id': 'b92bda7e-43ab-4a69-a600-fe2547479ed4', 'correct': 0, 'conf_logprob': 0.774, 'conf_verbal': 0.8}, {'sample_id': 'e277d88f-fc07-41a4-9c22-de21dfbc8ab3', 'correct': 0, 'conf_logprob': 0.6802}, {'sample_id': '36aad8e9-b351-4865-ab51-02f7400da0ff', 'correct': 1, 'conf_logprob': 0.944, 'conf_verbal': 0.6}, {'sample_id': '64bf6371-ba11-45b4-aad5-27f53f7eaa17', 'correct': 0, 'conf_logprob': 0.8974, 'conf_verbal': 0.75}, {'sample_id': '6658e43e-f56d-44a2-ab80-6c73a40ee713', 'correct': 1, 'conf_logprob': 0.8626}, {'sample_id': '44df6584-e1b2-4edc-b810-b80e9f636f17', 'correct': 1, 'conf_logprob': 0.9353}, {'sample_id': '94588e32-db48-45b7-af24-b50f26bdc6cd', 'correct': 0, 'conf_logprob': 0.736}, {'sample_id': '82c84931-2431-41ab-b217-f6844e72bc45', 'correct': 1, 'conf_logprob': 0.9286}, {'sample_id': '7a771394-3d0d-4e49-b828-63cae297ccda', 'correct': 1, 'conf_logprob': 0.8409}, {'sample_id': '5369af10-79a9-44b8-9054-a69038bc205f', 'correct': 1, 'conf_logprob': 0.7282, 'conf_verbal': 0.9}, {'sample_id': 'f486cf13-9168-4d65-9a86-7dec25d30962', 'correct': 1, 'conf_logprob': 0.901}, {'sample_id': '78c2cba3-44a8-4001-869c-960b71eed932', 'correct': 1, 'conf_logprob': 0.8916}, {'sample_id': '520aea17-b159-4d22-ad68-978fcc152e27', 'correct': 1, 'conf_logprob': 0.6345}, {'sample_id': '692ba369-6437-4e4e-9c1b-54a80abd868f', 'correct': 0, 'conf_logprob': 0.5543, 'conf_verbal': 0.8}, {'sample_id': '8f8ce566-7bad-458b-92b6-845654636a6d', 'correct': 1, 'conf_logprob': 0.9283}, {'sample_id': '45b81135-c9bf-497e-8c80-942904a96dd8', 'correct': 0, 'conf_logprob': 0.9789}, {'sample_id': 'dfe60f5c-2788-4fa8-aca5-5082c524edca', 'correct': 0, 'conf_logprob': 0.8254}, {'sample_id': '5441f799-08ba-4ec6-a29b-8ddd933b37d0', 'correct': 1, 'conf_logprob': 0.9693}, {'sample_id': 'bc20ab9d-7cd0-4c0e-985b-00234b32f791', 'correct': 1, 'conf_logprob': 0.9793, 'conf_verbal': 0.8}, {'sample_id': 'a31e08e3-7c8f-468c-a78c-64e6b5f2bdec', 'correct': 1, 'conf_logprob': 0.7681, 'conf_verbal': 1.0}, {'sample_id': '7aa85650-7df8-42cd-a612-0d1706ce5fec', 'correct': 0, 'conf_logprob': 0.7725}, {'sample_id': 'dfa46c20-8a36-43d1-8ee6-7301990fe60b', 'correct': 0, 'conf_logprob': 0.6601, 'conf_verbal': 0.7}, {'sample_id': '30bc8aca-be42-484e-bb87-d61ba2068096', 'correct': 1, 'conf_logprob': 0.9846}, {'sample_id': '386dbb06-a2f9-4390-b599-aee87167ca74', 'correct': 1, 'conf_logprob': 0.924}, {'sample_id': '0fbc3dde-70c0-4352-a4ff-66551d9f2a43', 'correct': 1, 'conf_logprob': 0.8146}, {'sample_id': 'd225da40-65bc-4e2b-9ffe-786a1ace32b4', 'correct': 1, 'conf_logprob': 0.9439}, {'sample_id': 'adb0e4fb-5233-44d1-8a0e-6eec45e58b79', 'correct': 0, 'conf_logprob': 0.8047, 'conf_verbal': 1.0}, {'sample_id': 'ebb0a52f-ee20-45f7-acba-1ba42d7f2d3c', 'correct': 0, 'conf_logprob': 0.7361}, {'sample_id': 'cc82c7fe-bd52-474d-8942-b65b42c848ef', 'correct': 1, 'conf_logprob': 0.9255}, {'sample_id': '2cebba23-f719-48c0-8b66-5aceda2e5d61', 'correct': 0, 'conf_logprob': 0.9114}, {'sample_id': '33c7e8e9-5ccb-402d-9d6a-abea75cbd782', 'correct': 1, 'conf_logprob': 0.904}, {'sample_id': 'a5a89c0c-5c74-46b4-b947-3dfe66667310', 'correct': 1, 'conf_logprob': 0.7037}, {'sample_id': '29e34d22-f6c7-431a-9b32-a9d4a8c33d4d', 'correct': 0, 'conf_logprob': 0.8755, 'conf_verbal': 1.0}, {'sample_id': '12ea6970-e532-4549-80c7-353c7ae6ce8b', 'correct': 1, 'conf_logprob': 0.8144, 'conf_verbal': 0.95}, {'sample_id': '100bcc54-c059-427a-8d70-643fe9ee99e6', 'correct': 1, 'conf_logprob': 0.8749, 'conf_verbal': 0.8}, {'sample_id': 'b4180fa8-96a9-4211-8059-d03d65eb2f04', 'correct': 1, 'conf_logprob': 0.7793}, {'sample_id': 'd7a38f80-0e1b-437f-bd7f-0eddb15758b4', 'correct': 1, 'conf_logprob': 0.9353}, {'sample_id': '22ceec8a-7842-42da-bf59-3a2e6d115c62', 'correct': 0, 'conf_logprob': 0.8091, 'conf_verbal': 0.8}, {'sample_id': '3fab8a5c-b9b7-48d1-b486-c06021ff7cf1', 'correct': 1, 'conf_logprob': 0.9629}, {'sample_id': 'efdba5dd-13ef-4556-a3d4-866a068124f3', 'correct': 1, 'conf_logprob': 0.9625}, {'sample_id': '7045c825-5b6a-490d-96c2-75969c184b87', 'correct': 1, 'conf_logprob': 0.9767, 'conf_verbal': 0.8}, {'sample_id': '9e1c3db1-745c-47fc-8b8a-f32497ace7de', 'correct': 0, 'conf_logprob': 0.872, 'conf_verbal': 0.8}, {'sample_id': 'f4c0c09c-7023-4874-83ee-46a8b944a1aa', 'correct': 1, 'conf_logprob': 0.9072, 'conf_verbal': 0.95}, {'sample_id': '4cb67be7-9227-4ba4-b63e-cff1b06ca1f4', 'correct': 1, 'conf_logprob': 0.6604}, {'sample_id': '8b092633-c60c-4d2e-820e-4c92bb650db9', 'correct': 1, 'conf_logprob': 0.9799, 'conf_verbal': 0.7}, {'sample_id': 'f995bc92-74f6-4e69-94b8-bf6e073fa19f', 'correct': 0, 'conf_logprob': 0.8355, 'conf_verbal': 1.0}, {'sample_id': '2b6096e7-a66f-451f-886b-8210e362f84b', 'correct': 1, 'conf_logprob': 0.764}, {'sample_id': '3ad5159e-a728-4089-a4d0-3ff8681c158f', 'correct': 1, 'conf_logprob': 0.9354, 'conf_verbal': 1.0}, {'sample_id': '107510b7-f372-4cf7-abb4-0a042b7d7db8', 'correct': 1, 'conf_logprob': 0.9221}, {'sample_id': '620627a8-5011-4d90-9935-172ec9c82de1', 'correct': 0, 'conf_logprob': 0.7188}, {'sample_id': '6976d332-711d-45ca-aba5-c5c5109220c9', 'correct': 1, 'conf_logprob': 0.9302}, {'sample_id': 'b11438e7-7867-429e-9a45-b35c2642a75c', 'correct': 1, 'conf_logprob': 0.8877, 'conf_verbal': 1.0}, {'sample_id': 'b38ee2c1-1acc-4ff1-96d3-2a7ad2b6a4d0', 'correct': 0, 'conf_logprob': 0.7144, 'conf_verbal': 1.0}, {'sample_id': 'e086523d-bcbb-4a1e-9dc8-8ab88759af84', 'correct': 1, 'conf_logprob': 0.7817}, {'sample_id': '103a6aa6-4378-42a9-98f2-1da4a9e27b6e', 'correct': 1, 'conf_logprob': 0.9775}, {'sample_id': '470b1564-0152-4abe-8874-9295a4f9ee09', 'correct': 1, 'conf_logprob': 0.9643}, {'sample_id': '6e4953fb-1a8b-46ef-a7c8-fee3fe3b603e', 'correct': 1, 'conf_logprob': 0.9022}, {'sample_id': '92277724-8e35-48c7-a911-0781ccfc963f', 'correct': 0, 'conf_logprob': 0.5833}, {'sample_id': 'a0dfb542-d77d-4303-bd11-34f20167a1e1', 'correct': 1, 'conf_logprob': 0.8999}, {'sample_id': '5398e7ca-79c1-439b-80dd-fff437aaa772', 'correct': 1, 'conf_logprob': 0.9523}, {'sample_id': '5aa2de62-b811-4337-ae42-45ea9325a445', 'correct': 0, 'conf_logprob': 0.6153, 'conf_verbal': 0.8}, {'sample_id': '239ec016-c087-4a7b-a64e-b99e4dece85e', 'correct': 0, 'conf_logprob': 0.8958}, {'sample_id': '13adbaa8-9500-47cd-b397-1409d21cc8db', 'correct': 0, 'conf_logprob': 0.7122, 'conf_verbal': 0.7}, {'sample_id': '9de3c090-27e0-4b4b-9e58-d8549460d664', 'correct': 0, 'conf_logprob': 0.6332, 'conf_verbal': 0.95}, {'sample_id': 'fe564c9e-e077-4aaa-a6c6-c1f662fa5b3d', 'correct': 0, 'conf_logprob': 0.9049, 'conf_verbal': 0.7}, {'sample_id': '7aaa4a0e-0b25-494f-8df1-20bdbc57166b', 'correct': 0, 'conf_logprob': 0.9781, 'conf_verbal': 0.8}, {'sample_id': '47ae81d9-8cb5-4267-9394-2f511cc84871', 'correct': 0, 'conf_logprob': 0.8673}, {'sample_id': '1bc97ba7-d567-4218-be11-4f281306c5fb', 'correct': 0, 'conf_logprob': 0.8767, 'conf_verbal': 0.8}, {'sample_id': '04e0a1bc-59f1-497b-86fd-7d7ba5b311fa', 'correct': 0, 'conf_logprob': 0.5925, 'conf_verbal': 0.8}, {'sample_id': 'dbd4b69c-fb56-4f42-89a7-622a5ad83f07', 'correct': 0, 'conf_logprob': 0.8398}, {'sample_id': '8d19063c-5251-4f16-9361-de98fdc8c43c', 'correct': 0, 'conf_logprob': 0.7421}, {'sample_id': 'a6571f36-993f-4c5f-8bd0-31610d787bed', 'correct': 0, 'conf_logprob': 0.6966}, {'sample_id': '404456b5-a841-4f9c-a005-31596fd3cc4f', 'correct': 0, 'conf_logprob': 0.9348, 'conf_verbal': 1.0}, {'sample_id': '2783e849-9174-4f84-abe6-45abf50f6d2b', 'correct': 0, 'conf_logprob': 0.7022}, {'sample_id': '09c7e96d-956d-4faa-ac6b-3f73f98d628f', 'correct': 0, 'conf_logprob': 0.9693}, {'sample_id': '427c439a-1d2c-4d89-8a74-a6fd7478e1dc', 'correct': 0, 'conf_logprob': 0.702}, {'sample_id': '49795e51-3d67-4311-af46-3b3b46527c6e', 'correct': 0, 'conf_logprob': 0.7038}, {'sample_id': 'ff7bff97-342e-4285-bbb9-15841364b072', 'correct': 0, 'conf_logprob': 0.7719}, {'sample_id': 'ac85ba57-edc0-4ccb-aa61-ce50f4af7650', 'correct': 0, 'conf_logprob': 0.7026, 'conf_verbal': 1.0}, {'sample_id': '3b495f9c-af77-4ecf-8dc1-82d919b0af2f', 'correct': 0, 'conf_logprob': 0.7795, 'conf_verbal': 0.7}]\n  _caveat: Needs PASS/FAIL labels \u2014 unlabeled cases are skipped, and ECE on few labelled cases is unstable (aim for >= ~50). conf_logprob is the geometric-mean token probability of the model's own continuation \u2014 a proxy, not an answer probability; on API backends it reflects only the returned top-k. A positive overconfidence_gap on FAIL-heavy slices argues for abstention/recalibration fixes rather than capability fixes.",
+  "artifact_names": []
+}

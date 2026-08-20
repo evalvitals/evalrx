@@ -583,7 +583,7 @@ def main() -> int:
              "option letter, but stay well short of the image-phrased "
              "'describe first' templates this run deliberately excludes.",
     )
-    parser.add_argument("--max-cycles", type=int, default=2)
+    parser.add_argument("--max-cycles", type=int, default=1)
     parser.add_argument("--max-analyzers", type=int, default=len(PINNED_M1_ANALYZERS))
     parser.add_argument(
         "--confirm-split", type=float, default=0.6,
@@ -605,6 +605,11 @@ def main() -> int:
         help="drop candidate_allowlist=['tcd_temporal_blur'] so every admissible "
              "L0-L3a candidate (paper defaults AND judge-proposed ones) competes "
              "on equal footing",
+    )
+    parser.add_argument(
+        "--explore", action=argparse.BooleanOptionalAction, default=True,
+        help="In-cycle free-form EDA between M1 and M2 (claude coder); charts "
+             "+ tables land under <run-dir>/explore. --no-explore disables.",
     )
     parser.add_argument(
         "--analysis-only", action="store_true",
@@ -685,8 +690,10 @@ def main() -> int:
         VLDiagnoseLoop,
     )
 
+    # llm_benchmark layout: run log + artifacts under <run-dir>/logs, explore
+    # as its sibling <run-dir>/explore (dashboard merges logs*/run_log.jsonl).
     ctx = RunContext(
-        args.run_dir, verbose=True,
+        Path(args.run_dir) / "logs", verbose=True,
         config={
             "model": args.model,
             "judge_model": args.judge_model,
@@ -739,6 +746,28 @@ def main() -> int:
     print(f"  explore/confirm split: {len(cases) - n_confirm} explore "
           f"(M1-M5 discovery) / {n_confirm} confirm (held out for run_fix)")
 
+    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
+    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+
+    coder_cfg = CliAgentConfig(
+        provider="claude_code",
+        model=args.judge_model,
+        timeout_sec=900,
+        extra_args=(("--effort", args.judge_effort) if args.judge_effort else ()),
+    )
+    explorer = None
+    if args.explore and not args.analysis_only:
+        from evalvitals.agent_runtime.sandbox import ExperimentSandbox
+        from evalvitals.analysis import ExploratoryAnalysisAgent
+
+        explorer = ExploratoryAnalysisAgent(
+            cli_config=coder_cfg,
+            sandbox=ExperimentSandbox(
+                workdir=Path(args.run_dir) / "explore" / "sandbox",
+                cleanup=False),
+            timeout_sec=900,
+            max_attempts=2,
+        )
     loop = VLDiagnoseLoop(
         model=model,
         protocol=protocol,
@@ -752,6 +781,10 @@ def main() -> int:
         analysis_only=args.analysis_only,
         confirm_split=confirm_split,
         confirm_split_seed=args.seed,
+        surgery_agent=None if args.analysis_only else SurgeryAgent(
+            judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
+        explorer=explorer,
+        explore_dir=Path(args.run_dir) / "explore",
     )
 
     print(f"\n{'='*64}\nVLDiagnoseLoop  model={args.model}  max_cycles={args.max_cycles}\n{'='*64}")
@@ -768,6 +801,13 @@ def main() -> int:
               f"  protocol_ok={vr.is_consistent_with_protocol}")
 
     if not args.analysis_only:
+        print(f"\n{'='*64}\nM4  Intervention experiment\n{'='*64}")
+        fix_proposal = loop.run_m4(report, cases, allow_unverified=True)
+        if fix_proposal is not None:
+            tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
+            print(f"  M4 experiment on the {tag} hypothesis: status={fix_proposal.status}")
+        else:
+            print("  M4: no hypothesis to experiment on")
         print(f"\n{'='*64}\nFIX  Tiered repair attempts (max tier = {args.fix_max_tier})\n{'='*64}")
         outcome = loop.run_fix(report, cases)
         for v in outcome.attempted:

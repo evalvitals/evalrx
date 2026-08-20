@@ -1,0 +1,27 @@
+{
+  "run_id": "tcd_confirm_896",
+  "root": "/app/example/outputs/tcd_confirm_896",
+  "generated_at": "2026-08-20T05:35:37+00:00",
+  "config": {
+    "mode": "preregistered_tcd_confirmation",
+    "model": "qwen2-audio-7b-instruct",
+    "limit": 896,
+    "pilot_size_excluded": 120,
+    "n_confirmation": 776,
+    "prior_confirm_result": null
+  },
+  "files": {
+    "artifacts": [
+      "artifacts/baseline.json"
+    ],
+    "fixes": [
+      "fixes/01_L3a_tcd_temporal_blur_confirm/outputs.jsonl",
+      "fixes/01_L3a_tcd_temporal_blur_confirm/record.md",
+      "fixes/01_L3a_tcd_temporal_blur_confirm/result.json",
+      "fixes/outcome.md"
+    ],
+    "other": [
+      "run_log.jsonl"
+    ]
+  }
+}
