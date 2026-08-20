@@ -176,18 +176,33 @@ have now also been exercised on an A100; the measured result is reported below.
   time (`download_mmau.py`'s `MAX_DURATION_SEC`), with the skip count printed
   — never silently truncated mid-run.
 
-## `--unrestricted`: what does the agent propose on its own?
+## The fix pool: open by default, `--paper-method-only` to lock it
 
-By default `run.py` limits the fix pool to `tcd_temporal_blur`
-(`candidate_allowlist=["tcd_temporal_blur"]`). Structural gates first require
-an audio multiple-choice batch and a compatible native backend; the
-paper-method judge then selects TCD only if M3 diagnosed the matching temporal
-mechanism. Thus a normal full discovery run can legitimately attempt no fix
-when it diagnoses a different mechanism. `--validate-tcd-only` is the separate
-confirmatory path for the TCD candidate already selected by the original pilot;
-it freezes that choice and does not ask M3 or the paper-method judge to select
-it again. `--unrestricted` drops the allowlist so every admissible candidate —
-paper defaults and judge-proposed L1/L2 candidates — can compete.
+`run.py` runs the full candidate family by default — judge-proposed L1/L2
+prompts and specs, the `self_consistency_5` floor, `tcd_temporal_blur` when
+its structural + paper-method gates admit it, and a coded L2 pipeline from
+the same coder that runs the explore step and the M4 experiment — the same
+shape as `examples/dataset_selection/llm_benchmark`. The TCD gates are
+unchanged: an audio multiple-choice batch, a compatible native backend, and
+an M3 diagnosis of the matching temporal mechanism; a discovery run that
+diagnoses a different mechanism simply fields no TCD candidate while the
+rest of the family still competes.
+
+`--paper-method-only` restores `candidate_allowlist=["tcd_temporal_blur"]`
+(and disables the coder) — the pool the TCD numbers above were measured
+with. `--validate-tcd-only` is the separate confirmatory path for the
+candidate already selected by the original pilot; it freezes that choice
+and does not ask M3 or the paper-method judge to select it again.
+`--unrestricted` is kept as a no-op for compatibility.
+
+### 2026-08-20 open-pool run (A6000, 538 confirm pairs)
+
+Seven judge candidates raced on EXPLORE (selection only); the winner,
+`eliminate_each_option` (L1: check each option A→D against the audio,
+anti-position-bias wording), was then confirmed on the untouched CONFIRM
+half: 61 repaired / 20 broken, +7.6 pp (0.569 → 0.645), e = 6281 → FIXED.
+Two generic scaffolds regressed on EXPLORE (`describe_then_answer` −11.7 pp,
+`chain_of_verification_audio` −17.3 pp), replicating the table below.
 
 ### Prior result (old FixAgent-only script, hand-supplied hypothesis)
 

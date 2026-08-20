@@ -12,6 +12,12 @@ The host bridge also enforces a direct baseline, at most four calls per case,
 and distinct 2-of-3 enhanced-answer support before an agent-written pipeline
 may override that baseline.
 
+> **Fix pool (2026-08-20):** by default `run.py` now fields the full candidate
+> family — judge-proposed L1/L2 prompts and specs, the `self_consistency_5`
+> floor, and the coder-written L2 pipeline — the same shape as
+> `examples/dataset_selection/llm_benchmark`. The single-candidate
+> autonomous-code-repair protocol described below is `--code-only`.
+
 ```bash
 python download_spatial457.py --limit 512 --seed 7457 \
   --exclude-json outputs/auto_fix_v7/report/discovery_cases.json \

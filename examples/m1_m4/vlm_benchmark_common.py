@@ -156,6 +156,13 @@ def main(config: BenchmarkConfig) -> None:
         help="Automatically continue from L2 into L3a when lower tiers do not validate.",
     )
     parser.add_argument(
+        "--code-only", action="store_true",
+        help="restrict the fix pool to the coder-written L2 pipeline "
+             "(candidate_allowlist={'coded_pipeline'}, one judge candidate) — the "
+             "autonomous-code-repair protocol these examples were first written "
+             "for. Default: every admissible candidate competes.",
+    )
+    parser.add_argument(
         "--explore", action=argparse.BooleanOptionalAction, default=True,
         help="In-cycle free-form EDA between M1 and M2 (same coder CLI as the "
              "repair pipeline); charts + tables land under <run-dir>/explore.",
@@ -289,13 +296,16 @@ def main(config: BenchmarkConfig) -> None:
         # repair: the 512-case launch uses 256 EXPLORE / 256 CONFIRM.
         max_validation_cases=256,
         alpha=0.05,
-        # These examples demonstrate autonomous code repair.  The agent may
-        # run two feedback-driven code revisions on EXPLORE; run_fix then
-        # freezes the best positive-net candidate and evaluates that one
-        # candidate on CONFIRM.  No confirmation feedback enters authoring.
-        candidate_allowlist={"coded_pipeline"},
+        # Full candidate family by default (judge L1/L2 prompts and specs,
+        # the self_consistency floor, and the coded pipeline) — the
+        # llm_benchmark shape. --code-only restores the single-candidate
+        # autonomous-code-repair protocol: the agent may run two
+        # feedback-driven code revisions on EXPLORE; run_fix then freezes
+        # the best positive-net candidate and evaluates that one on
+        # CONFIRM. No confirmation feedback enters authoring either way.
+        candidate_allowlist={"coded_pipeline"} if args.code_only else None,
         max_repair_rounds=2,
-        max_judge_candidates=1,
+        **({"max_judge_candidates": 1} if args.code_only else {}),
         # A conservative VLM repair commonly makes one baseline call plus
         # three enhanced passes.  At 128 confirmation cases ChartQA can exceed
         # twenty minutes on a 7B model, so budget execution per whole batch

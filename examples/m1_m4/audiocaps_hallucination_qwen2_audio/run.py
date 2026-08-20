@@ -322,7 +322,7 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
         fix_agent=FixAgent(
             score_fn=score_case,
             max_tier=args.fix_max_tier,
-            candidate_allowlist=None if args.unrestricted else ["aad_silence_contrast"],
+            candidate_allowlist=(["aad_silence_contrast"] if args.paper_method_only else None),
         ),
         max_cycles=1,
         run_logger=ctx.logger,
@@ -380,10 +380,14 @@ def main() -> int:
     parser.add_argument("--judge-effort", default="high")
     parser.add_argument("--seed", type=int, default=20260814)
     parser.add_argument(
+        "--paper-method-only", action="store_true",
+        help="restrict the fix pool to candidate_allowlist=['aad_silence_contrast'] "
+             "(the pre-registered paper method) and disable the coder. Default: "
+             "every admissible candidate competes (judge L1/L2, floor, AAD, coded).",
+    )
+    parser.add_argument(
         "--unrestricted", action="store_true",
-        help="drop candidate_allowlist=['aad_silence_contrast'] so every "
-             "admissible L0 candidate (paper defaults AND judge-proposed "
-             "ones) competes on equal footing",
+        help="(no-op, kept for compatibility: the open pool is the default now)",
     )
     parser.add_argument(
         "--explore", action=argparse.BooleanOptionalAction, default=True,
@@ -440,6 +444,15 @@ def main() -> int:
     )
 
     judge = build_judge(args.judge_model, args.judge_effort)
+    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
+    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+
+    coder_cfg = CliAgentConfig(
+        provider="claude_code",
+        model=args.judge_model,
+        timeout_sec=900,
+        extra_args=(("--effort", args.judge_effort) if args.judge_effort else ()),
+    )
 
     from evalvitals.eval_agent import (
         DiagnosisAgent,
@@ -492,10 +505,13 @@ def main() -> int:
         score_fn=score_case,
         run_logger=ctx.logger,
         run_context=ctx,
-        candidate_allowlist=None if args.unrestricted else ["aad_silence_contrast"],
-        # a coding backend is out of scope for what this run is testing --
-        # mirrors mmau_qwen2_audio's own README rationale.
-        allow_codegen=False,
+        candidate_allowlist=(["aad_silence_contrast"] if args.paper_method_only else None),
+        # Full candidate family by default (judge L1/L2, the self_consistency
+        # floor, AAD when its gate admits it, and a coded pipeline from the
+        # same coder that runs explore/M4) — the llm_benchmark shape.
+        # --paper-method-only restores the AAD-only pool.
+        allow_codegen=not args.paper_method_only,
+        cli_config=None if args.paper_method_only else coder_cfg,
     )
 
     # --analysis-only never reaches run_fix, so nothing would ever read the
@@ -506,15 +522,6 @@ def main() -> int:
     print(f"  explore/confirm split: {len(cases) - n_confirm} explore "
           f"(M1-M5 discovery) / {n_confirm} confirm (held out for run_fix)")
 
-    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
-    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
-
-    coder_cfg = CliAgentConfig(
-        provider="claude_code",
-        model=args.judge_model,
-        timeout_sec=900,
-        extra_args=(("--effort", args.judge_effort) if args.judge_effort else ()),
-    )
     explorer = None
     if args.explore and not args.analysis_only:
         from evalvitals.agent_runtime.sandbox import ExperimentSandbox

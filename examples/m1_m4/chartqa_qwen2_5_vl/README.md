@@ -5,6 +5,12 @@ deterministically sampled human-authored ChartQA test questions. The scorer
 implements normalized exact match and the benchmark's relaxed 5% numeric
 tolerance. The fixed explore/confirm split is 256/256.
 
+> **Fix pool (2026-08-20):** by default `run.py` now fields the full candidate
+> family — judge-proposed L1/L2 prompts and specs, the `self_consistency_5`
+> floor, and the coder-written L2 pipeline — the same shape as
+> `examples/dataset_selection/llm_benchmark`. The single-candidate
+> autonomous-code-repair protocol described below is `--code-only`.
+
 An agy/Antigravity coding agent sees only EXPLORE data, runs a controlled
 subtype-discovery candidate followed by one feedback-driven revision, and
 freezes the best positive-net candidate. Exactly that one candidate is then
