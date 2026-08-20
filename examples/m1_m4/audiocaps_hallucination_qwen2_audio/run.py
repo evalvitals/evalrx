@@ -7,11 +7,11 @@ Interspeech 2024, arXiv:2406.08402 -- the exact benchmark AAD, Hsu et al.
 2025 arXiv:2506.07233, evaluates against, on this exact model). This
 run.py only supplies INPUTS -- frozen cases + an observation-only protocol;
 detection, diagnosis and repair are the loop's own job. No hand-supplied
-hypothesis, no forced candidate (unless --unrestricted is dropped, see
-below): the point is finding out whether the loop discovers "language
+hypothesis, no forced candidate (unless --paper-method-only locks the pool,
+see below): the point is finding out whether the loop discovers "language
 priors override audio evidence" on its own and reaches for AAD.
 
-    1. download_audiohallucination.py --limit 120   (run first, standalone --
+    1. download_audiohallucination.py --limit 300   (run first, standalone --
                                                        writes data/audiohallucination.jsonl
                                                        + data/audio/*.wav)
     2. Fresh baseline pass        plain model.generate() (greedy) on every row
@@ -41,8 +41,8 @@ priors override audio evidence" on its own and reaches for AAD.
                                    M1-M5 discovery never saw (--confirm-split).
 
 Usage:
-    python download_audiohallucination.py --limit 120
-    python run.py --model qwen2-audio-7b-instruct --limit 120
+    python download_audiohallucination.py --limit 300 --scan-rows 2000
+    python run.py --model qwen2-audio-7b-instruct --limit 300
     python run.py --smoke-test     # fast wiring check, no GPU/model/judge --
                                     # exercises the REAL VLDiagnoseLoop + FixAgent
                                     # against a synthetic model+cases, specifically
@@ -360,7 +360,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="qwen2-audio-7b-instruct")
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--limit", type=int, default=120)
+    parser.add_argument("--limit", type=int, default=300)
     parser.add_argument(
         "--max-tokens", type=int, default=16,
         help="subject-model generation budget (baseline scoring AND every M1 "
@@ -375,7 +375,13 @@ def main() -> int:
              "Ignored (forced to 0.0) under --analysis-only, since nothing "
              "downstream would ever read the held-out partition.",
     )
-    parser.add_argument("--fix-max-tier", default="L0")
+    parser.add_argument(
+        "--fix-max-tier", default="L3a",
+        help="highest intervention tier FixAgent may propose. AAD itself is L0, "
+             "but the judge's L1/L2 candidates, the self_consistency floor and "
+             "the coded pipeline are gated behind L1/L2 -- L0 would silently "
+             "shrink the open pool back to AAD alone (mmau_qwen2_audio: L3a).",
+    )
     parser.add_argument("--judge-model", default="sonnet")
     parser.add_argument("--judge-effort", default="high")
     parser.add_argument("--seed", type=int, default=20260814)

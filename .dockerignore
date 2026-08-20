@@ -1,3 +1,4 @@
+.venv
 .git
 .pytest_cache
 .ruff_cache
@@ -5,3 +6,5 @@
 **/*.pyc
 examples/**/data
 examples/**/outputs
+examples/**/outputs.*
+examples/**/*.zip
