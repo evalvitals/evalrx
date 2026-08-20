@@ -168,3 +168,34 @@ def test_run_config_records_data_fingerprint_and_labels():
     # Different batch (one id changed) → different fingerprint.
     cases2 = cases[:-1] + [FailureCase(id="d", inputs=Inputs(prompt="p4"), label=Label.PASS)]
     assert _data_provenance(CaseBatch(cases2))["data_fingerprint"] != fp
+
+
+def test_run_logger_creates_langfuse_trace_and_spans(tmp_path):
+    """RunLogger must automatically record Langfuse spans, generations, and export bundle."""
+    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalvitals.core.result import Result
+
+    run_dir = tmp_path / "langfuse_run"
+    logger = RunLogger(run_dir=run_dir)
+    logger.log_run_start({"model": "qwen-audio", "benchmark_name": "MMAU", "n_cases": 10})
+
+    # Log M1 probe
+    res = Result(analyzer="format_sensitivity", model="qwen-audio", findings={"accuracy": 0.85, "per_case": [{"sample_id": "c1", "score": 1.0}]})
+    logger.log_probe(0, {"format_sensitivity": res})
+
+    # Log M2 analysis
+    report = _stats_report([{"tool": "signal_label_assoc", "effect": 0.42, "p_value": 0.001}])
+    logger.log_analysis(0, report)
+
+    # Close and check bundle export
+    logger.close()
+
+    bundle_file = run_dir / "langfuse_trace.json"
+    assert bundle_file.exists()
+    bundle = json.loads(bundle_file.read_text())
+    assert bundle["trace"]["metadata"]["model"] == "qwen-audio"
+    assert bundle["trace"]["metadata"]["benchmark"] == "MMAU"
+    assert len(bundle["spans"]) >= 2
+    assert any(s["stage"] == "M1" for s in bundle["spans"])
+    assert any(s["stage"] == "M2" for s in bundle["spans"])
+
