@@ -526,6 +526,9 @@ def test_expected_sign_parser_cases():
 def test_diagnosis_prompt_asks_for_the_direction():
     from evalvitals.eval_agent.prompts.diagnosis import _DIAGNOSE_PROMPT
     assert "HIGHER or LOWER on failing cases" in _DIAGNOSE_PROMPT
+    # binary tasks: TEST lines go to the direction marginals, not to text/label fields
+    assert "answer_extraction_audit.answered_yes" in _DIAGNOSE_PROMPT
+    assert "never on\nextracted_answer, labelled_fail" in _DIAGNOSE_PROMPT
 
 
 def test_an_outcome_regrade_cannot_be_m5_evidence_even_from_an_old_m2():

@@ -72,6 +72,15 @@ class POPEAnalyzer(Analyzer):
                 # cannot distinguish them.
                 "false_positive": gold == "no" and pred == "yes",
                 "false_negative": gold == "yes" and pred == "no",
+                # The two MARGINALS those flags are built from. false_positive /
+                # false_negative are gold x pred conjunctions -- each a subset of
+                # FAIL by construction, so the planner keeps them out of the
+                # tested family (descriptive only). answered_yes / gold_yes are
+                # not label functions and are what M2/M5 test a directional
+                # ("over-affirmation") hypothesis on. Same columns as
+                # answer_extraction_audit emits on any yes/no task.
+                **({"answered_yes": pred == "yes"} if pred is not None else {}),
+                **({"gold_yes": gold == "yes"} if gold in {"yes", "no"} else {}),
                 "has_gold": gold in {"yes", "no"},
                 "unparsed": pred is None,
                 "is_correct": is_correct,

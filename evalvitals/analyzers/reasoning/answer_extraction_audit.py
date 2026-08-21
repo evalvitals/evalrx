@@ -30,6 +30,8 @@ from evalvitals.analyzers.reasoning._text import (
     _ANSWER_TAG,
     _BOXED,
     answer_equal,
+    binary_direction,
+    binary_gold,
     extract_answer,
     has_answer_tag,
     looks_like_give_up,
@@ -131,7 +133,11 @@ class AnswerExtractionAudit(Analyzer):
                 "after dropping extraction_suspect==1 cases). This probe is "
                 "OBSERVATIONAL by default: it re-reads stored outputs and "
                 "introduces no new sampling. With reask=True the reask_* columns "
-                "are interventional and must be re-run for held-out confirmation."
+                "are interventional and must be re-run for held-out confirmation. "
+                "On yes/no (true/false) tasks answered_yes and gold_yes are the "
+                "answer's and the gold's DIRECTION, two separate marginals (not "
+                "re-grades): a directional hypothesis is tested on them, e.g. "
+                "answered_yes HIGHER on failing cases."
             ),
         }
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)
@@ -190,6 +196,21 @@ class AnswerExtractionAudit(Analyzer):
                 "label_disagrees": int((case.label == Label.FAIL) == strict),
             }
         )
+        # Binary tasks only: the DIRECTION of the gold and of the answer, as two
+        # separate marginals. Neither is a function of the label -- answered_yes
+        # is model behaviour, gold_yes is a question covariate -- so both may
+        # enter M2's tested family, and M5 can check a directional hypothesis
+        # ("a Yes prior: answered_yes HIGHER on failures; failures concentrate
+        # on gold_yes=0"). Their CONJUNCTION (answered Yes on a gold No) is a
+        # subset of FAIL by construction and must never be a column here.
+        # Live motivation: audiocaps_hallucination 2026-08-20, where M3 named
+        # extracted_answer / labelled_fail and M5 had nothing numeric to test.
+        gold_dir = binary_gold(case.expected)
+        if gold_dir is not None:
+            entry["gold_yes"] = int(gold_dir == "yes")
+            answer_dir = binary_direction(extracted) or binary_direction(tail, last=True)
+            if answer_dir is not None:
+                entry["answered_yes"] = int(answer_dir == "yes")
         return entry
 
     def _reask(self, model: "Model", case: "FailureCase") -> dict[str, Any]:
