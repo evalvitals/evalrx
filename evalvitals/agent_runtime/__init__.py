@@ -31,7 +31,7 @@ from evalvitals.agent_runtime.factory import (
     create_sandbox,
 )
 from evalvitals.agent_runtime.json_shape import validate_json_shape
-from evalvitals.agent_runtime.judges import AgyModel, ClaudeModel, ResolvedJudge, resolve_cli_judge
+from evalvitals.agent_runtime.judges import AgyModel, ClaudeModel, CodexModel, ResolvedJudge, resolve_cli_judge
 from evalvitals.agent_runtime.providers import create_cli_agent
 from evalvitals.agent_runtime.sandbox import (
     ExperimentSandbox,
@@ -55,6 +55,7 @@ __all__ = [
     "create_sandbox",
     "AgyModel",
     "ClaudeModel",
+    "CodexModel",
     "ResolvedJudge",
     "resolve_cli_judge",
     "create_cli_agent",

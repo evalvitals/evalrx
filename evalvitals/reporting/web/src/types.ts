@@ -20,7 +20,8 @@ export type Chart = {
   id: string;
   kind: "donut" | "bar";
   title: string;
-  series: Array<{ label: string; value: number; highlight?: boolean }>;
+  subtitle?: string;
+  series: Array<{ label: string; raw_label?: string; value: number; highlight?: boolean }>;
 };
 
 export type Case = {

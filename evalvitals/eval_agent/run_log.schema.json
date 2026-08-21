@@ -30,7 +30,8 @@
             "agent_decision",
             "agent_tool",
             "case_record",
-            "report_published"
+            "report_published",
+            "stage_skipped"
           ]
         },
         "schema_version": {
@@ -993,6 +994,36 @@
           ]
         }
       ]
+    },
+    "stage_skipped": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "const": "stage_skipped"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "reason_code": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "stage",
+            "cycle",
+            "reason_code"
+          ]
+        }
+      ]
     }
   },
   "oneOf": [
@@ -1040,6 +1071,9 @@
     },
     {
       "$ref": "#/$defs/report_published"
+    },
+    {
+      "$ref": "#/$defs/stage_skipped"
     }
   ]
 }

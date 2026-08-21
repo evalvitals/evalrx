@@ -95,6 +95,83 @@ def _externalized(summary: "dict[str, Any]") -> str:
     return f"({summary.get('n_items', '?')} items externalised -> {where})"
 
 
+def _case_snapshot(case: Any) -> "dict[str, Any]":
+    """Make a small, renderer-safe baseline record for an evidence example."""
+    if hasattr(case, "to_dict"):
+        value = case.to_dict()
+    elif isinstance(case, dict):
+        value = dict(case)
+    else:
+        value = {"id": str(getattr(case, "id", ""))}
+    inputs = value.get("inputs") if isinstance(value.get("inputs"), dict) else {}
+    return {
+        "id": str(value.get("id") or value.get("case_id") or ""),
+        "input": inputs.get("prompt") or value.get("prompt") or value.get("instruction") or "",
+        "baseline_output": value.get("observed", value.get("output")),
+        "expected": value.get("expected"),
+        "outcome": value.get("label") or value.get("status") or "unknown",
+    }
+
+
+def _iter_cases(cases: Any) -> "list[Any]":
+    """Accept CaseBatch, a plain sequence, or a generator without assumptions."""
+    if cases is None:
+        return []
+    value = getattr(cases, "cases", cases)
+    try:
+        return list(value)
+    except TypeError:
+        return []
+
+
+def _probe_examples(results: "dict[str, Any]", cases: Any) -> "list[dict[str, Any]]":
+    """Persist two real, bounded M1 walkthroughs beside aggregate findings.
+
+    A probe only becomes a before/after comparison when its analyzer explicitly
+    records both outputs.  Otherwise this records an honest *baseline case +
+    check result* example; downstream UI must not call it an intervention.
+    """
+    snapshots: dict[str, dict[str, Any]] = {}
+    for case in _iter_cases(cases):
+        snapshot = _case_snapshot(case)
+        if snapshot["id"]:
+            snapshots[snapshot["id"]] = snapshot
+    output: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for name, result in results.items():
+        findings = getattr(result, "findings", {}) or {}
+        rows = findings.get("per_case") or []
+        if not isinstance(rows, list):
+            continue
+        rows = sorted(
+            (row for row in rows if isinstance(row, dict)),
+            key=lambda row: 0 if str(snapshots.get(str(row.get("sample_id") or row.get("case_id") or ""), {}).get("outcome", "")).lower() == "fail" else 1,
+        )
+        for row in rows:
+            case_id = str(row.get("sample_id") or row.get("case_id") or "")
+            snapshot = snapshots.get(case_id)
+            if not snapshot or case_id in used:
+                continue
+            checked = {
+                str(key).replace("_", " "): value for key, value in row.items()
+                if key not in {"sample_id", "case_id"} and isinstance(value, (str, int, float, bool))
+            }
+            if not checked:
+                continue
+            used.add(case_id)
+            output.append({
+                "id": f"m1-{name}-{case_id}", "kind": "case_measurement", "case_id": case_id,
+                "probe_title": str(name).replace("_", " ").title(),
+                **snapshot, "check_result": checked,
+                "plain_reading": "This one case illustrates the recorded check. The aggregate M1 result uses all measured cases.",
+                "evidence_scope": "one recorded case within M1",
+            })
+            break
+        if len(output) >= 2:
+            break
+    return output
+
+
 def _artifact_to_numpy(artifact: Any) -> "Any | None":
     """Convert *artifact* to a numpy array, or return None if not possible.
 
@@ -430,6 +507,7 @@ class RunLogger:
         verbose: bool = False,
         trace_id: str | None = None,
         context: "Any | None" = None,
+        observability_mode: str | None = None,
     ) -> None:
         # When a RunContext is supplied it owns the whole run directory and all
         # of the subdirectory paths; RunLogger simply borrows them.  This keeps a
@@ -522,7 +600,9 @@ class RunLogger:
 
         # Primary Langfuse & OpenTelemetry Tracing Engine
         from evalvitals.observability.tracer import DiagnosticTracer
-        self.tracer = DiagnosticTracer(run_dir=self.run_dir)
+        self.tracer = DiagnosticTracer(
+            run_dir=self.run_dir, mode=observability_mode, auto_sync=True,
+        )
         self.tracer.trace_id = self.trace_id
 
     # ------------------------------------------------------------------
@@ -694,6 +774,7 @@ class RunLogger:
         results: dict[str, "Result"],
         schema: "Any | None" = None,
         *,
+        cases: "Any | None" = None,
         judge_prompt: "str | None" = None,
         judge_raw: "str | None" = None,
         duration_sec: "float | None" = None,
@@ -723,6 +804,9 @@ class RunLogger:
             "result_paths": result_paths,
             "artifact_paths": artifact_paths,
         }
+        examples = _probe_examples(results, cases)
+        if examples:
+            entry["examples"] = examples
         if failed_analyzers:
             entry["failed_analyzers"] = dict(failed_analyzers)
         if schema is not None:
@@ -1042,6 +1126,24 @@ class RunLogger:
             ],
             "raw_judge_output": diag.raw_judge_output,
         }
+        proposed = list(getattr(diag, "proposed_hypotheses", None) or [])
+        if proposed:
+            entry["proposed_hypotheses"] = [
+                {
+                    "statement": h.statement,
+                    "plain_statement": h.plain_statement,
+                    "failure_mode": h.predicted_failure_mode,
+                    "test_design": h.test_design,
+                }
+                for h in proposed
+            ]
+        review_decisions = list(getattr(diag, "review_decisions", None) or [])
+        if review_decisions:
+            entry["review"] = {
+                "n_kept": sum(d.get("decision") == "keep" for d in review_decisions),
+                "n_rejected": sum(d.get("decision") == "reject" for d in review_decisions),
+                "decisions": review_decisions,
+            }
         # Provenance of the (UNCONFIRMED) explorer mechanism notes M3 was shown.
         # Descriptive only — these never enter M2/M5/fix; logged so the dashboard
         # can tag which explore charts/observations each hypothesis cited.
@@ -1061,6 +1163,13 @@ class RunLogger:
         )
         if judge_io:
             entry["judge_io"] = judge_io
+        review_io = self._save_judge_io(
+            f"c{cycle}_m3_adversarial_review",
+            getattr(diag, "review_prompt", None),
+            getattr(diag, "review_raw", None),
+        )
+        if review_io:
+            entry["review_io"] = review_io
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         self._log(entry, span_id=f"c{cycle}.m3")
@@ -1081,13 +1190,28 @@ class RunLogger:
                 m3_prompt = ""
         self.tracer.log_generation(
             name="AI Doctor Diagnostician",
-            model=diag.model_name,
+            # diag.model_name is the model being diagnosed, not the model that
+            # produced this generation. The configured judge is run metadata.
+            model=str(self.tracer.trace_metadata.get("judge") or "diagnosis_judge"),
             prompt=m3_prompt,
             completion=diag.raw_judge_output or "",
             span_id=m3_span,
             metadata={"hypotheses": [h.statement for h in diag.hypotheses]},
         )
-        self.tracer.end_span(m3_span, output_data={"n_hypotheses": len(diag.hypotheses)})
+        if getattr(diag, "review_prompt", None) or getattr(diag, "review_raw", None):
+            self.tracer.log_generation(
+                name="M3 Adversarial Evidence Review",
+                model=str(self.tracer.trace_metadata.get("judge") or "diagnosis_judge"),
+                prompt=getattr(diag, "review_prompt", "") or "",
+                completion=getattr(diag, "review_raw", "") or "",
+                span_id=m3_span,
+                metadata={"decisions": review_decisions},
+            )
+        self.tracer.end_span(m3_span, output_data={
+            "n_hypotheses": len(diag.hypotheses),
+            "n_proposed": len(proposed) or len(diag.hypotheses),
+            "review": entry.get("review"),
+        })
 
     def log_surgery(
         self,
@@ -1095,6 +1219,7 @@ class RunLogger:
         hypothesis: "Hypothesis",
         iv: "InterventionResult",
         *,
+        validation_cases: "Any | None" = None,
         duration_sec: "float | None" = None,
         judge_prompt: "str | None" = None,
         judge_raw: "str | None" = None,
@@ -1122,6 +1247,20 @@ class RunLogger:
             "evidence": iv.evidence,
             "n_refocused_cases": len(iv.new_data) if iv.new_data else None,
         }
+        if is_m5:
+            # Store one actual held-out input when it is available.  The M5
+            # verdict itself remains aggregate and must never be inferred from
+            # this example alone.
+            candidates = _iter_cases(validation_cases)
+            if candidates:
+                snapshots = [_case_snapshot(case) for case in candidates]
+                snapshot = next((item for item in snapshots if str(item.get("outcome", "")).lower() == "fail"), snapshots[0])
+                entry["validation_examples"] = [{
+                    "id": f"m5-{snapshot.get('id')}", "kind": "validation_case",
+                    "case_id": snapshot.get("id"), **snapshot,
+                    "plain_reading": "This is one case in the independent validation pool. The verdict is determined from the full pool, not this case alone.",
+                    "evidence_scope": "one case in the independent validation pool",
+                }]
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         slug = re.sub(r"[^a-z0-9]+", "_", hypothesis.statement.lower())[:40].strip("_") or "hyp"
@@ -1286,6 +1425,23 @@ class RunLogger:
                 span_id=fix_span,
             )
         self.tracer.end_span(fix_span, output_data={"selected": best.get("name")})
+
+    def log_stage_skipped(self, stage: str, reason_code: str, *, cycle: int = -1, detail: str = "") -> None:
+        """Record an explicit non-error lifecycle decision.
+
+        This is intentionally distinct from ``fix``: an empty repair sweep is
+        ambiguous, whereas a blocked evidence gate is useful audit evidence.
+        """
+        entry = {
+            "event": "stage_skipped", "stage": stage, "cycle": cycle,
+            "reason_code": reason_code, "detail": detail,
+        }
+        self._log(entry, span_id=f"{stage.lower()}.skipped")
+        span = self.tracer.start_span(
+            name=f"{stage}: skipped", stage=stage,
+            input_data={"reason_code": reason_code}, metadata={"detail": detail},
+        )
+        self.tracer.end_span(span, output_data={"reason_code": reason_code}, status="skipped")
 
     def _write_fix_records(self, d: "dict[str, Any]") -> "str | None":
         """Write per-candidate records + ``fixes/outcome.md``; return the outcome path.
@@ -1838,6 +1994,9 @@ class RunLogger:
             self.tracer.export_bundle(bundle_out)
         except Exception:
             pass
+        # Events are children of the root Langfuse chain.  Drain them before
+        # ending that chain so the remote trace keeps its native hierarchy.
+        self.tracer.flush()
         self.tracer.end_trace({
             "spans": len(self.tracer.spans),
             "generations": len(self.tracer.generations),

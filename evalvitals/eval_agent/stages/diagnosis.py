@@ -199,6 +199,13 @@ class DiagnosisResult:
     referenced_charts: list[str] = field(default_factory=list)
     explore_context_used: bool = False
     failure_modes_used: bool = False
+    # M3 is two separate model calls: a proposer and an adversarial reviewer.
+    # Keeping only the surviving list made a rejected proposal indistinguishable
+    # from a parser/model failure in both the report and Langfuse.
+    proposed_hypotheses: list[Hypothesis] = field(default_factory=list)
+    review_prompt: str = ""
+    review_raw: str = ""
+    review_decisions: list[dict[str, Any]] = field(default_factory=list)
 
 
 _HYPOTHESIS_SCHEMA: dict = {
@@ -333,7 +340,9 @@ def _validate_hypotheses(
     hypotheses: list[Hypothesis],
     findings_json: str,
     judge: "Model",
-) -> list[Hypothesis]:
+    *,
+    return_review: bool = False,
+) -> "list[Hypothesis] | tuple[list[Hypothesis], str, str, list[dict[str, Any]]]":
     """Adversarially filter *hypotheses* using a critic call at temperature=0.
 
     The same judge is called a second time with a prompt designed to find
@@ -346,7 +355,8 @@ def _validate_hypotheses(
     completely blocked by a transient error.
     """
     if not hypotheses:
-        return hypotheses
+        result: tuple[list[Hypothesis], str, str, list[dict[str, Any]]] = ([], "", "", [])
+        return result if return_review else result[0]
 
     hyp_lines = "\n".join(
         f"- HYPOTHESIS: {h.statement}  (failure_mode: {h.predicted_failure_mode})"
@@ -367,10 +377,20 @@ def _validate_hypotheses(
         else:
             raw = judge.generate(prompt)
     except Exception:
-        return hypotheses  # validation failed — keep originals
+        # A transport failure must not silently delete ideas.  Persist the
+        # failure as a review result so the next UI can distinguish it from an
+        # evidence-based rejection.
+        decisions = [{
+            "statement": h.statement, "decision": "review_unavailable",
+            "reason": "The adversarial review call failed; proposal retained.",
+        } for h in hypotheses]
+        result = (hypotheses, prompt, "", decisions)
+        return result if return_review else result[0]
 
     kept: set[str] = set()
     saw_decision = False
+    reasons: dict[str, str] = {}
+    current_statement: str | None = None
     for line in str(raw).splitlines():
         line = _normalise_label_line(line)
         if line.upper().startswith("KEEP:"):
@@ -379,8 +399,26 @@ def _validate_hypotheses(
             for h in hypotheses:
                 if h.statement.lower()[:60] in stmt or stmt in h.statement.lower():
                     kept.add(h.statement)
+                    current_statement = h.statement
+                    break
         elif line.upper().startswith("REJECT:"):
             saw_decision = True
+            stmt = line[len("REJECT:"):].strip().lower()
+            current_statement = None
+            for h in hypotheses:
+                if h.statement.lower()[:60] in stmt or stmt in h.statement.lower():
+                    current_statement = h.statement
+                    break
+        elif line.upper().startswith("REASON:") and current_statement:
+            reasons[current_statement] = line[len("REASON:"):].strip()
+
+    decisions = [{
+        "statement": h.statement,
+        "decision": "keep" if h.statement in kept else (
+            "reject" if saw_decision else "review_unparseable"
+        ),
+        "reason": reasons.get(h.statement, ""),
+    } for h in hypotheses]
 
     if not kept:
         if saw_decision:
@@ -392,7 +430,8 @@ def _validate_hypotheses(
                 "DiagnosisAgent validation: critic rejected all %d hypothesis(es)",
                 len(hypotheses),
             )
-            return []
+            result = ([], prompt, str(raw), decisions)
+            return result if return_review else result[0]
         # Malformed/empty critic output is an infrastructure failure, so retain
         # the proposals rather than silently deleting them.
         import logging as _logging
@@ -401,9 +440,11 @@ def _validate_hypotheses(
             "%d hypothesis(es) — keeping originals",
             len(hypotheses),
         )
-        return hypotheses
+        result = (hypotheses, prompt, str(raw), decisions)
+        return result if return_review else result[0]
 
-    return [h for h in hypotheses if h.statement in kept]
+    result = ([h for h in hypotheses if h.statement in kept], prompt, str(raw), decisions)
+    return result if return_review else result[0]
 
 
 def _default_judge() -> "Model":
@@ -574,15 +615,36 @@ class DiagnosisAgent:
             raw = self.judge.generate(prompt, images=_figs)
         else:
             raw = self.judge.generate(prompt)
-        hypotheses = _parse_hypotheses(str(raw), analysis.model_name or model_name)
+        proposed_hypotheses = _parse_hypotheses(str(raw), analysis.model_name or model_name)
+        hypotheses = list(proposed_hypotheses)
+        review_prompt = ""
+        review_raw = ""
+        review_decisions: list[dict[str, Any]] = []
 
         # Adversarial validation: run a second critic call at temperature=0 to
         # prune hypotheses the generator produced without sufficient evidence.
         # This prevents the self-evaluation loop where the same model that
         # proposed a hypothesis then approves it uncritically.
         if hypotheses:
-            findings_json_str = json.dumps(summary, indent=2, default=str)
-            hypotheses = _validate_hypotheses(hypotheses, findings_json_str, self.judge)
+            # The reviewer must see the same evidence package as the proposer.
+            # Previously it saw only raw M1 findings while the proposer also saw
+            # M2's conclusion, statistical tests, and protocol context.
+            review_evidence = {
+                "protocol": getattr(analysis, "protocol", None).to_dict()
+                if hasattr(getattr(analysis, "protocol", None), "to_dict") else None,
+                "conclusion": conclusion,
+                "evidence_chain": evidence_chain,
+                "stats_results": [
+                    r.to_dict() if hasattr(r, "to_dict") else r
+                    for r in stats_results
+                ],
+                "corrected_rejections": getattr(analysis, "corrected_rejections", {}),
+                "raw_findings": summary,
+            }
+            hypotheses, review_prompt, review_raw, review_decisions = _validate_hypotheses(
+                hypotheses, json.dumps(review_evidence, indent=2, default=str), self.judge,
+                return_review=True,
+            )
 
         # Fallback: if the judge returned NO_ISSUE but M2 has medium/high findings,
         # auto-generate one hypothesis per finding so M4 can still run.
@@ -609,4 +671,8 @@ class DiagnosisAgent:
             referenced_charts=_extract_referenced(str(raw), explore_context),
             explore_context_used=bool(explore_context is not None and not explore_context.is_empty),
             failure_modes_used=bool(getattr(failure_modes, "clusters", None)),
+            proposed_hypotheses=proposed_hypotheses,
+            review_prompt=review_prompt,
+            review_raw=review_raw,
+            review_decisions=review_decisions,
         )

@@ -32,6 +32,7 @@ def export_static_report(
         publish_report(root, example_dir=example_dir, model=model)
     data, layout = load_published_report(root)
     _embed_media(root, data, mode=embed_media)
+    _embed_stage_figures(root, data)
     template = Path(__file__).with_name("web_dist") / "index.html"
     if not template.exists():
         raise FileNotFoundError("Packaged report renderer is missing; build evalvitals/reporting/web first.")
@@ -65,3 +66,15 @@ def _embed_media(root: Path, data: dict, *, mode: EmbedMedia) -> None:
             continue
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         item["data_uri"] = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+
+
+def _embed_stage_figures(root: Path, data: dict) -> None:
+    """Keep cited M2 evidence visible in a portable single-file report."""
+    details = data.get("stage_detail") or {}
+    figures = (details.get("m2") or {}).get("figures") or []
+    for figure in figures:
+        path = _resolve_media(root, str(figure.get("path") or ""))
+        if path is None:
+            continue
+        mime = mimetypes.guess_type(path.name)[0] or "image/png"
+        figure["data_uri"] = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"

@@ -384,6 +384,11 @@ class FixOutcome:
     # that selection phase without mixing its statistics into the final gate.
     selection_attempted: "list[dict[str, Any]]" = field(default_factory=list)
     selected_on_explore: "str | None" = None
+    # A skipped repair is not a failed repair.  This explicit state is used by
+    # the report and Langfuse lifecycle event instead of inferring intent from
+    # an empty ``attempted`` list.
+    stage_status: str = "completed"
+    skip_reason: str | None = None
 
     def to_dict(self) -> "dict[str, Any]":
         return {
@@ -435,6 +440,8 @@ class FixOutcome:
             "ebh_survivors": self.ebh_survivors,
             "selection_attempted": self.selection_attempted,
             "selected_on_explore": self.selected_on_explore,
+            "stage_status": self.stage_status,
+            "skip_reason": self.skip_reason,
         }
 
 

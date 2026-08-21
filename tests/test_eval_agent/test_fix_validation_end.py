@@ -392,8 +392,8 @@ def test_run_fix_drops_m4_refuted_hypothesis_and_tells_the_proposer():
     assert {c.id for c in ctx.example_cases}.isdisjoint({c.id for c in confirm})
 
 
-def test_run_fix_still_works_with_a_minimal_fix_agent():
-    """A stub that only accepts (model, data, hypotheses) keeps working."""
+def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
+    """Even a legacy minimal proposer cannot bypass the M5 evidence gate."""
     from evalvitals.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
     from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
 
@@ -409,8 +409,9 @@ def test_run_fix_still_works_with_a_minimal_fix_agent():
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
     report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
-    loop.run_fix(report, _mc_batch())
-    assert stub.seen and stub.seen[0].statement == "x"
+    outcome = loop.run_fix(report, _mc_batch())
+    assert stub.seen is None
+    assert outcome.stage_status == "skipped"
 
 
 # ── recommendation names a promising-but-inconclusive candidate ──────────────
@@ -648,7 +649,7 @@ def test_run_m4_default_still_requires_verified_but_allow_unverified_uses_best_l
     assert report.fix_proposal is iv
 
 
-def test_run_fix_without_verified_uses_unverified_leads_and_says_so():
+def test_run_fix_without_verified_skips_repair_authoring():
     from evalvitals.eval_agent import VLDiagnoseLoop
     from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
 
@@ -667,14 +668,10 @@ def test_run_fix_without_verified_uses_unverified_leads_and_says_so():
     stub = Recorder()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
-    loop.run_fix(report, _mc_batch())
-    assert [h.id for h in stub.hypotheses] == ["h1", "h0"]               # best first, refuted dropped
-    assert stub.context.hypotheses_note.startswith("UNVERIFIED")
-    # the proposer sees the caveat right under the hypotheses heading
-    judge = ScriptedJudge("[]")
-    agent = FixAgent(judge=judge, max_tier="L1")
-    agent.propose_and_validate(CountingModel(), _mc_batch(), stub.hypotheses, context=stub.context)
-    assert "UNVERIFIED: M5 found no statistically significant evidence" in judge.prompts[-1]
+    outcome = loop.run_fix(report, _mc_batch())
+    assert stub.hypotheses is None
+    assert outcome.stage_status == "skipped"
+    assert outcome.skip_reason == "no_accepted_hypothesis"
 
 
 # ── coded-pipeline bridge: concurrent, request-id tagged ─────────────────────

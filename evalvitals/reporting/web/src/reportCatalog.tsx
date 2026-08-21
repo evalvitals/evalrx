@@ -61,7 +61,7 @@ function EvidenceChart({ chart }: { chart: Chart }) {
     yAxis: { type: "category", data: chart.series.map((item) => item.label), axisLabel: { color: "#b8c9c4", width: 96, overflow: "truncate" }, axisLine: { show: false }, axisTick: { show: false } },
     series: [{ type: "bar", data: chart.series.map((item) => ({ value: item.value, itemStyle: { color: item.highlight ? "#6bd8ad" : "#586a65", borderRadius: 4 } })), barWidth: 13 }],
   };
-  return <article className="chart-card"><h3>{chart.title}</h3><ReactECharts option={option} style={{ height: 250 }} /></article>;
+  return <article className="chart-card"><h3>{chart.title}</h3>{chart.subtitle && <p>{chart.subtitle}</p>}<ReactECharts option={option} style={{ height: 250 }} />{chart.series.some((item) => item.raw_label) && <details className="chart-audit"><summary>Technical measurement names</summary>{chart.series.map((item) => item.raw_label && <code key={item.raw_label}>{item.raw_label}</code>)}</details>}</article>;
 }
 
 export const { registry } = defineRegistry(reportCatalog, {
@@ -88,7 +88,7 @@ export const { registry } = defineRegistry(reportCatalog, {
       const data = useReport();
       const navigate = useContext(NavContext);
       const nodes: Node<{ stage: Stage }>[] = data.stages.map((stage, index) => ({ id: stage.id, type: "stage", position: { x: index * 205, y: 20 }, data: { stage } }));
-      const edges: Edge[] = data.stages.slice(1).map((stage, index) => ({ id: `${data.stages[index].id}-${stage.id}`, source: data.stages[index].id, target: stage.id, animated: stage.status !== "not-run", style: { stroke: "#6bd8ad", strokeWidth: 1.5 } }));
+      const edges: Edge[] = data.stages.slice(1).map((stage, index) => ({ id: `${data.stages[index].id}-${stage.id}`, source: data.stages[index].id, target: stage.id, animated: !["not-run", "skipped"].includes(stage.status), style: { stroke: "#6bd8ad", strokeWidth: 1.5 } }));
       return <section className="section journey-section"><header><div><span className="section-kicker">THE AGENT'S PATH</span><h2>Find the failure. Test the cause. Repair the model.</h2></div><p>Click any stage to inspect its evidence and the agent events behind it.</p></header><div className="journey-canvas"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.6} maxZoom={1.2} nodesDraggable={false} nodesConnectable={false} panOnScroll={false} onNodeClick={(_, node) => navigate(`evidence:${node.id}`)}><Background color="#24332f" gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow></div></section>;
     },
     FindingGrid: ({ props }) => {
@@ -115,7 +115,7 @@ export const { registry } = defineRegistry(reportCatalog, {
       const navigate = useContext(NavContext);
       const selected = data.cases.filter((item) => !props.caseIds || props.caseIds.includes(item.id)).slice(0, 4);
       if (!selected.length) return <></>;
-      return <section className="section"><header><div><span className="section-kicker">REAL MODEL I/O</span><h2>Representative cases</h2></div><button className="text-button" onClick={() => navigate("cases")}>Open Case Studio <ArrowUpRight size={15} /></button></header><div className="case-preview">{selected.map((item) => <article key={item.id}><span className={`status status-${item.status}`}>{item.status}</span><h3>{item.id}</h3><p>{item.prompt}</p></article>)}</div></section>;
+      return <section className="section"><header><div><span className="section-kicker">REAL MODEL I/O</span><h2>Representative cases</h2></div><button className="text-button" onClick={() => navigate("cases")}>Open Case Studio <ArrowUpRight size={15} /></button></header><div className="case-preview">{selected.map((item) => <article key={item.id}><span className={`status status-${item.status}`}>{item.status}</span><h3>{item.id}</h3><p>{item.prompt}</p><PreviewMedia item={item} data={data} /></article>)}</div></section>;
     },
     EvidenceIndex: () => {
       const navigate = useContext(NavContext);
@@ -123,3 +123,13 @@ export const { registry } = defineRegistry(reportCatalog, {
     },
   },
 });
+
+function PreviewMedia({ item, data }: { item: ReportData["cases"][number]; data: ReportData }) {
+  const media = item.media_ids.map((id) => data.media.find((entry) => entry.id === id)).filter(Boolean);
+  const first = media[0];
+  if (!first) return null;
+  const source = first.data_uri || `/api/media/${encodeURIComponent(first.id)}`;
+  if (first.kind === "image") return <img className="case-preview-media" src={source} alt={`Input for ${item.id}`} />;
+  if (first.kind === "audio") return <audio className="case-preview-audio" controls preload="metadata" src={source} />;
+  return <video className="case-preview-media" controls preload="metadata" src={source} />;
+}

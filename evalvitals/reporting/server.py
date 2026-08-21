@@ -6,7 +6,16 @@ import mimetypes
 from pathlib import Path
 from typing import Any
 
-from evalvitals.reporting.dynamic import load_published_report, publish_report, report_is_current
+from evalvitals.reporting.dynamic import (
+    CATALOG_VERSION,
+    JSON_RENDER_VERSION,
+    REPORT_SCHEMA_VERSION,
+    build_report_data,
+    fallback_spec,
+    load_published_report,
+    publish_report,
+    report_is_current,
+)
 
 
 def create_app(run_dir: str | Path, *, frontend_dir: str | Path | None = None) -> Any:
@@ -21,9 +30,24 @@ def create_app(run_dir: str | Path, *, frontend_dir: str | Path | None = None) -
         ) from exc
 
     root = _resolve_report_root(Path(run_dir).resolve())
-    if not report_is_current(root):
-        publish_report(root)
-    data, envelope = load_published_report(root)
+    try:
+        if not report_is_current(root):
+            publish_report(root)
+        data, envelope = load_published_report(root)
+    except PermissionError:
+        # Historical/shared runs are often intentionally read-only. Serving a
+        # report must not require mutating its evidence directory.
+        data = build_report_data(root)
+        envelope = {
+            "schema_version": REPORT_SCHEMA_VERSION,
+            "format": "json-render",
+            "json_render_version": JSON_RENDER_VERSION,
+            "catalog_version": CATALOG_VERSION,
+            "trace_id": data["trace_id"],
+            "source_event_seq": data["source_event_seq"],
+            "generated_by": {"mode": "deterministic-read-only", "model": None},
+            "spec": fallback_spec(data),
+        }
     media_by_id = {str(item.get("id")): item for item in data.get("media", [])}
     app = FastAPI(title="EvalVitals Report", docs_url="/api/docs", redoc_url=None)
 
@@ -80,7 +104,11 @@ def create_app(run_dir: str | Path, *, frontend_dir: str | Path | None = None) -
         item = media_by_id.get(media_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Unknown media")
-        path = _resolve_media(root, str(item.get("path") or ""))
+        # A media id is selected from the report's fixed evidence index, not a
+        # caller-provided path.  It may safely resolve into the example's
+        # adjacent data directory (where VLM images / ALLM audio conventionally
+        # live), while the generic artifact endpoint remains run-confined.
+        path = _resolve_indexed_media(root, str(item.get("path") or ""))
         if path is None:
             raise HTTPException(status_code=404, detail="Media is not available in the local cache")
         return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0])
@@ -124,6 +152,11 @@ def _resolve_report_root(requested_root: Path) -> Path:
     that it also remains convenient for legacy flat runs; prefer the nested
     directory whenever it contains a run log or a published report.
     """
+    # An explicit directory with its own event stream always wins.  Some
+    # examples retain a later ``logs/`` sub-run beside an earlier successful
+    # top-level run; silently preferring it makes the UI show the wrong repair.
+    if (requested_root / "run_log.jsonl").is_file():
+        return requested_root
     nested_logs = requested_root / "logs"
     if nested_logs.is_dir() and (
         (nested_logs / "run_log.jsonl").is_file()
@@ -175,4 +208,32 @@ def _resolve_media(root: Path, value: str) -> Path | None:
         # the run root and therefore pass the same check.
         if any(resolved == base or base in resolved.parents for base in allowed_roots):
             return resolved
+    return None
+
+
+def _resolve_indexed_media(root: Path, value: str) -> Path | None:
+    """Resolve report-indexed case media without opening arbitrary paths.
+
+    Case assets may live at ``<example>/data`` while a run writes its log to
+    ``<example>/outputs*/logs``.  The media index was built from saved case
+    records, so this endpoint permits only that nearby data directory in
+    addition to the usual run-owned roots.  ``/api/artifact`` deliberately
+    does not use this broader resolver.
+    """
+    resolved = _resolve_media(root, value)
+    if resolved is not None:
+        return resolved
+    candidate = Path(value)
+    possibilities = [candidate] if candidate.is_absolute() else [
+        root.parent / "data" / candidate,
+        root.parent.parent / "data" / candidate,
+    ]
+    allowed_roots = [root.parent / "data", root.parent.parent / "data"]
+    for possibility in possibilities:
+        try:
+            path = possibility.resolve()
+        except OSError:
+            continue
+        if path.is_file() and any(base.resolve() in path.parents for base in allowed_roots if base.is_dir()):
+            return path
     return None
