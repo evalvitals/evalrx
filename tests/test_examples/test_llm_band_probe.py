@@ -312,6 +312,60 @@ def test_generate_passes_sampling_through(band, monkeypatch):
     assert sent["top_p"] == 0.95 and sent["top_k"] == 20
 
 
+def test_generate_sends_thinking_off_unless_opted_in(band, monkeypatch):
+    """Every request carries chat_template_kwargs.enable_thinking explicitly: the
+    Qwen3.5-2B template defaults OFF and the 9B template defaults ON when the
+    kwarg is absent, so only an explicit value renders the same everywhere."""
+    sent = {}
+
+    class _Resp:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": "x"},
+                                 "finish_reason": "stop"}]}
+
+    def _post(url, json=None, timeout=None):
+        sent.clear()
+        sent.update(json)
+        return _Resp()
+
+    monkeypatch.setattr(band.requests, "post", _post)
+    monkeypatch.setattr(band, "ENABLE_THINKING", False)
+    band.generate("p", 16)
+    assert sent["chat_template_kwargs"] == {"enable_thinking": False}
+    band.generate("p", 16, enable_thinking=True)  # per-call opt-in
+    assert sent["chat_template_kwargs"] == {"enable_thinking": True}
+    monkeypatch.setattr(band, "ENABLE_THINKING", True)  # module-wide opt-in
+    band.generate("p", 16)
+    assert sent["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_thinking_env_opt_in_is_off_by_default(monkeypatch):
+    """BAND_ENABLE_THINKING=1 is the only way the band probe turns thinking on."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).parents[2] / "examples/dataset_selection/llm_band_probe/band_locate.py"
+
+    def _fresh():
+        import sys
+
+        spec = importlib.util.spec_from_file_location("_band_fresh", path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["_band_fresh"] = mod  # @dataclass resolves the module by name
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            sys.modules.pop("_band_fresh", None)
+        return mod
+
+    monkeypatch.delenv("BAND_ENABLE_THINKING", raising=False)
+    assert _fresh().ENABLE_THINKING is False
+    monkeypatch.setenv("BAND_ENABLE_THINKING", "1")
+    assert _fresh().ENABLE_THINKING is True
+
+
 def test_default_sampling_is_not_greedy(band):
     """Greedy decoding sends this model into verbatim self-verification loops
     that run to the token cap on puzzles it has already solved."""

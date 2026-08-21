@@ -107,7 +107,11 @@ def test_ordinary_angle_bracket_text_is_kept(pipe, monkeypatch):
     assert [t.token for t in _model(pipe).logprobs("q")] == ["<", "|", "x"]
 
 
-def test_answer_mode_disables_thinking_and_chain_mode_does_not(pipe, monkeypatch):
+def test_both_logprobs_modes_send_thinking_off_and_only_answer_mode_adds_the_suffix(
+        pipe, monkeypatch):
+    """Thinking is one switch for the whole run (B.ENABLE_THINKING, default off)
+    and it is SENT on every request: the 2B and 9B templates disagree on the
+    default when the kwarg is absent, so silence would mean different renders."""
     import requests
 
     seen = {}
@@ -118,6 +122,7 @@ def test_answer_mode_disables_thinking_and_chain_mode_does_not(pipe, monkeypatch
         return _Resp(_reply([("a", -0.1)]))
 
     monkeypatch.setattr(requests, "post", _capture)
+    monkeypatch.setattr(pipe.B, "ENABLE_THINKING", False)
 
     _model(pipe, logprobs_mode="answer").logprobs("2+2?")
     assert seen["chat_template_kwargs"] == {"enable_thinking": False}
@@ -126,8 +131,46 @@ def test_answer_mode_disables_thinking_and_chain_mode_does_not(pipe, monkeypatch
     assert seen["logprobs"] is True
 
     _model(pipe, logprobs_mode="chain").logprobs("2+2?")
-    assert "chat_template_kwargs" not in seen
+    assert seen["chat_template_kwargs"] == {"enable_thinking": False}
     assert pipe.ANSWER_ONLY_SUFFIX not in seen["messages"][0]["content"]
+
+    # the opt-in reaches both modes through the same switch
+    monkeypatch.setattr(pipe.B, "ENABLE_THINKING", True)
+    _model(pipe, logprobs_mode="chain").logprobs("2+2?")
+    assert seen["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_generate_sends_thinking_off_on_every_request(pipe, monkeypatch):
+    """generate() goes through band_locate.generate; the payload must carry the
+    explicit kwarg (M1 probes, M4 experiments and fix candidates all take this
+    path)."""
+    seen = {}
+
+    class _Done:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": "Answer: 4"},
+                                 "finish_reason": "stop"}]}
+
+    def _capture(url, json=None, **k):
+        seen.clear()
+        seen.update(json)
+        return _Done()
+
+    monkeypatch.setattr(pipe.B.requests, "post", _capture)
+    monkeypatch.setattr(pipe.B, "ENABLE_THINKING", False)
+    assert _model(pipe).generate("2+2?") == "Answer: 4"
+    assert seen["chat_template_kwargs"] == {"enable_thinking": False}
+    assert seen["top_p"] == 0.95 and seen["top_k"] == 20  # sampling recipe kept
+
+
+def test_config_defaults_measure_every_case_and_disable_thinking(pipe):
+    """The shipped config: no analyzer cap, no fix-validation cap, thinking off."""
+    assert int(pipe.CFG.get("analyzer_max_cases", 0)) == 0
+    assert int(pipe.CFG.get("fix_validation_cases", 0)) == 0
+    assert pipe.CFG.get("enable_thinking") is False
 
 
 def test_unknown_mode_is_rejected_before_any_call(pipe, monkeypatch):

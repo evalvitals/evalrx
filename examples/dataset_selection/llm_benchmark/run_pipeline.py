@@ -90,9 +90,12 @@ class EndpointModel(Model):
     ``unembed_weight`` and the ``call_<analyzer>`` shim, so the next thing the
     framework adds does not repeat this.
 
-    Provides GENERATE and LOGPROBS. Sampling for ``generate`` is pinned to the
-    Qwen thinking recipe because greedy decoding sends these models into verbatim
-    self-verification loops that never terminate.
+    Provides GENERATE and LOGPROBS. Every request (both) carries
+    ``chat_template_kwargs={"enable_thinking": B.ENABLE_THINKING}`` -- thinking is
+    OFF by default (config ``enable_thinking``), sent explicitly because the
+    Qwen3.5 checkpoints disagree on the template default. Sampling for
+    ``generate`` stays on the Qwen recipe because greedy decoding sends the
+    thinking mode into verbatim self-verification loops that never terminate.
 
     Not provided: ATTENTION / HIDDEN_STATES / LOGITS. An OpenAI-compatible server
     returns text, not internals — see whitebox.py for the second-stage model that
@@ -164,18 +167,20 @@ class EndpointModel(Model):
         produces a confidence column with almost no variance, i.e. a plausible
         ECE computed on nothing.
 
-        ``mode="answer"`` (default) sends ``enable_thinking=False`` in
-        ``chat_template_kwargs``, so the template closes the think block
-        immediately and the scored tokens ARE the answer. The honest caveat: the
-        PASS/FAIL labels in the batch came from the model reasoning at full
-        length, so this correlates no-think confidence against think-mode
-        correctness. It is a proxy — a useful one, since it asks "does the model
-        know this without working for it", which is exactly what separates a
-        knowledge gap from a reasoning slip.
+        ``mode="answer"`` (default) appends the answer-only suffix so the scored
+        tokens ARE the answer. Thinking follows ``B.ENABLE_THINKING`` in BOTH
+        modes (off by default, sent explicitly in ``chat_template_kwargs``);
+        with it off the template closes the think block immediately. The honest
+        caveat when thinking is on for the batch: the PASS/FAIL labels came from
+        the model reasoning at full length, so this correlates no-think
+        confidence against think-mode correctness — a proxy, a useful one, since
+        it asks "does the model know this without working for it", which is
+        exactly what separates a knowledge gap from a reasoning slip.
 
-        ``mode="chain"`` scores the raw continuation with thinking left on.
-        Faithful to how the batch was generated, but subject to the flatness
-        above; use it to look at chain-opening entropy, not at confidence.
+        ``mode="chain"`` scores the raw continuation with no suffix. With
+        thinking on it is faithful to how the batch was generated but subject to
+        the flatness above; use it to look at chain-opening entropy, not at
+        confidence.
 
         Greedy (temperature 0) on purpose, unlike ``generate``: a confidence
         number that changes between calls cannot be compared across cases. The
@@ -202,8 +207,9 @@ class EndpointModel(Model):
             "logprobs": True,
             "top_logprobs": int(top_k or self.logprobs_top_k),
         }
-        if mode == "answer":
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        # Same switch as generate(): the template must render the same way on
+        # every checkpoint, so the kwarg is always sent, in both modes.
+        payload["chat_template_kwargs"] = {"enable_thinking": bool(B.ENABLE_THINKING)}
 
         self.n_logprob_calls += 1
         last = "unknown"
@@ -726,11 +732,16 @@ def main() -> None:
     ap.add_argument("--backend", default="claude", choices=["claude", "codex", "agy"])
     ap.add_argument("--max-cycles", type=int, default=CFG["max_cycles"])
     ap.add_argument("--confirm-split", type=float, default=CFG["confirm_split"])
+    ap.add_argument("--enable-thinking", dest="enable_thinking", action="store_true",
+                    default=None,
+                    help="turn the model's thinking mode ON for every call this run "
+                         "makes (config enable_thinking, default off). Off sends "
+                         "chat_template_kwargs={'enable_thinking': false} on each request")
     ap.add_argument("--analyzer-max-cases", type=int,
                     default=int(CFG.get("analyzer_max_cases", 0)),
-                    help="cap per-analyzer case counts (0 = library defaults). "
-                         "Analyzers generate serially, so this is the main knob "
-                         "on M1 wall-clock; it costs power, not correctness")
+                    help="cap per-analyzer case counts (0 = every case, the "
+                         "default). Analyzers generate serially, so this is the "
+                         "main knob on M1 wall-clock; it costs power, not correctness")
     ap.add_argument("--analysis-only", action="store_true",
                     help="M1->M2->M3 and stop: propose hypotheses, skip M5 and M4")
     ap.add_argument("--fix-unverified", dest="fix_unverified", action="store_true", default=None,
@@ -805,6 +816,13 @@ def main() -> None:
     # Same budget Stage 0 used, or M1's probes truncate where the batch did not
     # and the two halves of the run stop being comparable.
     max_tokens = CATALOG.get(args.dataset).max_tokens or int(CFG["max_tokens"])
+    # Thinking is a property of the whole run (Stage 0 baselines, M1 probes, M4
+    # experiments, fix candidates, logprobs all go through band_locate.generate
+    # or EndpointModel.logprobs): one switch, read by both.
+    B.ENABLE_THINKING = bool(args.enable_thinking if args.enable_thinking is not None
+                             else CFG.get("enable_thinking", False))
+    print(f"[model] enable_thinking={B.ENABLE_THINKING} (sent as chat_template_kwargs "
+          "on every request)")
     model = EndpointModel(args.model, args.base_url, max_tokens,
                           {"temperature": float(CFG["temperature"]),
                            "top_p": float(CFG["top_p"]), "top_k": int(CFG["top_k"])},

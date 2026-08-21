@@ -112,6 +112,9 @@ for _key, _repo in (
         key=_key, family="qwen3_5", model_type="qwen3_5", hf_repo=_repo,
         auto_class="AutoModelForCausalLM", processor_class="AutoTokenizer",
         min_transformers="5.15.0", is_reasoning=True, tool_calling=True,
+        # Thinking OFF on every template render (chat, generate, logprobs) --
+        # see the caveat; pass chat_template_kwargs={} to get the template default.
+        chat_template_kwargs={"enable_thinking": False},
         attn_semantics=AttnSemantics.HYBRID_SPARSE,
         module_paths=ModulePaths(decoder_layers="model.layers"),
         caveats=(
@@ -126,9 +129,12 @@ for _key, _repo in (
             "min_transformers is the version VERIFIED to work (qwen3_5 is absent "
             "from 4.57.6), not a discovered floor — and nothing in the framework "
             "enforces the field, so the loader checks AutoConfig itself",
-            "thinking is ON by default: the chat template appends '<think>\\n' "
-            "unless enable_thinking=False, so a completion carries the chain and "
-            "a closing '</think>' but no opening tag",
+            "thinking is OFF here: this spec sends enable_thinking=False on every "
+            "template render, so a completion is the answer with an empty think "
+            "block in the prompt. The checkpoints disagree on the template default "
+            "when the kwarg is absent (Qwen3.5-2B: off, Qwen3.5-9B: on -- there the "
+            "chain lands inline with a closing '</think>' but no opening tag), "
+            "which is why it is always sent explicitly",
         ),
     ))
 

@@ -12,10 +12,22 @@ dataset: supergpqa_law               # see datasets.py for the eight
 
 # Sampling. Greedy decoding sends Qwen thinking models into verbatim
 # self-verification loops that run to the token cap -- never set temperature 0.
+# (Kept with thinking off too: harmless there, and still what protects a run
+# that turns thinking back on.)
 temperature: 0.6
 top_p: 0.95
 top_k: 20
 max_tokens: 20480
+
+# Thinking. OFF for every call the pipeline makes to the model under test --
+# Stage 0 baselines, M1 analyzers, M4 experiments, fix candidates, logprobs:
+# each request sends chat_template_kwargs={"enable_thinking": false}. It is sent
+# explicitly because the checkpoints disagree on the template default when the
+# kwarg is absent (Qwen3.5-2B: off, Qwen3.5-9B: on). true = the pre-2026-08-21
+# behaviour: chains inline in `content`, ~10x longer calls; the band numbers in
+# datasets.py were measured that way, so expect a different PASS/FAIL split.
+# CLI: --enable-thinking (this run only).
+enable_thinking: false
 
 # Cases in the batch. 0 = FULL CENSUS of the slice (the default).
 #
@@ -42,14 +54,15 @@ concurrency: 16
 #
 # mode decides WHICH continuation is scored, and for a thinking model that is
 # the whole question:
-#   answer (default) — sends enable_thinking=False, so the scored tokens are the
-#                      answer itself. Caveat: labels came from full thinking, so
-#                      this pairs no-think confidence with think-mode
-#                      correctness. Reads as "does it know this without working".
-#   chain            — scores the raw continuation with thinking on. Faithful to
-#                      how the batch was made, but the first tokens are chain
-#                      boilerplate whose probability barely moves between a
-#                      right and a wrong answer, so confidence comes out flat.
+#   answer (default) — appends the answer-only suffix, so the scored tokens are
+#                      the answer itself. Reads as "does it know this without
+#                      working". (Thinking follows enable_thinking above in BOTH
+#                      modes; when it is on for the batch this pairs no-think
+#                      confidence with think-mode correctness.)
+#   chain            — scores the raw continuation, no suffix. With thinking on
+#                      the first tokens are chain boilerplate whose probability
+#                      barely moves between a right and a wrong answer, so
+#                      confidence comes out flat.
 logprobs_mode: answer
 logprobs_max_tokens: 64
 logprobs_top_k: 5

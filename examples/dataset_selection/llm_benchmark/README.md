@@ -507,6 +507,13 @@ $VLLM serve Qwen/Qwen3.5-9B \
 > 自检死循环直到烧完 token 预算。同一道已解出的题:`T=0` 烧满 16,384 token 从不停止,
 > `T=0.6/top_p=0.95/top_k=20` 用 1,352 token 就正常结束。`config.yaml` 已钉死这组参数。
 
+> **thinking 一律关闭(2026-08-21 起)。** `config.yaml` 的 `enable_thinking: false`
+> 让这条链路对被测模型的**每一次**调用——Stage 0 基线、M1 探针、M4 实验、fix 候选、
+> logprobs——都显式带上 `chat_template_kwargs={"enable_thinking": false}`。之所以显式发,
+> 是因为两个 checkpoint 的模板在缺省时行为相反(Qwen3.5-2B 默认关、9B 默认开)。
+> `datasets.py` 里的难度带是**开着 thinking** 量的,所以同一数据集的 PASS/FAIL 划分会变;
+> 要复现旧行为用 `--enable-thinking`(单次运行)或把配置改回 `true`。
+
 ---
 
 ## 3. 跑全链路
@@ -662,9 +669,10 @@ logprobs_top_k: 5
 | `answer` | 0.758 – 0.9998 | **0.1134** | 常识 > 医学 > 数学 > 不可知,合理 |
 | `chain` | 0.931 – 0.960 | 0.0108 | 最难的数学题反而最高,无意义 |
 
-`answer` 模式发 `enable_thinking=False`,打分的就是答案本身。**代价要说清楚**:
-PASS/FAIL 标签来自完整思考的那次生成,所以这是"不思考时的置信度"对
-"思考后的正确性",是个代理量——它问的是"不动脑子它知不知道"。
+`answer` 模式追加 answer-only 后缀,打分的就是答案本身;`chain` 模式不加后缀。
+两种模式的 thinking 都跟随 `enable_thinking`(默认关,每个请求显式发)。**当批次是
+开着 thinking 生成的时**,代价要说清楚:PASS/FAIL 标签来自完整思考的那次生成,所以这是
+"不思考时的置信度"对"思考后的正确性",是个代理量——它问的是"不动脑子它知不知道"。
 
 **停止符不计分。** `<|im_end|>` 的概率接近 1,而答案常常只有 1–3 个 token,
 算进去会把所有短答案往 1 拉。实测:一个**答错**的单 token 答案,含停止符
@@ -869,9 +877,11 @@ outputs/
 
 **第 4 节的内容是在跑起来的 9B 上实测的**(不是推的):
 
-- thinking 默认开:chat template 里 `add_generation_prompt` 会追加 `<think>\n`,
-  除非 `enable_thinking=False`。补充一个此前说法的更正——**完成文本里没有开头的
-  `<think>`**(它在 prompt 里),但**有结尾的 `</think>`**,这是切分答案的可靠锚点
+- 9B 的模板在缺省时 thinking 开:`add_generation_prompt` 会追加 `<think>\n`,
+  除非 `enable_thinking=False`(2B 的模板相反,缺省即关——所以 2026-08-21 起链路
+  **每个请求都显式发** `enable_thinking`,默认 false)。补充一个此前说法的更正——
+  **完成文本里没有开头的 `<think>`**(它在 prompt 里),但**有结尾的 `</think>`**,
+  这是切分答案的可靠锚点
 - vLLM 的 `/chat/completions` 确实返回 `logprobs` / `top_logprobs`
 - `enable_thinking=False` 在 Qwen3.5 上有效(答案直出,`finish_reason=stop`)
 - 停止符对短答案的影响、answer 与 chain 两种模式的方差差异,都是量出来的数字
