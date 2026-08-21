@@ -226,3 +226,27 @@ def test_log_diagnosis_records_explore_provenance(tmp_path):
     assert entry["referenced_charts"] == ["ObjSize by label"]
     assert entry["explore_context_used"] is True
     assert entry["explore_figures"] == ["/tmp/explore_size.png"]
+
+
+def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
+    """The critic now judges against the proposer's context + a label summary;
+    a reviewer must be able to read what it was shown, not only what it said."""
+    import json
+
+    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalvitals.eval_agent.stages.diagnosis import DiagnosisResult
+
+    logger = RunLogger(run_dir=tmp_path / "run2")
+    diag = DiagnosisResult(
+        model_name="vlm", hypotheses=[], raw_judge_output="...",
+        critic_raw_output="REJECT: h1\nREASON: n=30",
+        critic_prompt="adversarial reviewer ... LABEL SUMMARY ... gold=no answered=yes",
+        n_critic_rejected=1,
+    )
+    logger.log_diagnosis(0, diag)
+    lines = (tmp_path / "run2" / "run_log.jsonl").read_text().splitlines()
+    entry = next(json.loads(x) for x in lines if json.loads(x).get("event") == "diagnosis")
+    io = entry["critic_io"]
+    assert io["raw_path"].endswith("c0_m3_critic.response.txt")
+    assert io["prompt_path"].endswith("c0_m3_critic.prompt.txt")
+    assert "LABEL SUMMARY" in (tmp_path / "run2" / io["prompt_path"]).read_text()

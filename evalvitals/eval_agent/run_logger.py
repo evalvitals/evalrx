@@ -841,7 +841,12 @@ class RunLogger:
         critic_raw = getattr(diag, "critic_raw_output", "") or ""
         if critic_raw:
             entry["critic_raw_output"] = critic_raw
-            critic_io = self._save_judge_io(f"c{cycle}_m3_critic", None, critic_raw)
+            # prompt too: the critic now reads the proposer's context + a label
+            # summary, and a reviewer must be able to see what it was judged on.
+            critic_io = self._save_judge_io(
+                f"c{cycle}_m3_critic",
+                getattr(diag, "critic_prompt", "") or None, critic_raw,
+            )
             if critic_io:
                 entry["critic_io"] = critic_io
         # Provenance of the (UNCONFIRMED) explorer mechanism notes M3 was shown.

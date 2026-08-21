@@ -128,6 +128,9 @@ def test_critic_reviews_against_the_proposers_context_and_a_label_summary():
     assert "LABEL SUMMARY" in critic and "gold=no  answered=yes      n=5    FAIL=5" in critic
     # the proposer's own prompt is unchanged by the cases kwarg
     assert "LABEL SUMMARY" not in judge.prompts[0]
+    # and the critic prompt travels on the result so the run logger can persist it
+    diag = DiagnosisAgent(judge=CapturingJudge()).diagnose(_stats_report_with_conclusion(), cases=cases)
+    assert "LABEL SUMMARY" in diag.critic_prompt and diag.critic_prompt == judge.prompts[1]
 
 
 def test_diagnose_without_cases_keeps_the_critic_prompt_label_free():

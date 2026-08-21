@@ -206,6 +206,7 @@ class DiagnosisResult:
     #: held-out split, the data is the arbiter, and a critic that rejects every
     #: claim used to end the run with "0 hypotheses" and no M5/M4/fix at all.
     critic_raw_output: str = ""
+    critic_prompt: str = ""
     n_critic_kept: int = 0
     n_critic_rejected: int = 0
 
@@ -732,6 +733,7 @@ class DiagnosisAgent:
             explore_context_used=bool(explore_context is not None and not explore_context.is_empty),
             failure_modes_used=bool(getattr(failure_modes, "clusters", None)),
             critic_raw_output=str(critic.get("raw", "") or ""),
+            critic_prompt=str(critic.get("prompt", "") or ""),
             n_critic_kept=int(critic.get("n_kept", 0) or 0),
             n_critic_rejected=int(critic.get("n_rejected", 0) or 0),
         )
