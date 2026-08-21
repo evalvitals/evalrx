@@ -550,15 +550,16 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
         ebh_survivors=[candidate.name] if validation.fixed else [],
     )
     ctx.logger.log_fix(outcome)
+    ctx.publish_report(example_dir=HERE)
     ctx.finalize()
-    from evalvitals.reporting.html_report import build_html_report
+    from evalvitals.reporting.static_export import export_static_report
 
     report_html_path = Path(args.run_dir).resolve() / "report.html"
-    build_html_report(
+    export_static_report(
         ctx.root,
         example_dir=HERE,
         out_path=report_html_path,
-        no_audio=args.report_media == "none",
+        embed_media="all" if args.report_media == "inline" else "none",
     )
 
     print("\nPREREGISTERED TCD CONFIRMATION")
@@ -863,17 +864,18 @@ def main() -> int:
         else:
             print(f"  VERDICT    : not fixed; already at the highest tier ({args.fix_max_tier})")
 
+    loop.publish_report(example_dir=HERE)
     ctx.finalize()
-    from evalvitals.reporting.html_report import build_html_report
+    from evalvitals.reporting.static_export import export_static_report
 
     report_html_path = Path(args.run_dir).resolve() / "report.html"
-    build_html_report(
+    export_static_report(
         ctx.root,
         example_dir=HERE,
         out_path=report_html_path,
-        no_audio=args.report_media == "none",
+        embed_media="all" if args.report_media == "inline" else "none",
     )
-    print(f"  Interactive Tabbed HTML Report -> {report_html_path}")
+    print(f"  Dynamic Report Export -> {report_html_path}")
     print(f"\n  Full guide -> {ctx.root / 'README.txt'}")
     return 0
 

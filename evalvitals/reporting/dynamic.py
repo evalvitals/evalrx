@@ -159,6 +159,8 @@ Return ONLY a json-render tree with shape {{"root":"id","elements":{{...}}}}.
 Allowed component types: {', '.join(sorted(ALLOWED_COMPONENTS))}.
 Required exactly once or more: SettingHero, Journey, OutcomeCard.
 ReportPage may have children. Other elements use props only.
+Every element MUST include a JSON object `"props": {{}}`, even when it has no
+properties. This is required by the json-render runtime.
 Legal props are data references such as {{"findingIds":["finding-1"]}}; never copy,
 rewrite, or invent evidence text/numbers. Prefer charts and journey graphics over prose.
 At most 3 findings, 2 charts, {MAX_ELEMENTS} total elements, depth {MAX_DEPTH}.
@@ -214,7 +216,9 @@ def validate_spec(spec: Any, *, data: Mapping[str, Any] | None = None) -> dict[s
         if component not in ALLOWED_COMPONENTS:
             raise ReportSpecError(f"component {component!r} is not in the catalog")
         seen_types.append(component)
-        props = element.get("props", {})
+        if "props" not in element:
+            raise ReportSpecError(f"{element_id}.props must be present (use {{}} when empty)")
+        props = element["props"]
         if not isinstance(props, dict):
             raise ReportSpecError(f"{element_id}.props must be an object")
         _validate_props(props)
@@ -294,10 +298,17 @@ def publish_report(
 
 def load_published_report(run_dir: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
     root = Path(run_dir).resolve() / "report"
-    return (
-        json.loads((root / "report_data.json").read_text(encoding="utf-8")),
-        json.loads((root / "report_spec.json").read_text(encoding="utf-8")),
-    )
+    data = json.loads((root / "report_data.json").read_text(encoding="utf-8"))
+    envelope = json.loads((root / "report_spec.json").read_text(encoding="utf-8"))
+    # Reports published before the explicit-props contract omitted `props` for
+    # simple catalog elements.  Make those immutable artifacts viewable while
+    # newly generated layouts are rejected and repaired by ReportAgent.
+    spec = envelope.get("spec")
+    if isinstance(spec, dict) and isinstance(spec.get("elements"), dict):
+        for element in spec["elements"].values():
+            if isinstance(element, dict):
+                element.setdefault("props", {})
+    return data, envelope
 
 
 def report_is_current(run_dir: str | Path) -> bool:

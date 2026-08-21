@@ -20,7 +20,7 @@ def create_app(run_dir: str | Path, *, frontend_dir: str | Path | None = None) -
             "The dynamic UI needs `pip install evalvitals[ui]`."
         ) from exc
 
-    root = Path(run_dir).resolve()
+    root = _resolve_report_root(Path(run_dir).resolve())
     if not report_is_current(root):
         publish_report(root)
     data, envelope = load_published_report(root)
@@ -103,6 +103,23 @@ def create_app(run_dir: str | Path, *, frontend_dir: str | Path | None = None) -
             return {"message": "API ready; build evalvitals/reporting/web to install the UI."}
 
     return app
+
+
+def _resolve_report_root(requested_root: Path) -> Path:
+    """Accept either a run-log directory or its enclosing output directory.
+
+    Agentic examples conventionally write their immutable event stream in an
+    ``outputs_*/logs`` child.  The CLI takes the enclosing output directory so
+    that it also remains convenient for legacy flat runs; prefer the nested
+    directory whenever it contains a run log or a published report.
+    """
+    nested_logs = requested_root / "logs"
+    if nested_logs.is_dir() and (
+        (nested_logs / "run_log.jsonl").is_file()
+        or (nested_logs / "report" / "report_data.json").is_file()
+    ):
+        return nested_logs
+    return requested_root
 
 
 def serve_dynamic_report(
