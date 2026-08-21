@@ -87,10 +87,11 @@ _GENERIC_FRAMING = """\
 OUTCOME FRAMING — apply whichever case matches what you find after loading:
   - BINARY outcome (2 distinct values in some column): call the two groups
     FAIL and PASS and tell the FAIL-vs-PASS story — class balance; per numeric
-    signal vs FAIL/PASS (distribution view + binned fail-rate curve); a ranked
-    bar of each signal's FAIL-vs-PASS separation; fail rate by categorical
-    group columns; signal correlations; 1-2 scatter plots of the most
-    discriminative pairs coloured by outcome.
+    signal vs FAIL/PASS (distribution view PNG + binned fail-rate curve spec);
+    a ranked bar of each signal's FAIL-vs-PASS separation; fail rate by
+    categorical group columns (group -> fail_rate, n, n_fail); signal
+    correlations; 1-2 scatter plots of the most discriminative pairs coloured
+    by outcome.
   - CATEGORICAL outcome (3+ classes): tell the per-class story — do NOT
     collapse it into a binary split. Class balance per class; per numeric
     signal's distribution across classes (box/violin) plus a ranked
@@ -131,10 +132,18 @@ First build a "visual_plan" list. Each item should be a dict:
   }}
 
 Use these decision principles:
-  - categorical/binary outcome: rate/count bar with n annotated in the table.
-  - numeric predictor vs categorical/binary outcome: prefer distribution views
-    (box/violin/strip) when writing rich PNG plots; include a deterministic
-    summary chart only when useful.
+  - class balance (count per outcome class): a count table; the host draws it
+    as ONE composition strip, never two tall bars.
+  - a rate or a mean compared across a few groups (FAIL vs PASS, present vs
+    absent, ...): a group->value table WITH an "n" column — and for a RATE also
+    the numerator column (e.g. "n_fail") or explicit "ci_low"/"ci_high"; the
+    host draws <= 3 groups as a dot + 95% CI (a lollipop when no interval can
+    be formed), never as bars. A "mean_*" of per-case values gets no invented
+    interval — give ci_low/ci_high yourself if you have them.
+  - numeric predictor vs categorical/binary outcome: the deterministic spec is
+    the BINNED fail-rate LINE (bin -> fail_rate, with n per bin) — do NOT also
+    emit a two-group "mean of the signal by outcome" spec for it; the
+    distribution view (violin/box/strip by outcome) is a rich PNG you draw.
   - binned numeric trend (event rate, or mean of a continuous outcome): line
     over ordered bins/percentiles.
   - numeric vs numeric: scatter, optionally colored/stratified by outcome or group.
@@ -153,8 +162,12 @@ For EVERY chart you report in "charts":
 - add a spec {{"name","display_name","kind","data","x","y","title"}} with data="tables/<name>.csv"
   and kind in {{"bar","line","scatter"}}. The HOST renders these deterministically,
   so PRE-AGGREGATE distributions into the CSV (histogram = bin->count; outcome
-  rate or mean-outcome curve = bin->value; group comparison = group->value) —
-  never rely on a raw dump.
+  rate or mean-outcome curve = bin->value plus n; group comparison =
+  group->value plus n, and for a rate its numerator or ci_low/ci_high) —
+  never rely on a raw dump. The host picks the chart FORM from the table
+  (composition strip for class counts, dot + CI for <= 3 groups, line for
+  bins, bars only for counts or many categories) and colours FAIL/PASS with
+  the house hues, so name outcome groups exactly "FAIL" / "PASS".
 ADDITIONALLY you MAY draw richer figures (box / violin / heatmap / scatter-matrix)
 directly as PNG under "figures/" and list them in "plots"; a figure-styling skill
 (when available) will make these publication-quality.
