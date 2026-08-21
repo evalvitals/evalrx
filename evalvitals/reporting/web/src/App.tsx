@@ -19,7 +19,7 @@ export function App() {
   if (error) return <div className="load-state"><Activity /><h1>Could not load this report</h1><p>{error}</p></div>;
   if (!payload) return <div className="load-state"><Activity className="pulse" /><p>Composing the failure-to-fix story…</p></div>;
   const back = () => setView("overview");
-  if (view === "evidence") return <EvidenceView data={payload.data} back={back} />;
+  if (view === "evidence" || view.startsWith("evidence:")) return <EvidenceView data={payload.data} back={back} initialStage={view.split(":")[1]} />;
   if (view === "cases") return <CasesView data={payload.data} back={back} />;
   if (view === "debug") return <DebugView data={payload.data} back={back} />;
   return <>

@@ -85,6 +85,14 @@ def create_app(run_dir: str | Path, *, frontend_dir: str | Path | None = None) -
             raise HTTPException(status_code=404, detail="Media is not available in the local cache")
         return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0])
 
+    @app.get("/api/artifact")
+    def get_artifact(path: str = Query(...)) -> Any:
+        """Serve a report-referenced local figure, constrained to this run."""
+        resolved = _resolve_media(root, path)
+        if resolved is None:
+            raise HTTPException(status_code=404, detail="Artifact is not available in this run")
+        return FileResponse(resolved, media_type=mimetypes.guess_type(resolved.name)[0])
+
     packaged = Path(frontend_dir).resolve() if frontend_dir else Path(__file__).with_name("web_dist")
     if packaged.is_dir() and (packaged / "index.html").exists():
         assets = packaged / "assets"
@@ -95,8 +103,11 @@ def create_app(run_dir: str | Path, *, frontend_dir: str | Path | None = None) -
         def spa(path: str) -> Any:
             candidate = (packaged / path).resolve()
             if packaged in candidate.parents and candidate.is_file():
-                return FileResponse(candidate)
-            return FileResponse(packaged / "index.html")
+                return FileResponse(candidate, headers={"Cache-Control": "no-store"})
+            # The packaged app is a single-file bundle.  Keeping it out of the
+            # browser cache makes a restarted local report server immediately
+            # pick up new interactive behavior instead of a stale UI shell.
+            return FileResponse(packaged / "index.html", headers={"Cache-Control": "no-store"})
     else:
         @app.get("/")
         def missing_frontend() -> dict[str, str]:

@@ -86,9 +86,10 @@ export const { registry } = defineRegistry(reportCatalog, {
     },
     Journey: () => {
       const data = useReport();
+      const navigate = useContext(NavContext);
       const nodes: Node<{ stage: Stage }>[] = data.stages.map((stage, index) => ({ id: stage.id, type: "stage", position: { x: index * 205, y: 20 }, data: { stage } }));
       const edges: Edge[] = data.stages.slice(1).map((stage, index) => ({ id: `${data.stages[index].id}-${stage.id}`, source: data.stages[index].id, target: stage.id, animated: stage.status !== "not-run", style: { stroke: "#6bd8ad", strokeWidth: 1.5 } }));
-      return <section className="section journey-section"><header><div><span className="section-kicker">THE AGENT'S PATH</span><h2>Find the failure. Test the cause. Repair the model.</h2></div><p>Each stage narrows the gap between an observed mistake and a repair that survives checking.</p></header><div className="journey-canvas"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.6} maxZoom={1.2} nodesDraggable={false} nodesConnectable={false} panOnScroll={false}><Background color="#24332f" gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow></div></section>;
+      return <section className="section journey-section"><header><div><span className="section-kicker">THE AGENT'S PATH</span><h2>Find the failure. Test the cause. Repair the model.</h2></div><p>Click any stage to inspect its evidence and the agent events behind it.</p></header><div className="journey-canvas"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.6} maxZoom={1.2} nodesDraggable={false} nodesConnectable={false} panOnScroll={false} onNodeClick={(_, node) => navigate(`evidence:${node.id}`)}><Background color="#24332f" gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow></div></section>;
     },
     FindingGrid: ({ props }) => {
       const data = useReport();

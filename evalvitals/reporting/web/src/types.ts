@@ -45,6 +45,7 @@ export type ReportData = {
   findings: Finding[];
   charts: Chart[];
   repairs: Array<{ id: string; fixed: boolean; title: string; effect?: number; fixed_cases: number; broken_cases: number }>;
+  stage_detail?: Record<string, any>;
   cases: Case[];
   media: Array<{ id: string; kind: string; path: string; data_uri?: string }>;
   debug: { event_count: number; events: DebugEvent[] };

@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-REPORT_DATA_VERSION = 1
+REPORT_DATA_VERSION = 2
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalvitals-report@1"
@@ -103,6 +104,7 @@ def build_report_data(
             "findings": findings,
             "charts": charts,
             "repairs": repairs,
+            "stage_detail": _stage_detail(raw, root),
             "cases": normalized_cases,
             "media": media,
             "debug": {
@@ -297,7 +299,8 @@ def publish_report(
 
 
 def load_published_report(run_dir: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    root = Path(run_dir).resolve() / "report"
+    run_root = Path(run_dir).resolve()
+    root = run_root / "report"
     data = json.loads((root / "report_data.json").read_text(encoding="utf-8"))
     envelope = json.loads((root / "report_spec.json").read_text(encoding="utf-8"))
     # Reports published before the explicit-props contract omitted `props` for
@@ -308,6 +311,11 @@ def load_published_report(run_dir: str | Path) -> tuple[dict[str, Any], dict[str
         for element in spec["elements"].values():
             if isinstance(element, dict):
                 element.setdefault("props", {})
+    # Do not make an old agent-composed layout disappear merely because the
+    # renderer learned a richer data projection.  Rebuild its data in memory;
+    # the saved layout and its provenance remain untouched.
+    if int(data.get("version") or 0) < REPORT_DATA_VERSION:
+        data = build_report_data(run_root)
     return data, envelope
 
 
@@ -351,6 +359,52 @@ def _stages(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
             "status": status, "evidence_count": len(evidence) if isinstance(evidence, list) else 1,
         })
     return result
+
+
+def _stage_detail(raw: Mapping[str, Any], root: Path) -> dict[str, Any]:
+    """Expose the useful artifacts behind each stage without dumping raw logs."""
+    m1 = dict(raw.get("m1") or {})
+    probes = []
+    for result in m1.get("results") or []:
+        if isinstance(result, dict):
+            probes.append({
+                "id": str(result.get("name") or "probe"),
+                "title": str(result.get("display_name") or result.get("name") or "Probe"),
+                "question": str(result.get("question") or ""),
+                "description": str(result.get("description") or ""),
+                "n_cases": result.get("n"), "metrics": list(result.get("headline") or []),
+                "sample_rows": list(result.get("per_case") or [])[:8],
+            })
+    m2 = dict(raw.get("m2") or {})
+    explore = dict(m2.get("explore") or {})
+    figure_dir = Path(raw.get("explore_dir") or root.parent / "explore") / "figures"
+    figures = []
+    for plan in explore.get("visual_plan") or []:
+        if not isinstance(plan, dict):
+            continue
+        name = str(plan.get("name") or "")
+        matches = list(figure_dir.glob(f"*{name}*.png")) if name else []
+        if matches:
+            figures.append({"id": name, "title": str(plan.get("display_name") or name),
+                            "question": str(plan.get("question") or ""),
+                            "path": os.path.relpath(matches[0], root)})
+    takeaways = []
+    for item in explore.get("takeaways") or []:
+        if isinstance(item, dict):
+            takeaways.append({key: item.get(key) for key in ("plain_title", "title", "analysis", "caveat", "chart_names")})
+    judges = list((raw.get("agents") or {}).get("judge_calls") or [])
+    m3_call = next((call for call in judges if "M3" in str(call.get("stage") or "")), {})
+    m3 = dict(raw.get("m3") or {})
+    m4 = dict(raw.get("m4_fix") or {})
+    return {
+        "m1": {"duration": m1.get("duration"), "probes": probes},
+        "m2": {"conclusion": m2.get("conclusion") or "", "narrative": m2.get("narrative") or "",
+               "stats": list(m2.get("stats") or [])[:16], "takeaways": takeaways, "figures": figures[:12]},
+        "m3": {"hypotheses": list(m3.get("hypotheses") or []), "agent_response": str(m3_call.get("response") or "")},
+        "m4": {"ran": bool(m4.get("ran")), "fixed": bool(m4.get("fixed")),
+               "selection": list(m4.get("selection") or []), "confirm": dict(m4.get("confirm") or {}),
+               "best": dict(m4.get("best") or {}), "prompt_template": str(m4.get("prompt_template") or "")},
+    }
 
 
 def _findings(reader: Mapping[str, Any], raw: Mapping[str, Any]) -> list[dict[str, Any]]:
