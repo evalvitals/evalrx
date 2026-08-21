@@ -31,3 +31,11 @@ and, like every analyzer since 2026-08-21, each measures its whole partition
 
 Weights: `Qwen/Qwen3.5-2B` (~5 GB) must be in the mounted HF cache
 (`HF_HOME`), e.g. `huggingface-cli download Qwen/Qwen3.5-2B`.
+
+## Load check: 2026-08-21 (A6000)
+
+Same image recipe as `chartqa_qwen3_5_2b` (whose 48-case chain ran end to end);
+here the in-container check loaded `qwen3.5-2b-vl`, generated on three frozen
+cases (`small → tiny`, `scooter → bus`, `biplane → airplane`, 0.4 s/case after
+warm-up) and captured 6 attention tensors + the image-token mask (339 tokens for
+a 640×480 render).

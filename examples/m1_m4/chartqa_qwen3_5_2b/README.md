@@ -31,3 +31,21 @@ and, like every analyzer since 2026-08-21, each measures its whole partition
 
 Weights: `Qwen/Qwen3.5-2B` (~5 GB) must be in the mounted HF cache
 (`HF_HOME`), e.g. `huggingface-cli download Qwen/Qwen3.5-2B`.
+
+## Validation run: 2026-08-21 (48 cases, A6000)
+
+`run.py --limit 48 --judge-provider claude --judge-model sonnet --judge-effort high
+--run-dir outputs/smoke48` — the whole chain on the new model, 72 min end to end
+(fix stage 54 min, two coded-pipeline rounds):
+
+| stage | result |
+|---|---|
+| baseline | 72.9 % (35/48), split 24/24 |
+| M1 | all three pinned analyzers measured **24/24 on both partitions** (no per-analyzer cap) |
+| explore / M2 | 5 observations, 6/6 charts; M2: genuine visual-evidence defect, wrong reading reproduced deterministically |
+| M3 / held-out M5 | 3 leads (critic kept 1); all inconclusive on 24 confirm cases |
+| M4 | best lead refuted (metric_a 0.46 vs metric_b 3.0) |
+| fix | 15 EXPLORE candidates, none with positive net repairs — NOT FIXED; CONFIRM untouched |
+
+Per-case generation is ~0.5 s after the first call (Triton JIT warm-up ~12 s);
+peak GPU memory 5 GB.
