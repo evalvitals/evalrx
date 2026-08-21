@@ -73,13 +73,12 @@ def check_imports() -> None:
         ("yaml", "config parsing", "pyyaml"),
         ("numpy", "everything", "numpy"),
         ("requests", "dataset fetch + endpoint calls", "requests"),
-        ("evalvitals", "the pipeline itself", 'pip install -e ".[stats,viz,dashboard]"'),
+        ("evalvitals", "the pipeline itself", 'pip install -e ".[stats,viz]"'),
         ("statsmodels", "M2 statistics", 'pip install -e ".[stats]"'),
         ("sklearn", "M2 statistics", 'pip install -e ".[stats]"'),
     ]
     optional = [
         ("matplotlib", "M2 charts", 'pip install -e ".[viz]"'),
-        ("streamlit", "the dashboard command", 'pip install -e ".[dashboard]"'),
     ]
     for mod, why, fix in required:
         if importlib.util.find_spec(mod) is not None:

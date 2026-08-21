@@ -1,5 +1,0 @@
-# Generated demo page and its intermediates: rebuilt from ./outputs + ./data by
-# build_page.py, never repository inputs.
-index.html
-.audio_cache/
-__pycache__/

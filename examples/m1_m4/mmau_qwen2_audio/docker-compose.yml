@@ -6,7 +6,7 @@ services:
     image: evalvitals-mmau-qwen2-audio
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID
-      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-7}
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
       - HF_HOME=/hf_cache
       # claude reads its OAuth state from $HOME; IS_SANDBOX lets it accept

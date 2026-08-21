@@ -551,6 +551,15 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
     )
     ctx.logger.log_fix(outcome)
     ctx.finalize()
+    from evalvitals.reporting.html_report import build_html_report
+
+    report_html_path = Path(args.run_dir).resolve() / "report.html"
+    build_html_report(
+        ctx.root,
+        example_dir=HERE,
+        out_path=report_html_path,
+        no_audio=args.report_media == "none",
+    )
 
     print("\nPREREGISTERED TCD CONFIRMATION")
     if args.prior_confirm_result:
@@ -649,6 +658,10 @@ def main() -> int:
              "TCD result's paired sufficient statistics with the new batch",
     )
     parser.add_argument("--run-dir", default=str(HERE / "outputs"))
+    parser.add_argument(
+        "--report-media", choices=["inline", "none"], default="inline",
+        help="media policy for the generated report; inline makes one shareable HTML file",
+    )
     parser.add_argument(
         "--smoke-test", action="store_true",
         help="fast wiring check (no GPU/model/judge) -- see module docstring",
@@ -851,13 +864,16 @@ def main() -> int:
             print(f"  VERDICT    : not fixed; already at the highest tier ({args.fix_max_tier})")
 
     ctx.finalize()
-    try:
-        from evalvitals.reporting.html_report import build_html_report
-        report_html_path = ctx.root / "report.html"
-        build_html_report(ctx.root, out_path=report_html_path, no_audio=True)
-        print(f"  Interactive Tabbed HTML Report -> {report_html_path}")
-    except Exception as e:
-        print(f"  [Note] HTML report generation: {e}")
+    from evalvitals.reporting.html_report import build_html_report
+
+    report_html_path = Path(args.run_dir).resolve() / "report.html"
+    build_html_report(
+        ctx.root,
+        example_dir=HERE,
+        out_path=report_html_path,
+        no_audio=args.report_media == "none",
+    )
+    print(f"  Interactive Tabbed HTML Report -> {report_html_path}")
     print(f"\n  Full guide -> {ctx.root / 'README.txt'}")
     return 0
 
