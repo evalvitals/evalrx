@@ -13,8 +13,10 @@ This module provides first-class observability for model evaluations and agentic
    - Repair Generations: Candidate patch searches, prompt templates, and McNemar confirmation scores.
 
 Live-sync contract:
-- Enable by exporting LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (and LANGFUSE_HOST for
-  self-hosted) before the run. No keys → local bundle only, silently.
+- Set ``EVALVITALS_LANGFUSE_MODE=live`` plus LANGFUSE_PUBLIC_KEY /
+  LANGFUSE_SECRET_KEY (and LANGFUSE_HOST for self-hosted) for a user-facing
+  run. Missing credentials then fail fast. ``auto`` retains compatibility for
+  local development, and ``offline`` is an explicit no-upload choice.
 - The Langfuse trace id is the RunLogger trace_id (a UUID, dashes stripped) so the live trace,
   the exported bundle and run_log.jsonl all agree on identity.
 - Every live failure is reported ONCE on stderr instead of being silently swallowed — an
@@ -42,7 +44,12 @@ class DiagnosticTracer:
     :meth:`export_bundle`; the optional Langfuse client mirrors them live.
     """
 
-    def __init__(self, run_dir: str | Path | None = None, auto_sync: bool = False):
+    def __init__(
+        self,
+        run_dir: str | Path | None = None,
+        auto_sync: bool = False,
+        mode: str | None = None,
+    ):
         self.run_dir = Path(run_dir).resolve() if run_dir else None
         self.auto_sync = auto_sync
         self.trace_id = f"evalvitals_{uuid.uuid4().hex[:12]}"
@@ -52,6 +59,10 @@ class DiagnosticTracer:
         self.events: list[dict[str, Any]] = []
         self.trace_metadata: dict[str, Any] = {}
         self._start_time = time.time()
+        requested_mode = (mode or os.getenv("EVALVITALS_LANGFUSE_MODE", "auto")).strip().lower()
+        if requested_mode not in {"auto", "live", "offline"}:
+            raise ValueError("EVALVITALS_LANGFUSE_MODE must be one of: auto, live, offline")
+        self.mode = requested_mode
         self._langfuse_client = None
         self._live_root = None          # root "chain" observation for the run
         self._live_obs: dict[str, Any] = {}  # our span_id -> live observation wrapper
@@ -65,7 +76,14 @@ class DiagnosticTracer:
             else Path(".evalvitals-langfuse-outbox.sqlite3")
         )
 
-        if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
+        has_credentials = bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
+        if requested_mode == "live" and not has_credentials:
+            raise RuntimeError(
+                "Live Langfuse was requested but LANGFUSE_PUBLIC_KEY and "
+                "LANGFUSE_SECRET_KEY are not configured. Set EVALVITALS_LANGFUSE_MODE=offline "
+                "only for an explicitly offline run."
+            )
+        if requested_mode != "offline" and has_credentials:
             try:
                 from langfuse import Langfuse
 
@@ -121,31 +139,43 @@ class DiagnosticTracer:
         )
         self.events.append(envelope)
         self.outbox.enqueue(envelope)
+        # A live diagnostic should be inspectable while it is running.  The
+        # SQLite outbox remains the durability boundary: a transient upload
+        # failure simply leaves this event pending for the next stage/close.
+        if self.auto_sync and self._langfuse_client is not None:
+            self.flush()
 
     def _publish_event(self, envelope: dict[str, Any]) -> None:
         """Publish a queued event as a native Langfuse EVENT observation."""
         if self._langfuse_client is None:
             raise RuntimeError("Langfuse client is not configured")
-        # ``create_event`` is the native SDK API for point-in-time records.
-        # It does not currently expose a caller supplied observation id, hence
-        # the deterministic id lives in metadata and the outbox only removes a
-        # row after the SDK accepted it.
+        # Attach audit events to the run chain rather than emitting a flat trace
+        # row.  The deterministic event id still makes retry/backfill safe.
         input_data: dict[str, Any] = {"event": envelope["payload"]}
         media = self._media_payload(envelope)
         if media:
             input_data["artifacts"] = media
+        metadata = {
+            "evalvitals_schema_version": envelope["schema_version"],
+            "event_id": envelope["event_id"],
+            "event_seq": envelope["event_seq"],
+            "stage": envelope["stage"],
+            "cycle": envelope.get("cycle"),
+            "span_id": envelope["payload"].get("span_id"),
+            "artifact_refs": envelope["artifact_refs"],
+        }
+        parent = self._live_root
+        if parent is not None:
+            observation = parent.start_observation(
+                name=f"EvalVitals {envelope['stage']}: {envelope['event_type']}",
+                as_type="event", input=input_data, metadata=metadata,
+            )
+            observation.end()
+            return
         self._langfuse_client.create_event(
             trace_context={"trace_id": self.langfuse_trace_id},
             name=f"EvalVitals {envelope['stage']}: {envelope['event_type']}",
-            input=input_data,
-            metadata={
-                "evalvitals_schema_version": envelope["schema_version"],
-                "event_id": envelope["event_id"],
-                "event_seq": envelope["event_seq"],
-                "stage": envelope["stage"],
-                "cycle": envelope.get("cycle"),
-                "artifact_refs": envelope["artifact_refs"],
-            },
+            input=input_data, metadata=metadata,
         )
 
     def _media_payload(self, envelope: dict[str, Any]) -> list[dict[str, Any]]:
@@ -382,6 +412,11 @@ class DiagnosticTracer:
                 self._langfuse_client.flush()
             except Exception as exc:
                 self._warn("flush", f"failed to flush Langfuse client: {exc}")
+
+    @property
+    def live_enabled(self) -> bool:
+        """Whether this run has an active Langfuse client (safe for UI provenance)."""
+        return self._langfuse_client is not None
 
     def end_trace(self, output_data: Any = None) -> None:
         """Finish the live root observation, if live mirroring was enabled."""

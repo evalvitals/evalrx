@@ -148,6 +148,7 @@ class RunContext:
         run_id: "str | None" = None,
         verbose: bool = False,
         config: "dict[str, Any] | None" = None,
+        observability_mode: str | None = None,
     ) -> None:
         if root is None:
             root = Path("runs") / datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -161,6 +162,7 @@ class RunContext:
         self.run_id = run_id or self.root.name
         self.config = dict(config or {})
         self._verbose = verbose
+        self._observability_mode = observability_mode
         self._logger: "RunLogger | None" = None
         self._workdir_seq = 0
         self._trial_seq: "dict[str, int]" = {}
@@ -231,7 +233,10 @@ class RunContext:
         if self._logger is None:
             from evalvitals.eval_agent.run_logger import RunLogger
 
-            self._logger = RunLogger(context=self, verbose=self._verbose)
+            self._logger = RunLogger(
+                context=self, verbose=self._verbose,
+                observability_mode=self._observability_mode,
+            )
         return self._logger
 
     # ------------------------------------------------------------------

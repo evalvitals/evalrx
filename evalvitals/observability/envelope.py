@@ -27,7 +27,7 @@ def make_event_envelope(
         "event_seq": event_seq,
         "timestamp": event.get("ts"),
         "event_type": event_type,
-        "stage": _stage_for(event_type),
+        "stage": _stage_for(event),
         "cycle": event.get("cycle"),
         "parent_id": event.get("span_id"),
         "status": _status_for(event),
@@ -101,7 +101,13 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str, sort_keys=True, separators=(",", ":"))
 
 
-def _stage_for(event_type: str) -> str:
+def _stage_for(event: dict[str, Any]) -> str:
+    # Lifecycle events carry their target stage in the payload; preserving it
+    # keeps a deliberately skipped M4 beside the rest of its evidence in
+    # Langfuse instead of burying it under an undifferentiated RUN row.
+    event_type = str(event.get("event") or "event")
+    if event_type == "stage_skipped":
+        return str(event.get("stage") or "RUN")
     return {
         "probe_search": "PRE_M1", "probe": "M1", "analysis": "M2",
         "explore": "M2", "diagnosis": "M3", "surgery": "M5",

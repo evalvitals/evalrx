@@ -588,6 +588,7 @@ class VLDiagnoseLoop:
         if log and self.run_logger:
             artifact_pngs = self.run_logger.log_probe(
                 cycle, probe_results, schema=self.probe_agent.last_schema,
+                cases=data,
                 judge_prompt=getattr(self.probe_agent, "last_selection_prompt", ""),
                 judge_raw=getattr(self.probe_agent, "last_selection_raw", ""),
                 duration_sec=_dt,
@@ -859,6 +860,7 @@ class VLDiagnoseLoop:
                 _iv = _make_intervention_result_from_test(tr)
                 self.run_logger.log_surgery(
                     cycle, tr.hypothesis, _iv, duration_sec=_dt,
+                    validation_cases=data,
                     judge_prompt=getattr(tr, "judge_prompt", None) or None,
                     judge_raw=getattr(tr, "judge_raw", None) or None,
                 )
@@ -923,6 +925,7 @@ class VLDiagnoseLoop:
             self.run_logger.log_probe(
                 -1, probe_results,
                 schema=getattr(self.probe_agent, "last_schema", None),
+                cases=confirm,
             )
         stats_confirm = self._do_m2(
             -1, probe_results, confirm, [], timings, confirmatory=True
@@ -1399,8 +1402,9 @@ class VLDiagnoseLoop:
         rather than repeating what already failed.
 
         Args:
-            report:         Returned by :meth:`run` (uses ``verified_hypotheses``,
-                            falling back to the last cycle's proposals).
+            report:         Returned by :meth:`run`. Only M5-verified hypotheses
+                            may author a repair; an empty evidence gate records a
+                            skipped M4 stage instead of a pseudo-result.
             data:           Original case batch (validated with paired McNemar
                             against the unmodified baseline).
             max_tier:       Ceiling tier: "L0", "L1", "L2", "L3a", "L3b", "L4".
@@ -1444,27 +1448,31 @@ class VLDiagnoseLoop:
             tr.hypothesis for tr in report.verified_hypotheses
             if _hyp_key(tr.hypothesis) not in refuted_ids
         ]
-        hypotheses_note = ""
         if not hypotheses:
-            # No verified hypothesis: the fix still runs on the best UNVERIFIED
-            # leads (M5-tested, non-refuted, highest confidence first; else the
-            # last cycle's proposals). They reach the proposer flagged as
-            # leads, not facts — the fix gate is the candidate validation, not
-            # the hypothesis, so this is safe; an M4 experiment that supported
-            # one of them upgrades it in the note.
-            hypotheses = [
-                h for h in _unverified_hypotheses(report)
-                if _hyp_key(h) not in refuted_ids
-            ][:3]
-            supported = _m4_supported_key(report)
-            hypotheses_note = (
-                "UNVERIFIED: M5 found no statistically significant evidence for these "
-                "hypotheses (they are the best-scoring leads, not established mechanisms)"
-                + ("; the M4 intervention experiment SUPPORTED the first one"
-                   if supported and hypotheses and _hyp_key(hypotheses[0]) == supported else "")
-                + ". Treat them as hints about WHERE to intervene; the candidate "
-                "validation, not the hypothesis, decides."
+            # A repair proposal is an intervention, not another exploratory
+            # probe.  Do not turn an unreviewed/unsupported M3 lead into a
+            # misleading empty M4 outcome.  The caller gets a stable outcome
+            # object for compatibility, while the audit records a skipped stage.
+            from evalvitals.eval_agent.stages.fix_agent import FixOutcome
+
+            outcome = FixOutcome(
+                max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
+                stage_status="skipped",
+                skip_reason="no_accepted_hypothesis",
+                recommendation={
+                    "reason": "Repair was not attempted because no hypothesis passed the evidence gate.",
+                    "next_step": "Run the targeted diagnostic probe proposed by M3.",
+                },
             )
+            if self.run_logger is not None:
+                self.run_logger.log_stage_skipped(
+                    "M4", "no_accepted_hypothesis",
+                    detail="No M5-verified hypothesis was available for repair authoring.",
+                )
+            report.fix_outcome = outcome
+            return outcome
+
+        hypotheses_note = ""
         context = _fix_context_from_report(
             report,
             example_cases=explore if confirm is not None else None,

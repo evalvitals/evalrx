@@ -51,6 +51,9 @@ class ExperimentProtocol:
                             to the LLM judge as additional context.
         target_modalities:  ``{"text", "image"}`` for VLMs;
                             ``{"text"}`` for text-only LLMs.
+        output_contract:    Optional machine-readable response contract.  It
+                            prevents a valid short answer from being confused
+                            with a truncated reasoning trace.
         metadata:           Free-form extras (dataset names, hyperparams …).
     """
 
@@ -61,6 +64,7 @@ class ExperimentProtocol:
     target_modalities: frozenset[str] = field(
         default_factory=lambda: frozenset({"text"})
     )
+    output_contract: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -70,6 +74,7 @@ class ExperimentProtocol:
             "success_criteria": self.success_criteria,
             "failure_patterns": self.failure_patterns,
             "target_modalities": sorted(self.target_modalities),
+            "output_contract": self.output_contract,
             "metadata": self.metadata,
         }
 

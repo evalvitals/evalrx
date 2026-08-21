@@ -53,6 +53,7 @@ EVENT_TYPES: tuple[str, ...] = (
     "agent_tool",
     "case_record",
     "report_published",
+    "stage_skipped",
 )
 
 #: Path to the committed, rendered schema shipped as package data.
@@ -307,6 +308,14 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "sha256": {"type": "string"},
             "generated_by": {"type": "object"},
             "report_paths": {"type": "array", "items": {"type": "string"}},
+        },
+    },
+    "stage_skipped": {
+        "required": ["stage", "cycle", "reason_code"],
+        "properties": {
+            "stage": {"type": "string"},
+            "reason_code": {"type": "string"},
+            "detail": {"type": "string"},
         },
     },
 }

@@ -23,6 +23,7 @@ from evalvitals.agent_runtime.judges.agy import (
     scan_agy_log as _scan_agy_log,
 )
 from evalvitals.agent_runtime.judges.claude import ClaudeModel
+from evalvitals.agent_runtime.judges.codex import CodexModel
 from evalvitals.agent_runtime.providers.antigravity import AntigravityAgent
 from evalvitals.agent_runtime.providers.base import CliAgentBase as _CliAgentBase
 from evalvitals.agent_runtime.providers.claude_code import ClaudeCodeAgent
@@ -43,6 +44,7 @@ __all__ = [
     "BINARY_DEFAULTS",
     "ClaudeCodeAgent",
     "ClaudeModel",
+    "CodexModel",
     "CliAgentConfig",
     "CliAgentResult",
     "CodexAgent",
