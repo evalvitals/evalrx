@@ -17,9 +17,12 @@ freezes the best positive-net candidate. Exactly that one candidate is then
 executed once on untouched
 CONFIRM. No confirmation feedback, best-of-N selection on CONFIRM, or adaptive
 tier escalation is allowed.
-The host bridge also enforces a direct baseline, at most four calls per case,
-and distinct 2-of-3 enhanced-answer support before an agent-written pipeline
-may override that baseline.
+The host bridge also anchors its selection guard on each case's recorded
+`baseline_output` (a plain `model_generate(case_id)` is answered from that
+record and is free; since 2026-08-21 a pipeline no longer has to make that
+call), caps model-hitting calls at four per case, and requires distinct 2-of-3
+enhanced-answer support before an agent-written pipeline may override that
+baseline.
 
 ```bash
 python download_chartqa.py --limit 512 --seed 5022 \

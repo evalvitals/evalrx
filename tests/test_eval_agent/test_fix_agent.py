@@ -829,6 +829,28 @@ def test_code_only_allowlist_skips_discarded_judge_proposals():
     assert judge.prompts == []
 
 
+def test_code_only_still_fields_the_coded_pipeline():
+    """--code-only exists to test the coder-written pipeline and nothing else;
+    it used to propose NOTHING (the coded candidate sat inside the gate that
+    skips the judge's L0-L3 proposals), so every code-only run ended with
+    'repair round 1 produced no NEW candidate'."""
+    pytest.importorskip("PIL")
+    judge = CodeWritingJudge()
+    judge.prompts = []
+
+    class _Recording(CodeWritingJudge):
+        def generate(self, inputs, **kwargs):
+            judge.prompts.append(str(inputs))
+            return CodeWritingJudge.generate(self, inputs, **kwargs)
+
+    agent = FixAgent(
+        judge=_Recording(), max_tier="L3a", candidate_allowlist={"coded_pipeline"},
+    )
+    proposed = agent._propose([_hyp("x")], _gold_yes_batch(image=_img()), HopelessModel())
+    assert [c.name for c in proposed] == ["coded_pipeline"]
+    assert len(judge.prompts) == 1 and "EXECUTION CONTRACT" in judge.prompts[0]
+
+
 def test_l1_template_candidate_preserves_non_image_modality_fields():
     """The L1 template runner used to rebuild a bare Inputs(prompt=...,
     image=...), silently dropping .video/.audio -- identical bug to
@@ -3137,3 +3159,302 @@ def test_coder_guidance_distinguishes_explore_revision_and_one_shot():
     assert "controlled 2-of-3" in explore
     assert "FEEDBACK-DRIVEN" in revision and "abandon" in revision
     assert "all 3" in one_shot and "safety baseline" in one_shot
+
+
+# ── the direct-baseline contract: anchored on the recorded baseline ──────────
+#
+# chartqa / spatial457 × qwen2.5-vl and chartqa × qwen3.5-2b (2026-08-21): five
+# of five coder-written rounds read ``baseline_output`` (the prompt hands it
+# over) and never made a plain ``model_generate(case_id)`` call, so the guard
+# voided the whole candidate every time and a repair round was spent on
+# re-learning the call.  The bridge now anchors on the recorded baseline
+# itself, answers a plain direct call from that record, and only a case with
+# nothing to anchor on leaves the result.
+
+
+_BASELINE_OUTPUT_VOTE_PIPELINE = """
+import json, re
+cases = json.load(open("fix_cases.json"))["cases"]
+
+def key(t):
+    m = re.search(r"final answer:\\s*(.+)", t or "", re.I)
+    return (m.group(1) if m else (t or "")).strip().lower().strip(".")
+
+out = []
+for c in cases:
+    base = c["baseline_output"] or ""
+    votes = [model_generate(c["id"], prompt=c["prompt"] + f" Look carefully ({i}).")
+             for i in range(3)]
+    keys = [key(v) for v in votes]
+    best = max(set(keys), key=keys.count)
+    if keys.count(best) >= 2 and best != key(base):
+        final = next(v for v, k in zip(votes, keys) if k == best)
+    else:
+        final = base
+    out.append({"sample_id": c["id"], "output": final})
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+
+
+def test_guard_anchors_on_the_recorded_baseline_without_a_direct_call(tmp_path):
+    """No plain ``model_generate(case_id)`` anywhere: the guard anchors on
+    ``case.observed`` — a 2-of-3 override stands, a 3-of-3 requirement reverts
+    the case to the RECORDED answer — and the candidate is never voided."""
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    def replies(case, prompt):
+        return "Final Answer: No." if "(2)" in prompt else "Final Answer: Yes."
+
+    cases = _observed_no_batch(n=4)
+    res = run_coded_pipeline(
+        _BASELINE_OUTPUT_VOTE_PIPELINE, None, cases, workdir=tmp_path / "two",
+        timeout_sec=20, reply_fn=replies, consensus_min_support=2,
+    )
+    assert res.ok and res.error == ""
+    assert res.n_anchored_from_recorded == 4 and res.unanchored_ids == []
+    assert res.n_guarded == 0
+    assert all(v == "Final Answer: Yes." for v in res.outputs.values())
+
+    strict = run_coded_pipeline(
+        _BASELINE_OUTPUT_VOTE_PIPELINE, None, cases, workdir=tmp_path / "three",
+        timeout_sec=20, reply_fn=replies, consensus_min_support=3,
+    )
+    assert strict.ok and strict.n_guarded == 4 and strict.guarded_ids == ["c0", "c1", "c2", "c3"]
+    assert all(v == "No." for v in strict.outputs.values())
+
+
+def test_only_cases_with_nothing_to_anchor_on_leave_the_result(tmp_path):
+    """A case with neither a recorded baseline nor a direct call is excluded
+    (scored as not measured); the other cases are guarded as usual. Only when
+    EVERY case is unanchorable does the run fail, and it says why."""
+    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+
+    yes = {"all_of": ["yes"], "none_of": ["no"]}
+    cases = CaseBatch([
+        FailureCase(id="c0", inputs=Inputs(prompt="Is there a lesion 0?"),
+                    expected=yes, observed="No.", label=Label.FAIL),
+        FailureCase(id="c1", inputs=Inputs(prompt="Is there a lesion 1?"),
+                    expected=yes, label=Label.FAIL),  # no recorded baseline
+    ])
+    pipeline = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = [{"sample_id": c["id"], "output": model_generate(c["id"], prompt="enhanced")}
+       for c in cases]
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+    res = run_coded_pipeline(
+        pipeline, None, cases, workdir=tmp_path, timeout_sec=20,
+        reply_fn=lambda case, prompt: "Yes.", consensus_min_support=2,
+    )
+    assert res.ok and res.error == ""
+    assert res.outputs == {"c0": "No."}          # singleton override reverted to the record
+    assert res.guarded_ids == ["c0"]
+    assert res.unanchored_ids == ["c1"] and res.n_anchored_from_recorded == 1
+
+    # The pre-existing all-or-nothing test above keeps holding for a batch
+    # with no records at all: every case is unanchorable, nothing to score.
+    none = run_coded_pipeline(
+        pipeline, None, _gold_yes_batch(n=2), workdir=tmp_path / "none", timeout_sec=20,
+        reply_fn=lambda case, prompt: "Yes.", consensus_min_support=2,
+    )
+    assert none.ok is False and none.unanchored_ids == ["c0", "c1"]
+    assert "no recorded baseline" in none.error and "no direct baseline" in none.error
+
+
+class _PromptCountingModel(Model):
+    capabilities = frozenset({Capability.GENERATE})
+    modalities = frozenset({"text", "image"})
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def generate(self, inputs, **kwargs):
+        self.prompts.append(str(getattr(inputs, "prompt", inputs)))
+        return "Yes."
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+_DIRECT_PLUS_ONE_PIPELINE = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = []
+for c in cases:
+    a = model_generate(c["id"])                        # plain: answered from the record
+    b = model_generate(c["id"], prompt=c["prompt"])    # same prompt: also plain
+    e = model_generate(c["id"], prompt=c["prompt"] + " Look carefully.")
+    out.append({"sample_id": c["id"], "output": a + "|" + b + "|" + e})
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+
+
+def test_plain_direct_calls_are_answered_from_the_record_and_are_free(tmp_path):
+    """Two plain direct calls per case never reach the model and do not count
+    against the per-case cap — in the live run and in the frozen control
+    alike — while a direct call with decoding overrides is a live call."""
+    from evalvitals.eval_agent.stages.fix_pipeline import (
+        frozen_model_control,
+        run_coded_pipeline,
+    )
+
+    cases = _observed_no_batch(n=3)
+    model = _PromptCountingModel()
+    res = run_coded_pipeline(
+        _DIRECT_PLUS_ONE_PIPELINE, model, cases, workdir=tmp_path / "live",
+        timeout_sec=20, max_calls_per_case=1,
+    )
+    assert res.ok and res.error == ""
+    assert res.n_calls == 9 and res.n_replayed == 6
+    assert len(model.prompts) == 3 and all("carefully" in p for p in model.prompts)
+    assert all(v == "No.|No.|Yes." for v in res.outputs.values())
+
+    ctrl = frozen_model_control(
+        _DIRECT_PLUS_ONE_PIPELINE, cases, workdir=tmp_path / "frozen",
+        timeout_sec=20, max_calls_per_case=1,
+    )
+    assert ctrl.ok and all(v == "No.|No.|No." for v in ctrl.outputs.values())
+
+    two_enhanced = _DIRECT_PLUS_ONE_PIPELINE.replace(
+        '    out.append(', '    model_generate(c["id"], prompt="another pass")\n    out.append(')
+    capped = run_coded_pipeline(
+        two_enhanced, _PromptCountingModel(), cases, workdir=tmp_path / "cap",
+        timeout_sec=20, max_calls_per_case=1,
+    )
+    assert capped.ok is False and "more than 1 model calls" in capped.error
+
+    sampled = """
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+out = [{"sample_id": c["id"],
+        "output": model_generate(c["id"], generation_kwargs={"temperature": 0.7})}
+       for c in cases]
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
+"""
+    live_model = _PromptCountingModel()
+    live = run_coded_pipeline(
+        sampled, live_model, cases, workdir=tmp_path / "sampled", timeout_sec=20,
+    )
+    assert live.ok and live.n_replayed == 0 and len(live_model.prompts) == 3
+
+
+def test_answer_key_strips_answer_tags_so_tagged_replies_can_support_an_override():
+    """A scaffold that asks for "FINAL: <answer>" returns the extracted answer;
+    the model's raw reply carries the tag. Without stripping it no tagged
+    reply could ever support an override (chartqa/qwen3.5-2b repair round:
+    every override reverted, no_effect 0/0)."""
+    from evalvitals.eval_agent.stages.fix_pipeline import _answer_key, _answers_match
+
+    assert _answer_key("I read 42 from the bar.\nFINAL: 42") == "42"
+    assert _answer_key("Answer: 42") == "42"
+    assert _answer_key("Final answer: Yes.") == "yes"
+    assert _answer_key("Prediction: no") == "no"
+    assert _answers_match("42", "The tallest bar is 2019.\nFINAL: 42")
+    assert not _answers_match("42", "The tallest bar is 2019.\nFINAL: 41")
+    # Only answer tags are stripped — an answer that merely starts with a word
+    # and a colon is left alone.
+    assert _answer_key("Yes: the chart shows it") == "yes the chart shows it"
+
+
+def test_the_coder_is_told_the_anchor_semantics():
+    from evalvitals.eval_agent.prompts.fix_agent import _L2_CODE_PROMPT, _REPAIR_PROMPT_BODY
+
+    for prompt in (_L2_CODE_PROMPT, _REPAIR_PROMPT_BODY):
+        assert "{min_support}" in prompt
+        assert "{selection_guidance}" in prompt
+        assert "answered from" in prompt          # a plain direct call is served from the record
+    assert "do NOT need to call model_generate(case_id)" in _L2_CODE_PROMPT
+    assert "does not count" in _L2_CODE_PROMPT
+    assert "SELECTION RULE" in _L2_CODE_PROMPT
+    assert "strips such tags" in _L2_CODE_PROMPT
+    assert "IS the direct baseline" in _REPAIR_PROMPT_BODY
+
+    agent = FixAgent(max_repair_rounds=2)
+    for variant in (agent._code_selection_guidance(), agent._code_selection_guidance("prior"),
+                    FixAgent(max_repair_rounds=1)._code_selection_guidance()):
+        assert "baseline_output" in variant
+
+
+class _BaselineOutputJudge(Model):
+    """Writes the pipeline every real coder wrote: reads baseline_output, never
+    calls model_generate(case_id) plainly. A repair request is a failure."""
+
+    capabilities = frozenset({Capability.GENERATE})
+    modalities = frozenset({"text"})
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def generate(self, inputs, **kwargs) -> str:
+        text = str(inputs)
+        self.prompts.append(text)
+        if "FAILED TO EXECUTE" in text:
+            raise AssertionError("a repair round was requested for a contract-compliant pipeline")
+        if "EXECUTION CONTRACT" in text:
+            return f"```python\n{_BASELINE_OUTPUT_VOTE_PIPELINE}\n```"
+        return "no json here"
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+def test_a_coded_pipeline_that_reads_baseline_output_needs_no_repair_round(tmp_path):
+    """End to end through FixAgent: the coder's natural pipeline executes on
+    the first attempt, the host states the support threshold it enforces, the
+    guard anchors every case on its record, the frozen control still holds,
+    and no repair round is spent."""
+    from evalvitals.eval_agent import RunLogger
+
+    logger = RunLogger(tmp_path / "logs")
+    judge = _BaselineOutputJudge()
+    agent = FixAgent(
+        judge=judge, max_tier="L2", run_logger=logger, exec_timeout_sec=30,
+        candidate_allowlist={"coded_pipeline"},
+    )
+    data = _observed_no_batch()
+    out = agent.propose_and_validate(BaselineFailsModel(), data, [_hyp("x")])
+    coded = [v for v in out.attempted if v.candidate.kind == "code"]
+    assert len(coded) == 1
+    v = coded[0]
+    assert v.exec_error == "" and v.fixed is True and v.n_fixed == len(data)
+    guard = v.candidate.payload["selection_guard"]
+    assert guard["min_support"] == 3                       # one-shot: all three passes agree
+    assert guard["n_anchored_from_recorded"] == len(data)
+    assert guard["unanchored_ids"] == [] and guard["n_guarded"] == 0
+    assert v.candidate.payload["frozen_model_control"]["solved"] == []
+    code_prompt = next(p for p in judge.prompts if "EXECUTION CONTRACT" in p)
+    assert "at least 3 of your enhanced calls" in code_prompt
+    events = [json.loads(line)
+              for line in (tmp_path / "logs" / "run_log.jsonl").read_text(encoding="utf-8").splitlines()]
+    codegen = [e for e in events if e.get("event") == "tool_codegen"]
+    assert len(codegen) == 1 and codegen[0]["ok"] is True
+    assert codegen[0]["tool_name"] == "coded_pipeline"      # never coded_pipeline_repair
+
+
+def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
+    """The selection-guard statistics and the frozen-model control land as JSON
+    in the attempt's trial directory (the candidate payload is never logged, so
+    without these files a reviewer cannot tell whether the guard anchored on the
+    record or reverted anything)."""
+    from evalvitals.eval_agent.run_context import RunContext
+
+    ctx = RunContext(tmp_path / "run")
+    agent = FixAgent(
+        judge=_BaselineOutputJudge(), max_tier="L2", run_logger=ctx.logger, run_context=ctx,
+        exec_timeout_sec=30, candidate_allowlist={"coded_pipeline"},
+    )
+    data = _observed_no_batch()
+    out = agent.propose_and_validate(BaselineFailsModel(), data, [_hyp("x")])
+    assert out.fixed is True
+
+    guard_files = list((tmp_path / "run").rglob("coded_pipeline_result.json"))
+    control_files = list((tmp_path / "run").rglob("frozen_model_control.json"))
+    assert len(guard_files) == 1 and len(control_files) == 1
+    assert guard_files[0].parent == control_files[0].parent       # same trial dir
+    guard = json.loads(guard_files[0].read_text(encoding="utf-8"))
+    assert guard["ok"] is True and guard["exec_error"] == "" and guard["n_outputs"] == len(data)
+    assert guard["n_anchored_from_recorded"] == len(data) and guard["n_replayed"] == 0
+    assert guard["unanchored_ids"] == [] and guard["n_guarded"] == 0 and guard["min_support"] == 3
+    control = json.loads(control_files[0].read_text(encoding="utf-8"))
+    assert control["ok"] is True and control["solved"] == []

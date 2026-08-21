@@ -49,3 +49,37 @@ Weights: `Qwen/Qwen3.5-2B` (~5 GB) must be in the mounted HF cache
 
 Per-case generation is ~0.5 s after the first call (Triton JIT warm-up ~12 s);
 peak GPU memory 5 GB.
+
+## Validation run: 2026-08-21, contract32 (32 cases, `--code-only --no-explore`, A6000)
+
+Quick live check of the coded-pipeline selection-guard change (the host guard
+now anchors on each case's recorded `baseline_output`; a plain
+`model_generate(case_id)` is answered from that record and is free, so the
+coder no longer has to make it): `run.py --limit 32 --code-only --no-explore
+--judge-provider claude --judge-model sonnet --judge-effort high --run-dir
+outputs/contract32`, ~30 min end to end. The host checkout of the package was
+bind-mounted read-only over the image's site-packages instead of rebuilding —
+a third compose file (the tealab override replaces the whole volume list, so
+pass all three with `-f`):
+
+```yaml
+services:
+  chartqa_qwen3_5_2b:
+    volumes:
+      - /path/to/evalvitals/evalvitals:/usr/local/lib/python3.11/site-packages/evalvitals:ro
+```
+
+| stage | result |
+|---|---|
+| baseline | 75.0 % (24/32), split 16/16 |
+| diagnosis | 2 leads, none verified on CONFIRM; M4 best lead refuted |
+| fix, round 1 | coder read `baseline_output` + 3 distinct enhanced calls + 2-of-3 vote — executed first try, **no repair round** (this exact shape was voided as a contract violation in 5/5 earlier rounds) — unsafe 0/1 |
+| fix, round 2 | feedback revision (2 enhanced calls) — executed first try, unsafe 0/1; nothing selected, CONFIRM untouched — NOT FIXED |
+
+Each attempt directory under `logs/fixes/` now also carries
+`coded_pipeline_result.json` (guard statistics: `n_anchored_from_recorded`,
+`n_replayed`, `n_guarded`, `unanchored_ids`) and `frozen_model_control.json`
+(runs after this one; contract32 predates the files). Round 2 logged 23
+recoverable `expandable_segments` allocator warnings (the process had cached
+~42 GB across differently sized upscaled chart images; no hard OOM, 16/16
+outputs).

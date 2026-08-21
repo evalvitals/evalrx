@@ -1143,12 +1143,15 @@ class FixAgent:
                             source="floor", payload=spec.to_dict(),
                         )
                     )
-            if self.codegen_available:
-                candidates += self._l2_coded_candidate(
-                    hyp_lines, examples, model, prior_text,
-                    context_block=context_block, catalog=catalog,
-                    text_only=not has_images,
-                )
+        if self.max_tier >= FixTier.L2_SCAFFOLD and self.codegen_available:
+            # The coder-written pipeline is the ONE candidate a code-only run
+            # exists to field, so it sits outside the ``not code_only`` gate
+            # (nested inside it, --code-only proposed nothing at all).
+            candidates += self._l2_coded_candidate(
+                hyp_lines, examples, model, prior_text,
+                context_block=context_block, catalog=catalog,
+                text_only=not has_images,
+            )
         if not code_only and self.max_tier >= FixTier.L3A_INTERNALS_READ:
             candidates += self._l3_candidates(
                 hyp_lines,
@@ -2059,6 +2062,10 @@ class FixAgent:
         if catalog is None:
             catalog = _TEXT_ONLY_CATALOG_NOTE if text_only else catalog_text()
         selection_guidance = self._code_selection_guidance(prior_text)
+        # Explore rounds learn from a 2-of-3 consensus; a one-shot candidate
+        # must have all three enhanced passes agree. The prompt states the
+        # same number the host bridge enforces.
+        min_support = 2 if self.max_repair_rounds > 1 else 3
         base = dict(
             hypotheses=hyp_lines,
             examples=examples,
@@ -2068,6 +2075,7 @@ class FixAgent:
             attend_hint=attend_hint,
             context=context_block,
             selection_guidance=selection_guidance,
+            min_support=min_support,
         )
         if self._cli_config is not None and self._cli_config.provider != "llm":
             prompt = (
@@ -2114,8 +2122,9 @@ class FixAgent:
                     "enable_attend": enable_attend,
                     "text_only": bool(text_only),
                     # Prompt instructions are advisory; the host bridge also
-                    # enforces the selection rule without seeing gold labels.
-                    "consensus_min_support": 2 if self.max_repair_rounds > 1 else 3,
+                    # enforces the selection rule without seeing gold labels
+                    # (anchored on each case's recorded baseline_output).
+                    "consensus_min_support": min_support,
                     "max_calls_per_case": 4,
                 },
                 source=source,
@@ -2130,24 +2139,27 @@ class FixAgent:
                 "- This is a FEEDBACK-DRIVEN EXPLORE revision. Use the prior "
                 "helped/hurt prompts and implementation below as training "
                 "feedback. Gate the revised fix on a prompt/task subtype that "
-                "actually benefited and return the direct baseline elsewhere. "
-                "If the prior attempt repaired zero cases, abandon its "
-                "override mechanism instead of merely retuning it."
+                "actually benefited and return baseline_output (the direct "
+                "baseline) elsewhere. If the prior attempt repaired zero "
+                "cases, abandon its override mechanism instead of merely "
+                "retuning it."
             )
         if self.max_repair_rounds > 1:
             return (
                 "- This is EXPLORE round 1, used to learn which task subtypes "
-                "benefit before a later candidate is frozen. Treat the direct "
-                "answer as the baseline and keep it on ties, but you may use "
-                "a controlled 2-of-3 alternative consensus so the paired "
-                "helped/hurt feedback is informative. Never hard-code answers "
-                "or compute the benchmark task outside the model."
+                "benefit before a later candidate is frozen. Treat "
+                "baseline_output as the baseline answer and keep it on ties, "
+                "but you may use a controlled 2-of-3 alternative consensus "
+                "(two DISTINCT enhanced calls agreeing on the same different "
+                "answer) so the paired helped/hurt feedback is informative. "
+                "Never hard-code answers or compute the benchmark task "
+                "outside the model."
             )
         return (
-            "- Treat the ORIGINAL direct answer as the safety baseline. Keep "
-            "it unless all 3 independent enhanced/reasoned passes agree on a "
-            "different answer and none supports the baseline. Do not use "
-            "unconditional majority replacement."
+            "- Treat baseline_output (the ORIGINAL direct answer) as the "
+            "safety baseline. Keep it unless all 3 independent enhanced/"
+            "reasoned passes agree on a different answer and none supports "
+            "the baseline. Do not use unconditional majority replacement."
         )
 
     def _write_code_cli(self, prompt: str, trial: "Trial | None" = None) -> "tuple[str, str]":
@@ -3117,7 +3129,35 @@ class FixAgent:
             "min_support": int(candidate.payload.get("consensus_min_support", 0)),
             "n_guarded": result.n_guarded,
             "guarded_ids": result.guarded_ids,
+            # Audit trail for the anchor semantics: how many cases were
+            # anchored on their recorded baseline because the pipeline made
+            # no direct call, how many plain direct calls were answered from
+            # the record, and which cases had nothing to anchor on.
+            "n_anchored_from_recorded": result.n_anchored_from_recorded,
+            "n_replayed": result.n_replayed,
+            "unanchored_ids": result.unanchored_ids,
         }
+        if result.unanchored_ids:
+            logger.warning(
+                "FixAgent: %d case(s) excluded from the coded pipeline result — no "
+                "recorded baseline and no direct model_generate(case_id) call to "
+                "anchor the selection guard on", len(result.unanchored_ids),
+            )
+        if candidate.trial is not None:
+            # Persist the audit trail next to this attempt's prompt and code:
+            # the payload itself is never logged, and "did the guard anchor on
+            # the record, did it revert anything" is the first question a
+            # reviewer asks of a coded round.
+            candidate.trial.write(
+                "coded_pipeline_result.json",
+                json.dumps({
+                    "ok": result.ok,
+                    "exec_error": "" if result.ok else result.error,
+                    "n_calls": result.n_calls,
+                    "n_outputs": len(result.outputs),
+                    **candidate.payload["selection_guard"],
+                }, indent=1),
+            )
         if not result.ok:
             logger.warning("FixAgent: coded pipeline produced no result: %s", result.error)
         return result
@@ -3155,6 +3195,11 @@ class FixAgent:
             "n_calls": ctrl.n_calls,
             "solved": solved,
         }
+        if candidate.trial is not None:
+            candidate.trial.write(
+                "frozen_model_control.json",
+                json.dumps(candidate.payload["frozen_model_control"], indent=1),
+            )
         if solved:
             logger.info(
                 "FixAgent: frozen-model control — %s still solves %d/%d case(s) with the "
@@ -3181,6 +3226,11 @@ class FixAgent:
                      else catalog_text()),
             cases_file=CASES_FILENAME,
             marker=RESULT_MARKER,
+            # The repair round restates the selection contract in full: a
+            # repair that only echoes the execution error used to re-violate
+            # the selection rule it was never told about.
+            min_support=int(candidate.payload.get("consensus_min_support", 0) or 0),
+            selection_guidance=self._code_selection_guidance(),
         )
         code, source, raw = "", "", ""
         if self._cli_config is not None and self._cli_config.provider != "llm":
