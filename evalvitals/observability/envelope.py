@@ -106,6 +106,7 @@ def _stage_for(event_type: str) -> str:
         "probe_search": "PRE_M1", "probe": "M1", "analysis": "M2",
         "explore": "M2", "diagnosis": "M3", "surgery": "M5",
         "fix": "M4", "experiment": "M4",
+        "case_record": "DATA", "report_published": "REPORT",
     }.get(event_type, "RUN")
 
 

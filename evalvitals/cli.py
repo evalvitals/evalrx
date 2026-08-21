@@ -5,9 +5,24 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from evalvitals.analysis.dashboard import launch_dashboard, serve_report
+from evalvitals.analysis.dashboard import launch_dashboard
 from evalvitals.analysis.explore_run import run_explore
 from evalvitals.analysis.run_codebase import run_codebase_cli
+
+
+def serve_report(
+    run_dir: str | Path,
+    *,
+    port: int,
+    no_audio: bool = False,
+    open_browser: bool = True,
+    block: bool = True,
+) -> int:
+    """CLI seam for the dynamic UI (signature kept for compatibility/tests)."""
+    del no_audio, block
+    from evalvitals.reporting.server import serve_dynamic_report
+
+    return serve_dynamic_report(run_dir, port=port, open_browser=open_browser)
 
 
 def _langfuse_cache(trace_id: str) -> Path:
@@ -19,6 +34,15 @@ def _langfuse_cache(trace_id: str) -> Path:
 
 
 def _resolve_report_source(source: str, trace_id: str | None, run_dir: str) -> str:
+    if source == "auto":
+        if trace_id:
+            try:
+                from evalvitals.reporting.langfuse_source import LangfuseRunSource
+
+                return str(LangfuseRunSource().materialize(trace_id, _langfuse_cache(trace_id)))
+            except (ImportError, LookupError, RuntimeError):
+                pass
+        return run_dir
     if source == "local":
         return run_dir
     if not trace_id:
@@ -183,27 +207,37 @@ def main(argv: list[str] | None = None) -> int:
 
     serve = sub.add_parser(
         "serve",
-        help="Generate (if needed) and serve a local static HTML diagnostic report.",
-        description="Generate (if needed) and serve a local static HTML diagnostic report.",
+        help="Publish (if needed) and serve the dynamic completed-run UI.",
+        description="Generate (if needed) ReportData and serve the agent-composed React UI backed by Langfuse or a local run cache.",
     )
     serve.add_argument("run_dir", nargs="?", default="outputs", help="Run directory.")
     serve.add_argument("--port", type=int, default=8501, help="Loopback port (default: 8501).")
-    serve.add_argument("--no-audio", action="store_true", help="Skip audio while generating a missing report.")
+    serve.add_argument("--no-audio", action="store_true", help=argparse.SUPPRESS)
     serve.add_argument("--no-browser", action="store_true", help="Do not open a browser automatically.")
-    serve.add_argument("--source", choices=["local", "langfuse"], default="local", help="Run data source.")
+    serve.add_argument("--source", choices=["auto", "local", "langfuse"], default="auto", help="Run data source (default: Langfuse when --trace-id is set, otherwise local).")
     serve.add_argument("--trace-id", default=None, help="Langfuse trace id (required for --source langfuse).")
 
     report_cmd = sub.add_parser(
         "report",
-        help="Generate a self-contained, plain-language HTML diagnostic report for a run.",
-        description="Renders a finished diagnostic run into a single self-contained HTML report with full M1-M5 trace, case browser, and plain-language explanations.",
+        help="Explicitly export a portable self-contained HTML snapshot.",
+        description="Uses the same React/json-render layout as `serve`; the dynamic UI remains the primary experience.",
     )
     report_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run_log.jsonl or logs/")
     report_cmd.add_argument("--example-dir", default=None, help="Root holding data/ manifest.")
     report_cmd.add_argument("--out", "-o", default=None, help="Output HTML path (default: <run_dir>/report.html).")
     report_cmd.add_argument("--no-audio", action="store_true", help="Skip audio transcoding.")
+    report_cmd.add_argument("--embed-media", choices=["representative", "all", "none"], default="representative", help="Media to inline in the portable export (default: representative).")
     report_cmd.add_argument("--source", choices=["local", "langfuse"], default="local", help="Run data source.")
     report_cmd.add_argument("--trace-id", default=None, help="Langfuse trace id (required for --source langfuse).")
+
+    publish_cmd = sub.add_parser(
+        "publish-report",
+        help="Compile and cache ReportData plus a validated json-render layout.",
+    )
+    publish_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Completed run directory.")
+    publish_cmd.add_argument("--example-dir", default=None, help="Optional benchmark/example root for legacy runs.")
+    publish_cmd.add_argument("--source", choices=["auto", "local", "langfuse"], default="auto")
+    publish_cmd.add_argument("--trace-id", default=None)
 
     langfuse_cmd = sub.add_parser(
         "export-langfuse",
@@ -295,25 +329,37 @@ def main(argv: list[str] | None = None) -> int:
             source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
         except (ImportError, LookupError, RuntimeError, ValueError) as exc:
             parser.error(str(exc))
-        return serve_report(
-            source_dir,
-            port=args.port,
-            no_audio=args.no_audio,
-            open_browser=not args.no_browser,
-        )
+        try:
+            return serve_report(
+                source_dir, port=args.port, no_audio=args.no_audio,
+                open_browser=not args.no_browser,
+            )
+        except ImportError as exc:
+            parser.error(str(exc))
+    if args.command == "publish-report":
+        from evalvitals.reporting.dynamic import publish_report
+
+        try:
+            source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
+            published = publish_report(source_dir, example_dir=args.example_dir)
+        except (ImportError, LookupError, RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
+        print(f"Published report data: {published.data_path}")
+        print(f"Published report layout: {published.spec_path} ({published.generated_by})")
+        return 0
     if args.command == "report":
-        from evalvitals.reporting.html_report import build_html_report
+        from evalvitals.reporting.static_export import export_static_report
 
         try:
             source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
         except (ImportError, LookupError, RuntimeError, ValueError) as exc:
             parser.error(str(exc))
 
-        build_html_report(
+        export_static_report(
             run_dir=source_dir,
             example_dir=args.example_dir,
             out_path=args.out,
-            no_audio=args.no_audio,
+            embed_media="none" if args.no_audio else args.embed_media,
         )
         return 0
     if args.command == "export-langfuse":

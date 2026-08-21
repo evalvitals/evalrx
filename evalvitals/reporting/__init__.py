@@ -1,6 +1,12 @@
 """Claim/evidence diagnostic reporting."""
 
 from evalvitals.reporting.compiler import compile_diagnostic_report
+from evalvitals.reporting.dynamic import (
+    PublishedReport,
+    ReportAgent,
+    build_report_data,
+    publish_report,
+)
 from evalvitals.reporting.html_report import build_html_report
 from evalvitals.reporting.model import Claim, DiagnosticReport, Evidence, ReportStep
 from evalvitals.reporting.stages import STAGE_SPECS, StageSpec, stage_specs_as_dicts
@@ -13,6 +19,10 @@ __all__ = [
     "STAGE_SPECS",
     "StageSpec",
     "build_html_report",
+    "build_report_data",
     "compile_diagnostic_report",
+    "publish_report",
+    "PublishedReport",
+    "ReportAgent",
     "stage_specs_as_dicts",
 ]

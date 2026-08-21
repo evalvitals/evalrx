@@ -441,6 +441,26 @@ class VLDiagnoseLoop:
         self._tokens_used: int = 0
         self._run_id: str = ""
 
+    def publish_report(
+        self,
+        *,
+        model: "Any | None" = None,
+        example_dir: "str | Path | None" = None,
+    ) -> "Any":
+        """Compose the completed-run UI, reusing the M3 judge when available."""
+        if self.run_logger is None:
+            raise RuntimeError("publish_report needs a run_logger with a durable run directory")
+        if model is None:
+            model = getattr(self.diagnosis_agent, "judge", None)
+        from evalvitals.reporting.dynamic import publish_report
+
+        return publish_report(
+            self.run_logger.run_dir,
+            example_dir=example_dir,
+            model=model,
+            run_logger=self.run_logger,
+        )
+
     @staticmethod
     def _strat_key(case: "Any") -> "tuple":
         """Stratify the explore/confirm split by label + probe_type when present
@@ -748,6 +768,9 @@ class VLDiagnoseLoop:
         nothing to the prompt and costs no extra call."""
         try:
             diag_agent = self._get_diagnosis_agent()
+            # Retain the lazily resolved agent so report publication can reuse
+            # the same judge without asking callers to inject it a second time.
+            self.diagnosis_agent = diag_agent
         except Exception as exc:
             logger.warning("Could not resolve DiagnosisAgent: %s", exc)
             return None
@@ -957,6 +980,7 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop")
             )
+            self.run_logger.log_cases(data)
 
         for cycle in range(self.max_cycles):
             if self.token_budget > 0 and self._tokens_used >= self.token_budget:
@@ -1109,6 +1133,7 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop.analysis")
             )
+            self.run_logger.log_cases(data)
 
         all_hypotheses: list[Any] = []
         final_stats_report = None
@@ -1197,6 +1222,7 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop.confirm")
             )
+            self.run_logger.log_cases(data)
 
         # Regenerate the stats the tester needs only when not supplied. The M1/M2
         # events are NOT logged here — they were recorded in the analysis phase,

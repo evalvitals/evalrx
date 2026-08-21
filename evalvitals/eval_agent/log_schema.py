@@ -51,6 +51,8 @@ EVENT_TYPES: tuple[str, ...] = (
     "tool_registry",
     "agent_decision",
     "agent_tool",
+    "case_record",
+    "report_published",
 )
 
 #: Path to the committed, rendered schema shipped as package data.
@@ -285,6 +287,26 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "summary": {"type": "string"},
             "error": {"type": ["string", "null"]},
             "duration_sec": {"type": "number"},
+        },
+    },
+    "case_record": {
+        "required": ["case_id", "case", "media_paths"],
+        "properties": {
+            "case_id": {"type": "string"},
+            "case": {"type": "object"},
+            "media_paths": {"type": "array", "items": {"type": "string"}},
+        },
+    },
+    "report_published": {
+        "required": ["report_schema_version", "catalog_version", "sha256", "generated_by"],
+        "properties": {
+            "report_schema_version": {"type": "integer"},
+            "catalog_version": {"type": "string"},
+            "json_render_version": {"type": "string"},
+            "source_event_seq": {"type": "integer"},
+            "sha256": {"type": "string"},
+            "generated_by": {"type": "object"},
+            "report_paths": {"type": "array", "items": {"type": "string"}},
         },
     },
 }

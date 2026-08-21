@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://evalvitals.dev/schemas/run_log.schema.json",
   "title": "EvalVitals run_log.jsonl event",
-  "description": "One event per line in run_log.jsonl. Discriminated on `event`; matches schema_version 3. Permissive: extra (additive) fields are allowed.",
+  "description": "One event per line in run_log.jsonl. Discriminated on `event`; matches schema_version 4. Permissive: extra (additive) fields are allowed.",
   "$defs": {
     "envelope": {
       "type": "object",
@@ -28,11 +28,13 @@
             "tool_codegen",
             "tool_registry",
             "agent_decision",
-            "agent_tool"
+            "agent_tool",
+            "case_record",
+            "report_published"
           ]
         },
         "schema_version": {
-          "const": 3
+          "const": 4
         },
         "ts": {
           "type": "string",
@@ -912,6 +914,85 @@
           ]
         }
       ]
+    },
+    "case_record": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "const": "case_record"
+            },
+            "case_id": {
+              "type": "string"
+            },
+            "case": {
+              "type": "object"
+            },
+            "media_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "event",
+            "case_id",
+            "case",
+            "media_paths"
+          ]
+        }
+      ]
+    },
+    "report_published": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "const": "report_published"
+            },
+            "report_schema_version": {
+              "type": "integer"
+            },
+            "catalog_version": {
+              "type": "string"
+            },
+            "json_render_version": {
+              "type": "string"
+            },
+            "source_event_seq": {
+              "type": "integer"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "generated_by": {
+              "type": "object"
+            },
+            "report_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "event",
+            "report_schema_version",
+            "catalog_version",
+            "sha256",
+            "generated_by"
+          ]
+        }
+      ]
     }
   },
   "oneOf": [
@@ -953,6 +1034,12 @@
     },
     {
       "$ref": "#/$defs/agent_tool"
+    },
+    {
+      "$ref": "#/$defs/case_record"
+    },
+    {
+      "$ref": "#/$defs/report_published"
     }
   ]
 }

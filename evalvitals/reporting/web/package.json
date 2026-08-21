@@ -1,0 +1,32 @@
+{
+  "name": "evalvitals-report-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit --pretty false"
+  },
+  "dependencies": {
+    "@json-render/core": "0.19.0",
+    "@json-render/react": "0.19.0",
+    "@tanstack/react-virtual": "3.14.0",
+    "@xyflow/react": "12.10.0",
+    "echarts": "6.1.0",
+    "echarts-for-react": "3.0.5",
+    "lucide-react": "0.468.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.0.2",
+    "playwright-core": "1.55.0",
+    "typescript": "5.9.2",
+    "vite": "7.3.6",
+    "vite-plugin-singlefile": "2.3.3"
+  }
+}
