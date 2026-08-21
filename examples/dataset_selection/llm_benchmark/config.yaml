@@ -96,10 +96,13 @@ explore_max_attempts: 2      # a failed script gets one repair round, then the s
 
 # M4 surgery
 fix_max_tier: L3b
-fix_validation_cases: 40    # 0 = whole batch. Candidates run serially (~10 s/case on the 2B), and an
-                            # L2 coded pipeline makes 4-5 bridged calls per case: 250 cases cannot
-                            # finish inside fix_exec_timeout_sec, so it is killed as "timed out"
-                            # instead of being judged. The paired gate does not need the whole batch.
+fix_validation_cases: 0     # 0 = the whole partition (the default since 2026-08-21): every
+                            # candidate is selected on ALL of EXPLORE and the chosen one is
+                            # confirmed on ALL of CONFIRM. The old cap (40, label-stratified)
+                            # existed because candidates ran serially (~10 s/case on the 2B) and
+                            # an L2 coded pipeline makes 4-5 bridged calls per case; the bridge now
+                            # services calls concurrently (fix_concurrency), and the e>=20
+                            # certification gate is power-bound at n=40. Set N>0 to cap again.
 fix_exec_timeout_sec: 7200  # wall-clock per coded-pipeline run. Measured 16 s per bridged call
                             # on the 2B (long direct answers): 80 cases x ~5 calls serial would be
                             # ~1.8 h, which is why the bridge now services calls concurrently
@@ -130,20 +133,21 @@ fix_on_unverified: true     # when M5 verified nothing: still run the M4 interve
                             # is the paired candidate validation, not the hypothesis, so this is
                             # safe; false = old behaviour (verified only). CLI: --[no-]fix-unverified.
 
-# Cap on how many cases each per-case analyzer generates for. 0 = library
-# defaults (128 for prompt_contrast / calibration / linear_probe, 48 for
-# format_sensitivity, ...).
+# Cap on how many cases each per-case analyzer generates for. 0 = every case
+# (the default since 2026-08-21, for the library too: analyzers no longer ship
+# their own caps, so M1 on EXPLORE and the held-out M5 re-probe on CONFIRM each
+# measure their whole partition).
 #
-# This is the main knob on M1 wall-clock, because analyzers run in parallel with
-# EACH OTHER but iterate their own cases SERIALLY, one generate() at a time.
-# Measured against the 9B over the endpoint: ~49 s per call, so a 128-case
-# analyzer is a ~2 h straggler. On bbh_tracking7 the observed concurrency fell
-# 5.3 -> 1.0 and sat at 1.0 for four hours while one analyzer finished alone.
+# Why a cap ever existed: analyzers run in parallel with EACH OTHER but iterate
+# their own cases SERIALLY, one generate() at a time. Measured against the 9B
+# WITH THINKING over the endpoint: ~49 s per call, so a 128-case analyzer was a
+# ~2 h straggler. With thinking off (enable_thinking, above) a call is an order
+# of magnitude shorter, which is what makes the census affordable.
 #
-# It costs statistical power, not correctness -- same measurement, fewer of
-# them. run_pipeline prints exactly which analyzers were capped and records it
-# in summary.json, so a wide interval downstream is not misread as a null.
-analyzer_max_cases: 32
+# Setting N>0 costs statistical power, not correctness -- same measurement,
+# fewer of them. run_pipeline prints exactly which analyzers were capped and
+# records it in summary.json, so a wide interval is not misread as a null.
+analyzer_max_cases: 0
 
 # M1->explore->M2->M3->M5 iterations before M4/fix. The loop still stops early
 # when M5 verifies a hypothesis; extra cycles only matter when nothing

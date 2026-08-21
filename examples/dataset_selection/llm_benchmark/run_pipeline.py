@@ -524,8 +524,10 @@ def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -
         spec = params.get("max_cases")
         if spec is None or not isinstance(spec.default, int):
             continue
-        if spec.default <= max_cases:
+        if 0 < spec.default <= max_cases:
             continue  # already cheaper than the cap; leave it exactly as it is
+        # (a default of 0 means "every case" -- the library default since the
+        # caps were removed -- so it is the one that most needs bounding)
         if eligible is not None and name not in eligible:
             continue  # cannot run on this model at all
         if not _spends_gpu(cls):

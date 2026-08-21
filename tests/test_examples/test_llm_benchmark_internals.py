@@ -196,7 +196,9 @@ def test_cap_only_lowers_never_raises(pipe):
         if "max_cases" not in params:
             continue  # not a cap — e.g. the self_consistency answer_fn override
         default = params["max_cases"].default
-        assert default > 32, f"{name} defaulted to {default}, should have been left alone"
+        # 0 = "every case" (the library default): unbounded, so it IS capped
+        assert default == 0 or default > 32, (
+            f"{name} defaulted to {default}, should have been left alone")
         assert instance.max_cases == 32
 
 
