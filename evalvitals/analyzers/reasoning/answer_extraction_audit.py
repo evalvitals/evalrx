@@ -59,7 +59,7 @@ class AnswerExtractionAudit(Analyzer):
     Hyper-parameters:
         reask:      re-ask each suspect case with a strict output format
                     (1 generation per suspect; needs ``GENERATE``).
-        max_cases:  label-stratified cap.
+        max_cases:  label-stratified cap; 0 (the default) = every case.
         tail_chars: size of the trailing window treated as the answer region.
         answer_fn:  ``callable(text) -> str`` answer extractor.
         match_fn:   ``callable(prediction, gold) -> bool`` equality test.
@@ -74,7 +74,7 @@ class AnswerExtractionAudit(Analyzer):
     def __init__(
         self,
         reask: bool = False,
-        max_cases: int = 200,
+        max_cases: int = 0,
         tail_chars: int = 200,
         answer_fn: Optional[Callable[[Any], str]] = None,
         match_fn: Optional[Callable[[Any, Any], bool]] = None,

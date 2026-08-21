@@ -10,7 +10,8 @@ fix targeted at the last visible mistake is aimed at the wrong place.
 This is the text counterpart of the agent-side ``first_error_judge``: same
 question (which step is the first error?), answered by rollout statistics
 instead of an LLM judge, so it carries no judge bias — at the cost of
-``n_steps × n_rollouts`` generations, which is why ``max_cases`` defaults low.
+``n_steps × n_rollouts`` generations — on a large batch pass ``max_cases`` to
+bound it (the default, like every analyzer, measures every case).
 
 References:
 - Math-Shepherd: Verify and Reinforce LLMs Step-by-step without Human
@@ -70,7 +71,7 @@ class StepRolloutValueAnalyzer(Analyzer):
         n_rollouts:     completions sampled per step prefix.
         max_steps:      cap on probed steps (the chain is subsampled evenly).
         drop_threshold: value drop between consecutive steps that counts as the break.
-        max_cases:      label-stratified cap — cost is n_steps × n_rollouts each.
+        max_cases:      label-stratified cap — cost is n_steps × n_rollouts each; 0 (the default) = every case.
         gen_kwargs:     passed to ``model.generate`` (rollouts NEED temperature > 0;
                         a deterministic model makes every rollout identical and the
                         values collapse to 0/1 — the caveat says so).
@@ -86,7 +87,7 @@ class StepRolloutValueAnalyzer(Analyzer):
         n_rollouts: int = 3,
         max_steps: int = 7,
         drop_threshold: float = 0.34,
-        max_cases: int = 8,
+        max_cases: int = 0,
         gen_kwargs: Optional[dict] = None,
         grader: Optional[Callable[[Any, "FailureCase"], Optional[bool]]] = None,
         answer_fn: Optional[Callable[[Any], str]] = None,

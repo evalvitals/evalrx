@@ -41,14 +41,14 @@ class LayerContrastAnalyzer(Analyzer):
         pos:             query position to read (default ``-1``, the last token).
         skip_first_frac: fraction of early layers excluded from the premature
                          candidate set (embedding-adjacent layers are noise).
-        max_cases:       label-stratified cap (one forward per case).
+        max_cases:       label-stratified cap (one forward per case); 0 (the default) = every case.
     """
 
     name = "layer_contrast"
     requires = frozenset({Capability.HIDDEN_STATES})
     applies_to_modalities = frozenset({"text", "image"})
 
-    def __init__(self, pos: int = -1, skip_first_frac: float = 0.25, max_cases: int = 64) -> None:
+    def __init__(self, pos: int = -1, skip_first_frac: float = 0.25, max_cases: int = 0) -> None:
         super().__init__(pos=pos, skip_first_frac=float(skip_first_frac), max_cases=max_cases)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:

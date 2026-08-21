@@ -77,7 +77,7 @@ class ProbeGenerator:
                      the judge when present.
         sandbox:     Execution sandbox (fresh temp-dir when ``None``).
         timeout_sec: Hard wall-clock limit per sandbox run.
-        max_cases:   Cap on cases whose outputs are collected (cost guard).
+        max_cases:   Cap on cases whose outputs are collected (cost guard); 0 (the default) = every case.
     """
 
     def __init__(
@@ -86,7 +86,7 @@ class ProbeGenerator:
         cli_config: "CliAgentConfig | None" = None,
         sandbox: "ExperimentSandbox | None" = None,
         timeout_sec: int = 60,
-        max_cases: int = 200,
+        max_cases: int = 0,
         run_logger: "Any | None" = None,
     ) -> None:
         self._judge = judge
@@ -182,7 +182,10 @@ class ProbeGenerator:
     def _collect_outputs(self, model: "Model", cases: "CaseBatch") -> None:
         """Run the model on each case and serialise outputs to the sandbox dir."""
         records: list[dict[str, Any]] = []
-        for case in list(cases)[: self._max_cases]:
+        selected = list(cases)
+        if self._max_cases > 0:  # 0 = every case
+            selected = selected[: self._max_cases]
+        for case in selected:
             inp = getattr(case, "inputs", None)
             try:
                 output = str(model.generate(inp)) if inp is not None else ""

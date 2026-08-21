@@ -47,7 +47,7 @@ class LogitLensAnalyzer(Analyzer):
     Hyper-parameters:
         pos:       query position to read (default ``-1``, the last token).
         top_k:     number of candidates to report per layer (first case only).
-        max_cases: cap on cases analyzed (one forward each).
+        max_cases: cap on cases analyzed (one forward each); 0 (the default) = every case.
     """
 
     name = "logit_lens"
@@ -59,7 +59,7 @@ class LogitLensAnalyzer(Analyzer):
     # starves it — on a curated batch the stratified subsample then carries only
     # ~16 FAILs, too few for M5 to clear the e-value bar. 128 covers typical
     # mined fail counts (tens) plus controls at one forward each.
-    def __init__(self, pos: int = -1, top_k: int = 3, max_cases: int = 128) -> None:
+    def __init__(self, pos: int = -1, top_k: int = 3, max_cases: int = 0) -> None:
         super().__init__(pos=pos, top_k=top_k, max_cases=max_cases)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:

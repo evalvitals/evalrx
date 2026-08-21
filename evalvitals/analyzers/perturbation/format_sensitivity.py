@@ -139,14 +139,14 @@ class FormatSensitivityAnalyzer(Analyzer):
     Hyper-parameters:
         n_variants: rotations asked per case (rotation k shifts options by k;
                     capped at n_options - 1).
-        max_cases:  label-stratified cap on probed cases.
+        max_cases:  label-stratified cap on probed cases; 0 (the default) = every case.
     """
 
     name = "format_sensitivity"
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
-    def __init__(self, n_variants: int = 3, max_cases: int = 48) -> None:
+    def __init__(self, n_variants: int = 3, max_cases: int = 0) -> None:
         super().__init__(n_variants=max(1, int(n_variants)), max_cases=max_cases)
 
     @staticmethod

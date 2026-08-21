@@ -101,8 +101,9 @@ class StatsToolResultWire(WireModel):
     n_control: int | None = Field(default=None, description="Cases in the signal-absent group.")
     n_measured: int | None = Field(
         default=None,
-        description="Cases the producing analyzer actually measured. Analyzers are capped "
-                    "(analyzer_max_cases), so this is routinely far below the batch size.",
+        description="Cases the producing analyzer actually measured. Analyzers measure "
+                    "every case unless capped (an analyzer's max_cases or the probe "
+                    "agent's max_cases_per_analyzer), so compare this with the batch size.",
     )
     n_imputed_absent: int | None = Field(
         default=None,

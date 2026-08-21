@@ -337,7 +337,7 @@ class RelativeAttentionAnalyzer(Analyzer):
                         last layer is sink-dominated, see
                         :func:`resolve_attention_layer`).
         top_k:          Number of highest-scoring patches to include in findings.
-        max_cases:      Cap on analysed cases (2 attention-captured forwards each).
+        max_cases:      Cap on analysed cases (2 attention-captured forwards each); 0 (the default) = every case.
 
     Example::
 
@@ -360,7 +360,7 @@ class RelativeAttentionAnalyzer(Analyzer):
         general_prompt: str = "Describe the image.",
         layer: "int | float" = 0.75,
         top_k: int = 5,
-        max_cases: int = 32,
+        max_cases: int = 0,
     ) -> None:
         super().__init__(
             general_prompt=general_prompt, layer=layer, top_k=top_k, max_cases=max_cases
