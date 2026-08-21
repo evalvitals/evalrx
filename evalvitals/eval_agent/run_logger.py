@@ -478,6 +478,9 @@ class RunLogger:
         # events (which have no cycle of their own) can be correlated with the
         # M1→M5 events around them.  -1 means "outside any cycle" (e.g. post-loop M4).
         self.current_cycle: int = -1
+        # Stable ordering for Langfuse/API readers.  Timestamps alone are not
+        # sufficient when a stage emits several records in the same clock tick.
+        self._event_seq: int = 0
         # Monotonic counter so codegen artifacts written in the same cycle never
         # collide on filename. Lock guards the increment in case codegen calls
         # are ever issued from parallel analyzer threads (currently they aren't:
@@ -511,6 +514,11 @@ class RunLogger:
             self._console_handler.setFormatter(_VerboseFormatter())
             self.logger.addHandler(self._console_handler)
 
+        # Primary Langfuse & OpenTelemetry Tracing Engine
+        from evalvitals.observability.tracer import DiagnosticTracer
+        self.tracer = DiagnosticTracer(run_dir=self.run_dir)
+        self.tracer.trace_id = self.trace_id
+
     # ------------------------------------------------------------------
     # Run provenance
     # ------------------------------------------------------------------
@@ -538,6 +546,18 @@ class RunLogger:
         if commit:
             entry.setdefault("git_commit", commit)
         self._log(entry, span_id="run_start")
+
+        # Initialize root Langfuse Trace
+        model_name = str(entry.get("model") or "Target Model")
+        proto = entry.get("protocol") or {}
+        proto_desc = proto.get("description", "") if isinstance(proto, dict) else str(proto)
+        bench_name = str(entry.get("benchmark_name") or proto_desc or "Benchmark")
+        self.tracer.start_trace(
+            model=model_name,
+            benchmark=bench_name,
+            n_cases=int(entry.get("n_cases", 0) or 0),
+            metadata=entry,
+        )
 
     @staticmethod
     def _git_commit() -> "str | None":
@@ -650,6 +670,47 @@ class RunLogger:
             png = fig_dir / (Path(rel_npy).name[: -len(".npy")] + ".png")
             if png.exists():
                 png_figures.append(png)
+
+        # Native Langfuse Audit — stage span + one sub-span per probe.  The
+        # artifact paths (per-analyzer result JSONs, heavy arrays, rendered
+        # figures) are linked in metadata so the trace UI can jump straight
+        # to the files; the full findings ride on each probe span's output.
+        m1_span = self.tracer.start_span(
+            name=f"M1: Multi-Dimensional Checkup (Cycle {cycle})",
+            stage="M1",
+            input_data={"analyzers": list(results.keys()), "selected_analyzers": entry.get("selected_analyzers", [])},
+            metadata={
+                "duration_sec": duration_sec,
+                "artifacts": {
+                    "result_paths": result_paths,
+                    "artifact_paths": artifact_paths,
+                    "figures": [str(p) for p in png_figures],
+                },
+            },
+        )
+        if judge_prompt or judge_raw:
+            self.tracer.log_generation(
+                name="M1 Analyzer Selection",
+                model="judge",
+                prompt=judge_prompt or "",
+                completion=judge_raw or "",
+                span_id=m1_span,
+            )
+        for name, r in results.items():
+            findings = getattr(r, "findings", {}) or {}
+            per_case = findings.get("per_case") or []
+            probe_span = self.tracer.start_span(
+                name=f"Probe: {name}",
+                stage=f"M1_{name}",
+                input_data={"probe": name},
+                parent_id=m1_span,
+                metadata={
+                    "n_scored": len(per_case) if per_case else (findings.get("n_cases") or findings.get("n_scored")),
+                    "artifacts": {"result_path": result_paths.get(name)},
+                },
+            )
+            self.tracer.end_span(probe_span, output_data={"findings": findings})
+        self.tracer.end_span(m1_span, output_data={"n_probes": len(results)})
         return png_figures
 
     def log_analysis(
@@ -725,6 +786,49 @@ class RunLogger:
             entry["duration_sec"] = round(duration_sec, 3)
         self._log(entry, span_id=f"c{cycle}.m2")
 
+        # Native Langfuse Audit
+        def _ext_ptr(field: Any) -> "dict[str, Any] | None":
+            """The {path, n_items, bytes} pointer when *field* was externalized."""
+            return field if isinstance(field, dict) and "path" in field else None
+
+        m2_span = self.tracer.start_span(
+            name=f"M2: Screening & Confirmatory Signals (Cycle {cycle})",
+            stage="M2",
+            input_data={"severity": report.severity, "n_findings": len(report.findings)},
+            metadata={
+                "duration_sec": duration_sec,
+                "stats_tool": stats_tool,
+                "artifacts": {
+                    "figures": [str(f) for f in (figures or [])],
+                    "stats_results": _ext_ptr(entry.get("stats_results")),
+                    "stats_plan": _ext_ptr(entry.get("stats_plan")),
+                    "stats_tool_results": _ext_ptr(entry.get("stats_tool_results")),
+                    "corrected_rejections": _ext_ptr(entry.get("corrected_rejections")),
+                },
+            },
+        )
+        if getattr(report, "llm_prompt", None) or getattr(report, "llm_raw", None):
+            self.tracer.log_generation(
+                name="M2 Statistical Screening Analysis",
+                model="judge",
+                prompt=getattr(report, "llm_prompt", "") or "",
+                completion=getattr(report, "llm_raw", "") or "",
+                span_id=m2_span,
+            )
+        for s in (getattr(report, "stats_results", None) or []):
+            s_dict = s.to_dict() if hasattr(s, "to_dict") else (s if isinstance(s, dict) else {})
+            sig_name = s_dict.get("config", {}).get("signal") or s_dict.get("tool") or "signal"
+            eff = s_dict.get("effect")
+            pval = s_dict.get("p_value")
+            if eff is not None:
+                self.tracer.log_score(
+                    name=f"m2_effect_{sig_name}",
+                    value=float(eff),
+                    comment=f"p={pval}",
+                    span_id=m2_span,
+                )
+        self.tracer.end_span(m2_span, output_data={"conclusion": getattr(report, "conclusion", "")})
+
     def log_explore(
         self,
         cycle: int,
@@ -786,6 +890,48 @@ class RunLogger:
             entry["duration_sec"] = round(duration_sec, 3)
         self._log(entry, span_id=f"c{cycle}.explore")
 
+        # Native Langfuse Audit — the explore coder-agent trajectory: every
+        # attempt's raw CLI output becomes a generation; the synthesized
+        # analysis.py and the rendered figures/tables are linked as artifacts.
+        exp_span = self.tracer.start_span(
+            name=f"Explore: Free-form EDA (Cycle {cycle})",
+            stage="EXPLORE",
+            input_data={"ok": ok, "attempts": entry.get("attempts", 0)},
+            metadata={
+                "duration_sec": duration_sec,
+                "artifacts": {
+                    "out_dir": str(out_dir) if out_dir is not None else None,
+                    "report_path": entry.get("report_path"),
+                    "figures": rendered,
+                },
+            },
+        )
+        if report is not None:
+            for i, raw in enumerate(getattr(report, "raw_outputs", None) or []):
+                self.tracer.log_generation(
+                    name=f"Explore Coder Agent (attempt {i + 1})",
+                    model="coder_agent",
+                    prompt=None,
+                    completion=str(raw),
+                    span_id=exp_span,
+                )
+            if getattr(report, "code", None):
+                self.tracer.log_generation(
+                    name="Explore Analysis Code (analysis.py)",
+                    model="coder_agent",
+                    prompt=None,
+                    completion=str(report.code),
+                    span_id=exp_span,
+                )
+        self.tracer.end_span(
+            exp_span,
+            output_data={
+                "n_observations": entry.get("n_observations", 0),
+                "n_candidate_signals": entry.get("n_candidate_signals", 0),
+                "code_path": str(Path(out_dir) / "analysis.py") if out_dir else None,
+            },
+        )
+
     def log_diagnosis(
         self,
         cycle: int,
@@ -841,6 +987,30 @@ class RunLogger:
             entry["duration_sec"] = round(duration_sec, 3)
         self._log(entry, span_id=f"c{cycle}.m3")
 
+        # Native Langfuse Audit
+        m3_span = self.tracer.start_span(
+            name=f"M3: Root-Cause Diagnosis (Cycle {cycle})",
+            stage="M3",
+            input_data={"model_name": diag.model_name, "n_hypotheses": len(diag.hypotheses)},
+            metadata={"duration_sec": duration_sec},
+        )
+        m3_prompt = getattr(diag, "prompt", None) or ""
+        if not m3_prompt and judge_io and judge_io.get("prompt_path"):
+            # The prompt object wasn't retained — read it back from prompts/.
+            try:
+                m3_prompt = (self.run_dir / judge_io["prompt_path"]).read_text(encoding="utf-8")
+            except Exception:
+                m3_prompt = ""
+        self.tracer.log_generation(
+            name="AI Doctor Diagnostician",
+            model=diag.model_name,
+            prompt=m3_prompt,
+            completion=diag.raw_judge_output or "",
+            span_id=m3_span,
+            metadata={"hypotheses": [h.statement for h in diag.hypotheses]},
+        )
+        self.tracer.end_span(m3_span, output_data={"n_hypotheses": len(diag.hypotheses)})
+
     def log_surgery(
         self,
         cycle: int,
@@ -848,11 +1018,16 @@ class RunLogger:
         iv: "InterventionResult",
         *,
         duration_sec: "float | None" = None,
+        judge_prompt: "str | None" = None,
+        judge_raw: "str | None" = None,
     ) -> None:
         """M4/M5: log intervention outcome for one hypothesis.
 
         M5 results are distinguished by the presence of ``m5_test_name`` in
         ``iv.evidence``; they get span_id ``c{cycle}.m5`` instead of ``.m4``.
+        The M5 protocol-consistency judge call (when a judge was used) is
+        saved under ``prompts/`` via ``judge_io`` — same pattern as
+        M1/M2/M3, closing the last gap in verbatim judge I/O coverage.
         """
         is_m5 = "m5_test_name" in (iv.evidence or {})
         span_suffix = "m5" if is_m5 else "m4"
@@ -871,7 +1046,36 @@ class RunLogger:
         }
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
+        slug = re.sub(r"[^a-z0-9]+", "_", hypothesis.statement.lower())[:40].strip("_") or "hyp"
+        judge_io = self._save_judge_io(f"c{cycle}_{span_suffix}_{slug}", judge_prompt, judge_raw)
+        if judge_io:
+            entry["judge_io"] = judge_io
         self._log(entry, span_id=f"c{cycle}.{span_suffix}")
+
+        # Native Langfuse Audit
+        stage_title = "M5 Adjudication" if is_m5 else "M4 Intervention"
+        surg_span = self.tracer.start_span(
+            name=f"{stage_title}: {hypothesis.statement[:60]}",
+            stage="M5" if is_m5 else "M4_SURGERY",
+            input_data={"hypothesis": hypothesis.statement, "failure_mode": hypothesis.predicted_failure_mode},
+            metadata={"status": iv.status.value, "fixed": iv.fixed, "confidence_score": iv.confidence_score},
+        )
+        if judge_prompt or judge_raw:
+            self.tracer.log_generation(
+                name=f"{stage_title}: Protocol Consistency Judge",
+                model="judge",
+                prompt=judge_prompt or "",
+                completion=judge_raw or "",
+                span_id=surg_span,
+            )
+        if iv.confidence_score is not None:
+            self.tracer.log_score(
+                name="adjudication_confidence",
+                value=float(iv.confidence_score),
+                comment=f"status={iv.status.value}, fixed={iv.fixed}",
+                span_id=surg_span,
+            )
+        self.tracer.end_span(surg_span, output_data={"evidence": iv.evidence or {}})
 
     def log_agent_decision(
         self,
@@ -964,11 +1168,46 @@ class RunLogger:
         for a in d.get("attempted") or []:
             outputs = a.pop("outputs", None)
             a["n_outputs"] = len(outputs) if isinstance(outputs, dict) else 0
+        best_ref = d.get("best")
+        if isinstance(best_ref, dict):
+            best = best_ref
+        elif isinstance(best_ref, str):
+            best = next(
+                (a for a in d.get("attempted") or [] if a.get("name") == best_ref), {}
+            )
+        else:
+            best = {}
         entry: dict[str, Any] = {"event": "fix", "cycle": -1, "module": "fix"}
         entry.update(d)
+        # FixOutcome serializes ``best`` as a candidate name.  Consumers of the
+        # event need the selected candidate's metadata, just as Langfuse does.
+        entry["best"] = best
         if record is not None:
             entry["record"] = record
         self._log(entry, span_id="fix")
+
+        # Native Langfuse Audit
+        fix_span = self.tracer.start_span(
+            name="M4: Targeted Repair & Confirmation",
+            stage="M4_FIX",
+            input_data={"candidates_evaluated": len(d.get("attempted", []))},
+        )
+        if best.get("effect") is not None:
+            self.tracer.log_score(
+                name="repair_net_accuracy_gain",
+                value=float(best.get("effect", 0.0)),
+                comment=f"cured={best.get('n_fixed')}, broken={best.get('n_broken')}",
+                span_id=fix_span,
+            )
+        if (best.get("payload") or {}).get("prompt_template"):
+            self.tracer.log_generation(
+                name="Winning Repair Patch",
+                model="evalvitals_repair",
+                prompt="Repair Candidate Search",
+                completion=best["payload"]["prompt_template"],
+                span_id=fix_span,
+            )
+        self.tracer.end_span(fix_span, output_data={"selected": best.get("name")})
 
     def _write_fix_records(self, d: "dict[str, Any]") -> "str | None":
         """Write per-candidate records + ``fixes/outcome.md``; return the outcome path.
@@ -1221,6 +1460,11 @@ class RunLogger:
                 for tr in verified
             ]
         self._log(entry)
+        try:
+            bundle_out = self.run_dir / "langfuse_trace.json"
+            self.tracer.export_bundle(bundle_out)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Experiment log (M4) + workspace snapshot
@@ -1391,6 +1635,7 @@ class RunLogger:
         code: str = "",
         prompt: str = "",
         raw_output: str = "",
+        raw_stream: str = "",
         error: str = "",
         stdout: str = "",
         cycle: "int | None" = None,
@@ -1420,6 +1665,7 @@ class RunLogger:
             ("code", code, "code.py"),
             ("prompt", prompt, "prompt.txt"),
             ("raw_output", raw_output, "agent_thinking.txt"),
+            ("raw_stream", raw_stream, "agent_raw_stream.txt"),
             ("stdout", stdout, "stdout.txt"),
         ):
             if content:
@@ -1441,6 +1687,25 @@ class RunLogger:
         if extra:
             entry.update(extra)
         self._log(entry, span_id=f"{prefix}.{module}.codegen")
+
+        # Native Langfuse Audit — the coder agent's trajectory for this
+        # synthesis attempt: prompt, raw agent output, generated code, and
+        # the tools/ paths where they were persisted.
+        cg_span = self.tracer.start_span(
+            name=f"Tool Codegen: {module}/{name}",
+            stage=f"CODEGEN_{module}",
+            input_data={"need": need, "source": source},
+            metadata={"ok": ok, "error": error or None, "artifacts": paths},
+        )
+        if prompt or raw_output:
+            self.tracer.log_generation(
+                name=f"Tool Synthesis: {name}",
+                model=source,
+                prompt=prompt or "",
+                completion=raw_stream or raw_output or code,
+                span_id=cg_span,
+            )
+        self.tracer.end_span(cg_span, output_data={"ok": ok, "code_chars": len(code or "")})
 
     def log_tool_registry(
         self,
@@ -1489,7 +1754,18 @@ class RunLogger:
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """Flush and close all log handlers."""
+        """Flush and close all log handlers and persist Langfuse trace bundle."""
+        try:
+            bundle_out = self.run_dir / "langfuse_trace.json"
+            self.tracer.export_bundle(bundle_out)
+        except Exception:
+            pass
+        self.tracer.end_trace({
+            "spans": len(self.tracer.spans),
+            "generations": len(self.tracer.generations),
+            "scores": len(self.tracer.scores),
+        })
+        self.tracer.flush()
         for handler in (self._file_handler, self._console_handler):
             if handler is not None:
                 handler.flush()
@@ -1510,14 +1786,20 @@ class RunLogger:
     # ------------------------------------------------------------------
 
     def _log(self, entry: dict[str, Any], *, span_id: str | None = None) -> None:
+        self._event_seq += 1
         entry["schema_version"] = RUN_LOG_SCHEMA_VERSION
         entry["ts"] = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         entry["trace_id"] = self.trace_id
+        entry["event_seq"] = self._event_seq
         if span_id is not None:
             entry["span_id"] = span_id
         if self._validate_events:
             self._validate_event(entry)
         self.logger.info("run_event", extra={"_payload": entry})
+        try:
+            self.tracer.record_event(entry, event_seq=self._event_seq)
+        except Exception as exc:  # noqa: BLE001 - a telemetry disk error must not lose a run
+            warnings.warn(f"RunLogger: could not queue Langfuse event: {exc}")
 
     def _validate_event(self, entry: dict[str, Any]) -> None:
         """Opt-in self-check: warn (never raise) when an event violates the schema.

@@ -216,11 +216,25 @@ included and hoped-for.
 ## Case study: listen to the clips, answer them yourself
 
 ```bash
-pip install -e ".[dashboard]"
-evalvitals dashboard examples/m1_m4/mmau_qwen2_audio
+evalvitals report examples/m1_m4/mmau_qwen2_audio/outputs \
+  --example-dir examples/m1_m4/mmau_qwen2_audio
+evalvitals serve examples/m1_m4/mmau_qwen2_audio/outputs
 ```
 
-The dashboard reads every `outputs/*.json` here and re-joins case ids to
+The report re-joins case ids to
 `data/mmau_test_mini.jsonl`, so each case shows up with its `.wav` in an
 audio player, its question and its four options. Requires `./data` to be
 populated — playback needs the audio files `download_mmau.py` fetched.
+
+## Demo page: the whole loop as one shareable HTML file
+
+```bash
+evalvitals report outputs \
+  --example-dir . \
+  --out demo_page/index.html
+```
+
+This renders one finished run as a single self-contained page (every figure and
+clip inlined) covering all eight `STAGE_IO` stages, including the ones the run
+skipped. It is the supported viewer; `demo_page/index.html` is simply a
+shareable output location. Needs `ffmpeg` to transcode embedded audio.

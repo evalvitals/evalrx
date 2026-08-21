@@ -182,7 +182,7 @@ evalvitals explore /path/to/results \
   --backend antigravity \
   -q "Which failure patterns distinguish wrong answers from correct ones?" \
   --out evalvitals_explore_output \
-  --dashboard          # optional
+  --serve-report       # optional local browser server
 ```
 
 The run writes the generated code, stdout/stderr, a structured exploratory
@@ -194,7 +194,7 @@ is carved off BEFORE exploration (outcome-stratified, deterministic), the
 explorer is told to freeze threshold-explicit recipes, and after M3 the
 held-out rows re-test every recipe verbatim (e-BH, `split_label="held_out"`)
 while an LLM judge grades each hypothesis — `confirm_report.json` lands next
-to the report and fills the dashboard's *Held-out Verdicts* tab.
+to the report and fills the *Held-out Verdicts* section.
 
 **Agent-trajectory records.** Rows produced by
 `evalvitals.analysis.trajectory_records` flow through explore unchanged; use
@@ -207,23 +207,10 @@ from the *interventional* probes (`reliability_probe`, `tool_shap`) must be
 reusing exploration-set values would test nothing. Budget for it: held-out
 confirmation of these columns costs the same per case as exploration did.
 
-Open the saved output as a dashboard:
+Open the saved output as a local static report:
 
 ```bash
-pip install -e ".[dashboard]"
-evalvitals dashboard evalvitals_explore_output
-```
-
-Or serve the browser-first workbench — upload a .zip of tabular data and/or
-media to start a persistent analysis thread, with existing result directories
-attached read-only in the same sidebar. The page streams durable stage events,
-shows M2 before M3 has finished, and supports follow-up questions over the same
-normalized bundle. Every result renders with one fixed five-tab layout (problem
-setting, exploratory analysis, hypotheses, held-out verdicts, fix); stages a
-run never reached grey out as "not available":
-
-```bash
-evalvitals web my_runs --port 8500 --attach evalvitals_explore_output
+evalvitals serve evalvitals_explore_output
 ```
 
 See [Exploratory Analysis (M2/M3)](m2_analysis.md) for the full standalone
@@ -236,7 +223,7 @@ Point the same command at an `examples/` bench run — a directory holding
 dashboard opens a **case book** instead of the explore layout:
 
 ```bash
-evalvitals dashboard examples/agent_loop/qwen2_audio_tcd_mmau
+evalvitals serve examples/agent_loop/qwen2_audio_tcd_mmau
 ```
 
 Three tabs: *Run Overview* (splits, hypothesis, where the baseline fails),

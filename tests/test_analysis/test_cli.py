@@ -55,35 +55,57 @@ def test_top_level_dashboard_help(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["dashboard", "--help"])
     assert exc.value.code == 0
-    assert "Streamlit dashboard" in capsys.readouterr().out
+    assert "Deprecated alias" in capsys.readouterr().out
 
 
-def test_top_level_web_help(capsys):
+def test_top_level_serve_help(capsys):
     with pytest.raises(SystemExit) as exc:
-        main(["web", "--help"])
+        main(["serve", "--help"])
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "upload a .zip" in out
-    assert "--backend" in out
+    assert "Generate (if needed)" in out
+    assert "--no-browser" in out
 
 
-def test_top_level_web_dispatch(monkeypatch):
+def test_top_level_serve_dispatch(monkeypatch):
     import evalvitals.cli as cli_mod
 
     captured = {}
 
-    def _fake_launch(workspace, *, port, backend, model, timeout_sec, attach):
-        captured.update(workspace=workspace, port=port, backend=backend,
-                        model=model, timeout_sec=timeout_sec, attach=attach)
+    def _fake_serve(run_dir, *, port, no_audio, open_browser, block=True):
+        captured.update(run_dir=run_dir, port=port, no_audio=no_audio,
+                        open_browser=open_browser, block=block)
         return 0
 
-    monkeypatch.setattr(cli_mod, "launch_upload_app", _fake_launch)
-    assert main(["web", "my_runs", "--port", "8500", "--backend", "claude_code",
-                 "--model", "claude-opus-4-8", "--timeout-sec", "900",
-                 "--attach", "outputs_a", "--attach", "outputs_b"]) == 0
-    assert captured == {"workspace": "my_runs", "port": 8500,
-                        "backend": "claude_code", "model": "claude-opus-4-8",
-                        "timeout_sec": 900, "attach": ["outputs_a", "outputs_b"]}
+    monkeypatch.setattr(cli_mod, "serve_report", _fake_serve)
+    assert main(["serve", "my_run", "--port", "8500", "--no-audio", "--no-browser"]) == 0
+    assert captured == {"run_dir": "my_run", "port": 8500, "no_audio": True,
+                        "open_browser": False, "block": True}
+
+
+def test_langfuse_report_source_materializes_a_cache(monkeypatch, tmp_path):
+    import evalvitals.cli as cli_mod
+    import evalvitals.reporting.langfuse_source as source_mod
+
+    captured = {}
+
+    class Source:
+        def materialize(self, trace_id, destination):
+            captured["trace_id"] = trace_id
+            captured["destination"] = destination
+            return tmp_path
+
+    def _build(**kwargs):
+        captured.update(kwargs)
+        return tmp_path / "report.html"
+
+    monkeypatch.setattr(source_mod, "LangfuseRunSource", Source)
+    monkeypatch.setattr("evalvitals.reporting.html_report.build_html_report", _build)
+    monkeypatch.setattr(cli_mod, "_langfuse_cache", lambda _trace: tmp_path / "cache")
+
+    assert main(["report", "--source", "langfuse", "--trace-id", "trace-1"]) == 0
+    assert captured["trace_id"] == "trace-1"
+    assert captured["run_dir"] == str(tmp_path)
 
 
 def test_top_level_explore_holdout_dispatch(monkeypatch):

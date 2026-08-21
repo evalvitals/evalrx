@@ -28,6 +28,7 @@ class Hypothesis:
         statement:              Natural-language claim (LLM-generated/readable).
         target_model:           Registered model name the claim is about.
         predicted_failure_mode: Tag/description of the expected failure.
+        plain_statement:        Plain-language explanation understandable by a layperson.
         test_design:            How to verify this claim — analyzer / per-case
                                 signal / strategy-contrast keywords proposed by
                                 M3 (e.g. ``"relative_attention.max_relative_weight"``,
@@ -49,6 +50,7 @@ class Hypothesis:
     statement: str
     target_model: str
     predicted_failure_mode: str
+    plain_statement: str = ""
     test_design: str = ""
     expected_association: str = ""
     status: HypothesisStatus = HypothesisStatus.PROPOSED
@@ -80,8 +82,10 @@ class HypothesisGenerator:
 
 def hypothesis_to_dict(h: Hypothesis) -> dict[str, Any]:
     """Serialize a Hypothesis to a JSON-compatible dict."""
+    plain = h.plain_statement or (h.metadata.get("plain_statement", "") if h.metadata else "")
     return {
         "statement": h.statement,
+        "plain_statement": plain,
         "target_model": h.target_model,
         "predicted_failure_mode": h.predicted_failure_mode,
         "test_design": h.test_design,
@@ -101,15 +105,17 @@ def hypothesis_from_dict(data: dict[str, Any]) -> Hypothesis:
         status = HypothesisStatus(raw_status)
     except ValueError:
         status = HypothesisStatus.PROPOSED
+    plain = data.get("plain_statement") or (data.get("metadata", {}).get("plain_statement", "") if isinstance(data.get("metadata"), dict) else "")
     return Hypothesis(
         statement=str(data.get("statement", "")),
         target_model=str(data.get("target_model", "")),
         predicted_failure_mode=str(data.get("predicted_failure_mode", "")),
+        plain_statement=plain,
         test_design=str(data.get("test_design", "")),
         expected_association=str(data.get("expected_association", "")),
         status=status,
         parent_id=data.get("parent_id"),
-        id=str(data.get("id", "")),
+        id=data.get("id", ""),
         evidence=list(data.get("evidence", [])),
         metadata=dict(data.get("metadata", {})),
     )

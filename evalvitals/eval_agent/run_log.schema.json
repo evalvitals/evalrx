@@ -42,6 +42,10 @@
         "trace_id": {
           "type": "string"
         },
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
         "span_id": {
           "type": "string"
         },
@@ -360,6 +364,12 @@
                   "statement": {
                     "type": "string"
                   },
+                  "plain_statement": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "failure_mode": {
                     "type": [
                       "string",
@@ -486,6 +496,23 @@
             },
             "duration_sec": {
               "type": "number"
+            },
+            "judge_io": {
+              "type": "object",
+              "properties": {
+                "prompt_path": {
+                  "type": "string"
+                },
+                "prompt_chars": {
+                  "type": "integer"
+                },
+                "raw_path": {
+                  "type": "string"
+                },
+                "raw_chars": {
+                  "type": "integer"
+                }
+              }
             }
           },
           "required": [
@@ -655,6 +682,12 @@
                 "properties": {
                   "statement": {
                     "type": "string"
+                  },
+                  "plain_statement": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "failure_mode": {
                     "type": [

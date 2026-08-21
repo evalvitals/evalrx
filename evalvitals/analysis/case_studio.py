@@ -17,7 +17,7 @@ could not listen to the clip, read the question, or answer it yourself.
 This module is that join, and it is deliberately Streamlit-free (same split as
 ``workbench.py``): it resolves the manifest, normalizes rows from either
 benchmark's field names into one :class:`CaseView`, and labels every case with
-what each repair candidate did to it. ``dashboard_app.py`` renders the result.
+what each repair candidate did to it. The static HTML report renders the result.
 
 Manifest resolution prefers an explicit ``report["dataset"]["manifest"]``
 pointer (written by newer runners); older reports fall back to a search of the

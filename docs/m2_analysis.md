@@ -20,7 +20,6 @@ This page only covers the standalone M2/M3 workflow.
 
 ```bash
 pip install -e .                  # core
-pip install -e ".[dashboard]"     # + Streamlit dashboard
 ```
 
 ## Quickstart
@@ -29,7 +28,7 @@ pip install -e ".[dashboard]"     # + Streamlit dashboard
 evalvitals explore /path/to/results \
   -q "Which features distinguish incorrect cases from correct cases?" \
   --out evalvitals_explore_output \
-  --dashboard
+  --serve-report
 ```
 
 `/path/to/results` is a single `.json`/`.jsonl` file or a directory tree;
@@ -80,18 +79,18 @@ Each M3 hypothesis in `exploratory_report.json["hypotheses"]` has:
 
 Both M2 takeaways and M3 hypotheses carry a plain-language headline
 (`takeaways[i].plain_title`, `hypotheses[i].plain_statement`) alongside the
-precise technical line (`title`/`statement`) — the dashboard shows the plain
+precise technical line (`title`/`statement`) — the report shows the plain
 version first and the technical wording underneath as a secondary detail.
 This is host-checked (no stats jargon/acronyms/symbols); a violation triggers
 one bounded rewrite before the report is returned.
 
-## Dashboard
+## Report
 
 ```bash
-evalvitals dashboard evalvitals_explore_output --port 8501
+evalvitals serve evalvitals_explore_output --port 8501
 ```
 
-Reads the saved artifacts (no re-run) across three tabs: **Problem Setting**,
+Reads the saved artifacts (no re-run) in a portable static HTML report across **Problem Setting**,
 **Exploratory Analysis** (M2 charts/takeaways), and **Hypotheses** (M3,
 proposal-only — no verdict language).
 

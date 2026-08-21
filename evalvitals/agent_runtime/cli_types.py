@@ -58,6 +58,10 @@ class CliAgentResult:
     usage: dict | None = None
     error: str | None = None
     audit: dict | None = None
+    # Path (inside the invocation workdir) of the UNTRUNCATED raw agent
+    # stream — ``raw_output`` above is a capped rendering for UIs; the full
+    # stream (every tool call and result) is persisted here for debugging.
+    raw_stream_path: str = ""
 
     @property
     def ok(self) -> bool:

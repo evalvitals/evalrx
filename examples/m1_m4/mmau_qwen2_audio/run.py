@@ -199,16 +199,23 @@ def build_protocol() -> "Any":
     )
 
 
-def build_judge(model_name: str, effort: str) -> "Any":
-    from evalvitals.eval_agent import ClaudeModel
+def build_judge(provider: str, model_name: str, effort: str) -> "Any":
+    if provider == "agy":
+        from evalvitals.agent_runtime.judges import AgyModel
 
-    judge = ClaudeModel(model=model_name, effort=effort)
+        judge = AgyModel(model=model_name, timeout_sec=300)
+        label = f"agy model={model_name or 'session default'}"
+        empty_hint = "agy is likely rate-limited/quota-exhausted -- try --judge-model with a different agy model"
+    else:
+        from evalvitals.eval_agent import ClaudeModel
+
+        model_name = model_name or "claude-fable-5"
+        judge = ClaudeModel(model=model_name, effort=effort)
+        label = f"claude model={model_name} effort={effort or 'default'}"
+        empty_hint = f"claude --model {model_name} returned empty (rate-limited?) -- try --judge-model sonnet or haiku"
     if not judge.generate("Reply with exactly the word OK").strip():
-        raise SystemExit(
-            f"judge probe: claude --model {model_name} returned empty "
-            f"(rate-limited?) — try --judge-model sonnet or haiku"
-        )
-    print(f"judge: claude model={model_name} effort={effort or 'default'}")
+        raise SystemExit(f"judge probe: {empty_hint}")
+    print(f"judge: {label}")
     return judge
 
 
@@ -544,6 +551,15 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
     )
     ctx.logger.log_fix(outcome)
     ctx.finalize()
+    from evalvitals.reporting.html_report import build_html_report
+
+    report_html_path = Path(args.run_dir).resolve() / "report.html"
+    build_html_report(
+        ctx.root,
+        example_dir=HERE,
+        out_path=report_html_path,
+        no_audio=args.report_media == "none",
+    )
 
     print("\nPREREGISTERED TCD CONFIRMATION")
     if args.prior_confirm_result:
@@ -593,7 +609,18 @@ def main() -> int:
              "downstream would ever read the held-out partition.",
     )
     parser.add_argument("--fix-max-tier", default="L3a")
-    parser.add_argument("--judge-model", default="claude-fable-5")
+    parser.add_argument(
+        "--judge-provider", choices=["claude", "agy"], default="agy",
+        help="'agy' (default, Antigravity CLI, no Anthropic API key -- see "
+             "evalvitals/agent_runtime/judges/agy.py) or 'claude' (native "
+             "claude CLI). Matches vlm_benchmark_common.py's default.",
+    )
+    parser.add_argument(
+        "--judge-model", default="",
+        help="model name passed to the judge CLI. Empty = provider default "
+             "(claude-fable-5 for --judge-provider claude; agy session default "
+             "for --judge-provider agy).",
+    )
     parser.add_argument("--judge-effort", default="low")
     parser.add_argument("--seed", type=int, default=20260814)
     parser.add_argument(
@@ -631,6 +658,10 @@ def main() -> int:
              "TCD result's paired sufficient statistics with the new batch",
     )
     parser.add_argument("--run-dir", default=str(HERE / "outputs"))
+    parser.add_argument(
+        "--report-media", choices=["inline", "none"], default="inline",
+        help="media policy for the generated report; inline makes one shareable HTML file",
+    )
     parser.add_argument(
         "--smoke-test", action="store_true",
         help="fast wiring check (no GPU/model/judge) -- see module docstring",
@@ -677,7 +708,7 @@ def main() -> int:
         "-- tcd_temporal_blur will never be proposed by loop.run_fix with this batch"
     )
 
-    judge = build_judge(args.judge_model, args.judge_effort)
+    judge = build_judge(args.judge_provider, args.judge_model, args.judge_effort)
 
     from evalvitals.eval_agent import (
         DiagnosisAgent,
@@ -696,6 +727,7 @@ def main() -> int:
         Path(args.run_dir) / "logs", verbose=True,
         config={
             "model": args.model,
+            "judge_provider": args.judge_provider,
             "judge_model": args.judge_model,
             "limit": args.limit,
             "max_cycles": args.max_cycles,
@@ -750,10 +782,13 @@ def main() -> int:
     from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
 
     coder_cfg = CliAgentConfig(
-        provider="claude_code",
+        provider="antigravity" if args.judge_provider == "agy" else "claude_code",
         model=args.judge_model,
         timeout_sec=900,
-        extra_args=(("--effort", args.judge_effort) if args.judge_effort else ()),
+        extra_args=(
+            () if args.judge_provider == "agy"
+            else (("--effort", args.judge_effort) if args.judge_effort else ())
+        ),
     )
     explorer = None
     if args.explore and not args.analysis_only:
@@ -829,6 +864,16 @@ def main() -> int:
             print(f"  VERDICT    : not fixed; already at the highest tier ({args.fix_max_tier})")
 
     ctx.finalize()
+    from evalvitals.reporting.html_report import build_html_report
+
+    report_html_path = Path(args.run_dir).resolve() / "report.html"
+    build_html_report(
+        ctx.root,
+        example_dir=HERE,
+        out_path=report_html_path,
+        no_audio=args.report_media == "none",
+    )
+    print(f"  Interactive Tabbed HTML Report -> {report_html_path}")
     print(f"\n  Full guide -> {ctx.root / 'README.txt'}")
     return 0
 

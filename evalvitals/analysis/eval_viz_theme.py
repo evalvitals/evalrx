@@ -10,8 +10,8 @@ Goal: one import fixes the three recurring problems —
       compact) and chart builders that pick distribution plots over two-bar plots
   (3) inconsistent number / bin formatting           -> fmt() and human_bins()
 
-Targets plotly (matches a Streamlit st.plotly_chart pipeline). A matplotlib
-rcParams equivalent is at the bottom for non-plotly callers.
+Targets Plotly and static report figures. A matplotlib rcParams equivalent is
+at the bottom for non-Plotly callers.
 
 Usage
 -----
@@ -93,14 +93,8 @@ def outcome_color(v):
     return OUTCOME_COLORS.get(v, PALETTE["ACCENT"])
 
 def _detect_dark() -> bool:
-    """Best-effort dark-mode detection via Streamlit's theme context; False
-    (light) if streamlit isn't installed or there's no active script run
-    (e.g. notebook/CLI use of this module)."""
-    try:
-        import streamlit as st
-        return st.context.theme.type == "dark"
-    except Exception:
-        return False
+    """Static report figures use the portable light palette by default."""
+    return False
 
 
 # ---------------------------------------------------------------------------

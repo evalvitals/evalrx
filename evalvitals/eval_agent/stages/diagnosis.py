@@ -208,6 +208,7 @@ _HYPOTHESIS_SCHEMA: dict = {
         "required": ["hypothesis", "failure_mode"],
         "properties": {
             "hypothesis":   {"type": "string", "minLength": 10},
+            "plain_statement": {"type": "string"},
             "failure_mode": {"type": "string", "minLength": 2},
             "expected_association": {"type": "string"},
         },
@@ -245,6 +246,7 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
             statement=item["hypothesis"],
             target_model=model_name,
             predicted_failure_mode=item["failure_mode"],
+            plain_statement=str(item.get("plain_statement") or item.get("plain_language") or item.get("plain") or ""),
             test_design=str(item.get("test", "")),
             expected_association=str(item.get("expected_association", "")),
         )
@@ -260,7 +262,7 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
 # response and M3 reported zero. Normalise the label, leave the text alone.
 _LABEL_LINE = re.compile(
     r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]*\s*"
-    r"(HYPOTHESIS|FAILURE_MODE|TEST|KEEP|REJECT)\s*[*_`]*\s*:\s*[*_`]*\s*",
+    r"(HYPOTHESIS|PLAIN_STATEMENT|PLAIN_LANGUAGE|FAILURE_MODE|TEST|EXPECTED_ASSOCIATION|KEEP|REJECT)\s*[*_`]*\s*:\s*[*_`]*\s*",
     re.IGNORECASE,
 )
 
@@ -294,10 +296,17 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
     # Text-format fallback
     hypotheses: list[Hypothesis] = []
     statement: str | None = None
+    plain_statement: str = ""
     for line in raw.splitlines():
         line = _normalise_label_line(line)
         if line.upper().startswith("HYPOTHESIS:"):
             statement = line[len("HYPOTHESIS:"):].strip()
+            plain_statement = ""
+        elif (line.upper().startswith("PLAIN_STATEMENT:") or line.upper().startswith("PLAIN_LANGUAGE:")):
+            tag = "PLAIN_STATEMENT:" if line.upper().startswith("PLAIN_STATEMENT:") else "PLAIN_LANGUAGE:"
+            plain_statement = line[len(tag):].strip()
+            if hypotheses and not hypotheses[-1].plain_statement:
+                hypotheses[-1].plain_statement = plain_statement
         elif line.upper().startswith("FAILURE_MODE:") and statement:
             mode = line[len("FAILURE_MODE:"):].strip()
             hypotheses.append(
@@ -305,9 +314,11 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
                     statement=statement,
                     target_model=model_name,
                     predicted_failure_mode=mode,
+                    plain_statement=plain_statement,
                 )
             )
             statement = None
+            plain_statement = ""
         elif line.upper().startswith("TEST:") and hypotheses:
             # Attach the test design to the most recent hypothesis.
             hypotheses[-1].test_design = line[len("TEST:"):].strip()

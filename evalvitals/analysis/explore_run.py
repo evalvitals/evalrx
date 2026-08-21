@@ -214,6 +214,13 @@ def run_explore(
                 json.dumps(split_meta, indent=1), encoding="utf-8"
             )
 
+    # The HTML report is the canonical visualization artifact.  Generate it
+    # even when the caller does not immediately open a browser so every
+    # completed exploratory run is portable and reviewable.
+    from evalvitals.reporting.html_report import build_html_report
+
+    build_html_report(out_dir, out_path=out_dir / "report.html")
+
     if dashboard:
         from evalvitals.analysis.dashboard import launch_dashboard
 
@@ -272,11 +279,27 @@ def write_report_artifacts(
             "\n\n--- attempt ---\n\n".join(report.raw_outputs),
             encoding="utf-8",
         )
+    # The UNTRUNCATED raw CLI streams (one per attempt) — the truncated
+    # rendering above is for compact UIs; this is the full audit trail.
+    raw_streams = getattr(report, "raw_streams", None) or []
+    if any(s.strip() for s in raw_streams):
+        (out_dir / "agent_raw_streams.txt").write_text(
+            "\n\n--- attempt (full stream) ---\n\n".join(raw_streams),
+            encoding="utf-8",
+        )
     if report.agent_audits:
         (out_dir / "agent_audit.json").write_text(
             json.dumps({"schema_version": 1, "attempts": report.agent_audits}, indent=2),
             encoding="utf-8",
         )
+
+    # Clean up redundant nested sandbox directory so out_dir is the single clean source of truth
+    workdir = Path(getattr(report, "workdir", "") or "")
+    try:
+        if workdir.exists() and workdir.resolve() != out_dir.resolve() and workdir.is_relative_to(out_dir):
+            shutil.rmtree(workdir)
+    except Exception:
+        pass
 
 
 def _copy_artifact_dirs(report: Any, out_dir: Path) -> None:

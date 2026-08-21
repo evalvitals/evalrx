@@ -19,6 +19,9 @@ class CodegenCodeResult:
     error: str | None = None
     elapsed_sec: float = 0.0
     audit: dict | None = None
+    # Path (relative to the invocation workdir) of the UNTRUNCATED raw agent
+    # stream persisted by the provider base class.
+    raw_stream_path: str = ""
 
     @property
     def ok(self) -> bool:
@@ -87,4 +90,5 @@ class CodegenRunner:
             error=result.error,
             elapsed_sec=result.elapsed_sec,
             audit=result.audit,
+            raw_stream_path=result.raw_stream_path,
         )

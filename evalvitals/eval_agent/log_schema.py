@@ -62,6 +62,7 @@ _HYPOTHESIS = {
     "type": "object",
     "properties": {
         "statement": {"type": "string"},
+        "plain_statement": {"type": ["string", "null"]},
         "failure_mode": {"type": ["string", "null"]},
         "status": {"type": ["string", "null"]},
         "test_design": {"type": ["string", "null"]},
@@ -195,6 +196,9 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "evidence": {"type": ["object", "null"]},
             "n_refocused_cases": {"type": ["integer", "null"]},
             "duration_sec": {"type": "number"},
+            # Additive: M5 protocol-consistency judge prompt/response, persisted
+            # under prompts/ (same pattern as probe/analysis/diagnosis).
+            "judge_io": _JUDGE_IO,
         },
     },
     "experiment": {
@@ -309,6 +313,7 @@ def build_schema() -> dict[str, Any]:
                 "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$",
             },
             "trace_id": {"type": "string"},
+            "event_seq": {"type": "integer", "minimum": 1},
             "span_id": {"type": "string"},
             "cycle": {"type": "integer"},
         },

@@ -184,16 +184,23 @@ def build_protocol() -> "Any":
     )
 
 
-def build_judge(model_name: str, effort: str) -> "Any":
-    from evalvitals.eval_agent import ClaudeModel
+def build_judge(provider: str, model_name: str, effort: str) -> "Any":
+    if provider == "agy":
+        from evalvitals.agent_runtime.judges import AgyModel
 
-    judge = ClaudeModel(model=model_name, effort=effort)
+        judge = AgyModel(model=model_name, timeout_sec=300)
+        label = f"agy model={model_name or 'session default'}"
+        empty_hint = "agy is likely rate-limited/quota-exhausted -- try --judge-model with a different agy model"
+    else:
+        from evalvitals.eval_agent import ClaudeModel
+
+        model_name = model_name or "sonnet"
+        judge = ClaudeModel(model=model_name, effort=effort)
+        label = f"claude model={model_name} effort={effort or 'default'}"
+        empty_hint = f"claude --model {model_name} returned empty (rate-limited?) -- try --judge-model sonnet or haiku"
     if not judge.generate("Reply with exactly the word OK").strip():
-        raise SystemExit(
-            f"judge probe: claude --model {model_name} returned empty "
-            f"(rate-limited?) — try --judge-model sonnet or haiku"
-        )
-    print(f"judge: claude model={model_name} effort={effort or 'default'}")
+        raise SystemExit(f"judge probe: {empty_hint}")
+    print(f"judge: {label}")
     return judge
 
 
@@ -376,7 +383,18 @@ def main() -> int:
              "downstream would ever read the held-out partition.",
     )
     parser.add_argument("--fix-max-tier", default="L0")
-    parser.add_argument("--judge-model", default="sonnet")
+    parser.add_argument(
+        "--judge-provider", choices=["claude", "agy"], default="agy",
+        help="'agy' (default, Antigravity CLI, no Anthropic API key -- see "
+             "evalvitals/agent_runtime/judges/agy.py) or 'claude' (native "
+             "claude CLI). Matches vlm_benchmark_common.py's default.",
+    )
+    parser.add_argument(
+        "--judge-model", default="",
+        help="model name passed to the judge CLI. Empty = provider default "
+             "(sonnet for --judge-provider claude; agy session default for "
+             "--judge-provider agy).",
+    )
     parser.add_argument("--judge-effort", default="high")
     parser.add_argument("--seed", type=int, default=20260814)
     parser.add_argument(
@@ -439,7 +457,7 @@ def main() -> int:
         "-- aad_silence_contrast will never be proposed by loop.run_fix with this batch"
     )
 
-    judge = build_judge(args.judge_model, args.judge_effort)
+    judge = build_judge(args.judge_provider, args.judge_model, args.judge_effort)
 
     from evalvitals.eval_agent import (
         DiagnosisAgent,
@@ -458,6 +476,7 @@ def main() -> int:
         Path(args.run_dir) / "logs", verbose=True,
         config={
             "model": args.model,
+            "judge_provider": args.judge_provider,
             "judge_model": args.judge_model,
             "limit": args.limit,
             "max_cycles": args.max_cycles,
@@ -510,10 +529,13 @@ def main() -> int:
     from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
 
     coder_cfg = CliAgentConfig(
-        provider="claude_code",
+        provider="antigravity" if args.judge_provider == "agy" else "claude_code",
         model=args.judge_model,
         timeout_sec=900,
-        extra_args=(("--effort", args.judge_effort) if args.judge_effort else ()),
+        extra_args=(
+            () if args.judge_provider == "agy"
+            else (("--effort", args.judge_effort) if args.judge_effort else ())
+        ),
     )
     explorer = None
     if args.explore and not args.analysis_only:

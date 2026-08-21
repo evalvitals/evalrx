@@ -230,6 +230,11 @@ def run_codebase_cli(
 
     ok = result.ran_ok and (result.explore is None or result.explore.ok)
 
+    if ok:
+        from evalvitals.reporting.html_report import build_html_report
+
+        build_html_report(out_dir, out_path=out_dir / "report.html")
+
     if dashboard:
         from evalvitals.analysis.dashboard import launch_dashboard
 

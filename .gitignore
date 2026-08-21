@@ -244,3 +244,4 @@ examples/diagnosis_loops/deco_hallu/outputs/m1_state.pkl
 
 # large analysis state (keep local, do not commit)
 *.pkl
+.media_cache/
