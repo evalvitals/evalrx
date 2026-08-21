@@ -22,6 +22,8 @@ class BenchmarkConfig:
     task_domain: str
     description: str
     success_criteria: str
+    # Spec key of the model under test (``--model`` overrides it per run).
+    model: str = "qwen2.5-vl-7b-instruct"
 
 
 _ARTICLES = re.compile(r"\b(a|an|the)\b", re.IGNORECASE)
@@ -137,7 +139,7 @@ def _self_test(config: BenchmarkConfig, manifest: Path, limit: int) -> None:
 
 def main(config: BenchmarkConfig) -> None:
     parser = argparse.ArgumentParser(description=f"EvalVitals M1-M5+Fix on {config.name}")
-    parser.add_argument("--model", default="qwen2.5-vl-7b-instruct")
+    parser.add_argument("--model", default=config.model)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--manifest", default=config.manifest)
