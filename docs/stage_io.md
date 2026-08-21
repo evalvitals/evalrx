@@ -10,8 +10,8 @@ covers the shape of the data crossing each boundary, and — since that shape
 is exactly what a viewer has to render — [what to put on screen for it](#ui-reference-building-a-viewer-on-this-pipeline).
 Building a new UI on this pipeline? Read the stage you're rendering below,
 then [UI Reference](#ui-reference-building-a-viewer-on-this-pipeline) at the
-bottom for the existing dashboard's page layout, tab-to-stage mapping, and
-the conventions it uses (source: `evalvitals/analysis/dashboard_app.py`).
+bottom for the static report's page layout, tab-to-stage mapping, and
+rendering conventions (source: `evalvitals/reporting/html_report.py`).
 For an implementation hand-off, start with
 [Frontend implementation contract](#frontend-implementation-contract): it
 defines the files to load, event fields, joins, state derivation, null/error
@@ -27,7 +27,7 @@ CaseBatch (labeled FailureCases)
 M1  ProbeAgent.probe(model, data)              → dict[str, Result]
    │
    ├─(optional) ExploratoryAnalysisAgent.explore_records(per-case table)
-   │            → ExploreContext for M3 + explore/ files for the dashboard
+   │            → ExploreContext for M3 + explore/ files for the HTML report
    │              (descriptive; never enters M2's family, M5, or the fix gate)
    ▼
 M2  AnalysisModule.analyze(results)            → AnalysisReport
@@ -111,7 +111,7 @@ expected answer) plus a search `budget` (number of simulations).
 `failure_cases: CaseBatch` (the newly discovered failing cases — feed this
 into M1, or straight into `cluster_failures`).
 
-**UI:** not rendered by the current dashboard — it's a data-generation step
+**UI:** not rendered by the current report — it's a data-generation step
 that runs *before* a diagnosis run exists, not part of one. If a new UI
 wants to expose it, treat it as its own small flow (pick a seed pool, set a
 budget, run, then hand the resulting `CaseBatch` into a normal M1 run) —
@@ -141,7 +141,7 @@ compatible analyzers for that kind (or an LLM judge picks them directly from
 the protocol description); `WhiteboxProbeGenerator`/`ProbeGenerator` write a
 bespoke probe when no standard analyzer covers the failure mode.
 
-**UI:** In the existing dashboard, M1's raw output (`dict[str, Result]`) is
+**UI:** In the static report, M1's raw output (`dict[str, Result]`) is
 never shown directly — only the *derived* per-case feature table M2 builds
 from it reaches the screen, on **Tab 1 — Problem Setting**: case counts
 (total / FAIL / PASS / explore-confirm split), the reconstructed per-case
@@ -313,7 +313,7 @@ the model. Those cases are excluded from the paired test
 **UI (Tab 5 — Fix):** greyed "not available" placeholder
 (`_render_unavailable_panel`: title, what happened, how to get it) when no
 `fix_report.json` sits next to the exploratory report — this pipeline phase
-is genuinely optional and the dashboard never fakes a result for it. When
+is genuinely optional and the report never fakes a result for it. When
 present: a "Surgery context — M5 confirmation" table (one row per tested
 hypothesis: statement, M5 status, confidence, evidence grade, held-out
 verdict) sourced from `InterventionResult`/`HypothesisTestResult` flattened
@@ -876,75 +876,42 @@ following against both a live and a persisted run:
 
 ## UI reference — building a viewer on this pipeline
 
-There is already a working viewer for this exact data: `evalvitals dashboard`
-(Streamlit, `evalvitals/analysis/dashboard_app.py`) and the upload/explore
-web workbench (`evalvitals web`, same renderer — see
-[m2_analysis.md](m2_analysis.md) and the `deco_hallu_explore` example's
-[web upload workbench](https://github.com/evalvitals/evalvitals/blob/main/examples/m2_m3/deco_hallu_explore/README.md)).
-Read this section as "what to reproduce" if you're building a new UI, and
-the function names as where to go read the exact rendering logic.
+There is already a working viewer for this exact data: `evalvitals report`
+generates `report.html`, and `evalvitals serve <run-dir>` opens it locally.
+The source of truth is `evalvitals/reporting/html_report.py`. Read this
+section as the contract the static report must preserve.
 
 ### Requirements for the new UI
 
 Two explicit requirements on top of what's documented below:
 
 1. **Show the raw data exactly, not just a derived view of it.** The
-   existing pattern for this is `_render_raw_data_browser` — it loads
-   `records.json` verbatim (the tidy table M2 built, before any
-   analysis/aggregation) into a searchable, scrollable table. Today that's a
-   collapsed expander tucked inside Tab 2; **the unified workbench makes this
-   a first-class, easy-to-find view of the actual rows**, not a buried
-   afterthought — a reader has to be able to go from "the analysis says X"
-   to "here is the literal row that's about" without hunting.
+   report exposes `records.json`/per-case artifacts through the Case Studio
+   and agent/artifact sections. A reader must be able to go from "the analysis
+   says X" to the literal row or case without hunting.
 2. **Show M1's results too, not just M2 through M5.** M1 produces
    `dict[str, Result]` — one entry per analyzer that ran, each carrying
    `findings` (light JSON: scores, flagged tokens, contingency tables, …)
    and `artifacts` (heavy: attention maps, heatmaps, embeddings). The
-   Diagnostic Runs workspace now surfaces each analyzer pass in its M1
-   Measure view. Keep `findings` readable as JSON/table and expose rendered
+   static report surfaces each analyzer pass in its M1 view. Keep `findings`
+   readable as JSON/table and expose rendered
    artifacts where available (e.g. the attention/spatial overlay PNGs
    described in [Result image overlays](architecture.md#result-image-overlays));
    `RunContext`'s `figures/`/`artifacts/` subdirectories are where they land
    on disk per run, see
    [RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory)).
 
-**The current reference UI is one workbench, not two dashboards.** Its
-entry point is `evalvitals/analysis/workbench_app.py`; `evalvitals web` and
-`evalvitals dashboard <run-dir>` both open it. The source format is normalized
-by `RunView`, so an uploaded exploratory report and an attached diagnostic
-run share the same navigation and stage names.
-
-### One workbench, two user workspaces
-
-The workbench separates different *user tasks*, not different historical
-renderer implementations:
-
-| Workspace | Purpose | Views |
-|---|---|---|
-| Data Analysis | Upload or revisit a dataset for the interactive, descriptive-to-confirmatory M2/M3 workflow. | Overview → M2 Evidence → M3 Hypotheses → M5 Validate → M4 Intervene & repair → Raw data & artifacts |
-| Diagnostic Runs | Inspect a backend-launched M1→M5 run, including its raw analyzer outputs. | Overview → M1 Measure → M2 Evidence → M3 Hypotheses → M5 Validate → M4 Intervene & repair → Cases & artifacts |
-
-The Data Analysis workspace deliberately starts at M2: standalone exploratory
-artifacts do not guarantee that raw M1 probe output was persisted. The
-Diagnostic Runs workspace makes M1 first-class when that output is available.
-Both use the same action order: evidence first, hypotheses next, validation
-before intervention or repair. Missing optional M5/M4 artifacts retain their
-place and explain that the stage was not recorded; the tab list never changes
-with run completeness.
-
-`dashboard_app.py` remains a compatibility renderer for its old direct
-callers, but new UI work should add a stage-focused view in `stage_views.py`
-and consume the normalized `RunView`. This keeps source-specific loading out
-of the visual layer and prevents the upload and dashboard paths from drifting.
+**The current reference UI is one compiled HTML artifact.** Exploratory and
+full diagnostic runs use the same renderer and stage order. Missing optional
+M5/M4 artifacts retain their place and explain that the stage was not recorded;
+the tab list never changes with run completeness.
 
 ### Page layout
 
-The common header identifies the workspace and selected run, then a stage
-rail shows every M1–M5 state in the action order M1 → M2 → M3 → M5 → M4.
-The rail is orientation, not a replacement for the stage views: a reader can
-move from a count/status to the full evidence, raw event, or artifact without
-switching to a different application. The sidebar selects the workspace and
-available uploaded/attached runs without changing the product shell.
+The common header identifies the run, then a tab rail shows every M1–M5 state
+in the action order M1 → M2 → M3 → M5 → M4. The rail is orientation, not a
+replacement for the stage views: a reader can move from a count/status to the
+full evidence, raw event, or artifact without switching applications.
 
 ### The "not available" pattern — the most important convention to copy
 

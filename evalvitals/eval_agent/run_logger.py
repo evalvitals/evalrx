@@ -478,6 +478,9 @@ class RunLogger:
         # events (which have no cycle of their own) can be correlated with the
         # M1→M5 events around them.  -1 means "outside any cycle" (e.g. post-loop M4).
         self.current_cycle: int = -1
+        # Stable ordering for Langfuse/API readers.  Timestamps alone are not
+        # sufficient when a stage emits several records in the same clock tick.
+        self._event_seq: int = 0
         # Monotonic counter so codegen artifacts written in the same cycle never
         # collide on filename. Lock guards the increment in case codegen calls
         # are ever issued from parallel analyzer threads (currently they aren't:
@@ -1165,8 +1168,20 @@ class RunLogger:
         for a in d.get("attempted") or []:
             outputs = a.pop("outputs", None)
             a["n_outputs"] = len(outputs) if isinstance(outputs, dict) else 0
+        best_ref = d.get("best")
+        if isinstance(best_ref, dict):
+            best = best_ref
+        elif isinstance(best_ref, str):
+            best = next(
+                (a for a in d.get("attempted") or [] if a.get("name") == best_ref), {}
+            )
+        else:
+            best = {}
         entry: dict[str, Any] = {"event": "fix", "cycle": -1, "module": "fix"}
         entry.update(d)
+        # FixOutcome serializes ``best`` as a candidate name.  Consumers of the
+        # event need the selected candidate's metadata, just as Langfuse does.
+        entry["best"] = best
         if record is not None:
             entry["record"] = record
         self._log(entry, span_id="fix")
@@ -1177,7 +1192,6 @@ class RunLogger:
             stage="M4_FIX",
             input_data={"candidates_evaluated": len(d.get("attempted", []))},
         )
-        best = d.get("best") or {}
         if best.get("effect") is not None:
             self.tracer.log_score(
                 name="repair_net_accuracy_gain",
@@ -1621,6 +1635,7 @@ class RunLogger:
         code: str = "",
         prompt: str = "",
         raw_output: str = "",
+        raw_stream: str = "",
         error: str = "",
         stdout: str = "",
         cycle: "int | None" = None,
@@ -1650,6 +1665,7 @@ class RunLogger:
             ("code", code, "code.py"),
             ("prompt", prompt, "prompt.txt"),
             ("raw_output", raw_output, "agent_thinking.txt"),
+            ("raw_stream", raw_stream, "agent_raw_stream.txt"),
             ("stdout", stdout, "stdout.txt"),
         ):
             if content:
@@ -1686,7 +1702,7 @@ class RunLogger:
                 name=f"Tool Synthesis: {name}",
                 model=source,
                 prompt=prompt or "",
-                completion=raw_output or code,
+                completion=raw_stream or raw_output or code,
                 span_id=cg_span,
             )
         self.tracer.end_span(cg_span, output_data={"ok": ok, "code_chars": len(code or "")})
@@ -1744,6 +1760,11 @@ class RunLogger:
             self.tracer.export_bundle(bundle_out)
         except Exception:
             pass
+        self.tracer.end_trace({
+            "spans": len(self.tracer.spans),
+            "generations": len(self.tracer.generations),
+            "scores": len(self.tracer.scores),
+        })
         self.tracer.flush()
         for handler in (self._file_handler, self._console_handler):
             if handler is not None:
@@ -1765,14 +1786,20 @@ class RunLogger:
     # ------------------------------------------------------------------
 
     def _log(self, entry: dict[str, Any], *, span_id: str | None = None) -> None:
+        self._event_seq += 1
         entry["schema_version"] = RUN_LOG_SCHEMA_VERSION
         entry["ts"] = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         entry["trace_id"] = self.trace_id
+        entry["event_seq"] = self._event_seq
         if span_id is not None:
             entry["span_id"] = span_id
         if self._validate_events:
             self._validate_event(entry)
         self.logger.info("run_event", extra={"_payload": entry})
+        try:
+            self.tracer.record_event(entry, event_seq=self._event_seq)
+        except Exception as exc:  # noqa: BLE001 - a telemetry disk error must not lose a run
+            warnings.warn(f"RunLogger: could not queue Langfuse event: {exc}")
 
     def _validate_event(self, entry: dict[str, Any]) -> None:
         """Opt-in self-check: warn (never raise) when an event violates the schema.

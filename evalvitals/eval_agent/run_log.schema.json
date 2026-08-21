@@ -42,6 +42,10 @@
         "trace_id": {
           "type": "string"
         },
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
         "span_id": {
           "type": "string"
         },

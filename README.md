@@ -99,10 +99,10 @@ No install required — these are real runs, committed unmodified.
 
 ## Quickstart: Analyze Your Eval Logs
 
-Install EvalVitals with the report dashboard:
+Install EvalVitals:
 
 ```bash
-pip install "evalvitals[dashboard]"
+pip install evalvitals
 ```
 
 Then point it at a file or directory of JSON/JSONL results:
@@ -111,18 +111,21 @@ Then point it at a file or directory of JSON/JSONL results:
 evalvitals explore ./results \
   --backend codex \
   -q "What distinguishes failed cases from successful ones?" \
-  --dashboard
+  --serve-report
 ```
 
 `codex` can be replaced with `claude_code`, `opencode`, `gemini_cli`,
 `kimi_cli`, or `antigravity`. The selected coding-agent CLI must be installed
 and authenticated separately.
 
-Prefer a browser? `evalvitals web` serves a local data-analysis workbench:
-drop a **.zip** containing JSON/JSONL/CSV/TSV/Parquet/Excel data and/or images,
-PDFs, audio, or video. Each upload becomes a persistent data thread: the page
-shows ingestion and M2/M3 progress, renders M2 as soon as it finishes, and
-accepts artifact-grounded follow-up questions without uploading again.
+Open a finished run in the browser without a UI framework:
+
+```bash
+evalvitals serve evalvitals_explore_output
+```
+
+The report is a self-contained HTML file (`report.html`), suitable for local
+viewing and sharing.  It is the only supported report UI.
 
 EvalVitals writes an auditable analysis bundle instead of returning only prose:
 
@@ -232,7 +235,6 @@ pip install "evalvitals[api]"        # OpenAI-compatible API models
 pip install "evalvitals[local]"      # local Hugging Face models + Torch
 pip install "evalvitals[interp]"     # interpretability toolchains
 pip install "evalvitals[viz]"        # plots
-pip install "evalvitals[dashboard]"  # Streamlit reports
 pip install "evalvitals[stats]"      # inferential statistics
 ```
 

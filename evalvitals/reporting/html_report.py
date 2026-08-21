@@ -18,15 +18,13 @@ import argparse
 import base64
 import html
 import json
-import os
 import re
 import shutil
 import subprocess
-import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
-
 
 STAGE_METADATA: dict[str, dict[str, str]] = {
     "overview": {
@@ -376,6 +374,7 @@ def _extract_agent_layer(logs_dir: Path, explore_dir: "Path | None") -> dict[str
             for suffix, kind in (
                 ("_code.py", "code"), ("_prompt.txt", "prompt"),
                 ("_agent_thinking.txt", "agent_thinking"), ("_stdout.txt", "stdout"),
+                ("_agent_raw_stream.txt", "raw_stream"),
             ):
                 if name.endswith(suffix):
                     stem = name[: -len(suffix)]
@@ -435,9 +434,21 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
                 except Exception:
                     pass
 
-    by_event = lambda ev: [e for e in events if e.get("event") == ev]
+    all_run_starts = [e for e in events if e.get("event") == "run_start"]
+    run_start = all_run_starts[-1] if all_run_starts else {}
+    active_trace_id = run_start.get("trace_id")
+    # Directories are commonly reused.  Keep a report internally consistent by
+    # selecting the events from the latest run's trace only.
+    if active_trace_id:
+        scoped_events = [e for e in events if e.get("trace_id") == active_trace_id]
+        # Keep compatibility with pre-trace legacy logs, where only run_start
+        # may have a trace id (or none of the events do).
+        if len(scoped_events) > 1:
+            events = scoped_events
 
-    run_start = by_event("run_start")[-1] if by_event("run_start") else {}
+    def by_event(event: str) -> list[dict[str, Any]]:
+        return [e for e in events if e.get("event") == event]
+
     loop_end = by_event("loop_end")[-1] if by_event("loop_end") else {}
     manifest_json = logs_dir / "manifest.json"
     cfg = json.loads(manifest_json.read_text()) if manifest_json.exists() else {}
@@ -451,7 +462,12 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     clean_model = clean_model_display_name(raw_model_name)
     n_cases = run_start.get("n_cases") or len(manifest) or 0
     label_dist = run_start.get("label_distribution") or {}
-    protocol_desc = (run_start.get("protocol") or {}).get("description") or ""
+    protocol = run_start.get("protocol") or {}
+    protocol_desc = (
+        protocol.get("description") or ""
+        if isinstance(protocol, dict)
+        else str(protocol)
+    )
     benchmark_name = clean_benchmark_name(protocol_desc, str(manifest_path or ""))
 
     # Pre-M1
@@ -464,13 +480,15 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
 
     # M1: Measurements & Per-case probe drilldowns
     probes = by_event("probe")
-    p0 = probes[0] if probes else {}
+    p0 = probes[-1] if probes else {}
+    m1_cycle = int(p0.get("cycle", 0) or 0)
     analyzers = p0.get("analyzers") or p0.get("selected_analyzers") or []
     m1_duration = p0.get("duration_sec")
 
     m1_results = []
     for name in analyzers:
-        p = logs_dir / "artifacts" / f"c0_{name}.result.json"
+        result_paths = p0.get("result_paths") or {}
+        p = logs_dir / str(result_paths.get(name) or f"artifacts/c{m1_cycle}_{name}.result.json")
         findings, n = {}, None
         per_case_rows = []
         if p.exists():
@@ -521,14 +539,21 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
 
     # M2: Explore & Screening
     analyses = by_event("analysis")
-    a0 = analyses[0] if analyses else {}
+    a0 = analyses[-1] if analyses else {}
     m2_conclusion = a0.get("conclusion") or ""
     m2_narrative = a0.get("narrative") or ""
     m2_severity = a0.get("severity") or "medium"
     m2_duration = a0.get("duration_sec")
 
-    stats_path = logs_dir / "artifacts" / "c0_m2_stats_results.json"
-    raw_stats = json.loads(stats_path.read_text()) if stats_path.exists() else []
+    m2_cycle = int(a0.get("cycle", m1_cycle) or 0)
+    stats_path = logs_dir / f"artifacts/c{m2_cycle}_m2_stats_results.json"
+    stats_ref = a0.get("stats_results")
+    if isinstance(stats_ref, dict) and stats_ref.get("path"):
+        stats_path = logs_dir / str(stats_ref["path"])
+    try:
+        raw_stats = json.loads(stats_path.read_text()) if stats_path.exists() else []
+    except (OSError, json.JSONDecodeError):
+        raw_stats = []
     stats = []
     for s in raw_stats:
         stats.append({
@@ -552,7 +577,7 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
 
     # M3: Hypotheses
     diagnoses = by_event("diagnosis")
-    dg = diagnoses[0] if diagnoses else {}
+    dg = diagnoses[-1] if diagnoses else {}
     hypotheses = dg.get("hypotheses") or []
     if not hypotheses and (logs_dir / "report" / "hypotheses.json").exists():
         try:
@@ -564,8 +589,23 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     surgeries = by_event("surgery")
     m5_surgeries = [s for s in surgeries if s.get("module") == "m5" or s.get("adjudication")]
     m5_results_file = logs_dir / "report" / "m5_results.json"
-    m5_results = json.loads(m5_results_file.read_text()) if m5_results_file.exists() else []
-    m5_event = m5_surgeries[0] if m5_surgeries else (surgeries[0] if surgeries else {})
+    try:
+        m5_results = json.loads(m5_results_file.read_text()) if m5_results_file.exists() else []
+    except (OSError, json.JSONDecodeError):
+        m5_results = []
+    m5_event = m5_surgeries[-1] if m5_surgeries else {}
+    if m5_event:
+        evidence = m5_event.get("evidence") or {}
+        # The JSONL event is trace-scoped; a report artifact can be stale when
+        # the same run directory is appended to later.
+        m5_results = [{
+            "status": m5_event.get("status"),
+            "effect_size": evidence.get("m5_effect_size"),
+            "confidence": m5_event.get("confidence_score"),
+            "verdict": evidence.get("m5_verdict"),
+            "evidence_grade": evidence.get("m5_evidence_grade"),
+            "protocol_consistent": evidence.get("m5_protocol_consistent"),
+        }]
 
     # M4-Surgery
     m4_surgeries = [s for s in surgeries if s.get("module") != "m5"]
@@ -597,7 +637,7 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             except Exception:
                 pass
 
-    if not confirmed_fix and best_fix:
+    if not confirmed_fix and isinstance(best_fix, dict):
         confirmed_fix = best_fix
 
     cases: list[dict[str, Any]] = []
@@ -727,7 +767,7 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     order = {"fixed": 0, "broken": 1, "unchanged": 2, "untested": 3}
     cases.sort(key=lambda c: (order.get(c["status"], 9), c["id"]))
 
-    return {
+    data = {
         "run": {
             "model": clean_model,
             "raw_model": raw_model_name,
@@ -787,6 +827,12 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         "explore_dir": explore_dir,
         "example_dir": example_dir or logs_dir.parent,
     }
+    # Keep the audience-first semantic layer independent from HTML.  The same
+    # object can later drive a different renderer without reinterpreting logs.
+    from evalvitals.reporting.compiler import compile_reader_report
+
+    data["reader_report"] = compile_reader_report(data).to_dict()
+    return data
 
 
 def embed_figures(explore_dir: Path | None, logs_dir: Path) -> dict[str, str]:
@@ -883,6 +929,18 @@ def esc(s: Any) -> str:
     return html.escape(str(s), quote=True)
 
 
+def _json_for_script(value: Any) -> str:
+    """Serialize untrusted values safely inside an inline ``<script>`` block."""
+    return (
+        json.dumps(value, ensure_ascii=False)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
 def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_map: dict[str, str], image_map: dict[str, str]) -> str:
     run = data["run"]
     m1 = data["m1"]
@@ -892,12 +950,10 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
     m4_s = data["m4_surgery"]
     m4_f = data["m4_fix"]
     cases = data["cases"]
+    reader = data.get("reader_report") or {}
 
     n_total = run["n_cases"] or len(cases) or 1
     cfm = m4_f.get("confirm") or {}
-    base_correct = cfm.get("n_baseline_correct")
-    n_pairs = cfm.get("n_pairs") or n_total
-    base_acc = (base_correct / n_pairs) if (base_correct is not None and n_pairs > 0) else None
     repair_effect = cfm.get("effect")
     e_val = cfm.get("e_value")
     n_fixed = cfm.get("n_fixed") or sum(1 for c in cases if c["status"] == "fixed")
@@ -908,13 +964,16 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
     m5_tone = "skip"
     if m5["ran"]:
         m5_r0 = m5["results"][0] if m5["results"] else {}
-        is_fixed = m5_r0.get("fixed") or m5["event"].get("fixed")
-        if is_fixed:
+        verdict_status = str(m5_r0.get("status") or m5["event"].get("status") or "").lower()
+        if verdict_status == "supported":
             m5_status = "Supported"
             m5_tone = "good"
-        else:
+        elif verdict_status == "refuted":
             m5_status = "Refuted"
             m5_tone = "warn"
+        else:
+            m5_status = "Inconclusive"
+            m5_tone = "neutral"
 
     # M4 Status
     m4_status = "Not Tested"
@@ -927,60 +986,29 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
             m4_status = "Inconclusive / Neutral"
             m4_tone = "warn"
 
-    # Executive Brief Sentences
     stats_sig = [s for s in m2["stats"] if s["reject"]]
-    story_p1 = f"Evaluated <b>{esc(run['model'])}</b> on <b>{esc(run['benchmark_name'])}</b> across <b>{n_total:,} benchmark cases</b>."
-    if m1["analyzers"]:
-        story_p1 += f" Collected multi-dimensional vital signals across <b>{len(m1['analyzers'])} clinical probes</b>."
-    if stats_sig:
-        story_p1 += f" Screening isolated <b>{len(stats_sig)} statistically significant anomalous signals</b> strongly associated with failure cases."
 
-    story_p2 = ""
-    if m3["hypotheses"]:
-        hyp0 = m3["hypotheses"][0]
-        hyp_txt = hyp0.get("plain_statement") or hyp0.get("statement") or ""
-        story_p2 = f"<b>Diagnosed Mechanism:</b> <i>“{esc(hyp_txt)}”</i>"
-        if m5["ran"]:
-            if m5_tone == "good":
-                story_p2 += " — <b>Confirmed</b> on an independent held-out validation set."
-            else:
-                story_p2 += " — <b>Refuted</b> on held-out validation (empirical effect contradicted the hypothesized direction)."
-
-    story_p3 = ""
-    if m4_f["ran"] and repair_effect is not None:
-        cured_str = f"<b>{n_fixed}</b> cured" if n_fixed else "0 cured"
-        broken_str = f"<b>{n_broken}</b> broken" if n_broken else "0 broken"
-        story_p3 = (
-            f"<b>Treatment Outcome:</b> Achieved a <b>{repair_effect * 100:+.2f}% net accuracy gain</b> "
-            f"on the test set ({cured_str}, {broken_str})."
-        )
-
-    # Hero KPI Tiles
+    # Compact visual summary.  Values come only from the canonical run stages,
+    # so this remains valid for any task that emits the standard artifacts.
     tiles_data = [
-        ("Evaluated Cases", f"{n_total:,}", "Diagnosis & Validation Split", "neutral"),
+        ("Cases", f"{n_total:,}", "evaluated", "neutral"),
         (
-            "Baseline Accuracy",
-            f"{base_acc:.1%}" if base_acc is not None else "—",
-            f"{base_correct}/{n_pairs} on test split" if base_correct is not None else "Unmodified baseline",
-            "neutral",
+            "Patterns",
+            str(len(stats_sig)),
+            "worth checking",
+            "good" if stats_sig else "neutral",
         ),
         (
-            "M5 Hypothesis Verdict",
+            "Independent check",
             m5_status,
-            "Held-out test set adjudication" if m5["ran"] else "No M5 stage configured",
+            "new cases" if m5["ran"] else "not run",
             m5_tone,
         ),
         (
-            "Repair Net Effect",
+            "Repair result",
             f"{repair_effect * 100:+.2f}%" if repair_effect is not None else "—",
-            f"{n_fixed} Cured · {n_broken} Broken" if (n_fixed or n_broken) else "Paired McNemar outcome",
+            f"{n_fixed} improved · {n_broken} worse" if (n_fixed or n_broken) else "not tested",
             m4_tone,
-        ),
-        (
-            "Evidence Strength",
-            f"e = {e_val:,.0f}" if (e_val and e_val > 0) else "p < 0.05",
-            "Multiplicity-corrected certainty" if e_val else "Paired significance",
-            "good" if (e_val and e_val > 10) else "neutral",
         ),
     ]
 
@@ -990,6 +1018,36 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         f'<div class="kpi-val">{esc(val)}</div>'
         f'<div class="kpi-sub">{note}</div></div>'
         for lab, val, note, tone in tiles_data
+    ])
+
+    reader_findings_html = "\n".join(
+        f'''<article class="reader-finding">
+          <div class="reader-finding-head"><h3>{esc(finding.get("title"))}</h3><span class="badge badge--neutral">{esc(finding.get("evidence_level"))}</span></div>
+          <p>{esc(finding.get("summary"))}</p>
+        </article>'''
+        for finding in (reader.get("key_findings") or [])
+    ) or '<p class="text-muted">No reader-ready findings are available for this run.</p>'
+    reader_method = " ".join(str(step) for step in (reader.get("what_we_did") or []))
+    reader_caveat = next(iter(reader.get("open_questions") or []), "")
+    reader_next_step = next(iter(reader.get("next_steps") or []), "")
+    setting_html = f'''<section class="setting-card">
+      <div>
+        <div class="setting-kicker">EvalVitals · failure investigation</div>
+        <h1 class="setting-title">Why did this model fail this evaluation?</h1>
+        <p class="setting-copy">We evaluate <b>{esc(run["model"])}</b> on <b>{esc(run["benchmark_name"])}</b>, then trace a failure from targeted probes to a verified repair.</p>
+      </div>
+      <div class="setting-facts">
+        <div class="setting-fact"><span class="setting-fact-label">Evaluation</span><span class="setting-fact-value">{n_total:,} cases</span></div>
+        <div class="setting-fact"><span class="setting-fact-label">Investigation question</span><span class="setting-fact-value">{esc(reader.get("question") or "Find the mechanism behind observed failures.")}</span></div>
+      </div>
+    </section>'''
+    run_map_html = "\n".join([
+        f'<div class="run-node run-node--neutral"><span class="run-node-label">Start</span><span class="run-node-title">Failure observed</span><span class="run-node-value">{n_total:,} cases evaluated</span></div>',
+        f'<div class="run-node run-node--good"><span class="run-node-label">M1 · Probe</span><span class="run-node-title">Characterize the failure</span><span class="run-node-value">{len(m1["analyzers"])} targeted probes</span></div>',
+        f'<div class="run-node run-node--good"><span class="run-node-label">M2 · Analyze</span><span class="run-node-title">Find recurring structure</span><span class="run-node-value">{len(stats_sig)} patterns retained</span></div>',
+        f'<div class="run-node run-node--{"good" if m3["hypotheses"] else "skip"}"><span class="run-node-label">M3 · Diagnose</span><span class="run-node-title">Propose a testable mechanism</span><span class="run-node-value">{len(m3["hypotheses"])} hypotheses</span></div>',
+        f'<div class="run-node run-node--{m5_tone if m5["ran"] else "skip"}"><span class="run-node-label">M5 · Verify</span><span class="run-node-title">Check on unseen cases</span><span class="run-node-value">{esc(m5_status)}</span></div>',
+        f'<div class="run-node run-node--{m4_tone}"><span class="run-node-label">M4 · Repair</span><span class="run-node-title">Beat the original baseline</span><span class="run-node-value">{esc(m4_status)}</span></div>',
     ])
 
     # ── Agent Trajectory layer ────────────────────────────────────────────
@@ -1054,6 +1112,7 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         inner = []
         for kind, label in (
             ("prompt", "Agent Input (Task Prompt)"),
+            ("raw_stream", "Agent Output (Full Raw CLI Trajectory)"),
             ("agent_thinking", "Agent Output (Raw CLI Trajectory)"),
             ("code", "Synthesized Code"),
             ("stdout", "Validation stdout"),
@@ -1092,17 +1151,19 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         langfuse_html = '<p class="text-muted">No Langfuse trace bundle (langfuse_trace.json) was written for this run.</p>'
 
     tab_items = [
-        ("tab_overview", "Overview", "Executive Summary", "SUMMARY", "good"),
-        ("tab_pre_m1", "PRE-M1", "Case Synthesis", "PRE-M1", "skip" if not data["pre_m1"]["ran"] else "neutral"),
-        ("tab_m1", "M1", "Checkup & Signals", f"{len(m1['analyzers'])} Probes", "neutral"),
-        ("tab_m2", "M2", "Screening & EDA", f"{len(stats_sig)} Significant" if stats_sig else f"{len(m2['stats'])} Tests", "good" if stats_sig else "neutral"),
-        ("tab_m3", "M3", "Diagnosis", f"{len(m3['hypotheses'])} Hypotheses", "neutral" if m3["hypotheses"] else "skip"),
-        ("tab_m5", "M5", "Adjudication", m5_status, m5_tone),
-        ("tab_m4_surgery", "M4-Surgery", "Causal Surgery", "Skipped" if not m4_s["ran"] else "Executed", "skip" if not m4_s["ran"] else "neutral"),
-        ("tab_m4_fix", "M4-Fix", "Targeted Repair", m4_status, m4_tone),
-        ("tab_agents", "AGENTS", "Agent Trajectories", f"{agents_summary}", "neutral" if agents_n else "skip"),
-        ("tab_case_book", "Case Studio", "Interactive Cases", f"{len(cases)} Cases", "neutral"),
+        ("tab_overview", "START", "What this report says", reader.get("confidence", "Summary"), "good"),
+        ("tab_m1", "1", "What we checked", f"{len(m1['analyzers'])} checks", "neutral"),
+        ("tab_m2", "2", "What we found", f"{len(stats_sig)} leads" if stats_sig else "Patterns", "neutral"),
+        ("tab_m3", "3", "Possible explanation", "Not run" if not m3["hypotheses"] else "To test", "skip" if not m3["hypotheses"] else "neutral"),
+        ("tab_m5", "4", "Independent check", "Not run" if not m5["ran"] else m5_status, "skip" if not m5["ran"] else m5_tone),
+        ("tab_m4_fix", "5", "Repair attempt", m4_status, m4_tone),
+        ("tab_case_book", "EXAMPLES", "Listen to real cases", f"{len(cases)} cases", "neutral"),
+        ("tab_agents", "DETAILS", "Research details", f"{agents_summary}", "neutral" if agents_n else "skip"),
     ]
+    if data["pre_m1"]["ran"]:
+        tab_items.insert(1, ("tab_pre_m1", "PREP", "Extra test cases", "Completed", "neutral"))
+    if m4_s["ran"]:
+        tab_items.insert(-2, ("tab_m4_surgery", "RESEARCH", "Internal intervention", "Completed", "neutral"))
 
     tabs_html = "\n".join([
         f'<button type="button" class="tab-btn {"is-active" if tid == "tab_overview" else ""}" data-tab="{tid}">'
@@ -1137,11 +1198,14 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         case_rows_html = []
         for pc in per_case_rows[:30]:
             sid = str(pc.get("sample_id", "case"))
-            metrics_summary = ", ".join(f"<b>{k}</b>: {v}" for k, v in pc.items() if k != "sample_id")
+            metrics_summary = ", ".join(
+                f"<b>{esc(k)}</b>: {esc(v)}" for k, v in pc.items() if k != "sample_id"
+            )
+            sid_js = esc(json.dumps(sid))
             case_rows_html.append(
                 f'<tr><td class="mono font-bold" style="font-size:12px; color:var(--brand);">{esc(sid[:12])}</td>'
                 f'<td style="font-size:12.5px;">{metrics_summary}</td>'
-                f'<td><button type="button" class="mini-btn" onclick="openCaseModal(&apos;{esc(sid)}&apos;)">Inspect Case & Audio</button></td></tr>'
+                f'<td><button type="button" class="mini-btn" onclick="openCaseModal({sid_js})">Inspect Case & Audio</button></td></tr>'
             )
         per_case_table = (
             f'<div class="table-wrapper" style="margin-top:12px; max-height:280px; overflow-y:auto;">'
@@ -1219,6 +1283,22 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
             f'</div>'
         )
     all_figs_html = "\n".join(fig_blocks) if fig_blocks else "<p class='text-muted' style='padding:16px;'>No exploratory charts generated for this run.</p>"
+    # A small, deterministic visual sample on the landing page.  Do not infer
+    # which plot is "best" from its filename; keep the first two unique
+    # generated artifacts in their stable order and leave the full set in M2.
+    hero_fig_blocks = []
+    seen_figure_data: set[str] = set()
+    for k, v in figures.items():
+        if k in ("test", "m2_effects") or v in seen_figure_data:
+            continue
+        seen_figure_data.add(v)
+        hero_fig_blocks.append(
+            f'<div class="chart-card"><div class="chart-head"><span class="chart-title">{esc(k.replace("_", " ").title())}</span></div>'
+            f'<img src="{v}" alt="{esc(k)}" loading="lazy"></div>'
+        )
+        if len(hero_fig_blocks) == 2:
+            break
+    hero_figs_html = "\n".join(hero_fig_blocks)
 
     sel_rows = []
     max_eff = max([abs(s.get("effect") or 0) for s in m4_f["selection"]] + [0.01])
@@ -1251,8 +1331,6 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
 
     pre_m1_desc = f"Active probe search generated {data['pre_m1']['n_cases']} synthetic test cases to probe failure mechanisms." if data["pre_m1"]["ran"] else "Testing ran directly on fixed benchmark cases (automated Pre-M1 adversarial probe synthesis was not configured)."
     pre_m1_sub = f"{data['pre_m1']['n_cases']} Probes Synthesized" if data["pre_m1"]["ran"] else "Standard Benchmark"
-    pre_m1_cls = "stage--skip" if not data["pre_m1"]["ran"] else ""
-
     m1_duration_str = f"{m1['duration']:.1f}s" if m1["duration"] else "Completed"
     m2_duration_str = f"{m2['duration']:.1f}s" if m2["duration"] else "Completed"
     m2_conclusion_box = f"<div class='callout callout--accent'><b>Screening Summary:</b> {esc(m2['conclusion'])}</div>" if m2["conclusion"] else ""
@@ -1276,9 +1354,6 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
           {test_line}
         </div>""")
     m3_hypotheses_html = "\n".join(m3_items) if m3_items else "<p class='text-muted'>No M3 hypotheses proposed.</p>"
-    m3_cls = "stage--skip" if not m3["hypotheses"] else ""
-
-    m5_cls = "stage--skip" if not m5["ran"] else ""
     m5_tone_cls = "callout--good" if m5_tone == "good" else ("callout--warn" if m5_tone == "warn" else "callout--neutral")
     if m5_tone == "good":
         m5_plain_text = f"<b>Verdict: {m5_status}</b>. Re-evaluated probe signals on an independent held-out split. Observed direction matched the predicted failure mechanism with statistical significance."
@@ -1294,7 +1369,7 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         eff_str = f"{eff_size:+.3f}" if isinstance(eff_size, (int, float)) else "—"
         conf_val = res0.get("confidence", 0)
         conf_str = f"{conf_val:.2f}" if isinstance(conf_val, (int, float)) else "—"
-        ev_grade = esc(res0.get("evidence", {}).get("evidence_grade", "—"))
+        ev_grade = esc(res0.get("evidence_grade") or res0.get("evidence", {}).get("evidence_grade") or "—")
         verdict_raw = esc(res0.get("verdict") or m5["event"].get("verdict") or json.dumps(m5["event"], indent=2, ensure_ascii=False))
         status_cls = "text-good font-bold" if m5_tone == "good" else "text-bad font-bold"
 
@@ -1307,11 +1382,9 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         </div>
         <pre class="code-block"><b>Adjudication Audit Log:</b>\n{verdict_raw}</pre>"""
 
-    m4_s_cls = "stage--skip" if not m4_s["ran"] else ""
     m4_s_desc = f"Executed {len(m4_s['surgeries'])} causal model interventions / ablations." if m4_s["ran"] else "Focused on black-box prompt and scaffold optimizations (white-box surgery was not invoked)."
     m4_s_sub = "Executed" if m4_s["ran"] else "Skipped"
 
-    m4_f_cls = "stage--skip" if not m4_f["ran"] else ""
     m4_f_tone_cls = "callout--good" if m4_tone == "good" else "callout--neutral"
     if repair_effect is not None and repair_effect > 0:
         cand_name = esc(cfm.get("name", "selected_fix"))
@@ -1329,9 +1402,9 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
           <pre class="code-block">{tmpl_code}</pre>
         </div>"""
 
-    cases_json = json.dumps(cases, ensure_ascii=False)
-    audio_json = json.dumps(audio_map)
-    images_json = json.dumps(image_map)
+    cases_json = _json_for_script(cases)
+    audio_json = _json_for_script(audio_map)
+    images_json = _json_for_script(image_map)
 
     html_lines = [
         '<!DOCTYPE html>',
@@ -1340,9 +1413,6 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '<meta charset="UTF-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
         f'<title>EvalVitals · {esc(run["model"])} Diagnostic Report</title>',
-        '<link rel="preconnect" href="https://fonts.googleapis.com">',
-        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
-        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">',
         '<style>',
         ':root {',
         '  --bg: #0b0f19;',
@@ -1368,8 +1438,8 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '  --bad-border: rgba(239, 68, 68, 0.35);',
         '  --radius: 10px;',
         '  --radius-sm: 6px;',
-        '  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
-        '  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Monaco, monospace;',
+        '  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;',
+        '  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;',
         '}',
         '* { box-sizing: border-box; margin: 0; padding: 0; }',
         'body { background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 14.5px; line-height: 1.6; -webkit-font-smoothing: antialiased; }',
@@ -1379,9 +1449,9 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '.brand-group { display: flex; align-items: center; gap: 14px; }',
         '.brand-icon { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, var(--brand), #8b5cf6); display: flex; align-items: center; justify-content: center; color: white; font-size: 16px; font-weight: 700; }',
         '.brand-titles { display: flex; flex-direction: column; }',
-        f'.brand-model {{ font-size: 17px; font-weight: 700; color: #ffffff; letter-spacing: -0.02em; }}',
-        f'.brand-benchmark {{ font-size: 12.5px; color: var(--text-muted); }}',
-        f'.header-badges {{ display: flex; gap: 8px; flex-wrap: wrap; }}',
+        '.brand-model { font-size: 17px; font-weight: 700; color: #ffffff; letter-spacing: -0.02em; }',
+        '.brand-benchmark { font-size: 12.5px; color: var(--text-muted); }',
+        '.header-badges { display: flex; gap: 8px; flex-wrap: wrap; }',
         'nav.tabs-nav { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 65px; z-index: 90; }',
         '.tabs-scroll { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0; scrollbar-width: none; }',
         '.tabs-scroll::-webkit-scrollbar { display: none; }',
@@ -1401,6 +1471,42 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '.story-box { background: linear-gradient(180deg, rgba(31, 41, 55, 0.6) 0%, rgba(17, 24, 39, 0.9) 100%); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 26px; margin-bottom: 24px; display: flex; flex-direction: column; gap: 10px; }',
         '.story-box p { font-size: 15px; color: var(--text); line-height: 1.6; }',
         '.story-box b { color: #ffffff; }',
+        '.setting-card { display:grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, .8fr); gap:22px; border:1px solid var(--brand-border); background:linear-gradient(135deg, var(--brand-soft), transparent 62%), var(--surface); border-radius:var(--radius); padding:26px; margin-bottom:22px; }',
+        '.setting-kicker { color:var(--brand); font-family:var(--font-mono); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }',
+        '.setting-title { color:#fff; font-size:clamp(24px, 3vw, 34px); line-height:1.12; letter-spacing:-.03em; margin:7px 0 10px; }',
+        '.setting-copy { color:var(--text-muted); max-width:760px; font-size:15px; }',
+        '.setting-facts { display:grid; gap:9px; align-content:center; }',
+        '.setting-fact { border-left:2px solid var(--brand); padding:4px 0 4px 11px; }',
+        '.setting-fact-label { display:block; color:var(--text-sub); font-size:10px; letter-spacing:.07em; text-transform:uppercase; }',
+        '.setting-fact-value { display:block; color:var(--text); font-weight:600; font-size:13px; overflow-wrap:anywhere; }',
+        '.reader-headline { font-size: clamp(28px, 4vw, 42px); line-height: 1.12; margin: 0 0 12px; letter-spacing: -0.035em; }',
+        '.reader-question { color: var(--text-muted); font-size: 16px; line-height: 1.6; margin: 0; }',
+        '.reader-section { margin: 30px 0; }',
+        '.reader-section h2 { margin: 0 0 12px; font-size: 22px; letter-spacing: -0.02em; }',
+        '.reader-list { margin: 0; padding-left: 20px; color: var(--text-muted); line-height: 1.75; }',
+        '.reader-findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }',
+        '.reader-finding { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); padding: 20px; position: relative; overflow: hidden; }',
+        '.reader-finding::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--brand); }',
+        '.reader-finding-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }',
+        '.reader-finding h3 { font-size: 17px; line-height: 1.35; margin: 0; }',
+        '.reader-finding p { color: var(--text-muted); line-height: 1.55; font-size: 14px; }',
+        '.reader-finding .reader-why { color: var(--text); }',
+        '.journey-title { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin: 28px 0 10px; }',
+        '.journey-title h2 { font-size:20px; letter-spacing:-.02em; }',
+        '.run-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; margin: 12px 0 10px; }',
+        '.run-node { position: relative; min-height: 112px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 15px; background: var(--surface); }',
+        '.run-node:not(:last-child)::after { content: "→"; position: absolute; right: -13px; top: 42px; z-index: 2; color: var(--text-sub); font-size: 18px; }',
+        '.run-node--good { border-color: var(--good-border); }',
+        '.run-node--neutral { border-color: var(--brand-border); }',
+        '.run-node--skip { opacity: .62; }',
+        '.run-node-label { display: block; color: var(--brand); font-size: 11px; font-weight:700; text-transform: uppercase; letter-spacing: .08em; }',
+        '.run-node-title { display:block; margin-top:5px; color:#fff; font-size:14px; font-weight:700; line-height:1.2; }',
+        '.run-node-value { display: block; margin-top: 8px; color: var(--text-muted); font-size:12px; line-height: 1.25; }',
+        '.journey-loop { color:var(--text-sub); font-size:12px; text-align:right; margin-bottom:26px; }',
+        '.hero-charts { margin: 28px 0; }',
+        '.hero-charts .chart-card { min-height: 240px; }',
+        '@media (max-width: 780px) { .setting-card { grid-template-columns:1fr; } .run-map { grid-template-columns: repeat(2, minmax(0, 1fr)); } .run-node:not(:last-child)::after { display: none; } }',
+        '.reader-finding .reader-limit { font-size: 12.5px; color: var(--text-sub); margin-bottom: 0; }',
         '.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 24px; }',
         '.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; display: flex; flex-direction: column; gap: 5px; }',
         '.kpi-label { font-size: 11.5px; font-family: var(--font-mono); text-transform: uppercase; color: var(--text-sub); letter-spacing: 0.05em; }',
@@ -1528,41 +1634,23 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '</nav>',
         '<div class="container">',
         '  <div class="tab-pane is-active" id="tab_overview">',
+        f'    {setting_html}',
         '    <div class="story-box">',
-        f'      <p>{story_p1}</p>',
-        f'      <p>{story_p2}</p>' if story_p2 else '',
-        f'      <p>{story_p3}</p>' if story_p3 else '',
+        f'      <h1 class="reader-headline">{esc(reader.get("headline") or "What this report says")}</h1>',
+        f'      <p class="reader-question"><b>Short answer:</b> {esc(reader.get("answer") or "")}</p>',
+        f'      <p class="reader-question">{esc(reader_method)}</p>',
         '    </div>',
         f'    <div class="kpi-grid">{tiles_html}</div>',
-        '    <div class="card">',
-        '      <div class="card-head">',
-        '        <span class="card-tag">PIPELINE SUMMARY</span>',
-        '        <h2 class="card-title">Diagnostic Stages Breakdown</h2>',
-        '        <p class="card-subtext">Click on any tab above to inspect deep-dive evidence, statistical tests, or interactive case media.</p>',
-        '      </div>',
-        '      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:16px;">',
-        '        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab(&apos;tab_m1&apos;)">',
-        f'          <div class="hyp-head"><span class="badge badge--brand">STAGE M1</span><span class="mono text-muted">{len(m1["analyzers"])} Probes</span></div>',
-        '          <div class="font-bold">Multi-Modal Checkup</div>',
-        '          <div class="text-muted" style="font-size:13px;">Clinical vital signs (order sensitivity, pass@5 coverage, uncertainty, calibration).</div>',
-        '        </div>',
-        '        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab(&apos;tab_m2&apos;)">',
-        f'          <div class="hyp-head"><span class="badge badge--good">STAGE M2</span><span class="mono text-muted">{len(stats_sig)} Significant</span></div>',
-        '          <div class="font-bold">Screening & Confirmatory Signals</div>',
-        '          <div class="text-muted" style="font-size:13px;">Identified key anomaly signals strongly correlated with errors under Benjamini–Hochberg FDR control.</div>',
-        '        </div>',
-        '        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab(&apos;tab_m3&apos;)">',
-        f'          <div class="hyp-head"><span class="badge badge--brand">STAGE M3 & M5</span><span class="mono text-muted">{m5_status}</span></div>',
-        '          <div class="font-bold">Diagnosis & Validation</div>',
-        '          <div class="text-muted" style="font-size:13px;">Falsifiable root-cause mechanism hypotheses verified on held-out test data.</div>',
-        '        </div>',
-        '        <div class="hypothesis-card" style="cursor:pointer;" onclick="switchTab(&apos;tab_m4_fix&apos;)">',
-        f'          <div class="hyp-head"><span class="badge badge--good">STAGE M4</span><span class="mono text-muted">{m4_status}</span></div>',
-        '          <div class="font-bold">Targeted Repair & Case Studio</div>',
-        f'          <div class="text-muted" style="font-size:13px;">Validated repair strategies with paired McNemar confirmation {f"(+{repair_effect * 100:.1f}% net gain)" if repair_effect is not None else "(targeted repair)"}.</div>',
-        '        </div>',
-        '      </div>',
-        '    </div>',
+        '    <div class="journey-title"><h2>Failure-to-fix journey</h2><span class="text-muted">Each card is this run’s actual state</span></div>',
+        f'    <div class="run-map">{run_map_html}</div>',
+        '    <div class="journey-loop">If verification refutes the mechanism or repair misses the baseline, the next cycle returns to M1.</div>',
+        '    <section class="reader-section">',
+        '      <h2>Key findings</h2>',
+        f'      <div class="reader-findings">{reader_findings_html}</div>',
+        '    </section>',
+        f'    <div class="callout callout--accent"><b>Limit:</b> {esc(reader_caveat or "See the evidence details for the scope of this result.")} {("<b>Next:</b> " + esc(reader_next_step)) if reader_next_step else ""}</div>',
+        (f'    <section class="hero-charts"><h2 class="card-title" style="margin-bottom:12px;">Selected charts</h2><div class="charts-grid">{hero_figs_html}</div></section>' if hero_figs_html else ''),
+        '    <details class="collapsible-box"><summary>Numbers and study details</summary><div class="content">Full methods, statistical tables, and every chart are in the stage tabs.</div></details>',
         '  </div>',
         '  <div class="tab-pane" id="tab_pre_m1">',
         '    <div class="card">',
@@ -1579,11 +1667,11 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '    <div class="card">',
         '      <div class="card-head">',
         '        <span class="card-tag">M1</span>',
-        '        <h2 class="card-title">Checkup & Vital Signals (Hierarchical Probe Inspector)</h2>',
+        '        <h2 class="card-title">What we checked</h2>',
         f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m1_duration_str}</span>',
-        f'        <p class="card-subtext">{STAGE_METADATA["m1"]["plain_desc"]} Click any probe below to expand clinical rationale, per-case sample executions, and exact model outputs.</p>',
+        '        <p class="card-subtext">We looked for observable behaviors that might be connected to mistakes. Open a check only if you want its method and raw records.</p>',
         '      </div>',
-        f'      <div class="callout callout--accent"><b>Measurement Summary:</b> Executed <b>{len(m1["analyzers"])} clinical probes</b> across {n_total:,} benchmark cases. Click on any probe to expand its multi-tier audit drawer.</div>',
+        f'      <div class="callout callout--accent"><b>Summary:</b> We ran <b>{len(m1["analyzers"])} checks</b> across {n_total:,} cases. These checks describe behavior; they do not by themselves prove a cause.</div>',
         f'      <div style="display:flex; flex-direction:column; gap:14px;">{m1_cards_html}</div>',
         '    </div>',
         '  </div>',
@@ -1591,13 +1679,15 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '    <div class="card">',
         '      <div class="card-head">',
         '        <span class="card-tag">M2</span>',
-        '        <h2 class="card-title">Screening & Confirmatory Signals</h2>',
+        '        <h2 class="card-title">What patterns we found</h2>',
         f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m2_duration_str}</span>',
-        f'        <p class="card-subtext">{STAGE_METADATA["m2"]["plain_desc"]}</p>',
+        '        <p class="card-subtext">These are patterns that appeared more often around mistakes. They are leads for further tests, not final explanations.</p>',
         '      </div>',
-        f'      <div class="callout callout--good"><b>Screening Outcome:</b> Out of {len(m2["stats"])} tested feature associations, <b>{len(stat_rows_sig)} signals passed rigorous Benjamini–Hochberg statistical significance correction</b>.</div>',
+        f'      <div class="callout callout--good"><b>What this means:</b> Out of {len(m2["stats"])} measured patterns, <b>{len(stat_rows_sig)}</b> were strong enough to keep investigating. This does not prove they caused the errors.</div>',
         f'      {m2_conclusion_box}',
-        '      <div class="table-wrapper">',
+        '      <details class="collapsible-box">',
+        '        <summary>Research details: statistical results and effect sizes</summary>',
+        '        <div class="content"><div class="table-wrapper">',
         '        <table class="data-table">',
         '          <thead>',
         '            <tr>',
@@ -1610,7 +1700,8 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '          </thead>',
         f'          <tbody>{stats_sig_html}</tbody>',
         '        </table>',
-        '      </div>',
+        '        </div></div>',
+        '      </details>',
         '      <details class="collapsible-box">',
         f'        <summary>View {len(stat_rows_null)} Non-Significant Feature Signals</summary>',
         '        <div class="content">',
@@ -1640,11 +1731,11 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '    <div class="card">',
         '      <div class="card-head">',
         '        <span class="card-tag">M3</span>',
-        '        <h2 class="card-title">Root-Cause Diagnosis (AI Doctor)</h2>',
+        '        <h2 class="card-title">Possible explanation to test</h2>',
         f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{len(m3["hypotheses"])} Hypotheses</span>',
-        f'        <p class="card-subtext">{STAGE_METADATA["m3"]["plain_desc"]}</p>',
+        '        <p class="card-subtext">A possible explanation must predict what should happen on new cases before we can treat it as evidence.</p>',
         '      </div>',
-        '      <div class="callout"><b>Diagnostician Rationale:</b> Proposed mechanisms must be <b>falsifiable</b> and pre-register their expected direction of effect to be verified on holdout data.</div>',
+        '      <div class="callout"><b>Important:</b> A possible explanation is not a confirmed root cause. It must be checked on cases that were not used to find it.</div>',
         f'      {m3_hypotheses_html}',
         '    </div>',
         '  </div>',
@@ -1652,9 +1743,9 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '    <div class="card">',
         '      <div class="card-head">',
         '        <span class="card-tag">M5</span>',
-        '        <h2 class="card-title">Independent Blind Adjudication</h2>',
+        '        <h2 class="card-title">Independent check</h2>',
         f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m5_status}</span>',
-        f'        <p class="card-subtext">{STAGE_METADATA["m5"]["plain_desc"]}</p>',
+        '        <p class="card-subtext">This is where we ask whether a proposed explanation still holds on new cases.</p>',
         '      </div>',
         f'      <div class="callout {m5_tone_cls}">{m5_plain_text}</div>',
         f'      {m5_detail_html}',
@@ -1675,9 +1766,9 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '    <div class="card">',
         '      <div class="card-head">',
         '        <span class="card-tag">M4-FIX</span>',
-        '        <h2 class="card-title">Targeted Repair & Paired Confirmation</h2>',
+        '        <h2 class="card-title">Repair attempt</h2>',
         f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m4_status}</span>',
-        f'        <p class="card-subtext">{STAGE_METADATA["m4_fix"]["plain_desc"]}</p>',
+        '        <p class="card-subtext">We test a focused change and count both improvements and newly introduced mistakes.</p>',
         '      </div>',
         f'      <div class="callout {m4_f_tone_cls}">{m4_f_plain}</div>',
         '      <details class="collapsible-box" open>',
@@ -1761,7 +1852,7 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         f'const CASES = {cases_json};',
         f'const AUDIO = {audio_json};',
         f'const IMAGES = {images_json};',
-        """
+        r"""
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => {
     b.classList.toggle('is-active', b.dataset.tab === tabId);
@@ -1885,7 +1976,7 @@ function renderCard(c) {
     '<ul class="case-choices">' + formatChoices(c) + '</ul>' +
     '<div class="case-item-foot"><span class="text-muted font-semibold" style="font-size:11px; text-transform:uppercase;">Repaired Output:</span>' +
     '<span class="mono font-bold" style="color:#ffffff;">' + esc(c.output || '—') + '</span>' +
-    '<button type="button" class="mini-btn" style="margin-left:auto;" onclick="openCaseModal(&apos;' + esc(c.id) + '&apos;)">Deep Audit</button></div>' +
+    '<button type="button" class="mini-btn" style="margin-left:auto;" onclick="openCaseModal(' + JSON.stringify(c.id) + ')">Deep Audit</button></div>' +
     '</article>';
 }
 
@@ -1959,7 +2050,20 @@ def build_html_report(
     html_content = generate_html_report(data, figures, audio_map, image_map)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(html_content, encoding="utf-8")
+    # A report may be tens or hundreds of MB when it embeds case media.  Write
+    # beside the destination and replace atomically so a browser never sees a
+    # partially generated diagnosis after an interruption or disk-full error.
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{out_path.stem}.", suffix=".tmp", dir=out_path.parent,
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with open(fd, "w", encoding="utf-8", closefd=True) as handle:
+            handle.write(html_content)
+        tmp_path.replace(out_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
     size_mb = out_path.stat().st_size / (1024 * 1024)
     print(f"[✓] Wrote self-contained HTML report to: {out_path} ({size_mb:.2f} MB)")
     return out_path

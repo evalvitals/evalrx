@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from evalvitals.agent_runtime.skills.prompt_policy import fences_hint, skills_hint
 
-RECORDS_FILENAME = "records.json"  # also read by explore_run.py / dashboard_app.py
+RECORDS_FILENAME = "records.json"  # also read by explore_run.py / HTML report compiler
 _RESULT_MARKER = "EXPLORATORY_RESULT_JSON="
 
 _INTRO_AND_QUESTION = """\

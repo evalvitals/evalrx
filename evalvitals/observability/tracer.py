@@ -31,6 +31,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from evalvitals.observability.envelope import artifact_manifests_for_event, make_event_envelope
+from evalvitals.observability.outbox import ObservabilityOutbox
+
 
 class DiagnosticTracer:
     """Manages active tracing context across the diagnostic pipeline.
@@ -53,6 +56,14 @@ class DiagnosticTracer:
         self._live_root = None          # root "chain" observation for the run
         self._live_obs: dict[str, Any] = {}  # our span_id -> live observation wrapper
         self._warned: set[str] = set()
+        # Every structured run-log event enters this durable queue before live
+        # delivery.  It is intentionally kept separate from the human-readable
+        # JSONL log so delivery retries never mutate the run record.
+        self.outbox = ObservabilityOutbox(
+            (self.run_dir / ".evalvitals" / "langfuse_outbox.sqlite3")
+            if self.run_dir is not None
+            else Path(".evalvitals-langfuse-outbox.sqlite3")
+        )
 
         if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
             try:
@@ -92,6 +103,79 @@ class DiagnosticTracer:
                 fn(trace_id=self.langfuse_trace_id, tags=[str(t) for t in tags if t])
         except Exception:
             pass  # tags are cosmetic; never fail the run on them
+
+    def record_event(self, event: dict[str, Any], *, event_seq: int) -> None:
+        """Queue one complete EvalVitals event for durable Langfuse delivery.
+
+        This is called after the JSONL write has received its timestamp and
+        trace id.  The deterministic event id makes repeated process startup
+        and manual backfill safe.
+        """
+        artifact_refs = (
+            artifact_manifests_for_event(event, run_dir=self.run_dir)
+            if self.run_dir is not None
+            else []
+        )
+        envelope = make_event_envelope(
+            event, trace_id=self.trace_id, event_seq=event_seq, artifact_refs=artifact_refs,
+        )
+        self.events.append(envelope)
+        self.outbox.enqueue(envelope)
+
+    def _publish_event(self, envelope: dict[str, Any]) -> None:
+        """Publish a queued event as a native Langfuse EVENT observation."""
+        if self._langfuse_client is None:
+            raise RuntimeError("Langfuse client is not configured")
+        # ``create_event`` is the native SDK API for point-in-time records.
+        # It does not currently expose a caller supplied observation id, hence
+        # the deterministic id lives in metadata and the outbox only removes a
+        # row after the SDK accepted it.
+        input_data: dict[str, Any] = {"event": envelope["payload"]}
+        media = self._media_payload(envelope)
+        if media:
+            input_data["artifacts"] = media
+        self._langfuse_client.create_event(
+            trace_context={"trace_id": self.langfuse_trace_id},
+            name=f"EvalVitals {envelope['stage']}: {envelope['event_type']}",
+            input=input_data,
+            metadata={
+                "evalvitals_schema_version": envelope["schema_version"],
+                "event_id": envelope["event_id"],
+                "event_seq": envelope["event_seq"],
+                "stage": envelope["stage"],
+                "cycle": envelope.get("cycle"),
+                "artifact_refs": envelope["artifact_refs"],
+            },
+        )
+
+    def _media_payload(self, envelope: dict[str, Any]) -> list[dict[str, Any]]:
+        """Attach supported files as Langfuse Media while retaining every manifest.
+
+        Non-displayable files (for example ``.npy`` tensors) are uploaded as
+        ``application/octet-stream``.  They still remain downloadable and
+        checksum-addressable even when the Langfuse UI cannot preview them.
+        """
+        if self.run_dir is None:
+            return []
+        try:
+            from langfuse import LangfuseMedia
+            from langfuse.api.media.types.media_content_type import MediaContentType
+        except ImportError:
+            return []
+        result: list[dict[str, Any]] = []
+        for manifest in envelope["artifact_refs"]:
+            path = self.run_dir / str(manifest["path"])
+            if path.is_file():
+                try:
+                    content_type = MediaContentType(str(manifest["mime_type"]))
+                except ValueError:
+                    content_type = MediaContentType.APPLICATION_OCTET_STREAM
+                result.append({
+                    "role": manifest["role"],
+                    "artifact_id": manifest["artifact_id"],
+                    "content": LangfuseMedia(file_path=str(path), content_type=content_type),
+                })
+        return result
 
     # ------------------------------------------------------------------
     # Trace / span / generation / score recording
@@ -289,9 +373,27 @@ class DiagnosticTracer:
         """Flush any queued live observations to Langfuse."""
         if self._langfuse_client is not None:
             try:
+                published, failed = self.outbox.drain(self._publish_event)
+                if failed:
+                    self._warn(
+                        "outbox_delivery",
+                        f"{failed} Langfuse event(s) remain in the local outbox for retry.",
+                    )
                 self._langfuse_client.flush()
             except Exception as exc:
                 self._warn("flush", f"failed to flush Langfuse client: {exc}")
+
+    def end_trace(self, output_data: Any = None) -> None:
+        """Finish the live root observation, if live mirroring was enabled."""
+        root, self._live_root = self._live_root, None
+        if root is None:
+            return
+        try:
+            if output_data is not None:
+                root.update(output=output_data)
+            root.end()
+        except Exception as exc:
+            self._warn("end_trace", f"failed to end Langfuse root trace: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +460,6 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
     m5 = data["m5"]
     m4_s = data["m4_surgery"]
     m4_f = data["m4_fix"]
-    cases = data["cases"]
 
     trace_id = _resolve_trace_id(run_dir, run.get("data_fingerprint") or "")
     trace_name = f"EvalVitals: {run['model']} · {run['benchmark_name']}"
@@ -542,7 +643,7 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
         })
         if m4_f.get("prompt_template"):
             generations.append({
-                "id": f"gen_m4_patch",
+                "id": "gen_m4_patch",
                 "trace_id": trace_id,
                 "span_id": m4_span_id,
                 "name": "Winning Repair Patch",
@@ -587,6 +688,56 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
         print(f"[✓] Exported Langfuse bundle to: {out_p}")
 
     return bundle
+
+
+def backfill_run_to_langfuse(run_dir: str | Path, *, dry_run: bool = False) -> dict[str, int | str]:
+    """Queue an existing JSONL run for the same reliable Langfuse pipeline.
+
+    Existing ``event_seq`` values are preserved; older logs without one receive
+    their line order.  Re-running the command is safe because envelope IDs are
+    deterministic and the outbox primary key de-duplicates them.
+    """
+    root = Path(run_dir)
+    log_path = root / "run_log.jsonl"
+    if not log_path.exists() and (root / "logs" / "run_log.jsonl").exists():
+        root = root / "logs"
+        log_path = root / "run_log.jsonl"
+    if not log_path.exists():
+        raise FileNotFoundError(f"No run_log.jsonl found under {run_dir}")
+
+    records: list[dict[str, Any]] = []
+    for line in log_path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            records.append(json.loads(line))
+    if not records:
+        return {"trace_id": "", "events": 0, "pending": 0, "published": 0}
+
+    trace_id = str(next((r.get("trace_id") for r in records if r.get("trace_id")), uuid.uuid4()))
+    if dry_run:
+        return {"trace_id": trace_id, "events": len(records), "pending": len(records), "published": 0}
+
+    tracer = DiagnosticTracer(run_dir=root)
+    tracer.trace_id = trace_id
+    run_start = next((r for r in records if r.get("event") == "run_start"), {})
+    tracer.start_trace(
+        model=str(run_start.get("model") or "Target Model"),
+        benchmark=str(run_start.get("benchmark_name") or "Benchmark"),
+        n_cases=int(run_start.get("n_cases") or 0),
+        metadata=run_start,
+    )
+    for fallback_seq, record in enumerate(records, start=1):
+        tracer.record_event(record, event_seq=int(record.get("event_seq") or fallback_seq))
+    pending_before = tracer.outbox.pending_count()
+    tracer.flush()
+    pending_after = tracer.outbox.pending_count()
+    tracer.end_trace({"backfilled_events": len(records)})
+    tracer.flush()
+    return {
+        "trace_id": trace_id,
+        "events": len(records),
+        "pending": pending_after,
+        "published": max(0, pending_before - pending_after),
+    }
 
 
 def sync_to_langfuse_live(run_dir: str | Path) -> bool:

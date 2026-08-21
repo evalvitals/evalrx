@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from evalvitals.observability.tracer import (
     DiagnosticTracer,
+    backfill_run_to_langfuse,
     export_to_langfuse_bundle,
     sync_to_langfuse_live,
 )
 
 __all__ = [
     "DiagnosticTracer",
+    "backfill_run_to_langfuse",
     "export_to_langfuse_bundle",
     "sync_to_langfuse_live",
 ]

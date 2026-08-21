@@ -1,4 +1,4 @@
-"""Streamlit dashboard for EvalVitals single-run artifacts.
+"""Compatibility loaders plus a dependency-free HTML report server.
 
 A single-shot pipeline produces one output directory; this loader reads it.
 Two product shapes are recognised:
@@ -14,102 +14,72 @@ There is no multi-turn chat session anymore — ``load_run`` replaces the old
 
 from __future__ import annotations
 
+import functools
 import json
-import subprocess
-import sys
+import threading
+import webbrowser
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from evalvitals.reporting.compiler import compile_diagnostic_report
 
-# Native Streamlit widgets (text_input/selectbox focus rings, tab underline,
-# etc.) otherwise render in Streamlit's default red (#FF4B4B) while the
-# custom cards in dashboard_app.py's injected CSS use this accent blue — a
-# visible two-brand clash. These mirror the light-mode --ev-* CSS variables
-# so native and custom chrome read as one product. Only the theming keys
-# stable since Streamlit's original theming API are used (no `--theme.light.*`
-# / `--theme.dark.*` split, which needs a newer Streamlit than this package's
-# declared `streamlit>=1.30` floor guarantees) — the injected CSS's own
-# `prefers-color-scheme` dark mode still re-tints the custom cards
-# independently of this static native-widget theme.
-_THEME_FLAGS = [
-    "--theme.base", "light",
-    "--theme.primaryColor", "#2a78d6",
-    "--theme.backgroundColor", "#f9f9f7",
-    "--theme.secondaryBackgroundColor", "#fcfcfb",
-    "--theme.textColor", "#0b0b0b",
-    "--theme.font", "sans serif",
-]
+
+class _QuietHandler(SimpleHTTPRequestHandler):
+    """Do not emit one log line per asset request in the report server."""
+
+    def log_message(self, _format: str, *_args: Any) -> None:
+        return
+
+
+def _report_path(run_dir: Path, *, no_audio: bool) -> Path:
+    """Return a finished report, compiling it if needed."""
+    report_path = run_dir / "report.html"
+    if report_path.exists():
+        return report_path
+    from evalvitals.reporting.html_report import build_html_report
+
+    return build_html_report(run_dir, out_path=report_path, no_audio=no_audio)
+
+
+def serve_report(
+    run_dir: str | Path,
+    *,
+    port: int = 8501,
+    no_audio: bool = False,
+    open_browser: bool = True,
+    block: bool = True,
+) -> int:
+    """Serve a generated report locally without a UI framework.
+
+    The server is deliberately bound to loopback: reports may contain prompts,
+    model outputs, and embedded user media.  ``block=False`` is provided for
+    callers/tests that manage the returned process lifetime themselves.
+    """
+    root = Path(run_dir).resolve()
+    report = _report_path(root, no_audio=no_audio)
+    handler = functools.partial(_QuietHandler, directory=str(report.parent))
+    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    url = f"http://127.0.0.1:{server.server_port}/{report.name}"
+    print(f"Serving diagnostic report at {url}")
+    if open_browser:
+        webbrowser.open(url)
+    if not block:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return 0
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
 
 
 def launch_dashboard(run_dir: str | Path, *, port: int | None = None) -> int:
-    """Launch the Streamlit dashboard app for a single explore/loop run dir."""
-    try:
-        import streamlit  # noqa: F401
-    except Exception:
-        print(
-            "Streamlit is not installed. Install dashboard extras with:\n"
-            "  pip install -e '.[dashboard]'",
-            file=sys.stderr,
-        )
-        return 1
-
-    # ``dashboard`` and ``web`` now enter the same two-workspace shell.  A
-    # dashboard invocation is simply a read-only shell with one attached run.
-    app_path = Path(__file__).with_name("upload_app.py")
-    cmd = [sys.executable, "-m", "streamlit", "run", str(app_path)]
-    if port is not None:
-        cmd += ["--server.port", str(port)]
-    # Product chrome, not a debug tool: no "Deploy" button/hamburger menu, no
-    # phone-home usage stats.
-    cmd += ["--client.toolbarMode", "minimal", "--browser.gatherUsageStats", "false"]
-    cmd += _THEME_FLAGS
-    cmd += ["--", "evalvitals_web_runs", "--read-only", "--initial-workspace", "auto",
-            "--attach", str(run_dir)]
-    return subprocess.call(cmd)
-
-
-def launch_upload_app(
-    workspace: str | Path = "evalvitals_web_runs",
-    *,
-    port: int | None = None,
-    backend: str = "claude_code",
-    model: str = "",
-    timeout_sec: int = 1200,
-    attach: "Sequence[str | Path]" = (),
-) -> int:
-    """Launch the upload-and-explore Streamlit workbench (``upload_app.py``).
-
-    The page accepts a .zip of results, extracts it into *workspace*, and runs
-    ``evalvitals explore`` (M2+M3) on it as a detached subprocess; finished
-    runs render with the same tabs as :func:`launch_dashboard`. *backend*,
-    *model* and *timeout_sec* are only the form's defaults — every run can
-    override them in the UI. *attach* lists existing result directories
-    (explore outputs or loop runs) read-only in the same sidebar, so one page
-    can hold the uploads AND e.g. an example's script-produced reports.
-    """
-    try:
-        import streamlit  # noqa: F401
-    except Exception:
-        print(
-            "Streamlit is not installed. Install dashboard extras with:\n"
-            "  pip install -e '.[dashboard]'",
-            file=sys.stderr,
-        )
-        return 1
-
-    app_path = Path(__file__).with_name("upload_app.py")
-    cmd = [sys.executable, "-m", "streamlit", "run", str(app_path)]
-    if port is not None:
-        cmd += ["--server.port", str(port)]
-    cmd += ["--client.toolbarMode", "minimal", "--browser.gatherUsageStats", "false"]
-    cmd += _THEME_FLAGS
-    cmd += ["--", str(workspace), "--backend", backend, "--timeout-sec", str(int(timeout_sec))]
-    if model:
-        cmd += ["--model", model]
-    for a in attach:
-        cmd += ["--attach", str(a)]
-    return subprocess.call(cmd)
+    """Deprecated compatibility alias for :func:`serve_report`."""
+    print("'evalvitals dashboard' is deprecated; use 'evalvitals serve'.")
+    return serve_report(run_dir, port=port or 8501)
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

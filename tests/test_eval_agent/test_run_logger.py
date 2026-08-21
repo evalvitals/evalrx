@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import threading
+from types import SimpleNamespace
 
 
 def test_log_run_start_carries_schema_version(tmp_path):
@@ -41,6 +42,65 @@ def test_every_log_method_stamps_schema_version(tmp_path):
     entries = [json.loads(line) for line in lines]
     assert len(entries) == 2
     assert all(e["schema_version"] == RUN_LOG_SCHEMA_VERSION for e in entries)
+
+
+def test_codegen_persists_complete_raw_cli_stream(tmp_path):
+    """The report audit trail must retain more than the summarized CLI output."""
+    from evalvitals.eval_agent.run_logger import RunLogger
+
+    logger = RunLogger(run_dir=tmp_path / "run1")
+    logger.log_tool_codegen(
+        module="m1_probe", name="fake_tool", need="testing", source="llm",
+        ok=True, code="print(1)", raw_output="summary", raw_stream="complete stream",
+    )
+    logger.close()
+
+    raw_stream = next((tmp_path / "run1" / "tools").glob("*_agent_raw_stream.txt"))
+    assert raw_stream.read_text() == "complete stream"
+
+
+def test_log_fix_accepts_serialized_best_candidate_name(tmp_path):
+    """FixOutcome.to_dict() stores ``best`` as a candidate name, not a mapping."""
+    from evalvitals.eval_agent.run_logger import RunLogger
+
+    logger = RunLogger(run_dir=tmp_path / "run1")
+    outcome = SimpleNamespace(
+        to_dict=lambda: {
+            "attempted": [{"name": "winning_patch", "tier": "prompt"}],
+            "best": "winning_patch",
+            "confirmed": True,
+        }
+    )
+    logger.log_fix(outcome)
+    logger.close()
+
+    event = json.loads((tmp_path / "run1" / "run_log.jsonl").read_text().splitlines()[0])
+    assert event["best"]["name"] == "winning_patch"
+    assert event["best"]["tier"] == "prompt"
+
+
+def test_close_ends_live_langfuse_root_observation(tmp_path):
+    """A live root span must be finalized when the diagnostic run closes."""
+    from evalvitals.eval_agent.run_logger import RunLogger
+
+    class Root:
+        def __init__(self):
+            self.output = None
+            self.ended = False
+
+        def update(self, *, output):
+            self.output = output
+
+        def end(self):
+            self.ended = True
+
+    logger = RunLogger(run_dir=tmp_path / "run1")
+    root = Root()
+    logger.tracer._live_root = root
+    logger.close()
+
+    assert root.ended
+    assert root.output == {"spans": 0, "generations": 0, "scores": 0}
 
 
 def _stats_report(stats_plan):
@@ -198,4 +258,3 @@ def test_run_logger_creates_langfuse_trace_and_spans(tmp_path):
     assert len(bundle["spans"]) >= 2
     assert any(s["stage"] == "M1" for s in bundle["spans"])
     assert any(s["stage"] == "M2" for s in bundle["spans"])
-

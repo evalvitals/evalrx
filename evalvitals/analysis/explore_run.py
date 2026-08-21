@@ -214,6 +214,13 @@ def run_explore(
                 json.dumps(split_meta, indent=1), encoding="utf-8"
             )
 
+    # The HTML report is the canonical visualization artifact.  Generate it
+    # even when the caller does not immediately open a browser so every
+    # completed exploratory run is portable and reviewable.
+    from evalvitals.reporting.html_report import build_html_report
+
+    build_html_report(out_dir, out_path=out_dir / "report.html")
+
     if dashboard:
         from evalvitals.analysis.dashboard import launch_dashboard
 

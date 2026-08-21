@@ -313,6 +313,7 @@ def build_schema() -> dict[str, Any]:
                 "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$",
             },
             "trace_id": {"type": "string"},
+            "event_seq": {"type": "integer", "minimum": 1},
             "span_id": {"type": "string"},
             "cycle": {"type": "integer"},
         },
