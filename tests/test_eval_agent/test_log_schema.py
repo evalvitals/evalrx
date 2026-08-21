@@ -119,6 +119,7 @@ def _emit_every_event_type(run_dir) -> list[dict]:
     logger.log_agent_tool(0, tool="run_probe", ok=True, summary="1 analyzer ran")
 
     logger.log_fix(SimpleNamespace(to_dict=lambda: {"attempted": [], "recommendation": None}))
+    logger.log_stage_skipped("M4", "no_accepted_hypothesis")
 
     logger.log_loop_end(
         SimpleNamespace(cycles=1, resolved=True, final_hypotheses=[hyp]),

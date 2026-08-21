@@ -68,6 +68,17 @@ def test_artifact_manifest_is_content_addressed(tmp_path):
     assert manifests[0]["mime_type"] == "application/json"
 
 
+def test_skipped_stage_keeps_its_pipeline_stage_in_the_envelope():
+    from evalvitals.observability.envelope import make_event_envelope
+
+    envelope = make_event_envelope(
+        {"event": "stage_skipped", "stage": "M4", "reason_code": "no_accepted_hypothesis"},
+        trace_id="trace", event_seq=1,
+    )
+
+    assert envelope["stage"] == "M4"
+
+
 def test_backfill_dry_run_preserves_existing_trace_and_order(tmp_path):
     import json
 
@@ -109,4 +120,54 @@ def test_tracer_flushes_events_through_langfuse_client(tmp_path):
 
     assert len(client.events) == 1
     assert client.events[0]["metadata"]["event_seq"] == 1
+    assert tracer.outbox.pending_count() == 0
+
+
+def test_tracer_nests_events_under_the_live_run_chain(tmp_path):
+    from evalvitals.observability.tracer import DiagnosticTracer
+
+    class Event:
+        def end(self):
+            pass
+
+    class Root:
+        def __init__(self):
+            self.calls = []
+
+        def start_observation(self, **kwargs):
+            self.calls.append(kwargs)
+            return Event()
+
+    class Client:
+        def flush(self):
+            pass
+
+    tracer = DiagnosticTracer(tmp_path)
+    tracer._langfuse_client = Client()
+    tracer._live_root = Root()
+    tracer.record_event({"event": "analysis", "ts": "2026-08-20T00:00:00+00:00"}, event_seq=1)
+    tracer.flush()
+
+    assert tracer._live_root.calls[0]["as_type"] == "event"
+    assert tracer._live_root.calls[0]["metadata"]["event_seq"] == 1
+
+
+def test_live_auto_sync_drains_the_outbox_at_event_time(tmp_path):
+    from evalvitals.observability.tracer import DiagnosticTracer
+
+    class Client:
+        def __init__(self):
+            self.events = []
+
+        def create_event(self, **kwargs):
+            self.events.append(kwargs)
+
+        def flush(self):
+            pass
+
+    tracer = DiagnosticTracer(tmp_path, auto_sync=True)
+    tracer._langfuse_client = Client()
+    tracer.record_event({"event": "analysis", "ts": "2026-08-20T00:00:00+00:00"}, event_seq=1)
+
+    assert len(tracer._langfuse_client.events) == 1
     assert tracer.outbox.pending_count() == 0
