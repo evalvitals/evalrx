@@ -74,23 +74,25 @@ _STOPPED_BY_ANALYSIS  = "analysis_complete"
 
 def _diagnose_with_optional_context(
     diag_agent: "Any", stats_report: "Any", prior_cycles: "Any", explore_context: "Any | None",
-    failure_modes: "Any | None" = None,
+    failure_modes: "Any | None" = None, cases: "Any | None" = None,
 ) -> "Any":
-    """Call ``diag_agent.diagnose`` passing ``explore_context``/``failure_modes``
-    only when the agent accepts them, so custom/legacy diagnosis agents keep
-    working unchanged."""
+    """Call ``diag_agent.diagnose`` passing ``explore_context``/``failure_modes``/
+    ``cases`` only when the agent accepts them, so custom/legacy diagnosis
+    agents keep working unchanged. ``cases`` (the explore-split batch M1/M2
+    ran on) only feeds the critic's label summary -- never the proposer."""
     import inspect as _inspect
 
     kwargs: dict[str, Any] = {"prior_cycles": prior_cycles or None}
-    if explore_context is not None or failure_modes is not None:
+    optional = {"explore_context": explore_context, "failure_modes": failure_modes,
+                "cases": cases}
+    if any(v is not None for v in optional.values()):
         try:
             params = _inspect.signature(diag_agent.diagnose).parameters
         except (TypeError, ValueError):
             params = {}
-        if explore_context is not None and "explore_context" in params:
-            kwargs["explore_context"] = explore_context
-        if failure_modes is not None and "failure_modes" in params:
-            kwargs["failure_modes"] = failure_modes
+        for name, value in optional.items():
+            if value is not None and name in params:
+                kwargs[name] = value
     return diag_agent.diagnose(stats_report, **kwargs)
 
 
@@ -740,7 +742,7 @@ class VLDiagnoseLoop:
     def _do_m3(
         self, cycle: int, stats_report: "Any", prior_cycles: "list[Any]",
         timings: "dict[str, float]", *, log: bool = True,
-        failure_modes: "Any | None" = None,
+        failure_modes: "Any | None" = None, cases: "Any | None" = None,
     ) -> "Any | None":
         """M3: hypothesis generation. Returns the diagnosis result, or ``None``
         when M3 could not run (judge unavailable / timeout / quota) — the caller
@@ -761,7 +763,7 @@ class VLDiagnoseLoop:
         try:
             diag = _diagnose_with_optional_context(
                 diag_agent, stats_report, prior_cycles, self._explore_context,
-                failure_modes,
+                failure_modes, cases=cases,
             )
         except Exception as exc:  # judge timeout/quota must not kill the loop
             logger.warning(
@@ -994,7 +996,7 @@ class VLDiagnoseLoop:
                 break
 
             # ── M3: hypothesis generation ("AI scientist") ────────────
-            diag = self._do_m3(cycle, stats_report, prior_cycles, timings)
+            diag = self._do_m3(cycle, stats_report, prior_cycles, timings, cases=data)
             if diag is None or not diag.hypotheses:
                 if diag is not None:
                     logger.info("M3 produced no hypotheses at cycle %d.", cycle)
@@ -1128,7 +1130,7 @@ class VLDiagnoseLoop:
             final_stats_report = self._do_m2(
                 0, probe_results, data, artifact_pngs, timings, confirmatory=False
             )
-            diag = self._do_m3(0, final_stats_report, [], timings)
+            diag = self._do_m3(0, final_stats_report, [], timings, cases=data)
             if diag is None or not diag.hypotheses:
                 # Stats + dashboard are still valid; just no hypotheses to confirm.
                 if diag is not None:

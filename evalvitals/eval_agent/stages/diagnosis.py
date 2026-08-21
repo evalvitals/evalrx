@@ -328,12 +328,63 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
     return hypotheses
 
 
+def _format_label_context(cases: "Any | None") -> str:
+    """Descriptive label summary for the M3 critic (and nothing else).
+
+    The critic used to see only the findings JSON — per-case rows with
+    ``labelled_fail`` and ``extracted_answer`` but no gold — and rejected a
+    correct "answers Yes regardless of the audio" hypothesis for "no
+    ground-truth present/absent field in the evidence" (audiocaps 2026-08-20)
+    while the proposer had read exactly that breakdown in the explore notes.
+    Counts only; on a yes/no (true/false) batch a gold x answer table whose
+    cells carry the FAIL count. Empty string when *cases* is ``None`` or
+    carries no labels, so callers can concatenate it unconditionally.
+    """
+    if cases is None:
+        return ""
+    try:
+        from evalvitals.analyzers.reasoning._text import (
+            binary_direction,
+            binary_gold,
+            extract_answer,
+        )
+        from evalvitals.core.case import Label
+    except Exception:  # pragma: no cover - defensive import guard
+        return ""
+    rows = [c for c in cases if getattr(c, "label", None) in (Label.PASS, Label.FAIL)]
+    if not rows:
+        return ""
+    n_fail = sum(1 for c in rows if c.label == Label.FAIL)
+    lines = [f"  labelled cases: {len(rows)} ({n_fail} FAIL / {len(rows) - n_fail} PASS)"]
+    golds = [(c, binary_gold(getattr(c, "expected", None))) for c in rows]
+    binary = [(c, g) for c, g in golds if g is not None]
+    if len(binary) >= max(4, int(0.8 * len(rows))):
+        table: dict[tuple[str, str], list[int]] = {}
+        for c, g in binary:
+            text = str(getattr(c, "observed", "") or "")
+            a = binary_direction(extract_answer(text)) or binary_direction(text[-200:], last=True)
+            key = (g, a or "unparsed")
+            cell = table.setdefault(key, [0, 0])
+            cell[0] += 1
+            cell[1] += int(c.label == Label.FAIL)
+        lines.append("  yes/no task -- gold x answer (n, of which FAIL):")
+        for g in ("yes", "no"):
+            for a in ("yes", "no", "unparsed"):
+                n, f = table.get((g, a), [0, 0])
+                if n:
+                    lines.append(f"    gold={g:<3} answered={a:<8} n={n:<4} FAIL={f}")
+        n_yes = sum(n for (g, a), (n, f) in table.items() if a == "yes")
+        lines.append(f"  answered yes on {n_yes}/{len(binary)} binary cases")
+    return "LABEL SUMMARY (descriptive counts from the case batch, not a test result):\n" + "\n".join(lines) + "\n"
+
+
 def _validate_hypotheses(
     hypotheses: list[Hypothesis],
     findings_json: str,
     judge: "Model",
     *,
     capture: "dict[str, Any] | None" = None,
+    context: str = "",
 ) -> list[Hypothesis]:
     """Adversarial review of *hypotheses*: a critic call at temperature=0.
 
@@ -356,6 +407,12 @@ def _validate_hypotheses(
     ``prompt``, ``n_kept`` and ``n_rejected``. Falls back to the unannotated
     list if the critic call fails so the loop is never blocked by a transient
     error.
+
+    *context* is the evidence the PROPOSER worked from beyond the findings
+    JSON -- M2's conclusion and evidence chain, the statistical verdicts, the
+    explore notes and the label summary. Without it the critic judged the
+    hypotheses against less than the proposer had seen and rejected them for
+    missing evidence that was on the table (audiocaps 2026-08-20).
     """
     if not hypotheses:
         return hypotheses
@@ -364,7 +421,13 @@ def _validate_hypotheses(
         f"- HYPOTHESIS: {h.statement}  (failure_mode: {h.predicted_failure_mode})"
         for h in hypotheses
     )
+    context_section = (
+        "\nContext the proposer worked from (analyst conclusion, evidence chain, "
+        "statistical verdicts, exploratory notes, label summary):\n"
+        + context.strip() + "\n"
+    ) if context and context.strip() else ""
     prompt = _VALIDATE_PROMPT.format(
+        context_section=context_section,
         findings_json=findings_json,
         hypotheses_text=hyp_lines,
     )
@@ -515,6 +578,7 @@ class DiagnosisAgent:
         prior_cycles: list[dict] | None = None,
         explore_context: "ExploreContext | None" = None,
         failure_modes: "Any | None" = None,
+        cases: "Any | None" = None,
     ) -> DiagnosisResult:
         """Synthesize *analysis* into a set of falsifiable hypotheses.
 
@@ -535,6 +599,10 @@ class DiagnosisAgent:
                           *explore_context* — informs which hypotheses M3
                           proposes, never a claim itself. ``None`` (default)
                           adds nothing to the prompt and costs no extra call.
+            cases:        The labelled case batch M1/M2 ran on. Used ONLY to
+                          give the critic a label summary (PASS/FAIL counts;
+                          gold x answer table on a yes/no batch) — see
+                          :func:`_format_label_context`. ``None`` adds nothing.
 
         Returns:
             :class:`DiagnosisResult` with zero or more hypotheses.
@@ -623,8 +691,19 @@ class DiagnosisAgent:
         critic: dict[str, Any] = {}
         if hypotheses:
             findings_json_str = json.dumps(summary, indent=2, default=str)
+            # The critic reviews against what the proposer saw, not less:
+            # conclusion + evidence chain + stats verdicts + explore notes,
+            # plus a label summary the proposer never had either.
+            critic_context = "\n".join(part.strip("\n") for part in (
+                f"Analysis conclusion: {conclusion}",
+                evidence_section,
+                stats_section,
+                _format_explore_section(explore_context),
+                _format_label_context(cases),
+            ) if part and part.strip())
             hypotheses = _validate_hypotheses(
                 hypotheses, findings_json_str, self.judge, capture=critic,
+                context=critic_context,
             )
 
         # Fallback: if the judge returned NO_ISSUE but M2 has medium/high findings,

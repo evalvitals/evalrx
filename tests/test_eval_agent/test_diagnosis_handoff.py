@@ -102,3 +102,56 @@ def test_failure_modes_with_zero_clusters_adds_nothing():
     )
     assert "FAILURE MODES" not in judge.prompts[0]
     assert diag.failure_modes_used is False
+
+
+def test_critic_reviews_against_the_proposers_context_and_a_label_summary():
+    """audiocaps 2026-08-20: the critic rejected a correct 'answers Yes regardless
+    of the audio' lead for 'no ground-truth present/absent field' -- it saw only
+    the findings JSON while the proposer had M2's conclusion and the explore
+    breakdown. Both calls now read the same context, plus a label summary."""
+    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+
+    judge = CapturingJudge()
+    cases = CaseBatch(
+        [FailureCase(id=f"f{i}", inputs=Inputs(prompt="Is there a dog?"),
+                     observed="Yes", expected="No", label=Label.FAIL) for i in range(5)]
+        + [FailureCase(id=f"p{i}", inputs=Inputs(prompt="Is there a cat?"),
+                       observed="Yes", expected="Yes", label=Label.PASS) for i in range(5)]
+    )
+    DiagnosisAgent(judge=judge).diagnose(_stats_report_with_conclusion(), cases=cases)
+    assert len(judge.prompts) == 2, "proposer call, then the critic call"
+    critic = judge.prompts[1]
+    assert "Context the proposer worked from" in critic
+    assert "ignores the image and answers from language priors" in critic   # conclusion
+    assert "near-uniform" in critic                                          # evidence chain
+    assert "REJECT H0" in critic                                             # stats verdict
+    assert "LABEL SUMMARY" in critic and "gold=no  answered=yes      n=5    FAIL=5" in critic
+    # the proposer's own prompt is unchanged by the cases kwarg
+    assert "LABEL SUMMARY" not in judge.prompts[0]
+
+
+def test_diagnose_without_cases_keeps_the_critic_prompt_label_free():
+    judge = CapturingJudge()
+    DiagnosisAgent(judge=judge).diagnose(_stats_report_with_conclusion())
+    assert "LABEL SUMMARY" not in judge.prompts[1]
+    assert "Context the proposer worked from" in judge.prompts[1]  # conclusion/evidence still travel
+
+
+def test_loop_hands_the_case_batch_to_agents_that_accept_it_only():
+    from evalvitals.eval_agent.loop import _diagnose_with_optional_context
+
+    class Modern:
+        def diagnose(self, stats_report, prior_cycles=None, explore_context=None,
+                     failure_modes=None, cases=None):
+            self.seen = {"cases": cases, "explore_context": explore_context}
+            return "ok"
+
+    class Legacy:
+        def diagnose(self, stats_report, prior_cycles=None):
+            return "ok"
+
+    modern = Modern()
+    assert _diagnose_with_optional_context(modern, "report", [], None, cases=["c"]) == "ok"
+    assert modern.seen == {"cases": ["c"], "explore_context": None}
+    # a legacy agent without the kwarg is called without it (no TypeError)
+    assert _diagnose_with_optional_context(Legacy(), "report", [], None, cases=["c"]) == "ok"

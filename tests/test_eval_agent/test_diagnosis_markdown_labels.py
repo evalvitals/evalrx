@@ -119,3 +119,48 @@ def test_markdown_expected_association_label_is_normalised():
     assert len(hs) == 1
     assert hs[0].expected_association == "higher_on_failures"
     assert hs[0].test_design.startswith("step_rollout_value.max_value_drop")
+
+
+def test_critic_context_is_optional_and_lands_in_its_prompt():
+    """The critic reviews against what the proposer saw: *context* (conclusion,
+    evidence, stats, explore notes, label summary) goes into its prompt; the
+    old 3-positional call keeps working and adds no context block."""
+    hs = _parse_hypotheses(_LIVE_STYLE, "qwen")
+    cap = {}
+    _validate_hypotheses(hs, "{}", _Critic("KEEP: everything"), capture=cap,
+                         context="LABEL SUMMARY: gold=no answered=yes n=27 FAIL=27")
+    assert "Context the proposer worked from" in cap["prompt"]
+    assert "gold=no answered=yes n=27 FAIL=27" in cap["prompt"]
+    assert cap["prompt"].index("Context the proposer") < cap["prompt"].index("Findings summary")
+
+    bare = {}
+    _validate_hypotheses(hs, "{}", _Critic("KEEP: everything"), capture=bare)
+    assert "Context the proposer worked from" not in bare["prompt"]
+
+
+def test_label_context_tabulates_gold_by_answer_on_binary_batches():
+    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalvitals.eval_agent.stages.diagnosis import _format_label_context
+
+    assert _format_label_context(None) == ""
+
+    def _c(i, observed, expected, label):
+        return FailureCase(id=f"c{i}", inputs=Inputs(prompt="Is there a dog?"),
+                           observed=observed, expected=expected, label=label)
+
+    binary = CaseBatch(
+        [_c(i, "Yes", "No", Label.FAIL) for i in range(3)]
+        + [_c(10 + i, "Yes", "Yes", Label.PASS) for i in range(4)]
+        + [_c(20, "No", "Yes", Label.FAIL), _c(21, "No", "No", Label.PASS)]
+    )
+    text = _format_label_context(binary)
+    assert "labelled cases: 9 (4 FAIL / 5 PASS)" in text
+    assert "gold=no  answered=yes      n=3    FAIL=3" in text
+    assert "gold=yes answered=yes      n=4    FAIL=0" in text
+    assert "answered yes on 7/9 binary cases" in text
+
+    numeric = CaseBatch([_c(i, "Answer: 12", "12", Label.PASS) for i in range(5)]
+                        + [_c(9, "Answer: 7", "12", Label.FAIL)])
+    text = _format_label_context(numeric)
+    assert "labelled cases: 6 (1 FAIL / 5 PASS)" in text
+    assert "gold x answer" not in text
