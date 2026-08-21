@@ -13,7 +13,7 @@ What differs from the Qwen2.5-VL example:
 | spec key | `qwen2.5-vl-7b-instruct` | `qwen3.5-2b-vl` (`Qwen/Qwen3.5-2B`, `Qwen3_5ForConditionalGeneration`) |
 | thinking | n/a | **OFF on every template render** — the spec sends `enable_thinking=False` (the 2B template defaults off when the kwarg is absent, the 9B one defaults on, so it is always explicit) |
 | attention | full attention every layer | hybrid: `layer_types` = `[linear ×3, full] × 6` — a forward returns 6 attention tensors for 24 layers (position *i* = model layer 4*i*+3); rollouts are partial-path |
-| image | transformers 4.57 / torch cu124 | **transformers 5.15 / torch 2.13 cu129** (`qwen3_5` is unknown to transformers 4.x) |
+| image | transformers 4.57 / torch cu124 | **transformers 5.15 / torch 2.13 + torchvision 0.28 cu129** (`qwen3_5` is unknown to transformers 4.x; the processor's video branch imports torchvision even for images; `gcc` because torch 2.13 JIT-compiles Triton-backed ops on first use) |
 
 ```bash
 python download_spatial457.py --limit 256 --seed 7457
