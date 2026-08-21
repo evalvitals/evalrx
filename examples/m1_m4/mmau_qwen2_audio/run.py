@@ -130,7 +130,13 @@ def make_cases(rows: list[dict[str, Any]], baseline: dict[str, Any]) -> "Any":
             expected=row["expected"],
             observed=baseline_by_id[row["id"]]["output"],
             label=Label.PASS if baseline_by_id[row["id"]]["correct"] else Label.FAIL,
-            metadata={**row["metadata"], "task": row["task"]},
+            metadata={
+                **row["metadata"],
+                "task": row["task"],
+                "output_contract": {
+                    "kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"],
+                },
+            },
         )
         for row in rows
     ])
@@ -196,6 +202,7 @@ def build_protocol() -> "Any":
             "The selected option letter must match the gold answer for the clip."
         ),
         target_modalities=frozenset({"text", "audio"}),
+        output_contract={"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
     )
 
 
@@ -206,13 +213,20 @@ def build_judge(provider: str, model_name: str, effort: str) -> "Any":
         judge = AgyModel(model=model_name, timeout_sec=300)
         label = f"agy model={model_name or 'session default'}"
         empty_hint = "agy is likely rate-limited/quota-exhausted -- try --judge-model with a different agy model"
-    else:
+    elif provider == "claude":
         from evalvitals.eval_agent import ClaudeModel
 
         model_name = model_name or "claude-fable-5"
         judge = ClaudeModel(model=model_name, effort=effort)
         label = f"claude model={model_name} effort={effort or 'default'}"
         empty_hint = f"claude --model {model_name} returned empty (rate-limited?) -- try --judge-model sonnet or haiku"
+    else:
+        from evalvitals.agent_runtime.judges import CodexModel
+
+        model_name = model_name or "gpt-5.6-terra"
+        judge = CodexModel(model=model_name, timeout_sec=600)
+        label = f"codex model={model_name}"
+        empty_hint = f"codex --model {model_name} returned empty (check Codex authentication or quota)"
     if not judge.generate("Reply with exactly the word OK").strip():
         raise SystemExit(f"judge probe: {empty_hint}")
     print(f"judge: {label}")
@@ -274,7 +288,10 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
             expected=gold,
             observed="A",
             label=Label.PASS if gold == "A" else Label.FAIL,
-            metadata={"task": "multiple_choice"},
+            metadata={
+                "task": "multiple_choice",
+                "output_contract": {"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
+            },
         )
 
     cases = CaseBatch([
@@ -611,16 +628,15 @@ def main() -> int:
     )
     parser.add_argument("--fix-max-tier", default="L3a")
     parser.add_argument(
-        "--judge-provider", choices=["claude", "agy"], default="agy",
-        help="'agy' (default, Antigravity CLI, no Anthropic API key -- see "
-             "evalvitals/agent_runtime/judges/agy.py) or 'claude' (native "
-             "claude CLI). Matches vlm_benchmark_common.py's default.",
+        "--judge-provider", choices=["claude", "agy", "codex"], default="agy",
+        help="'agy' (Antigravity CLI), 'claude' (native Claude CLI), or "
+             "'codex' (OpenAI Codex CLI; default model gpt-5.6-terra).",
     )
     parser.add_argument(
         "--judge-model", default="",
         help="model name passed to the judge CLI. Empty = provider default "
-             "(claude-fable-5 for --judge-provider claude; agy session default "
-             "for --judge-provider agy).",
+             "(claude-fable-5 for --judge-provider claude; gpt-5.6-terra for "
+             "--judge-provider codex; agy session default for --judge-provider agy).",
     )
     parser.add_argument("--judge-effort", default="low")
     parser.add_argument("--seed", type=int, default=20260814)
@@ -783,11 +799,11 @@ def main() -> int:
     from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
 
     coder_cfg = CliAgentConfig(
-        provider="antigravity" if args.judge_provider == "agy" else "claude_code",
-        model=args.judge_model,
+        provider={"agy": "antigravity", "claude": "claude_code", "codex": "codex"}[args.judge_provider],
+        model=(args.judge_model or "gpt-5.6-terra") if args.judge_provider == "codex" else args.judge_model,
         timeout_sec=900,
         extra_args=(
-            () if args.judge_provider == "agy"
+            () if args.judge_provider in {"agy", "codex"}
             else (("--effort", args.judge_effort) if args.judge_effort else ())
         ),
     )
@@ -838,10 +854,9 @@ def main() -> int:
 
     if not args.analysis_only:
         print(f"\n{'='*64}\nM4  Intervention experiment\n{'='*64}")
-        fix_proposal = loop.run_m4(report, cases, allow_unverified=True)
+        fix_proposal = loop.run_m4(report, cases)
         if fix_proposal is not None:
-            tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
-            print(f"  M4 experiment on the {tag} hypothesis: status={fix_proposal.status}")
+            print(f"  M4 experiment on the verified hypothesis: status={fix_proposal.status}")
         else:
             print("  M4: no hypothesis to experiment on")
         print(f"\n{'='*64}\nFIX  Tiered repair attempts (max tier = {args.fix_max_tier})\n{'='*64}")
