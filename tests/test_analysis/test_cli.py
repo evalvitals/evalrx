@@ -100,7 +100,7 @@ def test_langfuse_report_source_materializes_a_cache(monkeypatch, tmp_path):
         return tmp_path / "report.html"
 
     monkeypatch.setattr(source_mod, "LangfuseRunSource", Source)
-    monkeypatch.setattr("evalvitals.reporting.html_report.build_html_report", _build)
+    monkeypatch.setattr("evalvitals.reporting.static_export.export_static_report", _build)
     monkeypatch.setattr(cli_mod, "_langfuse_cache", lambda _trace: tmp_path / "cache")
 
     assert main(["report", "--source", "langfuse", "--trace-id", "trace-1"]) == 0

@@ -57,6 +57,8 @@ def _emit_every_event_type(run_dir) -> list[dict]:
     logger.current_cycle = 0
 
     logger.log_run_start({"model": "fake", "n_cases": 3})
+    from evalvitals.core import CaseBatch, FailureCase
+    logger.log_cases(CaseBatch([FailureCase.from_prompt("example", id="case-1")]))
 
     res = Result(
         analyzer="self_consistency", model="fake",
@@ -122,6 +124,14 @@ def _emit_every_event_type(run_dir) -> list[dict]:
         SimpleNamespace(cycles=1, resolved=True, final_hypotheses=[hyp]),
         tokens_used=10, timings={"m1": 1.0},
     )
+    logger.log_report_published({
+        "schema_version": 1,
+        "catalog_version": "evalvitals-report@1",
+        "json_render_version": "0.19.0",
+        "source_event_seq": 1,
+        "sha256": "abc",
+        "generated_by": {"mode": "deterministic", "model": None},
+    })
     logger.close()
 
     return [json.loads(line) for line in (run_dir / "run_log.jsonl").read_text().splitlines()]

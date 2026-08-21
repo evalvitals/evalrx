@@ -64,6 +64,12 @@ viz = ["matplotlib>=3.7"]
 # installed, every RunLogger event is persisted through the local outbox and
 # mirrored to Langfuse on flush.
 observability = ["langfuse>=4.7"]
+# Completed-run dynamic report server. The React renderer is pre-built and
+# shipped as package data; Node is only needed by contributors changing it.
+ui = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
 # Inferential stats for the outcome-driver-analysis agent skill's Python path
 # (logistic/GLM fits with real inference, VIF, calibration, ROC).
 stats = [
@@ -79,8 +85,7 @@ cluster = [
     "hdbscan>=0.8.33",
     "langfuse>=4.7",
 ]
-# Reports are dependency-free static HTML.  The former Streamlit dashboard and
-# upload workbench are no longer part of the supported product surface.
+# The former Streamlit dashboard and upload workbench are no longer supported.
 gemini = ["google-genai>=1.0"]
 all = [
     "torch>=2.0.0",
@@ -130,6 +135,7 @@ include = ["evalvitals*"]
 # Ship bundled Agent Skills (e.g. nature-figure) so `pip install` carries them
 # too, not just `git clone`. explore auto-applies them on claude/agy backends.
 "evalvitals.agent_assets" = ["skills/**/*"]
+"evalvitals.reporting" = ["web_dist/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

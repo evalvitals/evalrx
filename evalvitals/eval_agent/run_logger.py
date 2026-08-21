@@ -48,9 +48,11 @@ Custom handler — e.g. redirect verbose output to a file instead::
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
+import shutil
 import sys
 import textwrap
 import threading
@@ -80,7 +82,7 @@ if TYPE_CHECKING:
 #     decision turn: chosen tool + rationale, keyed by `step` not `cycle`) and
 #     `agent_tool` (the dispatch layer's accept/reject outcome for that tool
 #     call). VLDiagnoseLoop/AutoDiagnoseLoop's events are unchanged.
-RUN_LOG_SCHEMA_VERSION = 3
+RUN_LOG_SCHEMA_VERSION = 4
 
 
 def _externalized(summary: "dict[str, Any]") -> str:
@@ -481,6 +483,10 @@ class RunLogger:
         # Stable ordering for Langfuse/API readers.  Timestamps alone are not
         # sufficient when a stage emits several records in the same clock tick.
         self._event_seq: int = 0
+        # Case records are durable evidence, not renderer-side joins.  Keep the
+        # method idempotent because split analysis/confirm workflows can reuse
+        # one logger and present the same case more than once.
+        self._logged_case_ids: set[str] = set()
         # Monotonic counter so codegen artifacts written in the same cycle never
         # collide on filename. Lock guards the increment in case codegen calls
         # are ever issued from parallel analyzer threads (currently they aren't:
@@ -557,6 +563,78 @@ class RunLogger:
             benchmark=bench_name,
             n_cases=int(entry.get("n_cases", 0) or 0),
             metadata=entry,
+        )
+
+    def log_cases(self, cases: "Any") -> None:
+        """Persist complete case I/O and media references to JSONL + Langfuse.
+
+        One event per case keeps observations independently queryable and avoids
+        a single oversized Langfuse payload.  Media remains path-referenced in
+        JSONL; ``media_paths`` makes the tracer upload every existing file as a
+        Langfuse Media object with content hashing and deduplication.
+        """
+        for case in cases:
+            case_id = str(getattr(case, "id", "") or "")
+            if not case_id or case_id in self._logged_case_ids:
+                continue
+            if hasattr(case, "to_dict"):
+                payload = case.to_dict()
+            elif isinstance(case, dict):
+                payload = dict(case)
+            else:
+                payload = {"id": case_id, "value": str(case)}
+            # Some user-defined expected/observed objects are not JSON-native.
+            payload = json.loads(json.dumps(payload, ensure_ascii=False, default=str))
+            media_paths: list[str] = []
+            inputs = getattr(case, "inputs", None)
+            for kind in ("image", "audio", "video"):
+                value = getattr(inputs, kind, None)
+                if not isinstance(value, (str, Path)):
+                    continue
+                path = Path(value)
+                if not path.is_absolute():
+                    run_relative = self.run_dir / path
+                    path = run_relative if run_relative.is_file() else path.resolve()
+                if not path.is_file():
+                    continue
+                try:
+                    media_paths.append(str(path.resolve().relative_to(self.run_dir.resolve())))
+                except ValueError:
+                    # Langfuse is the durable source of truth, so external case
+                    # media must enter the run-owned outbox before its original
+                    # path can disappear. Content-prefix naming deduplicates the
+                    # common case where several records share one attachment.
+                    digest = hashlib.sha256()
+                    with path.open("rb") as handle:
+                        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    media_dir = self.artifact_dir / "case_media"
+                    media_dir.mkdir(parents=True, exist_ok=True)
+                    copied = media_dir / f"{digest.hexdigest()[:16]}_{path.name}"
+                    if not copied.exists():
+                        shutil.copy2(path, copied)
+                    media_paths.append(str(copied.relative_to(self.run_dir)))
+            self._log(
+                {"event": "case_record", "case_id": case_id, "case": payload, "media_paths": media_paths},
+                span_id=f"case.{case_id}",
+            )
+            self._logged_case_ids.add(case_id)
+
+    def log_report_published(self, envelope: "dict[str, Any]") -> None:
+        """Record the cached json-render publication as part of the run audit."""
+        generated = envelope.get("generated_by") or {}
+        self._log(
+            {
+                "event": "report_published",
+                "report_schema_version": int(envelope.get("schema_version") or 1),
+                "catalog_version": str(envelope.get("catalog_version") or ""),
+                "json_render_version": str(envelope.get("json_render_version") or ""),
+                "source_event_seq": int(envelope.get("source_event_seq") or 0),
+                "sha256": str(envelope.get("sha256") or ""),
+                "generated_by": generated,
+                "report_paths": ["report/report_data.json", "report/report_spec.json"],
+            },
+            span_id="report.publish",
         )
 
     @staticmethod

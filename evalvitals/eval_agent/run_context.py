@@ -393,6 +393,19 @@ class RunContext:
             )
         return written
 
+    def publish_report(
+        self,
+        *,
+        model: "Any | None" = None,
+        example_dir: "str | Path | None" = None,
+    ) -> "Any":
+        """Publish the dynamic report after all diagnostic/fix stages finish."""
+        from evalvitals.reporting.dynamic import publish_report
+
+        return publish_report(
+            self.root, example_dir=example_dir, model=model, run_logger=self._logger,
+        )
+
     # ------------------------------------------------------------------
     # Manifest + README — built by walking the tree at finalize().
     # ------------------------------------------------------------------

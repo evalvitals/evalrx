@@ -216,6 +216,26 @@ class AutoDiagnoseLoop:
     # Public API
     # ──────────────────────────────────────────────────────────────────
 
+    def publish_report(
+        self,
+        *,
+        model: "Any | None" = None,
+        example_dir: "str | Path | None" = None,
+    ) -> "Any":
+        """Compose the completed-run UI, reusing the diagnosis judge."""
+        if self.run_logger is None:
+            raise RuntimeError("publish_report needs a run_logger with a durable run directory")
+        if model is None:
+            model = getattr(self.diagnosis_agent, "judge", None)
+        from evalvitals.reporting.dynamic import publish_report
+
+        return publish_report(
+            self.run_logger.run_dir,
+            example_dir=example_dir,
+            model=model,
+            run_logger=self.run_logger,
+        )
+
     def run(self, data: "CaseBatch") -> AutoDiagnoseReport:
         """Drive the M1→M2→M3→M4 loop until resolved or *max_cycles* reached.
 
@@ -262,6 +282,7 @@ class AutoDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="AutoDiagnoseLoop")
             )
+            self.run_logger.log_cases(data)
 
         for cycle in range(start_cycle, self.max_cycles):
             if self.run_logger is not None:
