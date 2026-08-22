@@ -39,21 +39,20 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
     ),
     StageSpec(
         id="M4",
-        name="Mechanism test",
-        question="Does an intervention or controlled probe support the mechanism?",
-        artifacts="Targeted experiment results and intervention records.",
-        dashboard_role="Hypotheses & Artifacts: decision evidence before fixes.",
+        name="Intervention & repair",
+        question="Does a targeted intervention repair failures without unacceptable regressions?",
+        artifacts="Intervention records, repair candidates, paired outcome comparisons.",
+        dashboard_role="Intervene & repair: causal experiments and the repair sweep after validation.",
     ),
     StageSpec(
         id="M5",
-        name="Repair / surgery test",
-        question="Does a proposed change repair failures without unacceptable regressions?",
-        artifacts="Surgery/fix outcomes, adjudication records, regression checks.",
-        dashboard_role="Hypotheses & Artifacts: final gate for action.",
+        name="Hypothesis validation",
+        question="Does corrected statistical evidence and protocol consistency support the hypothesis?",
+        artifacts="Held-out verdicts, adjudication records, and evidence grades.",
+        dashboard_role="Validate hypotheses: the gate before intervention or repair.",
     ),
 )
 
 
 def stage_specs_as_dicts() -> list[dict[str, str]]:
     return [spec.__dict__.copy() for spec in STAGE_SPECS]
-

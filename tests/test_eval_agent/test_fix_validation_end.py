@@ -392,8 +392,8 @@ def test_run_fix_drops_m4_refuted_hypothesis_and_tells_the_proposer():
     assert {c.id for c in ctx.example_cases}.isdisjoint({c.id for c in confirm})
 
 
-def test_run_fix_still_works_with_a_minimal_fix_agent():
-    """A stub that only accepts (model, data, hypotheses) keeps working."""
+def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
+    """Even a legacy minimal proposer cannot bypass the M5 evidence gate."""
     from evalvitals.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
     from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
 
@@ -409,8 +409,9 @@ def test_run_fix_still_works_with_a_minimal_fix_agent():
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
     report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
-    loop.run_fix(report, _mc_batch())
-    assert stub.seen and stub.seen[0].statement == "x"
+    outcome = loop.run_fix(report, _mc_batch())
+    assert stub.seen is None
+    assert outcome.stage_status == "skipped"
 
 
 # ── recommendation names a promising-but-inconclusive candidate ──────────────
@@ -648,7 +649,7 @@ def test_run_m4_default_still_requires_verified_but_allow_unverified_uses_best_l
     assert report.fix_proposal is iv
 
 
-def test_run_fix_without_verified_uses_unverified_leads_and_says_so():
+def test_run_fix_without_verified_skips_repair_authoring():
     from evalvitals.eval_agent import VLDiagnoseLoop
     from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
 
@@ -667,14 +668,10 @@ def test_run_fix_without_verified_uses_unverified_leads_and_says_so():
     stub = Recorder()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
-    loop.run_fix(report, _mc_batch())
-    assert [h.id for h in stub.hypotheses] == ["h1", "h0"]               # best first, refuted dropped
-    assert stub.context.hypotheses_note.startswith("UNVERIFIED")
-    # the proposer sees the caveat right under the hypotheses heading
-    judge = ScriptedJudge("[]")
-    agent = FixAgent(judge=judge, max_tier="L1")
-    agent.propose_and_validate(CountingModel(), _mc_batch(), stub.hypotheses, context=stub.context)
-    assert "UNVERIFIED: M5 found no statistically significant evidence" in judge.prompts[-1]
+    outcome = loop.run_fix(report, _mc_batch())
+    assert stub.hypotheses is None
+    assert outcome.stage_status == "skipped"
+    assert outcome.skip_reason == "no_accepted_hypothesis"
 
 
 # ── coded-pipeline bridge: concurrent, request-id tagged ─────────────────────
@@ -795,3 +792,62 @@ def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
     cand = fa.FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded", payload={"code": "x"})
     agent._run_coded(cand, CountingModel(), _mc_batch())
     assert seen["concurrency"] == 5
+
+
+# ── allow_unverified=True: the exploratory fix path, opt-in ──────────────────
+#
+# Without an M5-verified hypothesis run_fix records a skipped stage (above).
+# The examples we run pass allow_unverified=True so the fix still executes on
+# the best unverified leads — the candidate validation on CONFIRM is the gate.
+
+
+def test_run_fix_allow_unverified_keeps_a_minimal_fix_agent_working():
+    """A stub that only accepts (model, data, hypotheses) keeps working and
+    receives the final proposals when nothing was verified."""
+    from evalvitals.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+
+    class Minimal:
+        run_logger = None
+        seen = None
+
+        def propose_and_validate(self, model, data, hypotheses):
+            self.seen = list(hypotheses)
+            return object()
+
+    stub = Minimal()
+    loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
+                          fix_agent=stub)
+    report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
+    loop.run_fix(report, _mc_batch(), allow_unverified=True)
+    assert stub.seen and stub.seen[0].statement == "x"
+
+
+def test_run_fix_allow_unverified_uses_unverified_leads_and_says_so():
+    from evalvitals.eval_agent import VLDiagnoseLoop
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+
+    report, hs = _inconclusive_report()
+
+    class Recorder:
+        run_logger = None
+        hypotheses = None
+        context = None
+
+        def propose_and_validate(self, model, data, hypotheses, prior_attempts=None, context=None):
+            self.hypotheses = list(hypotheses)
+            self.context = context
+            return object()
+
+    stub = Recorder()
+    loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
+                          fix_agent=stub)
+    outcome = loop.run_fix(report, _mc_batch(), allow_unverified=True)
+    assert getattr(outcome, "stage_status", "completed") != "skipped"
+    assert [h.id for h in stub.hypotheses] == ["h1", "h0"]               # best first, refuted dropped
+    assert stub.context.hypotheses_note.startswith("UNVERIFIED")
+    # the proposer sees the caveat right under the hypotheses heading
+    judge = ScriptedJudge("[]")
+    agent = FixAgent(judge=judge, max_tier="L1")
+    agent.propose_and_validate(CountingModel(), _mc_batch(), stub.hypotheses, context=stub.context)
+    assert "UNVERIFIED: M5 found no statistically significant evidence" in judge.prompts[-1]

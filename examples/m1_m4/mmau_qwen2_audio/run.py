@@ -130,7 +130,13 @@ def make_cases(rows: list[dict[str, Any]], baseline: dict[str, Any]) -> "Any":
             expected=row["expected"],
             observed=baseline_by_id[row["id"]]["output"],
             label=Label.PASS if baseline_by_id[row["id"]]["correct"] else Label.FAIL,
-            metadata={**row["metadata"], "task": row["task"]},
+            metadata={
+                **row["metadata"],
+                "task": row["task"],
+                "output_contract": {
+                    "kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"],
+                },
+            },
         )
         for row in rows
     ])
@@ -196,19 +202,34 @@ def build_protocol() -> "Any":
             "The selected option letter must match the gold answer for the clip."
         ),
         target_modalities=frozenset({"text", "audio"}),
+        output_contract={"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
     )
 
 
-def build_judge(model_name: str, effort: str) -> "Any":
-    from evalvitals.eval_agent import ClaudeModel
+def build_judge(provider: str, model_name: str, effort: str) -> "Any":
+    if provider == "agy":
+        from evalvitals.agent_runtime.judges import AgyModel
 
-    judge = ClaudeModel(model=model_name, effort=effort)
+        judge = AgyModel(model=model_name, timeout_sec=300)
+        label = f"agy model={model_name or 'session default'}"
+        empty_hint = "agy is likely rate-limited/quota-exhausted -- try --judge-model with a different agy model"
+    elif provider == "claude":
+        from evalvitals.eval_agent import ClaudeModel
+
+        model_name = model_name or "claude-fable-5"
+        judge = ClaudeModel(model=model_name, effort=effort)
+        label = f"claude model={model_name} effort={effort or 'default'}"
+        empty_hint = f"claude --model {model_name} returned empty (rate-limited?) -- try --judge-model sonnet or haiku"
+    else:
+        from evalvitals.agent_runtime.judges import CodexModel
+
+        model_name = model_name or "gpt-5.6-terra"
+        judge = CodexModel(model=model_name, timeout_sec=600)
+        label = f"codex model={model_name}"
+        empty_hint = f"codex --model {model_name} returned empty (check Codex authentication or quota)"
     if not judge.generate("Reply with exactly the word OK").strip():
-        raise SystemExit(
-            f"judge probe: claude --model {model_name} returned empty "
-            f"(rate-limited?) — try --judge-model sonnet or haiku"
-        )
-    print(f"judge: claude model={model_name} effort={effort or 'default'}")
+        raise SystemExit(f"judge probe: {empty_hint}")
+    print(f"judge: {label}")
     return judge
 
 
@@ -267,7 +288,10 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
             expected=gold,
             observed="A",
             label=Label.PASS if gold == "A" else Label.FAIL,
-            metadata={"task": "multiple_choice"},
+            metadata={
+                "task": "multiple_choice",
+                "output_contract": {"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
+            },
         )
 
     cases = CaseBatch([
@@ -543,7 +567,17 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
         ebh_survivors=[candidate.name] if validation.fixed else [],
     )
     ctx.logger.log_fix(outcome)
+    ctx.publish_report(example_dir=HERE)
     ctx.finalize()
+    from evalvitals.reporting.static_export import export_static_report
+
+    report_html_path = Path(args.run_dir).resolve() / "report.html"
+    export_static_report(
+        ctx.root,
+        example_dir=HERE,
+        out_path=report_html_path,
+        embed_media="all" if args.report_media == "inline" else "none",
+    )
 
     print("\nPREREGISTERED TCD CONFIRMATION")
     if args.prior_confirm_result:
@@ -593,7 +627,17 @@ def main() -> int:
              "downstream would ever read the held-out partition.",
     )
     parser.add_argument("--fix-max-tier", default="L3a")
-    parser.add_argument("--judge-model", default="claude-fable-5")
+    parser.add_argument(
+        "--judge-provider", choices=["claude", "agy", "codex"], default="agy",
+        help="'agy' (Antigravity CLI), 'claude' (native Claude CLI), or "
+             "'codex' (OpenAI Codex CLI; default model gpt-5.6-terra).",
+    )
+    parser.add_argument(
+        "--judge-model", default="",
+        help="model name passed to the judge CLI. Empty = provider default "
+             "(claude-fable-5 for --judge-provider claude; gpt-5.6-terra for "
+             "--judge-provider codex; agy session default for --judge-provider agy).",
+    )
     parser.add_argument("--judge-effort", default="low")
     parser.add_argument("--seed", type=int, default=20260814)
     parser.add_argument(
@@ -636,6 +680,10 @@ def main() -> int:
              "TCD result's paired sufficient statistics with the new batch",
     )
     parser.add_argument("--run-dir", default=str(HERE / "outputs"))
+    parser.add_argument(
+        "--report-media", choices=["inline", "none"], default="inline",
+        help="media policy for the generated report; inline makes one shareable HTML file",
+    )
     parser.add_argument(
         "--smoke-test", action="store_true",
         help="fast wiring check (no GPU/model/judge) -- see module docstring",
@@ -682,16 +730,7 @@ def main() -> int:
         "-- tcd_temporal_blur will never be proposed by loop.run_fix with this batch"
     )
 
-    judge = build_judge(args.judge_model, args.judge_effort)
-    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
-    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
-
-    coder_cfg = CliAgentConfig(
-        provider="claude_code",
-        model=args.judge_model,
-        timeout_sec=900,
-        extra_args=(("--effort", args.judge_effort) if args.judge_effort else ()),
-    )
+    judge = build_judge(args.judge_provider, args.judge_model, args.judge_effort)
 
     from evalvitals.eval_agent import (
         DiagnosisAgent,
@@ -710,6 +749,7 @@ def main() -> int:
         Path(args.run_dir) / "logs", verbose=True,
         config={
             "model": args.model,
+            "judge_provider": args.judge_provider,
             "judge_model": args.judge_model,
             "limit": args.limit,
             "max_cycles": args.max_cycles,
@@ -764,6 +804,18 @@ def main() -> int:
     print(f"  explore/confirm split: {len(cases) - n_confirm} explore "
           f"(M1-M5 discovery) / {n_confirm} confirm (held out for run_fix)")
 
+    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
+    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+
+    coder_cfg = CliAgentConfig(
+        provider={"agy": "antigravity", "claude": "claude_code", "codex": "codex"}[args.judge_provider],
+        model=(args.judge_model or "gpt-5.6-terra") if args.judge_provider == "codex" else args.judge_model,
+        timeout_sec=900,
+        extra_args=(
+            () if args.judge_provider in {"agy", "codex"}
+            else (("--effort", args.judge_effort) if args.judge_effort else ())
+        ),
+    )
     explorer = None
     if args.explore and not args.analysis_only:
         from evalvitals.agent_runtime.sandbox import ExperimentSandbox
@@ -818,7 +870,7 @@ def main() -> int:
         else:
             print("  M4: no hypothesis to experiment on")
         print(f"\n{'='*64}\nFIX  Tiered repair attempts (max tier = {args.fix_max_tier})\n{'='*64}")
-        outcome = loop.run_fix(report, cases)
+        outcome = loop.run_fix(report, cases, allow_unverified=True)
         for v in outcome.attempted:
             tag = "FIXED" if v.fixed else "no"
             e_str = f"{v.e_value:.2f}" if v.e_value is not None else "n/a"
@@ -841,7 +893,18 @@ def main() -> int:
         else:
             print(f"  VERDICT    : not fixed; already at the highest tier ({args.fix_max_tier})")
 
+    loop.publish_report(example_dir=HERE)
     ctx.finalize()
+    from evalvitals.reporting.static_export import export_static_report
+
+    report_html_path = Path(args.run_dir).resolve() / "report.html"
+    export_static_report(
+        ctx.root,
+        example_dir=HERE,
+        out_path=report_html_path,
+        embed_media="all" if args.report_media == "inline" else "none",
+    )
+    print(f"  Dynamic Report Export -> {report_html_path}")
     print(f"\n  Full guide -> {ctx.root / 'README.txt'}")
     return 0
 

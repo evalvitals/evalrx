@@ -3,10 +3,53 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
-from evalvitals.analysis.dashboard import launch_dashboard, launch_upload_app
+from evalvitals.analysis.dashboard import launch_dashboard
 from evalvitals.analysis.explore_run import run_explore
 from evalvitals.analysis.run_codebase import run_codebase_cli
+
+
+def serve_report(
+    run_dir: str | Path,
+    *,
+    port: int,
+    no_audio: bool = False,
+    open_browser: bool = True,
+    block: bool = True,
+) -> int:
+    """CLI seam for the dynamic UI (signature kept for compatibility/tests)."""
+    del no_audio, block
+    from evalvitals.reporting.server import serve_dynamic_report
+
+    return serve_dynamic_report(run_dir, port=port, open_browser=open_browser)
+
+
+def _langfuse_cache(trace_id: str) -> Path:
+    """Stable local cache for a Langfuse-backed static report, not run storage."""
+    safe_id = "".join(char for char in trace_id if char.isalnum() or char in "-_")
+    if not safe_id:
+        raise ValueError("--trace-id must contain at least one letter or number")
+    return Path(".evalvitals-cache") / safe_id
+
+
+def _resolve_report_source(source: str, trace_id: str | None, run_dir: str) -> str:
+    if source == "auto":
+        if trace_id:
+            try:
+                from evalvitals.reporting.langfuse_source import LangfuseRunSource
+
+                return str(LangfuseRunSource().materialize(trace_id, _langfuse_cache(trace_id)))
+            except (ImportError, LookupError, RuntimeError):
+                pass
+        return run_dir
+    if source == "local":
+        return run_dir
+    if not trace_id:
+        raise ValueError("--trace-id is required with --source langfuse")
+    from evalvitals.reporting.langfuse_source import LangfuseRunSource
+
+    return str(LangfuseRunSource().materialize(trace_id, _langfuse_cache(trace_id)))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,9 +107,11 @@ def main(argv: list[str] | None = None) -> int:
     explore.add_argument(
         "--dashboard",
         action="store_true",
-        help="Open the Streamlit dashboard on the output directory when done.",
+        help="Deprecated alias for --serve-report.",
     )
-    explore.add_argument("--port", type=int, default=None, help="Optional dashboard port.")
+    explore.add_argument("--serve-report", action="store_true",
+                         help="Serve the generated static HTML report when done.")
+    explore.add_argument("--port", type=int, default=None, help="Optional report-server port.")
     explore.add_argument(
         "--skill", action="append", default=[], metavar="DIR",
         help="Agent-Skill directory (with SKILL.md) to style agent-authored "
@@ -146,44 +191,69 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_codebase.add_argument(
         "--dashboard", action="store_true",
-        help="Open the Streamlit dashboard on the output directory when done.",
+        help="Deprecated alias for --serve-report.",
     )
-    run_codebase.add_argument("--port", type=int, default=None, help="Optional dashboard port.")
+    run_codebase.add_argument("--serve-report", action="store_true",
+                              help="Serve the generated static HTML report when done.")
+    run_codebase.add_argument("--port", type=int, default=None, help="Optional report-server port.")
 
     dashboard = sub.add_parser(
         "dashboard",
-        help="Open a Streamlit dashboard for an explore output or loop-run directory.",
-        description="Open a Streamlit dashboard for EvalVitals single-run artifacts.",
+        help="Deprecated alias for the dependency-free 'serve' command.",
+        description="Deprecated alias for the dependency-free static report server.",
     )
     dashboard.add_argument("run_dir", help="An explore output dir or a loop-run dir.")
-    dashboard.add_argument("--port", type=int, default=None, help="Optional Streamlit port.")
+    dashboard.add_argument("--port", type=int, default=None, help="Optional report-server port.")
 
-    web = sub.add_parser(
-        "web",
-        help="Launch the upload-and-explore web workbench (upload a .zip, run M2+M3).",
-        description="Serve a Streamlit page where users upload a .zip of results; "
-                    "each upload becomes one `evalvitals explore` run (M2 exploratory "
-                    "analysis + M3 hypotheses) and renders like `evalvitals dashboard`.",
+    serve = sub.add_parser(
+        "serve",
+        help="Publish (if needed) and serve the dynamic completed-run UI.",
+        description="Generate (if needed) ReportData and serve the agent-composed React UI backed by Langfuse or a local run cache.",
     )
-    web.add_argument(
-        "workspace", nargs="?", default="evalvitals_web_runs",
-        help="Directory where uploaded runs accumulate (created if missing).",
+    serve.add_argument("run_dir", nargs="?", default="outputs", help="Run directory.")
+    serve.add_argument("--port", type=int, default=8501, help="Loopback port (default: 8501).")
+    serve.add_argument("--no-audio", action="store_true", help=argparse.SUPPRESS)
+    serve.add_argument("--no-browser", action="store_true", help="Do not open a browser automatically.")
+    serve.add_argument("--source", choices=["auto", "local", "langfuse"], default="auto", help="Run data source (default: Langfuse when --trace-id is set, otherwise local).")
+    serve.add_argument("--trace-id", default=None, help="Langfuse trace id (required for --source langfuse).")
+
+    report_cmd = sub.add_parser(
+        "report",
+        help="Explicitly export a portable self-contained HTML snapshot.",
+        description="Uses the same React/json-render layout as `serve`; the dynamic UI remains the primary experience.",
     )
-    web.add_argument("--port", type=int, default=None, help="Optional Streamlit port.")
-    web.add_argument(
-        "--backend", "--coder-provider", dest="coder_provider", default="claude_code",
-        choices=["antigravity", "codex", "claude_code", "opencode", "gemini_cli", "kimi_cli"],
-        help="Default coding-agent backend pre-selected in the upload form.",
+    report_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run_log.jsonl or logs/")
+    report_cmd.add_argument("--example-dir", default=None, help="Root holding data/ manifest.")
+    report_cmd.add_argument("--out", "-o", default=None, help="Output HTML path (default: <run_dir>/report.html).")
+    report_cmd.add_argument("--no-audio", action="store_true", help="Skip audio transcoding.")
+    report_cmd.add_argument("--embed-media", choices=["representative", "all", "none"], default="representative", help="Media to inline in the portable export (default: representative).")
+    report_cmd.add_argument("--source", choices=["local", "langfuse"], default="local", help="Run data source.")
+    report_cmd.add_argument("--trace-id", default=None, help="Langfuse trace id (required for --source langfuse).")
+
+    publish_cmd = sub.add_parser(
+        "publish-report",
+        help="Compile and cache ReportData plus a validated json-render layout.",
     )
-    web.add_argument("--model", "--coder-model", dest="coder_model", default="",
-                     help="Default model id pre-filled in the upload form.")
-    web.add_argument("--timeout-sec", type=int, default=1200,
-                     help="Default per-attempt explorer timeout in the upload form.")
-    web.add_argument(
-        "--attach", action="append", default=[], metavar="DIR",
-        help="Existing result directory (explore output or loop run) to list "
-             "in the sidebar alongside uploads. Repeatable.",
+    publish_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Completed run directory.")
+    publish_cmd.add_argument("--example-dir", default=None, help="Optional benchmark/example root for legacy runs.")
+    publish_cmd.add_argument("--source", choices=["auto", "local", "langfuse"], default="auto")
+    publish_cmd.add_argument("--trace-id", default=None)
+
+    langfuse_cmd = sub.add_parser(
+        "export-langfuse",
+        help="Export a diagnostic run to Langfuse trace JSON format or sync live.",
+        description="Map an EvalVitals run (M1-M5, fixes, scores) to Langfuse Traces, Spans, and Scores.",
     )
+    langfuse_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory.")
+    langfuse_cmd.add_argument("--out", "-o", default=None, help="Output JSON path.")
+    langfuse_cmd.add_argument("--sync", action="store_true", help="Sync live to Langfuse server.")
+
+    backfill_langfuse = sub.add_parser(
+        "backfill-langfuse",
+        help="Queue an existing run_log.jsonl for reliable Langfuse ingestion.",
+    )
+    backfill_langfuse.add_argument("run_dir", help="Run directory holding run_log.jsonl or logs/run_log.jsonl.")
+    backfill_langfuse.add_argument("--dry-run", action="store_true", help="Inspect the run without writing an outbox.")
 
     args = parser.parse_args(argv)
     if args.verbose:
@@ -215,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
             include_tool_calls=args.include_tool_calls,
             timeout_sec=args.timeout_sec,
             max_attempts=args.max_attempts,
-            dashboard=args.dashboard,
+            dashboard=args.dashboard or args.serve_report,
             dashboard_port=args.port,
             skills=args.skill,
             allow_skills=args.allow_skills,
@@ -249,20 +319,70 @@ def main(argv: list[str] | None = None) -> int:
             max_attempts=args.max_attempts,
             question=args.question,
             analyze=args.analyze,
-            dashboard=args.dashboard,
+            dashboard=args.dashboard or args.serve_report,
             dashboard_port=args.port,
         )
     if args.command == "dashboard":
         return launch_dashboard(args.run_dir, port=args.port)
-    if args.command == "web":
-        return launch_upload_app(
-            args.workspace,
-            port=args.port,
-            backend=args.coder_provider,
-            model=args.coder_model,
-            timeout_sec=args.timeout_sec,
-            attach=args.attach,
+    if args.command == "serve":
+        try:
+            source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
+        except (ImportError, LookupError, RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
+        try:
+            return serve_report(
+                source_dir, port=args.port, no_audio=args.no_audio,
+                open_browser=not args.no_browser,
+            )
+        except ImportError as exc:
+            parser.error(str(exc))
+    if args.command == "publish-report":
+        from evalvitals.reporting.dynamic import publish_report
+
+        try:
+            source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
+            published = publish_report(source_dir, example_dir=args.example_dir)
+        except (ImportError, LookupError, RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
+        print(f"Published report data: {published.data_path}")
+        print(f"Published report layout: {published.spec_path} ({published.generated_by})")
+        return 0
+    if args.command == "report":
+        from evalvitals.reporting.static_export import export_static_report
+
+        try:
+            source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
+        except (ImportError, LookupError, RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
+
+        export_static_report(
+            run_dir=source_dir,
+            example_dir=args.example_dir,
+            out_path=args.out,
+            embed_media="none" if args.no_audio else args.embed_media,
         )
+        return 0
+    if args.command == "export-langfuse":
+        from evalvitals.reporting.langfuse_exporter import (
+            export_to_langfuse_bundle,
+            sync_to_langfuse_live,
+        )
+
+        if args.sync:
+            return 0 if sync_to_langfuse_live(args.run_dir) else 1
+        out_p = args.out or (Path(args.run_dir) / "langfuse_trace.json")
+        export_to_langfuse_bundle(args.run_dir, out_p)
+        return 0
+    if args.command == "backfill-langfuse":
+        from evalvitals.observability import backfill_run_to_langfuse
+
+        summary = backfill_run_to_langfuse(args.run_dir, dry_run=args.dry_run)
+        print(
+            "Langfuse backfill: "
+            f"trace={summary['trace_id']} events={summary['events']} "
+            f"published={summary['published']} pending={summary['pending']}"
+        )
+        return 0
 
     parser.print_help()
     return 0

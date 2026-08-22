@@ -50,7 +50,7 @@ From an actual run (temperature r=0.86 with yield, the strongest association):
 Open the dashboard to see the charts and hypothesis cards:
 
 ```bash
-evalvitals dashboard outputs
+evalvitals serve outputs
 ```
 
 See [`docs/m2_analysis.md`](../../../docs/m2_analysis.md) for the general

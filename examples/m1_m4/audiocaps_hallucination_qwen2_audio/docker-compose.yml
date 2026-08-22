@@ -23,6 +23,13 @@ services:
       - ${CLAUDE_PATH:-~/.local/bin/claude}:/usr/local/bin/claude:ro
       - ~/.claude:/home/user/.claude
       - ~/.claude.json:/home/user/.claude.json
+      # Optional alternate judge/coder: --judge-provider agy (Antigravity CLI,
+      # no Anthropic API key needed — see evalvitals/agent_runtime/judges/agy.py).
+      # Only exercised when run.py is invoked with --judge-provider agy; harmless
+      # to mount otherwise. Set AGY_PATH if `agy` isn't at ~/.local/bin/agy.
+      - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
+      - ~/.gemini:/home/user/.gemini
+      - ~/.cache/antigravity:/home/user/.cache/antigravity
     deploy:
       resources:
         reservations:
@@ -31,4 +38,4 @@ services:
               count: all
               capabilities: [gpu]
     command: >
-      sh -c "python download_audiohallucination.py --limit 300 --scan-rows 2000 && python run.py --model qwen2-audio-7b-instruct --limit 300 --judge-model sonnet --judge-effort high"
+      sh -c "python download_audiohallucination.py --limit 300 --scan-rows 2000 && python run.py --model qwen2-audio-7b-instruct --limit 300 --judge-provider claude --judge-model claude-opus-5 --judge-effort high"

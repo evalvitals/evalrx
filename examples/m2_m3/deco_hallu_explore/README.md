@@ -55,7 +55,7 @@ M3 hypotheses proposed from these findings (not validated):
 Open the dashboard to see the charts and hypothesis cards:
 
 ```bash
-evalvitals dashboard outputs
+evalvitals serve outputs
 ```
 
 ## Attention-enriched variant (continuous per-case signals)
@@ -143,7 +143,7 @@ Verdicts** and **5 Fix** fill in from those artifacts — and grey out as
 greyed until phase 3 runs):
 
 ```bash
-evalvitals dashboard outputs_pipeline/1_explore
+evalvitals serve outputs_pipeline/1_explore
 ```
 
 **What a real pipeline run found** (opus-4.8 end to end): all 6 frozen
@@ -173,28 +173,9 @@ PORT=8600 CODER_PROVIDER=codex bash run_web.sh
 Pick the analysis mode — **Explore only** (M2+M3; split 1 : 0 by default) or
 **Explore + held-out verification** (default split 0.6 : 0.4, adjustable):
 the verdict share is held out BEFORE exploration, then the frozen recipes and
-hypotheses are re-tested on it (e-BH + LLM judge), filling the *Held-out
-Verdicts* tab. Set the outcome column / question / backend, hit *Start
-analysis*, and watch the live log; the analysis runs as a **detached
-subprocess** (closing the tab never kills it) and the finished report renders
-in place with the same tabs as `evalvitals dashboard`. Every upload lands
-under `web_runs/<name>/` (`data/` extracted payload, `output/` report
-artifacts, `explore.log`, `job.sh` to re-run it by hand) and past runs stay
-selectable in the sidebar. Try it by zipping `data_2b_attn/` or
-`data_attn_full/` and uploading that.
-
-This page is also the **unified view over the sibling scripts' results**: any
-existing output directory here (`outputs_attn_full`, `outputs_pipeline/
-1_explore`, `outputs`) is attached read-only in the same sidebar (📁), and
-every result — uploaded or attached, M3-only or full pipeline — renders with
-the same fixed five-tab layout, unreached stages greyed out.
-
-Env overrides: `PORT` (default 8500), `WORKSPACE` (default `web_runs`),
-`CODER_PROVIDER` / `CODER_MODEL` / `TIMEOUT_SEC` — these only set the form's
-defaults; each upload can override them in the UI — and `ATTACH_DIRS`
-(space-separated result dirs to list read-only). The generic entry point is
-`evalvitals web <workspace> --port N [--attach DIR ...]` (this script is a
-thin wrapper).
+hypotheses are re-tested on it (e-BH + LLM judge), filling the report's
+*Held-out Verdicts* section. Every completed output directory receives a
+portable `report.html`; open it locally with `evalvitals serve <output-dir>`.
 
 See [`docs/m2_analysis.md`](../../../docs/m2_analysis.md) for the general
 standalone M2/M3 workflow, and

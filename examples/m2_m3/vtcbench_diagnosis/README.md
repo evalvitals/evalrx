@@ -62,7 +62,7 @@ python run_m4.py --task chart --arms L2_loop_policy --out outputs_2b_chart
 `run_explore.sh` honors `RECORDS` / `OUT` / `MODEL_DESC` / `BACKEND` /
 `TIMEOUT_SEC` (default 3600 — the CLI's 120s default truncates real analyses).
 Every stage writes under `outputs*/` (gitignored); view any explore result
-with `evalvitals dashboard <out>/explore`.
+with `evalvitals serve <out>/explore`.
 
 Only the six four-way multiple-choice tasks are graded (last standalone A-D
 letter; a run that never answers counts as FAIL). The free-text tasks

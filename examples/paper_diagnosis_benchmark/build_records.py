@@ -27,7 +27,7 @@ def _reader(pdf_path: Path) -> Any:
     except ImportError as exc:
         raise SystemExit(
             "pypdf is required to extract PDFs. Install it with: "
-            'pip install "evalvitals[dashboard]"'
+            'pip install pypdf'
         ) from exc
     return PdfReader(str(pdf_path))
 

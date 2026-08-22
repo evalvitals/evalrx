@@ -203,10 +203,19 @@ def test_percent_scaled_rate_gets_wilson_from_its_numerator(tmp_path):
 
 
 @pytest.mark.skipif(not _HAVE_MPL, reason="matplotlib not installed")
-def test_many_groups_and_counts_stay_bars(tmp_path):
+def test_ranked_effects_become_a_forest_and_count_bars_stay_bars(tmp_path):
+    # Bars are for counts only: a ranked effect size over many groups is
+    # demoted to a forest (horizontal dot) plot and says so.
     ranked = _csv(tmp_path, "ranked", "signal,separation\na,0.9\nb,0.7\nc,0.5\nd,0.2\ne,0.1\n")
     out = _one(tmp_path, {"name": "ranked", "kind": "bar", "data": ranked, "x": "signal", "y": "separation"})
-    assert out["rendered_as"] == "bar"
+    assert out["rendered_as"] == "forest" and out["kind"] == "forest"
+    assert "demoted to forest" in out["render_note"]
+    assert "forest plot" in out["description"]
+    # ... and a rate over many bins becomes a line, while a count over many
+    # categories stays a bar.
+    binned = _csv(tmp_path, "binned", "bin,fail_rate,n\n0-20,0.6,10\n20-40,0.4,12\n40-60,0.3,9\n60-80,0.2,11\n80-100,0.1,8\n")
+    out = _one(tmp_path, {"name": "binned", "kind": "bar", "data": binned, "x": "bin", "y": "fail_rate"})
+    assert out["rendered_as"] == "line" and "demoted to line" in out["render_note"]
     counts = _csv(tmp_path, "vc", "category,count\nx,3\ny,7\nz,2\nw,9\nv,1\nu,4\nt,2\n")
     out = _one(tmp_path, {"name": "vc", "kind": "bar", "data": counts, "x": "category", "y": "count"})
     assert out["rendered_as"] == "bar"          # 7 classes: too many for a strip

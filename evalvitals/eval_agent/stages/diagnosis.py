@@ -209,6 +209,18 @@ class DiagnosisResult:
     critic_prompt: str = ""
     n_critic_kept: int = 0
     n_critic_rejected: int = 0
+    # M3 is two separate model calls: a proposer and an adversarial reviewer.
+    # The proposer's full list and the reviewer's per-hypothesis decisions are
+    # kept as well, so a rejected proposal stays distinguishable from a
+    # parser/model failure in the report and in Langfuse. ``review_prompt`` /
+    # ``review_raw`` mirror ``critic_prompt`` / ``critic_raw_output``;
+    # ``review_decisions`` (statement, decision, reason) is derived from the
+    # critic annotations — decision keep | reject | unparsed |
+    # review_unavailable — and the reviewer never removes a hypothesis.
+    proposed_hypotheses: list[Hypothesis] = field(default_factory=list)
+    review_prompt: str = ""
+    review_raw: str = ""
+    review_decisions: list[dict[str, Any]] = field(default_factory=list)
 
 
 _HYPOTHESIS_SCHEMA: dict = {
@@ -218,6 +230,7 @@ _HYPOTHESIS_SCHEMA: dict = {
         "required": ["hypothesis", "failure_mode"],
         "properties": {
             "hypothesis":   {"type": "string", "minLength": 10},
+            "plain_statement": {"type": "string"},
             "failure_mode": {"type": "string", "minLength": 2},
             "expected_association": {"type": "string"},
         },
@@ -255,6 +268,7 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
             statement=item["hypothesis"],
             target_model=model_name,
             predicted_failure_mode=item["failure_mode"],
+            plain_statement=str(item.get("plain_statement") or item.get("plain_language") or item.get("plain") or ""),
             test_design=str(item.get("test", "")),
             expected_association=str(item.get("expected_association", "")),
         )
@@ -270,7 +284,7 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
 # response and M3 reported zero. Normalise the label, leave the text alone.
 _LABEL_LINE = re.compile(
     r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]*\s*"
-    r"(HYPOTHESIS|FAILURE_MODE|TEST|EXPECTED_ASSOCIATION|KEEP|REJECT|REASON)"
+    r"(HYPOTHESIS|PLAIN_STATEMENT|PLAIN_LANGUAGE|FAILURE_MODE|TEST|EXPECTED_ASSOCIATION|KEEP|REJECT|REASON)"
     r"\s*[*_`]*\s*:\s*[*_`]*\s*",
     re.IGNORECASE,
 )
@@ -305,10 +319,17 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
     # Text-format fallback
     hypotheses: list[Hypothesis] = []
     statement: str | None = None
+    plain_statement: str = ""
     for line in raw.splitlines():
         line = _normalise_label_line(line)
         if line.upper().startswith("HYPOTHESIS:"):
             statement = line[len("HYPOTHESIS:"):].strip()
+            plain_statement = ""
+        elif (line.upper().startswith("PLAIN_STATEMENT:") or line.upper().startswith("PLAIN_LANGUAGE:")):
+            tag = "PLAIN_STATEMENT:" if line.upper().startswith("PLAIN_STATEMENT:") else "PLAIN_LANGUAGE:"
+            plain_statement = line[len(tag):].strip()
+            if hypotheses and not hypotheses[-1].plain_statement:
+                hypotheses[-1].plain_statement = plain_statement
         elif line.upper().startswith("FAILURE_MODE:") and statement:
             mode = line[len("FAILURE_MODE:"):].strip()
             hypotheses.append(
@@ -316,9 +337,11 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
                     statement=statement,
                     target_model=model_name,
                     predicted_failure_mode=mode,
+                    plain_statement=plain_statement,
                 )
             )
             statement = None
+            plain_statement = ""
         elif line.upper().startswith("TEST:") and hypotheses:
             # Attach the test design to the most recent hypothesis.
             hypotheses[-1].test_design = line[len("TEST:"):].strip()
@@ -445,6 +468,13 @@ def _validate_hypotheses(
         else:
             raw = judge.generate(prompt)
     except Exception:
+        if capture is not None:
+            # A transport failure must not silently delete ideas — and the
+            # record must distinguish it from an evidence-based rejection.
+            capture["decisions"] = [{
+                "statement": h.statement, "decision": "review_unavailable",
+                "reason": "The adversarial review call failed; proposal retained.",
+            } for h in hypotheses]
         return hypotheses  # validation failed — keep originals, unannotated
     raw = str(raw)
     if capture is not None:
@@ -489,7 +519,7 @@ def _validate_hypotheses(
         for h in hypotheses:
             h.metadata["critic"] = "unparsed"
         if capture is not None:
-            capture.update(n_kept=0, n_rejected=0)
+            capture.update(n_kept=0, n_rejected=0, decisions=_critic_decisions(hypotheses))
         return hypotheses
 
     for h in hypotheses:
@@ -499,7 +529,8 @@ def _validate_hypotheses(
     n_kept = sum(1 for h in hypotheses if h.metadata.get("critic") == "keep")
     n_rejected = sum(1 for h in hypotheses if h.metadata.get("critic") == "reject")
     if capture is not None:
-        capture.update(n_kept=n_kept, n_rejected=n_rejected)
+        capture.update(n_kept=n_kept, n_rejected=n_rejected,
+                       decisions=_critic_decisions(hypotheses))
     if n_rejected and not n_kept:
         import logging as _logging
         _logging.getLogger(__name__).info(
@@ -509,6 +540,20 @@ def _validate_hypotheses(
         )
     order = {"keep": 0, "unparsed": 1, "reject": 2}
     return sorted(hypotheses, key=lambda h: order.get(h.metadata.get("critic"), 1))
+
+
+def _critic_decisions(hypotheses: list[Hypothesis]) -> list[dict[str, Any]]:
+    """Per-hypothesis review record derived from the critic's annotations: the
+    ``{statement, decision, reason}`` shape the run log, report and Langfuse
+    consume. ``decision`` is ``keep`` / ``reject`` / ``unparsed`` (or
+    ``review_unavailable`` when the critic call itself failed). The critic
+    never removes a hypothesis, so this is a record, not a filter."""
+    return [{
+        "statement": h.statement,
+        "decision": str(h.metadata.get("critic", "unparsed")),
+        "reason": str(h.metadata.get("critic_reason", "")),
+    } for h in hypotheses]
+
 
 def _default_judge() -> "Model":
     """Return a judge model without requiring an explicit API key.
@@ -683,7 +728,8 @@ class DiagnosisAgent:
             raw = self.judge.generate(prompt, images=_figs)
         else:
             raw = self.judge.generate(prompt)
-        hypotheses = _parse_hypotheses(str(raw), analysis.model_name or model_name)
+        proposed_hypotheses = _parse_hypotheses(str(raw), analysis.model_name or model_name)
+        hypotheses = list(proposed_hypotheses)
 
         # Adversarial validation: run a second critic call at temperature=0 to
         # prune hypotheses the generator produced without sufficient evidence.
@@ -736,4 +782,11 @@ class DiagnosisAgent:
             critic_prompt=str(critic.get("prompt", "") or ""),
             n_critic_kept=int(critic.get("n_kept", 0) or 0),
             n_critic_rejected=int(critic.get("n_rejected", 0) or 0),
+            # The same review in the proposer/reviewer record shape: the full
+            # proposal list and a per-hypothesis decision derived from the
+            # critic annotations (the critic never removes a hypothesis).
+            proposed_hypotheses=proposed_hypotheses,
+            review_prompt=str(critic.get("prompt", "") or ""),
+            review_raw=str(critic.get("raw", "") or ""),
+            review_decisions=list(critic.get("decisions") or []),
         )

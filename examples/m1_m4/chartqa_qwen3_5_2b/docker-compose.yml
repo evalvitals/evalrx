@@ -28,4 +28,4 @@ services:
     # Judge = claude (sonnet, high effort). The frozen sample is deterministic
     # (seeded), so re-running the downloader is a no-op once data/ exists.
     command: >
-      sh -c "python download_chartqa.py --limit 256 --seed 5022 && python run.py --limit 256 --judge-provider claude --judge-model sonnet --judge-effort high --run-dir outputs"
+      sh -c "python download_chartqa.py --limit 256 --seed 5022 && python run.py --limit 256 --judge-provider claude --judge-model claude-opus-5 --judge-effort high --run-dir outputs"

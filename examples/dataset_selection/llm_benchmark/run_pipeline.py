@@ -973,7 +973,7 @@ def main() -> None:
                 if not report.verified_hypotheses:
                     print("[fix] no verified hypothesis — proposing on the best unverified "
                           "leads (flagged to the proposer); the candidate validation decides")
-                outcome = loop.run_fix(report, batch)
+                outcome = loop.run_fix(report, batch, allow_unverified=fix_unverified)
                 print("[fix]", getattr(outcome, "recommendation", None) or outcome)
 
     summary = {

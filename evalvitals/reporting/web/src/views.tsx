@@ -1,0 +1,258 @@
+import { useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import ReactECharts from "echarts-for-react";
+import { AlertTriangle, ArrowLeft, BarChart3, Beaker, CheckCircle2, ChevronRight, Microscope, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
+import type { Case, DebugEvent, ReportData } from "./types";
+
+export function EvidenceView({ data, back, initialStage }: { data: ReportData; back: () => void; initialStage?: string }) {
+  const [selected, setSelected] = useState(initialStage || data.stages[0]?.id);
+  const stage = data.stages.find((item) => item.id === selected);
+  const events = data.debug.events.filter((event) => String(event.stage || "").toLowerCase().includes(selected));
+  return <DetailShell title="Stage evidence" subtitle="The measurements, reasoning, and artifacts behind this step." back={back}>
+    <div className="evidence-layout"><aside className="stage-list">{data.stages.map((item) => <button className={selected === item.id ? "active" : ""} key={item.id} onClick={() => setSelected(item.id)}><span>{item.code}</span><div><strong>{item.title}</strong><small>{item.status.replaceAll("-", " ")}</small></div><ChevronRight /></button>)}</aside><section className="evidence-detail"><span className="section-kicker">{stage?.code} · {stage?.status}</span><h2>{stage?.title}</h2><p className="lead-small">{stage?.purpose}</p><StageArtifact stage={selected || ""} detail={data.stage_detail || {}} report={data} /><details className="raw-events"><summary>Raw agent events ({events.length})</summary>{events.length ? events.map((event, index) => <EventRow event={event} key={`${event.event_seq}-${index}`} />) : <p className="empty">No stage-level events were retained.</p>}</details></section></div>
+  </DetailShell>;
+}
+
+function StageArtifact({ stage, detail, report }: { stage: string; detail: Record<string, any>; report: ReportData }) {
+  if (stage === "m1") return <M1Detail data={detail.m1 || {}} report={report} />;
+  if (stage === "m2") return <M2Detail data={detail.m2 || {}} />;
+  if (stage === "m3") return <M3Detail data={detail.m3 || {}} />;
+  if (stage === "m5") return <M5Detail data={detail.m5 || {}} report={report} />;
+  if (stage === "m4") return <M4Detail data={detail.m4 || {}} report={report} />;
+  return <EmptyStage title="No stage data" body="This stage did not retain a structured artifact." />;
+}
+
+function StageBanner({ kind, title, children }: { kind: string; title: string; children: React.ReactNode }) {
+  return <div className={`stage-banner stage-banner-${kind}`}><div><span>{kind}</span><strong>{title}</strong></div><p>{children}</p></div>;
+}
+
+function StageKpis({ items }: { items: Array<{ label: string; value: React.ReactNode; note?: string }> }) {
+  return <div className="stage-kpis">{items.map((item) => <article key={item.label}><span>{item.label}</span><strong>{item.value ?? "—"}</strong>{item.note && <small>{item.note}</small>}</article>)}</div>;
+}
+
+function M1Detail({ data, report }: { data: any; report: ReportData }) {
+  const probes = data.probes || [];
+  const examples = data.examples || [];
+  return <>
+    <StageBanner kind="MEASURE" title="Behavioral checkup">We give the model real tasks, then run several checks on its behavior. This tells us where it struggles; it does not yet tell us why.</StageBanner>
+    <StageKpis items={[{ label: "Probes run", value: data.n_probes || probes.length }, { label: "Cases measured", value: data.n_measured || "—" }, { label: "Runtime", value: seconds(data.duration) }]} />
+    {examples.length > 0 && <ExampleSection eyebrow="A real example" title="What one M1 check looks like" note="Examples make the measurement concrete. The result below is based on all measured cases, not just this one."><div className="example-deck">{examples.map((example: any) => <M1Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
+    {data.operations?.length > 0 && <OperationExamples examples={data.operations} report={report} />}
+    <div className="probe-grid">{probes.map((probe: any, index: number) => <details className="probe-card" key={probe.id} open={index === 0}>
+      <summary><span className="section-kicker">PROBE {String(index + 1).padStart(2, "0")} · {probe.n_cases || "—"} CASES</span><h3>{probe.title}</h3><p>{probe.question}</p><div className="probe-metrics">{(probe.metrics || []).map((metric: any) => <span key={metric.label}><b>{metric.value ?? "—"}</b>{metric.label}</span>)}</div></summary>
+      <div className="probe-expanded"><p>{probe.description}</p>{Object.keys(probe.finding_summary || {}).length > 0 && <KeyValueGrid values={probe.finding_summary} />}{Object.keys(probe.raw_finding_summary || {}).length > 0 && <details className="nested-detail"><summary>Technical measurement names and raw values</summary><KeyValueGrid values={probe.raw_finding_summary} /></details>}{probe.sample_rows?.length > 0 && <details className="nested-detail"><summary>Inspect {probe.sample_rows.length} representative measurement rows</summary><RecordTable rows={probe.sample_rows} /></details>}</div>
+    </details>)}</div>
+  </>;
+}
+
+function ExampleSection({ eyebrow, title, note, children }: { eyebrow: string; title: string; note: string; children: React.ReactNode }) {
+  return <section className="example-section"><header><span>{eyebrow}</span><h3>{title}</h3><p>{note}</p></header>{children}</section>;
+}
+
+function M1Example({ example, report }: { example: any; report?: ReportData }) {
+  const outcome = String(example.outcome || "unknown").toLowerCase();
+  return <article className="example-card m1-example"><header><span className="example-step">1 · ORIGINAL TASK</span><em className={`status status-${outcome}`}>{outcome}</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>MODEL ANSWER</small><b>{displayValue(example.baseline_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div><div><small>CHECK RUN</small><b>{example.probe_title || "Behavior check"}</b></div></div><p className="example-question">{example.probe_question}</p><div className="example-check"><span>2 · WHAT THE CHECK RECORDED</span><KeyValueGrid values={example.check_result || {}} /></div><footer>{example.plain_reading}</footer></article>;
+}
+
+function ExampleMedia({ mediaIds, report, caseId }: { mediaIds?: string[]; report?: ReportData; caseId?: string }) {
+  if (!report || !mediaIds?.length) return null;
+  const media = mediaIds.map((id) => report.media.find((item) => item.id === id)).filter(Boolean) as ReportData["media"];
+  if (!media.length) return null;
+  return <div className="example-media">{media.map((item) => <MediaPreview key={item.id} media={item} caseId={caseId || "example"} />)}</div>;
+}
+
+function M2Detail({ data }: { data: any }) {
+  const figures = data.figures || [];
+  const takeaways = data.takeaways || [];
+  const cited = new Set(takeaways.flatMap((item: any) => item.chart_names || []).map(normalizeKey));
+  const supporting = figures.filter((figure: any) => !cited.has(normalizeKey(figure.id)));
+  return <>
+    <StageBanner kind="DESCRIPTIVE" title="Exploratory evidence">Patterns here were found in the analysis split. They are leads—not validated mechanisms. Only M5 can issue a held-out verdict.</StageBanner>
+    <StageKpis items={[{ label: "Ranked findings", value: takeaways.length }, { label: "Visual artifacts", value: figures.length }, { label: "Statistical screens", value: data.stats?.length || 0 }]} />
+    {data.conclusion && <div className="stage-callout"><b>Agent screening conclusion</b><p>{data.conclusion}</p></div>}
+    {data.stats?.length > 0 && <StatEvidenceChart stats={data.stats} title="Which measured behaviors are most connected to errors?" note="Each bar summarizes the difference observed between correct and incorrect cases. It is a pattern, not proof of cause." />}
+    <div className="finding-stack">{takeaways.map((item: any, index: number) => {
+      const names = (item.chart_names || []).map(normalizeKey);
+      const evidence = figures.filter((figure: any) => names.includes(normalizeKey(figure.id)));
+      return <article className="analysis-finding" key={index}><header><span>FINDING {String(index + 1).padStart(2, "0")}</span><h3>{item.plain_title || item.title}</h3></header>
+        {evidence.length > 0 ? <div className="analysis-figures">{evidence.map((figure: any) => <EvidenceFigure figure={figure} key={figure.id} />)}</div> : <div className="missing-evidence"><AlertTriangle size={17} /> Referenced visual evidence was not found in this report bundle.</div>}
+        <details className="finding-details"><summary>Interpretation, caveat, and provenance</summary>{item.analysis && <p>{item.analysis}</p>}{item.caveat && <div className="evidence-caution"><b>Boundary</b>{item.caveat}</div>}{item.table_names?.length > 0 && <small>Source tables: {item.table_names.join(", ")}</small>}</details>
+      </article>;
+    })}</div>
+    {supporting.length > 0 && <details className="agent-transcript"><summary>Supporting exploratory material—not ranked conclusions ({supporting.length})</summary><div className="analysis-figures supporting">{supporting.map((figure: any) => <EvidenceFigure figure={figure} key={figure.id} />)}</div></details>}
+    {data.stats?.length > 0 && <details className="agent-transcript"><summary>Statistical screening records ({data.stats.length})</summary><RecordTable rows={data.stats} /></details>}
+  </>;
+}
+
+function EvidenceFigure({ figure }: { figure: any }) {
+  const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
+  return <figure><img src={source} alt={figure.title} /><figcaption><b>{figure.title}</b>{figure.question && <span>{figure.question}</span>}{figure.reading && <p><BarChart3 size={13} /> {figure.reading}</p>}{figure.do_not_infer && <small>Do not infer: {figure.do_not_infer}</small>}</figcaption></figure>;
+}
+
+function StatEvidenceChart({ stats, title, note }: { stats: any[]; title: string; note: string }) {
+  const rows = stats.filter((item) => typeof item.effect === "number").slice(0, 8);
+  if (!rows.length) return null;
+  const option = { grid: { left: 215, right: 30, top: 30, bottom: 30 }, tooltip: { trigger: "axis", axisPointer: { type: "shadow" } }, xAxis: { type: "value", name: "difference in error rate", nameTextStyle: { color: "#8fa49d", fontSize: 10 }, axisLabel: { color: "#8fa49d" }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: { type: "category", data: rows.map((item) => item.label).reverse(), axisLabel: { color: "#b8c9c4", width: 195, overflow: "truncate" } }, series: [{ name: "Observed difference", type: "bar", data: rows.map((item) => ({ value: item.effect, itemStyle: { color: item.reject ? "#6bd8ad" : "#71857f", borderRadius: 4 } })).reverse(), markLine: { silent: true, symbol: "none", lineStyle: { color: "#f4ca72", type: "dashed" }, data: [{ xAxis: 0 }] } }] };
+  const rateRows = rows.filter((item) => typeof item.fail_rate_signal === "number" && typeof item.fail_rate_control === "number");
+  const rateOption = { grid: { left: 215, right: 30, top: 24, bottom: 28 }, tooltip: { trigger: "axis" }, legend: { top: 0, textStyle: { color: "#9fb2ac", fontSize: 10 } }, xAxis: { type: "value", max: 1, axisLabel: { color: "#8fa49d", formatter: (v: number) => `${Math.round(v * 100)}%` }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: { type: "category", data: rateRows.map((item) => item.label).reverse(), axisLabel: { color: "#b8c9c4", width: 195, overflow: "truncate" } }, series: [{ name: "Cases with this behavior", type: "bar", data: rateRows.map((item) => item.fail_rate_signal).reverse(), itemStyle: { color: "#89a6ff", borderRadius: 3 } }, { name: "Other cases", type: "bar", data: rateRows.map((item) => item.fail_rate_control).reverse(), itemStyle: { color: "#657b74", borderRadius: 3 } }] };
+  return <section className="stat-evidence"><header><span>VISUAL SUMMARY OF M2</span><h3>{title}</h3><p>{note}</p></header><ReactECharts option={option} style={{ height: Math.max(300, rows.length * 48) }} />{rateRows.length > 0 && <><h4 className="stat-subtitle">What those patterns mean in the cases</h4><p className="stat-caption">For each measured behavior, compare the error rate among cases with that behavior against all other cases. This is an observed comparison, not a causal claim.</p><ReactECharts option={rateOption} style={{ height: Math.max(280, rateRows.length * 48) }} /></>}<details><summary>Technical measurement names and test records</summary><RecordTable rows={rows.map((item) => ({ measurement: item.raw_signal, effect: item.effect, interval: item.ci, error_rate_with_behavior: item.fail_rate_signal, error_rate_other_cases: item.fail_rate_control, passed_screen: item.reject, tool: item.tool }))} /></details></section>;
+}
+
+function M3Detail({ data }: { data: any }) {
+  const accepted = data.hypotheses || [];
+  const recovered = data.unparsed_proposals || [];
+  const hypotheses = accepted.length ? accepted : recovered;
+  return <>
+    <StageBanner kind="PROPOSAL ONLY" title="Falsifiable mechanisms">M3 turns M2 leads into explanations that could be proven wrong. These cards are proposals; validation status belongs exclusively to M5.</StageBanner>
+    <StageKpis items={[{ label: "Accepted proposals", value: accepted.length }, { label: "Recovered from transcript", value: recovered.length }, { label: "Test designs", value: hypotheses.filter((item: any) => item.test_design).length }]} />
+    {!accepted.length && recovered.length > 0 && <div className="parser-warning"><AlertTriangle /><div><b>The AI Doctor proposed hypotheses, but the pipeline parser rejected their format.</b><p>They are shown below for audit only and did not unlock M5 or M4.</p></div></div>}
+    {data.evidence_figures?.length > 0 && <section className="m3-evidence"><header><span>THE VISUAL EVIDENCE THIS STEP STARTS FROM</span><h3>Patterns the agent is trying to explain</h3><p>These charts come from M2. They are observations that motivate the ideas below, not confirmation that an idea is true.</p></header><div className="analysis-figures">{data.evidence_figures.map((figure: any) => <EvidenceFigure figure={figure} key={figure.id} />)}</div></section>}
+    {data.evidence_stats?.length > 0 && <StatEvidenceChart stats={data.evidence_stats} title="The strongest M2 patterns carried into this step" note="M3 turns these observed patterns into testable ideas. M5 is still needed to decide whether an idea holds up." />}
+    {hypotheses.length ? <div className="hypothesis-list">{hypotheses.map((hypothesis: any, index: number) => <article className="hypothesis-card" key={index}><header><span>H{index + 1}</span><em>{accepted.length ? "IDEA TO TEST" : "NOT YET USABLE"}</em></header><h3>{hypothesis.plain_statement || hypothesis.statement || hypothesis.hypothesis}</h3>{hypothesis.statement && hypothesis.plain_statement && hypothesis.statement !== hypothesis.plain_statement && <details><summary>Technical wording</summary><p>{hypothesis.statement}</p></details>}<div className="hypothesis-grid"><div><small>WHAT MAY BE GOING WRONG</small><p>{plainFailureMode(hypothesis.failure_mode)}</p></div><div><small>WHY THIS IS PLAUSIBLE</small><p>{hypothesis.basis || "Based on the patterns found in the previous step."}</p></div><div className="test-design"><small>WHAT WOULD PROVE IT WRONG?</small><p>{hypothesis.test_design || "No test design was retained."}</p>{hypothesis.expected_association && <details><summary>Technical test expression</summary><code>{hypothesis.expected_association}</code></details>}</div></div></article>)}</div> : <EmptyStage title="No formal hypotheses" body="The earlier pattern search did not yield an idea the pipeline could test." />}
+    {(data.candidate_signals?.length > 0 || data.recommended_tests?.length > 0) && <details className="agent-transcript"><summary>Candidate signals and suggested follow-ups</summary>{data.candidate_signals?.length > 0 && <RecordTable rows={data.candidate_signals} />}{data.recommended_tests?.map((item: any, i: number) => <p key={i}>• {String(item)}</p>)}</details>}
+    {data.agent_response && <details className="agent-transcript"><summary>AI Doctor raw response</summary><pre>{data.agent_response}</pre></details>}
+  </>;
+}
+
+function M5Detail({ data, report }: { data: any; report: ReportData }) {
+  const results = data.results || [];
+  if (!data.ran || !results.length) return <><StageBanner kind="CONFIRMATORY" title="Held-out validation">M5 tests frozen hypotheses on evidence not used to propose them.</StageBanner><EmptyStage title="Validation was not reached" body="No accepted M3 hypothesis was available for independent adjudication in this run." /></>;
+  const statuses = (name: string) => results.filter((item: any) => String(item.status || "").toLowerCase() === name).length;
+  const consistent = results.filter((item: any) => item.protocol_consistent !== false).length;
+  const examples = data.examples || [];
+  return <>
+    <StageBanner kind="CONFIRMATORY" title="Independent check">First we freeze a possible explanation. Then we test it on fresh evidence the agent did not use to invent the explanation. This is the stage allowed to say whether the idea held up.</StageBanner>
+    <StageKpis items={[{ label: "Hypotheses checked", value: results.length }, { label: "Supported", value: statuses("supported") }, { label: "Refuted", value: statuses("refuted") }, { label: "Inconclusive", value: statuses("inconclusive") }, { label: "Protocol-consistent", value: `${consistent}/${results.length}` }]} />
+    {examples.length > 0 && <ExampleSection eyebrow="A validation example" title="How we decide whether an explanation survives" note="This is one recorded validation check. Its conclusion uses the complete independent test set—not a hand-picked example."><div className="example-deck">{examples.map((example: any) => <M5Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
+    <div className="verdict-list">{results.map((result: any, index: number) => <VerdictCard result={result} fallback={data.event} index={index} key={index} />)}</div>
+  </>;
+}
+
+function M5Example({ example, report }: { example: any; report?: ReportData }) {
+  const status = String(example.status || "inconclusive").replaceAll("_", " ");
+  const isCase = example.kind === "validation_case";
+  return <article className="example-card m5-example"><header><span className="example-step">1 · FROZEN IDEA</span><em className={`status status-${status}`}>{plainStatus(status)}</em></header><h4>{example.hypothesis || "A proposed explanation"}</h4>{isCase && <><span className="example-step">2 · ONE FRESH CASE IN THE TEST POOL</span><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>MODEL ANSWER</small><b>{displayValue(example.baseline_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div></>}<div className="validation-flow"><div><span>2 · INDEPENDENT TEST</span><b>{plainTest(example.test)}</b></div><div><span>3 · RESULT</span><b>{plainStatus(status)}</b>{example.effect !== undefined && example.effect !== null && <small>Measured difference: {number(example.effect)}</small>}{example.interval && <small>Likely range: {formatInterval(example.interval)}</small>}</div></div>{example.verdict && <p className="example-verdict">{example.verdict}</p>}<footer>{example.plain_reading}</footer></article>;
+}
+
+function VerdictCard({ result, fallback, index }: { result: any; fallback: any; index: number }) {
+  const evidence = result.evidence || fallback?.evidence || {};
+  const status = String(result.status || fallback?.status || "inconclusive").toLowerCase();
+  const hypothesis = result.hypothesis || result.statement || fallback?.hypothesis || `Hypothesis ${index + 1}`;
+  const icon = status === "supported" ? <CheckCircle2 /> : status === "refuted" ? <XCircle /> : <AlertTriangle />;
+  const ci = evidence.ci || result.ci;
+  return <article className={`verdict-card verdict-${status}`}><header>{icon}<div><span>H{index + 1} · INDEPENDENT CHECK</span><strong>{plainStatus(status)}</strong></div></header><h3>{hypothesis}</h3><div className="verdict-metrics"><span><small>MEASURED DIFFERENCE</small><b>{number(result.effect_size ?? evidence.effect_size)}</b></span><span><small>CONFIDENCE</small><b>{percent(result.confidence ?? fallback?.confidence_score)}</b></span><span><small>LIKELY RANGE</small><b>{formatInterval(ci)}</b></span><span><small>TYPE OF EVIDENCE</small><b>{plainEvidence(result.evidence_grade || evidence.evidence_grade)}</b></span></div><p className="verdict-reason">{plainVerdict(result.verdict || evidence.m5_verdict || "No validation explanation was retained.")}</p><div className="verdict-foot"><span className={result.protocol_consistent === false ? "bad" : "good"}>{result.protocol_consistent === false ? "Does not match the requested evaluation" : "Matches the requested evaluation"}</span><span>{evidence.fdr?.method ? "Multiple-comparison check applied" : "Independent evidence"}</span></div><details><summary>Technical audit evidence</summary><pre>{JSON.stringify(evidence, null, 2)}</pre></details></article>;
+}
+
+function M4Detail({ data, report }: { data: any; report: ReportData }) {
+  const candidates = data.candidates || [];
+  if (!data.ran || !candidates.length) return <><StageBanner kind="INTERVENTION" title="Repair and regression check">M4 compares targeted changes against the same unmodified baseline cases.</StageBanner><EmptyStage title={data.skipped ? "Repair was deliberately held back" : data.ran ? "No repair candidate was testable" : "Repair was not reached"} body={data.skipped ? (data.skip_detail || "The evidence review did not yet accept a mechanism for repair. The next step is a targeted diagnostic probe, not a failed repair.") : data.ran ? "The stage opened, but no accepted and testable mechanism produced a repair candidate." : "The run stopped before a targeted intervention could be evaluated."} /></>;
+  const fixed = candidates.reduce((sum: number, item: any) => sum + Number(item.n_fixed || 0), 0);
+  const broken = candidates.reduce((sum: number, item: any) => sum + Number(item.n_broken || 0), 0);
+  const winner = candidates.find((item: any) => item.fixed) || candidates.reduce((best: any, item: any) => Number(item.effect || -Infinity) > Number(best?.effect || -Infinity) ? item : best, null);
+  const option = { grid: { left: 145, right: 24, top: 18, bottom: 32 }, color: ["#6bd8ad", "#f06d5f"], tooltip: { trigger: "axis" }, legend: { textStyle: { color: "#9fb2ac" } }, xAxis: { type: "value", axisLabel: { color: "#8fa49d" }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: { type: "category", data: candidates.map((item: any) => `${item.tier || "?"} · ${item.name}`).reverse(), axisLabel: { color: "#b8c9c4", width: 130, overflow: "truncate" } }, series: [{ name: "Repaired", type: "bar", stack: "cases", data: candidates.map((item: any) => item.n_fixed || 0).reverse() }, { name: "Broken", type: "bar", stack: "cases", data: candidates.map((item: any) => item.n_broken || 0).reverse() }] };
+  return <>
+    <StageBanner kind="INTERVENTION" title="Paired repair sweep">Every candidate is compared case-by-case with the unchanged model. A useful repair must fix failures without creating regressions and survive family-wise selection.</StageBanner>
+    <StageKpis items={[{ label: "Candidates tried", value: candidates.length }, { label: "Repaired flips", value: fixed }, { label: "Broken flips", value: broken }, { label: "Best candidate", value: winner?.name || "—", note: winner?.tier }]} />
+    <div className={`repair-outcome ${data.fixed ? "success" : "neutral"}`}><Wrench /><div><span>FINAL REPAIR OUTCOME</span><h3>{data.fixed ? "A repair was confirmed" : "No candidate passed the repair gate"}</h3><p>{winner?.summary || "Inspect the full candidate sweep below."}</p></div></div>
+    {data.examples?.length > 0 && <ExampleSection eyebrow="A repaired case" title="One real before-and-after repair" note="This is a case counted as fixed. The repair was accepted only after checking every paired case for improvements and regressions."><div className="example-deck">{data.examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
+    {data.operation_previews?.length > 0 && <RepairOperationPreviews examples={data.operation_previews} report={report} />}
+    <div className="repair-chart"><h3>Paired case flips vs. baseline</h3><ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} /></div>
+    <div className="candidate-list">{candidates.map((candidate: any, index: number) => <article className={`candidate-card candidate-${candidate.verdict || "unknown"}`} key={`${candidate.name}-${index}`}><header><span>{candidate.tier || "?"}</span><div><h3>{candidate.name || `Candidate ${index + 1}`}</h3><small>{plainCandidateKind(candidate.kind)}</small></div><b>{candidate.fixed ? "helped" : "did not pass"}</b></header><div className="candidate-metrics"><span><b>{candidate.n_fixed ?? 0}</b> errors fixed</span><span><b>{candidate.n_broken ?? 0}</b> new errors</span><span><b>{number(candidate.effect)}</b> net change</span><span><b>{percent(candidate.coverage)}</b> of errors covered</span></div><p>{candidate.summary}</p><details><summary>Technical repair definition and affected cases</summary><KeyValueGrid values={candidate.payload || {}} />{candidate.fixed_cases?.length > 0 && <small>Fixed cases: {candidate.fixed_cases.join(", ")}</small>}{candidate.broken_cases?.length > 0 && <small>Broken cases: {candidate.broken_cases.join(", ")}</small>}</details></article>)}</div>
+  </>;
+}
+
+function M4Example({ example, report }: { example: any; report: ReportData }) {
+  return <article className="example-card m4-example"><header><span className="example-step">A CASE THE REPAIR HELPED</span><em className="status status-fixed">fixed</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>BEFORE REPAIR</small><b>{example.baseline_available ? displayValue(example.baseline_output) : "Not retained"}</b></div><div><small>AFTER REPAIR</small><b>{displayValue(example.repaired_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><footer>{example.plain_reading}</footer></article>;
+}
+
+function OperationExamples({ examples, report }: { examples: any[]; report: ReportData }) {
+  return <ExampleSection eyebrow="Recorded agent actions" title="See the intermediate work, case by case" note="These actions come from the saved agent trajectory. They are not a reconstruction from a prompt or a proposed repair."><div className="operation-deck">{examples.map((example) => <article className="operation-card" key={example.id}><header><span>CASE {example.case_id}</span><em className={`status status-${String(example.outcome || "unknown").toLowerCase()}`}>{example.outcome}</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><p className="operation-prompt">{example.input}</p><div className="operation-steps">{example.steps.map((step: any) => <div key={`${step.order}-${step.raw_action}`}><span>{step.order}</span><section><b>{step.action}</b>{Object.keys(step.parameters || {}).length > 0 && <small>{Object.entries(step.parameters).map(([key, value]) => `${humanize(key)}: ${formatCompact(value)}`).join(" · ")}</small>}{step.thought && <p>{step.thought}</p>}</section></div>)}</div><footer>{example.plain_reading}</footer></article>)}</div></ExampleSection>;
+}
+
+function RepairOperationPreviews({ examples, report }: { examples: any[]; report: ReportData }) {
+  return <ExampleSection eyebrow="A repair operation, made concrete" title="What the image-aware repair would do to a real case" note="This shows the source case and the operation declared by the repair candidate. It does not claim an altered image or a successful answer unless the run recorded one."><div className="operation-deck">{examples.map((example) => <article className="operation-card repair-operation" key={example.id}><header><span>{example.executed ? "CANDIDATE WAS TESTED" : "CANDIDATE PREVIEW — NOT EXECUTED"}</span><em>{example.candidate}</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><p className="operation-prompt">{example.input}</p><div className="example-flow"><div><small>BASELINE ANSWER</small><b>{displayValue(example.observed)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><div className="operation-steps">{example.operations.map((operation: any, index: number) => <div key={`${operation.raw_action}-${index}`}><span>{index + 1}</span><section><b>{operation.action}</b>{Object.keys(operation.parameters || {}).length > 0 && <small>{Object.entries(operation.parameters).map(([key, value]) => `${humanize(key)}: ${formatCompact(value)}`).join(" · ")}</small>}</section></div>)}</div></article>)}</div></ExampleSection>;
+}
+
+function EmptyStage({ title, body }: { title: string; body: string }) { return <div className="empty-stage"><ShieldCheck /><div><h3>{title}</h3><p>{body}</p></div></div>; }
+
+function KeyValueGrid({ values }: { values: Record<string, any> }) { return <div className="kv-grid">{Object.entries(values).map(([key, value]) => <div key={key}><small>{humanize(key)}</small><b>{formatCompact(value)}</b></div>)}</div>; }
+
+function RecordTable({ rows }: { rows: any[] }) {
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row || {})))].slice(0, 8);
+  return <div className="record-table-wrap"><table className="record-table"><thead><tr>{columns.map((column) => <th key={column}>{humanize(column)}</th>)}</tr></thead><tbody>{rows.slice(0, 16).map((row, index) => <tr key={index}>{columns.map((column) => <td key={column}>{formatCompact(row?.[column])}</td>)}</tr>)}</tbody></table></div>;
+}
+
+function normalizeKey(value: any) { return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function humanize(value: string) { return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase()); }
+function plainStatus(value: string) { return ({ supported: "held up", refuted: "did not hold up", inconclusive: "not enough evidence" } as Record<string, string>)[value.toLowerCase()] || humanize(value); }
+function plainEvidence(value: any) { return ({ observational: "pattern in the data", intervention: "direct comparison", none: "no usable evidence" } as Record<string, string>)[String(value || "").toLowerCase()] || "recorded evidence"; }
+function plainTest(value: any) { return ({ signal_label_assoc: "Compare this behavior between correct and incorrect answers", rank_corr: "Check whether the behavior and errors move together", single_rate_evalue: "Check whether the rate could plausibly be chance" } as Record<string, string>)[String(value || "")] || "Independent statistical check"; }
+function plainVerdict(value: string) { return String(value).replace(/signal_label_assoc: signal '[^']+' vs FAIL:\s*/i, "").replace(/\[clustered bootstrap \(unpaired\)\]\s*/i, "").replace(/\s*\[BH:.*?\]/i, ""); }
+function plainFailureMode(value: any) { return ({ computation_slip: "The model may be making a calculation mistake", hallucination: "The model may be reading information that is not there", brittleness: "The model may be overly sensitive to a small change", format_error: "The model may understand the task but reply in the wrong format" } as Record<string, string>)[String(value || "").toLowerCase()] || (value ? humanize(String(value)) : "Not specified"); }
+function plainCandidateKind(value: any) { return ({ prompt: "A change to the instructions", prompt_template: "A change to the instructions", decoding: "A change to how answers are generated", intervention: "A targeted model intervention" } as Record<string, string>)[String(value || "").toLowerCase()] || "A proposed repair"; }
+function plainOperation(value: any) { return ({ imagezoomin: "Zoom in on part of the image", zoomcenter: "Zoom into the chart center", crop: "Crop the visual evidence", cropcasebbox: "Crop the relevant chart region", sharpen: "Sharpen chart details", contrast: "Increase visual contrast", detect: "Locate an object or region" } as Record<string, string>)[normalizeKey(value)] || humanize(String(value || "tool")); }
+function seconds(value: any) { return typeof value === "number" ? `${value.toFixed(1)}s` : "—"; }
+function number(value: any) { return typeof value === "number" && Number.isFinite(value) ? value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "") : "—"; }
+function percent(value: any) { return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "—"; }
+function formatInterval(value: any) { return Array.isArray(value) && value.length >= 2 ? `[${number(value[0])}, ${number(value[1])}]` : "—"; }
+function formatCompact(value: any) { if (value === null || value === undefined || value === "") return "—"; if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, ""); if (typeof value === "object") return JSON.stringify(value).slice(0, 180); return String(value).slice(0, 220); }
+function displayValue(value: any) { return formatCompact(value); }
+
+export function CasesView({ data, back }: { data: ReportData; back: () => void }) {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const [selected, setSelected] = useState<Case | null>(null);
+  const rows = data.cases.filter((item) => (status === "all" || item.status === status) && `${item.id} ${item.prompt} ${item.task}`.toLowerCase().includes(query.toLowerCase()));
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 92, overscan: 8 });
+  return <DetailShell title="Case Studio" subtitle="Inspect the actual input, expected answer, model output, and attached media." back={back}>
+    <div className="case-toolbar"><label><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search cases" /></label><div>{["all", "fail", "pass", "fixed", "broken", "unchanged"].map((value) => <button className={status === value ? "active" : ""} onClick={() => setStatus(value)} key={value}>{value}</button>)}</div><span>{rows.length} cases</span></div>
+    <div className="case-studio"><div className="virtual-list" ref={parentRef}><div style={{ height: virtual.getTotalSize(), position: "relative" }}>{virtual.getVirtualItems().map((row) => { const item = rows[row.index]; return <button className={`virtual-row ${selected?.id === item.id ? "active" : ""}`} key={item.id} onClick={() => setSelected(item)} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: row.size, transform: `translateY(${row.start}px)` }}><span className={`status status-${item.status}`}>{item.status}</span><div><strong>{item.id}</strong><p>{item.prompt || "No prompt retained"}</p></div><ChevronRight /></button>; })}</div></div><CaseDetail item={selected || rows[0]} data={data} /></div>
+  </DetailShell>;
+}
+
+function CaseDetail({ item, data }: { item?: Case; data: ReportData }) {
+  if (!item) return <section className="case-detail empty">No cases match this filter.</section>;
+  return <section className="case-detail"><div className="case-detail-head"><div><span className={`status status-${item.status}`}>{item.status}</span><h2>{item.id}</h2></div><small>{item.task}</small></div><DetailBlock label="MODEL INPUT" value={item.prompt} />{item.choices?.length > 0 && <DetailBlock label="CHOICES" value={item.choices.map(String).join("\n")} />}<div className="io-grid"><DetailBlock label="EXPECTED" value={format(item.expected)} /><DetailBlock label="MODEL OUTPUT" value={format(item.observed)} /></div>{item.media_ids.map((id) => { const media = data.media.find((entry) => entry.id === id); if (!media) return null; return <MediaPreview key={id} media={media} caseId={item.id} />; })}{Boolean(item.trajectory) && <TrajectoryPanel trajectory={item.trajectory} />}{item.tags.length > 0 && <div className="tag-row">{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}</section>;
+}
+
+function TrajectoryPanel({ trajectory }: { trajectory: any }) {
+  const steps = Array.isArray(trajectory?.steps) ? trajectory.steps : [];
+  const calls = steps.filter((step: any) => step?.tool_call);
+  if (!calls.length) return null;
+  return <details className="case-trajectory"><summary>Recorded intermediate agent actions ({calls.length})</summary>{calls.map((step: any, index: number) => <div className="trajectory-row" key={index}><b>{plainOperation(step.tool_call?.name)}</b><small>{formatCompact(step.tool_call?.args)}</small>{step.observation && <p>{formatCompact(step.observation)}</p>}</div>)}</details>;
+}
+
+function MediaPreview({ media, caseId }: { media: ReportData["media"][number]; caseId: string }) {
+  const source = media.data_uri || `/api/media/${encodeURIComponent(media.id)}`;
+  if (media.kind === "image") return <img className="case-media" src={source} alt={`Input for case ${caseId}`} />;
+  if (media.kind === "video") return <video className="case-media" controls preload="metadata" src={source} />;
+  return <audio controls preload="metadata" src={source} />;
+}
+
+export function DebugView({ data, back }: { data: ReportData; back: () => void }) {
+  const [filter, setFilter] = useState("all");
+  const rows = filter === "all" ? data.debug.events : data.debug.events.filter((row) => row.event === filter);
+  const eventTypes = [...new Set(data.debug.events.map((event) => event.event))];
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 84, overscan: 10 });
+  return <DetailShell title="Agent audit log" subtitle="The most detailed layer: ordered decisions, tools, stage events, and publication provenance." back={back}><div className="debug-toolbar"><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All event types</option>{eventTypes.map((value) => <option key={value}>{value}</option>)}</select><span>{rows.length} / {data.debug.event_count} events</span></div><div className="debug-list" ref={parentRef}><div style={{ height: virtual.getTotalSize(), position: "relative" }}>{virtual.getVirtualItems().map((row) => <div className="debug-row" key={row.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: row.size, transform: `translateY(${row.start}px)` }}><EventRow event={rows[row.index]} /></div>)}</div></div></DetailShell>;
+}
+
+function DetailShell({ title, subtitle, back, children }: { title: string; subtitle: string; back: () => void; children: React.ReactNode }) {
+  return <main className="detail-page"><nav><button onClick={back}><ArrowLeft size={17} /> Overview</button><div><strong>{title}</strong><span>{subtitle}</span></div></nav>{children}</main>;
+}
+
+function EventRow({ event }: { event: DebugEvent }) {
+  return <div className="event-row"><code>{String(event.event_seq || "—").padStart(3, "0")}</code><span className="event-type">{event.event}</span><div><strong>{event.stage || "RUN"}{event.cycle !== undefined && event.cycle !== null ? ` · cycle ${event.cycle}` : ""}</strong><p>{event.summary}</p></div></div>;
+}
+
+function DetailBlock({ label, value }: { label: string; value: string }) {
+  return <div className="detail-block"><small>{label}</small><pre>{value || "Not retained"}</pre></div>;
+}
+
+function format(value: unknown) {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "Not retained";
+  return JSON.stringify(value, null, 2);
+}

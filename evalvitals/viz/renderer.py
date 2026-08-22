@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,28 @@ from evalvitals.viz.style import (
 
 logger = logging.getLogger(__name__)
 
-_KINDS = {"bar", "line", "scatter", "timeseries"}
+_KINDS = {"bar", "line", "scatter", "timeseries", "forest"}
+
+# Chart-type policy (agent-side counterpart: the eval-chart-style skill).
+# "A bar's filled area means amount accumulated from zero — use bars only for
+# counts." Rates, proportions, means and effect sizes must not be bars.
+_COUNT_Y = re.compile(r"(count$|^n$|_n$|n_cases|ncases|num_|_num$|samples|draws|frequency|^total$)", re.I)
+_EFFECT_Y = re.compile(r"(effect|separation|smd|odds|ratio|coefficient|importance|weight|score|mean|avg|average|delta|diff|lift|gain)", re.I)
+
+
+def _is_count_like(y: Any, ys: list[float]) -> bool:
+    """True only when the y column plausibly holds raw counts."""
+    name = str(y or "")
+    if _EFFECT_Y.search(name):
+        return False  # a mean/effect column is never a count even if integer-valued
+    if not _COUNT_Y.search(name):
+        return False
+    return all(float(v).is_integer() for v in ys)
+
+
+def _demote_bar(spec: dict[str, Any], y: Any, ys: list[float]) -> str:
+    """Pick the policy-compliant kind a 'bar' spec must be rendered as instead."""
+    return "forest" if _EFFECT_Y.search(str(y or "")) else "line"
 
 #: Column names that mean "this y is a count" (composition / count bars).
 _COUNT_COLUMNS = {"count", "counts", "n", "n_cases", "cases", "num", "total", "freq", "frequency"}
@@ -46,6 +68,16 @@ _RATE_WORDS = ("rate", "pct", "percent", "share", "frac", "fraction", "proportio
 #: Up to this many groups a group->value comparison is a dot + CI / lollipop,
 #: never bars (eval-chart-style §0: a bar's area means "accumulated from 0").
 _DOT_MAX_GROUPS = 3
+
+
+def _count_like(y: Any, ys: list[float]) -> bool:
+    """Count-valued y for the bar policy: a known count column (``count``,
+    ``n``, ...), an ``n_<group>`` / ``num_<x>`` numerator column, or
+    :func:`_is_count_like`'s name test — and integer values in every case."""
+    name = str(y or "").lower()
+    if not ys or not all(float(v).is_integer() for v in ys):
+        return False
+    return name in _COUNT_COLUMNS or name.startswith(("n_", "num_")) or _is_count_like(y, ys)
 
 
 def render_chart_specs(
@@ -200,6 +232,22 @@ def _to_float(value: str) -> float | None:
         return None
 
 
+def _get_bar_colors(xs_raw: list[Any], default_palette: list[str]) -> list[str]:
+    """Map categories to semantic palette colors (FAIL-red, PASS-green, else palette)."""
+    colors = []
+    for idx, label in enumerate(xs_raw):
+        s = str(label).strip().lower()
+        if any(w in s for w in ("fail", "broken", "error", "loss", "regression")):
+            colors.append("#d03b3b")
+        elif any(w in s for w in ("pass", "fixed", "cured", "correct", "gain", "survivor")):
+            colors.append("#0ca30c")
+        elif any(w in s for w in ("inconclusive", "warn", "unverified", "middle")):
+            colors.append("#fab219")
+        else:
+            colors.append(default_palette[idx % len(default_palette)])
+    return colors
+
+
 def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
     """Draw one spec. The chart FORM follows the eval-chart-style policy, not
     the spec's ``kind`` alone (the explorer may only say bar/line/scatter):
@@ -249,6 +297,24 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
             form = "composition"
         elif 2 <= len(xs_raw) <= _DOT_MAX_GROUPS and str(y).lower() not in _COUNT_COLUMNS:
             form = "dot_ci"
+    if kind == "bar" and form == "bar" and not _count_like(y, ys):
+        # Chart-type policy enforcement (eval-chart-style): a bar may only
+        # encode raw counts. A rate/mean/effect bar that is neither a class
+        # composition nor a <= 3-group comparison is demoted to the
+        # policy-compliant kind — line for binned rates, forest (horizontal
+        # dot plot) for ranked effects — so the rule holds even when the
+        # agent ignores it.
+        kind = _demote_bar(spec, y, ys)
+        form = kind
+        spec["kind"] = kind
+        spec["render_note"] = (
+            f"kind=bar demoted to {kind}: y column {str(y)!r} is not a count "
+            "(bars are for counts only — eval-chart-style policy)"
+        )
+        logger.warning(
+            "render_chart_specs: %r demoted bar -> %s (%r is not a count)",
+            spec.get("name"), kind, y,
+        )
 
     # Apply the nature-figure style in a scoped rc_context (no global leak; fully
     # deterministic -> same spec + CSV yields byte-identical PNGs).
@@ -261,6 +327,34 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
             fig, ax = plt.subplots(figsize=(6.4, 1.6 + 0.55 * len(xs_raw)))
             form = _draw_dot_ci(ax, rows, xs_raw, ys, ns, scale, accent)
             ax.set_xlabel(ylabel)
+            ax.set_title(title, fontweight="bold", loc="left")
+        elif kind == "forest":
+            # Horizontal dot plot for ranked effects / means: position encodes
+            # the value, no filled area faking "accumulated amount". Sorted so
+            # the strongest is on top.
+            fig, ax = plt.subplots(figsize=(6.4, 1.6 + 0.45 * len(xs_raw)))
+            order = sorted(range(len(ys)), key=lambda i: ys[i])
+            labels = [str(xs_raw[i]) for i in order]
+            vals = [ys[i] for i in order]
+            ypos = list(range(len(vals)))
+            ax.hlines(ypos, [min(0.0, v) for v in vals], vals,
+                      color=SEMANTIC_PALETTE["GRID"], linewidth=1.8, zorder=2)
+            ax.axvline(0, color=SEMANTIC_PALETTE["AXIS"], linewidth=0.9, zorder=1)
+            pt_colors = [outcome_color(lab) or accent for lab in labels]
+            ax.scatter(vals, ypos, s=68, c=pt_colors, edgecolor="white",
+                       linewidth=0.8, zorder=3)
+            has_neg = any(v < 0 for v in vals)
+            for yi, v in zip(ypos, vals):
+                ax.annotate(f"{v:+.2f}" if has_neg else f"{v:.2f}", (v, yi),
+                            textcoords="offset points", xytext=(7, -3.5),
+                            fontsize=8.5, color=SEMANTIC_PALETTE["TEXT"])
+            ax.set_yticks(ypos)
+            ax.set_yticklabels(labels)
+            ax.grid(axis="x", linewidth=0.6, alpha=0.25, zorder=0)
+            ax.set_axisbelow(True)
+            # The value axis is horizontal: swap the axis labels.
+            ax.set_xlabel(ylabel)
+            ax.set_ylabel(xlabel)
             ax.set_title(title, fontweight="bold", loc="left")
         else:
             fig, ax = plt.subplots(figsize=(6.4, 4.0))
@@ -304,8 +398,7 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
             ax.set_ylabel(ylabel)
             ax.set_title(title, fontweight="bold")
         fig.tight_layout()
-        # Pin metadata so the same spec + CSV yields byte-identical PNGs.
-        fig.savefig(png, dpi=130, metadata={"Software": "evalvitals", "Creation Time": None})
+        fig.savefig(png, dpi=160, metadata={"Software": "evalvitals", "Creation Time": None})
         plt.close(fig)
     spec["rendered_as"] = form
     return png
@@ -473,6 +566,7 @@ _FORM_WORDS = {
     "composition": "composition strip of",
     "dot_ci": "dot + 95% CI of",
     "lollipop": "dot (lollipop) of",
+    "forest": "forest plot (ranked dots) of",
 }
 
 

@@ -60,6 +60,16 @@ data = [
 # of what crosses each stage boundary + JSON Schema / TypeScript generation.
 contract = ["pydantic>=2.7"]
 viz = ["matplotlib>=3.7"]
+# Langfuse is optional so local/offline evaluations keep the light core.  When
+# installed, every RunLogger event is persisted through the local outbox and
+# mirrored to Langfuse on flush.
+observability = ["langfuse>=4.7"]
+# Completed-run dynamic report server. The React renderer is pre-built and
+# shipped as package data; Node is only needed by contributors changing it.
+ui = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
 # Inferential stats for the outcome-driver-analysis agent skill's Python path
 # (logistic/GLM fits with real inference, VIF, calibration, ROC).
 stats = [
@@ -73,15 +83,9 @@ stats = [
 cluster = [
     "scikit-learn>=1.3",
     "hdbscan>=0.8.33",
+    "langfuse>=4.7",
 ]
-dashboard = [
-    "streamlit>=1.30",
-    "pandas>=2.0",
-    "pillow>=9.0",
-    "pypdf>=4.0",
-    "pyarrow>=14.0",
-    "openpyxl>=3.1",
-]
+# The former Streamlit dashboard and upload workbench are no longer supported.
 gemini = ["google-genai>=1.0"]
 all = [
     "torch>=2.0.0",
@@ -96,12 +100,6 @@ all = [
     "statsmodels>=0.14",
     "scikit-learn>=1.3",
     "hdbscan>=0.8.33",
-    "streamlit>=1.30",
-    "pandas>=2.0",
-    "pillow>=9.0",
-    "pypdf>=4.0",
-    "pyarrow>=14.0",
-    "openpyxl>=3.1",
 ]
 dev = [
     "pytest>=8.0",
@@ -137,6 +135,7 @@ include = ["evalvitals*"]
 # Ship bundled Agent Skills (e.g. nature-figure) so `pip install` carries them
 # too, not just `git clone`. explore auto-applies them on claude/agy backends.
 "evalvitals.agent_assets" = ["skills/**/*"]
+"evalvitals.reporting" = ["web_dist/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

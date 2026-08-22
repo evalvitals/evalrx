@@ -270,6 +270,36 @@ def test_critic_rejection_annotates_instead_of_deleting():
     assert "REJECT:" in diag.critic_raw_output
 
 
+def test_critic_record_carries_the_proposer_reviewer_shape_too():
+    """The same review in the record shape the report/Langfuse side reads:
+    the proposer's full list plus a per-hypothesis decision derived from the
+    annotations — the reviewer records, it never removes (2026-08-21 merge of
+    the two M3-critic designs)."""
+    judge = TwoAnswerJudge([
+        "HYPOTHESIS: the model ignores visual evidence entirely\n"
+        "FAILURE_MODE: visual_blindness\n"
+        "HYPOTHESIS: the model truncates long answers\n"
+        "FAILURE_MODE: termination\n",
+        "KEEP: the model truncates long answers\n"
+        "REASON: termination_audit shows it\n"
+        "REJECT: the model ignores visual evidence entirely\n"
+        "REASON: the cited evidence does not test that mechanism\n",
+    ])
+    diag = DiagnosisAgent(judge=judge).diagnose(_report())
+    assert [h.statement for h in diag.proposed_hypotheses] == [
+        "the model ignores visual evidence entirely", "the model truncates long answers"]
+    assert [h.statement for h in diag.hypotheses] == [          # kept first, nothing dropped
+        "the model truncates long answers", "the model ignores visual evidence entirely"]
+    assert diag.review_decisions == [
+        {"statement": "the model ignores visual evidence entirely", "decision": "reject",
+         "reason": "the cited evidence does not test that mechanism"},
+        {"statement": "the model truncates long answers", "decision": "keep",
+         "reason": "termination_audit shows it"},
+    ]
+    assert diag.review_raw == diag.critic_raw_output and diag.review_prompt == diag.critic_prompt
+    assert diag.n_critic_kept == 1 and diag.n_critic_rejected == 1
+
+
 def test_diagnosis_prompt_lists_available_evidence():
     judge = ScriptedJudge("NO_ISSUE")
     DiagnosisAgent(judge=judge).diagnose(_report())

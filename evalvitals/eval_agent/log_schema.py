@@ -51,6 +51,9 @@ EVENT_TYPES: tuple[str, ...] = (
     "tool_registry",
     "agent_decision",
     "agent_tool",
+    "case_record",
+    "report_published",
+    "stage_skipped",
 )
 
 #: Path to the committed, rendered schema shipped as package data.
@@ -62,6 +65,7 @@ _HYPOTHESIS = {
     "type": "object",
     "properties": {
         "statement": {"type": "string"},
+        "plain_statement": {"type": ["string", "null"]},
         "failure_mode": {"type": ["string", "null"]},
         "status": {"type": ["string", "null"]},
         "test_design": {"type": ["string", "null"]},
@@ -195,6 +199,9 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "evidence": {"type": ["object", "null"]},
             "n_refocused_cases": {"type": ["integer", "null"]},
             "duration_sec": {"type": "number"},
+            # Additive: M5 protocol-consistency judge prompt/response, persisted
+            # under prompts/ (same pattern as probe/analysis/diagnosis).
+            "judge_io": _JUDGE_IO,
         },
     },
     "experiment": {
@@ -283,6 +290,34 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "duration_sec": {"type": "number"},
         },
     },
+    "case_record": {
+        "required": ["case_id", "case", "media_paths"],
+        "properties": {
+            "case_id": {"type": "string"},
+            "case": {"type": "object"},
+            "media_paths": {"type": "array", "items": {"type": "string"}},
+        },
+    },
+    "report_published": {
+        "required": ["report_schema_version", "catalog_version", "sha256", "generated_by"],
+        "properties": {
+            "report_schema_version": {"type": "integer"},
+            "catalog_version": {"type": "string"},
+            "json_render_version": {"type": "string"},
+            "source_event_seq": {"type": "integer"},
+            "sha256": {"type": "string"},
+            "generated_by": {"type": "object"},
+            "report_paths": {"type": "array", "items": {"type": "string"}},
+        },
+    },
+    "stage_skipped": {
+        "required": ["stage", "cycle", "reason_code"],
+        "properties": {
+            "stage": {"type": "string"},
+            "reason_code": {"type": "string"},
+            "detail": {"type": "string"},
+        },
+    },
 }
 
 
@@ -309,6 +344,7 @@ def build_schema() -> dict[str, Any]:
                 "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$",
             },
             "trace_id": {"type": "string"},
+            "event_seq": {"type": "integer", "minimum": 1},
             "span_id": {"type": "string"},
             "cycle": {"type": "integer"},
         },

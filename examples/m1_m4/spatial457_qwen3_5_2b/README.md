@@ -29,6 +29,12 @@ docker compose logs -f
 and, like every analyzer since 2026-08-21, each measures its whole partition
 (no per-analyzer `max_cases` cap).
 
+The compose command pins judge and coder to Claude Opus 5
+(`--judge-provider claude --judge-model claude-opus-5 --judge-effort high`);
+the CLI default provider is `agy`. With no M5-verified hypothesis the run
+still enters M4 and the fix stage on the best unverified leads
+(`allow_unverified=True` in `vlm_benchmark_common.py`).
+
 Weights: `Qwen/Qwen3.5-2B` (~5 GB) must be in the mounted HF cache
 (`HF_HOME`), e.g. `huggingface-cli download Qwen/Qwen3.5-2B`.
 

@@ -113,6 +113,7 @@ class AgenticDiagnoseLoop(VLDiagnoseLoop):
             cfg["decision_judge"] = repr(self.judge)
             cfg["max_actions"] = self.max_actions
             self.run_logger.log_run_start(cfg)
+            self.run_logger.log_cases(data)
 
         board = EvidenceBoard(
             protocol_summary=_protocol_summary(self.protocol),

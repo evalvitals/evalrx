@@ -25,6 +25,7 @@ References:
 from __future__ import annotations
 
 import dataclasses
+import re
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from evalvitals.analyzers.reasoning._text import (
@@ -165,6 +166,11 @@ class TerminationAudit(Analyzer):
         elif finish_reason == "length":
             truncated = True
 
+        contract = (getattr(case, "metadata", {}) or {}).get("output_contract") or {}
+        contract_match = _matches_output_contract(raw, contract)
+        if contract_match:
+            truncated = False
+
         # Order matters: degeneration is checked first because a looping
         # generation also LOOKS truncated (it is cut off mid-loop), and the fix
         # for a loop is a decoding change, not a bigger budget.
@@ -174,7 +180,7 @@ class TerminationAudit(Analyzer):
             cls = GAVE_UP
         elif truncated:
             cls = TRUNCATED
-        elif tagged:
+        elif tagged or contract_match:
             cls = CLEAN
         else:
             cls = NO_ANSWER
@@ -185,6 +191,7 @@ class TerminationAudit(Analyzer):
             "has_answer_tag": int(tagged),
             "looks_truncated": int(truncated),
             "gave_up": int(gave_up),
+            "matches_output_contract": int(contract_match),
             "output_chars": len(raw),
             "output_words": len(raw.split()),
         }
@@ -211,3 +218,22 @@ class TerminationAudit(Analyzer):
         if graded is not None:
             out["continuation_correct"] = int(graded)
         return out
+
+
+def _matches_output_contract(raw: str, contract: Any) -> bool:
+    """Return whether a terse response is complete under a declared contract."""
+    if not isinstance(contract, dict):
+        return False
+    text = str(raw or "").strip()
+    if not text:
+        return False
+    if contract.get("kind") == "multiple_choice_letter":
+        choices = {str(v).strip().upper() for v in contract.get("choices", [])}
+        return bool(choices) and text.upper() in choices
+    pattern = contract.get("pattern")
+    if isinstance(pattern, str) and pattern:
+        try:
+            return re.fullmatch(pattern, text) is not None
+        except re.error:
+            return False
+    return False

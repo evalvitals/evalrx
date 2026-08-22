@@ -14,17 +14,17 @@ build_cases.py     data/cases/<model>.json        balanced FAIL/PASS batch (offl
 run_m1.py          outputs/m1_state.pkl           M1 analyzers (GPU)
 run_fused.py       outputs/fused/...              Step 1: explore + held-out confirm (claude)
 run_m2-5.py        outputs/logs_m2_5/run_log.jsonl Step 2: M2→M3→M5→Fix (GPU + claude)
-evalvitals dashboard outputs                       the report
+evalvitals serve outputs                           the report
 ```
 
 ## Prerequisites
 
-- The repo installed into a venv **with the local + viz + dashboard extras**:
+- The repo installed into a venv **with the local + viz extras**:
   ```bash
   cd <repo-root>
-  pip install -e ".[local,viz,dashboard]"     # torch + matplotlib + streamlit
+  pip install -e ".[local,viz]"               # torch + matplotlib
   # (this repo's server uses a uv venv: VIRTUAL_ENV=.venv uv pip install -e . --no-deps,
-  #  then `VIRTUAL_ENV=.venv uv pip install matplotlib streamlit pandas jsonschema`)
+  #  then `VIRTUAL_ENV=.venv uv pip install matplotlib jsonschema`)
   ```
 - A **CUDA GPU** and the VLM weights cached (HF cache) — needed by `run_m1.py` and
   `run_m2-5.py`.
@@ -105,7 +105,7 @@ $PY run_m2-5.py \
 #    -> outputs/logs_m2_5/run_log.jsonl        (M2 stats, M3 hypotheses, M5 tests, Fix)
 
 # 4) View the report
-$PY -m evalvitals.cli dashboard outputs        # or: evalvitals dashboard outputs
+$PY -m evalvitals.cli serve outputs             # or: evalvitals serve outputs
 ```
 
 Remote server → open it locally over an SSH tunnel:

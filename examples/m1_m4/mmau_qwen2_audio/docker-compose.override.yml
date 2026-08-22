@@ -1,13 +1,17 @@
-# Host-specific mount overrides (tealab): the docker daemon cannot traverse the
-# root-squashed NFS home, so every mount source lives on /tealab-data instead.
-# claude-bin is the NATIVE binary copied out of ~/.local/share/claude/versions;
-# claude-home holds only .credentials.json (chmod-700 parent dir).
 services:
   mmau_qwen2_audio:
+    environment:
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - CUDA_VISIBLE_DEVICES=7
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - HF_HOME=/hf_cache
+      - HOME=/home/user
+      - IS_SANDBOX=1
     volumes:
-      - /tealab-data/jiaqiliu/mmau_env/hf_cache:/hf_cache
+      - /data/rjin02/.cache/huggingface:/hf_cache
       - ./outputs:/app/example/outputs
       - ./data:/app/example/data
-      - /tealab-data/jiaqiliu/mmau_env/claude-bin:/usr/local/bin/claude:ro
-      - /tealab-data/jiaqiliu/mmau_env/claude-home:/home/user/.claude
-      - /tealab-data/jiaqiliu/mmau_env/claude.json:/home/user/.claude.json
+      - /data/rjin02/.local/bin/agy:/usr/local/bin/agy:ro
+      - /data/rjin02/.gemini:/home/user/.gemini
+      - /data/rjin02/.cache/antigravity:/home/user/.cache/antigravity
+

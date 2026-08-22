@@ -448,6 +448,26 @@ class VLDiagnoseLoop:
         self._tokens_used: int = 0
         self._run_id: str = ""
 
+    def publish_report(
+        self,
+        *,
+        model: "Any | None" = None,
+        example_dir: "str | Path | None" = None,
+    ) -> "Any":
+        """Compose the completed-run UI, reusing the M3 judge when available."""
+        if self.run_logger is None:
+            raise RuntimeError("publish_report needs a run_logger with a durable run directory")
+        if model is None:
+            model = getattr(self.diagnosis_agent, "judge", None)
+        from evalvitals.reporting.dynamic import publish_report
+
+        return publish_report(
+            self.run_logger.run_dir,
+            example_dir=example_dir,
+            model=model,
+            run_logger=self.run_logger,
+        )
+
     @staticmethod
     def _strat_key(case: "Any") -> "tuple":
         """Stratify the explore/confirm split by label + probe_type when present
@@ -575,6 +595,7 @@ class VLDiagnoseLoop:
         if log and self.run_logger:
             artifact_pngs = self.run_logger.log_probe(
                 cycle, probe_results, schema=self.probe_agent.last_schema,
+                cases=data,
                 judge_prompt=getattr(self.probe_agent, "last_selection_prompt", ""),
                 judge_raw=getattr(self.probe_agent, "last_selection_raw", ""),
                 duration_sec=_dt,
@@ -755,6 +776,9 @@ class VLDiagnoseLoop:
         nothing to the prompt and costs no extra call."""
         try:
             diag_agent = self._get_diagnosis_agent()
+            # Retain the lazily resolved agent so report publication can reuse
+            # the same judge without asking callers to inject it a second time.
+            self.diagnosis_agent = diag_agent
         except Exception as exc:
             logger.warning("Could not resolve DiagnosisAgent: %s", exc)
             return None
@@ -841,7 +865,12 @@ class VLDiagnoseLoop:
             # Reuse the surgery log slot for M5 results (backward compat).
             for tr in test_results:
                 _iv = _make_intervention_result_from_test(tr)
-                self.run_logger.log_surgery(cycle, tr.hypothesis, _iv, duration_sec=_dt)
+                self.run_logger.log_surgery(
+                    cycle, tr.hypothesis, _iv, duration_sec=_dt,
+                    validation_cases=data,
+                    judge_prompt=getattr(tr, "judge_prompt", None) or None,
+                    judge_raw=getattr(tr, "judge_raw", None) or None,
+                )
         return test_results
 
     def _m5_holdout_pass(
@@ -903,6 +932,7 @@ class VLDiagnoseLoop:
             self.run_logger.log_probe(
                 -1, probe_results,
                 schema=getattr(self.probe_agent, "last_schema", None),
+                cases=confirm,
             )
         stats_confirm = self._do_m2(
             -1, probe_results, confirm, [], timings, confirmatory=True
@@ -960,6 +990,7 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop")
             )
+            self.run_logger.log_cases(data)
 
         for cycle in range(self.max_cycles):
             if self.token_budget > 0 and self._tokens_used >= self.token_budget:
@@ -1112,6 +1143,7 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop.analysis")
             )
+            self.run_logger.log_cases(data)
 
         all_hypotheses: list[Any] = []
         final_stats_report = None
@@ -1200,6 +1232,7 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop.confirm")
             )
+            self.run_logger.log_cases(data)
 
         # Regenerate the stats the tester needs only when not supplied. The M1/M2
         # events are NOT logged here — they were recorded in the analysis phase,
@@ -1361,6 +1394,7 @@ class VLDiagnoseLoop:
         max_tier: "str | Any | None" = None,
         fix_agent: "Any | None" = None,
         auto_escalate: bool = False,
+        allow_unverified: bool = False,
     ) -> "Any":
         """Post-loop fix module: tiered, validated repair attempts.
 
@@ -1376,8 +1410,9 @@ class VLDiagnoseLoop:
         rather than repeating what already failed.
 
         Args:
-            report:         Returned by :meth:`run` (uses ``verified_hypotheses``,
-                            falling back to the last cycle's proposals).
+            report:         Returned by :meth:`run`. Only M5-verified hypotheses
+                            may author a repair; an empty evidence gate records a
+                            skipped M4 stage instead of a pseudo-result.
             data:           Original case batch (validated with paired McNemar
                             against the unmodified baseline).
             max_tier:       Ceiling tier: "L0", "L1", "L2", "L3a", "L3b", "L4".
@@ -1386,6 +1421,14 @@ class VLDiagnoseLoop:
             fix_agent:      Per-call override of :attr:`fix_agent`.
             auto_escalate:  When True, step through tiers automatically,
                             feeding prior failure context to each round.
+            allow_unverified: When True and nothing was M5-verified, run the
+                            fix on the best UNVERIFIED leads (M5-tested,
+                            non-refuted, highest confidence first; else the
+                            last cycle's proposals), flagged to the proposer
+                            as leads rather than facts. The fix gate is the
+                            candidate validation on CONFIRM, not the
+                            hypothesis, so this is safe; the default (False)
+                            records a skipped stage instead.
         """
         from evalvitals.eval_agent.stages.fix_tiers import FixTier, parse_tier
 
@@ -1422,13 +1465,14 @@ class VLDiagnoseLoop:
             if _hyp_key(tr.hypothesis) not in refuted_ids
         ]
         hypotheses_note = ""
-        if not hypotheses:
-            # No verified hypothesis: the fix still runs on the best UNVERIFIED
-            # leads (M5-tested, non-refuted, highest confidence first; else the
-            # last cycle's proposals). They reach the proposer flagged as
-            # leads, not facts — the fix gate is the candidate validation, not
-            # the hypothesis, so this is safe; an M4 experiment that supported
-            # one of them upgrades it in the note.
+        if not hypotheses and allow_unverified:
+            # No verified hypothesis, but the caller opted in: the fix still
+            # runs on the best UNVERIFIED leads (M5-tested, non-refuted,
+            # highest confidence first; else the last cycle's proposals). They
+            # reach the proposer flagged as leads, not facts — the fix gate is
+            # the candidate validation, not the hypothesis, so this is safe;
+            # an M4 experiment that supported one of them upgrades it in the
+            # note.
             hypotheses = [
                 h for h in _unverified_hypotheses(report)
                 if _hyp_key(h) not in refuted_ids
@@ -1442,6 +1486,30 @@ class VLDiagnoseLoop:
                 + ". Treat them as hints about WHERE to intervene; the candidate "
                 "validation, not the hypothesis, decides."
             )
+        if not hypotheses:
+            # A repair proposal is an intervention, not another exploratory
+            # probe.  Do not turn an unreviewed/unsupported M3 lead into a
+            # misleading empty M4 outcome.  The caller gets a stable outcome
+            # object for compatibility, while the audit records a skipped stage.
+            from evalvitals.eval_agent.stages.fix_agent import FixOutcome
+
+            outcome = FixOutcome(
+                max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
+                stage_status="skipped",
+                skip_reason="no_accepted_hypothesis",
+                recommendation={
+                    "reason": "Repair was not attempted because no hypothesis passed the evidence gate.",
+                    "next_step": "Run the targeted diagnostic probe proposed by M3.",
+                },
+            )
+            if self.run_logger is not None:
+                self.run_logger.log_stage_skipped(
+                    "M4", "no_accepted_hypothesis",
+                    detail="No M5-verified hypothesis was available for repair authoring.",
+                )
+            report.fix_outcome = outcome
+            return outcome
+
         context = _fix_context_from_report(
             report,
             example_cases=explore if confirm is not None else None,

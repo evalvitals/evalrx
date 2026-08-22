@@ -48,9 +48,11 @@ Custom handler — e.g. redirect verbose output to a file instead::
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
+import shutil
 import sys
 import textwrap
 import threading
@@ -80,7 +82,7 @@ if TYPE_CHECKING:
 #     decision turn: chosen tool + rationale, keyed by `step` not `cycle`) and
 #     `agent_tool` (the dispatch layer's accept/reject outcome for that tool
 #     call). VLDiagnoseLoop/AutoDiagnoseLoop's events are unchanged.
-RUN_LOG_SCHEMA_VERSION = 3
+RUN_LOG_SCHEMA_VERSION = 4
 
 
 def _externalized(summary: "dict[str, Any]") -> str:
@@ -91,6 +93,83 @@ def _externalized(summary: "dict[str, Any]") -> str:
     """
     where = summary.get("path") or "artifacts/"
     return f"({summary.get('n_items', '?')} items externalised -> {where})"
+
+
+def _case_snapshot(case: Any) -> "dict[str, Any]":
+    """Make a small, renderer-safe baseline record for an evidence example."""
+    if hasattr(case, "to_dict"):
+        value = case.to_dict()
+    elif isinstance(case, dict):
+        value = dict(case)
+    else:
+        value = {"id": str(getattr(case, "id", ""))}
+    inputs = value.get("inputs") if isinstance(value.get("inputs"), dict) else {}
+    return {
+        "id": str(value.get("id") or value.get("case_id") or ""),
+        "input": inputs.get("prompt") or value.get("prompt") or value.get("instruction") or "",
+        "baseline_output": value.get("observed", value.get("output")),
+        "expected": value.get("expected"),
+        "outcome": value.get("label") or value.get("status") or "unknown",
+    }
+
+
+def _iter_cases(cases: Any) -> "list[Any]":
+    """Accept CaseBatch, a plain sequence, or a generator without assumptions."""
+    if cases is None:
+        return []
+    value = getattr(cases, "cases", cases)
+    try:
+        return list(value)
+    except TypeError:
+        return []
+
+
+def _probe_examples(results: "dict[str, Any]", cases: Any) -> "list[dict[str, Any]]":
+    """Persist two real, bounded M1 walkthroughs beside aggregate findings.
+
+    A probe only becomes a before/after comparison when its analyzer explicitly
+    records both outputs.  Otherwise this records an honest *baseline case +
+    check result* example; downstream UI must not call it an intervention.
+    """
+    snapshots: dict[str, dict[str, Any]] = {}
+    for case in _iter_cases(cases):
+        snapshot = _case_snapshot(case)
+        if snapshot["id"]:
+            snapshots[snapshot["id"]] = snapshot
+    output: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for name, result in results.items():
+        findings = getattr(result, "findings", {}) or {}
+        rows = findings.get("per_case") or []
+        if not isinstance(rows, list):
+            continue
+        rows = sorted(
+            (row for row in rows if isinstance(row, dict)),
+            key=lambda row: 0 if str(snapshots.get(str(row.get("sample_id") or row.get("case_id") or ""), {}).get("outcome", "")).lower() == "fail" else 1,
+        )
+        for row in rows:
+            case_id = str(row.get("sample_id") or row.get("case_id") or "")
+            snapshot = snapshots.get(case_id)
+            if not snapshot or case_id in used:
+                continue
+            checked = {
+                str(key).replace("_", " "): value for key, value in row.items()
+                if key not in {"sample_id", "case_id"} and isinstance(value, (str, int, float, bool))
+            }
+            if not checked:
+                continue
+            used.add(case_id)
+            output.append({
+                "id": f"m1-{name}-{case_id}", "kind": "case_measurement", "case_id": case_id,
+                "probe_title": str(name).replace("_", " ").title(),
+                **snapshot, "check_result": checked,
+                "plain_reading": "This one case illustrates the recorded check. The aggregate M1 result uses all measured cases.",
+                "evidence_scope": "one recorded case within M1",
+            })
+            break
+        if len(output) >= 2:
+            break
+    return output
 
 
 def _artifact_to_numpy(artifact: Any) -> "Any | None":
@@ -442,6 +521,7 @@ class RunLogger:
         verbose: bool = False,
         trace_id: str | None = None,
         context: "Any | None" = None,
+        observability_mode: str | None = None,
     ) -> None:
         # When a RunContext is supplied it owns the whole run directory and all
         # of the subdirectory paths; RunLogger simply borrows them.  This keeps a
@@ -492,6 +572,13 @@ class RunLogger:
         # events (which have no cycle of their own) can be correlated with the
         # M1→M5 events around them.  -1 means "outside any cycle" (e.g. post-loop M4).
         self.current_cycle: int = -1
+        # Stable ordering for Langfuse/API readers.  Timestamps alone are not
+        # sufficient when a stage emits several records in the same clock tick.
+        self._event_seq: int = 0
+        # Case records are durable evidence, not renderer-side joins.  Keep the
+        # method idempotent because split analysis/confirm workflows can reuse
+        # one logger and present the same case more than once.
+        self._logged_case_ids: set[str] = set()
         # Monotonic counter so codegen artifacts written in the same cycle never
         # collide on filename. Lock guards the increment in case codegen calls
         # are ever issued from parallel analyzer threads (currently they aren't:
@@ -525,6 +612,13 @@ class RunLogger:
             self._console_handler.setFormatter(_VerboseFormatter())
             self.logger.addHandler(self._console_handler)
 
+        # Primary Langfuse & OpenTelemetry Tracing Engine
+        from evalvitals.observability.tracer import DiagnosticTracer
+        self.tracer = DiagnosticTracer(
+            run_dir=self.run_dir, mode=observability_mode, auto_sync=True,
+        )
+        self.tracer.trace_id = self.trace_id
+
     # ------------------------------------------------------------------
     # Run provenance
     # ------------------------------------------------------------------
@@ -552,6 +646,90 @@ class RunLogger:
         if commit:
             entry.setdefault("git_commit", commit)
         self._log(entry, span_id="run_start")
+
+        # Initialize root Langfuse Trace
+        model_name = str(entry.get("model") or "Target Model")
+        proto = entry.get("protocol") or {}
+        proto_desc = proto.get("description", "") if isinstance(proto, dict) else str(proto)
+        bench_name = str(entry.get("benchmark_name") or proto_desc or "Benchmark")
+        self.tracer.start_trace(
+            model=model_name,
+            benchmark=bench_name,
+            n_cases=int(entry.get("n_cases", 0) or 0),
+            metadata=entry,
+        )
+
+    def log_cases(self, cases: "Any") -> None:
+        """Persist complete case I/O and media references to JSONL + Langfuse.
+
+        One event per case keeps observations independently queryable and avoids
+        a single oversized Langfuse payload.  Media remains path-referenced in
+        JSONL; ``media_paths`` makes the tracer upload every existing file as a
+        Langfuse Media object with content hashing and deduplication.
+        """
+        for case in cases:
+            case_id = str(getattr(case, "id", "") or "")
+            if not case_id or case_id in self._logged_case_ids:
+                continue
+            if hasattr(case, "to_dict"):
+                payload = case.to_dict()
+            elif isinstance(case, dict):
+                payload = dict(case)
+            else:
+                payload = {"id": case_id, "value": str(case)}
+            # Some user-defined expected/observed objects are not JSON-native.
+            payload = json.loads(json.dumps(payload, ensure_ascii=False, default=str))
+            media_paths: list[str] = []
+            inputs = getattr(case, "inputs", None)
+            for kind in ("image", "audio", "video"):
+                value = getattr(inputs, kind, None)
+                if not isinstance(value, (str, Path)):
+                    continue
+                path = Path(value)
+                if not path.is_absolute():
+                    run_relative = self.run_dir / path
+                    path = run_relative if run_relative.is_file() else path.resolve()
+                if not path.is_file():
+                    continue
+                try:
+                    media_paths.append(str(path.resolve().relative_to(self.run_dir.resolve())))
+                except ValueError:
+                    # Langfuse is the durable source of truth, so external case
+                    # media must enter the run-owned outbox before its original
+                    # path can disappear. Content-prefix naming deduplicates the
+                    # common case where several records share one attachment.
+                    digest = hashlib.sha256()
+                    with path.open("rb") as handle:
+                        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    media_dir = self.artifact_dir / "case_media"
+                    media_dir.mkdir(parents=True, exist_ok=True)
+                    copied = media_dir / f"{digest.hexdigest()[:16]}_{path.name}"
+                    if not copied.exists():
+                        shutil.copy2(path, copied)
+                    media_paths.append(str(copied.relative_to(self.run_dir)))
+            self._log(
+                {"event": "case_record", "case_id": case_id, "case": payload, "media_paths": media_paths},
+                span_id=f"case.{case_id}",
+            )
+            self._logged_case_ids.add(case_id)
+
+    def log_report_published(self, envelope: "dict[str, Any]") -> None:
+        """Record the cached json-render publication as part of the run audit."""
+        generated = envelope.get("generated_by") or {}
+        self._log(
+            {
+                "event": "report_published",
+                "report_schema_version": int(envelope.get("schema_version") or 1),
+                "catalog_version": str(envelope.get("catalog_version") or ""),
+                "json_render_version": str(envelope.get("json_render_version") or ""),
+                "source_event_seq": int(envelope.get("source_event_seq") or 0),
+                "sha256": str(envelope.get("sha256") or ""),
+                "generated_by": generated,
+                "report_paths": ["report/report_data.json", "report/report_spec.json"],
+            },
+            span_id="report.publish",
+        )
 
     @staticmethod
     def _git_commit() -> "str | None":
@@ -610,6 +788,7 @@ class RunLogger:
         results: dict[str, "Result"],
         schema: "Any | None" = None,
         *,
+        cases: "Any | None" = None,
         judge_prompt: "str | None" = None,
         judge_raw: "str | None" = None,
         duration_sec: "float | None" = None,
@@ -639,6 +818,9 @@ class RunLogger:
             "result_paths": result_paths,
             "artifact_paths": artifact_paths,
         }
+        examples = _probe_examples(results, cases)
+        if examples:
+            entry["examples"] = examples
         if failed_analyzers:
             entry["failed_analyzers"] = dict(failed_analyzers)
         if schema is not None:
@@ -664,6 +846,47 @@ class RunLogger:
             png = fig_dir / (Path(rel_npy).name[: -len(".npy")] + ".png")
             if png.exists():
                 png_figures.append(png)
+
+        # Native Langfuse Audit — stage span + one sub-span per probe.  The
+        # artifact paths (per-analyzer result JSONs, heavy arrays, rendered
+        # figures) are linked in metadata so the trace UI can jump straight
+        # to the files; the full findings ride on each probe span's output.
+        m1_span = self.tracer.start_span(
+            name=f"M1: Multi-Dimensional Checkup (Cycle {cycle})",
+            stage="M1",
+            input_data={"analyzers": list(results.keys()), "selected_analyzers": entry.get("selected_analyzers", [])},
+            metadata={
+                "duration_sec": duration_sec,
+                "artifacts": {
+                    "result_paths": result_paths,
+                    "artifact_paths": artifact_paths,
+                    "figures": [str(p) for p in png_figures],
+                },
+            },
+        )
+        if judge_prompt or judge_raw:
+            self.tracer.log_generation(
+                name="M1 Analyzer Selection",
+                model="judge",
+                prompt=judge_prompt or "",
+                completion=judge_raw or "",
+                span_id=m1_span,
+            )
+        for name, r in results.items():
+            findings = getattr(r, "findings", {}) or {}
+            per_case = findings.get("per_case") or []
+            probe_span = self.tracer.start_span(
+                name=f"Probe: {name}",
+                stage=f"M1_{name}",
+                input_data={"probe": name},
+                parent_id=m1_span,
+                metadata={
+                    "n_scored": len(per_case) if per_case else (findings.get("n_cases") or findings.get("n_scored")),
+                    "artifacts": {"result_path": result_paths.get(name)},
+                },
+            )
+            self.tracer.end_span(probe_span, output_data={"findings": findings})
+        self.tracer.end_span(m1_span, output_data={"n_probes": len(results)})
         return png_figures
 
     def log_analysis(
@@ -739,6 +962,49 @@ class RunLogger:
             entry["duration_sec"] = round(duration_sec, 3)
         self._log(entry, span_id=f"c{cycle}.m2")
 
+        # Native Langfuse Audit
+        def _ext_ptr(field: Any) -> "dict[str, Any] | None":
+            """The {path, n_items, bytes} pointer when *field* was externalized."""
+            return field if isinstance(field, dict) and "path" in field else None
+
+        m2_span = self.tracer.start_span(
+            name=f"M2: Screening & Confirmatory Signals (Cycle {cycle})",
+            stage="M2",
+            input_data={"severity": report.severity, "n_findings": len(report.findings)},
+            metadata={
+                "duration_sec": duration_sec,
+                "stats_tool": stats_tool,
+                "artifacts": {
+                    "figures": [str(f) for f in (figures or [])],
+                    "stats_results": _ext_ptr(entry.get("stats_results")),
+                    "stats_plan": _ext_ptr(entry.get("stats_plan")),
+                    "stats_tool_results": _ext_ptr(entry.get("stats_tool_results")),
+                    "corrected_rejections": _ext_ptr(entry.get("corrected_rejections")),
+                },
+            },
+        )
+        if getattr(report, "llm_prompt", None) or getattr(report, "llm_raw", None):
+            self.tracer.log_generation(
+                name="M2 Statistical Screening Analysis",
+                model="judge",
+                prompt=getattr(report, "llm_prompt", "") or "",
+                completion=getattr(report, "llm_raw", "") or "",
+                span_id=m2_span,
+            )
+        for s in (getattr(report, "stats_results", None) or []):
+            s_dict = s.to_dict() if hasattr(s, "to_dict") else (s if isinstance(s, dict) else {})
+            sig_name = s_dict.get("config", {}).get("signal") or s_dict.get("tool") or "signal"
+            eff = s_dict.get("effect")
+            pval = s_dict.get("p_value")
+            if eff is not None:
+                self.tracer.log_score(
+                    name=f"m2_effect_{sig_name}",
+                    value=float(eff),
+                    comment=f"p={pval}",
+                    span_id=m2_span,
+                )
+        self.tracer.end_span(m2_span, output_data={"conclusion": getattr(report, "conclusion", "")})
+
     def log_explore(
         self,
         cycle: int,
@@ -800,6 +1066,48 @@ class RunLogger:
             entry["duration_sec"] = round(duration_sec, 3)
         self._log(entry, span_id=f"c{cycle}.explore")
 
+        # Native Langfuse Audit — the explore coder-agent trajectory: every
+        # attempt's raw CLI output becomes a generation; the synthesized
+        # analysis.py and the rendered figures/tables are linked as artifacts.
+        exp_span = self.tracer.start_span(
+            name=f"Explore: Free-form EDA (Cycle {cycle})",
+            stage="EXPLORE",
+            input_data={"ok": ok, "attempts": entry.get("attempts", 0)},
+            metadata={
+                "duration_sec": duration_sec,
+                "artifacts": {
+                    "out_dir": str(out_dir) if out_dir is not None else None,
+                    "report_path": entry.get("report_path"),
+                    "figures": rendered,
+                },
+            },
+        )
+        if report is not None:
+            for i, raw in enumerate(getattr(report, "raw_outputs", None) or []):
+                self.tracer.log_generation(
+                    name=f"Explore Coder Agent (attempt {i + 1})",
+                    model="coder_agent",
+                    prompt=None,
+                    completion=str(raw),
+                    span_id=exp_span,
+                )
+            if getattr(report, "code", None):
+                self.tracer.log_generation(
+                    name="Explore Analysis Code (analysis.py)",
+                    model="coder_agent",
+                    prompt=None,
+                    completion=str(report.code),
+                    span_id=exp_span,
+                )
+        self.tracer.end_span(
+            exp_span,
+            output_data={
+                "n_observations": entry.get("n_observations", 0),
+                "n_candidate_signals": entry.get("n_candidate_signals", 0),
+                "code_path": str(Path(out_dir) / "analysis.py") if out_dir else None,
+            },
+        )
+
     def log_diagnosis(
         self,
         cycle: int,
@@ -849,6 +1157,24 @@ class RunLogger:
             )
             if critic_io:
                 entry["critic_io"] = critic_io
+        proposed = list(getattr(diag, "proposed_hypotheses", None) or [])
+        if proposed:
+            entry["proposed_hypotheses"] = [
+                {
+                    "statement": h.statement,
+                    "plain_statement": h.plain_statement,
+                    "failure_mode": h.predicted_failure_mode,
+                    "test_design": h.test_design,
+                }
+                for h in proposed
+            ]
+        review_decisions = list(getattr(diag, "review_decisions", None) or [])
+        if review_decisions:
+            entry["review"] = {
+                "n_kept": sum(d.get("decision") == "keep" for d in review_decisions),
+                "n_rejected": sum(d.get("decision") == "reject" for d in review_decisions),
+                "decisions": review_decisions,
+            }
         # Provenance of the (UNCONFIRMED) explorer mechanism notes M3 was shown.
         # Descriptive only — these never enter M2/M5/fix; logged so the dashboard
         # can tag which explore charts/observations each hypothesis cited.
@@ -868,9 +1194,55 @@ class RunLogger:
         )
         if judge_io:
             entry["judge_io"] = judge_io
+        review_io = self._save_judge_io(
+            f"c{cycle}_m3_adversarial_review",
+            getattr(diag, "review_prompt", None),
+            getattr(diag, "review_raw", None),
+        )
+        if review_io:
+            entry["review_io"] = review_io
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         self._log(entry, span_id=f"c{cycle}.m3")
+
+        # Native Langfuse Audit
+        m3_span = self.tracer.start_span(
+            name=f"M3: Root-Cause Diagnosis (Cycle {cycle})",
+            stage="M3",
+            input_data={"model_name": diag.model_name, "n_hypotheses": len(diag.hypotheses)},
+            metadata={"duration_sec": duration_sec},
+        )
+        m3_prompt = getattr(diag, "prompt", None) or ""
+        if not m3_prompt and judge_io and judge_io.get("prompt_path"):
+            # The prompt object wasn't retained — read it back from prompts/.
+            try:
+                m3_prompt = (self.run_dir / judge_io["prompt_path"]).read_text(encoding="utf-8")
+            except Exception:
+                m3_prompt = ""
+        self.tracer.log_generation(
+            name="AI Doctor Diagnostician",
+            # diag.model_name is the model being diagnosed, not the model that
+            # produced this generation. The configured judge is run metadata.
+            model=str(self.tracer.trace_metadata.get("judge") or "diagnosis_judge"),
+            prompt=m3_prompt,
+            completion=diag.raw_judge_output or "",
+            span_id=m3_span,
+            metadata={"hypotheses": [h.statement for h in diag.hypotheses]},
+        )
+        if getattr(diag, "review_prompt", None) or getattr(diag, "review_raw", None):
+            self.tracer.log_generation(
+                name="M3 Adversarial Evidence Review",
+                model=str(self.tracer.trace_metadata.get("judge") or "diagnosis_judge"),
+                prompt=getattr(diag, "review_prompt", "") or "",
+                completion=getattr(diag, "review_raw", "") or "",
+                span_id=m3_span,
+                metadata={"decisions": review_decisions},
+            )
+        self.tracer.end_span(m3_span, output_data={
+            "n_hypotheses": len(diag.hypotheses),
+            "n_proposed": len(proposed) or len(diag.hypotheses),
+            "review": entry.get("review"),
+        })
 
     def log_surgery(
         self,
@@ -878,12 +1250,18 @@ class RunLogger:
         hypothesis: "Hypothesis",
         iv: "InterventionResult",
         *,
+        validation_cases: "Any | None" = None,
         duration_sec: "float | None" = None,
+        judge_prompt: "str | None" = None,
+        judge_raw: "str | None" = None,
     ) -> None:
         """M4/M5: log intervention outcome for one hypothesis.
 
         M5 results are distinguished by the presence of ``m5_test_name`` in
         ``iv.evidence``; they get span_id ``c{cycle}.m5`` instead of ``.m4``.
+        The M5 protocol-consistency judge call (when a judge was used) is
+        saved under ``prompts/`` via ``judge_io`` — same pattern as
+        M1/M2/M3, closing the last gap in verbatim judge I/O coverage.
         """
         is_m5 = "m5_test_name" in (iv.evidence or {})
         span_suffix = "m5" if is_m5 else "m4"
@@ -900,9 +1278,52 @@ class RunLogger:
             "evidence": iv.evidence,
             "n_refocused_cases": len(iv.new_data) if iv.new_data else None,
         }
+        if is_m5:
+            # Store one actual held-out input when it is available.  The M5
+            # verdict itself remains aggregate and must never be inferred from
+            # this example alone.
+            candidates = _iter_cases(validation_cases)
+            if candidates:
+                snapshots = [_case_snapshot(case) for case in candidates]
+                snapshot = next((item for item in snapshots if str(item.get("outcome", "")).lower() == "fail"), snapshots[0])
+                entry["validation_examples"] = [{
+                    "id": f"m5-{snapshot.get('id')}", "kind": "validation_case",
+                    "case_id": snapshot.get("id"), **snapshot,
+                    "plain_reading": "This is one case in the independent validation pool. The verdict is determined from the full pool, not this case alone.",
+                    "evidence_scope": "one case in the independent validation pool",
+                }]
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
+        slug = re.sub(r"[^a-z0-9]+", "_", hypothesis.statement.lower())[:40].strip("_") or "hyp"
+        judge_io = self._save_judge_io(f"c{cycle}_{span_suffix}_{slug}", judge_prompt, judge_raw)
+        if judge_io:
+            entry["judge_io"] = judge_io
         self._log(entry, span_id=f"c{cycle}.{span_suffix}")
+
+        # Native Langfuse Audit
+        stage_title = "M5 Adjudication" if is_m5 else "M4 Intervention"
+        surg_span = self.tracer.start_span(
+            name=f"{stage_title}: {hypothesis.statement[:60]}",
+            stage="M5" if is_m5 else "M4_SURGERY",
+            input_data={"hypothesis": hypothesis.statement, "failure_mode": hypothesis.predicted_failure_mode},
+            metadata={"status": iv.status.value, "fixed": iv.fixed, "confidence_score": iv.confidence_score},
+        )
+        if judge_prompt or judge_raw:
+            self.tracer.log_generation(
+                name=f"{stage_title}: Protocol Consistency Judge",
+                model="judge",
+                prompt=judge_prompt or "",
+                completion=judge_raw or "",
+                span_id=surg_span,
+            )
+        if iv.confidence_score is not None:
+            self.tracer.log_score(
+                name="adjudication_confidence",
+                value=float(iv.confidence_score),
+                comment=f"status={iv.status.value}, fixed={iv.fixed}",
+                span_id=surg_span,
+            )
+        self.tracer.end_span(surg_span, output_data={"evidence": iv.evidence or {}})
 
     def log_agent_decision(
         self,
@@ -995,11 +1416,63 @@ class RunLogger:
         for a in d.get("attempted") or []:
             outputs = a.pop("outputs", None)
             a["n_outputs"] = len(outputs) if isinstance(outputs, dict) else 0
+        best_ref = d.get("best")
+        if isinstance(best_ref, dict):
+            best = best_ref
+        elif isinstance(best_ref, str):
+            best = next(
+                (a for a in d.get("attempted") or [] if a.get("name") == best_ref), {}
+            )
+        else:
+            best = {}
         entry: dict[str, Any] = {"event": "fix", "cycle": -1, "module": "fix"}
         entry.update(d)
+        # FixOutcome serializes ``best`` as a candidate name.  Consumers of the
+        # event need the selected candidate's metadata, just as Langfuse does.
+        entry["best"] = best
         if record is not None:
             entry["record"] = record
         self._log(entry, span_id="fix")
+
+        # Native Langfuse Audit
+        fix_span = self.tracer.start_span(
+            name="M4: Targeted Repair & Confirmation",
+            stage="M4_FIX",
+            input_data={"candidates_evaluated": len(d.get("attempted", []))},
+        )
+        if best.get("effect") is not None:
+            self.tracer.log_score(
+                name="repair_net_accuracy_gain",
+                value=float(best.get("effect", 0.0)),
+                comment=f"cured={best.get('n_fixed')}, broken={best.get('n_broken')}",
+                span_id=fix_span,
+            )
+        if (best.get("payload") or {}).get("prompt_template"):
+            self.tracer.log_generation(
+                name="Winning Repair Patch",
+                model="evalvitals_repair",
+                prompt="Repair Candidate Search",
+                completion=best["payload"]["prompt_template"],
+                span_id=fix_span,
+            )
+        self.tracer.end_span(fix_span, output_data={"selected": best.get("name")})
+
+    def log_stage_skipped(self, stage: str, reason_code: str, *, cycle: int = -1, detail: str = "") -> None:
+        """Record an explicit non-error lifecycle decision.
+
+        This is intentionally distinct from ``fix``: an empty repair sweep is
+        ambiguous, whereas a blocked evidence gate is useful audit evidence.
+        """
+        entry = {
+            "event": "stage_skipped", "stage": stage, "cycle": cycle,
+            "reason_code": reason_code, "detail": detail,
+        }
+        self._log(entry, span_id=f"{stage.lower()}.skipped")
+        span = self.tracer.start_span(
+            name=f"{stage}: skipped", stage=stage,
+            input_data={"reason_code": reason_code}, metadata={"detail": detail},
+        )
+        self.tracer.end_span(span, output_data={"reason_code": reason_code}, status="skipped")
 
     def _write_fix_records(self, d: "dict[str, Any]") -> "str | None":
         """Write per-candidate records + ``fixes/outcome.md``; return the outcome path.
@@ -1252,6 +1725,11 @@ class RunLogger:
                 for tr in verified
             ]
         self._log(entry)
+        try:
+            bundle_out = self.run_dir / "langfuse_trace.json"
+            self.tracer.export_bundle(bundle_out)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Experiment log (M4) + workspace snapshot
@@ -1422,6 +1900,7 @@ class RunLogger:
         code: str = "",
         prompt: str = "",
         raw_output: str = "",
+        raw_stream: str = "",
         error: str = "",
         stdout: str = "",
         cycle: "int | None" = None,
@@ -1451,6 +1930,7 @@ class RunLogger:
             ("code", code, "code.py"),
             ("prompt", prompt, "prompt.txt"),
             ("raw_output", raw_output, "agent_thinking.txt"),
+            ("raw_stream", raw_stream, "agent_raw_stream.txt"),
             ("stdout", stdout, "stdout.txt"),
         ):
             if content:
@@ -1472,6 +1952,25 @@ class RunLogger:
         if extra:
             entry.update(extra)
         self._log(entry, span_id=f"{prefix}.{module}.codegen")
+
+        # Native Langfuse Audit — the coder agent's trajectory for this
+        # synthesis attempt: prompt, raw agent output, generated code, and
+        # the tools/ paths where they were persisted.
+        cg_span = self.tracer.start_span(
+            name=f"Tool Codegen: {module}/{name}",
+            stage=f"CODEGEN_{module}",
+            input_data={"need": need, "source": source},
+            metadata={"ok": ok, "error": error or None, "artifacts": paths},
+        )
+        if prompt or raw_output:
+            self.tracer.log_generation(
+                name=f"Tool Synthesis: {name}",
+                model=source,
+                prompt=prompt or "",
+                completion=raw_stream or raw_output or code,
+                span_id=cg_span,
+            )
+        self.tracer.end_span(cg_span, output_data={"ok": ok, "code_chars": len(code or "")})
 
     def log_tool_registry(
         self,
@@ -1520,7 +2019,21 @@ class RunLogger:
     # ------------------------------------------------------------------
 
     def close(self) -> None:
-        """Flush and close all log handlers."""
+        """Flush and close all log handlers and persist Langfuse trace bundle."""
+        try:
+            bundle_out = self.run_dir / "langfuse_trace.json"
+            self.tracer.export_bundle(bundle_out)
+        except Exception:
+            pass
+        # Events are children of the root Langfuse chain.  Drain them before
+        # ending that chain so the remote trace keeps its native hierarchy.
+        self.tracer.flush()
+        self.tracer.end_trace({
+            "spans": len(self.tracer.spans),
+            "generations": len(self.tracer.generations),
+            "scores": len(self.tracer.scores),
+        })
+        self.tracer.flush()
         for handler in (self._file_handler, self._console_handler):
             if handler is not None:
                 handler.flush()
@@ -1541,14 +2054,20 @@ class RunLogger:
     # ------------------------------------------------------------------
 
     def _log(self, entry: dict[str, Any], *, span_id: str | None = None) -> None:
+        self._event_seq += 1
         entry["schema_version"] = RUN_LOG_SCHEMA_VERSION
         entry["ts"] = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         entry["trace_id"] = self.trace_id
+        entry["event_seq"] = self._event_seq
         if span_id is not None:
             entry["span_id"] = span_id
         if self._validate_events:
             self._validate_event(entry)
         self.logger.info("run_event", extra={"_payload": entry})
+        try:
+            self.tracer.record_event(entry, event_seq=self._event_seq)
+        except Exception as exc:  # noqa: BLE001 - a telemetry disk error must not lose a run
+            warnings.warn(f"RunLogger: could not queue Langfuse event: {exc}")
 
     def _validate_event(self, entry: dict[str, Any]) -> None:
         """Opt-in self-check: warn (never raise) when an event violates the schema.

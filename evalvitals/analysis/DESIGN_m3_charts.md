@@ -86,9 +86,9 @@ def load_run(path) -> dict:
     """统一单轮加载器，自动识别两种产物目录：
       - explore 输出：exploratory_report.json / fused_report.json（+ figures/ tables/）
       - loop run：    logs_*/run_log.jsonl（M2 统计 / M3 假设+引用 / M5 / Fix）+ fused_report.json
-    组装成统一"诊断故事"视图供 dashboard_app 渲染。取代 load_session(turn_* 会话)。"""
+    组装成统一"诊断故事"视图供静态 HTML 报告渲染。取代 load_session(turn_* 会话)。"""
 ```
-- env：venv 装 `matplotlib`；`pyproject.toml` 加 `viz=["matplotlib>=3.5"]`、`dashboard=["streamlit>=1.30"]`（可选 extra，缺则优雅回退）。
+- env：venv 装 `matplotlib`；`pyproject.toml` 加 `viz=["matplotlib>=3.5"]`（可选 extra，缺则纯文字 explore_section / 报告图表降级）。
 
 ### 入口 ① — `evalvitals explore`（替代 chat，单轮）
 
@@ -151,7 +151,7 @@ claim must still be tested downstream):
 ```python
 # DiagnosisResult 加: referenced_charts: list[str]; explore_context_used: bool
 # run_logger.log_diagnosis 落 explore 图(路径) + M3 引用 → run 目录
-# dashboard_app 加 loop-run 视图: explore 图 → M2 forest/统计 → M3 假设(每条标引用的图/观察) → M5 → Fix+e-BH
+# HTML 报告加 loop-run 视图: explore 图 → M2 forest/统计 → M3 假设(每条标引用的图/观察) → M5 → Fix+e-BH
 ```
 
 ---
@@ -184,7 +184,7 @@ claim must still be tested downstream):
 - `VLDiagnoseLoop(explore_report=)` + run 调 M3 透传；`run_m2-5.py --explore-report`。
 
 **Phase C — M3 出图 + loop dashboard（M）**
-- `DiagnosisResult.referenced_charts`/`explore_context_used`；`run_logger.log_diagnosis` 落 explore 图+引用；`dashboard_app` 的 loop-run 视图。
+- `DiagnosisResult.referenced_charts`/`explore_context_used`；`run_logger.log_diagnosis` 落 explore 图+引用；HTML 报告的 loop-run 视图。
 
 **Phase D — 测试**
 - 双盲守卫：带 explore_context 的 M3 调用，断言它**从不**进 M2/M5/Fix（签名+运行期）。
@@ -212,7 +212,7 @@ claim must still be tested downstream):
 - **explore 是否覆盖所有 chat 用例**：chat 唯一独有的是多轮对话；其余(单 question 探索、写产物、dashboard)`evalvitals explore` 全覆盖。需确认无脚本依赖 `evalvitals chat` 入口名（可留一个 `chat`→`explore` 的弃用别名一个版本周期）。
 - **循环信号的图误导 M3**：会启发(如 deco_hallu probe1≈label)，但 M5/M4/e-BH 兜底（实测：语言先验假设被 M4 确证、best-of-N 修复被 e-BH 拒）。把 explorer 自己的循环 caveat 一并呈现给 M3。
 - **多模态 judge 图像支持**：`ClaudeModel.generate` 接受 `images=`，但 claude CLI 实际是否消费图像需实测；不支持则 M3 退化为读图的文字描述（仍有用）。
-- **依赖**：matplotlib(渲染)+streamlit(dashboard) 为可选 extra；缺则纯文字 explore_section / dashboard 不可用但 run 正常。
+- **依赖**：matplotlib(渲染) 为可选 extra；缺则纯文字 explore_section / 报告无图表但 run 正常。
 - **dashboard 单轮 vs 历史**：`load_run` 读单个 run/输出目录；若要跨 run 对比，另起一个 `load_runs(dirs)`（非本设计范围）。
 
 ---

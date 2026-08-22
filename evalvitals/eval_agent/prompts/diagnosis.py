@@ -13,8 +13,9 @@ Analysis conclusion (the analyst's interpretation):
 Raw findings (JSON):
 {findings_json}
 
-{available_signals_section}Propose 1-3 hypotheses. For each write exactly four lines:
-HYPOTHESIS: <one-sentence falsifiable claim about the failure mode>
+{available_signals_section}Propose 1-3 hypotheses. For each write:
+HYPOTHESIS: <one-sentence falsifiable technical claim about the failure mode>
+PLAIN_STATEMENT: <one-sentence plain-language explanation understandable by a layperson without technical ML or statistical background>
 FAILURE_MODE: <short snake_case tag naming the MECHANISM, not the symptom.
   Vision/agent: attention_sink / hallucination / loop / ignored_obs / language_prior_bias
   Text reasoning: computation_slip / chain_break / knowledge_gap / selection_failure /

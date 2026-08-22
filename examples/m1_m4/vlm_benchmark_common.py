@@ -145,7 +145,7 @@ def main(config: BenchmarkConfig) -> None:
     parser.add_argument("--manifest", default=config.manifest)
     parser.add_argument("--limit", type=int, default=128)
     parser.add_argument("--max-cycles", type=int, default=1)
-    parser.add_argument("--judge-provider", choices=["agy", "claude"], default="agy")
+    parser.add_argument("--judge-provider", choices=["agy", "claude", "codex"], default="agy")
     parser.add_argument("--judge-model", default="")
     parser.add_argument("--judge-effort", default="high")
     parser.add_argument("--fix-tier", choices=["L1", "L2", "L3a"], default="L3a")
@@ -215,7 +215,7 @@ def main(config: BenchmarkConfig) -> None:
         judge = AgyModel(model=args.judge_model, timeout_sec=300)
         coder_provider = "antigravity"
         coder_extra_args = ()
-    else:
+    elif args.judge_provider == "claude":
         from evalvitals.eval_agent import ClaudeModel
 
         judge = ClaudeModel(
@@ -225,6 +225,18 @@ def main(config: BenchmarkConfig) -> None:
         )
         coder_provider = "claude_code"
         coder_extra_args = (("--effort", args.judge_effort) if args.judge_effort else ())
+    else:
+        from evalvitals.agent_runtime.judges import CodexModel
+
+        # Terra is the default for this agentic benchmark path.  The same
+        # explicitly named model is also handed to the exploratory and repair
+        # coding turns below, so no AGY/Claude call is mixed into the run.
+        judge = CodexModel(
+            model=args.judge_model or "gpt-5.6-terra",
+            timeout_sec=600,
+        )
+        coder_provider = "codex"
+        coder_extra_args = ()
     probe = judge.generate("Reply with exactly OK")
     if not probe.strip():
         raise RuntimeError(f"{args.judge_provider} judge returned an empty availability probe")
@@ -287,7 +299,7 @@ def main(config: BenchmarkConfig) -> None:
             CliAgentConfig(
                 provider=coder_provider,
                 timeout_sec=420,
-                model=args.judge_model,
+                model=(args.judge_model or "gpt-5.6-terra") if args.judge_provider == "codex" else args.judge_model,
                 extra_args=coder_extra_args,
             )
             if args.allow_codegen else None
@@ -314,12 +326,12 @@ def main(config: BenchmarkConfig) -> None:
         # rather than inheriting the text-agent default.
         exec_timeout_sec=2400,
     )
-    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
     from evalvitals.eval_agent import SurgeryAgent
+    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
 
     coder_cfg = CliAgentConfig(
         provider=coder_provider,
-        model=args.judge_model,
+        model=(args.judge_model or "gpt-5.6-terra") if args.judge_provider == "codex" else args.judge_model,
         timeout_sec=900,
         extra_args=coder_extra_args,
     )
@@ -377,6 +389,9 @@ def main(config: BenchmarkConfig) -> None:
         cases,
         max_tier=args.fix_tier,
         auto_escalate=args.auto_escalate,
+        # No M5-verified hypothesis still gets a fix attempt on the best
+        # unverified leads (the candidate validation on CONFIRM is the gate).
+        allow_unverified=True,
     )
     for validation in outcome.attempted:
         effect = "n/a" if validation.effect is None else f"{validation.effect:+.3f}"

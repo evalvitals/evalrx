@@ -100,6 +100,7 @@ class ProbeGenerator:
         self.run_logger = run_logger
         self._last_prompt: str = ""
         self._last_raw: str = ""
+        self._last_raw_stream: str = ""
         self._last_usage: dict | None = None
 
     @property
@@ -127,6 +128,7 @@ class ProbeGenerator:
         self._collect_outputs(model, cases)
         self._last_prompt = ""
         self._last_raw = ""
+        self._last_raw_stream = ""
         self._last_usage = None
         try:
             code, source = self._write_code(need)
@@ -159,7 +161,8 @@ class ProbeGenerator:
         try:
             self.run_logger.log_tool_codegen(
                 module="m1_probe", name=name, need=need, source=source, ok=ok,
-                code=code, prompt=self._last_prompt, raw_output=self._last_raw, error=error,
+                code=code, prompt=self._last_prompt, raw_output=self._last_raw,
+                raw_stream=self._last_raw_stream, error=error,
                 extra=extra,
             )
         except Exception as exc:  # logging must never break generation
@@ -226,6 +229,14 @@ class ProbeGenerator:
             preferred_filenames=("probe.py",),
         )
         self._last_raw = result.raw_output
+        self._last_raw_stream = ""
+        if result.raw_stream_path:
+            try:
+                self._last_raw_stream = (
+                    Path(self._sandbox.workdir) / result.raw_stream_path
+                ).read_text(encoding="utf-8")
+            except OSError:
+                pass
         self._last_usage = result.usage
         return result.code
 

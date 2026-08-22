@@ -22,8 +22,8 @@ from the canonical source and comply with each source's terms before use.
 From this directory:
 
 ```bash
-# `pypdf` is included by the dashboard extra and only needed for PDF extraction.
-pip install "evalvitals[dashboard]"
+# PDF extraction is the only extra requirement for this example.
+pip install evalvitals pypdf
 
 # 1. Fetch five PDFs into ignored data/papers/.
 python download_papers.py

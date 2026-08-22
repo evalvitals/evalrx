@@ -384,6 +384,11 @@ class FixOutcome:
     # that selection phase without mixing its statistics into the final gate.
     selection_attempted: "list[dict[str, Any]]" = field(default_factory=list)
     selected_on_explore: "str | None" = None
+    # A skipped repair is not a failed repair.  This explicit state is used by
+    # the report and Langfuse lifecycle event instead of inferring intent from
+    # an empty ``attempted`` list.
+    stage_status: str = "completed"
+    skip_reason: str | None = None
 
     def to_dict(self) -> "dict[str, Any]":
         return {
@@ -435,6 +440,8 @@ class FixOutcome:
             "ebh_survivors": self.ebh_survivors,
             "selection_attempted": self.selection_attempted,
             "selected_on_explore": self.selected_on_explore,
+            "stage_status": self.stage_status,
+            "skip_reason": self.skip_reason,
         }
 
 
@@ -669,6 +676,7 @@ class FixAgent:
             else None
         )
         self._last_repair_prompt = ""
+        self._last_raw_stream = ""
         self._last_usage: dict | None = None
         self._baseline_generation_kwargs = dict(baseline_generation_kwargs or {})
         self._concurrency = max(1, int(concurrency))
@@ -2085,6 +2093,7 @@ class FixAgent:
             code, raw = self._write_code_cli(prompt, trial)
             source = f"cli:{self._cli_config.provider}"
         if not code.strip() and self._judge is not None:
+            self._last_raw_stream = ""
             prompt = (
                 _L2_CODE_PROMPT.format(fences_hint=" inside a ```python code block", **base)
                 + prior_text
@@ -2175,6 +2184,12 @@ class FixAgent:
             preferred_filenames=("pipeline.py",),
         )
         self._last_usage = result.usage
+        self._last_raw_stream = ""
+        if result.raw_stream_path:
+            try:
+                self._last_raw_stream = (workdir / result.raw_stream_path).read_text(encoding="utf-8")
+            except OSError:
+                pass
         return result.code, result.raw_output
 
     def _workdir(self, trial: "Trial | None" = None) -> str:
@@ -2302,6 +2317,8 @@ class FixAgent:
                 trial.write(f"{name}_code.py", code)
             if raw:
                 trial.write(f"{name}_agent_thinking.txt", raw)
+            if self._last_raw_stream:
+                trial.write(f"{name}_agent_raw_stream.txt", self._last_raw_stream)
             extra = {**(extra or {}), "trial_root": str(trial.root)}
             prompt, code, raw = "", "", ""
         if self.run_logger is None:
@@ -2316,6 +2333,7 @@ class FixAgent:
                 code=code,
                 prompt=prompt,
                 raw_output=raw,
+                raw_stream=self._last_raw_stream,
                 error="" if ok else "no code produced",
                 extra=extra,
             )
@@ -3240,6 +3258,7 @@ class FixAgent:
             code, raw = self._write_code_cli(self._last_repair_prompt, candidate.trial)
             source = f"cli:{self._cli_config.provider}"
         if not code.strip() and self._judge is not None:
+            self._last_raw_stream = ""
             self._last_repair_prompt = (
                 base + "\nReturn ONLY the corrected Python code inside a ```python code block."
             )

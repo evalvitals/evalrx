@@ -86,7 +86,7 @@ stages/ (M1–M5 implementation):
 
 from evalvitals.agent_runtime.cli_types import CliAgentConfig, CliAgentResult
 from evalvitals.agent_runtime.factory import SandboxConfig, SandboxFactoryConfig, create_sandbox
-from evalvitals.agent_runtime.judges import AgyModel, ClaudeModel
+from evalvitals.agent_runtime.judges import AgyModel, ClaudeModel, CodexModel
 from evalvitals.agent_runtime.providers import create_cli_agent
 from evalvitals.agent_runtime.sandbox import (
     ExperimentSandbox,
@@ -203,6 +203,7 @@ __all__ = [
     # Judge
     "AgyModel",
     "ClaudeModel",
+    "CodexModel",
     # M1
     "ProbeAgent",
     "StrategyProbe",

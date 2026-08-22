@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from evalvitals.agent_runtime.skills.prompt_policy import fences_hint, skills_hint
 
-RECORDS_FILENAME = "records.json"  # also read by explore_run.py / dashboard_app.py
+RECORDS_FILENAME = "records.json"  # also read by explore_run.py / HTML report compiler
 _RESULT_MARKER = "EXPLORATORY_RESULT_JSON="
 
 _INTRO_AND_QUESTION = """\
@@ -123,15 +123,18 @@ First build a "visual_plan" list. Each item should be a dict:
     "display_name": "<short human title, no raw generated/probe id>",
     "question": "<what this visual answers>",
     "data_shape": "<numeric-vs-binary | numeric-vs-categorical | numeric-vs-numeric | many-numeric | paired | unsupervised | ...>",
-    "plot_kind": "<chosen plot type, e.g. bar, line, scatter, box, violin, heatmap, paired_slope>",
-    "fallback_kind": "<bar|line|scatter when a deterministic host chart is useful>",
+    "plot_kind": "<chosen plot type, e.g. violin, box, strip, scatter, line, forest, heatmap, paired_slope, ECDF>",
+    "fallback_kind": "<bar|line|scatter|forest when a deterministic host chart is useful>",
     "required_columns": ["..."],
     "rationale": "<why this plot type fits the data and avoids misleading summaries>",
     "disposition": "<primary|supporting|skipped>",
     "not_promoted_reason": "<required when supporting; why this is context/diagnostic material rather than a ranked takeaway>"
   }}
 
-Use these decision principles:
+Use these decision principles (chart-type policy: a bar's filled area means
+"amount accumulated from zero" — BARS ARE FOR COUNTS ONLY; never a rate, a
+mean, a proportion, or an effect size — the host demotes such a bar to a line
+or a forest plot):
   - class balance (count per outcome class): a count table; the host draws it
     as ONE composition strip, never two tall bars.
   - a rate or a mean compared across a few groups (FAIL vs PASS, present vs
@@ -140,6 +143,8 @@ Use these decision principles:
     host draws <= 3 groups as a dot + 95% CI (a lollipop when no interval can
     be formed), never as bars. A "mean_*" of per-case values gets no invented
     interval — give ci_low/ci_high yourself if you have them.
+  - a rate/mean/effect over MORE than 3 groups or over bins: a line (binned
+    rates) or a ranked forest/dot plot (effect sizes), never bars.
   - numeric predictor vs categorical/binary outcome: the deterministic spec is
     the BINNED fail-rate LINE (bin -> fail_rate, with n per bin) — do NOT also
     emit a two-group "mean of the signal by outcome" spec for it; the
@@ -147,7 +152,8 @@ Use these decision principles:
   - binned numeric trend (event rate, or mean of a continuous outcome): line
     over ordered bins/percentiles.
   - numeric vs numeric: scatter, optionally colored/stratified by outcome or group.
-  - many numeric signals: ranked effect/association bar plus correlation heatmap.
+  - many numeric signals: ranked effect/association DOT plot (forest) plus
+    correlation heatmap — never green/grey effect bars.
   - paired/intervention data: paired slope or discordant-count visual.
   - no outcome column: prioritize distributions, missingness, correlation
     structure, and group contrasts over any label-vs-label story.
@@ -160,14 +166,16 @@ Use these decision principles:
 For EVERY chart you report in "charts":
 - write its plotted data as a CSV under "tables/<name>.csv"
 - add a spec {{"name","display_name","kind","data","x","y","title"}} with data="tables/<name>.csv"
-  and kind in {{"bar","line","scatter"}}. The HOST renders these deterministically,
+  and kind in {{"bar","line","scatter","forest"}}. The HOST renders these deterministically,
   so PRE-AGGREGATE distributions into the CSV (histogram = bin->count; outcome
   rate or mean-outcome curve = bin->value plus n; group comparison =
   group->value plus n, and for a rate its numerator or ci_low/ci_high) —
   never rely on a raw dump. The host picks the chart FORM from the table
   (composition strip for class counts, dot + CI for <= 3 groups, line for
-  bins, bars only for counts or many categories) and colours FAIL/PASS with
-  the house hues, so name outcome groups exactly "FAIL" / "PASS".
+  bins, forest plot for ranked effects, bars only for raw counts — a
+  kind="bar" whose y is a rate/mean/effect is demoted automatically) and
+  colours FAIL/PASS with the house hues, so name outcome groups exactly
+  "FAIL" / "PASS".
 ADDITIONALLY you MAY draw richer figures (box / violin / heatmap / scatter-matrix)
 directly as PNG under "figures/" and list them in "plots"; a figure-styling skill
 (when available) will make these publication-quality.

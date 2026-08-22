@@ -187,6 +187,9 @@ class ExploratoryAnalysisReport:
     workdir: str = ""
     raw_outputs: list[str] = field(default_factory=list)
     agent_audits: list[dict[str, Any]] = field(default_factory=list)
+    # UNTRUNCATED raw CLI streams, one per attempt (the truncated renderings
+    # above exist for compact UIs; these are the full audit trail).
+    raw_streams: list[str] = field(default_factory=list)
 
     @property
     def candidate_signal_names(self) -> list[str]:
@@ -272,6 +275,7 @@ class ExploratoryAnalysisAgent:
         self._max_attempts = max(1, max_attempts)
         self._progress_sink = progress_sink
         self._last_agent_audit: dict[str, Any] | None = None
+        self._last_raw_stream: str = ""
 
     @property
     def available(self) -> bool:
@@ -420,6 +424,7 @@ class ExploratoryAnalysisAgent:
             )
 
         raw_outputs: list[str] = []
+        raw_streams: list[str] = []
         agent_audits: list[dict[str, Any]] = []
         code = ""
         last_result: SandboxResult | None = None
@@ -442,6 +447,8 @@ class ExploratoryAnalysisAgent:
                         question, profile, code, last_result, last_error
                     )
                 raw_outputs.append(raw)
+                raw_streams.append(self._last_raw_stream)
+                self._last_raw_stream = ""
                 if self._last_agent_audit is not None:
                     agent_audits.append(self._last_agent_audit)
                     self._last_agent_audit = None
@@ -485,6 +492,7 @@ class ExploratoryAnalysisAgent:
                 workdir=Path(self._sandbox.workdir),
             )
             report.raw_outputs = raw_outputs
+            report.raw_streams = raw_streams
             report.agent_audits = agent_audits
             if report.ok:
                 violations = _plain_language_violations(report)
@@ -531,6 +539,7 @@ class ExploratoryAnalysisAgent:
             attempts=min(self._max_attempts, len(raw_outputs)),
             workdir=str(self._sandbox.workdir),
             raw_outputs=raw_outputs,
+            raw_streams=raw_streams,
             agent_audits=agent_audits,
         )
 
@@ -616,6 +625,15 @@ class ExploratoryAnalysisAgent:
             include_error_in_raw=True,
         )
         self._last_agent_audit = result.audit
+        # Snapshot the untruncated raw stream NOW: the next repair attempt in
+        # the loop overwrites agent_raw_stream.txt in the shared workdir.
+        self._last_raw_stream = ""
+        if getattr(result, "raw_stream_path", ""):
+            try:
+                stream_p = Path(self._sandbox.workdir) / result.raw_stream_path
+                self._last_raw_stream = stream_p.read_text(encoding="utf-8")
+            except OSError:
+                pass
         return result.code, result.raw_output
 
 
