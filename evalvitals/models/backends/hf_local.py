@@ -232,31 +232,6 @@ def _collect_message_images(messages: list) -> list:
     return images
 
 
-def _format_vlm_input(processor: Any, tok: Any, prompt: str, image: Any) -> "tuple[str, list]":
-    """Build the formatted text string and image list for the VLM processor.
-
-    Uses the processor's ``apply_chat_template`` (or tokenizer's) when available
-    so that image placeholder tokens are inserted at the correct position.
-    Returns ``(text, [image])`` or ``(prompt, [])`` when no image is given.
-    """
-    apply_fn = getattr(processor, "apply_chat_template", None) or getattr(
-        tok, "apply_chat_template", None
-    )
-    if apply_fn is None:
-        return prompt, ([image] if image is not None else [])
-
-    content: list = []
-    images = (
-        list(image) if isinstance(image, (list, tuple)) else ([image] if image is not None else [])
-    )
-    for item in images:
-        content.append({"type": "image", "image": item})
-    content.append({"type": "text", "text": prompt})
-    messages = [{"role": "user", "content": content}]
-    text = apply_fn(messages, tokenize=False, add_generation_prompt=True)
-    return text, images
-
-
 class HFLocalModel(Model):
     """A locally-loaded HF model, constructed from a :class:`ModelSpec`."""
 
