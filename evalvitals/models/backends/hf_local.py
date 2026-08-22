@@ -376,10 +376,55 @@ class HFLocalModel(Model):
 
         spec = spec or infer_spec(model, tokenizer)
         self = cls(spec, runtime or RuntimeConfig())
+        self._apply_family_shims(model, tokenizer)
         self._hf = (model, tokenizer)  # bypass lazy load(); a bare tokenizer acts as processor
         if Capability.ATTENTION in self.capabilities:
             self._ensure_eager_attention(model)
         return self
+
+    #: Families whose repo code targets an older transformers generate() loop.
+    _GENERATE_SHIM_FAMILIES = frozenset({"nemotron_h", "nemotron_h_omni"})
+
+    def _apply_family_shims(self, model, processor) -> None:
+        """Per-family fixes so a loaded handle generates the way its authors intended.
+
+        NemotronH remote code (Nemotron 3 Nano, model card "tested on 4.48.3"):
+
+        * its ``prepare_inputs_for_generation`` builds the hybrid Mamba/attention
+          cache only when ``past_key_values is None``, but transformers >= 4.5x
+          pre-builds a ``DynamicCache`` for any class not named like a Mamba model
+          -> the repo code then warns "no NemotronHHybridDynamicCache provided"
+          and recomputes the whole sequence every step (1.9 tok/s on the 4B,
+          2026-08-21). Telling generate() the model has no default dynamic cache
+          restores the repo's own cache path.
+        * its chat template closes every turn with ``<|im_end|>`` (the
+          tokenizer's eos_token, id 11) while ``generation_config.eos_token_id``
+          is ``</s>`` (2): generate() never stops and pads to the cap with
+          ``<|im_end|>\n`` pairs. Stopping on the tokenizer's EOS too fixes it.
+
+        Applied to the top-level model AND an embedded ``language_model`` (the
+        Omni wrapper generates through it). No-op for every other family.
+        """
+        if self.spec.family not in self._GENERATE_SHIM_FAMILIES:
+            return
+        import types
+
+        tok = getattr(processor, "tokenizer", processor)
+        tok_eos = getattr(tok, "eos_token_id", None)
+        for target in (model, getattr(model, "language_model", None)):
+            if target is None:
+                continue
+            if hasattr(target, "_supports_default_dynamic_cache"):
+                target._supports_default_dynamic_cache = types.MethodType(lambda _self: False, target)
+            gen_cfg = getattr(target, "generation_config", None)
+            if gen_cfg is None or tok_eos is None:
+                continue
+            current = gen_cfg.eos_token_id
+            ids = list(current) if isinstance(current, (list, tuple)) else ([current] if current is not None else [])
+            if tok_eos not in ids:
+                gen_cfg.eos_token_id = ids + [int(tok_eos)]
+                logger.info("%s: generation stops on tokenizer eos %s as well (was %s)",
+                            self.spec.key, tok_eos, current)
 
     @staticmethod
     def _ensure_eager_attention(model) -> None:
@@ -488,6 +533,7 @@ class HFLocalModel(Model):
                 )
                 logger.warning(msg)
                 warnings.warn(msg)
+        self._apply_family_shims(model, processor)
         self._hf = (model, processor)
         logger.info(
             "loaded %s in %.1fs (capabilities=%s)",
@@ -504,12 +550,42 @@ class HFLocalModel(Model):
     def _as_prompt(inputs: Any) -> str:
         return inputs.prompt if isinstance(inputs, Inputs) else str(inputs)
 
+    def _render_text_prompt(self, tok: Any, prompt: str) -> str:
+        """The text a TEXT-ONLY spec feeds the tokenizer.
+
+        With ``runtime.apply_chat_template`` the prompt becomes one user turn
+        rendered through the chat template, carrying ``spec.chat_template_kwargs``
+        (``enable_thinking=False`` for the reasoning checkpoints). Without it —
+        the default — the prompt is tokenised verbatim: completion mode, where
+        an instruct/thinking model writes its own ``<think>`` block and never
+        sees the thinking switch (Qwen3.5-2B ran 8192 tokens that way on a
+        causal-judgement item, 2026-08-21).
+        """
+        if not self.runtime.apply_chat_template:
+            return prompt
+        if not getattr(tok, "chat_template", None) or not hasattr(tok, "apply_chat_template"):
+            logger.warning("%s: apply_chat_template requested but the tokenizer has no chat "
+                           "template; tokenising the raw prompt", self.spec.key)
+            return prompt
+        return tok.apply_chat_template(
+            [{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            tokenize=False,
+            **self.spec.chat_template_kwargs,
+        )
+
     def _encode(self, prompt: str):
         import torch  # noqa: F401
 
         model, processor = self._loaded
         tok = getattr(processor, "tokenizer", processor)
-        enc = tok(prompt, return_tensors="pt")
+        text = self._render_text_prompt(tok, prompt)
+        if text is prompt:
+            enc = tok(text, return_tensors="pt")
+        else:
+            # a rendered template already carries BOS; a second one shifts every
+            # position the white-box analyzers read
+            enc = tok(text, return_tensors="pt", add_special_tokens=False)
         device = next(model.parameters()).device
         return {k: v.to(device) for k, v in enc.items()}
 

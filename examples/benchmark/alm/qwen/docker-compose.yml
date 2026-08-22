@@ -1,0 +1,24 @@
+# ALM (audio + text) x Qwen: one service per size, dataset/limit via env.
+#   DATASET=mmau LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name alm-qwen3-omni-30b-a3b-mmau qwen3-omni-30b-a3b
+# Datasets for this modality: mmau, audiocaps_hallu.
+# EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
+# Judge/coder are pinned to Claude Opus 5 here; the CLI default provider is agy.
+name: bench-alm-qwen
+x-qwen: &qwen
+  extends:
+    file: ../../_common/compose/base.yml
+    service: bench
+  image: evalvitals-bench-qwen
+  build:
+    context: ../../../..
+    dockerfile: examples/benchmark/docker/Dockerfile
+    target: qwen
+  volumes:
+    - ../_data:/app/work/data        # frozen manifests + media, shared by every family of the modality
+    - ./outputs:/app/work/outputs    # <model>/<dataset>[.<tag>]/{baseline.json,logs,explore,summary.json}
+services:
+  qwen3-omni-30b-a3b:
+    <<: *qwen
+    # 2 GPUs: CUDA_VISIBLE_DEVICES=a,b (~66 GB BF16 (thinker + talker): device=auto over two 48 GB cards)
+    command: >
+      sh -c "python -m _common.run --modality alm --model qwen3-omni-30b-a3b --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --device auto --judge-provider claude --judge-model claude-opus-5 --judge-effort high ${EXTRA_ARGS:-}"
