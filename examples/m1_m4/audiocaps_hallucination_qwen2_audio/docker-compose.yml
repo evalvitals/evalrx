@@ -38,4 +38,4 @@ services:
               count: all
               capabilities: [gpu]
     command: >
-      sh -c "python download_audiohallucination.py --limit 120 && python run.py --model qwen2-audio-7b-instruct --limit 120 --judge-provider agy"
+      sh -c "python download_audiohallucination.py --limit 300 --scan-rows 2000 && python run.py --model qwen2-audio-7b-instruct --limit 300 --judge-provider claude --judge-model claude-opus-5 --judge-effort high"

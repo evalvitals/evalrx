@@ -71,7 +71,7 @@ class ContextShapAnalyzer(Analyzer):
         granularity: ``"paragraph"`` (default) or ``"sentence"`` chunking.
         n_samples:   permutation samples for the Shapley estimator.
         max_chunks:  chunk cap per case (tail chunks are merged).
-        max_cases:   label-stratified cap on probed cases.
+        max_cases:   label-stratified cap on probed cases; 0 (the default) = every case.
         seed:        permutation-sampling seed.
         context_fn:  ``callable(case) -> str | None`` supplying the ablatable
                      context (default: ``metadata['context']``). The context
@@ -87,7 +87,7 @@ class ContextShapAnalyzer(Analyzer):
         granularity: str = "paragraph",
         n_samples: int = 16,
         max_chunks: int = 6,
-        max_cases: int = 12,
+        max_cases: int = 0,
         seed: int = 0,
         context_fn: Optional[Callable[["FailureCase"], Optional[str]]] = None,
     ) -> None:

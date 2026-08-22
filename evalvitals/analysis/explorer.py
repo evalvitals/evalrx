@@ -968,11 +968,14 @@ reads as the negative/positive case) and tell the FAIL-vs-PASS story.
 
 As a minimum, consider this standard battery when the columns exist:
   1. Class balance: count of FAIL vs PASS overall (and per group column if present).
-  2. Per numeric signal — how it separates FAIL vs PASS: distribution view or
-     group summary, AND a binned fail-rate curve (bin -> fail_rate).
+  2. Per numeric signal — how it separates FAIL vs PASS: a distribution view
+     (violin/box/strip, drawn as a PNG) AND a binned fail-rate curve spec
+     (bin -> fail_rate, n per bin). The curve is the deterministic spec for a
+     numeric signal — do not emit a two-group "mean by outcome" spec instead.
   3. Top discriminators: a ranked bar of each signal's FAIL-vs-PASS separation
      (e.g. standardized mean difference / |meanFAIL - meanPASS| / s), largest first.
-  4. Fail rate by each categorical group column (bar).
+  4. Fail rate by each categorical group column: group -> fail_rate with n and
+     n_fail per group (the host draws <= 3 groups as dot + 95% CI, never bars).
   5. Signal correlations: a correlation table and, when helpful, a heatmap PNG.
   6. 1-2 scatter plots of the most discriminative signal pairs, coloured by outcome."""
 

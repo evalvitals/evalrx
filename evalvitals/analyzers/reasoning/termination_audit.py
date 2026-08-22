@@ -65,7 +65,7 @@ class TerminationAudit(Analyzer):
         continue_non_clean: spend one generation continuing each non-clean case.
         repetition_n:       word n-gram width for the degeneration score.
         repetition_thresh:  repetition_score above this ⇒ ``degenerate``.
-        max_cases:          label-stratified cap.
+        max_cases:          label-stratified cap; 0 (the default) = every case.
         answer_fn/match_fn: answer extraction / equality (see ``_text``).
     """
 
@@ -78,7 +78,7 @@ class TerminationAudit(Analyzer):
         continue_non_clean: bool = True,
         repetition_n: int = 8,
         repetition_thresh: float = 0.5,
-        max_cases: int = 64,
+        max_cases: int = 0,
         answer_fn: Optional[Callable[[Any], str]] = None,
         match_fn: Optional[Callable[[Any, Any], bool]] = None,
     ) -> None:

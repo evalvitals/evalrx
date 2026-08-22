@@ -24,7 +24,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from evalvitals.viz.style import NATURE_COLORS_FALLBACK, load_nature_style
+from evalvitals.viz.labels import display_name
+from evalvitals.viz.style import (
+    NATURE_COLORS_FALLBACK,
+    SEMANTIC_PALETTE,
+    load_nature_style,
+    outcome_color,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +56,28 @@ def _is_count_like(y: Any, ys: list[float]) -> bool:
 def _demote_bar(spec: dict[str, Any], y: Any, ys: list[float]) -> str:
     """Pick the policy-compliant kind a 'bar' spec must be rendered as instead."""
     return "forest" if _EFFECT_Y.search(str(y or "")) else "line"
+
+#: Column names that mean "this y is a count" (composition / count bars).
+_COUNT_COLUMNS = {"count", "counts", "n", "n_cases", "cases", "num", "total", "freq", "frequency"}
+#: Column names that carry the per-group / per-bin sample size.
+_N_COLUMNS = ("n", "n_cases", "n_rows", "support", "cases", "count")
+#: (low, high) column-name pairs the explorer may use for a 95% interval.
+_CI_COLUMNS = (("ci_low", "ci_high"), ("ci_lo", "ci_hi"), ("ci95_low", "ci95_high"),
+               ("lower", "upper"), ("lo", "hi"), ("ymin", "ymax"))
+_RATE_WORDS = ("rate", "pct", "percent", "share", "frac", "fraction", "proportion", "prob")
+#: Up to this many groups a group->value comparison is a dot + CI / lollipop,
+#: never bars (eval-chart-style §0: a bar's area means "accumulated from 0").
+_DOT_MAX_GROUPS = 3
+
+
+def _count_like(y: Any, ys: list[float]) -> bool:
+    """Count-valued y for the bar policy: a known count column (``count``,
+    ``n``, ...), an ``n_<group>`` / ``num_<x>`` numerator column, or
+    :func:`_is_count_like`'s name test — and integer values in every case."""
+    name = str(y or "").lower()
+    if not ys or not all(float(v).is_integer() for v in ys):
+        return False
+    return name in _COUNT_COLUMNS or name.startswith(("n_", "num_")) or _is_count_like(y, ys)
 
 
 def render_chart_specs(
@@ -90,16 +118,17 @@ def render_chart_specs(
         rows, load_err = _load_table(spec.get("data"), tdir, out_dir)
         x = spec.get("x")
         y = spec.get("y")
-        spec.setdefault("description", _describe(spec, rows, x, y))
 
         if plt is None:
             spec["render_skipped"] = "matplotlib not installed (pip install 'evalvitals[viz]')"
+            spec.setdefault("description", _describe(spec, rows, x, y))
             rendered.append(spec)
             continue
 
         ok, reason = _can_render(rows, x, y)
         if not ok:
             spec["render_skipped"] = load_err or reason
+            spec.setdefault("description", _describe(spec, rows, x, y))
             rendered.append(spec)
             continue
 
@@ -110,6 +139,8 @@ def render_chart_specs(
         except Exception as exc:  # rendering must never sink the caller
             logger.warning("render_chart_specs: chart %d failed: %s", idx, exc)
             spec["render_skipped"] = f"render error: {exc}"
+        # After rendering, so the caption names the form actually drawn.
+        spec.setdefault("description", _describe(spec, rows, x, y))
         rendered.append(spec)
 
     return rendered
@@ -218,26 +249,63 @@ def _get_bar_colors(xs_raw: list[Any], default_palette: list[str]) -> list[str]:
 
 
 def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
+    """Draw one spec. The chart FORM follows the eval-chart-style policy, not
+    the spec's ``kind`` alone (the explorer may only say bar/line/scatter):
+
+    * ``kind=bar`` whose y is a count over a handful of classes (class
+      balance)           -> ONE 100%-stacked composition strip;
+    * ``kind=bar`` comparing a rate/mean across <= 3 groups
+                         -> horizontal dot + 95% CI (Wilson from ``n`` for a
+                            rate, or the CSV's own ci_low/ci_high), lollipop
+                            when no interval can be formed — never two bars;
+    * other bars         -> bars, FAIL/PASS hues on outcome axes, n annotated;
+    * line / scatter     -> as before, aliased axes, n annotated on lines.
+
+    Every PNG is deterministic (same spec + CSV -> byte-identical file) and the
+    chosen form is recorded in ``spec["rendered_as"]``.
+    """
     kind = str(spec.get("kind", "bar")).lower()
     if kind not in _KINDS:
         kind = "bar"
-
     xs_raw = [r.get(x, "") for r in rows]
     ys = [_to_float(r.get(y, "")) for r in rows]
-    # Drop rows whose y is non-numeric so the plot stays well-defined.
-    pairs = [(xr, yv) for xr, yv in zip(xs_raw, ys) if yv is not None]
-    if not pairs:
+    keep = [i for i, yv in enumerate(ys) if yv is not None]
+    if not keep:
         raise ValueError(f"y column {y!r} has no numeric values")
-    xs_raw, ys = [p[0] for p in pairs], [p[1] for p in pairs]
+    rows = [rows[i] for i in keep]
+    xs_raw = [xs_raw[i] for i in keep]
+    ys = [ys[i] for i in keep]
     xs_num = [_to_float(v) for v in xs_raw]
     x_is_num = all(v is not None for v in xs_num)
+    ns = _n_values(rows, y)
+    scale = _rate_scale(y, ys)
+    rate = scale is not None
+    rc = (style or {}).get("rc", {})
+    colors = (style or {}).get("colors") or NATURE_COLORS_FALLBACK
+    accent = SEMANTIC_PALETTE["ACCENT"]
+    title = str(spec.get("title") or spec.get("name") or f"chart_{idx}")
+    xlabel, ylabel = display_name(x), display_name(y)
+    spec["axis_labels"] = {"x": xlabel, "y": ylabel}
+    figures = out_dir / "figures"
+    figures.mkdir(parents=True, exist_ok=True)
+    name = _safe_filename(spec.get("name") or spec.get("title") or f"chart_{idx}")
+    png = figures / f"{idx:02d}_{name}.png"
 
-    # Chart-type policy enforcement (eval-chart-style): a bar may only encode
-    # raw counts. A rate/mean/effect bar is demoted to the policy-compliant
-    # kind — line for binned rates, forest (horizontal dot plot) for ranked
-    # effects — so the skill's rule holds even when the agent ignores it.
-    if kind == "bar" and not _is_count_like(y, ys):
+    form = kind
+    if kind == "bar" and not x_is_num:
+        if _is_composition(spec, xs_raw, y, ys):
+            form = "composition"
+        elif 2 <= len(xs_raw) <= _DOT_MAX_GROUPS and str(y).lower() not in _COUNT_COLUMNS:
+            form = "dot_ci"
+    if kind == "bar" and form == "bar" and not _count_like(y, ys):
+        # Chart-type policy enforcement (eval-chart-style): a bar may only
+        # encode raw counts. A rate/mean/effect bar that is neither a class
+        # composition nor a <= 3-group comparison is demoted to the
+        # policy-compliant kind — line for binned rates, forest (horizontal
+        # dot plot) for ranked effects — so the rule holds even when the
+        # agent ignores it.
         kind = _demote_bar(spec, y, ys)
+        form = kind
         spec["kind"] = kind
         spec["render_note"] = (
             f"kind=bar demoted to {kind}: y column {str(y)!r} is not a count "
@@ -248,95 +316,245 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
             spec.get("name"), kind, y,
         )
 
-    rc = (style or {}).get("rc", {})
-    colors = (style or {}).get("colors") or NATURE_COLORS_FALLBACK
-    primary = colors[0]
-    title = str(spec.get("title") or spec.get("name") or f"chart_{idx}")
-
-    figures = out_dir / "figures"
-    figures.mkdir(parents=True, exist_ok=True)
-    name = _safe_filename(spec.get("name") or spec.get("title") or f"chart_{idx}")
-    png = figures / f"{idx:02d}_{name}.png"
-
-    # Clean label helpers
-    clean_x = str(x).replace("_", " ").title() if x else ""
-    clean_y = str(y).replace("_", " ").title() if y else ""
-
-    # Apply the nature-figure style in a scoped rc_context
+    # Apply the nature-figure style in a scoped rc_context (no global leak; fully
+    # deterministic -> same spec + CSV yields byte-identical PNGs).
     with plt.rc_context(rc):
-        fig, ax = plt.subplots(figsize=(6.8, 4.2))
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_color("#cbd5e1")
-        ax.spines["bottom"].set_color("#cbd5e1")
-
-        if kind == "scatter":
-            pt_colors = _get_bar_colors(xs_raw, colors) if not x_is_num else [primary] * len(ys)
-            ax.scatter(xs_num if x_is_num else range(len(xs_raw)), ys, s=36,
-                       c=pt_colors, edgecolor="white", linewidth=0.6, zorder=3, alpha=0.85)
-            if not x_is_num:
-                ax.set_xticks(range(len(xs_raw)))
-                ax.set_xticklabels([str(v) for v in xs_raw], rotation=35, ha="right", fontsize=9)
+        if form == "composition":
+            fig, ax = plt.subplots(figsize=(6.4, 1.7))
+            _draw_composition(ax, xs_raw, ys, colors)
+            ax.set_title(title, fontweight="bold", loc="left")
+        elif form == "dot_ci":
+            fig, ax = plt.subplots(figsize=(6.4, 1.6 + 0.55 * len(xs_raw)))
+            form = _draw_dot_ci(ax, rows, xs_raw, ys, ns, scale, accent)
+            ax.set_xlabel(ylabel)
+            ax.set_title(title, fontweight="bold", loc="left")
         elif kind == "forest":
-            # Horizontal dot plot (lollipop): the policy-compliant form for
-            # ranked effects / means — position encodes the value, no filled
-            # area faking "accumulated amount". Sorted so the strongest is on top.
+            # Horizontal dot plot for ranked effects / means: position encodes
+            # the value, no filled area faking "accumulated amount". Sorted so
+            # the strongest is on top.
+            fig, ax = plt.subplots(figsize=(6.4, 1.6 + 0.45 * len(xs_raw)))
             order = sorted(range(len(ys)), key=lambda i: ys[i])
             labels = [str(xs_raw[i]) for i in order]
             vals = [ys[i] for i in order]
             ypos = list(range(len(vals)))
-            ax.hlines(ypos, [min(0, v) for v in vals], vals,
-                      color="#cbd5e1", linewidth=1.8, zorder=2)
-            ax.axvline(0, color="#94a3b8", linewidth=0.9, zorder=1)
-            pt_colors = _get_bar_colors(labels, colors)
-            ax.scatter(vals, ypos, s=68, c=pt_colors,
-                       edgecolor="white", linewidth=0.8, zorder=3)
+            ax.hlines(ypos, [min(0.0, v) for v in vals], vals,
+                      color=SEMANTIC_PALETTE["GRID"], linewidth=1.8, zorder=2)
+            ax.axvline(0, color=SEMANTIC_PALETTE["AXIS"], linewidth=0.9, zorder=1)
+            pt_colors = [outcome_color(lab) or accent for lab in labels]
+            ax.scatter(vals, ypos, s=68, c=pt_colors, edgecolor="white",
+                       linewidth=0.8, zorder=3)
             has_neg = any(v < 0 for v in vals)
             for yi, v in zip(ypos, vals):
-                ax.annotate(
-                    f"{v:+.2f}" if has_neg else f"{v:.2f}",
-                    (v, yi), textcoords="offset points", xytext=(7, -3.5),
-                    fontsize=8.5, color="#334155",
-                )
+                ax.annotate(f"{v:+.2f}" if has_neg else f"{v:.2f}", (v, yi),
+                            textcoords="offset points", xytext=(7, -3.5),
+                            fontsize=8.5, color=SEMANTIC_PALETTE["TEXT"])
             ax.set_yticks(ypos)
-            ax.set_yticklabels(labels, fontsize=9.5)
-            ax.grid(axis="x", linewidth=0.6, color="#e2e8f0", alpha=0.7, zorder=0)
+            ax.set_yticklabels(labels)
+            ax.grid(axis="x", linewidth=0.6, alpha=0.25, zorder=0)
             ax.set_axisbelow(True)
-        elif kind in {"line", "timeseries"}:
-            x_vals = xs_num if x_is_num else range(len(xs_raw))
-            ax.plot(x_vals, ys, marker="o", color=primary, linewidth=2.0, markersize=5.5, zorder=3)
-            ax.fill_between(x_vals, ys, color=primary, alpha=0.08, zorder=2)
-            if not x_is_num:
-                ax.set_xticks(range(len(xs_raw)))
-                ax.set_xticklabels([str(v) for v in xs_raw], rotation=35, ha="right", fontsize=9)
-        else:  # bar
-            positions = range(len(xs_raw))
-            bar_colors = _get_bar_colors(xs_raw, colors)
-            bars = ax.bar(positions, ys, color=bar_colors, width=0.62, zorder=3, edgecolor="white", linewidth=0.5)
-            ax.set_xticks(list(positions))
-            ax.set_xticklabels([str(v) for v in xs_raw], rotation=35, ha="right", fontsize=9)
-            # Format value labels on top of bars
-            is_pct = all(0.0 <= val <= 1.0 for val in ys) and max(ys, default=0) <= 1.0 and ("rate" in clean_y.lower() or "pct" in clean_y.lower() or "share" in clean_y.lower())
-            fmt = "%.1f%%" if is_pct else ("%.2f" if any(isinstance(v, float) and not v.is_integer() for v in ys) else "%d")
-            labels = [fmt % (v * 100 if is_pct else v) for v in ys]
-            ax.bar_label(bars, labels=labels, padding=3, fontsize=8.5, color="#334155")
-
-        if kind in {"bar", "line", "timeseries", "scatter"}:
-            ax.grid(axis="y", linewidth=0.6, color="#e2e8f0", alpha=0.7, zorder=0)
-            ax.set_axisbelow(True)
-
-        if kind == "forest":
-            # Forest: the value axis is horizontal — swap the axis labels.
-            ax.set_xlabel(clean_y, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
-            ax.set_ylabel(clean_x, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
+            # The value axis is horizontal: swap the axis labels.
+            ax.set_xlabel(ylabel)
+            ax.set_ylabel(xlabel)
+            ax.set_title(title, fontweight="bold", loc="left")
         else:
-            ax.set_xlabel(clean_x, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
-            ax.set_ylabel(clean_y, fontsize=10, fontweight="bold", color="#1e293b", labelpad=6)
-        ax.set_title(title, fontsize=11.5, fontweight="bold", color="#0f172a", pad=10)
+            fig, ax = plt.subplots(figsize=(6.4, 4.0))
+            if kind == "scatter":
+                ax.scatter(xs_num if x_is_num else range(len(xs_raw)), ys, s=26,
+                           color=accent, edgecolor="white", linewidth=0.4, zorder=3)
+                if not x_is_num:
+                    ax.set_xticks(range(len(xs_raw)))
+                    ax.set_xticklabels([str(v) for v in xs_raw], rotation=45, ha="right")
+            elif kind in {"line", "timeseries"}:
+                px = xs_num if x_is_num else list(range(len(xs_raw)))
+                ax.plot(px, ys, marker="o", color=accent, linewidth=1.8, markersize=5, zorder=3)
+                if not x_is_num:
+                    ax.set_xticks(range(len(xs_raw)))
+                    ax.set_xticklabels([str(v) for v in xs_raw], rotation=45, ha="right")
+                if ns is not None:
+                    for xv, yv, nv in zip(px, ys, ns):
+                        ax.annotate(f"n={nv:g}", (xv, yv), textcoords="offset points",
+                                    xytext=(0, 7), ha="center", fontsize=7,
+                                    color=SEMANTIC_PALETTE["AXIS"])
+            else:  # bar (counts, or more than _DOT_MAX_GROUPS groups)
+                positions = list(range(len(xs_raw)))
+                bar_colors = [outcome_color(v) or accent for v in xs_raw]
+                ax.bar(positions, ys, color=bar_colors, width=0.72, zorder=3)
+                ax.set_xticks(positions)
+                ax.set_xticklabels([str(v) for v in xs_raw], rotation=45, ha="right")
+                is_count = str(y).lower() in _COUNT_COLUMNS
+                for pos, yv, nv in zip(positions, ys, ns or [None] * len(ys)):
+                    label = (f"{yv:g}" if is_count else (f"n={nv:g}" if nv is not None else ""))
+                    if label:
+                        ax.annotate(label, (pos, yv), textcoords="offset points",
+                                    xytext=(0, 3), ha="center", fontsize=7,
+                                    color=SEMANTIC_PALETTE["AXIS"])
+            if kind in {"bar", "line", "timeseries"}:
+                ax.grid(axis="y", linewidth=0.6, alpha=0.25, zorder=0)
+                ax.set_axisbelow(True)
+            if rate and kind != "scatter":
+                from matplotlib.ticker import PercentFormatter
+                ax.yaxis.set_major_formatter(PercentFormatter(scale, decimals=0))
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            ax.set_title(title, fontweight="bold")
         fig.tight_layout()
         fig.savefig(png, dpi=160, metadata={"Software": "evalvitals", "Creation Time": None})
         plt.close(fig)
+    spec["rendered_as"] = form
     return png
+
+
+# -- chart-form helpers -------------------------------------------------------
+
+def _n_values(rows, y) -> "list[float] | None":
+    """Per-row sample size from an ``n``-like column (not the y column itself)."""
+    cols = rows[0].keys() if rows else []
+    for cand in _N_COLUMNS:
+        if cand in cols and cand != y:
+            vals = [_to_float(r.get(cand, "")) for r in rows]
+            if all(v is not None for v in vals):
+                return vals
+    return None
+
+
+def _ci_values(rows) -> "tuple[list[float], list[float]] | None":
+    cols = rows[0].keys() if rows else []
+    for lo, hi in _CI_COLUMNS:
+        if lo in cols and hi in cols:
+            los = [_to_float(r.get(lo, "")) for r in rows]
+            his = [_to_float(r.get(hi, "")) for r in rows]
+            if all(v is not None for v in los + his):
+                return los, his
+    return None
+
+
+def _rate_scale(y, ys) -> "float | None":
+    """1.0 when *y* is a fraction-valued rate column, 100.0 when it is a
+    percent-valued one, ``None`` when it is not a rate (counts, means of
+    unbounded quantities, effect sizes)."""
+    name = str(y).lower()
+    if name in _COUNT_COLUMNS or not any(w in name for w in _RATE_WORDS):
+        return None
+    if all(0.0 <= v <= 1.0 for v in ys):
+        return 1.0
+    if all(0.0 <= v <= 100.0 for v in ys) and ("pct" in name or "percent" in name):
+        return 100.0
+    return None
+
+
+def _numerator_values(rows, y, ns) -> "list[float] | None":
+    """The successes column behind a rate (``n_fail``, ``n_with_audit``, ``k``,
+    ...): any ``n_<something>`` / ``k`` / ``successes`` column whose values never
+    exceed ``n``. Lets the host form a Wilson interval from the data instead of
+    guessing one."""
+    if ns is None or not rows:
+        return None
+    for col in rows[0].keys():
+        low = col.lower()
+        if col == y or low in _N_COLUMNS or low in _COUNT_COLUMNS:
+            continue
+        if not (low.startswith("n_") or low in ("k", "successes", "hits", "events")):
+            continue
+        vals = [_to_float(r.get(col, "")) for r in rows]
+        if all(v is not None and 0 <= v <= n for v, n in zip(vals, ns)):
+            return vals
+    return None
+
+
+def _is_composition(spec, xs_raw, y, ys) -> bool:
+    """Class balance: a count per class over a handful of classes."""
+    if str(y).lower() not in _COUNT_COLUMNS or not (2 <= len(xs_raw) <= 6):
+        return False
+    if any(v < 0 for v in ys) or sum(ys) <= 0:
+        return False
+    text = f"{spec.get('name', '')} {spec.get('title', '')}".lower()
+    outcome_axis = all(outcome_color(v) is not None for v in xs_raw)
+    return outcome_axis or "balance" in text or "composition" in text
+
+
+def _wilson(k: float, n: float, z: float = 1.959964) -> "tuple[float, float]":
+    """Wilson score interval for k successes in n trials."""
+    if n <= 0:
+        return 0.0, 1.0
+    p = k / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / denom
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def _draw_composition(ax, labels, values, colors) -> None:
+    total = float(sum(values)) or 1.0
+    left = 0.0
+    for i, (lab, val) in enumerate(zip(labels, values)):
+        color = outcome_color(lab) or colors[i % len(colors)]
+        ax.barh([0], [val], left=left, color=color, height=0.6, zorder=3)
+        frac = val / total
+        text = f"{lab} {val:g} ({round(frac * 100)}%)"
+        if frac >= 0.14:
+            ax.text(left + val / 2, 0, text, ha="center", va="center",
+                    color="white", fontsize=8.5, fontweight="bold")
+        else:
+            ax.text(left + val / 2, 0.42, text, ha="center", va="bottom",
+                    color=SEMANTIC_PALETTE["TEXT"], fontsize=7.5)
+        left += val
+    ax.set_xlim(0, total)
+    ax.set_ylim(-0.6, 0.9)
+    ax.axis("off")
+
+
+def _draw_dot_ci(ax, rows, labels, values, ns, scale, accent) -> str:
+    """Horizontal dot (+ 95% CI when one can be formed) per group; stem from 0.
+
+    The interval comes from the CSV's own ``ci_low``/``ci_high`` when present,
+    else — for a RATE with a numerator column (``n_fail``, ``n_with_audit``,
+    ``k`` ...) and ``n`` — from a Wilson score interval on those counts. A
+    ``mean_*`` of per-case values is not a binomial proportion, so no interval
+    is invented for it: the dot stands alone (lollipop) with its n. Returns the
+    form actually drawn: ``"dot_ci"`` or ``"lollipop"``."""
+    rate = scale is not None
+    ci = _ci_values(rows)
+    if ci is None and rate:
+        ks = _numerator_values(rows, None, ns)
+        if ks is not None:
+            los, his = [], []
+            for k, n in zip(ks, ns):
+                lo, hi = _wilson(k, n)
+                los.append(lo * scale)
+                his.append(hi * scale)
+            ci = (los, his)
+    form = "dot_ci" if ci is not None else "lollipop"
+    ypos = list(range(len(labels)))[::-1]  # first CSV row on top
+    for yp, lab, val in zip(ypos, labels, values):
+        color = outcome_color(lab) or accent
+        ax.plot([0, val], [yp, yp], color=SEMANTIC_PALETTE["GRID"], linewidth=2.2, zorder=2)
+        if ci is not None:
+            i = labels.index(lab)
+            ax.plot([ci[0][i], ci[1][i]], [yp, yp], color=color, linewidth=1.6, zorder=3,
+                    solid_capstyle="butt")
+            ax.plot([ci[0][i], ci[0][i]], [yp - 0.12, yp + 0.12], color=color, linewidth=1.2)
+            ax.plot([ci[1][i], ci[1][i]], [yp - 0.12, yp + 0.12], color=color, linewidth=1.2)
+        ax.scatter([val], [yp], s=60, color=color, edgecolor="white", linewidth=0.8, zorder=4)
+        shown = f"{round(val * 100 / scale)}%" if rate else f"{val:.2f}"
+        if ns is not None:
+            shown += f"  (n={ns[labels.index(lab)]:g})"
+        ax.annotate(shown, (val, yp), textcoords="offset points", xytext=(0, 9),
+                    ha="center", fontsize=7.5, color=SEMANTIC_PALETTE["TEXT"])
+    ax.set_yticks(ypos)
+    ax.set_yticklabels([str(v) for v in labels])
+    ax.set_ylim(-0.7, len(labels) - 0.3)
+    hi = max([v for v in values] + (list(ci[1]) if ci is not None else []))
+    lo = min([0.0] + [v for v in values] + (list(ci[0]) if ci is not None else []))
+    span = (hi - lo) or 1.0
+    ax.set_xlim(min(0.0, lo - 0.05 * span), hi + 0.18 * span)
+    ax.grid(axis="x", linewidth=0.6, alpha=0.25, zorder=0)
+    ax.set_axisbelow(True)
+    ax.spines["left"].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+    if rate:
+        from matplotlib.ticker import PercentFormatter
+        ax.xaxis.set_major_formatter(PercentFormatter(scale, decimals=0))
+    return form
 
 
 def _safe_filename(name: Any) -> str:
@@ -344,16 +562,26 @@ def _safe_filename(name: Any) -> str:
     return (text or "chart")[:48]
 
 
+_FORM_WORDS = {
+    "composition": "composition strip of",
+    "dot_ci": "dot + 95% CI of",
+    "lollipop": "dot (lollipop) of",
+    "forest": "forest plot (ranked dots) of",
+}
+
+
 def _describe(spec: dict[str, Any], rows, x, y) -> str:
     """One-line textual summary of a chart, used when the image can't render
-    and as the caption M3 sees alongside the attached PNG."""
+    and as the caption M3 sees alongside the attached PNG. Names the FORM the
+    host actually drew when that is known (``rendered_as``)."""
     existing = spec.get("description")
     if isinstance(existing, str) and existing.strip():
         return existing.strip()
     kind = str(spec.get("kind", "bar")).lower()
+    form = _FORM_WORDS.get(str(spec.get("rendered_as", "")), f"{kind} of")
     title = str(spec.get("title") or spec.get("name") or "chart")
     if x and y:
-        body = f"{kind} of {y} by {x}"
+        body = f"{form} {y} by {x}"
     elif x:
         body = f"{kind} over {x}"
     else:

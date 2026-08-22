@@ -248,7 +248,11 @@ def test_diagnosis_parses_test_line_into_design():
     assert diag.hypotheses[0].expected_association == "lower_on_failures"
 
 
-def test_successful_critic_rejection_does_not_restore_rejected_hypothesis():
+def test_critic_rejection_annotates_instead_of_deleting():
+    """A critic that rejects every proposal used to end the run at
+    '0 hypothesis/es' (three llm_benchmark runs on 2026-08-20) with no
+    M5/M4/fix. The verdict is provenance now: the hypothesis stays, flagged,
+    and the held-out M5 decides."""
     judge = TwoAnswerJudge([
         "HYPOTHESIS: the model ignores visual evidence entirely\n"
         "FAILURE_MODE: visual_blindness\n"
@@ -258,7 +262,42 @@ def test_successful_critic_rejection_does_not_restore_rejected_hypothesis():
         "REASON: the cited evidence does not test that mechanism\n",
     ])
     diag = DiagnosisAgent(judge=judge).diagnose(_report())
-    assert diag.hypotheses == []
+    assert len(diag.hypotheses) == 1
+    h = diag.hypotheses[0]
+    assert h.metadata["critic"] == "reject"
+    assert h.metadata["critic_reason"] == "the cited evidence does not test that mechanism"
+    assert diag.n_critic_rejected == 1 and diag.n_critic_kept == 0
+    assert "REJECT:" in diag.critic_raw_output
+
+
+def test_critic_record_carries_the_proposer_reviewer_shape_too():
+    """The same review in the record shape the report/Langfuse side reads:
+    the proposer's full list plus a per-hypothesis decision derived from the
+    annotations — the reviewer records, it never removes (2026-08-21 merge of
+    the two M3-critic designs)."""
+    judge = TwoAnswerJudge([
+        "HYPOTHESIS: the model ignores visual evidence entirely\n"
+        "FAILURE_MODE: visual_blindness\n"
+        "HYPOTHESIS: the model truncates long answers\n"
+        "FAILURE_MODE: termination\n",
+        "KEEP: the model truncates long answers\n"
+        "REASON: termination_audit shows it\n"
+        "REJECT: the model ignores visual evidence entirely\n"
+        "REASON: the cited evidence does not test that mechanism\n",
+    ])
+    diag = DiagnosisAgent(judge=judge).diagnose(_report())
+    assert [h.statement for h in diag.proposed_hypotheses] == [
+        "the model ignores visual evidence entirely", "the model truncates long answers"]
+    assert [h.statement for h in diag.hypotheses] == [          # kept first, nothing dropped
+        "the model truncates long answers", "the model ignores visual evidence entirely"]
+    assert diag.review_decisions == [
+        {"statement": "the model ignores visual evidence entirely", "decision": "reject",
+         "reason": "the cited evidence does not test that mechanism"},
+        {"statement": "the model truncates long answers", "decision": "keep",
+         "reason": "termination_audit shows it"},
+    ]
+    assert diag.review_raw == diag.critic_raw_output and diag.review_prompt == diag.critic_prompt
+    assert diag.n_critic_kept == 1 and diag.n_critic_rejected == 1
 
 
 def test_diagnosis_prompt_lists_available_evidence():
@@ -517,6 +556,9 @@ def test_expected_sign_parser_cases():
 def test_diagnosis_prompt_asks_for_the_direction():
     from evalvitals.eval_agent.prompts.diagnosis import _DIAGNOSE_PROMPT
     assert "HIGHER or LOWER on failing cases" in _DIAGNOSE_PROMPT
+    # binary tasks: TEST lines go to the direction marginals, not to text/label fields
+    assert "answer_extraction_audit.answered_yes" in _DIAGNOSE_PROMPT
+    assert "never on\nextracted_answer, labelled_fail" in _DIAGNOSE_PROMPT
 
 
 def test_an_outcome_regrade_cannot_be_m5_evidence_even_from_an_old_m2():

@@ -28,4 +28,4 @@ services:
               count: all
               capabilities: [gpu]
     command: >
-      sh -c "python download_chartqa.py --limit 512 --seed 5022 --exclude-json outputs/auto_fix_v7/report/discovery_cases.json --exclude-json outputs/auto_fix_v8/report/discovery_cases.json --exclude-json outputs/auto_fix_v9/report/discovery_cases.json && python run.py --limit 512 --judge-provider agy --run-dir outputs/auto_fix_v11"
+      sh -c "python download_chartqa.py --limit 512 --seed 5022 --exclude-json outputs/auto_fix_v7/report/discovery_cases.json --exclude-json outputs/auto_fix_v8/report/discovery_cases.json --exclude-json outputs/auto_fix_v9/report/discovery_cases.json && python run.py --limit 512 --judge-provider claude --judge-model claude-opus-5 --judge-effort high --run-dir outputs/auto_fix_v11"

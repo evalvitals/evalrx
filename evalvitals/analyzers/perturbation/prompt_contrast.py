@@ -127,7 +127,7 @@ class PromptContrastAnalyzer(Analyzer):
         score_fn:   ``(case, answer) -> bool | None`` answer scorer.  Defaults
                     to a word-boundary rubric scorer over ``case.expected``
                     (dict ``all_of/any_of/none_of`` or plain string).
-        max_cases:  Cap on cases (cost = ``len(strategies)`` generations each).
+        max_cases:  Cap on cases (cost = ``len(strategies)`` generations each); 0 (the default) = every case.
     """
 
     name = "prompt_contrast"
@@ -149,7 +149,7 @@ class PromptContrastAnalyzer(Analyzer):
         # scarce FAIL group (a strategy can only *flip* an already-failing case),
         # so a small cap leaves too few discordant pairs for M5 to clear the
         # e-value bar. 128 covers typical mined fail counts plus controls.
-        max_cases: int = 128,
+        max_cases: int = 0,
     ) -> None:
         strategies = dict(strategies) if strategies else dict(_DEFAULT_STRATEGIES)
         if "baseline" not in strategies:

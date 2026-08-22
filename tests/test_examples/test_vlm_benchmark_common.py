@@ -27,3 +27,23 @@ def test_chartqa_numeric_tolerance_and_percent_format():
     assert common.answer_matches("Final answer: 6.8%", ["6.8"], numeric_tolerance=0.05)
     assert common.answer_matches("105", ["100"], numeric_tolerance=0.05)
     assert not common.answer_matches("106", ["100"], numeric_tolerance=0.05)
+
+
+def test_examples_choose_their_model_through_the_config():
+    """BenchmarkConfig.model is the --model default: the Qwen2.5-VL examples keep
+    the 7B key, the Qwen3.5 examples name the vision-tower spec."""
+    import re
+    from pathlib import Path
+
+    from evalvitals.models import resolve_spec_key
+
+    common = _module()
+    assert common.BenchmarkConfig.model == "qwen2.5-vl-7b-instruct"  # the default
+    root = Path(__file__).parents[2] / "examples/m1_m4"
+    for example in ("chartqa_qwen3_5_2b", "spatial457_qwen3_5_2b"):
+        src = (root / example / "run.py").read_text()
+        key = re.search(r'model="([^"]+)"', src).group(1)
+        assert key == "qwen3.5-2b-vl"
+        assert resolve_spec_key(key) == key  # a registered spec, not an alias
+    for example in ("chartqa_qwen2_5_vl", "spatial457_qwen2_5_vl"):
+        assert 'model=' not in (root / example / "run.py").read_text()

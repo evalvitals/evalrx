@@ -188,6 +188,26 @@ def test_extraction_audit_runs_without_generate_by_default():
     assert f["n_gradable"] == 1
 
 
+def test_extraction_audit_emits_direction_marginals_on_binary_tasks():
+    """A yes/no task gets answered_yes + gold_yes -- two MARGINALS, never their
+    conjunction (audiocaps 2026-08-20: M3 named extracted_answer / labelled_fail
+    and M5 had nothing numeric to test a 'Yes prior' on). true/false fold onto
+    yes/no; a free-form gold grows no direction columns."""
+    batch = CaseBatch([
+        _case("b1", "Yes, there is.", "No", Label.FAIL),                     # answered yes, gold no
+        _case("b2", "No", "No", Label.PASS),
+        _case("b3", "Both premises hold, so...\nAnswer: True", "False", Label.FAIL),
+        _case("b4", "Let me think. The clip has wind only. Therefore: no.", "yes", Label.FAIL),
+        _case("n1", "Answer: 12", "12", Label.PASS),                          # numeric task
+        _case("f1", "yes", "yes, it is", Label.PASS),                         # free-form gold
+    ])
+    rows = AnswerExtractionAudit().run(NoCapModel([]), batch).findings["per_case"]
+    assert [(r.get("answered_yes"), r.get("gold_yes")) for r in rows] == [
+        (1, 0), (0, 0), (1, 0), (0, 1), (None, None), (None, None),
+    ]
+    assert "answered_yes" not in rows[4] and "gold_yes" not in rows[4]
+
+
 # ── termination_audit ─────────────────────────────────────────────────────────
 def test_termination_audit_classifies_each_stop_reason():
     batch = CaseBatch([

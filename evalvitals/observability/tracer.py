@@ -672,7 +672,12 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
             },
             "input": {"candidates": [s.get("name") for s in m4_f["selection"]]},
             "output": {
-                "best_candidate": m4_f.get("best", {}).get("name") or (m4_f.get("confirm") or {}).get("name"),
+                # Fix events written before PR #88 carry ``best`` as the candidate
+                # NAME, later ones as the candidate record: accept both.
+                "best_candidate": (
+                    (m4_f.get("best") or {}).get("name")
+                    if isinstance(m4_f.get("best"), dict) else (m4_f.get("best") or None)
+                ) or (m4_f.get("confirm") or {}).get("name"),
                 "confirm": m4_f.get("confirm"),
             },
         })

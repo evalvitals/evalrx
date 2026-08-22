@@ -72,7 +72,7 @@ class KnowledgeReasoningSplit(Analyzer):
     Hyper-parameters:
         use_context:  add the open-book arm when the case carries gold context.
         context_keys: metadata keys searched for that context, in order.
-        max_cases:    label-stratified cap (4–5 generations each).
+        max_cases:    label-stratified cap (4–5 generations each); 0 (the default) = every case.
         grader:       ``callable(prediction, case) -> bool | None``.
     """
 
@@ -84,7 +84,7 @@ class KnowledgeReasoningSplit(Analyzer):
         self,
         use_context: bool = True,
         context_keys: tuple = ("context", "facts", "supporting_facts", "passage"),
-        max_cases: int = 16,
+        max_cases: int = 0,
         grader: Optional[Callable[[Any, "FailureCase"], Optional[bool]]] = None,
     ) -> None:
         super().__init__(

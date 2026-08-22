@@ -280,7 +280,7 @@ def check_catalog(dataset: str) -> None:
         entry = CAT.get(dataset)
         acq = CAT.acquisition(dataset)
         ok(f"dataset {dataset!r} resolves ({entry.items} items, "
-           f"9B reference {entry.accuracy_9b:.3f})")
+           f"catalog anchor: qwen3.5-9b scored {entry.accuracy_9b:.3f})")
         ok(f"  -> {acq['dataset']} config={acq['config']} split={acq['split']}"
            + (f" where={acq['where']}" if acq["where"] else ""))
     except SystemExit as exc:

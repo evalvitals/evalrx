@@ -27,7 +27,12 @@ TEST: <which evidence verifies this claim — name a signal/analyzer from the
 available evidence list when one fits (e.g. "relative_attention.max_relative_weight
 HIGHER on failing cases" or "prompt_contrast describe_first contrast"), and for a
 per-case signal SAY whether it should be HIGHER or LOWER on failing cases — that
-is the prediction the test checks; otherwise describe the analyzer or
+is the prediction the test checks. On a yes/no task a directional claim ("answers
+Yes regardless of the evidence") is tested on the DIRECTION marginals
+answer_extraction_audit.answered_yes (the answer's direction, e.g. HIGHER on
+failing cases) and answer_extraction_audit.gold_yes (the question's), never on
+extracted_answer, labelled_fail or a correctness flag — those are text or the
+label itself and cannot be evidence; otherwise describe the analyzer or
 intervention that should be run next cycle>
 EXPECTED_ASSOCIATION: <higher_on_failures if larger/present values of the named
 signal support the hypothesis, or lower_on_failures if smaller/absent values
@@ -50,13 +55,14 @@ Check each for:
 2. Circular reasoning — does the hypothesis merely restate the symptom?
 3. Overgeneralisation — does it make a claim far broader than the evidence supports?
 4. Confounded alternative — is there a simpler explanation the hypothesis ignores?
-
+{context_section}
 Findings summary (the evidence the hypotheses were drawn from):
 {findings_json}
 
 Hypotheses to review:
 {hypotheses_text}
 
-For each hypothesis output exactly two lines:
+For each hypothesis output two lines:
 KEEP: <hypothesis statement>  or  REJECT: <hypothesis statement>
+REASON: <one or two sentences naming the flaw you found, or why it survives>
 REASON: <specific flaw, or "evidence directly supports this claim" if keeping>"""

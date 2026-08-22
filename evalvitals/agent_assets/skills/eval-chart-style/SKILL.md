@@ -1,6 +1,6 @@
 ---
 name: eval-chart-style
-version: 0.4.0
+version: 0.5.0
 description: >
   Chart-type policy + house style for FAIL-vs-PASS LLM/VLM eval analysis
   figures. Use whenever you plot eval results inside an EvalVitals analysis
@@ -152,7 +152,21 @@ bars and visible top/right spines next to the host's themed charts.
 ## Scope note for EvalVitals sandboxes
 
 Host-rendered chart *specs* stay deterministic (`kind` ∈ bar/line/scatter with
-pre-aggregated CSVs) — apply §1/§3 to their data and titles. The chart-type
-diversity of §0 lives in the PNGs you draw under `figures/` — that is where
-violins, ECDFs, heatmaps, forests, and paired-slope figures belong. Styling
-only: never change the data, the analysis, or the final result JSON.
+pre-aggregated CSVs) **and §0 applies to them too** — the host picks the form
+from the table, so shape the CSV for the form you want:
+
+- class balance (count per class) → ONE composition strip; give `x=outcome`,
+  `y=count`;
+- a rate or mean across ≤ 3 groups → horizontal **dot + 95% CI**, a lollipop
+  when no interval can be formed; give an `n` column and, for a rate, the
+  numerator (`n_fail`, `n_with_audit`, `k`) or explicit `ci_low`/`ci_high`.
+  A `mean_*` of per-case values never gets an invented interval;
+- a numeric signal vs the outcome → the **binned fail-rate line**
+  (`bin -> fail_rate, n`); never a two-group "mean of the signal" spec — draw
+  the distribution view (violin/box + points) yourself under `figures/`;
+- bars remain only for counts and for ranked/many-category tables.
+
+Outcome groups named exactly `FAIL`/`PASS` get the §1 hues; axis labels are
+aliased from column ids (§1). The PNGs you draw under `figures/` are still
+where violins, ECDFs, heatmaps, forests, and paired-slope figures belong.
+Styling only: never change the data, the analysis, or the final result JSON.

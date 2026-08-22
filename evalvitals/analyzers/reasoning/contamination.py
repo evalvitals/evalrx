@@ -86,7 +86,7 @@ class ContaminationProbe(Analyzer):
         ngram:           n-gram width for the overlap score.
         flag_threshold:  guided overlap above this ⇒ ``verbatim_flag``.
         ask_provenance:  +1 generation asking the model to name the benchmark.
-        max_cases:       label-stratified cap.
+        max_cases:       label-stratified cap; 0 (the default) = every case.
     """
 
     name = "contamination_score"
@@ -101,7 +101,7 @@ class ContaminationProbe(Analyzer):
         ngram: int = 4,
         flag_threshold: float = 0.6,
         ask_provenance: bool = False,
-        max_cases: int = 32,
+        max_cases: int = 0,
     ) -> None:
         super().__init__(
             dataset_name=dataset_name,

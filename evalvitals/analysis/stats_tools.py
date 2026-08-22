@@ -490,6 +490,12 @@ OUTCOME_REGRADE_METRICS: frozenset = frozenset({
     "open_book_correct", "direct_correct", "reask_correct", "verify_correct",
     "continuation_correct", "told_correct",
     "majority_correct", "any_correct", "pass_at_k",
+    # the COUNT of correct samples among k (coverage_verification_gap): a
+    # 0..k integer, so label_leak_score (binary-only) never flags it, and
+    # under degenerate sampling it is exactly {0, k} = the label. It was the
+    # lone BH survivor on spatial457/qwen2.5-vl (2026-08-20) and named as
+    # M5 evidence. n_unique (sample diversity) stays: that is a mechanism.
+    "n_correct",
 })
 
 

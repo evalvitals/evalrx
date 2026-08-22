@@ -80,7 +80,7 @@ class CalibrationAnalyzer(Analyzer):
 
     Hyper-parameters:
         n_bins:    ECE bins.
-        max_cases: label-stratified cap (one logprobs + one generate per case).
+        max_cases: label-stratified cap (one logprobs + one generate per case); 0 (the default) = every case.
         elicit:    verbalized-confidence suffix appended to the prompt.
     """
 
@@ -88,7 +88,7 @@ class CalibrationAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE, Capability.LOGPROBS})
     applies_to_modalities = frozenset({"text", "image"})
 
-    def __init__(self, n_bins: int = 10, max_cases: int = 128, elicit: str = _ELICIT) -> None:
+    def __init__(self, n_bins: int = 10, max_cases: int = 0, elicit: str = _ELICIT) -> None:
         super().__init__(n_bins=max(2, int(n_bins)), max_cases=max_cases, elicit=elicit)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:

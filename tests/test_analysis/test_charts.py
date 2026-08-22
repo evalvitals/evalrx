@@ -136,3 +136,122 @@ def test_unknown_x_column_skips_without_raising(tmp_path):
         tmp_path / "tables", tmp_path / "out",
     )
     assert "not in table" in out[0]["render_skipped"]
+
+
+# ---------------------------------------------------------------------------
+# Chart FORM follows the eval-chart-style policy, not the spec's kind alone
+# (audiocaps / mmau explore runs, 2026-08-20: six of eight host-rendered specs
+# were bars, four of them two-bar "mean by outcome" charts the skill forbids).
+# ---------------------------------------------------------------------------
+
+def _csv(d, name, text):
+    (d / "tables").mkdir(exist_ok=True)
+    (d / "tables" / f"{name}.csv").write_text(text, encoding="utf-8")
+    return f"tables/{name}.csv"
+
+
+def _one(tmp_path, spec):
+    return render_chart_specs([spec], tmp_path / "tables", tmp_path / "out")[0]
+
+
+@pytest.mark.skipif(not _HAVE_MPL, reason="matplotlib not installed")
+def test_class_balance_renders_as_one_composition_strip(tmp_path):
+    from pathlib import Path
+    data = _csv(tmp_path, "class_balance", "outcome,count\nFAIL,40\nPASS,80\n")
+    out = _one(tmp_path, {"name": "class_balance", "kind": "bar", "data": data,
+                          "x": "outcome", "y": "count", "title": "FAIL vs PASS"})
+    assert out["rendered_as"] == "composition"
+    assert Path(out["figure_path"]).exists()
+    assert "composition strip" in out["description"]
+    assert out["axis_labels"] == {"x": "Outcome", "y": "Count"}
+
+
+@pytest.mark.skipif(not _HAVE_MPL, reason="matplotlib not installed")
+def test_two_group_rate_with_numerator_is_dot_plus_wilson_ci(tmp_path):
+    data = _csv(tmp_path, "fr", "group,fail_rate,n,n_fail\nabsent,0.69,51,35\npresent,0.07,69,5\n")
+    out = _one(tmp_path, {"name": "fr", "kind": "bar", "data": data,
+                          "x": "group", "y": "fail_rate", "title": "t"})
+    assert out["rendered_as"] == "dot_ci"
+    assert "dot + 95% CI" in out["description"]
+
+
+@pytest.mark.skipif(not _HAVE_MPL, reason="matplotlib not installed")
+def test_explicit_ci_columns_are_used_for_any_value(tmp_path):
+    data = _csv(tmp_path, "m", "outcome,mean_score,n,ci_low,ci_high\nFAIL,0.4,12,0.2,0.6\nPASS,0.7,12,0.5,0.9\n")
+    out = _one(tmp_path, {"name": "m", "kind": "bar", "data": data,
+                          "x": "outcome", "y": "mean_score"})
+    assert out["rendered_as"] == "dot_ci"
+
+
+@pytest.mark.skipif(not _HAVE_MPL, reason="matplotlib not installed")
+def test_a_mean_without_an_interval_is_a_lollipop_never_two_bars(tmp_path):
+    # mean of per-case rates: bounded, but not a binomial proportion -> no
+    # invented Wilson interval; a rate with n but no numerator -> same.
+    data = _csv(tmp_path, "mb", "outcome,mean_break_rate,n\nFAIL,0.17,12\nPASS,0.0,12\n")
+    out = _one(tmp_path, {"name": "mb", "kind": "bar", "data": data,
+                          "x": "outcome", "y": "mean_break_rate"})
+    assert out["rendered_as"] == "lollipop"
+    assert "lollipop" in out["description"]
+
+
+@pytest.mark.skipif(not _HAVE_MPL, reason="matplotlib not installed")
+def test_percent_scaled_rate_gets_wilson_from_its_numerator(tmp_path):
+    data = _csv(tmp_path, "pct", "outcome,pct_with_audit,n,n_with_audit\nFAIL,80,40,32\nPASS,40,80,32\n")
+    out = _one(tmp_path, {"name": "pct", "kind": "bar", "data": data,
+                          "x": "outcome", "y": "pct_with_audit"})
+    assert out["rendered_as"] == "dot_ci"
+
+
+@pytest.mark.skipif(not _HAVE_MPL, reason="matplotlib not installed")
+def test_ranked_effects_become_a_forest_and_count_bars_stay_bars(tmp_path):
+    # Bars are for counts only: a ranked effect size over many groups is
+    # demoted to a forest (horizontal dot) plot and says so.
+    ranked = _csv(tmp_path, "ranked", "signal,separation\na,0.9\nb,0.7\nc,0.5\nd,0.2\ne,0.1\n")
+    out = _one(tmp_path, {"name": "ranked", "kind": "bar", "data": ranked, "x": "signal", "y": "separation"})
+    assert out["rendered_as"] == "forest" and out["kind"] == "forest"
+    assert "demoted to forest" in out["render_note"]
+    assert "forest plot" in out["description"]
+    # ... and a rate over many bins becomes a line, while a count over many
+    # categories stays a bar.
+    binned = _csv(tmp_path, "binned", "bin,fail_rate,n\n0-20,0.6,10\n20-40,0.4,12\n40-60,0.3,9\n60-80,0.2,11\n80-100,0.1,8\n")
+    out = _one(tmp_path, {"name": "binned", "kind": "bar", "data": binned, "x": "bin", "y": "fail_rate"})
+    assert out["rendered_as"] == "line" and "demoted to line" in out["render_note"]
+    counts = _csv(tmp_path, "vc", "category,count\nx,3\ny,7\nz,2\nw,9\nv,1\nu,4\nt,2\n")
+    out = _one(tmp_path, {"name": "vc", "kind": "bar", "data": counts, "x": "category", "y": "count"})
+    assert out["rendered_as"] == "bar"          # 7 classes: too many for a strip
+
+
+@pytest.mark.skipif(not _HAVE_MPL, reason="matplotlib not installed")
+def test_line_and_scatter_keep_their_kind(tmp_path):
+    data = _csv(tmp_path, "bins", "bin,fail_rate,n\n0-20,0.6,10\n20-40,0.4,12\n40-60,0.1,9\n")
+    out = _one(tmp_path, {"name": "bins", "kind": "line", "data": data, "x": "bin", "y": "fail_rate"})
+    assert out["rendered_as"] == "line"
+    out = _one(tmp_path, {"name": "sc", "kind": "scatter", "data": data, "x": "fail_rate", "y": "n"})
+    assert out["rendered_as"] == "scatter"
+
+
+@pytest.mark.skipif(not _HAVE_MPL, reason="matplotlib not installed")
+def test_dot_ci_render_is_deterministic(tmp_path):
+    from pathlib import Path
+    data = _csv(tmp_path, "fr", "group,fail_rate,n,n_fail\nFAIL,0.69,51,35\nPASS,0.07,69,5\n")
+    spec = {"name": "fr", "kind": "bar", "data": data, "x": "group", "y": "fail_rate"}
+    a = render_chart_specs([spec], tmp_path / "tables", tmp_path / "a")[0]["figure_path"]
+    b = render_chart_specs([spec], tmp_path / "tables", tmp_path / "b")[0]["figure_path"]
+    assert Path(a).read_bytes() == Path(b).read_bytes()
+
+
+def test_wilson_interval_matches_reference_values():
+    lo, hi = charts_mod._wilson(5, 52)
+    assert 0.04 < lo < 0.045 and 0.20 < hi < 0.21       # 5/52 -> [0.042, 0.207]
+    assert charts_mod._wilson(0, 10)[0] == 0.0
+    assert charts_mod._wilson(10, 10)[1] == pytest.approx(1.0)
+
+
+def test_semantic_palette_stays_in_sync_with_eval_viz_theme():
+    pytest.importorskip("plotly")
+    from evalvitals.analysis import eval_viz_theme as viz
+    for key in ("FAIL", "PASS", "INCONCLUSIVE", "ACCENT", "LEAKY", "AXIS", "GRID", "TEXT"):
+        assert style_mod.SEMANTIC_PALETTE[key] == viz._LIGHT[key], key
+    assert style_mod.outcome_color("fail") == viz.OUTCOME_COLORS["FAIL"]
+    assert style_mod.outcome_color("Pass") == viz.OUTCOME_COLORS["PASS"]
+    assert style_mod.outcome_color("absent") is None

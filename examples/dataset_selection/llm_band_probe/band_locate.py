@@ -47,6 +47,14 @@ ROWS_API = "https://datasets-server.huggingface.co/rows"
 FILTER_API = "https://datasets-server.huggingface.co/filter"
 BASE_URL = os.environ.get("BAND_BASE_URL", "http://127.0.0.1:8020/v1")
 MODEL_ID = os.environ.get("BAND_MODEL_ID", "qwen3.5-9b")
+#: Thinking mode for every request this module sends. OFF by default: each call
+#: carries ``chat_template_kwargs={"enable_thinking": False}``. It is sent
+#: explicitly because the Qwen3.5 checkpoints disagree on the template default
+#: when the kwarg is absent (Qwen3.5-2B: off, Qwen3.5-9B: on). The band numbers
+#: recorded in datasets.py were measured WITH thinking; set
+#: ``BAND_ENABLE_THINKING=1`` (or ``generate(..., enable_thinking=True)``) to
+#: reproduce that mode.
+ENABLE_THINKING = os.environ.get("BAND_ENABLE_THINKING", "0") == "1"
 
 _MC_LETTERS = "ABCDEFGHIJ"
 
@@ -1152,13 +1160,20 @@ INCLUDE_REASONING = os.environ.get("BAND_INCLUDE_REASONING", "0") == "1"
 #: Under greedy decoding the model finishes reasoning and then loops on
 #: self-verification ("I will ensure the answer format is exact." repeated) to
 #: the token cap. Scoring that as a failed puzzle measures the decoding
-#: configuration. These are Qwen's documented thinking-mode settings.
+#: configuration. These are Qwen's documented thinking-mode settings; they are
+#: kept with thinking off (ENABLE_THINKING) too -- harmless there, and still
+#: what protects a run that turns thinking back on.
 SAMPLING = {"temperature": 0.6, "top_p": 0.95, "top_k": 20}
 
 
 def generate(prompt: str, max_tokens: int, temperature: float = 0.0,
-             retries: int = 3, sampling: Optional[dict] = None) -> tuple:
+             retries: int = 3, sampling: Optional[dict] = None,
+             enable_thinking: Optional[bool] = None) -> tuple:
     """Return ``(text, finish_reason)``.
+
+    ``enable_thinking`` (default: the module's ``ENABLE_THINKING``, off) is sent
+    on every request as ``chat_template_kwargs`` so the chat template renders the
+    same way on every checkpoint.
 
     The finish reason matters as much as the text. ``no_answer_tag_rate`` was
     only ever a PROXY for "the budget ran out before the answer", and it is a
@@ -1172,6 +1187,11 @@ def generate(prompt: str, max_tokens: int, temperature: float = 0.0,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temperature,
+        "chat_template_kwargs": {
+            "enable_thinking": bool(
+                ENABLE_THINKING if enable_thinking is None else enable_thinking
+            )
+        },
     }
     payload.update(sampling or {})
     last_exc = "unknown"

@@ -386,10 +386,24 @@ class _VerboseFormatter(logging.Formatter):
             return "\n".join(lines)
 
         if event == "diagnosis":
-            lines = [f"\n[M3] cycle={cycle}  {p.get('n_hypotheses', 0)} hypothesis/es"]
+            head = f"\n[M3] cycle={cycle}  {p.get('n_hypotheses', 0)} hypothesis/es"
+            n_rej = int(p.get("n_critic_rejected", 0) or 0)
+            n_keep = int(p.get("n_critic_kept", 0) or 0)
+            if n_rej or n_keep:
+                head += f"  (critic: {n_keep} kept, {n_rej} rejected"
+                head += (" — all rejected: kept as flagged leads, the held-out "
+                         "M5 decides)" if n_rej and not n_keep else
+                         "; rejected ones demoted)" if n_rej else ")")
+            lines = [head]
             for h in p.get("hypotheses") or []:
                 lines.append(f"     hypothesis  : {h.get('statement', '')}")
                 lines.append(f"     failure_mode: {h.get('failure_mode', '')}")
+                if h.get("critic"):
+                    reason = (h.get("critic_reason") or "").strip()
+                    lines.append(
+                        f"     critic      : {h['critic']}"
+                        + (f" — {reason[:160]}" if reason else "")
+                    )
             return "\n".join(lines)
 
         if event == "surgery":
@@ -1121,11 +1135,28 @@ class RunLogger:
                     # line) — was computed but silently dropped before this fix,
                     # leaving no record of how a hypothesis could be checked.
                     "test_design": h.test_design,
+                    # the adversarial critic's verdict travels as provenance
+                    # (it annotates, never filters — see _validate_hypotheses)
+                    "critic": (h.metadata or {}).get("critic"),
+                    "critic_reason": (h.metadata or {}).get("critic_reason"),
                 }
                 for h in diag.hypotheses
             ],
             "raw_judge_output": diag.raw_judge_output,
+            "n_critic_kept": int(getattr(diag, "n_critic_kept", 0) or 0),
+            "n_critic_rejected": int(getattr(diag, "n_critic_rejected", 0) or 0),
         }
+        critic_raw = getattr(diag, "critic_raw_output", "") or ""
+        if critic_raw:
+            entry["critic_raw_output"] = critic_raw
+            # prompt too: the critic now reads the proposer's context + a label
+            # summary, and a reviewer must be able to see what it was judged on.
+            critic_io = self._save_judge_io(
+                f"c{cycle}_m3_critic",
+                getattr(diag, "critic_prompt", "") or None, critic_raw,
+            )
+            if critic_io:
+                entry["critic_io"] = critic_io
         proposed = list(getattr(diag, "proposed_hypotheses", None) or [])
         if proposed:
             entry["proposed_hypotheses"] = [

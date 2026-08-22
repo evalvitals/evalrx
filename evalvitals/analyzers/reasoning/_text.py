@@ -98,6 +98,46 @@ def normalize_answer(value: Any) -> str:
     return " ".join(text.split()).strip(" .")
 
 
+#: Binary-answer vocabulary. true/false fold onto yes/no so a True/False task
+#: (BBH boolean_expressions, web_of_lies) gets the same direction columns as a
+#: Yes/No one.
+_BINARY_WORDS = {"yes": "yes", "no": "no", "true": "yes", "false": "no"}
+
+
+def binary_direction(text: Any, *, last: bool = False) -> Optional[str]:
+    """``"yes"`` / ``"no"`` read off a binary answer, else ``None``.
+
+    Whole words only (``"not"``/``"none"`` never count as ``"no"``), decided
+    on the opening six words -- or, with ``last=True``, the closing six, for a
+    tail window where the verdict comes after the reasoning. ``true``/``false``
+    map onto ``yes``/``no`` (see :data:`_BINARY_WORDS`).
+    """
+    words = re.findall(r"[a-z]+", str(text or "").lower())
+    seq = words[-6:][::-1] if last else words[:6]
+    for word in seq:
+        if word in _BINARY_WORDS:
+            return _BINARY_WORDS[word]
+    return None
+
+
+def binary_gold(expected: Any) -> Optional[str]:
+    """The gold's direction when the task is yes/no (true/false), else ``None``.
+
+    Accepts a string, a one-element list/tuple of aliases, or an
+    ``{"all_of": [...]}`` spec with a single entry. Anything longer than a bare
+    yes/no/true/false token is NOT a binary gold (``"yes, it is"`` -> ``None``),
+    so free-form tasks never grow direction columns by accident.
+    """
+    if isinstance(expected, dict):
+        values = expected.get("all_of") or []
+        expected = values[0] if len(values) == 1 else None
+    if isinstance(expected, (list, tuple)):
+        expected = expected[0] if len(expected) == 1 else None
+    if expected is None:
+        return None
+    return _BINARY_WORDS.get(normalize_answer(expected))
+
+
 def as_number(value: Any) -> Optional[float]:
     """Parse *value* as a number if it is one **in its entirety**, else ``None``."""
     text = normalize_answer(value)

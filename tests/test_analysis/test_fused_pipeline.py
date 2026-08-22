@@ -291,6 +291,31 @@ def test_sparse_independent_flag_with_perfect_conditional_rate_is_kept():
     assert sig in {item.config.get("signal") for item in plan_stats_input(inp)}
 
 
+def test_direction_marginals_are_testable_but_pope_conjunctions_are_not():
+    """answered_yes / gold_yes are model behaviour and a question covariate --
+    neither is a label function, so both stay in the family. pope's
+    false_positive / false_negative are gold x pred conjunctions (a subset of
+    FAIL by construction): sparse enough to pass label_leak_score, named nothing
+    like 'correct', they sat in the VLM family as guaranteed survivors."""
+    from evalvitals.analysis.planner import plan_stats_input, restates_label
+
+    inp = _observed_shape()
+    ids = list(inp.labels)
+    # answers Yes on half the cases, mixed across PASS and FAIL
+    inp.per_case["answer_extraction_audit.answered_yes"] = {
+        cid: float(i % 2) for i, cid in enumerate(ids)}
+    inp.per_case["pope.gold_yes"] = {cid: float(i % 3 == 0) for i, cid in enumerate(ids)}
+    fails = [cid for cid in ids if inp.labels[cid]]
+    inp.per_case["pope.false_positive"] = {cid: float(cid == fails[0]) for cid in ids}
+
+    assert not restates_label(inp, "answer_extraction_audit.answered_yes")
+    assert not restates_label(inp, "pope.gold_yes")
+    assert restates_label(inp, "pope.false_positive")
+    planned = {item.config.get("signal") for item in plan_stats_input(inp)}
+    assert {"answer_extraction_audit.answered_yes", "pope.gold_yes"} <= planned
+    assert "pope.false_positive" not in planned
+
+
 def test_continuous_signals_are_never_judged_as_restatements():
     from evalvitals.analysis.planner import restates_label
 

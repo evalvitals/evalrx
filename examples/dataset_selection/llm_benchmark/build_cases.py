@@ -48,6 +48,10 @@ import datasets as CATALOG  # noqa: E402
 from regrade import grader_fingerprint as _grader_fingerprint  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
+# Thinking is OFF unless the config says otherwise; every baseline generation
+# sends chat_template_kwargs={"enable_thinking": ...} explicitly (see
+# band_locate.ENABLE_THINKING for why explicit).
+B.ENABLE_THINKING = bool(CFG.get("enable_thinking", False))
 
 #: Outside this range the batch has too little of one class to diagnose well
 #: — a warning (or, with --strict-band, a refusal); see the module docstring.
@@ -188,7 +192,8 @@ def main() -> None:
     acc, trunc = report["accuracy"], report["truncated_rate"]
     census = " (CENSUS of the slice)" if report["is_census"] else ""
     print(f"  accuracy {report['n_pass']}/{report['n']} = {acc:.3f}{census} "
-          f"(9B reference {report['reference_9b_accuracy']:.3f})")
+          f"(catalog anchor: qwen3.5-9b scored {report['reference_9b_accuracy']:.3f} "
+          f"on this slice — band-selection reference, not this model)")
     print(f"  truncated {trunc:.0%}   errors {report['error_rate']:.0%}   "
           f"{report['seconds']:.0f}s")
 

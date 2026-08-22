@@ -112,6 +112,9 @@ for _key, _repo in (
         key=_key, family="qwen3_5", model_type="qwen3_5", hf_repo=_repo,
         auto_class="AutoModelForCausalLM", processor_class="AutoTokenizer",
         min_transformers="5.15.0", is_reasoning=True, tool_calling=True,
+        # Thinking OFF on every template render (chat, generate, logprobs) --
+        # see the caveat; pass chat_template_kwargs={} to get the template default.
+        chat_template_kwargs={"enable_thinking": False},
         attn_semantics=AttnSemantics.HYBRID_SPARSE,
         module_paths=ModulePaths(decoder_layers="model.layers"),
         caveats=(
@@ -126,9 +129,56 @@ for _key, _repo in (
             "min_transformers is the version VERIFIED to work (qwen3_5 is absent "
             "from 4.57.6), not a discovered floor — and nothing in the framework "
             "enforces the field, so the loader checks AutoConfig itself",
-            "thinking is ON by default: the chat template appends '<think>\\n' "
-            "unless enable_thinking=False, so a completion carries the chain and "
-            "a closing '</think>' but no opening tag",
+            "thinking is OFF here: this spec sends enable_thinking=False on every "
+            "template render, so a completion is the answer with an empty think "
+            "block in the prompt. The checkpoints disagree on the template default "
+            "when the kwarg is absent (Qwen3.5-2B: off, Qwen3.5-9B: on -- there the "
+            "chain lands inline with a closing '</think>' but no opening tag), "
+            "which is why it is always sent explicitly",
+        ),
+    ))
+
+# Qwen3.5 WITH its vision tower -- the same checkpoints as the text specs above,
+# loaded as ``Qwen3_5ForConditionalGeneration`` (``AutoModelForImageTextToText``)
+# for the image benchmarks (examples/m1_m4/*_qwen3_5_2b). Layout verified on
+# transformers 5.15.0: ``model.language_model.layers`` (24 layers on the 2B,
+# ``layer_types`` = [linear x3, full] x 6), ``model.visual.blocks``,
+# ``config.image_token_id`` top-level, ``vision_config.spatial_merge_size`` = 2,
+# processor emits ``image_grid_thw`` -- i.e. the Qwen3-VL shape.
+for _key, _repo, _n_layers in (
+    ("qwen3.5-2b-vl", "Qwen/Qwen3.5-2B", 24),
+    ("qwen3.5-4b-vl", "Qwen/Qwen3.5-4B", 32),
+    ("qwen3.5-9b-vl", "Qwen/Qwen3.5-9B", 32),
+):
+    _add(ModelSpec(
+        key=_key, family="qwen3_5", model_type="qwen3_5", hf_repo=_repo,
+        auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+        min_transformers="5.15.0", is_reasoning=True, tool_calling=True,
+        # Thinking OFF on every template render (chat, generate, logprobs);
+        # explicit because the 2B/9B templates disagree on the default.
+        chat_template_kwargs={"enable_thinking": False},
+        attn_semantics=AttnSemantics.HYBRID_SPARSE,
+        module_paths=ModulePaths(decoder_layers="model.language_model.layers",
+                                 vision_tower="model.visual",
+                                 vision_blocks="model.visual.blocks"),
+        vision=VisionSpec(image_token_id_attr="image_token_id",
+                          merge_size_attr="vision_config.spatial_merge_size",
+                          grid_source="grid_thw"),
+        caveats=(
+            f"HYBRID stack: layer_types is [linear, linear, linear, full] x "
+            f"{_n_layers // 4} (full_attention_interval=4), so a forward returns "
+            f"{_n_layers // 4} attention tensors for {_n_layers} layers and position "
+            "i is model layer 4i+3 -- attention_rollout composes a partial path "
+            "here and must not be read as a full-depth rollout",
+            "same checkpoint as the text spec without the -vl suffix; this one "
+            "loads the vision tower (Qwen3_5ForConditionalGeneration) and builds "
+            "the TokenTypeMap, so the image analyzers are offered",
+            "needs transformers >= 5.15 (qwen3_5 is absent from 4.57); the "
+            "package's [local] extra pins transformers < 5, install it explicitly "
+            "(see examples/m1_m4/chartqa_qwen3_5_2b/Dockerfile)",
+            "thinking is OFF here: the spec sends enable_thinking=False on every "
+            "template render; the 2B template defaults off and the 9B template "
+            "defaults on when the kwarg is absent",
         ),
     ))
 

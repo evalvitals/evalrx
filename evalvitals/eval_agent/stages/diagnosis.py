@@ -199,9 +199,24 @@ class DiagnosisResult:
     referenced_charts: list[str] = field(default_factory=list)
     explore_context_used: bool = False
     failure_modes_used: bool = False
+    #: The adversarial critic's verbatim verdicts (``KEEP:``/``REJECT:`` +
+    #: ``REASON:`` lines) and its tally. The critic ANNOTATES hypotheses
+    #: (``metadata["critic"]``, ``metadata["critic_reason"]``) and orders the
+    #: kept ones first — it never removes a proposal: with M5 testing on the
+    #: held-out split, the data is the arbiter, and a critic that rejects every
+    #: claim used to end the run with "0 hypotheses" and no M5/M4/fix at all.
+    critic_raw_output: str = ""
+    critic_prompt: str = ""
+    n_critic_kept: int = 0
+    n_critic_rejected: int = 0
     # M3 is two separate model calls: a proposer and an adversarial reviewer.
-    # Keeping only the surviving list made a rejected proposal indistinguishable
-    # from a parser/model failure in both the report and Langfuse.
+    # The proposer's full list and the reviewer's per-hypothesis decisions are
+    # kept as well, so a rejected proposal stays distinguishable from a
+    # parser/model failure in the report and in Langfuse. ``review_prompt`` /
+    # ``review_raw`` mirror ``critic_prompt`` / ``critic_raw_output``;
+    # ``review_decisions`` (statement, decision, reason) is derived from the
+    # critic annotations — decision keep | reject | unparsed |
+    # review_unavailable — and the reviewer never removes a hypothesis.
     proposed_hypotheses: list[Hypothesis] = field(default_factory=list)
     review_prompt: str = ""
     review_raw: str = ""
@@ -269,7 +284,8 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
 # response and M3 reported zero. Normalise the label, leave the text alone.
 _LABEL_LINE = re.compile(
     r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]*\s*"
-    r"(HYPOTHESIS|PLAIN_STATEMENT|PLAIN_LANGUAGE|FAILURE_MODE|TEST|EXPECTED_ASSOCIATION|KEEP|REJECT)\s*[*_`]*\s*:\s*[*_`]*\s*",
+    r"(HYPOTHESIS|PLAIN_STATEMENT|PLAIN_LANGUAGE|FAILURE_MODE|TEST|EXPECTED_ASSOCIATION|KEEP|REJECT|REASON)"
+    r"\s*[*_`]*\s*:\s*[*_`]*\s*",
     re.IGNORECASE,
 )
 
@@ -336,36 +352,111 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
     return hypotheses
 
 
+def _format_label_context(cases: "Any | None") -> str:
+    """Descriptive label summary for the M3 critic (and nothing else).
+
+    The critic used to see only the findings JSON — per-case rows with
+    ``labelled_fail`` and ``extracted_answer`` but no gold — and rejected a
+    correct "answers Yes regardless of the audio" hypothesis for "no
+    ground-truth present/absent field in the evidence" (audiocaps 2026-08-20)
+    while the proposer had read exactly that breakdown in the explore notes.
+    Counts only; on a yes/no (true/false) batch a gold x answer table whose
+    cells carry the FAIL count. Empty string when *cases* is ``None`` or
+    carries no labels, so callers can concatenate it unconditionally.
+    """
+    if cases is None:
+        return ""
+    try:
+        from evalvitals.analyzers.reasoning._text import (
+            binary_direction,
+            binary_gold,
+            extract_answer,
+        )
+        from evalvitals.core.case import Label
+    except Exception:  # pragma: no cover - defensive import guard
+        return ""
+    rows = [c for c in cases if getattr(c, "label", None) in (Label.PASS, Label.FAIL)]
+    if not rows:
+        return ""
+    n_fail = sum(1 for c in rows if c.label == Label.FAIL)
+    lines = [f"  labelled cases: {len(rows)} ({n_fail} FAIL / {len(rows) - n_fail} PASS)"]
+    golds = [(c, binary_gold(getattr(c, "expected", None))) for c in rows]
+    binary = [(c, g) for c, g in golds if g is not None]
+    if len(binary) >= max(4, int(0.8 * len(rows))):
+        table: dict[tuple[str, str], list[int]] = {}
+        for c, g in binary:
+            text = str(getattr(c, "observed", "") or "")
+            a = binary_direction(extract_answer(text)) or binary_direction(text[-200:], last=True)
+            key = (g, a or "unparsed")
+            cell = table.setdefault(key, [0, 0])
+            cell[0] += 1
+            cell[1] += int(c.label == Label.FAIL)
+        lines.append("  yes/no task -- gold x answer (n, of which FAIL):")
+        for g in ("yes", "no"):
+            for a in ("yes", "no", "unparsed"):
+                n, f = table.get((g, a), [0, 0])
+                if n:
+                    lines.append(f"    gold={g:<3} answered={a:<8} n={n:<4} FAIL={f}")
+        n_yes = sum(n for (g, a), (n, f) in table.items() if a == "yes")
+        lines.append(f"  answered yes on {n_yes}/{len(binary)} binary cases")
+    return "LABEL SUMMARY (descriptive counts from the case batch, not a test result):\n" + "\n".join(lines) + "\n"
+
+
 def _validate_hypotheses(
     hypotheses: list[Hypothesis],
     findings_json: str,
     judge: "Model",
     *,
-    return_review: bool = False,
-) -> "list[Hypothesis] | tuple[list[Hypothesis], str, str, list[dict[str, Any]]]":
-    """Adversarially filter *hypotheses* using a critic call at temperature=0.
+    capture: "dict[str, Any] | None" = None,
+    context: str = "",
+) -> list[Hypothesis]:
+    """Adversarial review of *hypotheses*: a critic call at temperature=0.
 
     The same judge is called a second time with a prompt designed to find
-    reasons to *reject* each hypothesis.  This breaks the confirmation bias
-    loop where a model that generated a hypothesis then gives it a free pass.
-    Temperature is forced to 0 for deterministic, reproducible verdicts.
+    reasons to *reject* each hypothesis, breaking the confirmation-bias loop
+    where the model that generated a claim then waves it through.
 
-    Returns the subset of hypotheses that survive the critic.  Falls back to
-    the original list if the validation call fails so the loop is never
-    completely blocked by a transient error.
+    The critic ANNOTATES, it does not filter: every hypothesis comes back,
+    ``metadata["critic"]`` set to ``"keep"`` / ``"reject"`` (``"unparsed"``
+    when the critic's answer named neither), ``metadata["critic_reason"]``
+    carrying its ``REASON:`` line, kept hypotheses ordered first. Dropping
+    the rejected ones used to end a run at "0 hypotheses" whenever a strict
+    critic (opus at high effort, n=32 evidence) rejected all of them —
+    three llm_benchmark runs in a row on 2026-08-20 — with no M5, M4 or fix
+    afterwards. M5 now tests on the held-out split, so the data decides; the
+    critic's verdict travels with the hypothesis as provenance and as the
+    tie-breaker for M4's best-lead ordering.
+
+    *capture*, when given, receives ``raw`` (the critic's verbatim answer),
+    ``prompt``, ``n_kept`` and ``n_rejected``. Falls back to the unannotated
+    list if the critic call fails so the loop is never blocked by a transient
+    error.
+
+    *context* is the evidence the PROPOSER worked from beyond the findings
+    JSON -- M2's conclusion and evidence chain, the statistical verdicts, the
+    explore notes and the label summary. Without it the critic judged the
+    hypotheses against less than the proposer had seen and rejected them for
+    missing evidence that was on the table (audiocaps 2026-08-20).
     """
     if not hypotheses:
-        result: tuple[list[Hypothesis], str, str, list[dict[str, Any]]] = ([], "", "", [])
-        return result if return_review else result[0]
+        return hypotheses
 
     hyp_lines = "\n".join(
         f"- HYPOTHESIS: {h.statement}  (failure_mode: {h.predicted_failure_mode})"
         for h in hypotheses
     )
+    context_section = (
+        "\nContext the proposer worked from (analyst conclusion, evidence chain, "
+        "statistical verdicts, exploratory notes, label summary):\n"
+        + context.strip() + "\n"
+    ) if context and context.strip() else ""
     prompt = _VALIDATE_PROMPT.format(
+        context_section=context_section,
         findings_json=findings_json,
         hypotheses_text=hyp_lines,
     )
+    if capture is not None:
+        capture["prompt"] = prompt
 
     try:
         # Use temperature=0 so the critic is deterministic and strict.
@@ -377,74 +468,91 @@ def _validate_hypotheses(
         else:
             raw = judge.generate(prompt)
     except Exception:
-        # A transport failure must not silently delete ideas.  Persist the
-        # failure as a review result so the next UI can distinguish it from an
-        # evidence-based rejection.
-        decisions = [{
-            "statement": h.statement, "decision": "review_unavailable",
-            "reason": "The adversarial review call failed; proposal retained.",
-        } for h in hypotheses]
-        result = (hypotheses, prompt, "", decisions)
-        return result if return_review else result[0]
+        if capture is not None:
+            # A transport failure must not silently delete ideas — and the
+            # record must distinguish it from an evidence-based rejection.
+            capture["decisions"] = [{
+                "statement": h.statement, "decision": "review_unavailable",
+                "reason": "The adversarial review call failed; proposal retained.",
+            } for h in hypotheses]
+        return hypotheses  # validation failed — keep originals, unannotated
+    raw = str(raw)
+    if capture is not None:
+        capture["raw"] = raw
 
-    kept: set[str] = set()
+    def _match(stmt: str) -> "Hypothesis | None":
+        stmt = stmt.strip().lower()
+        for h in hypotheses:
+            hs = h.statement.lower()
+            if hs[:60] in stmt or stmt[:60] in hs:
+                return h
+        return None
+
+    verdicts: dict[int, str] = {}
+    reasons: dict[int, str] = {}
+    last: "Hypothesis | None" = None
     saw_decision = False
-    reasons: dict[str, str] = {}
-    current_statement: str | None = None
-    for line in str(raw).splitlines():
+    for line in raw.splitlines():
         line = _normalise_label_line(line)
-        if line.upper().startswith("KEEP:"):
+        upper = line.upper()
+        if upper.startswith("KEEP:") or upper.startswith("REJECT:"):
             saw_decision = True
-            stmt = line[len("KEEP:"):].strip().lower()
-            for h in hypotheses:
-                if h.statement.lower()[:60] in stmt or stmt in h.statement.lower():
-                    kept.add(h.statement)
-                    current_statement = h.statement
-                    break
-        elif line.upper().startswith("REJECT:"):
-            saw_decision = True
-            stmt = line[len("REJECT:"):].strip().lower()
-            current_statement = None
-            for h in hypotheses:
-                if h.statement.lower()[:60] in stmt or stmt in h.statement.lower():
-                    current_statement = h.statement
-                    break
-        elif line.upper().startswith("REASON:") and current_statement:
-            reasons[current_statement] = line[len("REASON:"):].strip()
+            verdict = "keep" if upper.startswith("KEEP:") else "reject"
+            h = _match(line.split(":", 1)[1])
+            if h is not None:
+                verdicts[id(h)] = verdict
+                last = h
+            else:
+                last = None
+        elif upper.startswith("REASON:") and last is not None:
+            reasons[id(last)] = line[len("REASON:"):].strip()
 
-    decisions = [{
-        "statement": h.statement,
-        "decision": "keep" if h.statement in kept else (
-            "reject" if saw_decision else "review_unparseable"
-        ),
-        "reason": reasons.get(h.statement, ""),
-    } for h in hypotheses]
-
-    if not kept:
-        if saw_decision:
-            # A successful adversarial review that rejects every claim is
-            # evidence, not a parser outage. Passing those same claims to M5
-            # recreates the confirmation-bias loop this critic exists to stop.
-            import logging as _logging
-            _logging.getLogger(__name__).info(
-                "DiagnosisAgent validation: critic rejected all %d hypothesis(es)",
-                len(hypotheses),
-            )
-            result = ([], prompt, str(raw), decisions)
-            return result if return_review else result[0]
-        # Malformed/empty critic output is an infrastructure failure, so retain
-        # the proposals rather than silently deleting them.
+    if not saw_decision:
+        # Malformed/empty critic output is an infrastructure failure: keep the
+        # proposals, say so, and mark them so the record shows no review ran.
         import logging as _logging
         _logging.getLogger(__name__).warning(
             "DiagnosisAgent validation: critic response could not be parsed for "
-            "%d hypothesis(es) — keeping originals",
+            "%d hypothesis(es) — keeping them unreviewed",
             len(hypotheses),
         )
-        result = (hypotheses, prompt, str(raw), decisions)
-        return result if return_review else result[0]
+        for h in hypotheses:
+            h.metadata["critic"] = "unparsed"
+        if capture is not None:
+            capture.update(n_kept=0, n_rejected=0, decisions=_critic_decisions(hypotheses))
+        return hypotheses
 
-    result = ([h for h in hypotheses if h.statement in kept], prompt, str(raw), decisions)
-    return result if return_review else result[0]
+    for h in hypotheses:
+        h.metadata["critic"] = verdicts.get(id(h), "unparsed")
+        if id(h) in reasons:
+            h.metadata["critic_reason"] = reasons[id(h)]
+    n_kept = sum(1 for h in hypotheses if h.metadata.get("critic") == "keep")
+    n_rejected = sum(1 for h in hypotheses if h.metadata.get("critic") == "reject")
+    if capture is not None:
+        capture.update(n_kept=n_kept, n_rejected=n_rejected,
+                       decisions=_critic_decisions(hypotheses))
+    if n_rejected and not n_kept:
+        import logging as _logging
+        _logging.getLogger(__name__).info(
+            "DiagnosisAgent validation: critic rejected all %d hypothesis(es) — "
+            "kept as flagged leads; M5 on the held-out split decides",
+            len(hypotheses),
+        )
+    order = {"keep": 0, "unparsed": 1, "reject": 2}
+    return sorted(hypotheses, key=lambda h: order.get(h.metadata.get("critic"), 1))
+
+
+def _critic_decisions(hypotheses: list[Hypothesis]) -> list[dict[str, Any]]:
+    """Per-hypothesis review record derived from the critic's annotations: the
+    ``{statement, decision, reason}`` shape the run log, report and Langfuse
+    consume. ``decision`` is ``keep`` / ``reject`` / ``unparsed`` (or
+    ``review_unavailable`` when the critic call itself failed). The critic
+    never removes a hypothesis, so this is a record, not a filter."""
+    return [{
+        "statement": h.statement,
+        "decision": str(h.metadata.get("critic", "unparsed")),
+        "reason": str(h.metadata.get("critic_reason", "")),
+    } for h in hypotheses]
 
 
 def _default_judge() -> "Model":
@@ -516,6 +624,7 @@ class DiagnosisAgent:
         prior_cycles: list[dict] | None = None,
         explore_context: "ExploreContext | None" = None,
         failure_modes: "Any | None" = None,
+        cases: "Any | None" = None,
     ) -> DiagnosisResult:
         """Synthesize *analysis* into a set of falsifiable hypotheses.
 
@@ -536,6 +645,10 @@ class DiagnosisAgent:
                           *explore_context* — informs which hypotheses M3
                           proposes, never a claim itself. ``None`` (default)
                           adds nothing to the prompt and costs no extra call.
+            cases:        The labelled case batch M1/M2 ran on. Used ONLY to
+                          give the critic a label summary (PASS/FAIL counts;
+                          gold x answer table on a yes/no batch) — see
+                          :func:`_format_label_context`. ``None`` adds nothing.
 
         Returns:
             :class:`DiagnosisResult` with zero or more hypotheses.
@@ -617,33 +730,27 @@ class DiagnosisAgent:
             raw = self.judge.generate(prompt)
         proposed_hypotheses = _parse_hypotheses(str(raw), analysis.model_name or model_name)
         hypotheses = list(proposed_hypotheses)
-        review_prompt = ""
-        review_raw = ""
-        review_decisions: list[dict[str, Any]] = []
 
         # Adversarial validation: run a second critic call at temperature=0 to
         # prune hypotheses the generator produced without sufficient evidence.
         # This prevents the self-evaluation loop where the same model that
         # proposed a hypothesis then approves it uncritically.
+        critic: dict[str, Any] = {}
         if hypotheses:
-            # The reviewer must see the same evidence package as the proposer.
-            # Previously it saw only raw M1 findings while the proposer also saw
-            # M2's conclusion, statistical tests, and protocol context.
-            review_evidence = {
-                "protocol": getattr(analysis, "protocol", None).to_dict()
-                if hasattr(getattr(analysis, "protocol", None), "to_dict") else None,
-                "conclusion": conclusion,
-                "evidence_chain": evidence_chain,
-                "stats_results": [
-                    r.to_dict() if hasattr(r, "to_dict") else r
-                    for r in stats_results
-                ],
-                "corrected_rejections": getattr(analysis, "corrected_rejections", {}),
-                "raw_findings": summary,
-            }
-            hypotheses, review_prompt, review_raw, review_decisions = _validate_hypotheses(
-                hypotheses, json.dumps(review_evidence, indent=2, default=str), self.judge,
-                return_review=True,
+            findings_json_str = json.dumps(summary, indent=2, default=str)
+            # The critic reviews against what the proposer saw, not less:
+            # conclusion + evidence chain + stats verdicts + explore notes,
+            # plus a label summary the proposer never had either.
+            critic_context = "\n".join(part.strip("\n") for part in (
+                f"Analysis conclusion: {conclusion}",
+                evidence_section,
+                stats_section,
+                _format_explore_section(explore_context),
+                _format_label_context(cases),
+            ) if part and part.strip())
+            hypotheses = _validate_hypotheses(
+                hypotheses, findings_json_str, self.judge, capture=critic,
+                context=critic_context,
             )
 
         # Fallback: if the judge returned NO_ISSUE but M2 has medium/high findings,
@@ -671,8 +778,15 @@ class DiagnosisAgent:
             referenced_charts=_extract_referenced(str(raw), explore_context),
             explore_context_used=bool(explore_context is not None and not explore_context.is_empty),
             failure_modes_used=bool(getattr(failure_modes, "clusters", None)),
+            critic_raw_output=str(critic.get("raw", "") or ""),
+            critic_prompt=str(critic.get("prompt", "") or ""),
+            n_critic_kept=int(critic.get("n_kept", 0) or 0),
+            n_critic_rejected=int(critic.get("n_rejected", 0) or 0),
+            # The same review in the proposer/reviewer record shape: the full
+            # proposal list and a per-hypothesis decision derived from the
+            # critic annotations (the critic never removes a hypothesis).
             proposed_hypotheses=proposed_hypotheses,
-            review_prompt=review_prompt,
-            review_raw=review_raw,
-            review_decisions=review_decisions,
+            review_prompt=str(critic.get("prompt", "") or ""),
+            review_raw=str(critic.get("raw", "") or ""),
+            review_decisions=list(critic.get("decisions") or []),
         )
