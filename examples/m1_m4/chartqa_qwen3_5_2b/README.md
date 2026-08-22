@@ -89,3 +89,17 @@ Each attempt directory under `logs/fixes/` now also carries
 recoverable `expandable_segments` allocator warnings (the process had cached
 ~42 GB across differently sized upscaled chart images; no hard OOM, 16/16
 outputs).
+
+## Validation run: 2026-08-22, merge32 (32 cases, `--code-only`, after merging `main`)
+
+Same 32 cases, judge/coder/explorer all `claude-opus-5`, the rebuilt image
+from the merged tree (`0dcb5fe`), explore on: 28 min end to end, exit 0.
+Checks that the merge kept our path: with `verified=0` M4 still ran on the
+best unverified lead (refuted) and the fix stage executed (`stage_status:
+completed`, no `stage_skipped` event); both coded rounds ran first try
+(`coded_pipeline_result.json`: 16/16 anchored on the recorded baseline, 0
+guarded, no repair round) — unsafe 0/1 and 0/2, NOT FIXED as before. The
+diagnosis event carries both critic records (`critic_io` + `review`: 3
+proposed, 2 rejected, none removed); the explore charts came out as 1
+composition strip, 3 lines, 3 forest plots and 1 count bar under the merged
+chart policy.
