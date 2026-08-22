@@ -491,4 +491,198 @@ _add(ModelSpec(
     caveats=("closed weights; api backend only; no InternalsHandle. Open white-box path: step3-vl-10b.",),
 ))
 
+# ----------------------------------------------------------------------
+# examples/benchmark families: Gemma 4 and Nemotron 3 Nano (2026-08-21)
+# ----------------------------------------------------------------------
+# Gemma 4 (google/gemma-4-*-it) — natively multimodal: text + image on every
+# size, audio on E2B / E4B / 12B (the 12B is the encoder-free "Unified" variant:
+# raw image patches and audio waveforms are projected straight into the
+# decoder, model_type ``gemma4_unified``). Every size has a configurable
+# thinking mode; the specs turn it OFF on every template render. Attention is
+# a sliding/full interleave (all layers are attention, STANDARD semantics).
+# The processor emits ``mm_token_type_ids``, so image positions come from
+# there; the per-image patch grid is variable (aspect-ratio aware) and is NOT
+# rebuilt (``grid_source="fixed"`` with no tile size leaves ``grids`` empty).
+_GEMMA4_CAVEATS = (
+    "thinking is OFF here: chat_template_kwargs sends enable_thinking=False on "
+    "every template render (the checkpoints ship a configurable thinking mode)",
+    "image positions come from the processor's mm_token_type_ids; the patch "
+    "grid is variable-resolution and not rebuilt, so spatial attention maps "
+    "over the image are unavailable (grids=[])",
+    "needs transformers >= 5.15 (gemma4 / gemma4_unified are absent from 4.x); "
+    "the package's [local] extra pins transformers < 5, install it explicitly "
+    "(see examples/benchmark/docker/Dockerfile)",
+    "one spec per checkpoint serves every modality: a text-only prompt takes "
+    "the chat-template path with no image/audio block; the M1 modality gate "
+    "matches on the MODEL, so pin a text-safe analyzer set for text tasks",
+)
+for _key, _repo, _model_type, _unified in (
+    ("gemma-4-e2b-it", "google/gemma-4-E2B-it", "gemma4", False),
+    ("gemma-4-e4b-it", "google/gemma-4-E4B-it", "gemma4", False),
+    ("gemma-4-12b-it", "google/gemma-4-12B-it", "gemma4_unified", True),
+):
+    _add(ModelSpec(
+        key=_key, family="gemma4", model_type=_model_type, hf_repo=_repo,
+        auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+        min_transformers="5.15.0", is_reasoning=True,
+        chat_template_kwargs={"enable_thinking": False},
+        module_paths=ModulePaths(
+            decoder_layers="model.language_model.layers",
+            vision_tower=None if _unified else "model.vision_tower",
+        ),
+        vision=VisionSpec(
+            image_token_id_attr="image_token_id", merge_size_attr=None,
+            grid_source="fixed", fixed_tokens_per_tile=None,
+        ),
+        audio=AudioSpec(
+            audio_token_id_attr="audio_token_id",
+            audio_tower=None if _unified else "model.audio_tower",
+            use_audio_in_video=False,
+        ),
+        caveats=_GEMMA4_CAVEATS + ((
+            "Gemma 4 12B Unified: encoder-free (no vision/audio tower modules; "
+            "embed_vision / embed_audio linear projections instead), ~24 GB BF16",
+        ) if _unified else (
+            "per-layer embeddings (PLE): the raw parameter count is ~2.5x the "
+            "effective size; ~10 GB (E2B) / ~16 GB (E4B) BF16",
+        )),
+    ))
+
+# Nemotron 3 Nano (nvidia) — Mamba2 / MLP / attention hybrids. hybrid_override_pattern
+# spells the stack (M = Mamba2, - = MLP, E = MoE MLP, * = attention): attention
+# exists only at the '*' positions, so HYBRID_SPARSE semantics apply. NVIDIA
+# publishes each checkpoint in BF16, FP8 and NVFP4. The FP8/NVFP4 files are
+# ModelOpt exports (hf_quant_config.json + fp8 weight/input scales) meant for
+# vLLM/TRT-LLM: transformers has no ModelOpt quantizer and its fp8 path refuses
+# GPUs below compute capability 8.9, so hf_local takes the BF16 sibling and the
+# FP8 keys exist for an OpenAI-compatible endpoint (``backend="api"``).
+_NEMOTRON_4B_PATTERN_NOTE = (
+    "HYBRID stack: hybrid_override_pattern M-M-M-MM-M-M*-M-M*-M-M-M*-M-M-MM*-MMM-M-M- "
+    "(42 layers: 21 Mamba2, 17 MLP, 4 attention) — a forward returns 4 attention "
+    "tensors whose positions are not layer numbers; read config.hybrid_override_pattern "
+    "to map them back, and never read a rollout as full-depth"
+)
+_NEMOTRON_H_CAVEATS = (
+    "thinking is OFF here: chat_template_kwargs sends enable_thinking=False on "
+    "every render (the template defaults to thinking ON)",
+    "REMOTE CODE on purpose: transformers' native `nemotron_h` module loaded this "
+    "checkpoint but generated nothing except newline tokens (2026-08-21, 5.15.0); the "
+    "repo's modeling_nemotron_h.py hard-imports mamba_ssm (gated RMSNorm) and uses "
+    "causal_conv1d for its fast path -- prebuilt wheels exist up to torch 2.10, so the "
+    "benchmark's nemotron image runs torch 2.10 / transformers 4.57 (see "
+    "examples/benchmark/docker/Dockerfile)",
+    "hf_local applies two post-load shims (HFLocalModel._apply_family_shims): generate() "
+    "must not pre-build a DynamicCache (the repo code builds its hybrid Mamba cache only "
+    "when past_key_values is None -- without the shim it recomputes every step, ~2 tok/s) "
+    "and generation stops on the tokenizer's <|im_end|> as well as generation_config's </s> "
+    "(the template's turn end; without it every answer pads to the cap)",
+    "eager attention only: the remote NemotronHForCausalLM has no SDPA dispatch "
+    "(transformers raises on attn_implementation=sdpa)",
+)
+_add(ModelSpec(
+    key="nemotron-3-nano-4b", family="nemotron_h", model_type="nemotron_h",
+    hf_repo="nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16",
+    auto_class="AutoModelForCausalLM", processor_class="AutoTokenizer",
+    trust_remote_code=True, min_transformers="4.48.3", is_reasoning=True,
+    chat_template_kwargs={"enable_thinking": False},
+    attn_semantics=AttnSemantics.HYBRID_SPARSE,
+    module_paths=ModulePaths(decoder_layers="backbone.layers", self_attn="mixer", mlp="mixer"),
+    caveats=(_NEMOTRON_4B_PATTERN_NOTE,) + _NEMOTRON_H_CAVEATS + (
+        "BF16 sibling of nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8 (same weights before "
+        "ModelOpt quantization); ~9 GB",
+    ),
+))
+_add(ModelSpec(
+    key="nemotron-3-nano-4b-fp8", family="nemotron_h", model_type="nemotron_h",
+    hf_repo="nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8",
+    auto_class="AutoModelForCausalLM", processor_class="AutoTokenizer",
+    trust_remote_code=True, min_transformers="4.48.3", is_reasoning=True,
+    chat_template_kwargs={"enable_thinking": False},
+    attn_semantics=AttnSemantics.HYBRID_SPARSE,
+    module_paths=ModulePaths(decoder_layers="backbone.layers", self_attn="mixer", mlp="mixer"),
+    caveats=(
+        "ENDPOINT ONLY: ModelOpt FP8 export (hf_quant_config.json, per-tensor fp8 "
+        "weight/input scales, fp8 KV cache) — transformers has no ModelOpt quantizer "
+        "and refuses fp8 on GPUs below compute capability 8.9 (A6000 = 8.6, A100 = 8.0); "
+        "serve it with vLLM and use backend='api'; hf_local loads 'nemotron-3-nano-4b'",
+        _NEMOTRON_4B_PATTERN_NOTE,
+    ) + _NEMOTRON_H_CAVEATS[:1],
+))
+
+# Nemotron 3 Nano Omni (video/audio/image/text in, text out): a 30B-A3B
+# NemotronH MoE backbone (52 layers: 23 Mamba2, 23 MoE MLP, 6 attention) behind a
+# C-RADIO v4-H vision encoder and a Parakeet speech encoder, all in the repo's
+# own code (model_type NemotronH_Nano_Omni_Reasoning_V3, trust_remote_code).
+_NEMOTRON_OMNI_CAVEATS = (
+    "62 GB BF16: needs device='auto' over at least two 48 GB cards (or one 80 GB); "
+    "FP8 (33 GB) and NVFP4 (21 GB) siblings are vLLM-only on Ampere (see the -fp8 key)",
+    "same NemotronH generate() shims as nemotron-3-nano-4b (no pre-built DynamicCache, "
+    "stop on the tokenizer EOS), applied to the embedded language_model; eager attention only",
+    "permanent remote code (modeling.py / processing.py / modeling_nemotron_h.py in "
+    "the repo): the language model is an embedded NemotronHForCausalLM at "
+    "language_model.backbone.layers, vision at vision_model (RADIO, remote code "
+    "from nvidia/C-RADIOv4-H), audio at sound_encoder (Parakeet) + sound_projection",
+    "HYBRID MoE stack: hybrid_override_pattern has attention at 6 of 52 positions "
+    "('*'), Mamba2 at 'M', routed experts at 'E' — HYBRID_SPARSE semantics",
+    "image tokens: InternVL-style dynamic tiling, 256 tokens per 512px tile "
+    "((512/16)^2 * 0.5^2) plus a thumbnail tile; token id from "
+    "config.img_context_token_id; audio from config.sound_context_token_id at 16 kHz",
+    "thinking is OFF here: chat_template_kwargs sends enable_thinking=False (the "
+    "template defaults to reasoning ON and supports reasoning_budget)",
+    "the generic hf_local encode path (apply_chat_template with typed content blocks, "
+    "processor(text=, images=, audio=, sampling_rate=)) has NOT been exercised against "
+    "this processor yet — run the examples/benchmark --baseline-only smoke first",
+)
+_add(ModelSpec(
+    key="nemotron-3-nano-omni-30b-a3b-reasoning", family="nemotron_h_omni",
+    model_type="NemotronH_Nano_Omni_Reasoning_V3",
+    hf_repo="nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+    auto_class="AutoModelForCausalLM", processor_class="AutoProcessor",
+    trust_remote_code=True, min_transformers="4.57.0", is_moe=True, is_reasoning=True,
+    chat_template_kwargs={"enable_thinking": False},
+    attn_semantics=AttnSemantics.HYBRID_SPARSE,
+    module_paths=ModulePaths(
+        decoder_layers="language_model.backbone.layers", self_attn="mixer", mlp="mixer",
+        vision_tower="vision_model",
+    ),
+    vision=VisionSpec(
+        image_token_id_attr="img_context_token_id", merge_size_attr=None,
+        grid_source="fixed", fixed_tokens_per_tile=256,
+    ),
+    audio=AudioSpec(
+        audio_token_id_attr="sound_context_token_id", audio_tower="sound_encoder",
+        use_audio_in_video=False,
+    ),
+    video=True,
+    caveats=_NEMOTRON_OMNI_CAVEATS,
+))
+_add(ModelSpec(
+    key="nemotron-3-nano-omni-30b-a3b-reasoning-fp8", family="nemotron_h_omni",
+    model_type="NemotronH_Nano_Omni_Reasoning_V3",
+    hf_repo="nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8",
+    auto_class="AutoModelForCausalLM", processor_class="AutoProcessor",
+    trust_remote_code=True, min_transformers="4.57.0", is_moe=True, is_reasoning=True,
+    chat_template_kwargs={"enable_thinking": False},
+    attn_semantics=AttnSemantics.HYBRID_SPARSE,
+    module_paths=ModulePaths(
+        decoder_layers="language_model.backbone.layers", self_attn="mixer", mlp="mixer",
+        vision_tower="vision_model",
+    ),
+    vision=VisionSpec(
+        image_token_id_attr="img_context_token_id", merge_size_attr=None,
+        grid_source="fixed", fixed_tokens_per_tile=256,
+    ),
+    audio=AudioSpec(
+        audio_token_id_attr="sound_context_token_id", audio_tower="sound_encoder",
+        use_audio_in_video=False,
+    ),
+    video=True,
+    caveats=(
+        "ENDPOINT ONLY: ModelOpt FP8 export (config quantization_config.quant_method="
+        "'modelopt') — transformers cannot load it and refuses fp8 below compute "
+        "capability 8.9; serve with vLLM >= 0.20 (vllm[audio]) and use backend='api'; "
+        "hf_local loads 'nemotron-3-nano-omni-30b-a3b-reasoning' (BF16)",
+    ) + _NEMOTRON_OMNI_CAVEATS[1:3],
+))
+
 __all__ = ["REGISTRY", "get_spec", "list_specs"]

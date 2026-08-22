@@ -1,0 +1,24 @@
+# ALM (audio + text) x Nemotron 3 Nano: one service per size, dataset/limit via env.
+#   DATASET=mmau LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name alm-nemotron-3-nano-omni-30b-a3b-mmau nemotron-3-nano-omni-30b-a3b
+# Datasets for this modality: mmau, audiocaps_hallu.
+# EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
+# Judge/coder are pinned to Claude Opus 5 here; the CLI default provider is agy.
+name: bench-alm-nemotron
+x-nemotron: &nemotron
+  extends:
+    file: ../../_common/compose/base.yml
+    service: bench
+  image: evalvitals-bench-nemotron
+  build:
+    context: ../../../..
+    dockerfile: examples/benchmark/docker/Dockerfile
+    target: nemotron
+  volumes:
+    - ../_data:/app/work/data        # frozen manifests + media, shared by every family of the modality
+    - ./outputs:/app/work/outputs    # <model>/<dataset>[.<tag>]/{baseline.json,logs,explore,summary.json}
+services:
+  nemotron-3-nano-omni-30b-a3b:
+    <<: *nemotron
+    # 2 GPUs: CUDA_VISIBLE_DEVICES=a,b (62 GB BF16: device=auto over two 48 GB cards; FP8 (33 GB) is vLLM-only)
+    command: >
+      sh -c "python -m _common.run --modality alm --model nemotron-3-nano-omni-30b-a3b --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --device auto --judge-provider claude --judge-model claude-opus-5 --judge-effort high ${EXTRA_ARGS:-}"

@@ -1,0 +1,14 @@
+# Build every family image in one go (from any directory):
+#   docker compose -f examples/benchmark/docker/docker-compose.build.yml build
+# The leaf compose files carry the same build stanza, so `docker compose up --build`
+# in a leaf also works; the layer cache makes the second build a no-op.
+services:
+  qwen:
+    image: evalvitals-bench-qwen
+    build: {context: ../../.., dockerfile: examples/benchmark/docker/Dockerfile, target: qwen}
+  gemma:
+    image: evalvitals-bench-gemma
+    build: {context: ../../.., dockerfile: examples/benchmark/docker/Dockerfile, target: gemma}
+  nemotron:
+    image: evalvitals-bench-nemotron
+    build: {context: ../../.., dockerfile: examples/benchmark/docker/Dockerfile, target: nemotron}

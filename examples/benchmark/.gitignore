@@ -1,0 +1,5 @@
+/.env
+!/*/*/.env
+*/_data/
+*/*/outputs/
+__pycache__/

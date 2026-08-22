@@ -1,0 +1,23 @@
+# LLM (text only) x Nemotron 3 Nano: one service per size, dataset/limit via env.
+#   DATASET=bbh_causal_judgement LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name llm-nemotron-3-nano-4b-bbh_causal_judgement nemotron-3-nano-4b
+# Datasets for this modality: cruxeval_output, bbh_causal_judgement, supergpqa_economics, bbh_word_sorting, bbh_tracking7, bamboogle, minervamath, supergpqa_law, supergpqa_medicine_hard.
+# EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
+# Judge/coder are pinned to Claude Opus 5 here; the CLI default provider is agy.
+name: bench-llm-nemotron
+x-nemotron: &nemotron
+  extends:
+    file: ../../_common/compose/base.yml
+    service: bench
+  image: evalvitals-bench-nemotron
+  build:
+    context: ../../../..
+    dockerfile: examples/benchmark/docker/Dockerfile
+    target: nemotron
+  volumes:
+    - ../_data:/app/work/data        # frozen manifests + media, shared by every family of the modality
+    - ./outputs:/app/work/outputs    # <model>/<dataset>[.<tag>]/{baseline.json,logs,explore,summary.json}
+services:
+  nemotron-3-nano-4b:
+    <<: *nemotron
+    command: >
+      sh -c "python -m _common.run --modality llm --model nemotron-3-nano-4b --dataset ${DATASET:-bbh_causal_judgement} --limit ${LIMIT:-256} --judge-provider claude --judge-model claude-opus-5 --judge-effort high ${EXTRA_ARGS:-}"
