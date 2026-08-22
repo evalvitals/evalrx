@@ -66,7 +66,7 @@ class CoverageVerificationGap(Analyzer):
     Hyper-parameters:
         k:           samples per case.
         self_verify: +1 generation asking the model to choose among its own k.
-        max_cases:   label-stratified cap (k generations each).
+        max_cases:   label-stratified cap (k generations each); 0 (the default) = every case.
         gen_kwargs:  passed to ``model.generate`` — REQUIRES temperature > 0;
                      at temperature 0 all k samples are identical and the gap is
                      structurally 0.
@@ -83,7 +83,7 @@ class CoverageVerificationGap(Analyzer):
         self,
         k: int = 5,
         self_verify: bool = False,
-        max_cases: int = 16,
+        max_cases: int = 0,
         gen_kwargs: Optional[dict] = None,
         grader: Optional[Callable[[Any, "FailureCase"], Optional[bool]]] = None,
         answer_fn: Optional[Callable[[Any], str]] = None,

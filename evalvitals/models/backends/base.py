@@ -29,6 +29,13 @@ class RuntimeConfig:
     dtype: str = "bfloat16"
     attn_impl: Optional[str] = None          # hf_local forces "eager" when attention is wanted
     max_new_tokens: int = 512
+    #: hf_local, TEXT-ONLY specs: render ``inputs.prompt`` as one user turn through
+    #: the tokenizer's chat template (with ``spec.chat_template_kwargs``, e.g.
+    #: ``enable_thinking=False``) before generate()/logprobs(). Off by default: a
+    #: raw prompt is tokenised verbatim (completion mode), which is what every
+    #: caller got before 2026-08-21 and what a pre-formatted prompt needs. The
+    #: multimodal encode path always renders the template.
+    apply_chat_template: bool = False
     engine_kwargs: dict[str, Any] = field(default_factory=dict)   # vllm_offline LLM(**)
     client_kwargs: dict[str, Any] = field(default_factory=dict)   # api client opts (e.g. logprobs=True)
     generate_fn: Optional[Callable[..., str]] = None              # api: simple text generate

@@ -22,6 +22,8 @@ class BenchmarkConfig:
     task_domain: str
     description: str
     success_criteria: str
+    # Spec key of the model under test (``--model`` overrides it per run).
+    model: str = "qwen2.5-vl-7b-instruct"
 
 
 _ARTICLES = re.compile(r"\b(a|an|the)\b", re.IGNORECASE)
@@ -137,7 +139,7 @@ def _self_test(config: BenchmarkConfig, manifest: Path, limit: int) -> None:
 
 def main(config: BenchmarkConfig) -> None:
     parser = argparse.ArgumentParser(description=f"EvalVitals M1-M5+Fix on {config.name}")
-    parser.add_argument("--model", default="qwen2.5-vl-7b-instruct")
+    parser.add_argument("--model", default=config.model)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--manifest", default=config.manifest)
@@ -154,6 +156,13 @@ def main(config: BenchmarkConfig) -> None:
     parser.add_argument(
         "--auto-escalate", action=argparse.BooleanOptionalAction, default=False,
         help="Automatically continue from L2 into L3a when lower tiers do not validate.",
+    )
+    parser.add_argument(
+        "--code-only", action="store_true",
+        help="restrict the fix pool to the coder-written L2 pipeline "
+             "(candidate_allowlist={'coded_pipeline'}, one judge candidate) — the "
+             "autonomous-code-repair protocol these examples were first written "
+             "for. Default: every admissible candidate competes.",
     )
     parser.add_argument(
         "--explore", action=argparse.BooleanOptionalAction, default=True,
@@ -301,13 +310,16 @@ def main(config: BenchmarkConfig) -> None:
         # repair: the 512-case launch uses 256 EXPLORE / 256 CONFIRM.
         max_validation_cases=256,
         alpha=0.05,
-        # These examples demonstrate autonomous code repair.  The agent may
-        # run two feedback-driven code revisions on EXPLORE; run_fix then
-        # freezes the best positive-net candidate and evaluates that one
-        # candidate on CONFIRM.  No confirmation feedback enters authoring.
-        candidate_allowlist={"coded_pipeline"},
+        # Full candidate family by default (judge L1/L2 prompts and specs,
+        # the self_consistency floor, and the coded pipeline) — the
+        # llm_benchmark shape. --code-only restores the single-candidate
+        # autonomous-code-repair protocol: the agent may run two
+        # feedback-driven code revisions on EXPLORE; run_fix then freezes
+        # the best positive-net candidate and evaluates that one on
+        # CONFIRM. No confirmation feedback enters authoring either way.
+        candidate_allowlist={"coded_pipeline"} if args.code_only else None,
         max_repair_rounds=2,
-        max_judge_candidates=1,
+        **({"max_judge_candidates": 1} if args.code_only else {}),
         # A conservative VLM repair commonly makes one baseline call plus
         # three enhanced passes.  At 128 confirmation cases ChartQA can exceed
         # twenty minutes on a 7B model, so budget execution per whole batch
@@ -366,9 +378,10 @@ def main(config: BenchmarkConfig) -> None:
         f"Diagnosis: stopped_by={report.stopped_by}, cycles={report.cycles}, "
         f"verified={len(report.verified_hypotheses)}"
     )
-    fix_proposal = loop.run_m4(report, cases)
+    fix_proposal = loop.run_m4(report, cases, allow_unverified=True)
     if fix_proposal is not None:
-        print(f"M4 experiment on the verified hypothesis: status={fix_proposal.status}")
+        tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
+        print(f"M4 experiment on the {tag} hypothesis: status={fix_proposal.status}")
     else:
         print("M4: no hypothesis to experiment on")
     outcome = loop.run_fix(
@@ -376,6 +389,9 @@ def main(config: BenchmarkConfig) -> None:
         cases,
         max_tier=args.fix_tier,
         auto_escalate=args.auto_escalate,
+        # No M5-verified hypothesis still gets a fix attempt on the best
+        # unverified leads (the candidate validation on CONFIRM is the gate).
+        allow_unverified=True,
     )
     for validation in outcome.attempted:
         effect = "n/a" if validation.effect is None else f"{validation.effect:+.3f}"

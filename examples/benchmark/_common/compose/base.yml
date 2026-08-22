@@ -1,0 +1,35 @@
+# Shared service template for every examples/benchmark leaf (docker compose `extends`).
+# Mount SOURCES are variables with portable defaults, so a host whose docker daemon
+# cannot traverse $HOME (tealab: root-squashed NFS) sets them once in
+# examples/benchmark/.env (each leaf links to it) instead of overriding volumes.
+services:
+  bench:
+    working_dir: /app/work
+    environment:
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - HF_HOME=/hf_cache
+      - HF_TOKEN=${HF_TOKEN:-}
+      # claude reads its OAuth state from $HOME; IS_SANDBOX lets it accept
+      # --dangerously-skip-permissions as root.
+      - HOME=/home/user
+      - IS_SANDBOX=1
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/examples/benchmark
+    volumes:
+      - ${EVALVITALS_HF_CACHE:-~/.cache/huggingface}:/hf_cache
+      # Judge + coder CLI (ClaudeModel / claude_code): the NATIVE claude binary.
+      - ${CLAUDE_PATH:-~/.local/bin/claude}:/usr/local/bin/claude:ro
+      - ${CLAUDE_HOME:-~/.claude}:/home/user/.claude
+      - ${CLAUDE_JSON:-~/.claude.json}:/home/user/.claude.json
+    # --backend endpoint reaches a vLLM server on the host at host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

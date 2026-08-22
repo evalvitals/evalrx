@@ -18,7 +18,7 @@ against each `run.py`'s own imports, not assumed from the folder name:
   the same call, or a separate script run right after) is noted per example
   below — that distinction matters and doesn't fit in a folder name.
 
-Five more directories don't belong to the M1–M5 progression at all, and are
+Six more directories don't belong to the M1–M5 progression at all, and are
 kept under their own names rather than forced into a stage bucket:
 
 - `analyzer_demos/` — one analyzer, one call, no loop of any kind.
@@ -32,6 +32,9 @@ kept under their own names rather than forced into a stage bucket:
   even diagnosable before you spend a probing budget on it.
 - `paper_diagnosis_benchmark/` — uses `explore` against the **framework's
   own track record** over research papers, not to diagnose a subject model.
+- `benchmark/` — the full loop as a **matrix**: model family (Qwen /
+  Gemma 4 / Nemotron 3) × modality (vlm / llm / alm) × dataset, one image per
+  family, size and dataset as runtime arguments. See its [README](benchmark/README.md).
 
 ## Stage coverage
 
@@ -51,6 +54,7 @@ kept under their own names rather than forced into a stage bucket:
 | `agent_demos/visual_zoom_agent` | `Agent` (tool-calling) | trajectory capture only | n/a — pre-diagnosis |
 | `preregistered_ab_demo/eval_agent` | `EvalOrchestrator` | mine → hypothesis → validate → confirm | not M-numbered |
 | `dataset_selection/llm_band_probe` | none | pre-M1 | n/a |
+| `benchmark/<modality>/<family>` | `VLDiagnoseLoop` | M1→M2→M3→M5 | `loop.run_m4`/`run_fix`, right after `loop.run()`; pinned M1 per dataset |
 | `paper_diagnosis_benchmark/` | mostly bare `explore()` | M2-ish, meta over papers | one script also uses `FixAgent` |
 
 ## Run

@@ -87,6 +87,12 @@ _LABEL_DERIVED_SUFFIXES = frozenset({
     "answer_extraction_audit.strict_match",
     "answer_extraction_audit.label_disagrees",
     "answer_extraction_audit.labelled_fail",
+    # gold x pred conjunctions: P(FAIL | flag) = 1 by construction. Sparse
+    # enough to slip past label_leak_score, named nothing like "correct", so
+    # they sat in the VLM family as guaranteed BH survivors. The marginals
+    # (pope.answered_yes / pope.gold_yes) stay testable.
+    "pope.false_positive",
+    "pope.false_negative",
 })
 
 

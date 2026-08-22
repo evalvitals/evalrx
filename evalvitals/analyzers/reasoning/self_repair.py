@@ -67,8 +67,9 @@ class SelfRepairAnalyzer(Analyzer):
         revise_with_critique: also run the "you made an error" revision
                               (+1 generation; measures repair under an oracle
                               error signal the deployed loop will not have).
-        max_cases:            label-stratified cap — PASS cases are REQUIRED
-                              here, they are what makes damage measurable.
+        max_cases:            label-stratified cap; 0 (the default) = every case.
+                              PASS cases are REQUIRED here, they are what makes
+                              damage measurable.
         generate_missing:     produce a baseline answer when ``observed`` is empty.
         grader:               ``callable(prediction, case) -> bool | None``.
         answer_fn:            ``callable(text) -> str`` answer extractor.
@@ -81,7 +82,7 @@ class SelfRepairAnalyzer(Analyzer):
     def __init__(
         self,
         revise_with_critique: bool = False,
-        max_cases: int = 32,
+        max_cases: int = 0,
         generate_missing: bool = True,
         grader: Optional[Callable[[Any, "FailureCase"], Optional[bool]]] = None,
         answer_fn: Optional[Callable[[Any], str]] = None,

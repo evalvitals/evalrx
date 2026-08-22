@@ -87,10 +87,11 @@ _GENERIC_FRAMING = """\
 OUTCOME FRAMING — apply whichever case matches what you find after loading:
   - BINARY outcome (2 distinct values in some column): call the two groups
     FAIL and PASS and tell the FAIL-vs-PASS story — class balance; per numeric
-    signal vs FAIL/PASS (distribution view + binned fail-rate curve); a ranked
-    bar of each signal's FAIL-vs-PASS separation; fail rate by categorical
-    group columns; signal correlations; 1-2 scatter plots of the most
-    discriminative pairs coloured by outcome.
+    signal vs FAIL/PASS (distribution view PNG + binned fail-rate curve spec);
+    a ranked bar of each signal's FAIL-vs-PASS separation; fail rate by
+    categorical group columns (group -> fail_rate, n, n_fail); signal
+    correlations; 1-2 scatter plots of the most discriminative pairs coloured
+    by outcome.
   - CATEGORICAL outcome (3+ classes): tell the per-class story — do NOT
     collapse it into a binary split. Class balance per class; per numeric
     signal's distribution across classes (box/violin) plus a ranked
@@ -132,12 +133,22 @@ First build a "visual_plan" list. Each item should be a dict:
 
 Use these decision principles (chart-type policy: a bar's filled area means
 "amount accumulated from zero" — BARS ARE FOR COUNTS ONLY; never a rate, a
-mean, a proportion, or an effect size):
-  - categorical/binary outcome: a count bar with n annotated in the table is
-    fine for raw counts; a RATE by group or bin is a line (or dot plot), never a bar.
-  - numeric predictor vs categorical/binary outcome: prefer distribution views
-    (box/violin/strip) when writing rich PNG plots; include a deterministic
-    summary chart only when useful.
+mean, a proportion, or an effect size — the host demotes such a bar to a line
+or a forest plot):
+  - class balance (count per outcome class): a count table; the host draws it
+    as ONE composition strip, never two tall bars.
+  - a rate or a mean compared across a few groups (FAIL vs PASS, present vs
+    absent, ...): a group->value table WITH an "n" column — and for a RATE also
+    the numerator column (e.g. "n_fail") or explicit "ci_low"/"ci_high"; the
+    host draws <= 3 groups as a dot + 95% CI (a lollipop when no interval can
+    be formed), never as bars. A "mean_*" of per-case values gets no invented
+    interval — give ci_low/ci_high yourself if you have them.
+  - a rate/mean/effect over MORE than 3 groups or over bins: a line (binned
+    rates) or a ranked forest/dot plot (effect sizes), never bars.
+  - numeric predictor vs categorical/binary outcome: the deterministic spec is
+    the BINNED fail-rate LINE (bin -> fail_rate, with n per bin) — do NOT also
+    emit a two-group "mean of the signal by outcome" spec for it; the
+    distribution view (violin/box/strip by outcome) is a rich PNG you draw.
   - binned numeric trend (event rate, or mean of a continuous outcome): line
     over ordered bins/percentiles.
   - numeric vs numeric: scatter, optionally colored/stratified by outcome or group.
@@ -157,10 +168,14 @@ For EVERY chart you report in "charts":
 - add a spec {{"name","display_name","kind","data","x","y","title"}} with data="tables/<name>.csv"
   and kind in {{"bar","line","scatter","forest"}}. The HOST renders these deterministically,
   so PRE-AGGREGATE distributions into the CSV (histogram = bin->count; outcome
-  rate or mean-outcome curve = bin->value; group comparison = group->value) —
-  never rely on a raw dump. The host enforces the chart-type policy: kind="bar"
-  is rendered as a bar ONLY for raw counts (integer counts of cases/samples);
-  a rate/mean/effect bar is automatically demoted to a line or forest plot.
+  rate or mean-outcome curve = bin->value plus n; group comparison =
+  group->value plus n, and for a rate its numerator or ci_low/ci_high) —
+  never rely on a raw dump. The host picks the chart FORM from the table
+  (composition strip for class counts, dot + CI for <= 3 groups, line for
+  bins, forest plot for ranked effects, bars only for raw counts — a
+  kind="bar" whose y is a rate/mean/effect is demoted automatically) and
+  colours FAIL/PASS with the house hues, so name outcome groups exactly
+  "FAIL" / "PASS".
 ADDITIONALLY you MAY draw richer figures (box / violin / heatmap / scatter-matrix)
 directly as PNG under "figures/" and list them in "plots"; a figure-styling skill
 (when available) will make these publication-quality.

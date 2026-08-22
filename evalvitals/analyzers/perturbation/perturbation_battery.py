@@ -126,7 +126,7 @@ class PerturbationBattery(Analyzer):
         perturbations: ``((name, kind, fn), ...)`` with ``kind`` in
                        ``{"preserving", "altering"}``; ``fn(prompt) -> str | None``
                        returns ``None`` when it does not apply to that prompt.
-        max_cases:     label-stratified cap.
+        max_cases:     label-stratified cap; 0 (the default) = every case.
         gen_kwargs:    passed to ``model.generate`` — use temperature 0, or the
                        flip rates measure decoding noise instead of brittleness.
         answer_fn:     ``callable(text) -> str`` answer extractor.
@@ -139,7 +139,7 @@ class PerturbationBattery(Analyzer):
     def __init__(
         self,
         perturbations: tuple = DEFAULT_PERTURBATIONS,
-        max_cases: int = 24,
+        max_cases: int = 0,
         gen_kwargs: Optional[dict] = None,
         answer_fn: Optional[Callable[[Any], str]] = None,
     ) -> None:

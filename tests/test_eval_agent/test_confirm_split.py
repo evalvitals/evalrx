@@ -130,6 +130,10 @@ def _report():
     return VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[h])
 
 
+# The reports below carry proposals only (nothing M5-verified): since the
+# 2026-08-21 merge of main, run_fix records a skipped stage for that unless the
+# caller opts in with allow_unverified=True — the split mechanics are the
+# subject here, so every call opts in.
 def test_run_fix_validates_on_confirm_partition():
     batch = _batch()
     stub = _RecordingFixAgent()
@@ -138,7 +142,7 @@ def test_run_fix_validates_on_confirm_partition():
     explore_ids = {id(c) for c in explore}
     confirm_ids = {id(c) for c in confirm}
 
-    outcome = loop.run_fix(_report(), batch)
+    outcome = loop.run_fix(_report(), batch, allow_unverified=True)
     # Candidate iteration/selection sees ONLY explore; the one frozen candidate
     # is then scored ONLY on confirm.
     assert stub.seen_ids == explore_ids
@@ -155,7 +159,7 @@ def test_run_fix_off_uses_full_batch():
     batch = _batch()
     stub = _RecordingFixAgent()
     loop = _loop(fix_agent=stub)  # confirm_split defaults to 0
-    loop.run_fix(_report(), batch)
+    loop.run_fix(_report(), batch, allow_unverified=True)
     assert stub.seen_ids == {id(c) for c in batch}  # unchanged: full batch
     assert stub.proposal_ids is None
     assert stub.confirm_ids is None
@@ -166,7 +170,7 @@ def test_run_fix_disables_feedback_escalation_on_confirm_partition():
     stub = _RecordingFixAgent()
     loop = _loop(fix_agent=stub, confirm_split=0.5)
 
-    loop.run_fix(_report(), batch, auto_escalate=True)
+    loop.run_fix(_report(), batch, auto_escalate=True, allow_unverified=True)
 
     # Adaptive tier 2 would be authored from tier 1's holdout failures.  The
     # held-out path therefore executes one pre-registered repair family only.

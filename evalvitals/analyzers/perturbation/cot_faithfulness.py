@@ -92,7 +92,7 @@ class CoTFaithfulnessAnalyzer(Analyzer):
 
     Hyper-parameters:
         truncation_fracs: reasoning prefixes to test (fractions of sentences).
-        max_cases:        label-stratified cap (2 + len(fracs) generations each).
+        max_cases:        label-stratified cap (2 + len(fracs) generations each); 0 (the default) = every case.
         answer_fn:        ``callable(text) -> str`` answer extractor
                           (default: last 'Answer:' tag, else last line).
         grader:           ``callable(prediction, case) -> bool | None`` used for
@@ -107,7 +107,7 @@ class CoTFaithfulnessAnalyzer(Analyzer):
     def __init__(
         self,
         truncation_fracs: tuple = (0.25, 0.5, 0.75),
-        max_cases: int = 24,
+        max_cases: int = 0,
         answer_fn: Optional[Callable[[str], str]] = None,
         grader: Optional[Callable[[Any, Any], Optional[bool]]] = None,
     ) -> None:

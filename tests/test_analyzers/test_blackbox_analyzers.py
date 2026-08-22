@@ -68,12 +68,16 @@ def test_pope_mechanism_signals():
     f = POPEAnalyzer().run(model, cases).findings
     flags = [(e["false_positive"], e["false_negative"]) for e in f["per_case"]]
     assert flags == [(False, False), (False, True), (True, False), (False, False)]
+    # the marginals those flags are built from -- the columns M2/M5 may test
+    assert [(e["answered_yes"], e["gold_yes"]) for e in f["per_case"]] == [
+        (True, True), (False, True), (True, False), (False, False)]
     assert f["false_positive_rate"] == 0.5  # fp=1 of (fp+tn)=2
     # Cases without a gold label never flag a mechanism signal.
     no_gold = cases_from_records([{"question": "What modality is this?"}])
     f2 = POPEAnalyzer().run(ScriptModel(["yes"]), no_gold).findings
     assert f2["per_case"][0]["false_positive"] is False
     assert f2["per_case"][0]["false_negative"] is False
+    assert "gold_yes" not in f2["per_case"][0] and f2["per_case"][0]["answered_yes"] is True
 
 
 # ---------------- CHAIR ----------------

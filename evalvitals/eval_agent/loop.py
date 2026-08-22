@@ -74,23 +74,25 @@ _STOPPED_BY_ANALYSIS  = "analysis_complete"
 
 def _diagnose_with_optional_context(
     diag_agent: "Any", stats_report: "Any", prior_cycles: "Any", explore_context: "Any | None",
-    failure_modes: "Any | None" = None,
+    failure_modes: "Any | None" = None, cases: "Any | None" = None,
 ) -> "Any":
-    """Call ``diag_agent.diagnose`` passing ``explore_context``/``failure_modes``
-    only when the agent accepts them, so custom/legacy diagnosis agents keep
-    working unchanged."""
+    """Call ``diag_agent.diagnose`` passing ``explore_context``/``failure_modes``/
+    ``cases`` only when the agent accepts them, so custom/legacy diagnosis
+    agents keep working unchanged. ``cases`` (the explore-split batch M1/M2
+    ran on) only feeds the critic's label summary -- never the proposer."""
     import inspect as _inspect
 
     kwargs: dict[str, Any] = {"prior_cycles": prior_cycles or None}
-    if explore_context is not None or failure_modes is not None:
+    optional = {"explore_context": explore_context, "failure_modes": failure_modes,
+                "cases": cases}
+    if any(v is not None for v in optional.values()):
         try:
             params = _inspect.signature(diag_agent.diagnose).parameters
         except (TypeError, ValueError):
             params = {}
-        if explore_context is not None and "explore_context" in params:
-            kwargs["explore_context"] = explore_context
-        if failure_modes is not None and "failure_modes" in params:
-            kwargs["failure_modes"] = failure_modes
+        for name, value in optional.items():
+            if value is not None and name in params:
+                kwargs[name] = value
     return diag_agent.diagnose(stats_report, **kwargs)
 
 
@@ -117,9 +119,14 @@ def _unverified_hypotheses(report: "Any") -> "list[Any]":
     seen: set[str] = set()
     out: list[Any] = []
     tested = list(getattr(report, "all_test_results", None) or [])
+
+    def _critic_ok(tr: "Any") -> int:
+        meta = getattr(getattr(tr, "hypothesis", None), "metadata", None) or {}
+        return 0 if meta.get("critic") == "reject" else 1
+
     ranked = sorted(
         tested,
-        key=lambda tr: float(getattr(tr, "confidence", 0.0) or 0.0),
+        key=lambda tr: (float(getattr(tr, "confidence", 0.0) or 0.0), _critic_ok(tr)),
         reverse=True,
     )
     for tr in ranked:
@@ -756,7 +763,7 @@ class VLDiagnoseLoop:
     def _do_m3(
         self, cycle: int, stats_report: "Any", prior_cycles: "list[Any]",
         timings: "dict[str, float]", *, log: bool = True,
-        failure_modes: "Any | None" = None,
+        failure_modes: "Any | None" = None, cases: "Any | None" = None,
     ) -> "Any | None":
         """M3: hypothesis generation. Returns the diagnosis result, or ``None``
         when M3 could not run (judge unavailable / timeout / quota) — the caller
@@ -780,7 +787,7 @@ class VLDiagnoseLoop:
         try:
             diag = _diagnose_with_optional_context(
                 diag_agent, stats_report, prior_cycles, self._explore_context,
-                failure_modes,
+                failure_modes, cases=cases,
             )
         except Exception as exc:  # judge timeout/quota must not kill the loop
             logger.warning(
@@ -1020,7 +1027,7 @@ class VLDiagnoseLoop:
                 break
 
             # ── M3: hypothesis generation ("AI scientist") ────────────
-            diag = self._do_m3(cycle, stats_report, prior_cycles, timings)
+            diag = self._do_m3(cycle, stats_report, prior_cycles, timings, cases=data)
             if diag is None or not diag.hypotheses:
                 if diag is not None:
                     logger.info("M3 produced no hypotheses at cycle %d.", cycle)
@@ -1155,7 +1162,7 @@ class VLDiagnoseLoop:
             final_stats_report = self._do_m2(
                 0, probe_results, data, artifact_pngs, timings, confirmatory=False
             )
-            diag = self._do_m3(0, final_stats_report, [], timings)
+            diag = self._do_m3(0, final_stats_report, [], timings, cases=data)
             if diag is None or not diag.hypotheses:
                 # Stats + dashboard are still valid; just no hypotheses to confirm.
                 if diag is not None:
@@ -1387,6 +1394,7 @@ class VLDiagnoseLoop:
         max_tier: "str | Any | None" = None,
         fix_agent: "Any | None" = None,
         auto_escalate: bool = False,
+        allow_unverified: bool = False,
     ) -> "Any":
         """Post-loop fix module: tiered, validated repair attempts.
 
@@ -1413,6 +1421,14 @@ class VLDiagnoseLoop:
             fix_agent:      Per-call override of :attr:`fix_agent`.
             auto_escalate:  When True, step through tiers automatically,
                             feeding prior failure context to each round.
+            allow_unverified: When True and nothing was M5-verified, run the
+                            fix on the best UNVERIFIED leads (M5-tested,
+                            non-refuted, highest confidence first; else the
+                            last cycle's proposals), flagged to the proposer
+                            as leads rather than facts. The fix gate is the
+                            candidate validation on CONFIRM, not the
+                            hypothesis, so this is safe; the default (False)
+                            records a skipped stage instead.
         """
         from evalvitals.eval_agent.stages.fix_tiers import FixTier, parse_tier
 
@@ -1448,6 +1464,28 @@ class VLDiagnoseLoop:
             tr.hypothesis for tr in report.verified_hypotheses
             if _hyp_key(tr.hypothesis) not in refuted_ids
         ]
+        hypotheses_note = ""
+        if not hypotheses and allow_unverified:
+            # No verified hypothesis, but the caller opted in: the fix still
+            # runs on the best UNVERIFIED leads (M5-tested, non-refuted,
+            # highest confidence first; else the last cycle's proposals). They
+            # reach the proposer flagged as leads, not facts — the fix gate is
+            # the candidate validation, not the hypothesis, so this is safe;
+            # an M4 experiment that supported one of them upgrades it in the
+            # note.
+            hypotheses = [
+                h for h in _unverified_hypotheses(report)
+                if _hyp_key(h) not in refuted_ids
+            ][:3]
+            supported = _m4_supported_key(report)
+            hypotheses_note = (
+                "UNVERIFIED: M5 found no statistically significant evidence for these "
+                "hypotheses (they are the best-scoring leads, not established mechanisms)"
+                + ("; the M4 intervention experiment SUPPORTED the first one"
+                   if supported and hypotheses and _hyp_key(hypotheses[0]) == supported else "")
+                + ". Treat them as hints about WHERE to intervene; the candidate "
+                "validation, not the hypothesis, decides."
+            )
         if not hypotheses:
             # A repair proposal is an intervention, not another exploratory
             # probe.  Do not turn an unreviewed/unsupported M3 lead into a
@@ -1472,7 +1510,6 @@ class VLDiagnoseLoop:
             report.fix_outcome = outcome
             return outcome
 
-        hypotheses_note = ""
         context = _fix_context_from_report(
             report,
             example_cases=explore if confirm is not None else None,

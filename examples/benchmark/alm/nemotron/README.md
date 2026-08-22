@@ -1,0 +1,43 @@
+# ALM (audio + text) × Nemotron 3 Nano
+
+One leaf of [`examples/benchmark`](../../README.md): the Nemotron 3 Nano sizes that
+take 16 kHz WAV clips as input, run on every alm dataset through the shared
+[`_common/run.py`](../../_common/run.py). The image is the family's
+(`evalvitals-bench-nemotron`, stage `nemotron` of
+[`docker/Dockerfile`](../../docker/Dockerfile)); size and dataset are runtime
+arguments, never a rebuild.
+
+## Sizes (services)
+
+| service / `--model` | hf_local spec (default) | endpoint spec | GPUs | note |
+|---|---|---|---|---|
+| `nemotron-3-nano-omni-30b-a3b` | `nemotron-3-nano-omni-30b-a3b-reasoning` | `nemotron-3-nano-omni-30b-a3b-reasoning-fp8` | 2 | 62 GB BF16: device=auto over two 48 GB cards; FP8 (33 GB) is vLLM-only |
+
+## Datasets (`DATASET=`)
+
+| name | slice | scoring | default rows | source |
+|---|---|---|---|---|
+| `mmau` | MMAU/test-mini | multiple_choice_letter | 256 | gamma-lab-umd/MMAU-test-mini |
+| `audiocaps_hallu` | AudioCaps-Hallucination/Random | yes_no | 300 | kuanhuggingface/AudioHallucination_AudioCaps-Random + OpenSound/AudioCaps |
+
+Data is frozen once per modality under [`../_data/`](../_data) (`<dataset>/manifest.json`
++ media), shared by all families of this modality; outputs go to
+`outputs/<model>/<dataset>[.<tag>]/`.
+
+## Run
+
+```bash
+cd examples/benchmark/alm/nemotron
+docker compose build                                   # once per family (cached afterwards)
+# per-cell smoke: load + Stage 0 on 8 rows, no judge
+EXTRA_ARGS="--baseline-only --limit 8" docker compose run --rm nemotron-3-nano-omni-30b-a3b
+# the full chain (M1 -> explore -> M2 -> M3 -> held-out M5 -> M4 -> fix), detached
+DATASET=mmau CUDA_VISIBLE_DEVICES=0 docker compose run -d --name alm-nemotron-3-nano-omni-30b-a3b-mmau nemotron-3-nano-omni-30b-a3b
+docker logs -f alm-nemotron-3-nano-omni-30b-a3b-mmau
+```
+
+Every size's command pins the judge and coder to Claude Opus 5 (`--judge-provider
+claude --judge-model claude-opus-5 --judge-effort high`); thinking is OFF on every
+model (`--enable-thinking` turns it on for one run); the model runs in-process
+(`hf_local`; `EXTRA_ARGS="--backend endpoint --base-url http://host.docker.internal:8020/v1"`
+talks to a vLLM server instead).

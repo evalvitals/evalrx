@@ -7,11 +7,11 @@ Interspeech 2024, arXiv:2406.08402 -- the exact benchmark AAD, Hsu et al.
 2025 arXiv:2506.07233, evaluates against, on this exact model). This
 run.py only supplies INPUTS -- frozen cases + an observation-only protocol;
 detection, diagnosis and repair are the loop's own job. No hand-supplied
-hypothesis, no forced candidate (unless --unrestricted is dropped, see
-below): the point is finding out whether the loop discovers "language
+hypothesis, no forced candidate (unless --paper-method-only locks the pool,
+see below): the point is finding out whether the loop discovers "language
 priors override audio evidence" on its own and reaches for AAD.
 
-    1. download_audiohallucination.py --limit 120   (run first, standalone --
+    1. download_audiohallucination.py --limit 300   (run first, standalone --
                                                        writes data/audiohallucination.jsonl
                                                        + data/audio/*.wav)
     2. Fresh baseline pass        plain model.generate() (greedy) on every row
@@ -41,8 +41,8 @@ priors override audio evidence" on its own and reaches for AAD.
                                    M1-M5 discovery never saw (--confirm-split).
 
 Usage:
-    python download_audiohallucination.py --limit 120
-    python run.py --model qwen2-audio-7b-instruct --limit 120
+    python download_audiohallucination.py --limit 300 --scan-rows 2000
+    python run.py --model qwen2-audio-7b-instruct --limit 300
     python run.py --smoke-test     # fast wiring check, no GPU/model/judge --
                                     # exercises the REAL VLDiagnoseLoop + FixAgent
                                     # against a synthetic model+cases, specifically
@@ -329,7 +329,7 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
         fix_agent=FixAgent(
             score_fn=score_case,
             max_tier=args.fix_max_tier,
-            candidate_allowlist=None if args.unrestricted else ["aad_silence_contrast"],
+            candidate_allowlist=(["aad_silence_contrast"] if args.paper_method_only else None),
         ),
         max_cycles=1,
         run_logger=ctx.logger,
@@ -367,7 +367,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="qwen2-audio-7b-instruct")
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--limit", type=int, default=120)
+    parser.add_argument("--limit", type=int, default=300)
     parser.add_argument(
         "--max-tokens", type=int, default=16,
         help="subject-model generation budget (baseline scoring AND every M1 "
@@ -382,7 +382,13 @@ def main() -> int:
              "Ignored (forced to 0.0) under --analysis-only, since nothing "
              "downstream would ever read the held-out partition.",
     )
-    parser.add_argument("--fix-max-tier", default="L0")
+    parser.add_argument(
+        "--fix-max-tier", default="L3a",
+        help="highest intervention tier FixAgent may propose. AAD itself is L0, "
+             "but the judge's L1/L2 candidates, the self_consistency floor and "
+             "the coded pipeline are gated behind L1/L2 -- L0 would silently "
+             "shrink the open pool back to AAD alone (mmau_qwen2_audio: L3a).",
+    )
     parser.add_argument(
         "--judge-provider", choices=["claude", "agy"], default="agy",
         help="'agy' (default, Antigravity CLI, no Anthropic API key -- see "
@@ -398,10 +404,14 @@ def main() -> int:
     parser.add_argument("--judge-effort", default="high")
     parser.add_argument("--seed", type=int, default=20260814)
     parser.add_argument(
+        "--paper-method-only", action="store_true",
+        help="restrict the fix pool to candidate_allowlist=['aad_silence_contrast'] "
+             "(the pre-registered paper method) and disable the coder. Default: "
+             "every admissible candidate competes (judge L1/L2, floor, AAD, coded).",
+    )
+    parser.add_argument(
         "--unrestricted", action="store_true",
-        help="drop candidate_allowlist=['aad_silence_contrast'] so every "
-             "admissible L0 candidate (paper defaults AND judge-proposed "
-             "ones) competes on equal footing",
+        help="(no-op, kept for compatibility: the open pool is the default now)",
     )
     parser.add_argument(
         "--explore", action=argparse.BooleanOptionalAction, default=True,
@@ -511,10 +521,13 @@ def main() -> int:
         score_fn=score_case,
         run_logger=ctx.logger,
         run_context=ctx,
-        candidate_allowlist=None if args.unrestricted else ["aad_silence_contrast"],
-        # a coding backend is out of scope for what this run is testing --
-        # mirrors mmau_qwen2_audio's own README rationale.
-        allow_codegen=False,
+        candidate_allowlist=(["aad_silence_contrast"] if args.paper_method_only else None),
+        # Full candidate family by default (judge L1/L2, the self_consistency
+        # floor, AAD when its gate admits it, and a coded pipeline from the
+        # same coder that runs explore/M4) — the llm_benchmark shape.
+        # --paper-method-only restores the AAD-only pool.
+        allow_codegen=not args.paper_method_only,
+        cli_config=None if args.paper_method_only else coder_cfg,
     )
 
     # --analysis-only never reaches run_fix, so nothing would ever read the
@@ -591,7 +604,7 @@ def main() -> int:
         else:
             print("  M4: no hypothesis to experiment on")
         print(f"\n{'='*64}\nFIX  Tiered repair attempts (max tier = {args.fix_max_tier})\n{'='*64}")
-        outcome = loop.run_fix(report, cases)
+        outcome = loop.run_fix(report, cases, allow_unverified=True)
         for v in outcome.attempted:
             tag = "FIXED" if v.fixed else "no"
             e_str = f"{v.e_value:.2f}" if v.e_value is not None else "n/a"
@@ -606,7 +619,11 @@ def main() -> int:
         elif outcome.recommendation is not None:
             rec = outcome.recommendation
             print(f"  VERDICT    : not fixed within {args.fix_max_tier}")
-            print(f"  RECOMMEND  : raise the intervention tier to {rec['recommend_tier']}")
+            if str(rec["recommend_tier"]).lower() == str(args.fix_max_tier).lower():
+                print(f"  RECOMMEND  : stay within {rec['recommend_tier']} -- {rec['reason']}")
+            else:
+                print(f"  RECOMMEND  : raise the intervention tier to {rec['recommend_tier']} "
+                      f"-- {rec['reason']}")
         else:
             print(f"  VERDICT    : not fixed; already at the highest tier ({args.fix_max_tier})")
 

@@ -23,6 +23,31 @@ NATURE_RC_FALLBACK: dict[str, Any] = {
 # synced to the CVD-validated dataviz palette (see that skill's README notice)
 # — one palette across agent PNGs, host plotly charts, and these spec PNGs.
 NATURE_COLORS_FALLBACK = ["#2a78d6", "#008300", "#e34948", "#1baf7a", "#4a3aa7", "#898781"]
+
+# Semantic (role) colours shared with ``evalvitals.analysis.eval_viz_theme``'s
+# light palette. Duplicated here on purpose: the renderer must work where
+# plotly is absent (the example docker images ship the ``viz`` extra only),
+# and eval_viz_theme imports plotly at module load. A test pins the two in sync.
+SEMANTIC_PALETTE: dict[str, str] = {
+    "FAIL": "#d03b3b",          # status: critical
+    "PASS": "#0ca30c",          # status: good
+    "INCONCLUSIVE": "#fab219",  # status: warning
+    "ACCENT": "#2a78d6",        # single-series / neutral measurement
+    "LEAKY": "#898781",         # muted ink
+    "AXIS": "#898781",
+    "GRID": "#e1e0d9",
+    "TEXT": "#0b0b0b",
+}
+
+
+def outcome_color(label: Any) -> str | None:
+    """FAIL/PASS role colour for an outcome label (case-insensitive), else None."""
+    key = str(label).strip().upper()
+    if key in ("FAIL", "FAILED", "FAILURE", "FAILURES"):
+        return SEMANTIC_PALETTE["FAIL"]
+    if key in ("PASS", "PASSED", "SUCCESS"):
+        return SEMANTIC_PALETTE["PASS"]
+    return None
 SCREEN_RC: dict[str, Any] = {
     "font.size": 9.0,
     "axes.titlesize": 11.0,

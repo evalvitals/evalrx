@@ -77,7 +77,7 @@ class WhiteboxProbeGenerator:
         cli_config:  CLI coding-agent config (used before the judge when set).
         sandbox:     Execution sandbox (fresh temp dir when ``None``).
         timeout_sec: Wall-clock limit per sandbox run.
-        max_cases:   Cap on captured cases (one ATTENTION forward each).
+        max_cases:   Cap on captured cases (one ATTENTION forward each); 0 (the default) = every case.
     """
 
     def __init__(
@@ -86,7 +86,7 @@ class WhiteboxProbeGenerator:
         cli_config: "CliAgentConfig | None" = None,
         sandbox: "ExperimentSandbox | None" = None,
         timeout_sec: int = 60,
-        max_cases: int = 32,
+        max_cases: int = 0,
         run_logger: "Any | None" = None,
     ) -> None:
         self._judge = judge
@@ -195,7 +195,10 @@ class WhiteboxProbeGenerator:
         dump_dir.mkdir(parents=True, exist_ok=True)
 
         manifest: list[dict[str, Any]] = []
-        for case in list(cases)[: self._max_cases]:
+        selected = list(cases)
+        if self._max_cases > 0:  # 0 = every case
+            selected = selected[: self._max_cases]
+        for case in selected:
             try:
                 trace = model.forward(case.inputs, capture={Capability.ATTENTION})
                 attns = trace.require(Capability.ATTENTION)

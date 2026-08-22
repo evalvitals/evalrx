@@ -23,6 +23,20 @@ collect-then-compute split does not apply.  Instead:
   sandbox contains only ``id``, ``prompt`` and the model's own
   ``baseline_output`` (no labels, no expected rubric), so generated code
   cannot cheat by echoing gold answers or flipping known failures.
+* **Selection safety is anchored on the recorded baseline.** A case's
+  ``baseline_output`` IS the direct baseline: a plain
+  ``model_generate(case_id)`` (no prompt override, no image ops, no decoding
+  overrides) is answered from that record — it costs no model time and does
+  not count against the per-case call cap — and the host's consensus guard
+  anchors on the same text whether or not the pipeline made that call. A
+  final answer that differs from the anchor stands only when at least
+  ``consensus_min_support`` enhanced calls with distinct signatures returned
+  it; otherwise the case reverts to the anchor. Only a case with neither a
+  recorded baseline nor a direct call cannot be anchored; such a case is
+  excluded from the result — never the whole candidate. (Before 2026-08-21
+  the guard demanded a real direct call per case and voided the whole
+  candidate otherwise; every coder-written round tripped it, because the
+  prompt hands the coder ``baseline_output`` and a rational coder uses it.)
 """
 
 from __future__ import annotations
@@ -141,6 +155,10 @@ def cases_payload(cases: "CaseBatch") -> "dict[str, Any]":
     against, vote with, or ask the model to double-check. It carries no
     information about correctness — the frozen-model control replays exactly
     this text, so a pipeline that merely echoes it scores as the baseline.
+
+    It is also the DIRECT BASELINE the host's selection guard anchors on: a
+    plain ``model_generate(case_id)`` is answered from this record, and a
+    pipeline that never makes that call is anchored on it all the same.
     """
     out = []
     for c in cases:
@@ -163,6 +181,16 @@ class CodedPipelineResult:
     error: str = ""
     n_guarded: int = 0
     guarded_ids: "list[str]" = field(default_factory=list)
+    # Plain direct calls answered from the recorded baseline (no model time).
+    n_replayed: int = 0
+    # Cases the guard anchored on ``case.observed`` because the pipeline made
+    # no direct call (the common, legitimate shape since the coder is handed
+    # ``baseline_output``).
+    n_anchored_from_recorded: int = 0
+    # Cases with neither a recorded baseline nor a direct call: nothing to
+    # anchor the guard on, so they are dropped from ``outputs`` (scored as
+    # not measured) instead of voiding the candidate.
+    unanchored_ids: "list[str]" = field(default_factory=list)
 
 
 def run_coded_pipeline(
@@ -204,6 +232,20 @@ def run_coded_pipeline(
     may give the model MORE room than the baseline had, never less (a shorter
     budget truncates the chain and scores as a wrong answer, which is a
     decoding artefact, not evidence about the repair).
+
+    ``consensus_min_support`` (> 0 switches the gold-free selection guard
+    on): a case's final answer may differ from its anchor — the recorded
+    ``case.observed``, or the pipeline's own direct call when the case has no
+    record — only when at least that many enhanced calls with DISTINCT
+    signatures (prompt + image_ops) returned the same answer; otherwise the
+    case is reverted to the anchor (``guarded_ids``). A case with neither a
+    record nor a direct call is unanchorable and is excluded
+    (``unanchored_ids``), never the whole candidate.
+
+    ``max_calls_per_case`` (> 0): cap on bridged calls per case that HIT the
+    model. A plain direct call on a case with a recorded baseline is answered
+    from the record (``n_replayed``) and is free under the cap — there is
+    nothing to select from in re-reading the baseline.
     """
     from evalvitals.core.case import Inputs
 
@@ -278,22 +320,26 @@ def run_coded_pipeline(
                 return False
 
     def _serve(raw: str, request: "dict[str, Any]", case_id: str) -> bool:
-        reply = _service_call(raw, case_by_id, model, Inputs, enable_attend,
-                              reply_fn, max_tokens_floor=max_tokens_floor)
+        case = case_by_id.get(case_id)
+        if reply_fn is None and _replayable_direct(request, case):
+            # The direct baseline is already on record: answer from it. Under
+            # greedy decoding a fresh call would return the same text; under
+            # sampling the record is the frozen baseline arm the paired test
+            # compares against, so replaying it keeps anchor and baseline
+            # identical (a resample could drift from both).
+            reply: "dict[str, Any]" = {"output": str(case.observed)}
+            with records_lock:
+                res.n_replayed += 1
+        else:
+            reply = _service_call(raw, case_by_id, model, Inputs, enable_attend,
+                                  reply_fn, max_tokens_floor=max_tokens_floor)
         reply["rid"] = _rid_of(raw)
         # Record the call for the gold-free consensus guard: was it the direct
         # baseline (untouched prompt, no ops), and what did it answer?
         try:
-            if "output" in reply and case_id in case_by_id:
-                original_prompt = str(
-                    getattr(getattr(case_by_id[case_id], "inputs", None), "prompt", "")
-                )
+            if "output" in reply and case is not None:
                 supplied_prompt = request.get("prompt")
-                is_direct = (
-                    request.get("op") is None
-                    and not request.get("image_ops")
-                    and (supplied_prompt is None or str(supplied_prompt) == original_prompt)
-                )
+                is_direct = _is_direct_request(request, case)
                 signature = json.dumps(
                     {
                         "prompt": supplied_prompt,
@@ -332,10 +378,15 @@ def run_coded_pipeline(
                 try:
                     request = json.loads(raw)
                     case_id = str(request.get("case_id", ""))
-                    calls_per_case[case_id] = calls_per_case.get(case_id, 0) + 1
+                    # A plain direct call on a recorded case is answered from
+                    # the record and never touches the model: free under the
+                    # cap (in the live run AND the frozen control, so the
+                    # same code is accounted identically in both).
+                    if not _replayable_direct(request, case_by_id.get(case_id)):
+                        calls_per_case[case_id] = calls_per_case.get(case_id, 0) + 1
                     if (
                         max_calls_per_case > 0
-                        and calls_per_case[case_id] > max_calls_per_case
+                        and calls_per_case.get(case_id, 0) > max_calls_per_case
                     ):
                         res.error = (
                             "selection-safety contract violated: more than "
@@ -410,34 +461,88 @@ def run_coded_pipeline(
         if isinstance(entry, dict) and str(entry.get("sample_id", "")) in case_by_id:
             res.outputs[str(entry["sample_id"])] = str(entry.get("output", ""))
     if consensus_min_support > 0:
-        missing_direct = []
         for case_id, final_output in list(res.outputs.items()):
             records = call_records.get(case_id, [])
+            # Anchor: the recorded baseline when the case has one (the same
+            # text a plain direct call is answered with, and what the paired
+            # test's baseline arm holds); else the pipeline's own direct call.
+            observed = getattr(case_by_id[case_id], "observed", None)
             direct = next(
                 (output for is_direct, _signature, output in records if is_direct), None
             )
-            if direct is None:
-                missing_direct.append(case_id)
+            if observed is not None:
+                if direct is None:
+                    res.n_anchored_from_recorded += 1
+                anchor = str(observed)
+            elif direct is not None:
+                anchor = direct
+            else:
+                # Nothing to anchor on — this case cannot be guarded, so it
+                # leaves the result (scored as not measured). The candidate
+                # as a whole is not voided for it.
+                res.unanchored_ids.append(case_id)
+                del res.outputs[case_id]
                 continue
-            if _answers_match(final_output, direct):
+            if _answers_match(final_output, anchor):
                 continue
             support = len({
                 signature for is_direct, signature, output in records
                 if not is_direct and _answers_match(final_output, output)
             })
             if support < consensus_min_support:
-                res.outputs[case_id] = direct
+                res.outputs[case_id] = anchor
                 res.guarded_ids.append(case_id)
-        if missing_direct:
-            res.outputs.clear()
+        res.n_guarded = len(res.guarded_ids)
+        if res.unanchored_ids and not res.outputs:
             res.error = (
-                "selection-safety contract violated: no direct baseline "
-                f"model_generate(case_id) call for {len(missing_direct)} case(s)"
+                "selection-safety contract violated: no recorded baseline and "
+                "no direct baseline model_generate(case_id) call for "
+                f"{len(res.unanchored_ids)} case(s) — nothing to anchor the "
+                "selection guard on"
             )
             return res
-        res.n_guarded = len(res.guarded_ids)
     res.ok = bool(res.outputs)
     return res
+
+
+def _is_direct_request(request: "dict[str, Any]", case: "Any") -> bool:
+    """A bridged call that re-asks the case as is: no op, no image ops, and
+    either no prompt or the case's own prompt (decoding overrides do not make
+    it an enhanced pass — they do make it a live call, see
+    :func:`_replayable_direct`)."""
+    if request.get("op") is not None or request.get("image_ops"):
+        return False
+    supplied = request.get("prompt")
+    if supplied is None:
+        return True
+    original = str(getattr(getattr(case, "inputs", None), "prompt", ""))
+    return str(supplied) == original
+
+
+def _replayable_direct(request: "dict[str, Any]", case: "Any") -> bool:
+    """A plain direct call on a case that carries its recorded baseline: the
+    host answers it from the record instead of re-generating, and it is free
+    under the per-case cap (nothing to select from in re-reading the
+    baseline). Decoding overrides (``generation_kwargs``) ask for a genuinely
+    new generation, which still hits the model and counts."""
+    if case is None or getattr(case, "observed", None) is None:
+        return False
+    if request.get("generation_kwargs"):
+        return False
+    return _is_direct_request(request, case)
+
+
+# Answer tags a scaffold commonly asks the model to emit ("FINAL: 42",
+# "Answer: 42", "Prediction: yes"). The guard compares the pipeline's
+# EXTRACTED final answer with the model's RAW replies; without stripping the
+# tag, a reply "FINAL: 42" can never support the answer "42" and every
+# tag-style override is reverted as unsupported (chartqa/qwen3.5-2b smoke,
+# 2026-08-21: repair round scored no_effect 0/0 for exactly this reason).
+_ANSWER_TAG_RE = re.compile(
+    r"^(?:final(?:\s+answer)?|answer|result|output|prediction|response|verdict)"
+    r"\s*[:=]\s*",
+    flags=re.IGNORECASE,
+)
 
 
 def _answer_key(value: str) -> str:
@@ -453,6 +558,7 @@ def _answer_key(value: str) -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if lines:
             text = lines[-1]
+    text = _ANSWER_TAG_RE.sub("", text.strip())
     text = re.sub(r"[`*_]+", "", text).strip().lower()
     text = re.sub(r"^(?:the\s+answer\s+is|it\s+is)\s+", "", text)
     text = text.strip(" .,:;!?\"'")

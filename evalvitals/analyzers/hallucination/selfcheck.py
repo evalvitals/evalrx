@@ -69,7 +69,7 @@ class SelfCheckConsistencyAnalyzer(Analyzer):
         gen_kwargs: sampling config for the resamples — MUST be stochastic
                     (default ``{"temperature": 1.0}``); at temperature 0 the
                     score is degenerate and reported as such.
-        max_cases:  label-stratified cap on probed cases.
+        max_cases:  label-stratified cap on probed cases; 0 (the default) = every case.
         min_sentence_chars: shorter fragments are not scored.
     """
 
@@ -81,7 +81,7 @@ class SelfCheckConsistencyAnalyzer(Analyzer):
         self,
         n_samples: int = 4,
         gen_kwargs: Optional[dict] = None,
-        max_cases: int = 32,
+        max_cases: int = 0,
         min_sentence_chars: int = 10,
     ) -> None:
         super().__init__(

@@ -68,7 +68,7 @@ class ArithmeticAudit(Analyzer):
         generate_missing: generate a chain when ``case.observed`` is empty
                           (1 generation; needs ``GENERATE``).  Off by default —
                           the probe is meant to be free.
-        max_cases:        label-stratified cap.
+        max_cases:        label-stratified cap; 0 (the default) = every case.
         answer_fn/match_fn: answer extraction / equality (see ``_text``).
     """
 
@@ -82,7 +82,7 @@ class ArithmeticAudit(Analyzer):
         self,
         rel_tol: float = 1e-6,
         generate_missing: bool = False,
-        max_cases: int = 200,
+        max_cases: int = 0,
         answer_fn: Optional[Callable[[Any], str]] = None,
         match_fn: Optional[Callable[[Any, Any], bool]] = None,
     ) -> None:

@@ -68,9 +68,11 @@ it does when it succeeds, and the answer format the scorer expects:
 EXECUTION CONTRACT:
 - "{cases_file}" in the current directory: {{"cases": [{{"id": str, "prompt": str,
   "baseline_output": str|null}}]}} — baseline_output is the model's ORIGINAL
-  answer to that prompt (may be wrong; it is NOT a label and carries no
-  correctness information; you may compare against it, vote with it, or ask
-  the model to double-check it).
+  recorded answer to that prompt: the DIRECT BASELINE.  It may be wrong; it is
+  NOT a label and carries no correctness information.  Use it directly as the
+  baseline answer (compare against it, vote with it, ask the model to
+  double-check it) — you do NOT need to call model_generate(case_id) to
+  obtain it; a plain model_generate(case_id) is answered from this record.
 - A function  model_generate(case_id, prompt=None, image_ops=None,
   generation_kwargs=None) -> str  is ALREADY DEFINED in your namespace (do NOT
   import or redefine it).  It runs the ORIGINAL model on that case: optional
@@ -81,15 +83,30 @@ EXECUTION CONTRACT:
   {{"tool": "<name>", "params": {{...}}}} dicts using ONLY these tools
   (anything else is rejected with an error):
 {catalog}{attend_hint}
-- You may call the model SEVERAL times per case, but keep the total to at most
-  4 calls including the direct baseline (baseline + up to 3 genuinely
-  independent enhanced/reasoned passes); the host enforces this per-case cap.
-  Branch on outputs within that budget — e.g. describe first, then decide;
-  vote over independent variants.
+- You may call the model SEVERAL times per case, but keep it to at most
+  4 calls per case that hit the model (genuinely independent enhanced/reasoned
+  passes: a different prompt and/or image_ops each); the host enforces this
+  per-case cap.  A plain model_generate(case_id) (no prompt override, no
+  image_ops, no generation_kwargs) is answered from the recorded
+  baseline_output, costs nothing and does not count.  Branch on outputs
+  within that budget — e.g. describe first, then decide; vote over
+  independent variants.
 - model_generate is thread-safe and concurrent calls are serviced in
   parallel: fan out over CASES with concurrent.futures.ThreadPoolExecutor
   (max_workers=8) — a serial loop over every case x several calls is slow and
   risks the wall-clock limit.
+- SELECTION RULE (enforced by the host, without labels): for each case the
+  host anchors on baseline_output (or on your plain direct call when a case
+  has no record).  Your final "output" may differ from that anchor only when
+  at least {min_support} of your enhanced calls with DISTINCT prompt/image_ops
+  returned the same answer; otherwise the host reverts that case to the
+  anchor.  Return the model's own reply text (or the tagged answer you asked
+  it to emit, e.g. "FINAL: <answer>" — the host strips such tags when
+  matching); never rewrite, reformat or compute the answer yourself.
+  Pattern the host accepts:
+      base = case["baseline_output"] or ""
+      votes = [model_generate(cid, prompt=p1), model_generate(cid, prompt=p2, image_ops=ops)]
+      final = the answer that >= {min_support} votes agree on if it differs from base, else base
 {selection_guidance}
 - The LAST line of stdout MUST be exactly:
   {marker}{{"per_case": [{{"sample_id": "<case id>", "output": "<final answer text>"}}]}}
@@ -124,6 +141,13 @@ image_ops=None, generation_kwargs=None){attend_clause} — do not import or rede
 - image_ops must be a list of {{"tool": "<name>", "params": {{...}}}} dicts \
 using ONLY these tools:
 {catalog}
+- baseline_output in "{cases_file}" IS the direct baseline answer — use it as \
+the baseline; a plain model_generate(case_id) is answered from that record and \
+is free; at most 4 model-hitting calls per case;
+- the host's selection guard reverts a case to its baseline unless at least \
+{min_support} DISTINCT enhanced calls returned your final answer (answer tags \
+such as "FINAL: <answer>" are stripped when matching);
+{selection_guidance}
 - read "{cases_file}", emit an entry for EVERY case, and end stdout with \
 exactly:
   {marker}{{"per_case": [{{"sample_id": "<case id>", "output": "<final answer text>"}}]}}
