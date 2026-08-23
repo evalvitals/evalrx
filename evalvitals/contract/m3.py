@@ -66,32 +66,46 @@ class HypothesisWire(WireModel):
     target_model: str
     predicted_failure_mode: str = Field(min_length=2)
     test_design: str = Field(
-        min_length=1,
+        default="",
         description="Signal or contrast that would decide this, e.g. 'attention.image_token_ratio' "
-                    "or 'prompt_contrast describe_first'. M5 routes on it; M1 re-probes on it.",
+                    "or 'prompt_contrast describe_first'. M5 routes on it; M1 re-probes on it. "
+                    "EMPTY means the judge proposed none — see `is_routable`.",
     )
     status: HypothesisStatus = HypothesisStatus.PROPOSED
     parent_id: str | None = Field(default=None, description="Set when mutated from an earlier hypothesis.")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("test_design")
-    @classmethod
-    def _must_be_routable(cls, v: str) -> str:
-        """Reject a test_design M5 cannot route on.
+    @property
+    def is_routable(self) -> bool:
+        """Whether M5 can resolve this design against measured signals.
 
-        Routability is the whole point: M5 resolves this string against M2's
-        signals and M1 re-probes on it. "investigate further" resolves to
-        nothing, and a hypothesis nothing can decide is not falsifiable — it
-        will come back INCONCLUSIVE forever and quietly hold the loop open.
+        Mirrors what ``hypothesis_tester`` actually extracts — an identifier
+        anywhere in the text, or one of the directives — rather than demanding a
+        shape. The strict version required the string to BE a bare
+        ``<analyzer>.<metric>`` or to START with a directive, and a strong judge
+        does not write like that: on the Music-AVQA run, Opus at high effort
+        produced three designs that named their analyzers and metrics inside a
+        paragraph of interventional protocol. M5 routed all three
+        (``routed_by="test_design"``, two at INTERVENTION grade) and the contract
+        rejected the whole M3 payload for the formatting.
+
+        A validator stricter than the consumer it protects does not prevent
+        anything; it just discards good work. So routability is now REPORTED, and
+        the three states stay distinguishable: empty (no test proposed),
+        non-empty but nothing resolvable (a human can act on it, M5 cannot), and
+        routable.
         """
-        if _SIGNAL_REF.search(v):
-            return v
-        if any(v.strip().startswith(d) for d in TEST_DESIGN_DIRECTIVES):
-            return v
-        raise ValueError(
-            f"test_design must name a signal ('<analyzer>.<metric>') or start with one of "
-            f"{sorted(TEST_DESIGN_DIRECTIVES)}; got {v[:60]!r}"
-        )
+        text = self.test_design.strip()
+        if not text:
+            return False
+        if _SIGNAL_REF.search(text.lower()):
+            return True
+        return any(d in text for d in TEST_DESIGN_DIRECTIVES)
+
+    @property
+    def is_proposed(self) -> bool:
+        """Whether the judge proposed a test at all, routable or not."""
+        return bool(self.test_design.strip())
 
 
 class DiagnosisOutput(StageEnvelope):
@@ -110,6 +124,27 @@ class DiagnosisOutput(StageEnvelope):
     """
 
     hypotheses: list[HypothesisWire] = Field(default_factory=list)
+
+    @property
+    def untestable(self) -> list[str]:
+        """Ids of hypotheses carrying no test_design at all.
+
+        These come back INCONCLUSIVE no matter how much evidence the next cycle
+        gathers, because nothing was ever named that could decide them.
+        """
+        return [h.id for h in self.hypotheses if not h.is_proposed]
+
+    @property
+    def unroutable(self) -> list[str]:
+        """Ids whose design a human can act on but M5 cannot resolve.
+
+        Distinct from :attr:`untestable`: a test WAS proposed, it just names no
+        measured signal, so it is work for the next M1 cycle rather than a claim
+        with no falsifier. Collapsing the two would report a real experimental
+        plan as an empty one.
+        """
+        return [h.id for h in self.hypotheses if h.is_proposed and not h.is_routable]
+
     @field_validator("hypotheses")
     @classmethod
     def _ids_unique(cls, v: list[HypothesisWire]) -> list[HypothesisWire]:

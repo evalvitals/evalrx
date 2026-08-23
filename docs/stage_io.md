@@ -135,11 +135,27 @@ Each `Result` carries `findings` (light, JSON-safe dict) and `artifacts`
 (heavy tensors/arrays). `ProbeAgent.last_schema` records which analyzers ran
 and why (selection rationale), separate from the return value.
 
-Analyzer selection itself is two-tiered: `StrategyProbe.detect_kind()` picks
-VLM / Agent / LLM based on capabilities, `StrategyProbe.select()` ranks
-compatible analyzers for that kind (or an LLM judge picks them directly from
-the protocol description); `WhiteboxProbeGenerator`/`ProbeGenerator` write a
-bespoke probe when no standard analyzer covers the failure mode.
+Analyzer selection ranks by **modality slot**, not by a model-kind label.
+`StrategyProbe.routed_slots(model, data)` intersects what the model declares
+with what the batch actually fills, and `select()` concatenates the priority
+list for each slot in play (agent → video → audio → image → text). LLM / VLM /
+ALM / AVLM are four subsets of `{text, image, audio, video}`, so adding a
+modality adds one list rather than multiplying a per-kind table.
+
+The batch decides, not the model: an omni model evaluated on an audio benchmark
+declares image too, and ranking on the declaration put image analyzers at the
+top of an audio run. When the batch fills no media slot at all the model's
+declaration is the fallback — no evidence, rather than evidence of absence — and
+`AnalyzerSelection` records `model_modalities`, `probed_modalities` and
+`routed_on` separately so a reader can see which path was taken.
+
+`detect_kind()` still returns a coarse `ModelKind` (now including `ALM` and
+`AVLM`) for display and for the `priority_override` escape hatch; it does not
+decide routing. `Analyzer.requires_modalities` gates analyzers whose slot the
+batch never fills — the modality counterpart of `requires_trajectories` — and an
+LLM judge may pick directly from the protocol description;
+`WhiteboxProbeGenerator`/`ProbeGenerator` write a bespoke probe when no standard
+analyzer covers the failure mode.
 
 **UI:** In the static report, M1's raw output (`dict[str, Result]`) is
 never shown directly — only the *derived* per-case feature table M2 builds
@@ -401,10 +417,37 @@ for the structured event each stage emits per cycle.
 
 ## Frontend implementation contract
 
-This section is the practical contract for a UI implementation. The Python
-types above explain what each stage computes; this section explains what a
-browser or UI backend can actually read from disk, how records relate, and how
-to distinguish a valid empty result from a failed or unfinished stage.
+**Read `<run>/contract/` first.** Every stage validates its output against
+`evalvitals/contract/` on the way out and writes one JSON per stage —
+`c0.m1.json`, `c0.m2.json`, `c0.m3.json`, `c0.m5.json`, `m4_surgery.json`,
+`m4_fix.json`. That directory is the typed source of truth, and TypeScript
+declarations for all of it are generated into `docs/contract/contract.d.ts`:
+
+```ts
+import type { ProbeOutput, StatsReportWire } from "./contract/contract";
+
+const m1: ProbeOutput = await (await fetch("contract/c0.m1.json")).json();
+m1.selection.routed_on;      // ["audio", "text"] — what the run was actually about
+m1.results["mm_shap"];       // keyed by analyzer name
+```
+
+Regenerate with `python -m evalvitals.contract.export --out docs/contract`;
+CI runs the same command with `--check` so the artifacts cannot go stale.
+A stage that failed validation writes `<stage>.invalid.json` carrying the error
+instead — visibly broken rather than quietly missing.
+
+Two things the contract will not do for you, both deliberate:
+
+* **Unknown fields must be ignored, never rejected.** Adding a field is
+  additive and does not bump `schema_version`; only a change of *meaning* does.
+* **Absent, null, empty, zero and false are five different things.** Every
+  optional field is explicitly nullable so a reader can tell them apart. Never
+  collapse them with a truthiness fallback — `ungrounded_rate_audio: null`
+  means no case carried audio, and `0.0` means every case that did stayed
+  grounded.
+
+The rest of this section describes the raw run directory, which remains
+readable and is what a run produced before contract emission existed offers.
 
 ### 1. Choose a source of truth
 
@@ -414,6 +457,10 @@ A normal persisted loop run has this shape (some folders are optional):
 <run>/
 ├── manifest.json
 ├── run_log.jsonl
+├── contract/                 ← typed, validated; prefer this
+│   ├── index.json
+│   ├── c0.m1.json … c0.m5.json
+│   └── m4_surgery.json, m4_fix.json
 ├── report/
 │   ├── summary.json
 │   ├── summary.md

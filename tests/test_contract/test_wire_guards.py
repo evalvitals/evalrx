@@ -138,20 +138,52 @@ def test_descriptive_report_may_not_ship_a_verdict():
         )
 
 
-# --- M3: a hypothesis must be routable -------------------------------------
-
-def test_test_design_may_not_be_prose():
-    """Prose routes to nothing; M5 would return INCONCLUSIVE forever."""
-    with pytest.raises(ValidationError, match="must name a signal"):
-        _hyp(test_design="we should look into this further")
-
+# --- M3: routability is reported, not enforced ------------------------------
 
 def test_test_design_accepts_a_signal_reference():
-    assert _hyp(test_design="attention.image_token_ratio").test_design
+    h = _hyp(test_design="attention.image_token_ratio")
+    assert h.is_proposed and h.is_routable
 
 
 def test_test_design_accepts_a_known_directive():
-    assert _hyp(test_design="prompt_contrast describe_first").test_design
+    h = _hyp(test_design="prompt_contrast describe_first")
+    assert h.is_proposed and h.is_routable
+
+
+def test_a_prose_design_that_names_its_signal_is_routable():
+    """What a strong judge actually writes.
+
+    Opus at high effort produced designs that name the analyzer and metric
+    inside a paragraph of interventional protocol. M5 routed all of them
+    (routed_by="test_design"), while a validator demanding the string BE a bare
+    signal rejected the whole M3 payload — stricter than the consumer it exists
+    to protect, so it discarded good work without preventing anything.
+    """
+    h = _hyp(test_design=(
+        "Re-run `modality_ablation` in swap mode on the audio slot (substitute a "
+        "mismatched track rather than dropping it) — predict "
+        "`modality_ablation.grounded_in_audio` falls on Audio-Visual items."
+    ))
+    assert h.is_proposed and h.is_routable
+
+
+def test_a_design_naming_nothing_measured_is_proposed_but_not_routable():
+    """The third state, which used to be a rejection.
+
+    A test WAS proposed — it just names a flag nobody has computed yet. That is
+    work for the next M1 cycle, not a claim with no falsifier, and reporting it
+    as "no test proposed" would erase a real experimental plan.
+    """
+    h = _hyp(test_design=(
+        "Add a per-case flag question_has_unfilled_template_slot (regex over the "
+        "question text) and cross it with FAIL."
+    ))
+    assert h.is_proposed and not h.is_routable
+
+
+def test_no_test_design_at_all_is_untestable():
+    h = _hyp(test_design="")
+    assert not h.is_proposed and not h.is_routable
 
 
 # --- M5: both gates ---------------------------------------------------------

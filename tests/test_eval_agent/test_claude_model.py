@@ -45,7 +45,11 @@ def test_model_flag_forwarded(tmp_path):
     judge = ClaudeModel(binary_path=binary, model="claude-fable-5")
     out = judge.generate("question")
     assert "--model claude-fable-5" in out
-    assert "--dangerously-skip-permissions" in out
+    # A text judge asks for no tools, not for every permission. The blanket flag
+    # is refused outright under root unless something sets IS_SANDBOX=1, which
+    # made the judge unrunnable on a bare root box (Colab, a plain container).
+    assert "--tools" in out
+    assert "--dangerously-skip-permissions" not in out
 
 
 def test_nonzero_exit_without_output_raises(tmp_path):
@@ -71,6 +75,10 @@ def test_images_listed_in_prompt_and_workspace_added(tmp_path):
     out = judge.generate("look at the figures", images=[img])
     assert "Images available in workspace: m2_effects.png" in out
     assert "--add-dir" in out
+    # Reading the staged figures is the one thing a judge call does need a tool
+    # for, so that call allows exactly Read -- still not the blanket bypass.
+    assert "--allowed-tools Read" in out
+    assert "--dangerously-skip-permissions" not in out
 
 
 def test_timeout_raises(tmp_path):

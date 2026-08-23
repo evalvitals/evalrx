@@ -14,6 +14,7 @@ Layout (single root, no ``logs/`` nesting)::
     ├── manifest.json     run config + index of every produced file
     ├── run_log.jsonl     structured event stream (RunLogger)
     ├── README.txt        auto-generated file guide (from manifest)
+    ├── contract/         one validated JSON per stage (see evalvitals.contract)
     ├── report/           human deliverables (summary.md, hypotheses.json, …)
     ├── figures/          M1 heatmaps + M2 effect plots
     ├── explore/          optional in-cycle explore step: exploratory_report.json,
@@ -59,6 +60,9 @@ if TYPE_CHECKING:
 # top-level subdirectory name.  Files that do not fall under a known category
 # are grouped under "other".
 _CATEGORY_DESCRIPTIONS: dict[str, str] = {
+    "contract": "one contract-validated JSON per stage (c<cycle>.m1 … m4_fix): the "
+                "typed shape a frontend decodes with docs/contract/contract.d.ts, "
+                "instead of re-deriving it from run_log.jsonl",
     "report": "human-facing deliverables: run summary, hypotheses, M5 results",
     "figures": "plots: M1 attention/spatial heatmaps and M2 effect-size charts",
     "explore": "in-cycle explore step (VLDiagnoseLoop(explorer=...)): free-form EDA "
@@ -76,7 +80,7 @@ _CATEGORY_DESCRIPTIONS: dict[str, str] = {
 
 # Order categories appear in the README / manifest.
 _CATEGORY_ORDER = [
-    "report", "figures", "explore", "artifacts", "prompts",
+    "contract", "report", "figures", "explore", "artifacts", "prompts",
     "experiments", "tools", "workspace", "fixes", "other",
 ]
 
@@ -479,8 +483,26 @@ class RunContext:
         """Write the manifest + README and close the logger.  Idempotent."""
         if self._logger is not None:
             self._logger.close()
+        self.write_contract_index()
         self.write_manifest()
         self.write_readme()
+
+    def write_contract_index(self) -> "Path | None":
+        """Write ``contract/index.json`` when any stage emitted a payload.
+
+        Written here rather than by the emitter so it describes the finished
+        directory: a reader opening this run — or a zip of it — gets one file
+        naming every payload, its stage and cycle, and the wire model that
+        decodes it, without having to infer any of that from filenames.
+        """
+        if not (self.root / "contract").is_dir():
+            return None
+        try:
+            from evalvitals.contract.emit import write_index
+        except ImportError:  # contract extra not installed
+            return None
+        trace_id = getattr(self._logger, "trace_id", "") if self._logger else ""
+        return write_index(self.root, trace_id=trace_id)
 
     def __enter__(self) -> "RunContext":
         return self

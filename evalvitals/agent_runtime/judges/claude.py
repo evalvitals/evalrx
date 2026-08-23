@@ -74,15 +74,29 @@ class ClaudeModel:
                     names = ", ".join(path.name for path in valid)
                     prompt_text = f"Images available in workspace: {names}\n\n{prompt_text}"
 
+            # A judge generates text; it does not act. Asking for the blanket
+            # permission bypass was more than that needs, and it made the judge
+            # unrunnable anywhere nothing wraps it: the CLI refuses
+            # `--dangerously-skip-permissions` under root unless IS_SANDBOX=1,
+            # which our compose files set (see _common/compose/base.yml) and a
+            # bare root box — Colab, a plain container, CI — does not. There
+            # every judge call exited 1 before reaching the model.
+            #
+            # `--tools ""` is the accurate request for a text completion: no
+            # tools, therefore nothing to permission. An image-bearing call is
+            # the one exception — the figures are staged in a temp dir and the
+            # model has to Read them — so that call allows exactly Read, scoped
+            # to the directory just added, and nothing else.
             cmd = [
                 self._binary,
                 "-p",
-                "--dangerously-skip-permissions",
                 "--output-format",
                 "text",
             ]
             if img_dir:
-                cmd += ["--add-dir", img_dir]
+                cmd += ["--add-dir", img_dir, "--allowed-tools", "Read"]
+            else:
+                cmd += ["--tools", ""]
             if self._model:
                 cmd += ["--model", self._model]
             if self._effort:

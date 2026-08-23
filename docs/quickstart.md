@@ -720,15 +720,21 @@ for name, result in report.final_results.items():
 
 ### Controlling analyzer selection
 
-`StrategyProbe` automatically detects model kind and ranks analyzers:
+`StrategyProbe` ranks analyzers by the modality slots the run is actually about
+— the model's declared modalities intersected with the slots the batch fills:
 
 ```python
 from evalvitals.eval_agent import StrategyProbe, ModelKind
 
 probe = StrategyProbe()
-probe.detect_kind(model)                     # ModelKind.VLM / AGENT / LLM
-probe.select(model, max_analyzers=4)         # e.g. ["pope", "chair", "attention", "mm_shap"]
+probe.routed_slots(model, cases)             # {"text", "audio"} for an ALM run
+probe.detect_kind(model)                     # ModelKind.VLM / ALM / AVLM / AGENT / LLM
+probe.select(model, max_analyzers=4, data=cases)
 ```
+
+Pass `data=` whenever you have it. Without it, ranking falls back to the model's
+declaration, and an omni model on an audio benchmark is ranked as a VLM because
+it declares image.
 
 ### Custom intervention (SurgeryAgent)
 

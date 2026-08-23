@@ -354,6 +354,9 @@ class RelativeAttentionAnalyzer(Analyzer):
     name = "relative_attention"
     requires = frozenset({Capability.ATTENTION})
     applies_to_modalities = frozenset({"image", "video"})
+    # Needs pixels present, not merely declared: an omni model on an audio
+    # batch matches on "image" and would map attention over nothing.
+    requires_modalities = frozenset({"image", "video"})
 
     def __init__(
         self,

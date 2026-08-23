@@ -44,6 +44,9 @@ class VLShapAnalyzer(Analyzer):
     name = "vl_shap"
     requires = frozenset({Capability.LOGPROBS})
     applies_to_modalities = frozenset({"image"})
+    # Its default scorer dereferences case.inputs.image, so an omni model on an
+    # audio batch matched here and then raised on the first case.
+    requires_modalities = frozenset({"image"})
 
     def __init__(
         self,

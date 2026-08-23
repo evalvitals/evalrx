@@ -57,6 +57,44 @@ def test_every_common_decoration_is_normalised():
     assert _normalise_label_line("The hypothesis: is not a label") == "The hypothesis: is not a label"
 
 
+_BOLD_NUMBERED_STYLE = """## Hypotheses
+
+**HYPOTHESIS 1:** The "No" prior is produced *inside* the chain of thought.
+**PLAIN_STATEMENT:** The model grades the stories like a law professor.
+**FAILURE_MODE:** task_framing_override
+**TEST:** New per-case lexical analyzer over stored outputs: count of strict-doctrine markers HIGHER on failing cases.
+**EXPECTED_ASSOCIATION:** higher_on_failures
+
+**HYPOTHESIS 2:** The bias is a length-dependent deliberation drift.
+**PLAIN_STATEMENT:** The longer it thinks out loud, the more objections it invents.
+**FAILURE_MODE:** overthinking
+**TEST:** `termination_audit.output_words` HIGHER on failing cases.
+**EXPECTED_ASSOCIATION:** higher_on_failures
+"""
+
+
+def test_numbered_labels_parse_like_bare_ones():
+    """gemma-4-e2b / bbh_causal_judgement chain (2026-08-22): ``**HYPOTHESIS 1:**``
+    / ``**HYPOTHESIS 2:**`` — three well-formed hypotheses, zero parsed, and the
+    run silently diagnosed an analysis-module template instead."""
+    hs = _parse_hypotheses(_BOLD_NUMBERED_STYLE, "gemma")
+    assert [h.predicted_failure_mode for h in hs] == ["task_framing_override", "overthinking"]
+    assert hs[0].statement == 'The "No" prior is produced *inside* the chain of thought.'
+    assert hs[0].plain_statement.startswith("The model grades")
+    assert hs[0].test_design.startswith("New per-case lexical analyzer")
+    assert hs[1].statement.startswith("The bias is a length-dependent")
+    for raw, want in {
+        "**HYPOTHESIS 1:** one": "HYPOTHESIS: one",
+        "HYPOTHESIS #2: two": "HYPOTHESIS: two",
+        "Hypothesis (3): three": "HYPOTHESIS: three",
+        "**TEST 1:** t": "TEST: t",
+        "3. **HYPOTHESIS 3:** bullet and number": "HYPOTHESIS: bullet and number",
+    }.items():
+        assert _normalise_label_line(raw) == want, raw
+    # a number that is part of the statement, not the label, stays
+    assert _normalise_label_line("HYPOTHESIS: 3 of the cases") == "HYPOTHESIS: 3 of the cases"
+
+
 def test_json_output_is_untouched_by_the_text_normaliser():
     raw = '[{"hypothesis": "json path statement long enough", "failure_mode": "fm"}]'
     hs = _parse_hypotheses(raw, "m")
@@ -164,3 +202,104 @@ def test_label_context_tabulates_gold_by_answer_on_binary_batches():
     text = _format_label_context(numeric)
     assert "labelled cases: 6 (1 FAIL / 5 PASS)" in text
     assert "gold x answer" not in text
+
+
+# Live failure #2 (VideoLLaMA2.1-7B-AV / Music-AVQA, 560 cases, 2026-08-23):
+# Opus at high effort numbered its three hypotheses the way anyone numbers a
+# list — HYPOTHESIS 1: / HYPOTHESIS 2: / HYPOTHESIS 3: — and the parser, which
+# by then handled every Markdown decoration and every LEADING list marker,
+# returned zero again. The first fix took the ordinal before the label ("1.
+# TEST:") and missed the ordinal after it. Two and a half hours of GPU and a
+# high-effort judge, discarded over a digit.
+#
+# Verbatim from that run's prompts/c0_m3_diagnosis.response.txt, trimmed.
+_NUMBERED_STYLE = """HYPOTHESIS 1: The M2 item set contains unrendered prompt templates \u2014 31% of questions reach the model with literal `<LR>/<FL>` tokens where a spatial referent should be.
+PLAIN_STATEMENT: Roughly a third of the questions were never filled in properly.
+FAILURE_MODE: prompt_template_unsubstituted
+TEST: `generated:probe1.has_placeholder` on failing vs passing cases (already +0.33, p\u22481e-15).
+EXPECTED_ASSOCIATION: higher_on_failures
+
+HYPOTHESIS 2: On the well-formed remainder, the model answers audio-grounded questions from visual priors rather than the audio stream.
+PLAIN_STATEMENT: The model is mostly watching, not listening.
+FAILURE_MODE: ignored_obs
+TEST: `modality_ablation.grounded_in_audio` on failing vs passing cases within the placeholder-free stratum.
+EXPECTED_ASSOCIATION: higher_on_failures
+
+HYPOTHESIS 3: The model conditions its answer on its own generated text rather than on the raw AV evidence.
+PLAIN_STATEMENT: If you ask it to describe the clip first, it answers its own description.
+FAILURE_MODE: self_conditioning_cascade
+TEST: `prompt_contrast` describe_first contrast, plus `perturbation_battery.noop_clause_flipped` HIGHER on failing cases.
+EXPECTED_ASSOCIATION: higher_on_failures
+"""
+
+
+def test_an_ordinal_after_the_label_parses():
+    hs = _parse_hypotheses(_NUMBERED_STYLE, "videollama2.1-7b-av")
+    assert [h.predicted_failure_mode for h in hs] == [
+        "prompt_template_unsubstituted", "ignored_obs", "self_conditioning_cascade",
+    ]
+    # The ordinal is a label decoration, not part of the claim.
+    assert hs[0].statement.startswith("The M2 item set contains")
+    assert hs[1].test_design.startswith("`modality_ablation.grounded_in_audio`")
+    assert hs[2].plain_statement.startswith("If you ask it to describe")
+
+
+def test_ordinals_in_either_position_and_every_marker_shape():
+    """Before and after the label, with and without punctuation."""
+    for line, want in {
+        "HYPOTHESIS 1: a": "HYPOTHESIS: a",
+        "HYPOTHESIS 12: a": "HYPOTHESIS: a",
+        "HYPOTHESIS #2: a": "HYPOTHESIS: a",
+        "TEST 3.: a": "TEST: a",
+        "REASON (4): a": "REASON: a",
+        "1. TEST: a": "TEST: a",
+        "**HYPOTHESIS 1:** a": "HYPOTHESIS: a",
+        "- FAILURE_MODE 2: a": "FAILURE_MODE: a",
+    }.items():
+        assert _normalise_label_line(line) == want, line
+
+
+def test_a_word_after_the_label_is_not_an_ordinal():
+    """Only digits are decoration. `HYPOTHESIS TESTING:` is a different label
+    and must not be silently read as `HYPOTHESIS:`."""
+    assert _normalise_label_line("HYPOTHESIS TESTING: a") == "HYPOTHESIS TESTING: a"
+
+
+def test_a_wrapped_failure_mode_unwraps_but_prose_keeps_its_code_spans():
+    """FAILURE_MODE is a lookup key; TEST is a sentence. They need opposite rules.
+
+    Regression from the fix that stopped the normaliser eating content
+    backticks: a judge writing ``FAILURE_MODE: `ignored_obs` `` then produced
+    the key "`ignored_obs", which matches nothing in
+    `_FAILURE_MODE_TO_ANALYZERS` -- so the next cycle's focused re-probe
+    silently falls back to the generic ranking. Seen live on the Music-AVQA run,
+    where all three hypotheses came out with a leading backtick.
+    """
+    from evalvitals.eval_agent.stages.diagnosis import _unwrap_value
+
+    assert _unwrap_value("`ignored_obs`") == "ignored_obs"
+    assert _unwrap_value("**language_prior_bias**") == "language_prior_bias"
+    assert _unwrap_value("plain_mode") == "plain_mode"
+    # Only an ENTIRELY wrapped value is decoration.
+    assert _unwrap_value("some `sig` text") == "some `sig` text"
+    assert _unwrap_value("`unclosed") == "`unclosed"
+
+    raw = (
+        "HYPOTHESIS 1: The audio branch contributes a clip-level prior.\n"
+        "FAILURE_MODE: `ignored_obs`\n"
+        "TEST: `modality_ablation.grounded_in_audio` HIGHER on failing cases\n"
+        "EXPECTED_ASSOCIATION: `higher_on_failures`\n"
+    )
+    h = _parse_hypotheses(raw, "videollama2.1-7b-av")[0]
+    assert h.predicted_failure_mode == "ignored_obs"          # a key, unwrapped
+    assert h.expected_association == "higher_on_failures"
+    assert h.test_design.startswith("`modality_ablation")     # a sentence, intact
+
+
+def test_the_failure_mode_keys_the_next_cycle_actually_routes_on():
+    """The unwrapped mode must hit the routing table, or the fix is cosmetic."""
+    from evalvitals.eval_agent.stages.probe import _FAILURE_MODE_TO_ANALYZERS
+    from evalvitals.eval_agent.stages.diagnosis import _unwrap_value
+
+    for wrapped in ("`ignored_obs`", "`language_prior_bias`"):
+        assert _unwrap_value(wrapped) in _FAILURE_MODE_TO_ANALYZERS

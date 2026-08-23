@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "ExploreContextWire": {
+      "additionalProperties": false,
+      "description": "Descriptive EDA notes from the optional explore side-path.\n\nNever authoritative. It enters the M3 prompt and the dashboard and nothing\nelse — not M2's tested family, not M5, not the fix gate. It shapes WHICH\nhypotheses get proposed, never WHETHER one is true.",
+      "properties": {
+        "observations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "charts": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Charts",
+          "type": "array"
+        },
+        "caveats": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Caveats",
+          "type": "array"
+        },
+        "source": {
+          "default": "lambda_explorer",
+          "title": "Source",
+          "type": "string"
+        },
+        "authoritative": {
+          "const": false,
+          "default": false,
+          "title": "Authoritative",
+          "type": "boolean"
+        }
+      },
+      "title": "ExploreContextWire",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "M3 reads M2's report — both the numbers and the narrative.",
+  "properties": {
+    "analysis_ref": {
+      "description": "Path to the M2 StatsReportWire.",
+      "title": "Analysis Ref",
+      "type": "string"
+    },
+    "prior_cycles": {
+      "description": "Summaries of earlier cycles, so the judge avoids re-proposing.",
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Prior Cycles",
+      "type": "array"
+    },
+    "explore_context": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExploreContextWire"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "failure_modes": {
+      "description": "Descriptive-only clustering tags.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Failure Modes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "analysis_ref"
+  ],
+  "title": "DiagnosisInput",
+  "type": "object",
+  "$id": "https://evalvitals.dev/contract/m3.DiagnosisInput.json",
+  "x-stage": "m3",
+  "x-role": "input",
+  "x-schema-version": 4,
+  "x-optional-stage": false
+}
