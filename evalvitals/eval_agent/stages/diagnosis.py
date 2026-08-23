@@ -282,9 +282,13 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
 # and the bare ``startswith("HYPOTHESIS:")`` check saw none of them: a live
 # qwen3.5-2b/bbh_word_sorting run had three well-formed hypotheses in the
 # response and M3 reported zero. Normalise the label, leave the text alone.
+# ``**HYPOTHESIS 1:**`` / ``HYPOTHESIS #2:`` / ``HYPOTHESIS (3):`` — a numbered
+# label (gemma-4-e2b/bbh_causal_judgement, 2026-08-22: three well-formed
+# hypotheses, zero parsed, the run diagnosed a template instead).
 _LABEL_LINE = re.compile(
     r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]*\s*"
     r"(HYPOTHESIS|PLAIN_STATEMENT|PLAIN_LANGUAGE|FAILURE_MODE|TEST|EXPECTED_ASSOCIATION|KEEP|REJECT|REASON)"
+    r"(?:\s*(?:#|No\.?)?\s*\(?\d+\)?)?"
     r"\s*[*_`]*\s*:\s*[*_`]*\s*",
     re.IGNORECASE,
 )
@@ -758,6 +762,20 @@ class DiagnosisAgent:
         # This prevents self-diagnosis bias when the judge is the model under test.
         if not hypotheses and analysis.findings:
             from evalvitals.analysis.analysis_module import _SEVERITY_ORDER
+            raw_text = str(raw or "").strip()
+            if raw_text and "NO_ISSUE" not in raw_text.upper():
+                # Not a NO_ISSUE verdict: the judge proposed something the label
+                # parser could not read (gemma-4-e2b/bbh_causal_judgement 2026-08-22:
+                # ``**HYPOTHESIS 1:**``). Substituting templates silently turned a
+                # three-hypothesis diagnosis into "low self-consistency".
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "DiagnosisAgent: the judge wrote %d chars that parsed to zero hypotheses "
+                    "(not NO_ISSUE); falling back to analysis-module template hypotheses — "
+                    "check the label format in the response: %r",
+                    len(raw_text), raw_text[:160],
+                )
             for finding in analysis.findings:
                 if _SEVERITY_ORDER.get(finding.severity, 0) >= 2:  # medium or high
                     hypotheses.append(Hypothesis(

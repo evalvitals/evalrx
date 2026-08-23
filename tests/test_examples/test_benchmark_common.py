@@ -3,7 +3,6 @@ glue, CLI no-model paths, and the generated leaf compose files."""
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -113,6 +112,31 @@ def test_scorers_by_task_kind(common):
     assert not score("yes_no", "maybe", ["No"])
     with pytest.raises(ValueError):
         score("bogus", "x", ["x"])
+
+
+def test_parsed_choice_refuses_leaked_thought_preambles_and_enumerations(common):
+    """gemma-4-e2b/MMAU 2026-08-22: 100/256 outputs were a spontaneous ``thought``
+    channel cut at the 64-token cap while restating the options; the old
+    "last bare letter anywhere" fallback turned 16 of them into PASSes."""
+    _, _, scoring, _ = common
+    pc = scoring.parsed_choice
+    preamble = ("thought\n1.  **Analyze the Request:** The user wants me to identify the source "
+                "of the music. The options are (A) Radio, (B) Live")
+    assert pc(preamble, "ABCD") == ""                                  # no commitment -> no letter
+    assert pc("<|channel>thought\nThe options are (A) W", "ABCD") == ""
+    assert pc("thought\nI listened carefully.\nAnswer: C", "ABCD") == "C"   # a tag still commits
+    assert pc("(B)", "ABCD") == "B" and pc("B.", "ABCD") == "B"
+    assert pc("B\n\nBecause the clip is a dog barking.", "ABCD") == "B"  # answer first, prose after
+    assert pc("It is (A) dog, (B) cat or (C) cow.", "ABCD") == ""        # an enumeration is not an answer
+    assert pc("Either B or C.", "ABCD") == ""                            # a hedge is not an answer
+    assert pc("I think A but the answer: (B)", "ABCD") == "B"
+    assert pc("A dog barks.", "ABCD") == ""                              # the article is not option A
+    assert pc("I'd go with B", "ABCD") == "B" and pc("b", "ABCD") == "B"
+    assert not scoring.score_output("multiple_choice_letter", preamble, ["A"], choices=["A", "B", "C", "D"])
+    yn = scoring.parsed_yes_no
+    assert yn("thought\nThe user asks whether a dog barks, yes or no.") == ""
+    assert yn("thought\nListening...\nAnswer: No") == "No"
+    assert yn("Yes, a dog barks.") == "Yes"
 
 
 def test_build_cases_from_a_manifest_and_score_through_case_metadata(common, tmp_path):

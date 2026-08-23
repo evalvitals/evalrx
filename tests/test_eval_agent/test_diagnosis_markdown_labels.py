@@ -57,6 +57,44 @@ def test_every_common_decoration_is_normalised():
     assert _normalise_label_line("The hypothesis: is not a label") == "The hypothesis: is not a label"
 
 
+_NUMBERED_STYLE = """## Hypotheses
+
+**HYPOTHESIS 1:** The "No" prior is produced *inside* the chain of thought.
+**PLAIN_STATEMENT:** The model grades the stories like a law professor.
+**FAILURE_MODE:** task_framing_override
+**TEST:** New per-case lexical analyzer over stored outputs: count of strict-doctrine markers HIGHER on failing cases.
+**EXPECTED_ASSOCIATION:** higher_on_failures
+
+**HYPOTHESIS 2:** The bias is a length-dependent deliberation drift.
+**PLAIN_STATEMENT:** The longer it thinks out loud, the more objections it invents.
+**FAILURE_MODE:** overthinking
+**TEST:** `termination_audit.output_words` HIGHER on failing cases.
+**EXPECTED_ASSOCIATION:** higher_on_failures
+"""
+
+
+def test_numbered_labels_parse_like_bare_ones():
+    """gemma-4-e2b / bbh_causal_judgement chain (2026-08-22): ``**HYPOTHESIS 1:**``
+    / ``**HYPOTHESIS 2:**`` — three well-formed hypotheses, zero parsed, and the
+    run silently diagnosed an analysis-module template instead."""
+    hs = _parse_hypotheses(_NUMBERED_STYLE, "gemma")
+    assert [h.predicted_failure_mode for h in hs] == ["task_framing_override", "overthinking"]
+    assert hs[0].statement == 'The "No" prior is produced *inside* the chain of thought.'
+    assert hs[0].plain_statement.startswith("The model grades")
+    assert hs[0].test_design.startswith("New per-case lexical analyzer")
+    assert hs[1].statement.startswith("The bias is a length-dependent")
+    for raw, want in {
+        "**HYPOTHESIS 1:** one": "HYPOTHESIS: one",
+        "HYPOTHESIS #2: two": "HYPOTHESIS: two",
+        "Hypothesis (3): three": "HYPOTHESIS: three",
+        "**TEST 1:** t": "TEST: t",
+        "3. **HYPOTHESIS 3:** bullet and number": "HYPOTHESIS: bullet and number",
+    }.items():
+        assert _normalise_label_line(raw) == want, raw
+    # a number that is part of the statement, not the label, stays
+    assert _normalise_label_line("HYPOTHESIS: 3 of the cases") == "HYPOTHESIS: 3 of the cases"
+
+
 def test_json_output_is_untouched_by_the_text_normaliser():
     raw = '[{"hypothesis": "json path statement long enough", "failure_mode": "fm"}]'
     hs = _parse_hypotheses(raw, "m")
