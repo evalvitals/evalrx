@@ -483,8 +483,26 @@ class RunContext:
         """Write the manifest + README and close the logger.  Idempotent."""
         if self._logger is not None:
             self._logger.close()
+        self.write_contract_index()
         self.write_manifest()
         self.write_readme()
+
+    def write_contract_index(self) -> "Path | None":
+        """Write ``contract/index.json`` when any stage emitted a payload.
+
+        Written here rather than by the emitter so it describes the finished
+        directory: a reader opening this run — or a zip of it — gets one file
+        naming every payload, its stage and cycle, and the wire model that
+        decodes it, without having to infer any of that from filenames.
+        """
+        if not (self.root / "contract").is_dir():
+            return None
+        try:
+            from evalvitals.contract.emit import write_index
+        except ImportError:  # contract extra not installed
+            return None
+        trace_id = getattr(self._logger, "trace_id", "") if self._logger else ""
+        return write_index(self.root, trace_id=trace_id)
 
     def __enter__(self) -> "RunContext":
         return self

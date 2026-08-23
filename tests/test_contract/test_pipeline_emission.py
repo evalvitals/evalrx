@@ -124,16 +124,30 @@ def test_m1_records_which_modality_the_run_was_routed_on(
     assert set(sel.probed_modalities) <= set(sel.model_modalities) | {"text"}
 
 
-def test_index_lists_what_was_written(tmp_path):
+def test_index_describes_the_finished_directory(tmp_path):
+    """A reader opening a run it did not produce starts here.
+
+    Written by RunContext.finalize(), so it exists for every completed run
+    without the producer having to remember -- which is what a zip handed to a
+    viewer needs, since the viewer has no producer to ask.
+    """
     model = FakeModel(capabilities={Capability.GENERATE}, modalities={"text"})
     files, ctx = _run(tmp_path, model, _batch())
-    from evalvitals.contract.emit import ContractEmitter
 
-    emitter = ContractEmitter(ctx.root, "t")
-    emitter.written = [p for n, p in files.items()]
-    index = json.loads(emitter.index().read_text())
+    index = json.loads((ctx.root / "contract" / "index.json").read_text())
     assert index["schema_version"] == SCHEMA_VERSION
-    assert index["stages"]
+    assert index["produced_at"]
+    assert index["invalid"] == []
+
+    by_file = {e["file"]: e for e in index["payloads"]}
+    assert set(by_file) == {n for n in files
+                            if not n.endswith(".invalid.json") and n != "index.json"}
+    m1 = by_file["c0.m1.json"]
+    # Stage, cycle and decoding type are named, not inferred from the filename.
+    assert (m1["stage"], m1["cycle"], m1["wire"]) == ("m1", 0, "ProbeOutput")
+    assert m1["bytes"] > 0
+    # Reading order: by cycle, then stage.
+    assert [e["cycle"] for e in index["payloads"]] == sorted(e["cycle"] for e in index["payloads"])
 
 
 # ── the emitter is an observer: it must never take a run down ─────────────────

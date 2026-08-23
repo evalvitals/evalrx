@@ -245,3 +245,67 @@ def test_a_malformed_judge_response_does_not_corrupt_the_contract(tmp_path):
     files = _run(tmp_path, "I think the model is just bad at this, honestly.")
     assert not [n for n in files if n.endswith(".invalid.json")], sorted(files)
     _latest(files, "m3", DiagnosisOutput)   # decodes, whatever it contains
+
+
+# ── M2 must actually ship its statistics ─────────────────────────────────────
+
+def test_m2_serializes_the_typed_verdicts_not_the_legacy_summaries():
+    """StatsAnalysisReport carries two similarly named lists with different shapes.
+
+        stats_results       list[StatsToolResult]  -- the per-tool verdicts
+        stats_tool_results  list[dict]             -- legacy JSON-safe summaries,
+                                                      keyed by `name`, no `tool`
+
+    Reading the second and filtering on `tool` dropped every result. A live run
+    shipped M2 with zero statistics next to corrected_rejections.n_tested=16 --
+    and "nothing was tested" is a legitimate state, so nothing downstream could
+    tell the empty payload was a field mix-up.
+    """
+    from evalvitals.analysis.stats_agent import StatsAnalysisReport
+    from evalvitals.analysis.stats_tools import StatsToolResult
+    from evalvitals.contract.emit import from_stats_report
+
+    report = StatsAnalysisReport(
+        model_name="m",
+        stats_results=[
+            StatsToolResult(tool="signal_label_assoc", ok=True, effect=0.4, reject=True,
+                            analysis_key="signal_label_assoc:self_consistency.consistency"),
+            StatsToolResult(tool="mcnemar_evalue", ok=True, effect=0.1, reject=False),
+        ],
+        # Populated too, and first in the old lookup order -- the whole trap.
+        stats_tool_results=[{"name": "scalar_summary", "metrics": {"n_scalar_metrics": 52}}],
+        corrected_rejections={"method": "BH", "alpha": 0.05, "n_tested": 2,
+                              "rejected_result_keys": []},
+    )
+    wire = from_stats_report(report, trace_id="t", cycle=0)
+    assert [r.tool for r in wire.stats_results] == ["signal_label_assoc", "mcnemar_evalue"]
+    assert wire.corrected_rejections.n_tested == 2
+
+
+def test_m2_reports_partial_when_tested_results_do_not_reach_the_payload():
+    """The failure that hid: n_tested > 0 with an empty results list.
+
+    Both halves are individually valid, so only their combination is evidence of
+    a plumbing fault -- and it has to be visible as one rather than as a stage
+    that succeeded with nothing to say.
+    """
+    from evalvitals.analysis.stats_agent import StatsAnalysisReport
+    from evalvitals.contract.emit import from_stats_report
+
+    wire = from_stats_report(
+        StatsAnalysisReport(
+            model_name="m", stats_results=[],
+            corrected_rejections={"method": "BH", "n_tested": 16, "rejected_result_keys": []},
+        ),
+        trace_id="t", cycle=0,
+    )
+    assert wire.status.state.value == "partial"
+    assert "16 tests" in (wire.status.reason or "")
+
+    # Genuinely nothing tested stays EMPTY -- the states must not collapse.
+    quiet = from_stats_report(
+        StatsAnalysisReport(model_name="m", stats_results=[],
+                            corrected_rejections={"method": "none", "n_tested": 0}),
+        trace_id="t", cycle=0,
+    )
+    assert quiet.status.state.value == "empty"

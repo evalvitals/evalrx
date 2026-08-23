@@ -215,7 +215,14 @@ def from_stats_report(
             summary=str(_val(r, "summary", "") or ""),
             details=dict(_val(r, "details", {}) or {}),
         )
-        for r in (_val(report, "stats_tool_results", None) or _val(report, "stats_results", []) or [])
+        # `stats_results` (typed StatsToolResult verdicts), NOT the similarly
+        # named `stats_tool_results` -- which is a legacy JSON-safe *summary*
+        # shape keyed by `name`, so preferring it and then filtering on `tool`
+        # dropped every result. A live run shipped M2 with zero statistics
+        # beside corrected_rejections.n_tested=16, and both are valid states on
+        # their own, so nothing downstream could tell that the payload was empty
+        # because of a field mix-up rather than because nothing was tested.
+        for r in (_val(report, "stats_results", []) or [])
         if _val(r, "tool", None)
     ]
     corrected_raw = _val(report, "corrected_rejections", None)
@@ -227,9 +234,16 @@ def from_stats_report(
         rejected_result_keys=list(_val(corrected_raw, "rejected_result_keys", []) or []),
     ) if corrected_raw is not None else CorrectedRejections()
 
+    # A family that tested N results and serialized none is a plumbing failure
+    # wearing the same clothes as "nothing was tested". PARTIAL says which.
+    lost = bool(corrected.n_tested and not stats)
+    state = (StageState.PARTIAL if lost
+             else StageState.SUCCEEDED if (findings or stats)
+             else StageState.EMPTY)
     return StatsReportWire(
-        **envelope("m2", trace_id=trace_id, cycle=cycle,
-                   state=StageState.SUCCEEDED if (findings or stats) else StageState.EMPTY,
+        **envelope("m2", trace_id=trace_id, cycle=cycle, state=state,
+                   reason=(f"{corrected.n_tested} tests were corrected but none reached "
+                           "the payload") if lost else None,
                    duration_sec=duration_sec),
         findings=findings,
         stats_tool=_val(report, "stats_tool", "threshold_rules") or "threshold_rules",
@@ -589,24 +603,70 @@ class ContractEmitter:
         return path
 
     def index(self) -> Path:
-        """Write ``contract/index.json`` — what a frontend loads first."""
-        self.dir.mkdir(parents=True, exist_ok=True)
-        path = self.dir / "index.json"
-        path.write_text(json.dumps({
-            "schema_version": SCHEMA_VERSION,
-            "trace_id": self.trace_id,
-            "stages": sorted(p.name for p in self.written),
-            "invalid": sorted(name for name, _ in self.errors),
-        }, indent=2), encoding="utf-8")
-        return path
+        """Write ``contract/index.json`` from what THIS emitter wrote."""
+        return write_index(self.root, trace_id=self.trace_id)
 
     def __repr__(self) -> str:
         return (f"ContractEmitter(root={str(self.root)!r}, "
                 f"written={len(self.written)}, invalid={len(self.errors)})")
 
 
+#: Stage -> the wire model that decodes it. The index names this so a reader
+#: does not have to infer the type from the filename.
+STAGE_WIRE = {
+    "pre_m1": "ProbeSearchOutput", "m1": "ProbeOutput", "m2": "StatsReportWire",
+    "m3": "DiagnosisOutput", "m5": "HypothesisTestOutput",
+    "m4_surgery": "InterventionOutput", "m4_fix": "FixOutput",
+}
+
+
+def write_index(root: "str | Path", *, trace_id: str = "") -> Path:
+    """Write ``<root>/contract/index.json`` by scanning what is on disk.
+
+    Scans rather than reading an emitter's memory, so it describes the directory
+    a reader will actually get — including payloads written by an earlier
+    process, and including the ``.invalid.json`` markers, which a viewer has to
+    show as broken rather than silently omit.
+
+    This is the entry point for anything reading a run it did not produce: one
+    file naming every payload, its stage, its cycle, and the wire model that
+    decodes it.
+    """
+    directory = Path(root) / CONTRACT_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    payloads, invalid = [], []
+    for path in sorted(directory.glob("*.json")):
+        if path.name == "index.json":
+            continue
+        # "c0.m1.json" / "m4_fix.json" / "c-1.m5.invalid.json"
+        stem = path.name[: -len(".invalid.json")] if path.name.endswith(".invalid.json") \
+            else path.name[: -len(".json")]
+        span, _, stage = stem.rpartition(".")
+        stage = stage or span
+        cycle = None
+        if span.startswith("c"):
+            try:
+                cycle = int(span[1:])
+            except ValueError:
+                cycle = None
+        entry = {"file": path.name, "stage": stage, "cycle": cycle,
+                 "wire": STAGE_WIRE.get(stage), "bytes": path.stat().st_size}
+        (invalid if path.name.endswith(".invalid.json") else payloads).append(entry)
+
+    path = directory / "index.json"
+    path.write_text(json.dumps({
+        "schema_version": SCHEMA_VERSION,
+        "trace_id": trace_id,
+        "produced_at": _now(),
+        # Sorted by cycle then stage: reading order, not filesystem order.
+        "payloads": sorted(payloads, key=lambda e: (e["cycle"] is None, e["cycle"] or 0, e["stage"])),
+        "invalid": invalid,
+    }, indent=2), encoding="utf-8")
+    return path
+
+
 __all__ = [
-    "CONTRACT_DIR", "ContractEmitter", "envelope",
+    "CONTRACT_DIR", "STAGE_WIRE", "ContractEmitter", "envelope", "write_index",
     "from_cases", "case_ref", "from_probe_results", "from_stats_report",
     "from_diagnosis", "from_test_results", "from_intervention", "from_fix_outcome",
     "hypothesis_id",
