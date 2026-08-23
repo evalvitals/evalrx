@@ -50,6 +50,11 @@ def load_model(resolved: Resolved, args, task: T.Task):
     from evalvitals.specs import get_spec
 
     spec = get_spec(resolved.spec_key)
+    if getattr(args, "model_path", None):
+        # Only the location changes. The spec still decides the auto class, the
+        # chat template kwargs and the modalities, so a local checkout is the
+        # same model under test rather than a differently-configured one.
+        spec = replace(spec, hf_repo=str(args.model_path))
     if args.enable_thinking:
         spec = replace(spec, chat_template_kwargs={**spec.chat_template_kwargs, "enable_thinking": True})
     gen = generation_settings(task, args)

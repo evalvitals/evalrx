@@ -39,6 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--download-limit", type=int, default=None,
                    help="rows to freeze when the manifest is missing (default: the task's; 0 = whole slice)")
     p.add_argument("--seed", type=int, default=None, help="sampling seed for a fresh manifest (default: the task's)")
+    p.add_argument("--model-path", default=None,
+                   help="Load the weights from this local directory instead of the spec's "
+                        "hub id. For an air-gapped box, a git-cloned checkout, or pinning "
+                        "an exact revision; everything else about the spec is unchanged.")
     p.add_argument("--device", default=None, help="cuda | cuda:0 | auto (default: auto for 2-GPU sizes, else cuda)")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--attn-impl", choices=["sdpa", "eager", "auto"], default=None,

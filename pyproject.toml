@@ -29,9 +29,16 @@ dependencies = [
 
 [project.optional-dependencies]
 # Local white-box models + internals capture (the heavy path).
+#
+# The <5 cap excluded the benchmark's own headline model: Qwen3.5 declares
+# model_type "qwen3_5", which no 4.x release knows, so installing this extra on
+# a box that already had transformers 5 DOWNGRADED it and hf_local then refused
+# the checkpoint with "Transformers does not recognize this architecture".
+# Verified on 5.15: the spec loads in 10s and reports the full white-box set
+# (attention / hidden_states / logits / logprobs).
 local = [
     "torch>=2.0.0",
-    "transformers>=4.51.0,<5.0.0",
+    "transformers>=4.51.0",
     "accelerate>=0.26.0",
 ]
 # L4 fix tier (parameter-space repair): LoRA fine-tuning executor. Separate from
@@ -89,7 +96,7 @@ cluster = [
 gemini = ["google-genai>=1.0"]
 all = [
     "torch>=2.0.0",
-    "transformers>=4.51.0,<5.0.0",
+    "transformers>=4.51.0",
     "accelerate>=0.26.0",
     "peft>=0.10",
     "openai>=1.0",
