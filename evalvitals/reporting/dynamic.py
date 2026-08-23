@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-REPORT_DATA_VERSION = 9
+REPORT_DATA_VERSION = 10
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalvitals-report@1"
@@ -127,6 +127,13 @@ def build_report_data(
     media = _media_index(cases)
     normalized_cases = [_normalise_case(case, media) for case in cases if isinstance(case, dict)]
     normalized_cases = _merge_recorded_case_evidence(normalized_cases, root)
+    # Attach what M4's repair answered on each case, so "12 repaired, 1 broken"
+    # is thirteen cases a reader can open rather than two numbers.
+    repairs = _repair_outcomes(root, contract)
+    for case in normalized_cases:
+        hit = repairs.get(case["id"])
+        if hit:
+            case["repair"] = hit
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
     stages = _stages(raw, stage_detail.get("m4") if isinstance(stage_detail, dict) else None)
 
@@ -1107,6 +1114,49 @@ def _contract_payloads(root: Path) -> dict[str, Any]:
         # "c0.m1.json" -> "c0.m1"; ".invalid.json" keeps its suffix so a reader
         # can see that a stage failed validation rather than silently missing it.
         out[path.name[: -len(".json")]] = payload
+    return out
+
+
+def _repair_outcomes(root: Path, contract: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """What each repair candidate answered, per case.
+
+    ``case_id -> {candidate, tier, status, output}``. The counts in M4 say twelve
+    cases were repaired and one broken; this is what lets a reader open those
+    thirteen and see what actually changed. Without it a repair is a number.
+
+    Read from each attempt's ``trial_root/outputs.jsonl`` rather than the wire,
+    because it is one row per case per candidate — the contract points at the
+    file instead of inlining it, and this is the reader following the pointer.
+    Confirmation attempts only: the selection sweep chose the candidate and its
+    per-case results are not evidence about it.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for key in sorted(contract):
+        if not key.endswith("m4_fix"):
+            continue
+        for attempt in (contract[key] or {}).get("attempted") or []:
+            trial = str(attempt.get("trial_root") or "")
+            if not trial:
+                continue
+            path = (root / trial / "outputs.jsonl")
+            if not path.is_file():
+                path = Path(trial) / "outputs.jsonl"   # a run read where it was produced
+            if not path.is_file():
+                continue
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                cid = str(row.get("case_id") or "")
+                if not cid:
+                    continue
+                out[cid] = {
+                    "candidate": attempt.get("name"),
+                    "tier": attempt.get("tier"),
+                    "status": row.get("status"),
+                    "output": row.get("output"),
+                }
     return out
 
 

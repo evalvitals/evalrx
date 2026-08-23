@@ -191,7 +191,9 @@ export interface FixAttemptWire {
    */
   methodology?: MethodologyWire | null;
   /**
-   * Self-contained attempt folder. Preferred join key across rounds — name alone is not unique.
+   * Self-contained attempt folder, RELATIVE TO THE RUN ROOT. Preferred join key across rounds — name alone is not unique.
+   *
+   * It holds `outputs.jsonl`, one line per validated case: `{case_id, status, output}` where status is fixed / broken / unchanged. That is what a reader needs to study a repair case by case — the candidate's actual answer beside the baseline's — and it is kept out of this payload because it is one row per case per candidate. Recorded relative because an absolute producer path resolves nowhere else, which is the same reason MediaRef paths are relative.
    */
   trial_root?: string | null;
   n_pairs?: number;

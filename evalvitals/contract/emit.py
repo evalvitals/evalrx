@@ -659,8 +659,28 @@ def _tier(value: Any, default: str = "L1") -> str:
     return text or default
 
 
+def _relative_trial(trial: Any, run_root: "str | Path | None") -> "str | None":
+    """A trial folder as a run-relative path.
+
+    The trial records an absolute path on the producing host. Left that way it
+    resolves nowhere else, and the per-case outputs it points at -- the only
+    record of what a repair actually answered -- become unreachable the moment
+    the run is read somewhere other than where it ran.
+    """
+    raw = str(_val(trial, "root", "") or "")
+    if not raw:
+        return None
+    if run_root is None:
+        return raw
+    try:
+        return str(Path(raw).resolve().relative_to(Path(run_root).resolve()))
+    except (ValueError, OSError):
+        return raw
+
+
 def from_fix_outcome(
     outcome: Any, *, trace_id: str, cycle: int = -1, duration_sec: float | None = None,
+    run_root: "str | Path | None" = None,
 ) -> FixOutput:
     """``FixOutcome`` -> :class:`FixOutput`."""
     attempts: list[FixAttemptWire] = []
@@ -675,7 +695,7 @@ def from_fix_outcome(
             tier=_tier(_val(cand, "tier", "L1")),
             name=str(_val(cand, "name", "") or "candidate"),
             kind=_val(cand, "kind"), source=_val(cand, "source"),
-            trial_root=str(_val(trial, "root", "") or "") or None,
+            trial_root=_relative_trial(trial, run_root),
             n_pairs=int(_val(v, "n_pairs", 0) or 0),
             n_baseline_correct=int(_val(v, "n_baseline_correct", 0) or 0),
             n_fixed=int(_val(v, "n_fixed", 0) or 0),

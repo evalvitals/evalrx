@@ -19,8 +19,11 @@ export function App() {
   if (error) return <div className="load-state"><Activity /><h1>Could not load this report</h1><p>{error}</p></div>;
   if (!payload) return <div className="load-state"><Activity className="pulse" /><p>Composing the failure-to-fix story…</p></div>;
   const back = () => setView("overview");
-  if (view === "evidence" || view.startsWith("evidence:")) return <EvidenceView data={payload.data} back={back} initialStage={view.split(":")[1]} />;
-  if (view === "cases") return <CasesView data={payload.data} back={back} />;
+  if (view === "evidence" || view.startsWith("evidence:")) return <EvidenceView data={payload.data} back={back} navigate={setView} initialStage={view.split(":")[1]} />;
+  // "cases:<id>" opens the studio focused on one case, which is how M4's
+  // repaired/broken chips link into it.
+  if (view === "cases" || view.startsWith("cases:"))
+    return <CasesView data={payload.data} back={back} initialCaseId={view.split(":")[1]} />;
   if (view === "debug") return <DebugView data={payload.data} back={back} />;
   return <>
     <div className="topbar"><a href="#"><span className="logo-mark">EV</span><strong>EvalVitals</strong></a><div><span className="live-dot" /> report complete</div><code>{payload.data.trace_id.slice(0, 8)}</code></div>

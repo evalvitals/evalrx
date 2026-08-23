@@ -5,21 +5,21 @@ import { AlertTriangle, ArrowLeft, BarChart3, Beaker, CheckCircle2, ChevronRight
 import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixOutput,
   HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
 
-export function EvidenceView({ data, back, initialStage }: { data: ReportData; back: () => void; initialStage?: string }) {
+export function EvidenceView({ data, back, navigate, initialStage }: { data: ReportData; back: () => void; navigate?: (view: string) => void; initialStage?: string }) {
   const [selected, setSelected] = useState(initialStage || data.stages[0]?.id);
   const stage = data.stages.find((item) => item.id === selected);
   const events = data.debug.events.filter((event) => String(event.stage || "").toLowerCase().includes(selected));
   return <DetailShell title="Stage evidence" subtitle="The measurements, reasoning, and artifacts behind this step." back={back}>
-    <div className="evidence-layout"><aside className="stage-list">{data.stages.map((item) => <button className={selected === item.id ? "active" : ""} key={item.id} onClick={() => setSelected(item.id)}><span>{item.code}</span><div><strong>{item.title}</strong><small>{item.status.replaceAll("-", " ")}</small></div><ChevronRight /></button>)}</aside><section className="evidence-detail"><span className="section-kicker">{stage?.code} · {stage?.status}</span><h2>{stage?.title}</h2><p className="lead-small">{stage?.purpose}</p><StageArtifact stage={selected || ""} detail={data.stage_detail || {}} report={data} /><details className="raw-events"><summary>Raw agent events ({events.length})</summary>{events.length ? events.map((event, index) => <EventRow event={event} key={`${event.event_seq}-${index}`} />) : <p className="empty">No stage-level events were retained.</p>}</details></section></div>
+    <div className="evidence-layout"><aside className="stage-list">{data.stages.map((item) => <button className={selected === item.id ? "active" : ""} key={item.id} onClick={() => setSelected(item.id)}><span>{item.code}</span><div><strong>{item.title}</strong><small>{item.status.replaceAll("-", " ")}</small></div><ChevronRight /></button>)}</aside><section className="evidence-detail"><span className="section-kicker">{stage?.code} · {stage?.status}</span><h2>{stage?.title}</h2><p className="lead-small">{stage?.purpose}</p><StageArtifact stage={selected || ""} detail={data.stage_detail || {}} report={data} navigate={navigate} /><details className="raw-events"><summary>Raw agent events ({events.length})</summary>{events.length ? events.map((event, index) => <EventRow event={event} key={`${event.event_seq}-${index}`} />) : <p className="empty">No stage-level events were retained.</p>}</details></section></div>
   </DetailShell>;
 }
 
-function StageArtifact({ stage, detail, report }: { stage: string; detail: Record<string, any>; report: ReportData }) {
+function StageArtifact({ stage, detail, report, navigate }: { stage: string; detail: Record<string, any>; report: ReportData; navigate?: (view: string) => void }) {
   if (stage === "m1") return <M1Detail data={detail.m1 || {}} report={report} />;
   if (stage === "m2") return <M2Detail data={detail.m2 || {}} />;
   if (stage === "m3") return <M3Detail data={detail.m3 || {}} report={report} />;
   if (stage === "m5") return <M5Detail data={detail.m5 || {}} report={report} />;
-  if (stage === "m4") return <M4Detail data={detail.m4 || {}} report={report} />;
+  if (stage === "m4") return <M4Detail data={detail.m4 || {}} report={report} navigate={navigate} />;
   return <EmptyStage title="No stage data" body="This stage did not retain a structured artifact." />;
 }
 
@@ -306,7 +306,37 @@ function SelectionSweep({ report }: { report: ReportData }) {
   </section>;
 }
 
-function M4Detail({ data, report }: { data: any; report: ReportData }) {
+/**
+ * The case ids a candidate repaired or broke, as links into the Case Studio.
+ *
+ * "12 repaired, 1 broken" is two numbers; these are thirteen cases someone can
+ * read. A case the report has no record of is shown greyed and unclickable
+ * rather than as a dead link — on a run whose held-out split went unlogged that
+ * is every one of them, and the reader needs to know that is why.
+ */
+function CaseLinks({ ids, kind, report, navigate }: {
+  ids?: string[]; kind: "fixed" | "broken";
+  report: ReportData; navigate?: (view: string) => void;
+}) {
+  if (!ids?.length) return null;
+  const known = new Set(report.cases.map((c) => c.id));
+  const missing = ids.filter((id) => !known.has(id)).length;
+  return <div className="case-links">
+    <small>{kind === "fixed" ? "REPAIRED" : "BROKEN"} ({ids.length})</small>
+    <div>{ids.map((id) => known.has(id)
+      ? <button className={`case-chip ${kind}`} key={id}
+          onClick={() => navigate?.(`cases:${id}`)}>{id}</button>
+      : <span className="case-chip missing" key={id} title="No record of this case in the report">{id}</span>)}
+    </div>
+    {missing > 0 && <em>
+      {missing === ids.length ? "None of these cases" : `${missing} of these cases`} were
+      recorded in this run, so they cannot be opened. The repair was validated on the
+      held-out split, and this run logged only the diagnosis split.
+    </em>}
+  </div>;
+}
+
+function M4Detail({ data, report, navigate }: { data: any; report: ReportData; navigate?: (view: string) => void }) {
   const candidates = data.candidates || [];
   if (!data.ran || !candidates.length) return <><StageBanner kind="INTERVENTION" title="Repair and regression check">M4 compares targeted changes against the same unmodified baseline cases.</StageBanner><SelectionSweep report={report} /><EmptyStage title={data.skipped ? "Repair was deliberately held back" : data.ran ? "No repair candidate was testable" : "Repair was not reached"} body={data.skipped ? (data.skip_detail || "The evidence review did not yet accept a mechanism for repair. The next step is a targeted diagnostic probe, not a failed repair.") : data.ran ? "The stage opened, but no accepted and testable mechanism produced a repair candidate." : "The run stopped before a targeted intervention could be evaluated."} /></>;
   const fixed = candidates.reduce((sum: number, item: any) => sum + Number(item.n_fixed || 0), 0);
@@ -321,7 +351,7 @@ function M4Detail({ data, report }: { data: any; report: ReportData }) {
     {data.operation_previews?.length > 0 && <RepairOperationPreviews examples={data.operation_previews} report={report} />}
     <SelectionSweep report={report} />
     <div className="repair-chart"><h3>Confirmed on held-out cases: paired flips vs. baseline</h3><ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} /></div>
-    <div className="candidate-list">{candidates.map((candidate: any, index: number) => <article className={`candidate-card candidate-${candidate.verdict || "unknown"}`} key={`${candidate.name}-${index}`}><header><span>{candidate.tier || "?"}</span><div><h3>{candidate.name || `Candidate ${index + 1}`}</h3><small>{plainCandidateKind(candidate.kind)}</small></div><b>{candidate.fixed ? "helped" : "did not pass"}</b></header><div className="candidate-metrics"><span><b>{candidate.n_fixed ?? 0}</b> errors fixed</span><span><b>{candidate.n_broken ?? 0}</b> new errors</span><span><b>{number(candidate.effect)}</b> net change</span><span><b>{percent(candidate.coverage)}</b> of errors covered</span></div><p>{candidate.summary}</p><details><summary>Technical repair definition and affected cases</summary><KeyValueGrid values={candidate.payload || {}} />{candidate.fixed_cases?.length > 0 && <small>Fixed cases: {candidate.fixed_cases.join(", ")}</small>}{candidate.broken_cases?.length > 0 && <small>Broken cases: {candidate.broken_cases.join(", ")}</small>}</details></article>)}</div>
+    <div className="candidate-list">{candidates.map((candidate: any, index: number) => <article className={`candidate-card candidate-${candidate.verdict || "unknown"}`} key={`${candidate.name}-${index}`}><header><span>{candidate.tier || "?"}</span><div><h3>{candidate.name || `Candidate ${index + 1}`}</h3><small>{plainCandidateKind(candidate.kind)}</small></div><b>{candidate.fixed ? "helped" : "did not pass"}</b></header><div className="candidate-metrics"><span><b>{candidate.n_fixed ?? 0}</b> errors fixed</span><span><b>{candidate.n_broken ?? 0}</b> new errors</span><span><b>{number(candidate.effect)}</b> net change</span><span><b>{percent(candidate.coverage)}</b> of errors covered</span></div><p>{candidate.summary}</p><details><summary>Technical repair definition and affected cases</summary><KeyValueGrid values={candidate.payload || {}} /></details><CaseLinks ids={candidate.fixed_cases} kind="fixed" report={report} navigate={navigate} /><CaseLinks ids={candidate.broken_cases} kind="broken" report={report} navigate={navigate} /></article>)}</div>
   </>;
 }
 
@@ -362,11 +392,22 @@ function formatInterval(value: any) { return Array.isArray(value) && value.lengt
 function formatCompact(value: any) { if (value === null || value === undefined || value === "") return "—"; if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, ""); if (typeof value === "object") return JSON.stringify(value).slice(0, 180); return String(value).slice(0, 220); }
 function displayValue(value: any) { return formatCompact(value); }
 
-export function CasesView({ data, back }: { data: ReportData; back: () => void }) {
+export function CasesView({ data, back, initialCaseId }: { data: ReportData; back: () => void; initialCaseId?: string }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
-  const [selected, setSelected] = useState<Case | null>(null);
-  const rows = data.cases.filter((item) => (status === "all" || item.status === status) && `${item.id} ${item.prompt} ${item.task}`.toLowerCase().includes(query.toLowerCase()));
+  const [selected, setSelected] = useState<Case | null>(
+    initialCaseId ? data.cases.find((c) => c.id === initialCaseId) || null : null,
+  );
+  // fixed / broken / unchanged describe what the REPAIR did; pass / fail
+  // describe the original run. Filtering on the wrong one silently returns
+  // nothing, so each button reads the field it names.
+  const repairFilters = new Set(["fixed", "broken", "unchanged"]);
+  const rows = data.cases.filter((item) => {
+    const matches = repairFilters.has(status)
+      ? item.repair?.status === status
+      : status === "all" || item.status === status;
+    return matches && `${item.id} ${item.prompt} ${item.task}`.toLowerCase().includes(query.toLowerCase());
+  });
   const parentRef = useRef<HTMLDivElement>(null);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 92, overscan: 8 });
   return <DetailShell title="Case Studio" subtitle="Inspect the actual input, expected answer, model output, and attached media." back={back}>
@@ -375,9 +416,39 @@ export function CasesView({ data, back }: { data: ReportData; back: () => void }
   </DetailShell>;
 }
 
+/**
+ * The same case before and after M4's repair, side by side.
+ *
+ * A repair reported as "12 repaired, 1 broken" is only reviewable if you can
+ * read what changed. The gold answer sits between the two so the direction is
+ * legible without arithmetic: which side matches it is the whole finding.
+ */
+function RepairStudy({ item }: { item: Case }) {
+  const r = item.repair;
+  if (!r?.output) return null;
+  const flipped = r.status === "fixed" || r.status === "broken";
+  return <div className={`repair-study ${r.status || ""}`}>
+    <header>
+      <span className="eyebrow">
+        {r.status === "fixed" ? "The repair corrected this case"
+          : r.status === "broken" ? "The repair broke this case"
+          : "The repair did not change this case"}
+      </span>
+      {r.candidate && <em>{r.tier} · {r.candidate}</em>}
+    </header>
+    <div className="repair-cols">
+      <div><small>BEFORE — UNCHANGED MODEL</small><b>{displayValue(item.observed)}</b></div>
+      <div className="gold"><small>CORRECT ANSWER</small><b>{displayValue(item.expected)}</b></div>
+      <div><small>AFTER — WITH THE REPAIR</small><b>{displayValue(r.output)}</b></div>
+    </div>
+    {!flipped && <p>Both answers land on the same side of the gold answer, so this
+      case counts toward neither the repairs nor the regressions.</p>}
+  </div>;
+}
+
 function CaseDetail({ item, data }: { item?: Case; data: ReportData }) {
   if (!item) return <section className="case-detail empty">No cases match this filter.</section>;
-  return <section className="case-detail"><div className="case-detail-head"><div><span className={`status status-${item.status}`}>{item.status}</span><h2>{item.id}</h2></div><small>{item.task}</small></div><DetailBlock label="MODEL INPUT" value={item.prompt} />{item.choices?.length > 0 && <DetailBlock label="CHOICES" value={item.choices.map(String).join("\n")} />}<div className="io-grid"><DetailBlock label="EXPECTED" value={format(item.expected)} /><DetailBlock label="MODEL OUTPUT" value={format(item.observed)} /></div>{item.media_ids.map((id) => { const media = data.media.find((entry) => entry.id === id); if (!media) return null; return <MediaPreview key={id} media={media} caseId={item.id} />; })}{Boolean(item.trajectory) && <TrajectoryPanel trajectory={item.trajectory} />}{item.tags.length > 0 && <div className="tag-row">{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}</section>;
+  return <section className="case-detail"><div className="case-detail-head"><div><span className={`status status-${item.status}`}>{item.status}</span>{item.repair?.status && item.repair.status !== "unchanged" && <span className={`status status-${item.repair.status}`}>{item.repair.status} by repair</span>}<h2>{item.id}</h2></div><small>{item.task}</small></div><RepairStudy item={item} /><DetailBlock label="MODEL INPUT" value={item.prompt} />{item.choices?.length > 0 && <DetailBlock label="CHOICES" value={item.choices.map(String).join("\n")} />}<div className="io-grid"><DetailBlock label="EXPECTED" value={format(item.expected)} /><DetailBlock label="MODEL OUTPUT" value={format(item.observed)} /></div>{item.media_ids.map((id) => { const media = data.media.find((entry) => entry.id === id); if (!media) return null; return <MediaPreview key={id} media={media} caseId={item.id} />; })}{Boolean(item.trajectory) && <TrajectoryPanel trajectory={item.trajectory} />}{item.tags.length > 0 && <div className="tag-row">{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}</section>;
 }
 
 function TrajectoryPanel({ trajectory }: { trajectory: any }) {

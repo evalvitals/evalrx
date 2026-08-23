@@ -83,6 +83,15 @@ export type Case = {
   task: string;
   media_ids: string[];
   trajectory?: unknown;
+  /** What M4's confirmed repair answered on this case, when it was one of the
+   *  held-out cases the repair was validated on. */
+  repair?: {
+    candidate?: string;
+    tier?: string;
+    /** fixed = was wrong, became right. broken = was right, became wrong. */
+    status?: "fixed" | "broken" | "unchanged" | string;
+    output?: string;
+  };
 };
 
 export type ReportData = {
