@@ -51,6 +51,9 @@ class POPEAnalyzer(Analyzer):
     name = "pope"
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"image"})
+    # An omni model DECLARES image even on an audio benchmark, so the registry
+    # match alone still offers this on a batch with no images in it.
+    requires_modalities = frozenset({"image"})
 
     def __init__(self, label_key: str = "pope_label") -> None:
         super().__init__(label_key=label_key)

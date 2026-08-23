@@ -1,0 +1,54 @@
+{
+  "schema_version": 4,
+  "stages": [
+    {
+      "stage": "pre_m1",
+      "purpose": "Synthesize new failing cases (output is DATA, not a verdict).",
+      "optional": true,
+      "input": "pre_m1.ProbeSearchInput.schema.json",
+      "output": "pre_m1.ProbeSearchOutput.schema.json"
+    },
+    {
+      "stage": "m1",
+      "purpose": "Measure: run analyzers, emit per-case numbers. No pass/fail judgement.",
+      "optional": false,
+      "input": "m1.ProbeInput.schema.json",
+      "output": "m1.ProbeOutput.schema.json"
+    },
+    {
+      "stage": "m2",
+      "purpose": "Screen: join numbers to labels, test which signals track failure, correct for multiplicity.",
+      "optional": false,
+      "input": "m2.AnalysisInput.schema.json",
+      "output": "m2.StatsReportWire.schema.json"
+    },
+    {
+      "stage": "m3",
+      "purpose": "Explain: propose falsifiable mechanism hypotheses, each with a routable test_design.",
+      "optional": false,
+      "input": "m3.DiagnosisInput.schema.json",
+      "output": "m3.DiagnosisOutput.schema.json"
+    },
+    {
+      "stage": "m5",
+      "purpose": "Adjudicate: statistical gate AND protocol-consistency gate. Both, or not SUPPORTED.",
+      "optional": false,
+      "input": "m5.HypothesisTestInput.schema.json",
+      "output": "m5.HypothesisTestOutput.schema.json"
+    },
+    {
+      "stage": "m4_surgery",
+      "purpose": "Intervene: change one variable, re-run, read as causal evidence. Does not repair.",
+      "optional": false,
+      "input": "m4_surgery.SurgeryInput.schema.json",
+      "output": "m4_surgery.InterventionOutput.schema.json"
+    },
+    {
+      "stage": "m4_fix",
+      "purpose": "Repair: propose candidates, validate paired against the unmodified baseline.",
+      "optional": true,
+      "input": "m4_fix.FixInput.schema.json",
+      "output": "m4_fix.FixOutput.schema.json"
+    }
+  ]
+}

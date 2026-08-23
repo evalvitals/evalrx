@@ -181,13 +181,57 @@ class AnalyzerSelection(WireModel):
     Kept separate from the results so a reader can tell "not selected" from
     "selected and produced nothing". The judge's per-analyzer reasoning is not
     here — it is the response half of ``prompts/c<cycle>_m1_selection.*``.
+
+    Modality is recorded as three related sets rather than one ``model_kind``
+    label. The label was a combination enum (``vlm`` / ``omni`` / ...), which is
+    what design rule 3 forbids: it has no member for an audio-visual model, and
+    "omni" collapses the one distinction routing depends on — an omni model
+    evaluated on an audio benchmark must be routed as audio, not as everything
+    it is capable of.
     """
 
-    model_kind: Literal["vlm", "llm", "agent", "omni", "unknown"] = "unknown"
+    model_modalities: list[Modality] = Field(
+        default_factory=lambda: ["text"],
+        description="What the model DECLARES it can consume (from its spec).",
+    )
+    probed_modalities: list[Modality] = Field(
+        default_factory=lambda: ["text"],
+        description="What the case batch actually FILLS. Text is the floor, not a slot.",
+    )
+    routed_on: list[Modality] = Field(
+        default_factory=lambda: ["text"],
+        description="The slots routing actually used. Normally model ∩ probed; equal to "
+                    "model_modalities when the batch filled no media slot at all, because "
+                    "an empty batch is no evidence about what is under test. A reader "
+                    "comparing this with probed_modalities can see that fallback happened.",
+    )
+    is_agent: bool = Field(
+        default=False,
+        description="The batch carries trajectories, or the model exposes TOOL_CALLS. "
+                    "Orthogonal to modality — a VLM can drive a tool loop.",
+    )
     selector: Literal["llm_judge", "static_strategy", "explicit"] = "static_strategy"
     generated: list[str] = Field(
         default_factory=list, description="Bespoke probes written when no standard analyzer covered the mode."
     )
+
+    @property
+    def profile(self) -> str:
+        """Display label (``llm`` / ``vlm`` / ``alm`` / ``avlm`` / ``av`` ...).
+
+        Derived, never stored: a label is a lossy rendering of ``routed_on`` and
+        a stored copy would be free to disagree with the set it summarises.
+        Compose it for a heading; branch on the set, never on this string.
+        """
+        slots = set(self.routed_on)
+        tag = "".join(
+            letter for slot, letter in (("audio", "a"), ("video", "v"), ("image", "v"))
+            if slot in slots
+        )
+        # image and video both render as the visual "v"; dedupe while keeping a<v order
+        tag = "".join(dict.fromkeys(tag))
+        base = f"{tag}lm" if tag else "llm"
+        return f"{base}+agent" if self.is_agent else base
 
 
 class ProbeOutput(StageEnvelope):

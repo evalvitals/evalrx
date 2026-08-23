@@ -55,6 +55,19 @@ class Analyzer(ABC):
     #: ran and reported ``n_trajectories: 0``. Selection gates on this against
     #: the batch actually in hand.
     requires_trajectories: bool = False
+    #: Modality slots that must actually be FILLED in the batch for this analysis
+    #: to mean anything — the data-shape counterpart of ``applies_to_modalities``.
+    #:
+    #: ``applies_to_modalities`` is matched against what the MODEL declares, and
+    #: the match is an intersection, so one shared member is enough: an audio
+    #: model declares ``{"text", "audio"}`` and therefore matches every analyzer
+    #: carrying ``"text"``. That is the same hole ``requires_trajectories`` was
+    #: added to close, one modality over — the analyzer is selected, runs, reads
+    #: an empty slot, and reports a number computed over nothing.
+    #:
+    #: Empty (the default) means the analysis needs no particular slot filled.
+    #: Selection gates this against the slots the batch in hand actually fills.
+    requires_modalities: frozenset[str] = frozenset()
 
     def __init__(self, **params: Any) -> None:
         # Store hyper-parameters sklearn-style for introspection / reproduction.

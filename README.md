@@ -63,6 +63,20 @@ LoRA on the language model, trained on a diagnosis-only pool you pass as
 **L3b and L4 only exist for open weights.** You cannot modify a forward pass or
 fine-tune through somebody's API — which is why this is built on open models.
 
+### One typed shape per stage
+
+Every stage validates what it writes against a machine-readable contract
+(`evalvitals/contract/`) and drops it in `<run>/contract/`. TypeScript for the
+whole pipeline is generated from the same Python — `python -m
+evalvitals.contract.export --out docs/contract` — so a UI decodes a stage
+instead of re-deriving its shape from the event log.
+
+Modality lives in that contract as *slots*, never as a model-kind enum: LLM,
+VLM, ALM and AVLM are four subsets of `{text, image, audio, video}`, and
+analyzer routing follows the slots a **batch** fills rather than the ones a
+model declares. An omni model evaluated on an audio benchmark is diagnosed as
+an audio run.
+
 ### Why the loop is trustworthy
 
 A self-improving system is only as good as its willingness to reject its own

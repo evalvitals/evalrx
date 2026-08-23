@@ -1,0 +1,181 @@
+{
+  "$defs": {
+    "CaseBatchRef": {
+      "additionalProperties": false,
+      "description": "A batch referenced by file rather than inlined (the normal case).",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "n_cases": {
+          "title": "N Cases",
+          "type": "integer"
+        },
+        "split": {
+          "anyOf": [
+            {
+              "enum": [
+                "all",
+                "explore",
+                "confirm",
+                "discovery"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Split"
+        }
+      },
+      "required": [
+        "path",
+        "n_cases"
+      ],
+      "title": "CaseBatchRef",
+      "type": "object"
+    },
+    "ModelRef": {
+      "additionalProperties": false,
+      "description": "Identity + declared capabilities of the model under diagnosis.\n\n``modalities`` is a SET, matched by subset against each analyzer's\n``applies_to_modalities``. Adding a modality adds one member here, not a new\ncombination type.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "backend": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend"
+        },
+        "modalities": {
+          "items": {
+            "enum": [
+              "text",
+              "image",
+              "audio",
+              "video"
+            ],
+            "type": "string"
+          },
+          "title": "Modalities",
+          "type": "array"
+        },
+        "capabilities": {
+          "description": "e.g. GENERATE / LOGPROBS / ATTENTION / HIDDEN_STATES.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ModelRef",
+      "type": "object"
+    },
+    "ProtocolWire": {
+      "additionalProperties": true,
+      "description": "The user's natural-language statement of what to investigate.\n\nCarried through to M2 (tool selection), M3 (prompt) and M5 (the\nprotocol-consistency gate) — a hypothesis can be statistically real and still\nbe off-topic, and only this makes that judgeable.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "task_domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Domain"
+        },
+        "probe_hints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Probe Hints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "title": "ProtocolWire",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Seeds plus a budget. The search anchors both regime trees on the seeds.",
+  "properties": {
+    "model": {
+      "$ref": "#/$defs/ModelRef"
+    },
+    "seed_pool": {
+      "$ref": "#/$defs/CaseBatchRef"
+    },
+    "protocol": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProtocolWire"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "budget": {
+      "default": 20,
+      "description": "Total simulations (T_max).",
+      "minimum": 1,
+      "title": "Budget",
+      "type": "integer"
+    },
+    "beta": {
+      "default": 1.0,
+      "description": "UCB exploration constant.",
+      "title": "Beta",
+      "type": "number"
+    },
+    "w_max": {
+      "default": 3,
+      "description": "Max children before progressive widening.",
+      "minimum": 1,
+      "title": "W Max",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "model",
+    "seed_pool"
+  ],
+  "title": "ProbeSearchInput",
+  "type": "object",
+  "$id": "https://evalvitals.dev/contract/pre_m1.ProbeSearchInput.json",
+  "x-stage": "pre_m1",
+  "x-role": "input",
+  "x-schema-version": 4,
+  "x-optional-stage": true
+}

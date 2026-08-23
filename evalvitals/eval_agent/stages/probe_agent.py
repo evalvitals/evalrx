@@ -365,7 +365,7 @@ class ProbeAgent:
         assert self.judge is not None  # caller guarantees this
 
         kind = self.selector.detect_kind(model, data)
-        catalog = self._offerable(get_analyzer_catalog(model), data)
+        catalog = self._offerable(get_analyzer_catalog(model), data, model)
         if not catalog:
             return self._static_fallback(model, data), "no analyzers available"
 
@@ -532,7 +532,7 @@ class ProbeAgent:
             # injected" have to be caught. Previously neither was: an analyzer
             # that could not be built was selected anyway and then dropped at
             # instantiation with a warning, having already cost a slot.
-            if not _analyzer_data_preconditions_met(candidate, data) \
+            if not _analyzer_data_preconditions_met(candidate, data, model) \
                     or self._needs_injection(candidate):
                 if candidate not in filtered_seen:
                     filtered.append(candidate)
@@ -814,7 +814,8 @@ class ProbeAgent:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _offerable(self, catalog: "dict[str, str]", data: "Any" = None) -> "dict[str, str]":
+    def _offerable(self, catalog: "dict[str, str]", data: "Any" = None,
+                   model: "Model | None" = None) -> "dict[str, str]":
         """Drop analyzers the judge could pick but this run could never use.
 
         Capability + modality matching answers "does the MODEL provide what this
@@ -826,6 +827,11 @@ class ProbeAgent:
            with no model at all), so all six matched a plain QA batch.
            ``first_error_judge`` was duly selected, ran, and reported
            ``n_trajectories: 0``, which M2 then listed as a healthy metric.
+           The same hole exists one axis over, for modality: the registry match
+           is an intersection against what the MODEL declares, so an omni model
+           evaluated on an audio benchmark still declares image and ``pope`` /
+           ``chair`` were duly offered a batch with no images in it.
+           ``requires_modalities`` is that gate.
         2. **Did the caller inject the collaborator?** ``reliability_probe``
            wants ``runs_fn``, ``tool_shap`` a tool runner, ``trajectory_rubric``
            a judge. These were offered every run and skipped at instantiation
@@ -835,9 +841,10 @@ class ProbeAgent:
         An override supplies exactly that missing collaborator, so anything in
         ``analyzer_overrides`` survives the second check.
         """
-        from evalvitals.eval_agent.stages.probe import _carries_trajectories
+        from evalvitals.eval_agent.stages.probe import StrategyProbe, _carries_trajectories
 
         has_traj = data is not None and _carries_trajectories(data)
+        starved = StrategyProbe.slot_starved(set(catalog), data, model)
         keep: dict[str, str] = {}
         for name, desc in catalog.items():
             cls = registry.analyzers.get(name)
@@ -845,6 +852,13 @@ class ProbeAgent:
                 logger.debug(
                     "not offering analyzer '%s': it reads agent trajectories and "
                     "this batch carries none", name,
+                )
+                continue
+            if name in starved:
+                logger.debug(
+                    "not offering analyzer '%s': it needs one of %s filled and this "
+                    "batch fills none of them", name,
+                    sorted(getattr(cls, "requires_modalities", frozenset())),
                 )
                 continue
             needs = self._needs_injection(name)
@@ -1004,8 +1018,16 @@ def _serialize_cases(data: "CaseBatch") -> list[dict[str, Any]]:
     return out
 
 
-def _analyzer_data_preconditions_met(name: str, data: "CaseBatch") -> bool:
+def _analyzer_data_preconditions_met(name: str, data: "CaseBatch",
+                                     model: "Model | None" = None) -> bool:
     cls = registry.analyzers.get(name) if registry.analyzers.has(name) else None
+    if cls is not None and getattr(cls, "requires_modalities", None):
+        # All three selection paths (static, judge, pinned) converge here, so
+        # this is where the modality gate has to hold for the pinned one too.
+        from evalvitals.eval_agent.stages.probe import StrategyProbe
+
+        if name in StrategyProbe.slot_starved({name}, data, model):
+            return False
     if cls is not None and getattr(cls, "requires_trajectories", False):
         # The agent lane declares no capability — correctly, since these read
         # trajectories and often take model=None — so capability matching let all

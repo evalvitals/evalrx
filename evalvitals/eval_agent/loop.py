@@ -447,6 +447,61 @@ class VLDiagnoseLoop:
         self._explore_question = str(explore_question or "")
         self._tokens_used: int = 0
         self._run_id: str = ""
+        self._emitter: "Any | None" = None
+
+    # ------------------------------------------------------------------
+    # Contract emission — one validated payload per stage under <run>/contract/
+    # ------------------------------------------------------------------
+    @property
+    def emitter(self) -> "Any | None":
+        """Lazily built :class:`~evalvitals.contract.emit.ContractEmitter`.
+
+        ``None`` when there is no run directory to write into, or when pydantic
+        (the ``contract`` extra) is not installed — the contract is an observer
+        of the pipeline and must never be a condition for running it.
+        """
+        if self._emitter is not None:
+            return self._emitter
+        if self.run_logger is None:
+            return None
+        root = getattr(getattr(self.run_logger, "_context", None), "root", None)
+        if root is None:
+            run_dir = getattr(self.run_logger, "run_dir", None)
+            if run_dir is None:
+                return None
+            run_dir = Path(run_dir)
+            root = run_dir.parent if run_dir.name.startswith("logs") else run_dir
+        try:
+            from evalvitals.contract.emit import ContractEmitter
+        except ImportError:  # pragma: no cover - contract extra not installed
+            logger.debug("contract emission off: pip install evalvitals[contract]")
+            return None
+        self._emitter = ContractEmitter(root, getattr(self.run_logger, "trace_id", ""))
+        return self._emitter
+
+    def _emit(self, name: str, build: "Any") -> None:
+        """Emit one stage payload; never raises into the pipeline."""
+        emitter = self.emitter
+        if emitter is None:
+            return
+        emitter.emit(name, build)
+
+    def _set_fix_outcome(self, report: "Any", outcome: "Any") -> "Any":
+        """Attach M4b's outcome to the report and emit it.
+
+        ``run_fix`` has five return paths (escalation, frozen-candidate confirm,
+        legacy agents, skip, plain), so the assignment is the one point they all
+        pass through. Emitting per return would have missed whichever path was
+        added next.
+        """
+        report.fix_outcome = outcome
+        if self.emitter is not None and hasattr(outcome, "attempted"):
+            from evalvitals.contract.emit import from_fix_outcome
+
+            self._emit("m4_fix", lambda: from_fix_outcome(
+                outcome, trace_id=self.emitter.trace_id,
+            ))
+        return outcome
 
     def publish_report(
         self,
@@ -601,6 +656,7 @@ class VLDiagnoseLoop:
                 duration_sec=_dt,
             ) or []
             _log_generated_tools(self.run_logger, cycle, "m1_probe", self.probe_agent)
+        self._emit_m1(cycle, probe_results, data, _dt)
         if not probe_results:
             return {}, []
         for r in probe_results.values():
@@ -609,6 +665,39 @@ class VLDiagnoseLoop:
         # "explored" analyzer Result (no-op when none configured).
         self._bridge_signals(probe_results, data)
         return probe_results, artifact_pngs
+
+    def _emit_m1(self, cycle: int, probe_results: "dict[str, Any]", data: "Any",
+                 duration_sec: float) -> None:
+        """Emit M1's ProbeOutput, including how analyzer routing was decided.
+
+        The three modality sets are recorded separately because they can differ
+        and the difference is the diagnosis: an omni model on an audio benchmark
+        declares four modalities, fills one, and is routed on one.
+        """
+        if self.emitter is None:
+            return
+        from evalvitals.contract.emit import from_probe_results
+        from evalvitals.core.case import probed_modalities
+
+        selector = self.probe_agent.selector if hasattr(self.probe_agent, "selector") else None
+        declared = sorted(getattr(self.model, "modalities", frozenset({"text"})) or {"text"})
+        probed = sorted(probed_modalities(data))
+        routed = sorted(
+            selector.routed_slots(self.model, data) if selector is not None else probed
+        )
+        is_agent = bool(
+            selector.is_agent_run(self.model, data) if selector is not None else False
+        )
+        self._emit(f"c{cycle}.m1", lambda: from_probe_results(
+            probe_results,
+            trace_id=self.emitter.trace_id, cycle=cycle,
+            model_modalities=declared, probed_modalities=probed, routed_on=routed,
+            is_agent=is_agent,
+            selector="llm_judge" if getattr(self.probe_agent, "judge", None) else "static_strategy",
+            generated=list(getattr(self.probe_agent, "generated_probes", []) or []),
+            failed_analyzers=dict(getattr(self.probe_agent, "_failed_analyzers", {}) or {}),
+            duration_sec=duration_sec,
+        ))
 
     def _explore_out_dir(self) -> "Path | None":
         """Where the explore step persists its report/tables/figures.
@@ -758,6 +847,13 @@ class VLDiagnoseLoop:
         if log and self.run_logger:
             self.run_logger.log_analysis(cycle, stats_report, duration_sec=_dt)
             _log_generated_tools(self.run_logger, cycle, "m2_stats", self.stats_agent)
+        if self.emitter is not None:
+            from evalvitals.contract.emit import from_stats_report
+
+            self._emit(f"c{cycle}.m2", lambda: from_stats_report(
+                stats_report, trace_id=self.emitter.trace_id, cycle=cycle,
+                raw_results_ref=f"contract/c{cycle}.m1.json", duration_sec=_dt,
+            ))
         return stats_report
 
     def _do_m3(
@@ -816,6 +912,12 @@ class VLDiagnoseLoop:
             self.run_logger.log_diagnosis(
                 cycle, diag, duration_sec=_dt, explore_figures=_explore_figs or None
             )
+        if self.emitter is not None:
+            from evalvitals.contract.emit import from_diagnosis
+
+            self._emit(f"c{cycle}.m3", lambda: from_diagnosis(
+                diag, trace_id=self.emitter.trace_id, cycle=cycle, duration_sec=_dt,
+            ))
         return diag
 
     @staticmethod
@@ -871,6 +973,20 @@ class VLDiagnoseLoop:
                     judge_prompt=getattr(tr, "judge_prompt", None) or None,
                     judge_raw=getattr(tr, "judge_raw", None) or None,
                 )
+        if log and self.emitter is not None:
+            from evalvitals.contract.emit import from_test_results
+
+            # M5 has no stage log of its own — it reuses the per-hypothesis
+            # surgery slot — so this is the first place the whole verdict set
+            # exists as one object a reader can load.
+            split = "confirm" if split_label == "confirm_holdout" else "explore"
+            self._emit(f"c{cycle}.m5", lambda: from_test_results(
+                test_results, trace_id=self.emitter.trace_id, cycle=cycle,
+                split=split, duration_sec=_dt,
+                stopping_criteria_met=bool(
+                    self.hypothesis_tester.stopping_criteria_met(test_results, self.protocol)
+                ),
+            ))
         return test_results
 
     def _m5_holdout_pass(
@@ -1377,6 +1493,12 @@ class VLDiagnoseLoop:
         except Exception:  # evidence is informational
             pass
         report.fix_proposal = iv
+        if self.emitter is not None:
+            from evalvitals.contract.emit import from_intervention
+
+            self._emit("m4_surgery", lambda: from_intervention(
+                iv, trace_id=self.emitter.trace_id,
+            ))
         # M4 runs *after* the loop, so log its experiment separately — the
         # generated script(s), the run output, the agent's thinking and a
         # snapshot of the workspace.  ``cycle=-1`` marks it as post-loop.
@@ -1507,7 +1629,7 @@ class VLDiagnoseLoop:
                     "M4", "no_accepted_hypothesis",
                     detail="No M5-verified hypothesis was available for repair authoring.",
                 )
-            report.fix_outcome = outcome
+            self._set_fix_outcome(report, outcome)
             return outcome
 
         context = _fix_context_from_report(
@@ -1589,7 +1711,7 @@ class VLDiagnoseLoop:
                 except Exception as exc:
                     logger.debug("run_fix: combined log_fix failed: %s", exc)
 
-            report.fix_outcome = last_outcome
+            self._set_fix_outcome(report, last_outcome)
             return last_outcome
 
         # Non-escalating path.  With a held-out split this is a genuine
@@ -1617,7 +1739,7 @@ class VLDiagnoseLoop:
             # their return contract is preferable to turning a diagnostic run
             # into an AttributeError.
             if not hasattr(selection, "attempted"):
-                report.fix_outcome = selection
+                self._set_fix_outcome(report, selection)
                 return selection
 
             executed = [
@@ -1698,11 +1820,11 @@ class VLDiagnoseLoop:
                     agent_logger.log_fix(outcome)
             except Exception as exc:
                 logger.debug("run_fix: held-out log_fix failed: %s", exc)
-            report.fix_outcome = outcome
+            self._set_fix_outcome(report, outcome)
             return outcome
 
         outcome = _propose_and_validate(agent, self.model, data, hypotheses, context=context)
-        report.fix_outcome = outcome
+        self._set_fix_outcome(report, outcome)
         return outcome
 
 

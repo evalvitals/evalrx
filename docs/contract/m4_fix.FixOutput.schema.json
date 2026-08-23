@@ -1,0 +1,525 @@
+{
+  "$defs": {
+    "FixAttemptWire": {
+      "additionalProperties": false,
+      "description": "One candidate validated against the unmodified baseline on the SAME cases.\n\nEvery count here is a PAIRED flip, never a rate difference. \"repaired 18 /\nbroke 1\" is a statement about individual cases changing sign; a pass-rate\ndelta is not the same claim and must never be displayed as if it were.",
+      "properties": {
+        "tier": {
+          "enum": [
+            "L1",
+            "L2",
+            "L3a",
+            "L3b",
+            "L4"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "methodology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MethodologyWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What this candidate DOES, as a graph plus a rendered draw.io diagram. The payload is the implementation; this is the explanation. Required for any candidate a reader is asked to accept — a repair nobody can follow cannot be reviewed, only trusted."
+        },
+        "trial_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Self-contained attempt folder. Preferred join key across rounds — name alone is not unique.",
+          "title": "Trial Root"
+        },
+        "n_pairs": {
+          "default": 0,
+          "title": "N Pairs",
+          "type": "integer"
+        },
+        "n_baseline_correct": {
+          "default": 0,
+          "title": "N Baseline Correct",
+          "type": "integer"
+        },
+        "n_fixed": {
+          "default": 0,
+          "title": "N Fixed",
+          "type": "integer"
+        },
+        "n_broken": {
+          "default": 0,
+          "title": "N Broken",
+          "type": "integer"
+        },
+        "fixed_cases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fixed Cases",
+          "type": "array"
+        },
+        "broken_cases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Broken Cases",
+          "type": "array"
+        },
+        "n_applicable": {
+          "default": 0,
+          "description": "Cases the candidate actually touched.",
+          "title": "N Applicable",
+          "type": "integer"
+        },
+        "coverage": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "applicable FAILs / total FAILs.",
+          "title": "Coverage"
+        },
+        "n_unstable": {
+          "default": 0,
+          "description": "Dropped as baseline-unstable, so sampling noise is not read as regression.",
+          "title": "N Unstable",
+          "type": "integer"
+        },
+        "n_model_independent": {
+          "default": 0,
+          "description": "Cases the scaffold solved by its own computation under frozen_model_control — excluded from the paired test rather than counted as fixed.",
+          "title": "N Model Independent",
+          "type": "integer"
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect"
+        },
+        "e_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "E Value"
+        },
+        "reject": {
+          "default": false,
+          "description": "This candidate's own gate. Not sufficient to win.",
+          "title": "Reject",
+          "type": "boolean"
+        },
+        "verdict": {
+          "description": "The candidate's outcome. Subsumes a separate `fixed` boolean (verdict == 'fixed') and a separate exec_error ('not_executed').",
+          "enum": [
+            "fixed",
+            "partial",
+            "unsafe",
+            "regressed",
+            "no_effect",
+            "not_executed",
+            "model_independent"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tier",
+        "name",
+        "verdict"
+      ],
+      "title": "FixAttemptWire",
+      "type": "object"
+    },
+    "JoinReport": {
+      "additionalProperties": false,
+      "description": "Health of one ``sample_id`` <-> ``FailureCase.id`` join.\n\nThis exists because a broken join and a real null result are indistinguishable\ndownstream: unmatched ids are skipped, both groups come out empty, and the\ntool reports \"no significant association\" — the same output as a model with\nno defect. Emitting coverage makes \"the pipeline is broken\" a separate,\nvisible state from \"the model is fine\".",
+      "properties": {
+        "left": {
+          "description": "e.g. 'attention.findings.per_case'",
+          "title": "Left",
+          "type": "string"
+        },
+        "right": {
+          "description": "e.g. 'CaseBatch(explore)'",
+          "title": "Right",
+          "type": "string"
+        },
+        "n_left": {
+          "title": "N Left",
+          "type": "integer"
+        },
+        "n_right": {
+          "title": "N Right",
+          "type": "integer"
+        },
+        "n_matched": {
+          "title": "N Matched",
+          "type": "integer"
+        },
+        "coverage": {
+          "description": "n_matched / n_left",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Coverage",
+          "type": "number"
+        },
+        "unmatched_sample": {
+          "description": "First few unmatched ids, for triage.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Unmatched Sample",
+          "type": "array"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "n_left",
+        "n_right",
+        "n_matched",
+        "coverage"
+      ],
+      "title": "JoinReport",
+      "type": "object"
+    },
+    "MethodologyWire": {
+      "additionalProperties": false,
+      "description": "A repair or intervention, as an embeddable diagram plus plain language.",
+      "properties": {
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "description": "Two or three sentences a non-specialist can follow. Not the code.",
+          "maxLength": 1000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "tier": {
+          "default": "",
+          "description": "L1..L4 for a fix; empty for an intervention.",
+          "title": "Tier",
+          "type": "string"
+        },
+        "drawio_xml": {
+          "description": "Uncompressed mxfile document, embeddable as-is. Compressed diagrams are rejected: they cannot be diffed, reviewed, or repaired by hand.",
+          "minLength": 1,
+          "title": "Drawio Xml",
+          "type": "string"
+        },
+        "n_model_calls": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model calls this method makes per case. A large claimed gain alongside few model calls is the shape of a model-independent result, where the scaffold rather than the model did the work.",
+          "title": "N Model Calls"
+        }
+      },
+      "required": [
+        "title",
+        "drawio_xml"
+      ],
+      "title": "MethodologyWire",
+      "type": "object"
+    },
+    "StageState": {
+      "description": "Per-stage UI state. A single generic \"N/A\" loses information the reader\nneeds — in particular ``EMPTY`` (ran, produced nothing) and ``FAILED``\n(did not run correctly) must never render the same.",
+      "enum": [
+        "not_started",
+        "running",
+        "succeeded",
+        "empty",
+        "abstained",
+        "partial",
+        "failed",
+        "skipped",
+        "unavailable"
+      ],
+      "title": "StageState",
+      "type": "string"
+    },
+    "StageStatus": {
+      "additionalProperties": false,
+      "description": "Terminal state of one stage in one cycle.\n\n``EMPTY`` and ``ABSTAINED`` are successes with nothing to show; ``FAILED``\nand ``UNAVAILABLE`` are not. Collapsing them loses the only signal a reader\nhas for whether to trust the absence of a result.",
+      "properties": {
+        "stage": {
+          "enum": [
+            "pre_m1",
+            "m1",
+            "explore",
+            "m2",
+            "m3",
+            "m4_surgery",
+            "m4_fix",
+            "m5"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/StageState"
+        },
+        "cycle": {
+          "description": "Normal cycles start at 0; the post-loop fix uses -1.",
+          "title": "Cycle",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why, for any state that is not plain success — the skip rule, the error, the reason for abstaining. One field, because a reader wants one answer.",
+          "title": "Reason"
+        },
+        "duration_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Sec"
+        },
+        "joins": {
+          "items": {
+            "$ref": "#/$defs/JoinReport"
+          },
+          "title": "Joins",
+          "type": "array"
+        }
+      },
+      "required": [
+        "stage",
+        "state",
+        "cycle"
+      ],
+      "title": "StageStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``FixAgent.propose_and_validate`` result.\n\nWhat each candidate literally applied — the prompt text, the generated code —\nis not here. It is the ``result.json`` under ``trial_root``, which is also\nwhere the per-case outputs and the execution record sit; inlining a code blob\nwould put a second, drifting copy in every report a reader loads.",
+  "properties": {
+    "schema_version": {
+      "default": 4,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "trace_id": {
+      "description": "Run-level correlation id.",
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "span_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "e.g. 'c0.m1'.",
+      "title": "Span Id"
+    },
+    "cycle": {
+      "default": 0,
+      "title": "Cycle",
+      "type": "integer"
+    },
+    "produced_at": {
+      "description": "ISO-8601 UTC.",
+      "title": "Produced At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/StageStatus"
+    },
+    "max_tier": {
+      "enum": [
+        "L1",
+        "L2",
+        "L3a",
+        "L3b",
+        "L4"
+      ],
+      "title": "Max Tier",
+      "type": "string"
+    },
+    "routed": {
+      "description": "Which hypothesis went to which tier, and why.",
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Routed",
+      "type": "array"
+    },
+    "attempted": {
+      "description": "Every candidate validated against the unmodified baseline.",
+      "items": {
+        "$ref": "#/$defs/FixAttemptWire"
+      },
+      "title": "Attempted",
+      "type": "array"
+    },
+    "best": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Winning candidate NAME. The row itself is in `attempted`.",
+      "title": "Best"
+    },
+    "fixed": {
+      "default": false,
+      "title": "Fixed",
+      "type": "boolean"
+    },
+    "ebh_survivors": {
+      "description": "Candidate names surviving e-BH across the whole tested family. A winner must be BOTH individually `fixed` AND in this set — best-of-N needs its own correction.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Ebh Survivors",
+      "type": "array"
+    },
+    "repair_rounds": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Repair Rounds",
+      "type": "integer"
+    },
+    "recommendation": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "{recommend_tier, reason} when nothing validated. Escalation is NEVER automatic.",
+      "title": "Recommendation"
+    },
+    "refine_signal": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set when a candidate helped one subset and hurt another — evidence the hypothesis should be re-scoped, not that no fix exists. Feedback edge back into M3.",
+      "title": "Refine Signal"
+    }
+  },
+  "required": [
+    "trace_id",
+    "produced_at",
+    "status",
+    "max_tier"
+  ],
+  "title": "FixOutput",
+  "type": "object",
+  "$id": "https://evalvitals.dev/contract/m4_fix.FixOutput.json",
+  "x-stage": "m4_fix",
+  "x-role": "output",
+  "x-schema-version": 4,
+  "x-optional-stage": true
+}

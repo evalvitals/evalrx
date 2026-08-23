@@ -14,6 +14,7 @@ Layout (single root, no ``logs/`` nesting)::
     ├── manifest.json     run config + index of every produced file
     ├── run_log.jsonl     structured event stream (RunLogger)
     ├── README.txt        auto-generated file guide (from manifest)
+    ├── contract/         one validated JSON per stage (see evalvitals.contract)
     ├── report/           human deliverables (summary.md, hypotheses.json, …)
     ├── figures/          M1 heatmaps + M2 effect plots
     ├── explore/          optional in-cycle explore step: exploratory_report.json,
@@ -59,6 +60,9 @@ if TYPE_CHECKING:
 # top-level subdirectory name.  Files that do not fall under a known category
 # are grouped under "other".
 _CATEGORY_DESCRIPTIONS: dict[str, str] = {
+    "contract": "one contract-validated JSON per stage (c<cycle>.m1 … m4_fix): the "
+                "typed shape a frontend decodes with docs/contract/contract.d.ts, "
+                "instead of re-deriving it from run_log.jsonl",
     "report": "human-facing deliverables: run summary, hypotheses, M5 results",
     "figures": "plots: M1 attention/spatial heatmaps and M2 effect-size charts",
     "explore": "in-cycle explore step (VLDiagnoseLoop(explorer=...)): free-form EDA "
@@ -76,7 +80,7 @@ _CATEGORY_DESCRIPTIONS: dict[str, str] = {
 
 # Order categories appear in the README / manifest.
 _CATEGORY_ORDER = [
-    "report", "figures", "explore", "artifacts", "prompts",
+    "contract", "report", "figures", "explore", "artifacts", "prompts",
     "experiments", "tools", "workspace", "fixes", "other",
 ]
 

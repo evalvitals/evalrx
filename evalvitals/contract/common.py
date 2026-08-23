@@ -30,7 +30,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 #: Bumped only when a field's *meaning* changes. Adding fields is additive and
 #: does NOT bump it — readers must ignore unknown fields, not fail on them.
-SCHEMA_VERSION = 3
+#:
+#: 4: ``AnalyzerSelection.model_kind`` (a combination enum) replaced by modality
+#:    slots + ``is_agent``; ``StepWire.role`` realigned to ``core.case.StepRole``.
+SCHEMA_VERSION = 4
 
 
 class WireModel(BaseModel):
@@ -110,7 +113,15 @@ class StageState(str, Enum):
 
 #: Open string set on purpose — a new modality must be one more member of a set,
 #: never a new combination enum (VA / TIA / ... is 2^n and does not compose).
+#:
+#: LLM / VLM / ALM / AVLM are not four types in this contract; they are four
+#: subsets of this set. An AVLM is ``{"text", "image", "audio"}`` and needs no
+#: schema change to exist.
 Modality = Literal["text", "image", "audio", "video"]
+
+#: Every modality slot other than ``text``. Text is always present (a prompt is
+#: mandatory), so it is never a *slot* — it is the floor.
+MEDIA_SLOTS: tuple[Modality, ...] = ("image", "audio", "video")
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +160,30 @@ class MediaRef(WireModel):
     mime: str | None = None
     n_bytes: int | None = None
 
+    @classmethod
+    def coerce(cls, value: Any) -> "MediaRef | None":
+        """Build a ref from whatever a producer put in a modality slot.
+
+        ``FailureCase.to_dict()`` runs every slot through ``_json_safe``, which
+        yields a bare string: a path/URL when the slot held one, or a descriptor
+        like ``"<image 640x480>"`` for a PIL object that was never persisted.
+        Both are legitimate producer output, so the contract classifies them here
+        rather than rejecting the case — a case is not invalid because its image
+        lived in memory.
+        """
+        if value is None or isinstance(value, MediaRef):
+            return value
+        if isinstance(value, dict):
+            return cls.model_validate(value)
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.startswith("<") and text.endswith(">"):
+            return cls(kind="descriptor", value=text)
+        if text.startswith(("http://", "https://", "data:", "s3://", "gs://")):
+            return cls(kind="url", value=text)
+        return cls(kind="path", value=text)
+
 
 class ArtifactRef(WireModel):
     """A heavy artifact (``.npy``, ``.png``, workspace dir) left on disk.
@@ -179,23 +214,40 @@ class InputsWire(OpenWireModel):
     audio: MediaRef | None = None
     video: MediaRef | None = None
 
+    @field_validator("image", "audio", "video", mode="before")
+    @classmethod
+    def _coerce_media(cls, v: Any) -> Any:
+        return MediaRef.coerce(v)
+
     def modalities(self) -> set[Modality]:
         """Modalities actually present on this case."""
         present: set[Modality] = {"text"}
-        if self.image is not None:
-            present.add("image")
-        if self.audio is not None:
-            present.add("audio")
-        if self.video is not None:
-            present.add("video")
+        for slot in MEDIA_SLOTS:
+            if getattr(self, slot) is not None:
+                present.add(slot)
         return present
 
 
+#: Legacy role names this contract shipped before it was aligned to
+#: :class:`evalvitals.core.case.StepRole`. Mapped rather than rejected so a
+#: trajectory written by an older producer still validates.
+_LEGACY_STEP_ROLES = {"env": "tool", "critic": "verifier"}
+
+
 class StepWire(OpenWireModel):
-    """One step of an agent trajectory."""
+    """One step of an agent trajectory.
+
+    ``role`` is exactly :class:`evalvitals.core.case.StepRole`. It was not, and
+    the divergence was not cosmetic: ``planner`` / ``verifier`` / ``memory`` /
+    ``system`` are values the producer emits every multi-agent run, and every one
+    of them failed validation here, while ``env`` / ``critic`` named steps no
+    producer can emit.
+    """
 
     idx: int
-    role: Literal["actor", "tool", "env", "user", "critic"] = "actor"
+    role: Literal[
+        "user", "planner", "actor", "tool", "verifier", "memory", "system"
+    ] = "actor"
     content: Any | None = None
     agent_id: str = "main"
     tool_call: dict[str, Any] | None = None
@@ -204,6 +256,13 @@ class StepWire(OpenWireModel):
     is_first_error: bool | None = None
     failure_mode: str | None = None
     judge_confidence: float | None = None
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _map_legacy_role(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return _LEGACY_STEP_ROLES.get(v, v)
+        return getattr(v, "value", v)
 
 
 class TrajectoryWire(OpenWireModel):
@@ -281,6 +340,19 @@ class CaseBatchWire(WireModel):
             raise ValueError(f"duplicate case ids break every downstream join: {sorted(dupes)[:5]}")
         return v
 
+    def probed_modalities(self) -> set[Modality]:
+        """Slots this batch actually fills — the union over its cases.
+
+        Distinct from what the model *declares*, and it is the distinction that
+        decides analyzer routing: an omni model evaluated on an audio benchmark
+        declares image too, and routing on the declaration sends image analyzers
+        at a batch with no images in it.
+        """
+        present: set[Modality] = set()
+        for case in self.cases:
+            present |= case.inputs.modalities()
+        return present or {"text"}
+
 
 class CaseBatchRef(WireModel):
     """A batch referenced by file rather than inlined (the normal case)."""
@@ -357,7 +429,8 @@ class StageEnvelope(WireModel):
 
 __all__ = [
     "SCHEMA_VERSION", "WireModel", "OpenWireModel",
-    "Label", "Source", "HypothesisStatus", "EvidenceGrade", "StageState", "Modality",
+    "Label", "Source", "HypothesisStatus", "EvidenceGrade", "StageState",
+    "Modality", "MEDIA_SLOTS",
     "ExternalRef", "Externalizable", "MediaRef", "ArtifactRef",
     "InputsWire", "StepWire", "TrajectoryWire", "ProvenanceWire",
     "FailureCaseWire", "CaseBatchWire", "CaseBatchRef",

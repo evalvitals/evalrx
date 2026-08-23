@@ -372,6 +372,41 @@ class CaseBatch:
         return f"CaseBatch(n={len(self)})"
 
 
+#: Modality slots other than text. Mirrors ``contract.common.MEDIA_SLOTS``;
+#: duplicated rather than imported so ``core`` keeps no dependency on the
+#: optional ``contract`` extra (pydantic).
+MEDIA_SLOTS: tuple[str, ...] = ("image", "audio", "video")
+
+
+def probed_modalities(data: Any) -> set[str]:
+    """Modality slots the cases in *data* actually fill.
+
+    This is what a batch IS, not what the model CAN DO, and routing must use
+    this one: an omni model (text+image+audio+video) evaluated on an audio
+    benchmark declares image as well, so routing on the model's declaration
+    sends image analyzers at a batch holding no images — they match, run, and
+    report a number computed over nothing.
+
+    Returns ``{"text"}`` for a batch that fills no media slot; a prompt is always
+    present, so text is the floor rather than a slot. Non-iterable or unreadable
+    *data* also yields ``{"text"}`` — an unknown shape must not be reported as
+    evidence that a slot is absent.
+    """
+    present: set[str] = {"text"}
+    try:
+        cases = list(data) if data is not None else []
+    except TypeError:
+        return present
+    for case in cases:
+        inputs = getattr(case, "inputs", None)
+        if inputs is None:
+            continue
+        for slot in MEDIA_SLOTS:
+            if getattr(inputs, slot, None) is not None:
+                present.add(slot)
+    return present
+
+
 def as_casebatch(
     data: str | FailureCase | Inputs | Trajectory | Iterable | CaseBatch,
 ) -> CaseBatch:

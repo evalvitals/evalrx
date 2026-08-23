@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "CaseBatchRef": {
+      "additionalProperties": false,
+      "description": "A batch referenced by file rather than inlined (the normal case).",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "n_cases": {
+          "title": "N Cases",
+          "type": "integer"
+        },
+        "split": {
+          "anyOf": [
+            {
+              "enum": [
+                "all",
+                "explore",
+                "confirm",
+                "discovery"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Split"
+        }
+      },
+      "required": [
+        "path",
+        "n_cases"
+      ],
+      "title": "CaseBatchRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Repairs are attempted only on hypotheses M5 verified. ``max_tier`` bounds\nhow invasive the search may get and is the caller's decision, never the\nagent's.",
+  "properties": {
+    "hypothesis_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Hypothesis Ids",
+      "type": "array"
+    },
+    "data": {
+      "$ref": "#/$defs/CaseBatchRef"
+    },
+    "model_name": {
+      "title": "Model Name",
+      "type": "string"
+    },
+    "max_tier": {
+      "description": "L1 prompt / L2 scaffold / L3a internals-read / L3b internals-write / L4 params.",
+      "enum": [
+        "L1",
+        "L2",
+        "L3a",
+        "L3b",
+        "L4"
+      ],
+      "title": "Max Tier",
+      "type": "string"
+    },
+    "max_repair_rounds": {
+      "default": 1,
+      "description": "Feedback-driven propose->validate rounds. 1 = no loop.",
+      "minimum": 1,
+      "title": "Max Repair Rounds",
+      "type": "integer"
+    },
+    "prior_attempts_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prior Attempts Ref"
+    }
+  },
+  "required": [
+    "hypothesis_ids",
+    "data",
+    "model_name",
+    "max_tier"
+  ],
+  "title": "FixInput",
+  "type": "object",
+  "$id": "https://evalvitals.dev/contract/m4_fix.FixInput.json",
+  "x-stage": "m4_fix",
+  "x-role": "input",
+  "x-schema-version": 4,
+  "x-optional-stage": true
+}

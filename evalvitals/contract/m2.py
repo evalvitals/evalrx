@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from evalvitals.contract.common import (
     ArtifactRef, CaseBatchRef, ExternalRef, JoinReport, OpenWireModel,
@@ -150,14 +150,25 @@ class StatsToolResultWire(WireModel):
         return True
 
 
+#: Legacy spellings this contract shipped before it was checked against the
+#: producer. ``evalvitals.stats.multiplicity`` writes the hyphenated names and
+#: has a fourth value the contract had no member for.
+_LEGACY_CORRECTION_METHODS = {"ebh": "e-BH", "bh": "BH"}
+
+
 class CorrectedRejections(WireModel):
     """Family-level multiplicity control across every tested signal.
 
     Testing 40 signals at alpha=0.05 yields ~2 "significant" results from luck
     alone. Without this the screen is not a screen.
+
+    ``mixed-BH/e-BH`` is its own member rather than being folded into either
+    neighbour: it says the family contained both p-values and e-values, which
+    carry different validity guarantees, and a reader weighing the verdict needs
+    to know that the guarantee is the weaker of the two.
     """
 
-    method: Literal["ebh", "bh", "none"] = "none"
+    method: Literal["e-BH", "BH", "mixed-BH/e-BH", "none"] = "none"
     alpha: float = 0.05
     deferred: bool = Field(
         default=False, description="True while the analysis phase withholds the verdict."
@@ -166,6 +177,13 @@ class CorrectedRejections(WireModel):
     rejected_result_keys: list[str] = Field(
         default_factory=list, description="analysis_key values that survived. The source of truth."
     )
+
+    @field_validator("method", mode="before")
+    @classmethod
+    def _normalise_method(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return _LEGACY_CORRECTION_METHODS.get(v.lower(), v)
+        return v
 
 
 class StatsReportWire(StageEnvelope):

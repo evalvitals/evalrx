@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-REPORT_DATA_VERSION = 7
+REPORT_DATA_VERSION = 8
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalvitals-report@1"
@@ -114,6 +114,7 @@ def build_report_data(
     normalized_cases = _merge_recorded_case_evidence(normalized_cases, root)
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
     stages = _stages(raw, stage_detail.get("m4") if isinstance(stage_detail, dict) else None)
+    contract = _contract_payloads(root)
 
     return _json_safe(
         {
@@ -140,6 +141,7 @@ def build_report_data(
             "charts": charts,
             "repairs": repairs,
             "stage_detail": stage_detail,
+            "contract": contract,
             "cases": normalized_cases,
             "media": media,
             "debug": {
@@ -1043,6 +1045,35 @@ def _metrics(run: Mapping[str, Any], raw: Mapping[str, Any], cases: list[dict[st
         {"id": "verified", "label": "Mechanisms checked", "value": verified},
         {"id": "fixed", "label": "Cases repaired", "value": fixed},
     ]
+
+
+def _contract_payloads(root: Path) -> dict[str, Any]:
+    """The validated per-stage payloads a run emitted, keyed by span id.
+
+    Passed through verbatim. ``stage_detail`` above is a hand-built view whose
+    every field access is a defensive ``.get(x) or y`` — it has to be, because
+    it reads whatever the run log happened to contain. These payloads were
+    validated against the wire models on the way out, so a frontend can decode
+    them with the generated TypeScript instead of re-deriving the shape.
+
+    Absent for a run produced before contract emission existed, or one where the
+    ``contract`` extra was not installed. ``{}`` says "this run emitted none",
+    which a reader must not confuse with "this run had no stages".
+    """
+    out: dict[str, Any] = {}
+    directory = root / "contract"
+    if not directory.is_dir():
+        return out
+    for path in sorted(directory.glob("*.json")):
+        if path.name == "index.json":
+            continue
+        payload = _load_json(path)
+        if payload is None:
+            continue
+        # "c0.m1.json" -> "c0.m1"; ".invalid.json" keeps its suffix so a reader
+        # can see that a stage failed validation rather than silently missing it.
+        out[path.name[: -len(".json")]] = payload
+    return out
 
 
 def _media_index(cases: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:

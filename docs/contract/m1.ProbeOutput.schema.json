@@ -1,0 +1,423 @@
+{
+  "$defs": {
+    "AnalyzerSelection": {
+      "additionalProperties": false,
+      "description": "Which analyzers ran, and how they were chosen.\n\nKept separate from the results so a reader can tell \"not selected\" from\n\"selected and produced nothing\". The judge's per-analyzer reasoning is not\nhere — it is the response half of ``prompts/c<cycle>_m1_selection.*``.\n\nModality is recorded as three related sets rather than one ``model_kind``\nlabel. The label was a combination enum (``vlm`` / ``omni`` / ...), which is\nwhat design rule 3 forbids: it has no member for an audio-visual model, and\n\"omni\" collapses the one distinction routing depends on — an omni model\nevaluated on an audio benchmark must be routed as audio, not as everything\nit is capable of.",
+      "properties": {
+        "model_modalities": {
+          "description": "What the model DECLARES it can consume (from its spec).",
+          "items": {
+            "enum": [
+              "text",
+              "image",
+              "audio",
+              "video"
+            ],
+            "type": "string"
+          },
+          "title": "Model Modalities",
+          "type": "array"
+        },
+        "probed_modalities": {
+          "description": "What the case batch actually FILLS. Text is the floor, not a slot.",
+          "items": {
+            "enum": [
+              "text",
+              "image",
+              "audio",
+              "video"
+            ],
+            "type": "string"
+          },
+          "title": "Probed Modalities",
+          "type": "array"
+        },
+        "routed_on": {
+          "description": "The slots routing actually used. Normally model ∩ probed; equal to model_modalities when the batch filled no media slot at all, because an empty batch is no evidence about what is under test. A reader comparing this with probed_modalities can see that fallback happened.",
+          "items": {
+            "enum": [
+              "text",
+              "image",
+              "audio",
+              "video"
+            ],
+            "type": "string"
+          },
+          "title": "Routed On",
+          "type": "array"
+        },
+        "is_agent": {
+          "default": false,
+          "description": "The batch carries trajectories, or the model exposes TOOL_CALLS. Orthogonal to modality — a VLM can drive a tool loop.",
+          "title": "Is Agent",
+          "type": "boolean"
+        },
+        "selector": {
+          "default": "static_strategy",
+          "enum": [
+            "llm_judge",
+            "static_strategy",
+            "explicit"
+          ],
+          "title": "Selector",
+          "type": "string"
+        },
+        "generated": {
+          "description": "Bespoke probes written when no standard analyzer covered the mode.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Generated",
+          "type": "array"
+        }
+      },
+      "title": "AnalyzerSelection",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "A heavy artifact (``.npy``, ``.png``, workspace dir) left on disk.\n\nHeavy arrays never go inline: a browser must not parse a ``.npy``, and a\nJSONL event must not carry an attention map.",
+      "properties": {
+        "path": {
+          "description": "Relative to runRoot.",
+          "title": "Path",
+          "type": "string"
+        },
+        "media_type": {
+          "default": "other",
+          "enum": [
+            "npy",
+            "png",
+            "jpg",
+            "json",
+            "text",
+            "dir",
+            "other"
+          ],
+          "title": "Media Type",
+          "type": "string"
+        },
+        "bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bytes"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "FindingsWire": {
+      "additionalProperties": true,
+      "description": "Analyzer-specific light payload. JSON-safe by construction.\n\nTwo shapes are read by the pipeline and therefore named here; everything else\nis free-form and passes through to the raw inspector.",
+      "properties": {
+        "per_case": {
+          "description": "One row per case. Empty is valid (a scalar-only analyzer).",
+          "items": {
+            "$ref": "#/$defs/PerCaseRow"
+          },
+          "title": "Per Case",
+          "type": "array"
+        },
+        "by_strategy": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "{strategy -> {case_id -> success}} for paired contrasts. This is what makes an INTERVENTION-grade verdict possible downstream.",
+          "title": "By Strategy"
+        }
+      },
+      "title": "FindingsWire",
+      "type": "object"
+    },
+    "JoinReport": {
+      "additionalProperties": false,
+      "description": "Health of one ``sample_id`` <-> ``FailureCase.id`` join.\n\nThis exists because a broken join and a real null result are indistinguishable\ndownstream: unmatched ids are skipped, both groups come out empty, and the\ntool reports \"no significant association\" — the same output as a model with\nno defect. Emitting coverage makes \"the pipeline is broken\" a separate,\nvisible state from \"the model is fine\".",
+      "properties": {
+        "left": {
+          "description": "e.g. 'attention.findings.per_case'",
+          "title": "Left",
+          "type": "string"
+        },
+        "right": {
+          "description": "e.g. 'CaseBatch(explore)'",
+          "title": "Right",
+          "type": "string"
+        },
+        "n_left": {
+          "title": "N Left",
+          "type": "integer"
+        },
+        "n_right": {
+          "title": "N Right",
+          "type": "integer"
+        },
+        "n_matched": {
+          "title": "N Matched",
+          "type": "integer"
+        },
+        "coverage": {
+          "description": "n_matched / n_left",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Coverage",
+          "type": "number"
+        },
+        "unmatched_sample": {
+          "description": "First few unmatched ids, for triage.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Unmatched Sample",
+          "type": "array"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "n_left",
+        "n_right",
+        "n_matched",
+        "coverage"
+      ],
+      "title": "JoinReport",
+      "type": "object"
+    },
+    "PerCaseRow": {
+      "additionalProperties": true,
+      "description": "One measurement row. THE contract of the whole pipeline.\n\nOnly ``sample_id`` is fixed. Every other key is analyzer-defined; any key\nwhose value is a finite number or bool is automatically harvested as a signal\nnamed ``\"<analyzer>.<key>\"``. Non-numeric values are carried for display and\nignored by the statistics.",
+      "properties": {
+        "sample_id": {
+          "description": "Must equal FailureCaseWire.id. No fuzzy matching.",
+          "minLength": 1,
+          "title": "Sample Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sample_id"
+      ],
+      "title": "PerCaseRow",
+      "type": "object"
+    },
+    "ResultWire": {
+      "additionalProperties": false,
+      "description": "One analyzer's serialized output — the content of\n``artifacts/c<cycle>_<analyzer>.result.json``.\n\nNote what is NOT here: ``Result.artifacts`` (tensors, attention maps) never\ngoes inline. It is referenced through ``artifact_paths`` so a browser is\nnever asked to parse a ``.npy``.",
+      "properties": {
+        "analyzer": {
+          "description": "Registered analyzer name. Becomes the signal prefix.",
+          "minLength": 1,
+          "title": "Analyzer",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "n_cases": {
+          "minimum": 0,
+          "title": "N Cases",
+          "type": "integer"
+        },
+        "findings": {
+          "$ref": "#/$defs/FindingsWire"
+        },
+        "artifact_paths": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "description": "Heavy outputs, by artifact key.",
+          "title": "Artifact Paths",
+          "type": "object"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "analyzer",
+        "model",
+        "n_cases"
+      ],
+      "title": "ResultWire",
+      "type": "object"
+    },
+    "StageState": {
+      "description": "Per-stage UI state. A single generic \"N/A\" loses information the reader\nneeds — in particular ``EMPTY`` (ran, produced nothing) and ``FAILED``\n(did not run correctly) must never render the same.",
+      "enum": [
+        "not_started",
+        "running",
+        "succeeded",
+        "empty",
+        "abstained",
+        "partial",
+        "failed",
+        "skipped",
+        "unavailable"
+      ],
+      "title": "StageState",
+      "type": "string"
+    },
+    "StageStatus": {
+      "additionalProperties": false,
+      "description": "Terminal state of one stage in one cycle.\n\n``EMPTY`` and ``ABSTAINED`` are successes with nothing to show; ``FAILED``\nand ``UNAVAILABLE`` are not. Collapsing them loses the only signal a reader\nhas for whether to trust the absence of a result.",
+      "properties": {
+        "stage": {
+          "enum": [
+            "pre_m1",
+            "m1",
+            "explore",
+            "m2",
+            "m3",
+            "m4_surgery",
+            "m4_fix",
+            "m5"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/StageState"
+        },
+        "cycle": {
+          "description": "Normal cycles start at 0; the post-loop fix uses -1.",
+          "title": "Cycle",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why, for any state that is not plain success — the skip rule, the error, the reason for abstaining. One field, because a reader wants one answer.",
+          "title": "Reason"
+        },
+        "duration_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Sec"
+        },
+        "joins": {
+          "items": {
+            "$ref": "#/$defs/JoinReport"
+          },
+          "title": "Joins",
+          "type": "array"
+        }
+      },
+      "required": [
+        "stage",
+        "state",
+        "cycle"
+      ],
+      "title": "StageStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "M1's serialized output.\n\nKeyed by analyzer name because downstream routes BY name: M3 writes\n``test_design=\"attention.image_token_ratio\"`` and M5 resolves it against this\nmap. A list would make that a scan and would not enforce uniqueness.",
+  "properties": {
+    "schema_version": {
+      "default": 4,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "trace_id": {
+      "description": "Run-level correlation id.",
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "span_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "e.g. 'c0.m1'.",
+      "title": "Span Id"
+    },
+    "cycle": {
+      "default": 0,
+      "title": "Cycle",
+      "type": "integer"
+    },
+    "produced_at": {
+      "description": "ISO-8601 UTC.",
+      "title": "Produced At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/StageStatus"
+    },
+    "results": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ResultWire"
+      },
+      "title": "Results",
+      "type": "object"
+    },
+    "selection": {
+      "$ref": "#/$defs/AnalyzerSelection"
+    },
+    "failed_analyzers": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "analyzer -> error. Some failed + some succeeded = PARTIAL, not FAILED.",
+      "title": "Failed Analyzers",
+      "type": "object"
+    }
+  },
+  "required": [
+    "trace_id",
+    "produced_at",
+    "status"
+  ],
+  "title": "ProbeOutput",
+  "type": "object",
+  "$id": "https://evalvitals.dev/contract/m1.ProbeOutput.json",
+  "x-stage": "m1",
+  "x-role": "output",
+  "x-schema-version": 4,
+  "x-optional-stage": false
+}

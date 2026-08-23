@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import ReactECharts from "echarts-for-react";
 import { AlertTriangle, ArrowLeft, BarChart3, Beaker, CheckCircle2, ChevronRight, Microscope, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
-import type { Case, DebugEvent, ReportData } from "./types";
+import type { AnalyzerSelection, Case, DebugEvent, Modality, ProbeOutput, ReportData } from "./types";
 
 export function EvidenceView({ data, back, initialStage }: { data: ReportData; back: () => void; initialStage?: string }) {
   const [selected, setSelected] = useState(initialStage || data.stages[0]?.id);
@@ -30,11 +30,41 @@ function StageKpis({ items }: { items: Array<{ label: string; value: React.React
   return <div className="stage-kpis">{items.map((item) => <article key={item.label}><span>{item.label}</span><strong>{item.value ?? "—"}</strong>{item.note && <small>{item.note}</small>}</article>)}</div>;
 }
 
+/**
+ * Which modality the run was actually about, read from M1's contract payload.
+ *
+ * The three sets are shown separately because they disagree in exactly the case
+ * that used to go wrong silently: an omni model declares four modalities, the
+ * benchmark fills one, and analyzer routing must follow the batch. A single
+ * "model kind" label could not express that, and rendering only the model's
+ * declaration would tell the reader the run probed images when it probed audio.
+ */
+function ModalityBand({ selection }: { selection?: AnalyzerSelection }) {
+  if (!selection) return null;
+  const routed = selection.routed_on || [];
+  const declared = selection.model_modalities || [];
+  const probed = selection.probed_modalities || [];
+  const narrowed = declared.length > routed.length;
+  return <div className="modality-band">
+    <div><small>ROUTED ON</small><b>{routed.map(labelModality).join(" + ") || "text"}</b></div>
+    <div><small>MODEL ACCEPTS</small><b>{declared.map(labelModality).join(" + ") || "text"}</b></div>
+    <div><small>CASES CARRIED</small><b>{probed.map(labelModality).join(" + ") || "text"}</b></div>
+    {selection.is_agent && <div><small>SHAPE</small><b>agent trajectories</b></div>}
+    {narrowed && <p className="modality-note">The model accepts more than this benchmark exercises, so the checks were narrowed to what the cases actually contain.</p>}
+  </div>;
+}
+
+function labelModality(slot: Modality): string {
+  return { text: "text", image: "images", audio: "audio", video: "video" }[slot] || slot;
+}
+
 function M1Detail({ data, report }: { data: any; report: ReportData }) {
   const probes = data.probes || [];
   const examples = data.examples || [];
+  const m1 = findContract<ProbeOutput>(report, "m1");
   return <>
     <StageBanner kind="MEASURE" title="Behavioral checkup">We give the model real tasks, then run several checks on its behavior. This tells us where it struggles; it does not yet tell us why.</StageBanner>
+    <ModalityBand selection={m1?.selection} />
     <StageKpis items={[{ label: "Probes run", value: data.n_probes || probes.length }, { label: "Cases measured", value: data.n_measured || "—" }, { label: "Runtime", value: seconds(data.duration) }]} />
     {examples.length > 0 && <ExampleSection eyebrow="A real example" title="What one M1 check looks like" note="Examples make the measurement concrete. The result below is based on all measured cases, not just this one."><div className="example-deck">{examples.map((example: any) => <M1Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
     {data.operations?.length > 0 && <OperationExamples examples={data.operations} report={report} />}
@@ -43,6 +73,24 @@ function M1Detail({ data, report }: { data: any; report: ReportData }) {
       <div className="probe-expanded"><p>{probe.description}</p>{Object.keys(probe.finding_summary || {}).length > 0 && <KeyValueGrid values={probe.finding_summary} />}{Object.keys(probe.raw_finding_summary || {}).length > 0 && <details className="nested-detail"><summary>Technical measurement names and raw values</summary><KeyValueGrid values={probe.raw_finding_summary} /></details>}{probe.sample_rows?.length > 0 && <details className="nested-detail"><summary>Inspect {probe.sample_rows.length} representative measurement rows</summary><RecordTable rows={probe.sample_rows} /></details>}</div>
     </details>)}</div>
   </>;
+}
+
+/**
+ * The newest contract payload for a stage, across cycles.
+ *
+ * Spans are "c<cycle>.<stage>", so the last key in sort order is the last cycle
+ * that ran. Returns undefined for a run that predates contract emission — the
+ * caller must render without it rather than showing an error, since those runs
+ * are still perfectly readable through the legacy stage_detail.
+ */
+function findContract<T>(report: ReportData, stage: string): T | undefined {
+  const payloads = report.contract;
+  if (!payloads) return undefined;
+  const keys = Object.keys(payloads).filter((k) => k.endsWith(`.${stage}`) || k === stage);
+  if (!keys.length) return undefined;
+  const payload = payloads[keys.sort()[keys.length - 1]];
+  if (!payload || "error" in payload) return undefined;
+  return payload as T;
 }
 
 function ExampleSection({ eyebrow, title, note, children }: { eyebrow: string; title: string; note: string; children: React.ReactNode }) {
