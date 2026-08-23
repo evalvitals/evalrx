@@ -978,6 +978,25 @@ def _load_json(path: Path) -> Any:
         return None
 
 
+def _repair_headline(value: Mapping[str, Any]) -> str:
+    """The candidate's own sentence, or the host's for a candidate it authored.
+
+    Looking `visual_grounding` up in the fix agent's own table is not a
+    consumer guessing at a slug -- it is the package that named the candidate
+    saying what it does. Runs recorded before `headline` existed become
+    readable this way; a judge-invented name the host never heard of still
+    resolves to "" and renders blank.
+    """
+    headline = " ".join(str(value.get("headline") or "").split())
+    if headline:
+        return headline[:300]
+    try:
+        from evalvitals.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+    except Exception:
+        return ""
+    return _BUILTIN_DESCRIPTIONS.get(str(value.get("name") or ""), "")
+
+
 def _repair_candidate(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         return {}
@@ -989,7 +1008,7 @@ def _repair_candidate(value: Any) -> dict[str, Any]:
         # `ref` and `headline` are what a reader sees; `name` is only the join
         # key. Both are carried here so the legacy report path shows the same
         # identifier and the same sentence as the contract-backed views.
-        "ref": value.get("ref") or "", "headline": value.get("headline") or "",
+        "ref": value.get("ref") or "", "headline": _repair_headline(value),
         "source": value.get("source"), "verdict": value.get("verdict"),
         "n_pairs": value.get("n_pairs"), "n_baseline_correct": value.get("n_baseline_correct"),
         "n_candidate_correct": value.get("n_candidate_correct"),
@@ -1120,7 +1139,48 @@ def _contract_payloads(root: Path) -> dict[str, Any]:
         # "c0.m1.json" -> "c0.m1"; ".invalid.json" keeps its suffix so a reader
         # can see that a stage failed validation rather than silently missing it.
         out[path.name[: -len(".json")]] = payload
+    for key, payload in out.items():
+        if key.endswith("m4_fix"):
+            _backfill_repair_identity(payload)
     return out
+
+
+def _backfill_repair_identity(payload: Any) -> None:
+    """Give a pre-`ref` run the same numbering a current run would emit.
+
+    Runs recorded before these fields existed carry neither, and a consumer
+    left to number rows itself gives the frozen candidate one number in the
+    sweep and another on its card. The assignment here is the emitter's, done
+    the emitter's way -- selection order first, one number per distinct name --
+    so an old report and a new one read alike.
+
+    It only ever FILLS BLANKS. What a producer actually wrote is never
+    overwritten, and a `headline` is only ever taken from the fix agent's table
+    of its own candidates: a judge-invented name nobody described stays blank,
+    because inventing a sentence for it here would be this file guessing.
+    """
+    if not isinstance(payload, dict):
+        return
+    try:
+        from evalvitals.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+    except Exception:
+        _BUILTIN_DESCRIPTIONS = {}
+    refs: dict[str, str] = {}
+    for group in ("selection", "attempted"):
+        for row in payload.get(group) or []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "")
+            ref = refs.get(name)
+            if ref is None:
+                ref = f"R{len(refs) + 1}"
+                refs[name] = ref
+            row.setdefault("ref", "")
+            if not row["ref"]:
+                row["ref"] = ref
+            row.setdefault("headline", "")
+            if not row["headline"]:
+                row["headline"] = _BUILTIN_DESCRIPTIONS.get(name, "")
 
 
 def _repair_outcomes(root: Path, contract: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
