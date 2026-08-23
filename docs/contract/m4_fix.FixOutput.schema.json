@@ -6,6 +6,7 @@
       "properties": {
         "tier": {
           "enum": [
+            "L0",
             "L1",
             "L2",
             "L3a",
@@ -420,6 +421,7 @@
     },
     "max_tier": {
       "enum": [
+        "L0",
         "L1",
         "L2",
         "L3a",

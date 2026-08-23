@@ -33,7 +33,7 @@ from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
 pytest.importorskip("pydantic")
 
 from evalvitals.contract import (  # noqa: E402
-    DiagnosisOutput, HypothesisTestOutput, ProbeOutput,
+    SCHEMA_VERSION, DiagnosisOutput, HypothesisTestOutput, ProbeOutput,
 )
 
 #: What the judge returned on the live run: a mechanism, a failure mode, and no
@@ -390,3 +390,37 @@ def test_every_statistical_result_carries_a_distinct_human_label():
     )
     labels = [r.measured for r in wire.stats_results]
     assert len(set(labels)) == 3, labels
+
+
+# ── M4's tier is an enum in the pipeline and a string on the wire ────────────
+
+def test_a_fix_tier_enum_serialises_to_its_wire_spelling():
+    """FixTier is an IntEnum: .value is an ordinal, .name is L3A_INTERNALS_READ.
+
+    Neither is what the contract asks for. A live run passed the enum straight
+    through and the whole M4 payload was rejected -- the repair results were
+    lost to a spelling. `.label` is exactly the wire form and was already there.
+    """
+    from evalvitals.contract.emit import _tier
+    from evalvitals.eval_agent.stages.fix_tiers import FixTier
+
+    assert _tier(FixTier.L3A_INTERNALS_READ) == "L3a"
+    assert _tier(FixTier.L0_RUNTIME_CONFIG) == "L0"
+    assert _tier(FixTier.L4_PARAMETERS) == "L4"
+    assert _tier("L2") == "L2"          # already a string
+    assert _tier(None) == "L1"          # documented default
+
+
+def test_every_tier_the_pipeline_has_is_representable():
+    """L0 was missing from the contract, so a runtime-config repair -- the least
+    invasive kind, and one FixTier defines -- could not be reported at all."""
+    from evalvitals.contract import FixOutput
+    from evalvitals.contract.emit import _tier
+    from evalvitals.eval_agent.stages.fix_tiers import FixTier
+
+    for tier in FixTier:
+        FixOutput(
+            schema_version=SCHEMA_VERSION, trace_id="t", produced_at="2026-08-23T00:00:00Z",
+            status={"stage": "m4_fix", "state": "succeeded", "cycle": -1},
+            max_tier=_tier(tier),
+        )

@@ -182,7 +182,7 @@ export interface FindingsWire {
  * delta is not the same claim and must never be displayed as if it were.
  */
 export interface FixAttemptWire {
-  tier: "L1" | "L2" | "L3a" | "L3b" | "L4";
+  tier: "L0" | "L1" | "L2" | "L3a" | "L3b" | "L4";
   name: string;
   kind?: string | null;
   source?: string | null;
@@ -643,9 +643,11 @@ export interface FixInput {
   data: CaseBatchRef;
   model_name: string;
   /**
-   * L1 prompt / L2 scaffold / L3a internals-read / L3b internals-write / L4 params.
+   * L0 runtime config / L1 prompt / L2 scaffold / L3a internals-read / L3b internals-write / L4 params.
+   *
+   * L0 is in this list because `FixTier` has it — decoding settings are a real, and the least invasive, place to intervene. Omitting it made a tier the pipeline can produce unrepresentable.
    */
-  max_tier: "L1" | "L2" | "L3a" | "L3b" | "L4";
+  max_tier: "L0" | "L1" | "L2" | "L3a" | "L3b" | "L4";
   /**
    * Feedback-driven propose->validate rounds. 1 = no loop.
    */
@@ -677,7 +679,7 @@ export interface FixOutput {
    */
   produced_at: string;
   status: StageStatus;
-  max_tier: "L1" | "L2" | "L3a" | "L3b" | "L4";
+  max_tier: "L0" | "L1" | "L2" | "L3a" | "L3b" | "L4";
   /**
    * Which hypothesis went to which tier, and why.
    */

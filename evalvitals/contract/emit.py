@@ -635,6 +635,21 @@ def from_intervention(
     )
 
 
+def _tier(value: Any, default: str = "L1") -> str:
+    """A FixTier as the contract spells it.
+
+    ``FixTier`` is an IntEnum whose ``.value`` is an ordinal and whose ``.name``
+    is ``L3A_INTERNALS_READ``; neither is the wire spelling. It carries a
+    ``.label`` that is exactly ``"L3a"`` — a live run shipped the enum straight
+    through and the whole M4 payload was rejected for it.
+    """
+    label = getattr(value, "label", None)
+    if isinstance(label, str) and label:
+        return label
+    text = str(getattr(value, "value", value) or "").strip()
+    return text or default
+
+
 def from_fix_outcome(
     outcome: Any, *, trace_id: str, cycle: int = -1, duration_sec: float | None = None,
 ) -> FixOutput:
@@ -648,7 +663,7 @@ def from_fix_outcome(
             "not_executed" if _val(v, "exec_error", None) else "no_effect"
         )
         attempts.append(FixAttemptWire(
-            tier=_val(cand, "tier", "L1") or "L1",
+            tier=_tier(_val(cand, "tier", "L1")),
             name=str(_val(cand, "name", "") or "candidate"),
             kind=_val(cand, "kind"), source=_val(cand, "source"),
             trial_root=str(_val(trial, "root", "") or "") or None,
@@ -691,7 +706,7 @@ def from_fix_outcome(
             break
     return FixOutput(
         **envelope("m4_fix", trace_id=trace_id, cycle=cycle, duration_sec=duration_sec),
-        max_tier=_val(outcome, "max_tier", "L1") or "L1",
+        max_tier=_tier(_val(outcome, "max_tier", "L1")),
         routed=[{str(k): str(v) for k, v in dict(r).items()}
                 for r in (_val(outcome, "routed", []) or []) if isinstance(r, dict)],
         attempted=attempts,
