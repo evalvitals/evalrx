@@ -61,7 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--allow-codegen", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--auto-escalate", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--code-only", action="store_true",
-                   help="restrict the fix pool to the coder-written L2 pipeline")
+                   help="restrict the fix pool to the coder-written pipeline (L2 unless its "
+                        "source actually reads model internals, then L3a)")
     p.add_argument("--fix-code-file", default="",
                    help="frozen Python pipeline to validate with --code-only (skip code generation)")
     p.add_argument("--fix-candidate", default="",
@@ -88,9 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _smoke_test() -> None:
-    from .scoring import score_output
-    from .models import cells
     from evalvitals.specs import get_spec
+
+    from .models import cells
+    from .scoring import score_output
 
     assert score_output("exact_or_numeric", "Values: 40\nFinal answer: 42", ["42"], numeric_tolerance=0.05)
     assert score_output("exact_or_numeric", "Final answer: 6.8%", ["6.8"], numeric_tolerance=0.05)

@@ -34,10 +34,11 @@ Executors by tier:
   intermediate outputs — only the model itself is unchanged.  The code runs
   sandboxed with bridged model access (:mod:`fix_pipeline`); labels and
   rubrics never reach it, so it cannot cheat by echoing gold answers.
-* **L3a** — internals read (:mod:`fix_internals`): no canned primitive; the
-  L2 coded pipeline gets a bridged ``model_attend()`` (read-only attention
-  heatmap) and authors its own peak-find -> crop -> re-ask scaffold when the
-  tier allows.
+* **L3a** — internals read (:mod:`fix_internals`): contrastive decoders read
+  and combine logits/attention from paired forward passes. Coded pipelines
+  are L3a only when their source actually calls the bridged
+  ``model_attend()``; merely exposing that optional API does not promote an
+  otherwise black-box L2 scaffold.
 * **L3b** — internals write (:mod:`fix_internals`): pre-audited intervention
   primitives (v1: visual embedding boost via a forward hook) — the judge
   selects and parameterises; never free codegen against the model handle.
@@ -63,6 +64,7 @@ them, neither dropped nor mistaken for repairs.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import json
 import logging
@@ -77,7 +79,7 @@ from evalvitals.eval_agent.prompts.fix_agent import (
     _L2_PROMPT,
     _L3_PROMPT,
     _L4_PROMPT,
-    _PAPER_METHOD_PROMPT,
+    _REPAIR_CATALOG_PROMPT,
     _REPAIR_PROMPT_BODY,
 )
 from evalvitals.eval_agent.stages.fix_internals import (
@@ -101,6 +103,7 @@ from evalvitals.eval_agent.stages.fix_tools import (
     spec_changes_input,
 )
 from evalvitals.eval_agent.stages.probe_generator import _extract_code
+from evalvitals.eval_agent.stages.repair_catalog import discover_methods, method_names
 from evalvitals.stats import compare, compare_paired_rates
 from evalvitals.stats.ebh import ebh
 from evalvitals.stats.evalue import evalue_bernoulli
@@ -199,6 +202,20 @@ def _format_examples(
 def _binary_answer(value: Any) -> "str | None":
     match = re.search(r"\b(yes|no)\b", str(value).lower())
     return match.group(1) if match else None
+
+
+def _code_calls_name(code: str, name: str) -> bool:
+    """Return whether executable source directly calls a named model bridge."""
+    try:
+        tree = ast.parse(str(code or ""))
+    except SyntaxError:
+        return False
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == name
+        for node in ast.walk(tree)
+    )
 
 
 def _binary_hallucination_direction(data: "CaseBatch") -> "tuple[bool, int, int]":
@@ -324,7 +341,7 @@ class FixCandidate:
         name:        Short identifier.
         kind:        ``"template"`` (L1) | ``"spec"`` (L2 declarative) |
                      ``"code"`` (L2 agent-written pipeline) | ``"vcd"``
-                     (L0 contrastive decoding through an opt-in backend) |
+                     (L3a contrastive decoding through an opt-in backend) |
                      ``"opera"`` (L3a attention-over-trust penalty for a
                      one-token binary decision) | ``"ifcd"`` (L3b paired
                      TruthX internal edits) | ``"tcd"`` (L3a gated temporal
@@ -1332,17 +1349,24 @@ class FixAgent:
         # latency and quota waste, those calls can fail before the requested
         # coding agent is ever reached.
         code_only = self._candidate_allowlist == frozenset({"coded_pipeline"})
+        catalog_method_names = method_names()
         preregistered_only = self._candidate_allowlist in {
             frozenset({malformed_name}), frozenset({chart_name}),
             frozenset({consensus_name}),
             frozenset({count_name}),
             *(frozenset({name}) for name in requested_defaults),
         }
-        if not code_only and not preregistered_only and self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
-            candidates += self._l0_candidates(data, prior_names, model=model)
+        catalog_method_only = self._candidate_allowlist in {
+            frozenset({name}) for name in catalog_method_names
+        }
+        skip_lower_tiers = preregistered_only or catalog_method_only
+        if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
+            candidates += self._runtime_and_contrastive_candidates(
+                data, prior_names, model=model
+            )
         if (
             not code_only
-            and not preregistered_only
+            and not skip_lower_tiers
             and self.max_tier >= FixTier.L1_PROMPT
             and not self._paper_methods_only
         ):
@@ -1356,7 +1380,7 @@ class FixAgent:
                 binary_hallucination_supported=binary_hallucination_supported,
                 context_block=context_block,
             )
-        if not code_only and not preregistered_only and self.max_tier >= FixTier.L2_SCAFFOLD:
+        if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L2_SCAFFOLD:
             candidates += self._l2_candidates(
                 hyp_lines,
                 examples,
@@ -1381,7 +1405,7 @@ class FixAgent:
                             source="floor", payload=spec.to_dict(),
                         )
                     )
-        if (not preregistered_only and self.max_tier >= FixTier.L2_SCAFFOLD
+        if (not skip_lower_tiers and self.max_tier >= FixTier.L2_SCAFFOLD
                 and self.codegen_available):
             # The coder-written pipeline is the ONE candidate a code-only run
             # exists to field, so it sits outside the ``not code_only`` gate
@@ -1402,7 +1426,7 @@ class FixAgent:
                 tasks=tasks,
                 binary_hallucination_supported=binary_hallucination_supported,
             )
-        if not code_only and not preregistered_only and self.max_tier >= FixTier.L4_PARAMETERS:
+        if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L4_PARAMETERS:
             candidates += self._l4_candidates(hyp_lines)
         if self._candidate_allowlist is not None:
             candidates = [c for c in candidates if c.name in self._candidate_allowlist]
@@ -1584,20 +1608,21 @@ class FixAgent:
         if not lines:
             return ""
         return "\n" + "\n".join(lines) + "\n"
-    def _l0_candidates(
+    def _runtime_and_contrastive_candidates(
         self,
         data: "CaseBatch",
         prior_names: "frozenset[str]" = frozenset(),
         *,
         model: "Model | None" = None,
     ) -> "list[FixCandidate]":
-        """Propose a bounded decoding repair only from recorded telemetry.
+        """Propose structurally gated runtime and contrastive repairs.
 
-        A short answer is not proof of truncation.  We require a backend to
+        The L0 runtime candidate comes only from recorded telemetry. A short
+        answer is not proof of truncation, so we require a backend to
         record ``metadata['finish_reason'] == 'length'`` and the baseline
         ``metadata['generation_config']['max_tokens']`` for at least one
-        failing case. This makes the candidate useful for any OpenAI-style or
-        local backend while preventing prompt-specific guesswork.
+        failing case. VCD/AAD/ICD are admitted only at L3a and only when the
+        backend exposes their required paired-logit executor and fidelity.
         """
         caps: "list[int]" = []
         policy_caps: "list[int]" = []
@@ -1654,6 +1679,7 @@ class FixAgent:
         supports_logprobs = bool(
             model is not None and Capability.LOGPROBS in getattr(model, "capabilities", frozenset())
         )
+        internals_read_allowed = self.max_tier >= FixTier.L3A_INTERNALS_READ
         supports_vcd = supports_logprobs and callable(getattr(model, "generate_vcd", None))
         # VCD distorts an IMAGE; a multimodal backend exposes generate_vcd even
         # when this batch is audio-only (caught live: audiocaps_hallucination
@@ -1667,7 +1693,8 @@ class FixAgent:
         supports_vcd = supports_vcd and has_visual
         hallucination_direction_supported, _, _ = _binary_hallucination_direction(data)
         if (
-            tasks == {"yes_no"}
+            internals_read_allowed
+            and tasks == {"yes_no"}
             and supports_vcd
             and hallucination_direction_supported
             and "vcd_diffusion_noise" not in prior_names
@@ -1681,7 +1708,7 @@ class FixAgent:
             }
             out.append(
                 FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    tier=FixTier.L3A_INTERNALS_READ,
                     name="vcd_diffusion_noise",
                     kind="vcd",
                     source="paper_default",
@@ -1700,13 +1727,14 @@ class FixAgent:
         # confirmation outcome -- so this is a candidate design choice, not a
         # post-hoc tuning of which cases to report.
         if (
-            tasks == {"yes_no"}
+            internals_read_allowed
+            and tasks == {"yes_no"}
             and supports_vcd
             and "vcd_diffusion_noise_gated_false_yes" not in prior_names
         ):
             out.append(
                 FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    tier=FixTier.L3A_INTERNALS_READ,
                     name="vcd_diffusion_noise_gated_false_yes",
                     kind="vcd",
                     source="conditional_default",
@@ -1716,18 +1744,18 @@ class FixAgent:
             )
         # AAD (Hsu et al. 2025, arXiv:2506.07233) is VCD's same shape applied
         # to audio instead of an image: contrasts real-audio decoding against
-        # the identical prompt with the waveform silenced, at every step. No
-        # internals read (no attention weights, no layer stability) -- just
-        # two generate()-compatible forward passes and a LogitsProcessor, the
-        # same cost/risk class as VCD, so it belongs at L0 next to it, not
-        # gated through the L3a judge-selected paper-method catalog.
+        # the identical prompt with the waveform silenced, at every step.
+        # Attention weights are not required, but the method reads and combines
+        # token logits from two forward passes. Under the intervention-space
+        # taxonomy that is an L3a internals-read repair, like VCD and TCD.
         paper_fidelity_early = getattr(model, "paper_method_fidelity", None)
         aad_fidelity = (
             paper_fidelity_early("aad") if callable(paper_fidelity_early) else "unavailable"
         )
         supports_aad = callable(getattr(model, "generate_aad", None))
         if (
-            tasks == {"yes_no"}
+            internals_read_allowed
+            and tasks == {"yes_no"}
             and supports_aad
             and aad_fidelity == "native_silence_contrast"
             and hallucination_direction_supported
@@ -1735,7 +1763,7 @@ class FixAgent:
         ):
             out.append(
                 FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    tier=FixTier.L3A_INTERNALS_READ,
                     name="aad_silence_contrast",
                     kind="aad",
                     source="paper_default",
@@ -1747,14 +1775,15 @@ class FixAgent:
         # WITH audio, i.e. demotes an audio-ungrounded over-affirmation), so
         # it is the right direction only on false-Yes cases.
         if (
-            tasks == {"yes_no"}
+            internals_read_allowed
+            and tasks == {"yes_no"}
             and supports_aad
             and aad_fidelity == "native_silence_contrast"
             and "aad_silence_contrast_gated_false_yes" not in prior_names
         ):
             out.append(
                 FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    tier=FixTier.L3A_INTERNALS_READ,
                     name="aad_silence_contrast_gated_false_yes",
                     kind="aad",
                     source="conditional_default",
@@ -1770,7 +1799,8 @@ class FixAgent:
         paper_fidelity = getattr(model, "paper_method_fidelity", None)
         icd_fidelity = paper_fidelity("icd") if callable(paper_fidelity) else "unavailable"
         if (
-            tasks == {"yes_no"}
+            internals_read_allowed
+            and tasks == {"yes_no"}
             and supports_logprobs
             and hallucination_direction_supported
             and callable(getattr(model, "generate_instruction_cd", None))
@@ -1782,7 +1812,7 @@ class FixAgent:
         ):
             out.append(
                 FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    tier=FixTier.L3A_INTERNALS_READ,
                     name="icd_instruction_disturbance",
                     kind="icd",
                     source="paper_default",
@@ -1799,7 +1829,7 @@ class FixAgent:
             ):
                 out.append(
                     FixCandidate(
-                        tier=FixTier.L0_RUNTIME_CONFIG,
+                        tier=FixTier.L3A_INTERNALS_READ,
                         name="icd_instruction_disturbance_question",
                         kind="icd",
                         source="paper_default",
@@ -1810,7 +1840,8 @@ class FixAgent:
         # suppressive, so restrict it to the per-case false-Yes subset rather
         # than requiring the whole slice to be false-Yes dominant.
         if (
-            tasks == {"yes_no"}
+            internals_read_allowed
+            and tasks == {"yes_no"}
             and supports_logprobs
             and callable(getattr(model, "generate_instruction_cd", None))
             and (
@@ -1821,7 +1852,7 @@ class FixAgent:
         ):
             out.append(
                 FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
+                    tier=FixTier.L3A_INTERNALS_READ,
                     name="icd_instruction_disturbance_gated_false_yes",
                     kind="icd",
                     source="conditional_default",
@@ -2298,7 +2329,7 @@ class FixAgent:
             if self._run_context is not None
             else None
         )
-        enable_attend = (
+        attend_available = (
             self.max_tier >= FixTier.L3A_INTERNALS_READ
             and Capability.ATTENTION in getattr(model, "capabilities", frozenset())
         )
@@ -2310,7 +2341,7 @@ class FixAgent:
                 "internals). Use it e.g. to find where the model looks, then "
                 "crop_region there and re-ask."
             )
-            if enable_attend
+            if attend_available
             else ""
         )
         code, source, prompt, raw = "", "", "", ""
@@ -2371,6 +2402,11 @@ class FixAgent:
         )
         if not code.strip():
             return []
+        # Classify by the intervention the generated program actually uses,
+        # not by an optional bridge merely being advertised in its prompt.
+        # This prevents black-box multi-call/image-tool scaffolds from being
+        # reported as L3a just because the model happens to expose attention.
+        enable_attend = attend_available and _code_calls_name(code, "model_attend")
         tier = FixTier.L3A_INTERNALS_READ if enable_attend else FixTier.L2_SCAFFOLD
         return [
             FixCandidate(
@@ -2603,267 +2639,124 @@ class FixAgent:
         tasks: "set[str] | None" = None,
         binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
-        """Judge-parameterised configs of the pre-audited internals primitives."""
+        """Select from the repair capabilities discovered at runtime.
+
+        This layer is intentionally method-agnostic: executor names, fidelity
+        gates, task compatibility, defaults, and evidence-facing descriptions
+        live in :mod:`repair_catalog`.  The judge sees only structurally
+        executable entries and performs mechanism matching against diagnosis.
+        """
         out: "list[FixCandidate]" = []
 
         def finalize(options: "list[FixCandidate]") -> "list[FixCandidate]":
-            # A frozen experiment may request a later catalogued candidate.
-            # Apply that allowlist before the ordinary proposal cap; otherwise
-            # an unrelated earlier default can silently erase the requested
-            # paper route before ``_propose`` gets a chance to filter it.
             if self._candidate_allowlist is not None:
                 options = [c for c in options if c.name in self._candidate_allowlist]
             return options[: self.max_judge_candidates]
-        # Paper-method routes (OPERA/ViCrop/IFCD/PAI/TCD): each targets ONE
-        # named failure mechanism, not "any failure this model/task shape can
-        # exhibit". The condition below for each is STRUCTURAL eligibility
-        # only -- can it physically run at all (capability, modality, task
-        # shape, paper_method_fidelity, tier ceiling, not already tried)?
-        # Whether its mechanism actually matches what was diagnosed is a
-        # judgment call, not a fact you can `in`-check off the hypothesis
-        # string -- so it is delegated to the judge below, over the catalog
-        # of only the structurally-eligible candidates. No judge configured
-        # -> _ask_judge returns [] -> no paper-method candidate is proposed;
-        # there is no keyword fallback (a substring match is not a decision,
-        # it is a hardcoded stand-in for one -- that was the actual gap here,
-        # not that TCD specifically lacked a keyword list PAI/OPERA had).
-        paper_fidelity = getattr(model, "paper_method_fidelity", None)
-        opera_fidelity = paper_fidelity("opera") if callable(paper_fidelity) else "unavailable"
-        vicrop_fidelity = paper_fidelity("vicrop") if callable(paper_fidelity) else "unavailable"
-        pai_fidelity = paper_fidelity("pai") if callable(paper_fidelity) else "unavailable"
-        # IFCD needs a trained TruthX representation editor. The available
-        # public Vicuna artifact is useful for a controlled transfer trial,
-        # but it is not IFCD's MSCOCO-trained editor, so it is opt-in through
-        # ``allow_adapted_paper_methods`` and never passed off as native.
-        ifcd_fidelity = paper_fidelity("ifcd") if callable(paper_fidelity) else "unavailable"
-        # TCD (Li et al. 2026, arXiv:2604.15383) is a decoding-time repair for
-        # unified audio-language models -- not a POPE-style yes_no task, so
-        # scoped separately from the VCD/ICD/OPERA binary-hallucination
-        # candidates. Needs ATTENTION (the decoder's audio-attention ratio
-        # drives both the stability score and the per-step gate) on top of
-        # the audio encoder's own hidden states, so it belongs at L3a like
-        # OPERA, not L0 like VCD.
-        tcd_fidelity = paper_fidelity("tcd") if callable(paper_fidelity) else "unavailable"
 
-        _eligible: "list[tuple[str, FixCandidate, str]]" = []
-        if (
-            has_images
-            and tasks == {"yes_no"}
-            and binary_hallucination_supported
-            and callable(getattr(model, "generate_opera_binary", None))
-            and opera_fidelity == "native_binary_specialization"
-            and "opera_overtrust_binary" not in prior_names
-        ):
-            _eligible.append((
-                "opera_overtrust_binary",
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="opera_overtrust_binary",
-                    kind="opera",
-                    source="paper_default_binary_specialization",
-                    payload={"num_attn_candidates": 5, "penalty_weight": 1.0},
-                ),
-                "OPERA: on binary yes/no questions, penalises next-token candidates "
-                "that neglect image attention during decoding -- targets object/"
-                "attribute hallucination caused by language priors overriding visual "
-                "evidence (POPE-style over-trust).",
-            ))
-        # ViCrop (MLLMs Know Where to Look, ICLR 2025) is a read-only,
-        # architecture-native paper route: task/general attention ratio,
-        # adaptive crop, and an original+crop answer.  It must not be proposed
-        # for a model whose vision/attention contract differs from LLaVA.
-        if (
-            has_images
-            and callable(getattr(model, "generate_vicrop", None))
-            and vicrop_fidelity == "native_selector_specialization"
-            and "vicrop_relative_attention" not in prior_names
-        ):
-            _eligible.append((
-                "vicrop_relative_attention",
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="vicrop_relative_attention",
-                    kind="vicrop",
-                    source="paper_default",
-                    payload={"layer": 14},
-                ),
-                "ViCrop: uses attention to locate and crop the relevant image region "
-                "before re-answering -- targets SMALL or LOCAL visual detail missed at "
-                "the model's native resolution (tiny text, small objects, fine detail), "
-                "not general hallucination and not a knowledge gap.",
-            ))
-        # This is a label-free deployment guard for transferring ViCrop to a
-        # new local-detail benchmark, not a claim that the paper used it.
-        if (
-            has_images
-            and callable(getattr(model, "generate_vicrop_consensus", None))
-            and vicrop_fidelity == "native_selector_specialization"
-            and "vicrop_consensus_guard" not in prior_names
-        ):
-            _eligible.append((
-                "vicrop_consensus_guard",
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="vicrop_consensus_guard",
-                    kind="vicrop_consensus",
-                    source="safety_guard",
-                    payload={"layer": 14},
-                ),
-                "ViCrop (consensus-guarded): the same small/local visual-detail "
-                "crop-and-reanswer repair as vicrop_relative_attention, but only "
-                "applies the cropped answer when it agrees with the original -- same "
-                "target mechanism, a safety variant, not a different mechanism.",
-            ))
-        if (
-            self.max_tier >= FixTier.L3B_INTERNALS_WRITE
-            and has_images
-            and tasks == {"yes_no"}
-            and binary_hallucination_supported
-            and callable(getattr(model, "generate_ifcd", None))
-            and ifcd_fidelity == "adapted_truthx_artifact"
-            and self._allow_adapted_paper_methods
-            and "ifcd_truthx_contrast" not in prior_names
-        ):
-            _eligible.append((
-                "ifcd_truthx_contrast",
-                FixCandidate(
-                    tier=FixTier.L3B_INTERNALS_WRITE,
-                    name="ifcd_truthx_contrast",
-                    kind="ifcd",
-                    source="paper_adapted_truthx_artifact",
-                    payload={"alpha": 0.1, "beta": 0.1, "edit_strength": 0.5, "top_layers": 15},
-                ),
-                "IFCD: on binary yes/no questions, contrasts internal representations "
-                "against a trained truthfulness-editing direction -- targets the same "
-                "object/attribute hallucination (language priors overriding visual "
-                "evidence) as OPERA, via representation editing instead of "
-                "decoding-time attention.",
-            ))
-        # PAI (ECCV 2024) is a distinct LLaVA mechanism: it changes the
-        # image-attention logits while decoding, so it is an L3b intervention.
-        # The native executor pairs the paper's attention branch with its
-        # classifier-free-guidance cache; the source's pinned LLaVA stack is
-        # still recorded as an architecture specialization.
-        if (
-            self.max_tier >= FixTier.L3B_INTERNALS_WRITE
-            and has_images
-            and (tasks != {"yes_no"} or binary_hallucination_supported)
-            and callable(getattr(model, "generate_pai", None))
-            and pai_fidelity == "native_attention_cfg_specialization"
-            and "pai_image_attention" not in prior_names
-        ):
-            _eligible.append((
-                "pai_image_attention",
-                FixCandidate(
-                    tier=FixTier.L3B_INTERNALS_WRITE,
-                    name="pai_image_attention",
-                    kind="pai",
-                    source="paper_default_attention_cfg",
-                    payload={
-                        "alpha": 0.2,
-                        "guidance_scale": 2.0,
-                        "start_layer": 2,
-                        "end_layer": 32,
-                    },
-                ),
-                "PAI: amplifies image-attention logits during decoding via "
-                "classifier-free guidance -- targets the same hallucination / "
-                "language-prior-override mechanism as OPERA/IFCD, for open-ended "
-                "(not just yes/no) tasks.",
-            ))
-        if (
-            has_audio
-            and tasks == {"multiple_choice"}
-            and callable(getattr(model, "generate_tcd", None))
-            and callable(getattr(model, "generate_tcd_baseline", None))
-            and (
-                tcd_fidelity == "native_layer_matched_stability"
-                or (
-                    tcd_fidelity == "adapted_truncated_layer_stability"
-                    and self._allow_adapted_paper_methods
-                )
+        discovered = discover_methods(
+            model,
+            max_tier=self.max_tier,
+            has_images=has_images,
+            has_audio=has_audio,
+            tasks=tasks or set(),
+            binary_hallucination_supported=binary_hallucination_supported,
+            allow_adapted=self._allow_adapted_paper_methods,
+            prior_names=prior_names,
+        )
+        if discovered:
+            by_name = {method.name: method for method in discovered}
+            catalog_lines = "\n".join(
+                f"- {method.name} [{method.tier.label}]: {method.description}"
+                for method in discovered
             )
-            and "tcd_temporal_blur" not in prior_names
-        ):
-            # No payload tuning: Table 6's own framing is "a single default
-            # configuration... requires little tuning" -- the blur window and
-            # update scale are already per-example adaptive (Eq. 5-6), so an
-            # empty payload runs generate_tcd() at TCDHyperparams() defaults
-            # rather than inventing a sweep the paper itself doesn't do.
-            _eligible.append((
-                "tcd_temporal_blur",
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="tcd_temporal_blur",
-                    kind="tcd",
-                    source="paper_default",
-                    payload={},
-                ),
-                "TCD: contrasts decoding against a temporally-blurred version of the "
-                "audio -- targets under-weighting of TRANSIENT, fine-grained acoustic "
-                "detail (brief sounds, precise event timing/counting, telling multiple "
-                "speakers apart) in favour of temporally-smooth context or language "
-                "priors, on audio multiple-choice questions. Does NOT address a flat "
-                "audio-perception knowledge gap (the answer is never in the model's "
-                "sample pool at all) or a positional/letter-choice bias unrelated to "
-                "audio content.",
-            ))
+            requested = (
+                next(iter(self._candidate_allowlist))
+                if self._candidate_allowlist is not None
+                and len(self._candidate_allowlist) == 1
+                else None
+            )
+            selected_names: list[str]
+            if requested in by_name:
+                # A one-name allowlist is a frozen experiment. Structural
+                # discovery still gates it, but mechanism matching is already
+                # pre-registered and cannot be vetoed by a fresh judge call.
+                selected_names = [requested]
+            else:
+                selected_names = []
+                for proposal in self._ask_judge(
+                    _REPAIR_CATALOG_PROMPT.format(
+                        hypotheses=hyp_lines,
+                        catalog=catalog_lines,
+                        k=self.max_judge_candidates,
+                    )
+                    + prior_text
+                ):
+                    name = str(proposal.get("name", ""))
+                    if name in by_name and name not in selected_names:
+                        selected_names.append(name)
+            for name in selected_names:
+                method = by_name[name]
+                out.append(
+                    FixCandidate(
+                        tier=method.tier,
+                        name=method.name,
+                        kind=method.kind,
+                        source=method.source,
+                        payload=dict(method.payload),
+                    )
+                )
 
-        if _eligible:
-            by_name = {name: cand for name, cand, _desc in _eligible}
-            catalog_lines = "\n".join(f"- {name}: {desc}" for name, _cand, desc in _eligible)
-            picked: "set[str]" = set()
-            for p in self._ask_judge(
-                _PAPER_METHOD_PROMPT.format(
-                    hypotheses=hyp_lines, catalog=catalog_lines, k=self.max_judge_candidates,
+        # Generic pre-audited internals-write primitives share the same
+        # evidence-driven selection path but are registered separately because
+        # they are host hooks rather than model-provided executor capabilities.
+        catalog = primitives_catalog_text(model, self.max_tier)
+        if catalog:
+            for proposal in self._ask_judge(
+                _L3_PROMPT.format(
+                    hypotheses=hyp_lines,
+                    catalog=catalog,
+                    k=self.max_judge_candidates,
                 )
                 + prior_text
             ):
-                name = str(p.get("name", ""))
-                if name in by_name and name not in picked:
-                    picked.add(name)
-                    out.append(by_name[name])
-
-        catalog = primitives_catalog_text(model, self.max_tier)
-        if not catalog:
-            if not out:
-                logger.info("FixAgent: no L3 primitive is available for %r", model)
-            return finalize(out)
-        for p in self._ask_judge(
-            _L3_PROMPT.format(hypotheses=hyp_lines, catalog=catalog, k=self.max_judge_candidates)
-            + prior_text
-        ):
-            prim = INTERNALS_PRIMITIVES.get(str(p.get("primitive", "")))
-            if prim is None or prim.tier > self.max_tier or not prim.available(model):
-                continue
-            out.append(
-                FixCandidate(
-                    tier=prim.tier,
-                    name=prim.name,
-                    kind="primitive",
-                    payload={"primitive": prim.name, "params": dict(p.get("params") or {})},
-                )
-            )
-        if not out:
-            # Internals-WRITE defaults only; reads (L3a) are authored by the
-            # coded pipeline against model_attend(), not proposed as primitives.
-            defaults = {
-                "visual_embedding_boost": {"gamma": 1.5},
-            }
-            for name, params in defaults.items():
-                if name in prior_names:
+                primitive = INTERNALS_PRIMITIVES.get(str(proposal.get("primitive", "")))
+                if (
+                    primitive is None
+                    or primitive.tier > self.max_tier
+                    or not primitive.available(model)
+                ):
                     continue
-                prim = INTERNALS_PRIMITIVES[name]
-                if prim.tier <= self.max_tier and prim.available(model):
+                out.append(
+                    FixCandidate(
+                        tier=primitive.tier,
+                        name=primitive.name,
+                        kind="primitive",
+                        payload={
+                            "primitive": primitive.name,
+                            "params": dict(proposal.get("params") or {}),
+                        },
+                    )
+                )
+        if not out and catalog:
+            # Registry defaults are a fallback only when the judge returned no
+            # executable choice; no paper method is special-cased here.
+            for primitive in INTERNALS_PRIMITIVES.values():
+                if (
+                    primitive.name not in prior_names
+                    and primitive.tier <= self.max_tier
+                    and primitive.available(model)
+                ):
                     out.append(
                         FixCandidate(
-                            tier=prim.tier,
-                            name=name,
+                            tier=primitive.tier,
+                            name=primitive.name,
                             kind="primitive",
                             source="default",
-                            payload={"primitive": name, "params": params},
+                            payload={"primitive": primitive.name, "params": {}},
                         )
                     )
+        if not out and not catalog and not discovered:
+            logger.info("FixAgent: no L3 repair capability is available for %r", model)
         return finalize(out)
 
     def _l4_candidates(self, hyp_lines: str) -> "list[FixCandidate]":
@@ -3746,7 +3639,22 @@ class FixAgent:
         if tier == FixTier.L3A_INTERNALS_READ:
             from evalvitals.core.capability import Capability
 
-            return Capability.ATTENTION in getattr(model, "capabilities", frozenset())
+            if Capability.ATTENTION in getattr(model, "capabilities", frozenset()):
+                return True
+            # Contrastive decoders are L3a even when they do not expose raw
+            # attention tensors: their dedicated executors read and combine
+            # logits from paired forward passes.
+            return any(
+                callable(getattr(model, method, None))
+                for method in (
+                    "generate_vcd",
+                    "generate_aad",
+                    "generate_instruction_cd",
+                    "generate_tcd",
+                    "generate_vicrop",
+                    "generate_opera_binary",
+                )
+            )
         if tier == FixTier.L3B_INTERNALS_WRITE:
             return any(
                 primitive.tier == tier and primitive.available(model)

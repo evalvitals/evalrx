@@ -175,9 +175,9 @@ AVAILABLE PRIMITIVES:
 Propose up to {k} configurations.  Reply with ONLY a JSON array:
 [{{"primitive": "<name from the list>", "params": {{...}}}}]"""
 
-_PAPER_METHOD_PROMPT = """\
-You are selecting which PAPER-METHOD repair(s), if any, apply to the \
-failure(s) below.  Each candidate is a specific, pre-implemented \
+_REPAIR_CATALOG_PROMPT = """\
+You are selecting which REGISTERED repair capability, if any, applies to the \
+failure(s) below.  Each candidate is a specific, pre-audited \
 intervention that targets ONE named failure mechanism — read what mechanism \
 each one actually targets, then select it ONLY when the verified hypotheses \
 describe that same mechanism, not merely because it is technically able to \

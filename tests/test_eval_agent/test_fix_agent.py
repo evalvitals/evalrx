@@ -1075,41 +1075,65 @@ def test_l0_telemetry_candidate_repairs_decode_budget_without_prompt_guessing():
     assert confirmation.n_fixed == 16 and confirmation.n_broken == 0
 
 
-def test_l0_vcd_candidate_repairs_binary_visual_grounding():
+def test_l0_does_not_admit_contrastive_decoding_candidates():
+    visual = _gold_yes_batch(n=8, image=_img())
+    for case in visual:
+        case.metadata["task"] = "yes_no"
+        case.expected = "No"
+        case.observed = "Yes"
+    audio = _gold_audio_yes_batch(n=8)
+    for case in audio:
+        case.expected = "No"
+        case.observed = "Yes"
+
+    vcd = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override visual evidence")], visual, VCDSensitiveModel()
+    )
+    aad = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override audio evidence")], audio, AADSensitiveModel()
+    )
+
+    assert not {"vcd", "aad", "icd"}.intersection(c.kind for c in (*vcd, *aad))
+
+
+def test_l3a_vcd_candidate_repairs_binary_visual_grounding():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
 
-    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+    out = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"vcd_diffusion_noise"}
+    ).propose_and_validate(
         VCDSensitiveModel(), batch, [_hyp("language priors override visual evidence")]
     )
 
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "vcd_diffusion_noise"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
     assert out.best.candidate.payload["noise_step"] == 999
 
 
-def test_l0_vcd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+def test_l3a_vcd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
         case.expected = "Yes"
         case.observed = "No"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
         [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
     )
 
     assert "vcd_diffusion_noise" not in {candidate.name for candidate in candidates}
 
 
-def test_l0_icd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+def test_l3a_icd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
         case.expected = "Yes"
         case.observed = "No"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
         [_hyp("instruction priors override visual evidence")], batch, ICDSensitiveModel()
     )
 
@@ -1118,20 +1142,20 @@ def test_l0_icd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis()
     assert "icd_instruction_disturbance_question" not in candidate_names
 
 
-def test_l0_vcd_is_proposed_when_false_yes_hallucinations_dominate():
+def test_l3a_vcd_is_proposed_when_false_yes_hallucinations_dominate():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
         case.expected = "No"
         case.observed = "Yes"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
         [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
     )
 
     assert "vcd_diffusion_noise" in {candidate.name for candidate in candidates}
 
 
-def test_l0_vcd_is_not_proposed_on_an_audio_only_batch():
+def test_l3a_vcd_is_not_proposed_on_an_audio_only_batch():
     """A multimodal backend exposes generate_vcd even when the batch carries
     no image (live: audiocaps_hallucination_qwen2_audio proposed both VCD
     candidates for an audio-only yes/no batch; each ran as not_executed)."""
@@ -1145,7 +1169,7 @@ def test_l0_vcd_is_not_proposed_on_an_audio_only_batch():
         case.metadata["task"] = "yes_no"
         case.expected = "No"
         case.observed = "Yes"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
         [_hyp("language priors override audio evidence")], batch, AudioBackendWithVCD()
     )
 
@@ -1155,44 +1179,47 @@ def test_l0_vcd_is_not_proposed_on_an_audio_only_batch():
     assert "aad_silence_contrast" in names  # the audio method still is
 
 
-def test_l0_aad_candidate_repairs_binary_audio_grounding():
+def test_l3a_aad_candidate_repairs_binary_audio_grounding():
     batch = _gold_audio_yes_batch(n=8)
 
-    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+    out = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"aad_silence_contrast"}
+    ).propose_and_validate(
         AADSensitiveModel(), batch, [_hyp("language priors override audio evidence")]
     )
 
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "aad_silence_contrast"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
     assert out.best.candidate.payload["alpha"] == 0.5
 
 
-def test_l0_aad_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+def test_l3a_aad_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
     batch = _gold_audio_yes_batch(n=8)
     for case in batch:
         case.expected = "Yes"
         case.observed = "No"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
         [_hyp("language priors override audio evidence")], batch, AADSensitiveModel()
     )
 
     assert "aad_silence_contrast" not in {candidate.name for candidate in candidates}
 
 
-def test_l0_aad_is_proposed_when_false_yes_hallucinations_dominate():
+def test_l3a_aad_is_proposed_when_false_yes_hallucinations_dominate():
     batch = _gold_audio_yes_batch(n=8)
     for case in batch:
         case.expected = "No"
         case.observed = "Yes"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
         [_hyp("language priors override audio evidence")], batch, AADSensitiveModel()
     )
 
     assert "aad_silence_contrast" in {candidate.name for candidate in candidates}
 
 
-def test_l0_aad_requires_paper_method_fidelity():
+def test_l3a_aad_requires_paper_method_fidelity():
     """Structural gate only -- a model without paper_method_fidelity('aad')
     declared native must not get the candidate, judge or not."""
     batch = _gold_audio_yes_batch(n=8)
@@ -1210,7 +1237,7 @@ def test_l0_aad_requires_paper_method_fidelity():
         def forward(self, inputs, capture, spec=None):
             raise NotImplementedError
 
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
         [_hyp("language priors override audio evidence")], batch, UnfitAudioModel()
     )
 
@@ -1218,17 +1245,22 @@ def test_l0_aad_requires_paper_method_fidelity():
     assert "aad_silence_contrast_gated_false_yes" not in {candidate.name for candidate in candidates}
 
 
-def test_l0_icd_candidate_repairs_binary_visual_grounding():
+def test_l3a_icd_candidate_repairs_binary_visual_grounding():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
 
-    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+    out = FixAgent(
+        judge=None,
+        max_tier="L3a",
+        candidate_allowlist={"icd_instruction_disturbance"},
+    ).propose_and_validate(
         ICDSensitiveModel(), batch, [_hyp("instruction priors override visual evidence")]
     )
 
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "icd_instruction_disturbance"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
 
 
@@ -1391,6 +1423,29 @@ def test_l3a_tcd_candidate_repairs_temporal_smoothing_bias():
     assert out.best.n_fixed == 16 and out.best.n_broken == 0
 
 
+def test_l3a_tcd_accepts_benchmark_multiple_choice_letter_task_name():
+    batch = _gold_audio_batch(n=8)
+    for case in batch:
+        case.metadata["task"] = "multiple_choice_letter"
+    judge = ScriptedJudge("[]")
+
+    candidates = FixAgent(
+        judge=judge,
+        max_tier="L3a",
+        allow_codegen=False,
+        paper_methods_only=True,
+        candidate_allowlist={"tcd_temporal_blur"},
+    )._propose(
+        [_hyp("temporal smoothing bias misses a brief acoustic event")],
+        batch,
+        TCDSensitiveModel(),
+    )
+
+    assert [candidate.name for candidate in candidates] == ["tcd_temporal_blur"]
+    assert candidates[0].tier is FixTier.L3A_INTERNALS_READ
+    assert not judge.prompts  # a frozen candidate is not subject to judge veto
+
+
 def test_l3a_tcd_is_not_proposed_when_judge_declines_the_mechanism():
     """Structurally eligible (audio, multiple_choice, TCD-capable), but the
     hypothesis names a DIFFERENT mechanism (a flat knowledge gap -- exactly
@@ -1452,7 +1507,7 @@ def test_candidate_allowlist_freezes_a_paper_candidate():
 
     out = FixAgent(
         judge=None,
-        max_tier="L0",
+        max_tier="L3a",
         candidate_allowlist={"icd_instruction_disturbance_question"},
     ).propose_and_validate(
         ICDSensitiveModel(), batch, [_hyp("instruction priors override visual evidence")]
@@ -2318,8 +2373,8 @@ def test_attention_guided_crop_primitive_is_gone():
 
 def test_l3a_read_is_authored_not_a_canned_primitive():
     """At L3a the read lever is the coded pipeline's bridged model_attend(), not
-    a primitive: (a) no primitive candidate is proposed, and (b) the coded
-    candidate is tagged L3a with enable_attend=True."""
+    a primitive. A black-box generated scaffold remains L2 even when the bridge
+    was offered; source that actually calls model_attend is tagged L3a."""
     pytest.importorskip("PIL")
     cases = CaseBatch(
         [
@@ -2342,9 +2397,21 @@ def test_l3a_read_is_authored_not_a_canned_primitive():
     out = bare.propose_and_validate(AttnCropVLM(), cases, [hyp])
     assert not any(v.candidate.kind == "primitive" for v in out.attempted)
 
-    # (b) the read lever still exists, but as agent-written code carrying the
-    # model_attend bridge (enable_attend), tagged at the L3a tier.
-    coded = FixAgent(judge=CodeWritingJudge(), max_tier="L3a", allow_codegen=True)
+    # (b) Merely advertising model_attend does not promote code which only
+    # calls model_generate and image tools.
+    black_box = FixAgent(judge=CodeWritingJudge(), max_tier="L3a", allow_codegen=True)
+    black_box_cands = black_box._propose([hyp], cases, AttnCropVLM())
+    black_box_code = [c for c in black_box_cands if c.kind == "code"]
+    assert black_box_code and black_box_code[0].tier is FixTier.L2_SCAFFOLD
+    assert black_box_code[0].payload.get("enable_attend") is False
+
+    class AttendWritingJudge(CodeWritingJudge):
+        def generate(self, inputs, **kwargs):
+            if "EXECUTION CONTRACT" in str(inputs):
+                return f"```python\n{_ATTEND_PIPELINE}\n```"
+            return super().generate(inputs, **kwargs)
+
+    coded = FixAgent(judge=AttendWritingJudge(), max_tier="L3a", allow_codegen=True)
     cands = coded._propose([hyp], cases, AttnCropVLM())
     code_cands = [c for c in cands if c.kind == "code"]
     assert code_cands and code_cands[0].tier is FixTier.L3A_INTERNALS_READ
