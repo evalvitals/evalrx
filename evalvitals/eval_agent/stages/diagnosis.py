@@ -282,12 +282,25 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
 # and the bare ``startswith("HYPOTHESIS:")`` check saw none of them: a live
 # qwen3.5-2b/bbh_word_sorting run had three well-formed hypotheses in the
 # response and M3 reported zero. Normalise the label, leave the text alone.
+#
+# The ordinal AFTER the label is the same bug and was missed the first time.
+# ``HYPOTHESIS 1:`` is how a model numbers a list of three of them — the most
+# natural formatting there is, and the one Opus used on a 560-case audio-visual
+# run: three hypotheses, each with a test design naming a BH-surviving signal,
+# and M3 again reported zero. Two and a half hours of GPU and a high-effort
+# judge, discarded over a digit. Accept the ordinal in either position.
 _LABEL_LINE = re.compile(
     r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]*\s*"
     r"(HYPOTHESIS|PLAIN_STATEMENT|PLAIN_LANGUAGE|FAILURE_MODE|TEST|EXPECTED_ASSOCIATION|KEEP|REJECT|REASON)"
-    r"\s*[*_`]*\s*:\s*[*_`]*\s*",
+    r"(?:\s*[#(]?\d+[.)]?)?"        # HYPOTHESIS 1:  /  TEST #2:  /  REASON (3):
+    r"\s*(?P<close>[*_`]*)\s*:\s*(?P<after>[*_`]*)\s*",
     re.IGNORECASE,
 )
+
+
+#: A leading emphasis/code marker, past any list bullet or heading. Its presence
+#: is what makes a marker after the colon a CLOSER rather than content.
+_OPENING_MARKER = re.compile(r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]")
 
 
 def _normalise_label_line(line: str) -> str:
@@ -298,9 +311,18 @@ def _normalise_label_line(line: str) -> str:
     m = _LABEL_LINE.match(line)
     if not m:
         return line
-    rest = line[m.end():].strip()
-    # a trailing closing emphasis left over from ``**HYPOTHESIS:** ... **``
-    rest = re.sub(r"[*_`]+$", "", rest).strip()
+
+    # Decoration is only decoration when something opened it. `**KEEP:** x` and
+    # `` `KEEP:` x `` wrap the LABEL, so the marker after the colon closes that
+    # wrapper and goes. `TEST: `modality_ablation.grounded_in_audio` ...` opens a
+    # code span belonging to the CONTENT, and eating it corrupts the identifier
+    # M5 routes on. The difference is whether the line opened with a marker at
+    # all -- so decide on that rather than on the marker's position.
+    opened = bool(_OPENING_MARKER.match(line))
+    rest = line[m.end():] if opened else (m.group("after") or "") + line[m.end():]
+    rest = rest.strip()
+    if opened:
+        rest = re.sub(r"[*_`]+$", "", rest).strip()
     return f"{m.group(1).upper()}: {rest}"
 
 
