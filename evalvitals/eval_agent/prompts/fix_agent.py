@@ -142,10 +142,11 @@ EXECUTION CONTRACT:
   the answer itself (sorting, arithmetic, lookup, a hard-coded default) scores
   zero.  Verify, vote, re-ask, re-prompt, zoom: make the model get it right.
 
-Begin the code with a single comment line:
-  # WHAT_IT_DOES: <one sentence for a reader who has never heard of this model,
-  #   this benchmark, or this field -- plain words, present tense, saying what
-  #   your pipeline makes the model do differently.  No jargon, no tier names.>
+The FIRST line of your code must be a WHAT_IT_DOES comment, on ONE line, for a
+reader who has never heard of this model, this benchmark, or this field: plain
+words, present tense, saying what your pipeline makes the model do differently.
+No jargon, no tier names, no restating the code.  For example:
+  # WHAT_IT_DOES: Asks the model twice with different wording and keeps the answer both tries agree on.
 
 Return ONLY the Python code{fences_hint}."""
 
@@ -181,6 +182,9 @@ exactly:
 call answered by the model's original recorded answer, and failing cases it still \
 gets right then are excluded from the score.  If it timed out, make FEWER model \
 calls per case — do not replace them with code that computes the answer itself.
+- keep (or add) the one-line `# WHAT_IT_DOES: ...` first line describing, in \
+plain words for a reader with no background, what your pipeline makes the model \
+do differently.
 """
 
 _L3_PROMPT = """\

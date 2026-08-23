@@ -408,11 +408,26 @@ def _judge_description(proposal: "Any") -> str:
 
 
 def _code_description(code: str) -> str:
-    """The ``# WHAT_IT_DOES:`` header the codegen prompt asks for."""
-    for line in code.splitlines()[:12]:
-        stripped = line.strip()
-        if stripped.upper().startswith("# WHAT_IT_DOES:"):
-            return " ".join(stripped.split(":", 1)[1].split()).strip()[:300]
+    """The ``# WHAT_IT_DOES:`` header the codegen prompt asks for.
+
+    The prompt asks for one line and shows a one-line example, but a model that
+    wraps it anyway should not lose the second half of its own sentence, so
+    immediately following comment lines are folded in until the code starts.
+    """
+    lines = code.splitlines()[:12]
+    for index, line in enumerate(lines):
+        if not line.strip().upper().startswith("# WHAT_IT_DOES:"):
+            continue
+        parts = [line.strip().split(":", 1)[1]]
+        for follow in lines[index + 1:]:
+            stripped = follow.strip()
+            if not stripped.startswith("#"):
+                break
+            body = stripped.lstrip("#").strip()
+            if not body or body.upper().startswith("WHAT_IT_DOES"):
+                break
+            parts.append(body)
+        return " ".join(" ".join(parts).split()).strip()[:300]
     return ""
 
 

@@ -3498,6 +3498,17 @@ def test_a_coded_pipelines_own_header_is_its_description():
     )
     assert _code_description("import json\nprint('x')\n") == ""
 
+    # A model that wraps the line anyway keeps its whole sentence.
+    wrapped = (
+        "# WHAT_IT_DOES: Asks the model twice with different wording and keeps\n"
+        "#   the answer both tries agree on.\n"
+        "import json\n"
+    )
+    assert _code_description(wrapped) == (
+        "Asks the model twice with different wording and keeps the answer both "
+        "tries agree on."
+    )
+
 
 def test_plain_description_never_falls_back_to_the_slug():
     from evalvitals.eval_agent.stages.fix_agent import (
