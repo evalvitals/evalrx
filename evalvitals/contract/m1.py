@@ -207,8 +207,13 @@ class AnalyzerSelection(WireModel):
     )
     is_agent: bool = Field(
         default=False,
-        description="The batch carries trajectories, or the model exposes TOOL_CALLS. "
-                    "Orthogonal to modality — a VLM can drive a tool loop.",
+        description="The BATCH carries agent trajectories. Orthogonal to modality — a VLM "
+                    "can drive a tool loop. NOT 'the model supports tool calls': every "
+                    "chat model served over an OpenAI-compatible endpoint declares that, "
+                    "so reading the capability here labelled a plain single-turn text run "
+                    "'llm+agent' and told the reader trajectories were analysed when none "
+                    "existed. Ranking makes the same distinction — a declared capability "
+                    "never outranks the data.",
     )
     selector: Literal["llm_judge", "static_strategy", "explicit"] = "static_strategy"
     generated: list[str] = Field(

@@ -37,8 +37,8 @@
           "type": "string"
         },
         "test_design": {
-          "description": "Signal or contrast that would decide this, e.g. 'attention.image_token_ratio' or 'prompt_contrast describe_first'. M5 routes on it; M1 re-probes on it.",
-          "minLength": 1,
+          "default": "",
+          "description": "Signal or contrast that would decide this, e.g. 'attention.image_token_ratio' or 'prompt_contrast describe_first'. M5 routes on it; M1 re-probes on it. EMPTY means the judge proposed none — see `is_routable`.",
           "title": "Test Design",
           "type": "string"
         },
@@ -69,8 +69,7 @@
         "id",
         "statement",
         "target_model",
-        "predicted_failure_mode",
-        "test_design"
+        "predicted_failure_mode"
       ],
       "title": "HypothesisWire",
       "type": "object"

@@ -685,9 +685,12 @@ class VLDiagnoseLoop:
         routed = sorted(
             selector.routed_slots(self.model, data) if selector is not None else probed
         )
-        is_agent = bool(
-            selector.is_agent_run(self.model, data) if selector is not None else False
-        )
+        # Trajectories in the batch, not declared TOOL_CALLS: the api backend
+        # reports tool_calls for every chat model, which made a single-turn text
+        # run record itself as an agent run.
+        from evalvitals.eval_agent.stages.probe import _carries_trajectories
+
+        is_agent = bool(data is not None and _carries_trajectories(data))
         self._emit(f"c{cycle}.m1", lambda: from_probe_results(
             probe_results,
             trace_id=self.emitter.trace_id, cycle=cycle,

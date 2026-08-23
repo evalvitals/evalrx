@@ -51,7 +51,7 @@ export interface AnalyzerSelection {
    */
   routed_on?: ("text" | "image" | "audio" | "video")[];
   /**
-   * The batch carries trajectories, or the model exposes TOOL_CALLS. Orthogonal to modality — a VLM can drive a tool loop.
+   * The BATCH carries agent trajectories. Orthogonal to modality — a VLM can drive a tool loop. NOT 'the model supports tool calls': every chat model served over an OpenAI-compatible endpoint declares that, so reading the capability here labelled a plain single-turn text run 'llm+agent' and told the reader trajectories were analysed when none existed. Ranking makes the same distinction — a declared capability never outranks the data.
    */
   is_agent?: boolean;
   selector?: "llm_judge" | "static_strategy" | "explicit";
@@ -282,9 +282,9 @@ export interface HypothesisWire {
   target_model: string;
   predicted_failure_mode: string;
   /**
-   * Signal or contrast that would decide this, e.g. 'attention.image_token_ratio' or 'prompt_contrast describe_first'. M5 routes on it; M1 re-probes on it.
+   * Signal or contrast that would decide this, e.g. 'attention.image_token_ratio' or 'prompt_contrast describe_first'. M5 routes on it; M1 re-probes on it. EMPTY means the judge proposed none — see `is_routable`.
    */
-  test_design: string;
+  test_design?: string;
   status?: HypothesisStatus;
   /**
    * Set when mutated from an earlier hypothesis.

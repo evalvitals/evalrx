@@ -25,6 +25,7 @@ producer can say "not measured" instead of inventing a defensible-looking value.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -246,10 +247,26 @@ def from_stats_report(
 # M3
 # ---------------------------------------------------------------------------
 
-#: A test_design M3 left empty. The contract requires a routable one, and the
-#: honest rendering of "the judge proposed no test" is this marker rather than a
-#: plausible-looking signal name the emitter invented.
-UNROUTABLE = "paired_rerun (no test_design proposed by M3)"
+def hypothesis_id(hypothesis: Any) -> str:
+    """The join key for one hypothesis, derived the same way everywhere.
+
+    ``Hypothesis.id`` defaults to ``""`` and nothing in the M1-M5 loop fills it
+    in, so every stage that names a hypothesis has to derive one. Deriving it
+    per call site is how the first real run produced ``h0`` from M3 and
+    ``unknown`` from M5 for the *same* object: two names for one thing, and the
+    join between the claim and its verdict silently empty.
+
+    Falls back to a hash of the statement, mirroring what
+    ``eval_agent.loop._hyp_key`` matches on — deterministic, so two stages
+    holding the same hypothesis always agree.
+    """
+    hid = str(_val(hypothesis, "id", "") or "").strip()
+    if hid:
+        return hid
+    statement = str(_val(hypothesis, "statement", "") or "").strip()
+    if statement:
+        return "h-" + hashlib.sha1(statement.encode("utf-8")).hexdigest()[:12]
+    return "unknown"
 
 
 def from_diagnosis(
@@ -259,11 +276,15 @@ def from_diagnosis(
     hyps: list[HypothesisWire] = []
     for h in (_val(diag, "hypotheses", []) or []):
         hyps.append(HypothesisWire(
-            id=str(_val(h, "id", "") or f"h{len(hyps)}"),
+            id=hypothesis_id(h),
             statement=str(_val(h, "statement", "")),
             target_model=str(_val(h, "target_model", "") or _val(diag, "model_name", "")),
             predicted_failure_mode=str(_val(h, "predicted_failure_mode", "") or "unknown"),
-            test_design=str(_val(h, "test_design", "") or "").strip() or UNROUTABLE,
+            # Empty stays empty. A judge that proposed no test produced an
+            # untestable hypothesis, and that is the fact worth surfacing —
+            # substituting a plausible directive here would make it read as
+            # routable to every downstream reader.
+            test_design=str(_val(h, "test_design", "") or "").strip(),
             status=_enum(_val(h, "status")) or "proposed",
             parent_id=_val(h, "parent_id"),
             metadata=dict(_val(h, "metadata", {}) or {}),
@@ -304,7 +325,7 @@ def from_test_results(
         if status == "supported" and (not consistent or grade == "none"):
             status = "inconclusive"
         rows.append(HypothesisTestResultWire(
-            hypothesis_id=str(_val(hyp, "id", "") or "unknown"),
+            hypothesis_id=hypothesis_id(hyp),
             status=status,
             test_name=str(_val(tr, "test_name", "") or "unknown"),
             effect_size=_val(tr, "effect_size"),
@@ -441,7 +462,7 @@ def from_intervention(
     hyp = _val(result, "hypothesis")
     return InterventionOutput(
         **envelope("m4_surgery", trace_id=trace_id, cycle=cycle, duration_sec=duration_sec),
-        hypothesis_id=str(_val(hyp, "id", "") or "unknown"),
+        hypothesis_id=hypothesis_id(hyp),
         hypothesis_status=_enum(_val(result, "status")) or "inconclusive",
         strategy=_val(result, "strategy", "passive_correlation") or "passive_correlation",
         fixed=bool(_val(result, "fixed", False)),
@@ -588,5 +609,6 @@ __all__ = [
     "CONTRACT_DIR", "ContractEmitter", "envelope",
     "from_cases", "case_ref", "from_probe_results", "from_stats_report",
     "from_diagnosis", "from_test_results", "from_intervention", "from_fix_outcome",
+    "hypothesis_id",
     "methodology_from_candidate",
 ]

@@ -48,7 +48,7 @@
         },
         "is_agent": {
           "default": false,
-          "description": "The batch carries trajectories, or the model exposes TOOL_CALLS. Orthogonal to modality — a VLM can drive a tool loop.",
+          "description": "The BATCH carries agent trajectories. Orthogonal to modality — a VLM can drive a tool loop. NOT 'the model supports tool calls': every chat model served over an OpenAI-compatible endpoint declares that, so reading the capability here labelled a plain single-turn text run 'llm+agent' and told the reader trajectories were analysed when none existed. Ranking makes the same distinction — a declared capability never outranks the data.",
           "title": "Is Agent",
           "type": "boolean"
         },

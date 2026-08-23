@@ -203,3 +203,79 @@ def test_report_data_carries_the_contract_payloads(tmp_path):
     assert selection["routed_on"] == ["audio", "text"]
     # The frontend renders from this without re-deriving the shape.
     assert contract["c0.m3"]["hypotheses"]
+
+
+# ── defects the first real vLLM run surfaced ─────────────────────────────────
+
+def test_m3_and_m5_name_the_same_hypothesis_the_same_way(tmp_path):
+    """The join between a claim and its verdict must actually close.
+
+    Hypothesis.id defaults to "" and nothing in the loop fills it, so each stage
+    derives one. Deriving it per call site produced "h0" from M3 and "unknown"
+    from M5 for one object on the first real run — a join that silently matches
+    nothing, which downstream is indistinguishable from "no verdict yet".
+    """
+    from evalvitals.contract.emit import hypothesis_id
+
+    class _H:
+        id = ""
+        statement = "The model ignores the audio it was given."
+
+    assert hypothesis_id(_H()) == hypothesis_id(_H())
+    assert hypothesis_id(_H()).startswith("h-")
+
+    class _WithId(_H):
+        id = "explicit-7"
+
+    assert hypothesis_id(_WithId()) == "explicit-7"
+
+    class _Empty:
+        id = ""
+        statement = ""
+
+    assert hypothesis_id(_Empty()) == "unknown"
+
+
+def test_an_untestable_hypothesis_is_representable_not_disguised():
+    """A judge that proposed no TEST line is a real, reportable outcome."""
+    from evalvitals.contract import DiagnosisOutput, HypothesisWire
+
+    h = HypothesisWire(
+        id="h1", statement="The model is unstable across resamples.",
+        target_model="qwen3.5-2b", predicted_failure_mode="self_consistency",
+        test_design="",
+    )
+    assert h.is_routable is False
+    routable = h.model_copy(update={"test_design": "self_consistency.consistency"})
+    assert routable.is_routable is True
+
+    out = DiagnosisOutput(
+        schema_version=SCHEMA_VERSION, trace_id="t", produced_at="2026-08-23T00:00:00Z",
+        status={"stage": "m3", "state": "succeeded", "cycle": 0},
+        hypotheses=[h, routable.model_copy(update={"id": "h2"})],
+    )
+    assert out.untestable == ["h1"]
+
+    # Garbage is still rejected: empty means "none proposed", not "anything goes".
+    with pytest.raises(ValueError):
+        HypothesisWire(
+            id="h3", statement="Something is wrong somewhere.", target_model="m",
+            predicted_failure_mode="x", test_design="investigate further",
+        )
+
+
+def test_declared_tool_support_is_not_an_agent_run(tmp_path):
+    """Every chat model on an OpenAI-compatible endpoint declares tool_calls.
+
+    Reading that capability as `is_agent` labelled a single-turn text run
+    "llm+agent" and told the reader trajectories were analysed when the batch
+    carried none.
+    """
+    model = FakeModel(
+        capabilities={Capability.GENERATE, Capability.LOGPROBS, Capability.TOOL_CALLS},
+        modalities={"text"},
+    )
+    files, _ = _run(tmp_path, model, _batch())
+    sel = ProbeOutput.model_validate_json(files["c0.m1.json"].read_text()).selection
+    assert sel.is_agent is False
+    assert sel.profile == "llm"
