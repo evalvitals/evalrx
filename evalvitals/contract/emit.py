@@ -315,6 +315,15 @@ def measured_label(result: Any) -> str:
         pretty = str(metric or analyzer).replace("_", " ").strip()
         origin = analyzer.replace("_", " ").strip() if metric else ""
         return f"{pretty} ({origin})" if origin else pretty
+    # Paired tools name their arms in `strategies`, a LIST -- checking only the
+    # singular key left the three strongest results of an audio-visual run
+    # (the without_audio / without_video / describe_first contrasts, down to
+    # p=1.8e-29) all labelled "unnamed contrast", indistinguishable on a chart.
+    arms = cfg.get("strategies") or cfg.get("arms")
+    if isinstance(arms, (list, tuple)) and len(arms) >= 2:
+        a, b = str(arms[0]).replace("_", " "), str(arms[1]).replace("_", " ")
+        # The reference arm reads better second: "without audio vs baseline".
+        return f"{b} vs {a}" if a == "baseline" else f"{a} vs {b}"
     for key in ("strategy", "contrast", "arm", "candidate"):
         if cfg.get(key):
             return f"{str(cfg[key]).replace('_', ' ')} vs baseline"

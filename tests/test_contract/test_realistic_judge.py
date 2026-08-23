@@ -424,3 +424,30 @@ def test_every_tier_the_pipeline_has_is_representable():
             status={"stage": "m4_fix", "state": "succeeded", "cycle": -1},
             max_tier=_tier(tier),
         )
+
+
+def test_a_paired_contrast_is_named_by_its_arms():
+    """Paired tools put their arms in `strategies`, a list.
+
+    Checking only the singular `strategy` left the three strongest results of an
+    audio-visual run -- the without_audio / without_video / describe_first
+    contrasts, down to p=1.8e-29 -- all reading "unnamed contrast" and therefore
+    indistinguishable from each other on a chart. These are the INTERVENTION
+    grade evidence; they are the last rows that should be unreadable.
+    """
+    from evalvitals.contract.emit import measured_label
+
+    class _R:
+        tool = "mcnemar_evalue"
+        def __init__(self, cfg): self.config = cfg
+
+    # The reference arm reads second, so the label leads with what changed.
+    assert measured_label(_R({"strategies": ["baseline", "without_audio"]})) \
+        == "without audio vs baseline"
+    assert measured_label(_R({"strategies": ["baseline", "describe_first"]})) \
+        == "describe first vs baseline"
+    # Neither arm is the baseline: keep the stated order.
+    assert measured_label(_R({"strategies": ["describe_first", "sensitive"]})) \
+        == "describe first vs sensitive"
+    # Still honest when nothing names the subject.
+    assert measured_label(_R({})).startswith("unnamed contrast")
