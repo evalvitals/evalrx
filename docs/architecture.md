@@ -279,7 +279,7 @@ evalvitals.analysis/       M2 lives here now (StatsAnalysisAgent, AnalysisModule
 
 | Stage | Module | Class | Key method |
 |---|---|---|---|
-| M1 | `stages/probe.py` | `StrategyProbe` | `detect_kind(model) → ModelKind`; `select(model, hints) → list[str]` |
+| M1 | `stages/probe.py` | `StrategyProbe` | `routed_slots(model, data) → set[str]` (what ranking composes over); `select(model, hints, data) → list[str]`; `detect_kind(model) → ModelKind` (display label) |
 | M1 | `stages/probe_agent.py` | `ProbeAgent` | `probe(model, data, hint_failure_modes) → dict[str, Result]` |
 | M1 | `stages/protocol.py` | `ExperimentProtocol` | `probe_hints() → list[str]` — maps NL description to failure-mode tags |
 | M2 | `evalvitals.analysis.analysis_module` | `AnalysisModule` | `analyze(results, model_name) → AnalysisReport` |

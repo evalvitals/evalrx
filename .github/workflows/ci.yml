@@ -40,7 +40,13 @@ jobs:
         # Dashboard contract tests use Streamlit's AppTest API.  Keep that
         # optional runtime installed in CI rather than letting those tests
         # fail during module import.
-        run: pip install -e ".[dev,local,api,data,finetune,viz,dashboard]"
+        run: pip install -e ".[dev,local,api,data,finetune,viz,dashboard,contract]"
+      - name: Check the generated contract artifacts are current
+        # docs/contract/*.schema.json and contract.d.ts are generated from
+        # evalvitals/contract/. A field added in Python and not regenerated here
+        # is a field the frontend cannot see, which is the drift the contract
+        # exists to catch -- so catch it on the commit that causes it.
+        run: python -m evalvitals.contract.export --out docs/contract --check
       - name: Run fast unit tests
         run: pytest -m "not gpu and not network" --cov=evalvitals --cov-report=xml -q
       - name: Upload coverage

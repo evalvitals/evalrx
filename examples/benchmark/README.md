@@ -88,7 +88,12 @@ sample the `m1_m4` examples use; the manifest protocol is modality-blind
   `<think>` block and ran 8192 tokens on a causal-judgement item; the runner sets
   `RuntimeConfig(apply_chat_template=True)` (new, opt-in, off by default for
   everyone else), which renders one user turn with the spec's
-  `enable_thinking=False`. Multimodal specs always did this.
+  `enable_thinking=False`. Multimodal specs always did this — `hf_local` has two
+  encode paths chosen by the SPEC, not the task (`_encode` for text specs,
+  `_encode_vlm` for any spec with vision/audio, so Gemma 4 / Qwen3.5-VL take the
+  processor template even on LLM datasets); a template bug can sit in one path
+  only, so check both. `tests/test_models/test_hf_local_chat_template.py` pins
+  the two paths to identical template kwargs.
 * **Decoding:** short-answer tasks (vlm, alm) are greedy at 64 tokens; the llm
   tasks sample at T=0.6 / top_p 0.95 / top_k 20 with a 2048-token cap and a
   5-sample baseline noise model in the fix stage, like `llm_benchmark`. Serial

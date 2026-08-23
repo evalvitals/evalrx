@@ -72,6 +72,25 @@ class TerminationAudit(Analyzer):
     name = "termination_audit"
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
+    signal_docs = {
+        'clean_rate': ('Finished normally', 'Share of answers that finished normally.'),
+        'continuation_chars': 'How much more the model wrote when allowed to continue.',
+        'continuation_has_answer': 'Whether letting a cut-off answer continue produced an answer.',
+        'degenerate_rate': ('Fell into repeating', 'Share of answers that fell into repeating themselves.'),
+        'gave_up': ('Model gave up', 'Whether the model said it could not answer.'),
+        'giveup_rate': ('Gave up', 'Share of answers where the model declined to answer.'),
+        'has_answer_tag': 'Whether the model used the answer format it was asked for.',
+        'looks_truncated': ('Answer was cut off', 'Whether the answer appears to have been cut off mid-thought.'),
+        'matches_output_contract': 'Whether the answer is in the shape the task asked for.',
+        'n_cases': 'How many answers were inspected.',
+        'non_clean_rate': ('Did not finish cleanly', 'Share of answers that did NOT finish normally — cut off, repeating, or giving up.'),
+        'output_chars': ('Answer length', 'How long the answer was, in characters.'),
+        'output_words': ('Answer length (words)', 'How long the answer was, in words.'),
+        'recovered_rate': 'Share of cut-off answers that did produce an answer when allowed to continue.',
+        'repetition_score': ('Repetitiveness', 'How much the answer repeats itself. High means the model was looping.'),
+        'termination_class': 'How this answer ended: finished, cut off, repeating, or gave up.',
+        'truncation_rate': ('Cut off by length', 'Share of answers cut off by the length limit before finishing.'),
+    }
 
     def __init__(
         self,

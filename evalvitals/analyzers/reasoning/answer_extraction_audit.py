@@ -70,6 +70,33 @@ class AnswerExtractionAudit(Analyzer):
     # offline record dump; the re-ask path checks GENERATE at run time.
     requires = frozenset()
     applies_to_modalities = frozenset({"text", "image"})
+    signal_docs = {
+        'answered_yes': ('Model said yes', 'On a yes/no question, whether the MODEL answered yes. Its direction, not whether it was right.'),
+        'gold_yes': ('Correct answer is yes', 'On a yes/no question, whether the CORRECT answer is yes. A property of the question, not the model.'),
+        'extracted_answer': 'The answer the grader pulled out of the text.',
+        'extraction_point_miss': 'The right answer was in the right place and still did not match — a formatting mismatch.',
+        'extraction_suspect': ('Possible grading miss', 'This case was marked wrong, but the right answer is there — a likely grading mistake.'),
+        'gave_up': ('Model gave up', 'Whether the model said it could not answer.'),
+        'gold_in_answer_region': ('Right answer in place', 'Whether the right answer appears in the part of the text the grader reads.'),
+        'gold_in_output': ('Right answer somewhere', 'Whether the right answer appears anywhere in the text, even if not where it was asked for.'),
+        'has_answer_tag': ('Used the answer format', 'Whether the model used the answer format it was asked for.'),
+        'has_output': ('Answered at all', 'Whether the model wrote anything at all.'),
+        'label_disagrees': "The benchmark's verdict and a strict re-check disagree about this case.",
+        'labelled_fail': 'Whether the benchmark marked this answer wrong.',
+        'missing_tag_rate': ('Wrong answer format', 'Share of answers that never used the requested answer format.'),
+        'n_cases': 'How many answers were inspected.',
+        'n_extraction_point_miss': 'Cases where the answer was in the right place but the exact-match check still failed — usually formatting.',
+        'n_extraction_suspect': 'Wrong answers where the right answer was in fact present in the text — the grader may have missed it.',
+        'n_gradable': 'How many answers had a gold answer to check against.',
+        'n_labelled_fail': "How many were marked wrong by the benchmark's own grader.",
+        'n_reask_confirmed': 'How many of those re-asks confirmed the model really was wrong.',
+        'n_reasked': 'How many suspect cases were asked again to check.',
+        'output_chars': ('Answer length', 'How long the answer was, in characters. Very long usually means the model rambled instead of answering.'),
+        'output_truncated': ('Answer was cut off', 'Whether the answer was cut off by the length limit rather than finished.'),
+        'reask_answer': 'What the model said when asked the same question again.',
+        'strict_match': ('Exactly matched gold', 'Whether the answer matched the gold answer exactly.'),
+        'suspect_rate': ('Possible grading misses', 'Share of wrong answers that may be grading mistakes rather than model mistakes. High means the failure numbers are not trustworthy yet.'),
+    }
 
     def __init__(
         self,

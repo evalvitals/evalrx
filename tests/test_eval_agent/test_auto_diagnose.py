@@ -321,6 +321,28 @@ def _make_report(severity="high") -> AnalysisReport:
     )
 
 
+def test_unparsed_judge_text_falls_back_loudly_but_no_issue_quietly(caplog):
+    """gemma-4-e2b/bbh_causal_judgement (2026-08-22): the judge wrote three
+    hypotheses in a label format the parser missed and the run silently diagnosed
+    an analysis-module template. The fallback stays (M4 still needs a hypothesis)
+    but a parse miss must be visible; a genuine NO_ISSUE verdict stays quiet."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="evalvitals.eval_agent.stages.diagnosis"):
+        judge = ScriptedModel(answers=["Three rich paragraphs of diagnosis without any label lines."],
+                              capabilities={Capability.GENERATE})
+        diag = DiagnosisAgent(judge=judge).diagnose(_make_report())
+    assert len(diag.hypotheses) == 1 and diag.hypotheses[0].predicted_failure_mode == "attention_sink"
+    assert any("parsed to zero hypotheses" in r.message for r in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="evalvitals.eval_agent.stages.diagnosis"):
+        judge = ScriptedModel(answers=["NO_ISSUE"], capabilities={Capability.GENERATE})
+        diag = DiagnosisAgent(judge=judge).diagnose(_make_report())
+    assert len(diag.hypotheses) == 1                     # the NO_ISSUE fallback is by design
+    assert not any("parsed to zero" in r.message for r in caplog.records)
+
+
 def test_diagnosis_parses_hypothesis_from_report():
     judge = ScriptedModel(
         answers=["HYPOTHESIS: model over-attends to BOS\nFAILURE_MODE: attention_sink\n"],

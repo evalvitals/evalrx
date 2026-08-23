@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "CaseBatchRef": {
+      "additionalProperties": false,
+      "description": "A batch referenced by file rather than inlined (the normal case).",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "n_cases": {
+          "title": "N Cases",
+          "type": "integer"
+        },
+        "split": {
+          "anyOf": [
+            {
+              "enum": [
+                "all",
+                "explore",
+                "confirm",
+                "discovery"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Split"
+        }
+      },
+      "required": [
+        "path",
+        "n_cases"
+      ],
+      "title": "CaseBatchRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One hypothesis at a time. Surgery is per-claim by construction.",
+  "properties": {
+    "hypothesis_id": {
+      "title": "Hypothesis Id",
+      "type": "string"
+    },
+    "results_ref": {
+      "description": "Path to the M1 ProbeOutput, for per-case signal extraction.",
+      "title": "Results Ref",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/CaseBatchRef"
+    },
+    "model_name": {
+      "title": "Model Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "hypothesis_id",
+    "results_ref",
+    "data",
+    "model_name"
+  ],
+  "title": "SurgeryInput",
+  "type": "object",
+  "$id": "https://evalvitals.dev/contract/m4_surgery.SurgeryInput.json",
+  "x-stage": "m4_surgery",
+  "x-role": "input",
+  "x-schema-version": 4,
+  "x-optional-stage": false
+}

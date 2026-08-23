@@ -8,6 +8,8 @@ the only hard requirement in an otherwise open payload.
 
 from __future__ import annotations
 
+import re
+
 from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -34,6 +36,10 @@ class ProtocolWire(OpenWireModel):
     probe_hints: list[str] = Field(default_factory=list)
 
 
+#: A default Python repr: ``<pkg.Class object at 0x7f...>``. Not a model name.
+_PYTHON_REPR = re.compile(r"^<[\w.]+ object at 0x[0-9a-f]+>$")
+
+
 class ModelRef(WireModel):
     """Identity + declared capabilities of the model under diagnosis.
 
@@ -42,7 +48,11 @@ class ModelRef(WireModel):
     combination type.
     """
 
-    name: str
+    name: str = Field(
+        min_length=1,
+        description="What to call this model on a screen — a spec key or a product "
+                    "name, e.g. 'qwen3.5-2b' or 'VideoLLaMA2.1-7B-AV'.",
+    )
     backend: str | None = None
     modalities: list[Modality] = Field(default_factory=lambda: ["text"])
     capabilities: list[str] = Field(
@@ -50,6 +60,25 @@ class ModelRef(WireModel):
         description="e.g. GENERATE / LOGPROBS / ATTENTION / HIDDEN_STATES.",
     )
     params: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("name")
+    @classmethod
+    def _not_a_repr(cls, v: str) -> str:
+        """Reject a default Python repr as a model name.
+
+        ``repr(model)`` was what the pipeline recorded, so the UI showed
+        ``<videollama2_model.MockAVModel object at 0x795d025e8590>`` — unreadable,
+        and worse, the address changes every run, so two runs of the SAME model
+        record two different identities and nothing can be compared across them.
+        A model that cannot state its own name gets its class name, which is at
+        least stable; see ``contract.emit.model_ref``.
+        """
+        if _PYTHON_REPR.match(v.strip()):
+            raise ValueError(
+                f"model name is a Python repr, not a name: {v!r}. Give the model a "
+                "`display_name` (or a spec key); an address is not an identity."
+            )
+        return v
 
 
 class ProbeInput(WireModel):
@@ -160,6 +189,14 @@ class ResultWire(WireModel):
     model: str
     n_cases: int = Field(ge=0)
     findings: FindingsWire = Field(default_factory=FindingsWire)
+    signal_docs: dict[str, str] = Field(
+        default_factory=dict,
+        description="metric -> what it measures, in one plain sentence, from the analyzer "
+                    "that produced it. The analyzer is the only thing that knows; every "
+                    "reader downstream was otherwise guessing from the identifier, and "
+                    "guessing produced chart labels no one could read. A metric absent "
+                    "here is undocumented — report it as such, do not paraphrase the name.",
+    )
     artifact_paths: dict[str, ArtifactRef] = Field(
         default_factory=dict, description="Heavy outputs, by artifact key."
     )
@@ -181,13 +218,62 @@ class AnalyzerSelection(WireModel):
     Kept separate from the results so a reader can tell "not selected" from
     "selected and produced nothing". The judge's per-analyzer reasoning is not
     here — it is the response half of ``prompts/c<cycle>_m1_selection.*``.
+
+    Modality is recorded as three related sets rather than one ``model_kind``
+    label. The label was a combination enum (``vlm`` / ``omni`` / ...), which is
+    what design rule 3 forbids: it has no member for an audio-visual model, and
+    "omni" collapses the one distinction routing depends on — an omni model
+    evaluated on an audio benchmark must be routed as audio, not as everything
+    it is capable of.
     """
 
-    model_kind: Literal["vlm", "llm", "agent", "omni", "unknown"] = "unknown"
+    model_modalities: list[Modality] = Field(
+        default_factory=lambda: ["text"],
+        description="What the model DECLARES it can consume (from its spec).",
+    )
+    probed_modalities: list[Modality] = Field(
+        default_factory=lambda: ["text"],
+        description="What the case batch actually FILLS. Text is the floor, not a slot.",
+    )
+    routed_on: list[Modality] = Field(
+        default_factory=lambda: ["text"],
+        description="The slots routing actually used. Normally model ∩ probed; equal to "
+                    "model_modalities when the batch filled no media slot at all, because "
+                    "an empty batch is no evidence about what is under test. A reader "
+                    "comparing this with probed_modalities can see that fallback happened.",
+    )
+    is_agent: bool = Field(
+        default=False,
+        description="The BATCH carries agent trajectories. Orthogonal to modality — a VLM "
+                    "can drive a tool loop. NOT 'the model supports tool calls': every "
+                    "chat model served over an OpenAI-compatible endpoint declares that, "
+                    "so reading the capability here labelled a plain single-turn text run "
+                    "'llm+agent' and told the reader trajectories were analysed when none "
+                    "existed. Ranking makes the same distinction — a declared capability "
+                    "never outranks the data.",
+    )
     selector: Literal["llm_judge", "static_strategy", "explicit"] = "static_strategy"
     generated: list[str] = Field(
         default_factory=list, description="Bespoke probes written when no standard analyzer covered the mode."
     )
+
+    @property
+    def profile(self) -> str:
+        """Display label (``llm`` / ``vlm`` / ``alm`` / ``avlm`` / ``av`` ...).
+
+        Derived, never stored: a label is a lossy rendering of ``routed_on`` and
+        a stored copy would be free to disagree with the set it summarises.
+        Compose it for a heading; branch on the set, never on this string.
+        """
+        slots = set(self.routed_on)
+        tag = "".join(
+            letter for slot, letter in (("audio", "a"), ("video", "v"), ("image", "v"))
+            if slot in slots
+        )
+        # image and video both render as the visual "v"; dedupe while keeping a<v order
+        tag = "".join(dict.fromkeys(tag))
+        base = f"{tag}lm" if tag else "llm"
+        return f"{base}+agent" if self.is_agent else base
 
 
 class ProbeOutput(StageEnvelope):
@@ -198,6 +284,13 @@ class ProbeOutput(StageEnvelope):
     map. A list would make that a scan and would not enforce uniqueness.
     """
 
+    model: ModelRef | None = Field(
+        default=None,
+        description="Who was diagnosed. Carried on the OUTPUT, not only on ProbeInput: "
+                    "a reader opens this file with no input beside it, and the only "
+                    "identity here used to be `ResultWire.model`, a repr — so the "
+                    "answer to 'which model is this report about' was a memory address.",
+    )
     results: dict[str, ResultWire] = Field(default_factory=dict)
     selection: AnalyzerSelection = Field(default_factory=AnalyzerSelection)
     failed_analyzers: dict[str, str] = Field(

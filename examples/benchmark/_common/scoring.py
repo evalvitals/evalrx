@@ -68,17 +68,71 @@ def answer_matches(observed: str, expected: Any, *, numeric_tolerance: float) ->
     return False
 
 
+# A leaked reasoning channel (Gemma 4 opens ``<|channel>thought`` on its own even
+# with enable_thinking=False; ``skip_special_tokens`` leaves the bare word) is not
+# a committed answer unless it carries an explicit answer tag. Measured on
+# gemma-4-e2b/MMAU (2026-08-22): 100/256 outputs were such preambles cut at the
+# token cap, and the old "last bare letter anywhere" fallback scraped a letter out
+# of the option enumeration they were restating — 16 spurious PASSes, 55 fictional
+# "chosen" letters on FAILs.
+_THOUGHT_PREAMBLE = re.compile(r"^\s*(?:<\|channel>)?thought\b", re.IGNORECASE)
+
+
+def _is_thought_preamble(text: str) -> bool:
+    return bool(_THOUGHT_PREAMBLE.match(text))
+
+
+def _nonempty_lines(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _committed_letters(line: str, cls: str) -> set[str]:
+    """Option letters a line commits to. ``A`` is also an English word, so it only
+    counts delimited — ``(A)``, ``A)``/``A.`` at line start, a whole-line ``a``/``A``,
+    or closing the line — while the other letters also count standalone
+    (``"I'd go with B"``). Several distinct letters = an enumeration or a hedge."""
+    found = re.findall(rf"^\(?([{cls}{cls.lower()}])\)?[.:]?$", line)       # "b" / "(B)" / "B."
+    found += re.findall(rf"\(([{cls}])\)", line)                              # "(B) Live music"
+    found += re.findall(rf"^([{cls}])[.):]", line)                              # "B) Live" / "B. Live"
+    found += re.findall(rf"(?<![A-Za-z(])([{cls}])[.):,]?\s*$", line)         # "... so it is B."
+    standalone = cls.replace("A", "")
+    if standalone:
+        found += re.findall(rf"(?<![A-Za-z(])([{standalone}])(?![A-Za-z])", line)
+    return {f.upper() for f in found}
+
+
 def parsed_choice(output: str, letters: str = "ABCD") -> str:
-    """The option letter the model committed to: a tagged one wins, else the last bare letter."""
-    text = str(output or "").upper()
-    cls = f"[{letters}]"
-    marked = re.findall(rf"(?:ANSWER|CHOICE|FINAL|OPTION)\s*[:=\-]?\s*\(?({cls})\)?\b", text)
-    bare = re.findall(rf"\b\(?({cls})\)?\b", text)
-    return marked[-1] if marked else (bare[-1] if bare else "")
+    """The option letter the model committed to, or ``""`` when it committed to none.
+
+    1. an answer tag anywhere (``Answer: B`` / ``Option (B)``) wins — last one;
+    2. a leaked thought preamble without a tag is not an answer;
+    3. else the last non-empty line (or, when that line names no option, the first
+       one — ``"B\n\nbecause ..."``) must name exactly ONE distinct option letter;
+       an enumeration (``"(A) dog, (B) cat"``) or a hedge names several -> ``""``.
+    """
+    text = str(output or "")
+    cls = "".join(sorted(set(letters.upper())))
+    marked = re.findall(rf"(?:answer|choice|final|option)\s*[:=\-]?\s*\(?([{cls}{cls.lower()}])\)?\b",
+                        text, re.IGNORECASE)
+    if marked:
+        return marked[-1].upper()
+    if _is_thought_preamble(text):
+        return ""
+    lines = _nonempty_lines(text)
+    for line in (lines[-1:] + lines[:1]):
+        found = _committed_letters(line, cls)
+        if found:
+            return found.pop() if len(found) == 1 else ""
+    return ""
 
 
 def parsed_yes_no(output: str) -> str:
-    m = re.search(r"\b(yes|no)\b", str(output or ""), re.IGNORECASE)
+    """``Yes``/``No`` the model committed to: the first one in the answer, ``""`` for
+    an untagged leaked thought preamble (it restates the question, not an answer)."""
+    text = str(output or "")
+    if _is_thought_preamble(text) and not re.search(r"(?:answer|final)\s*[:=\-]?\s*(yes|no)\b", text, re.IGNORECASE):
+        return ""
+    m = re.search(r"\b(yes|no)\b", text, re.IGNORECASE)
     return m.group(1).capitalize() if m else ""
 
 

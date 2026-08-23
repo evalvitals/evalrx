@@ -21,6 +21,9 @@ class VCDAnalyzer(Analyzer):
     name = "vcd"
     requires = frozenset({Capability.LOGITS})
     applies_to_modalities = frozenset({"image"})
+    # An omni model DECLARES image even on an audio benchmark, so the registry
+    # match alone still offers this on a batch with no images in it.
+    requires_modalities = frozenset({"image"})
 
     def _run(self, model, cases):
         raise NotImplementedError("Stage 2: contrastive decoding over original vs distorted image (logit control).")

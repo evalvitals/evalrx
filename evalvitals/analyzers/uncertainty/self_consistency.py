@@ -106,6 +106,14 @@ class SelfConsistencyAnalyzer(Analyzer):
     name = "self_consistency"
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
+    signal_docs = {
+        'consistency': ('Answer stability', 'How often the model gave the same answer when asked the same question repeatedly. Low means unstable reasoning.'),
+        'modal_answer': 'The answer the model gave most often.',
+        'n_samples': 'How many times each question was re-asked.',
+        'n_semantic_clusters': 'How many genuinely different answers there were, after wording differences are ignored.',
+        'n_unique': ('Different answers given', 'How many different answers came back for the same question.'),
+        'normalized_semantic_entropy': ('Answer spread', 'How spread out the answers were. High means the model has no settled view.'),
+    }
 
     def __init__(
         self,

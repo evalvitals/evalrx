@@ -1,0 +1,274 @@
+{
+  "$defs": {
+    "HypothesisStatus": {
+      "enum": [
+        "proposed",
+        "testing",
+        "supported",
+        "refuted",
+        "inconclusive"
+      ],
+      "title": "HypothesisStatus",
+      "type": "string"
+    },
+    "HypothesisWire": {
+      "additionalProperties": false,
+      "description": "One falsifiable claim about *why* the model fails.\n\n``statement`` is the mechanism; ``test_design`` is the machine-readable\ncommitment to how it could be wrong. A hypothesis without the latter cannot\nbe tested and is therefore not a hypothesis — M5 has nothing to route on and\nM1 has nothing to re-probe.",
+      "properties": {
+        "id": {
+          "description": "Stable id. Never slugify the statement and assume uniqueness.",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "statement": {
+          "description": "Technical mechanism claim.",
+          "minLength": 10,
+          "title": "Statement",
+          "type": "string"
+        },
+        "target_model": {
+          "title": "Target Model",
+          "type": "string"
+        },
+        "predicted_failure_mode": {
+          "minLength": 2,
+          "title": "Predicted Failure Mode",
+          "type": "string"
+        },
+        "test_design": {
+          "default": "",
+          "description": "Signal or contrast that would decide this, e.g. 'attention.image_token_ratio' or 'prompt_contrast describe_first'. M5 routes on it; M1 re-probes on it. EMPTY means the judge proposed none — see `is_routable`.",
+          "title": "Test Design",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/HypothesisStatus",
+          "default": "proposed"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set when mutated from an earlier hypothesis.",
+          "title": "Parent Id"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "statement",
+        "target_model",
+        "predicted_failure_mode"
+      ],
+      "title": "HypothesisWire",
+      "type": "object"
+    },
+    "JoinReport": {
+      "additionalProperties": false,
+      "description": "Health of one ``sample_id`` <-> ``FailureCase.id`` join.\n\nThis exists because a broken join and a real null result are indistinguishable\ndownstream: unmatched ids are skipped, both groups come out empty, and the\ntool reports \"no significant association\" — the same output as a model with\nno defect. Emitting coverage makes \"the pipeline is broken\" a separate,\nvisible state from \"the model is fine\".",
+      "properties": {
+        "left": {
+          "description": "e.g. 'attention.findings.per_case'",
+          "title": "Left",
+          "type": "string"
+        },
+        "right": {
+          "description": "e.g. 'CaseBatch(explore)'",
+          "title": "Right",
+          "type": "string"
+        },
+        "n_left": {
+          "title": "N Left",
+          "type": "integer"
+        },
+        "n_right": {
+          "title": "N Right",
+          "type": "integer"
+        },
+        "n_matched": {
+          "title": "N Matched",
+          "type": "integer"
+        },
+        "coverage": {
+          "description": "n_matched / n_left",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Coverage",
+          "type": "number"
+        },
+        "unmatched_sample": {
+          "description": "First few unmatched ids, for triage.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Unmatched Sample",
+          "type": "array"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "n_left",
+        "n_right",
+        "n_matched",
+        "coverage"
+      ],
+      "title": "JoinReport",
+      "type": "object"
+    },
+    "StageState": {
+      "description": "Per-stage UI state. A single generic \"N/A\" loses information the reader\nneeds — in particular ``EMPTY`` (ran, produced nothing) and ``FAILED``\n(did not run correctly) must never render the same.",
+      "enum": [
+        "not_started",
+        "running",
+        "succeeded",
+        "empty",
+        "abstained",
+        "partial",
+        "failed",
+        "skipped",
+        "unavailable"
+      ],
+      "title": "StageState",
+      "type": "string"
+    },
+    "StageStatus": {
+      "additionalProperties": false,
+      "description": "Terminal state of one stage in one cycle.\n\n``EMPTY`` and ``ABSTAINED`` are successes with nothing to show; ``FAILED``\nand ``UNAVAILABLE`` are not. Collapsing them loses the only signal a reader\nhas for whether to trust the absence of a result.",
+      "properties": {
+        "stage": {
+          "enum": [
+            "pre_m1",
+            "m1",
+            "explore",
+            "m2",
+            "m3",
+            "m4_surgery",
+            "m4_fix",
+            "m5"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/StageState"
+        },
+        "cycle": {
+          "description": "Normal cycles start at 0; the post-loop fix uses -1.",
+          "title": "Cycle",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why, for any state that is not plain success — the skip rule, the error, the reason for abstaining. One field, because a reader wants one answer.",
+          "title": "Reason"
+        },
+        "duration_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Sec"
+        },
+        "joins": {
+          "items": {
+            "$ref": "#/$defs/JoinReport"
+          },
+          "title": "Joins",
+          "type": "array"
+        }
+      },
+      "required": [
+        "stage",
+        "state",
+        "cycle"
+      ],
+      "title": "StageStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "M3's serialized output: the hypotheses, and nothing that is already on disk.\n\nZero hypotheses is a completed, empty result (state EMPTY or ABSTAINED) — not\nan error. Rendering it red teaches readers to distrust a correct abstention.\n\nJudge I/O is deliberately absent. M3 is the one stage an LLM writes the\npayload for, so its prompt and verbatim response do have to be recoverable —\nbut they are already persisted per cycle as\n``prompts/c<cycle>_m3_diagnosis.{prompt,response}.txt``, and the findings the\njudge was shown are the M2 report named by :attr:`DiagnosisInput.analysis_ref`.\nCarrying either inline here would be a second copy that can disagree with the\nfirst.",
+  "properties": {
+    "schema_version": {
+      "default": 4,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "trace_id": {
+      "description": "Run-level correlation id.",
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "span_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "e.g. 'c0.m1'.",
+      "title": "Span Id"
+    },
+    "cycle": {
+      "default": 0,
+      "title": "Cycle",
+      "type": "integer"
+    },
+    "produced_at": {
+      "description": "ISO-8601 UTC.",
+      "title": "Produced At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/StageStatus"
+    },
+    "hypotheses": {
+      "items": {
+        "$ref": "#/$defs/HypothesisWire"
+      },
+      "title": "Hypotheses",
+      "type": "array"
+    }
+  },
+  "required": [
+    "trace_id",
+    "produced_at",
+    "status"
+  ],
+  "title": "DiagnosisOutput",
+  "type": "object",
+  "$id": "https://evalvitals.dev/contract/m3.DiagnosisOutput.json",
+  "x-stage": "m3",
+  "x-role": "output",
+  "x-schema-version": 4,
+  "x-optional-stage": false
+}
