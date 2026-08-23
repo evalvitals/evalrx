@@ -499,7 +499,7 @@ class VLDiagnoseLoop:
             from evalvitals.contract.emit import from_fix_outcome
 
             self._emit("m4_fix", lambda: from_fix_outcome(
-                outcome, trace_id=self.emitter.trace_id,
+                outcome, trace_id=self.emitter.trace_id, run_root=self.emitter.root,
             ))
         return outcome
 
@@ -1110,6 +1110,13 @@ class VLDiagnoseLoop:
                 _run_config(self, data, loop_name="VLDiagnoseLoop")
             )
             self.run_logger.log_cases(data)
+            if confirm is not None:
+                # `data` is the explore split by now, so logging only it left the
+                # held-out cases unrecorded — and those are the ones M5's verdict
+                # and M4's repair are measured on. A report then cannot show a
+                # single case behind its strongest evidence: the repair's own
+                # per-case outputs joined to nothing.
+                self.run_logger.log_cases(confirm)
 
         for cycle in range(self.max_cycles):
             if self.token_budget > 0 and self._tokens_used >= self.token_budget:
