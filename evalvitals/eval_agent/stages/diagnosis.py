@@ -303,6 +303,29 @@ _LABEL_LINE = re.compile(
 _OPENING_MARKER = re.compile(r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]")
 
 
+#: A value that is ENTIRELY one code span or emphasis pair: `mode`, **mode**.
+_WRAPPED_VALUE = re.compile(r"^([*_`]{1,2})(.+?)\1$")
+
+
+def _unwrap_value(value: str) -> str:
+    """Strip wrapping decoration from a value that is a bare identifier.
+
+    Applied to FAILURE_MODE and EXPECTED_ASSOCIATION only. Those are looked up
+    verbatim -- ``_FAILURE_MODE_TO_ANALYZERS["ignored_obs"]`` decides which
+    analyzers the next cycle re-probes with -- so a judge writing
+    ``FAILURE_MODE: `ignored_obs` `` must not produce a key with a backtick in
+    it. Prose fields (HYPOTHESIS, TEST) keep their code spans: there the
+    backticks mark identifiers inside a sentence and removing them was its own
+    bug.
+
+    Only an ENTIRELY wrapped value is unwrapped, so ``some `sig` text`` is left
+    exactly as written.
+    """
+    text = value.strip()
+    m = _WRAPPED_VALUE.match(text)
+    return m.group(2).strip() if m else text
+
+
 def _normalise_label_line(line: str) -> str:
     """``**HYPOTHESIS:** foo`` / ``- FAILURE_MODE: bar`` → ``HYPOTHESIS: foo`` /
     ``FAILURE_MODE: bar``. Lines without a recognised label are returned
@@ -353,7 +376,7 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
             if hypotheses and not hypotheses[-1].plain_statement:
                 hypotheses[-1].plain_statement = plain_statement
         elif line.upper().startswith("FAILURE_MODE:") and statement:
-            mode = line[len("FAILURE_MODE:"):].strip()
+            mode = _unwrap_value(line[len("FAILURE_MODE:"):])
             hypotheses.append(
                 Hypothesis(
                     statement=statement,
@@ -368,9 +391,9 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
             # Attach the test design to the most recent hypothesis.
             hypotheses[-1].test_design = line[len("TEST:"):].strip()
         elif line.upper().startswith("EXPECTED_ASSOCIATION:") and hypotheses:
-            hypotheses[-1].expected_association = (
-                line[len("EXPECTED_ASSOCIATION:"):].strip().lower()
-            )
+            hypotheses[-1].expected_association = _unwrap_value(
+                line[len("EXPECTED_ASSOCIATION:"):]
+            ).lower()
     return hypotheses
 
 

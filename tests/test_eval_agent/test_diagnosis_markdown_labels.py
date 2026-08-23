@@ -225,3 +225,43 @@ def test_a_word_after_the_label_is_not_an_ordinal():
     """Only digits are decoration. `HYPOTHESIS TESTING:` is a different label
     and must not be silently read as `HYPOTHESIS:`."""
     assert _normalise_label_line("HYPOTHESIS TESTING: a") == "HYPOTHESIS TESTING: a"
+
+
+def test_a_wrapped_failure_mode_unwraps_but_prose_keeps_its_code_spans():
+    """FAILURE_MODE is a lookup key; TEST is a sentence. They need opposite rules.
+
+    Regression from the fix that stopped the normaliser eating content
+    backticks: a judge writing ``FAILURE_MODE: `ignored_obs` `` then produced
+    the key "`ignored_obs", which matches nothing in
+    `_FAILURE_MODE_TO_ANALYZERS` -- so the next cycle's focused re-probe
+    silently falls back to the generic ranking. Seen live on the Music-AVQA run,
+    where all three hypotheses came out with a leading backtick.
+    """
+    from evalvitals.eval_agent.stages.diagnosis import _unwrap_value
+
+    assert _unwrap_value("`ignored_obs`") == "ignored_obs"
+    assert _unwrap_value("**language_prior_bias**") == "language_prior_bias"
+    assert _unwrap_value("plain_mode") == "plain_mode"
+    # Only an ENTIRELY wrapped value is decoration.
+    assert _unwrap_value("some `sig` text") == "some `sig` text"
+    assert _unwrap_value("`unclosed") == "`unclosed"
+
+    raw = (
+        "HYPOTHESIS 1: The audio branch contributes a clip-level prior.\n"
+        "FAILURE_MODE: `ignored_obs`\n"
+        "TEST: `modality_ablation.grounded_in_audio` HIGHER on failing cases\n"
+        "EXPECTED_ASSOCIATION: `higher_on_failures`\n"
+    )
+    h = _parse_hypotheses(raw, "videollama2.1-7b-av")[0]
+    assert h.predicted_failure_mode == "ignored_obs"          # a key, unwrapped
+    assert h.expected_association == "higher_on_failures"
+    assert h.test_design.startswith("`modality_ablation")     # a sentence, intact
+
+
+def test_the_failure_mode_keys_the_next_cycle_actually_routes_on():
+    """The unwrapped mode must hit the routing table, or the fix is cosmetic."""
+    from evalvitals.eval_agent.stages.probe import _FAILURE_MODE_TO_ANALYZERS
+    from evalvitals.eval_agent.stages.diagnosis import _unwrap_value
+
+    for wrapped in ("`ignored_obs`", "`language_prior_bias`"):
+        assert _unwrap_value(wrapped) in _FAILURE_MODE_TO_ANALYZERS
