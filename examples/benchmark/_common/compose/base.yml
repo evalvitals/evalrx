@@ -14,6 +14,8 @@ services:
       # claude reads its OAuth state from $HOME; IS_SANDBOX lets it accept
       # --dangerously-skip-permissions as root.
       - HOME=/home/user
+      - CODEX_HOME=/home/user/.codex
+      - PATH=/opt/codex/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
       - IS_SANDBOX=1
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/examples/benchmark
@@ -23,6 +25,11 @@ services:
       - ${CLAUDE_PATH:-~/.local/bin/claude}:/usr/local/bin/claude:ro
       - ${CLAUDE_HOME:-~/.claude}:/home/user/.claude
       - ${CLAUDE_JSON:-~/.claude.json}:/home/user/.claude.json
+      # Codex judge + coder. Mount the npm package beside its Node runtime so
+      # the package-relative native executable remains discoverable.
+      - ${CODEX_NODE:-~/.nvm/versions/node/current/bin/node}:/usr/local/bin/node:ro
+      - ${CODEX_PACKAGE:-~/.nvm/versions/node/current/lib/node_modules/@openai/codex}:/opt/codex:ro
+      - ${CODEX_HOME:-~/.codex}:/home/user/.codex
     # --backend endpoint reaches a vLLM server on the host at host.docker.internal.
     extra_hosts:
       - "host.docker.internal:host-gateway"

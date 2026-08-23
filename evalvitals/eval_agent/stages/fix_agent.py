@@ -241,6 +241,75 @@ def _false_yes_predicate(case: Any) -> bool:
     )
 
 
+def _explicit_multiple_choice_answer(value: Any) -> str:
+    """Extract an explicit A-D commitment without mining unfinished prose."""
+    text = str(value or "").strip().upper()
+    marked = re.findall(
+        r"(?:FINAL(?:\s+ANSWER)?|ANSWER|CHOICE|OPTION)\s*(?::|=|\-|\bIS\b)\s*"
+        r"\(?([A-D])\)?\b",
+        text,
+    )
+    if marked:
+        return marked[-1]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    final = lines[-1] if lines else text
+    bare = re.fullmatch(r"\(?([A-D])\)?[.!]?", final)
+    return bare.group(1) if bare else ""
+
+
+def _malformed_choice_predicate(case: Any) -> bool:
+    """Gold-free gate for re-asking only malformed multiple-choice outputs."""
+    task = str((getattr(case, "metadata", {}) or {}).get("task", ""))
+    return task == "multiple_choice_letter" and not _explicit_multiple_choice_answer(
+        getattr(case, "observed", None)
+    )
+
+
+_CHART_ARITHMETIC_RE = re.compile(
+    r"\b(?:ratio|difference|sum|total|average|percent(?:age)?|how many|"
+    r"more than|less than|times|add(?:ing|ed)?|subtract(?:ing|ed)?)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _chart_arithmetic_predicate(case: Any) -> bool:
+    """Gold-free gate for chart questions that require an explicit operation."""
+    metadata = getattr(case, "metadata", {}) or {}
+    inputs = getattr(case, "inputs", None)
+    return (
+        str(metadata.get("task", "")) == "exact_or_numeric"
+        and getattr(inputs, "image", None) is not None
+        and bool(_CHART_ARITHMETIC_RE.search(str(getattr(inputs, "prompt", ""))))
+    )
+
+
+def _chart_case_predicate(case: Any) -> bool:
+    """Gold-free gate for image-backed exact/numeric chart questions."""
+    metadata = getattr(case, "metadata", {}) or {}
+    inputs = getattr(case, "inputs", None)
+    return (
+        str(metadata.get("task", "")) == "exact_or_numeric"
+        and getattr(inputs, "image", None) is not None
+    )
+
+
+_CHART_COUNT_EXTRACT_RE = re.compile(
+    r"\b(?:how many|number of)\b|"
+    r"\bvalue of the (?:gray|grey|red|blue|green|yellow|orange|purple|"
+    r"black|white|pink|brown) bar\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _chart_count_extract_predicate(case: Any) -> bool:
+    """Gold-free gate for chart counting and explicit coloured-bar lookup."""
+    return _chart_case_predicate(case) and bool(
+        _CHART_COUNT_EXTRACT_RE.search(
+            str(getattr(getattr(case, "inputs", None), "prompt", ""))
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -638,6 +707,7 @@ class FixAgent:
         concurrency: int = 1,
         scoring_note: str = "",
         floor_candidates: "Iterable[str] | None" = ("self_consistency_5",),
+        prewritten_code: str = "",
     ) -> None:
         if verbose:
             # Surfaces this module's own logger.info()/.warning() calls (tier
@@ -684,6 +754,7 @@ class FixAgent:
         self._floor_candidates = (
             tuple(str(n) for n in floor_candidates) if floor_candidates else ()
         )
+        self._prewritten_code = str(prewritten_code or "")
         # Per-candidate scratch: case id -> the final output that was scored.
         # Filled by the strategy closures / run_pipeline capture while a
         # candidate runs; _validate moves it onto the FixValidation.
@@ -1103,16 +1174,175 @@ class FixAgent:
         )
 
         candidates: "list[FixCandidate]" = []
+        # Pre-registered conditional repair for audio/other A-D tasks whose
+        # baseline never committed to an option.  It gates only on the
+        # observable output contract (never gold/correctness), so clean
+        # answers are preserved while malformed prose is re-asked and voted.
+        # Keeping it built-in also avoids asking codegen to rediscover this
+        # simple, high-frequency failure mode and then implement brittle
+        # option parsing from scratch.
+        malformed_name = "malformed_choice_consensus"
+        malformed_enabled = (
+            tasks == {"multiple_choice_letter"}
+            and malformed_name not in prior_names
+            and (
+                self._candidate_allowlist is None
+                or malformed_name in self._candidate_allowlist
+            )
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        )
+        if malformed_enabled:
+            spec = PipelineSpec(
+                name=malformed_name,
+                prompt_template=(
+                    "{prompt}\n\nListen to the audio evidence carefully and decide silently. "
+                    "Do not explain or repeat the choices. Reply with exactly one line: "
+                    "FINAL: X, where X is A, B, C, or D."
+                ),
+                n_samples=3,
+                generation_kwargs={"do_sample": True, "temperature": 0.35, "top_p": 0.9},
+                output_key_pattern=r"(?:FINAL(?:\s+ANSWER)?|ANSWER)\s*:\s*\(?([A-D])\)?",
+            )
+            candidates.append(
+                FixCandidate(
+                    tier=FixTier.L2_SCAFFOLD,
+                    name=malformed_name,
+                    kind="spec",
+                    source="conditional_default",
+                    payload=spec.to_dict(),
+                    predicate=_malformed_choice_predicate,
+                )
+            )
+        chart_name = "chart_arithmetic_verify"
+        chart_enabled = (
+            "exact_or_numeric" in tasks
+            and has_images
+            and chart_name not in prior_names
+            and self._candidate_allowlist is not None
+            and chart_name in self._candidate_allowlist
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        )
+        if chart_enabled:
+            spec = PipelineSpec(
+                name=chart_name,
+                prompt_template=(
+                    "Treat this as a chart measurement problem. First identify every "
+                    "legend/category and plotted value needed by the question, respecting "
+                    "the axis scale. Then perform the requested operation and independently "
+                    "check the arithmetic. Do all work internally and return only the short "
+                    "answer requested by the original question.\n\n{prompt}"
+                ),
+                strategy="chain_of_verification",
+            )
+            candidates.append(
+                FixCandidate(
+                    tier=FixTier.L2_SCAFFOLD,
+                    name=chart_name,
+                    kind="spec",
+                    source="conditional_default",
+                    payload=spec.to_dict(),
+                    predicate=_chart_arithmetic_predicate,
+                )
+            )
+        consensus_name = "chart_verified_consensus"
+        consensus_enabled = (
+            "exact_or_numeric" in tasks
+            and has_images
+            and consensus_name not in prior_names
+            and self._candidate_allowlist is not None
+            and consensus_name in self._candidate_allowlist
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        )
+        if consensus_enabled:
+            spec = PipelineSpec(
+                name=consensus_name,
+                prompt_template=(
+                    "Read the chart as measured evidence: identify the relevant labels, "
+                    "legend entries, marks, and axis scale; derive the requested answer; "
+                    "then check it independently. Work internally and return only the "
+                    "short answer requested.\n\n{prompt}"
+                ),
+                strategy="chain_of_verification",
+                n_samples=3,
+                generation_kwargs={"temperature": 0.35, "top_p": 0.9},
+                baseline_override_min_support=3,
+            )
+            candidates.append(
+                FixCandidate(
+                    tier=FixTier.L2_SCAFFOLD,
+                    name=consensus_name,
+                    kind="spec",
+                    source="conditional_default",
+                    payload=spec.to_dict(),
+                    predicate=_chart_case_predicate,
+                )
+            )
+        count_name = "upscale_count_extract"
+        count_enabled = (
+            "exact_or_numeric" in tasks
+            and has_images
+            and count_name not in prior_names
+            and self._candidate_allowlist is not None
+            and count_name in self._candidate_allowlist
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        )
+        if count_enabled:
+            count_spec = self._default_spec("upscale_sharpen")
+            if count_spec is not None:
+                count_spec.name = count_name
+                candidates.append(
+                    FixCandidate(
+                        tier=FixTier.L2_SCAFFOLD,
+                        name=count_name,
+                        kind="spec",
+                        source="conditional_default",
+                        payload=count_spec.to_dict(),
+                        predicate=_chart_count_extract_predicate,
+                    )
+                )
+        # An explicit allowlist is a pre-registration request. Built-in L2
+        # defaults must be materialised before any judge proposal/family-size
+        # truncation; filtering only afterwards could silently leave the run
+        # with attempted=0 even though the requested candidate exists.
+        requested_defaults = {
+            "self_consistency_5", "self_refine", "least_to_most",
+            "chain_of_verification", "upscale_sharpen", "zoom_equalize",
+        }
+        if (
+            self._candidate_allowlist is not None
+            and len(self._candidate_allowlist) == 1
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        ):
+            requested = next(iter(self._candidate_allowlist))
+            if requested in requested_defaults and requested not in prior_names:
+                requested_spec = self._default_spec(requested)
+                if requested_spec is not None:
+                    candidates.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name=requested,
+                            kind="spec",
+                            source="pre_registered_default",
+                            payload=requested_spec.to_dict(),
+                        )
+                    )
         # A code-only run is a pre-registered autonomous-repair experiment.
         # Do not spend three judge calls inventing L0/L1/declarative/L3
         # candidates that the allowlist will discard afterwards; apart from
         # latency and quota waste, those calls can fail before the requested
         # coding agent is ever reached.
         code_only = self._candidate_allowlist == frozenset({"coded_pipeline"})
-        if not code_only and self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
+        preregistered_only = self._candidate_allowlist in {
+            frozenset({malformed_name}), frozenset({chart_name}),
+            frozenset({consensus_name}),
+            frozenset({count_name}),
+            *(frozenset({name}) for name in requested_defaults),
+        }
+        if not code_only and not preregistered_only and self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
             candidates += self._l0_candidates(data, prior_names, model=model)
         if (
             not code_only
+            and not preregistered_only
             and self.max_tier >= FixTier.L1_PROMPT
             and not self._paper_methods_only
         ):
@@ -1126,7 +1356,7 @@ class FixAgent:
                 binary_hallucination_supported=binary_hallucination_supported,
                 context_block=context_block,
             )
-        if not code_only and self.max_tier >= FixTier.L2_SCAFFOLD:
+        if not code_only and not preregistered_only and self.max_tier >= FixTier.L2_SCAFFOLD:
             candidates += self._l2_candidates(
                 hyp_lines,
                 examples,
@@ -1151,7 +1381,8 @@ class FixAgent:
                             source="floor", payload=spec.to_dict(),
                         )
                     )
-        if self.max_tier >= FixTier.L2_SCAFFOLD and self.codegen_available:
+        if (not preregistered_only and self.max_tier >= FixTier.L2_SCAFFOLD
+                and self.codegen_available):
             # The coder-written pipeline is the ONE candidate a code-only run
             # exists to field, so it sits outside the ``not code_only`` gate
             # (nested inside it, --code-only proposed nothing at all).
@@ -1160,7 +1391,7 @@ class FixAgent:
                 context_block=context_block, catalog=catalog,
                 text_only=not has_images,
             )
-        if not code_only and self.max_tier >= FixTier.L3A_INTERNALS_READ:
+        if not code_only and not preregistered_only and self.max_tier >= FixTier.L3A_INTERNALS_READ:
             candidates += self._l3_candidates(
                 hyp_lines,
                 model,
@@ -1171,7 +1402,7 @@ class FixAgent:
                 tasks=tasks,
                 binary_hallucination_supported=binary_hallucination_supported,
             )
-        if not code_only and self.max_tier >= FixTier.L4_PARAMETERS:
+        if not code_only and not preregistered_only and self.max_tier >= FixTier.L4_PARAMETERS:
             candidates += self._l4_candidates(hyp_lines)
         if self._candidate_allowlist is not None:
             candidates = [c for c in candidates if c.name in self._candidate_allowlist]
@@ -1223,6 +1454,22 @@ class FixAgent:
         if name == "chain_of_verification":
             return PipelineSpec(name="chain_of_verification", prompt_template="{prompt}",
                                 strategy="chain_of_verification")
+        if name == "upscale_sharpen":
+            return PipelineSpec(
+                name="upscale_sharpen",
+                image_ops=[
+                    {"tool": "upscale", "params": {"factor": 2.0}},
+                    {"tool": "sharpen", "params": {"factor": 2.0}},
+                ],
+            )
+        if name == "zoom_equalize":
+            return PipelineSpec(
+                name="zoom_equalize",
+                image_ops=[
+                    {"tool": "zoom_center", "params": {"factor": 1.6}},
+                    {"tool": "equalize", "params": {}},
+                ],
+            )
         return None
 
     def _resolve_max_tokens_floor(self, model: "Model | None", data: "CaseBatch") -> "int | None":
@@ -2085,7 +2332,11 @@ class FixAgent:
             selection_guidance=selection_guidance,
             min_support=min_support,
         )
-        if self._cli_config is not None and self._cli_config.provider != "llm":
+        if self._prewritten_code.strip():
+            code = self._prewritten_code
+            source = "prewritten"
+            prompt = "Frozen prewritten coded pipeline supplied by the caller."
+        elif self._cli_config is not None and self._cli_config.provider != "llm":
             prompt = (
                 _L2_CODE_PROMPT.format(fences_hint=", written to a file named pipeline.py", **base)
                 + prior_text
@@ -3072,6 +3323,12 @@ class FixAgent:
             # error) scores None for THAT case; it must never abort the whole
             # candidate — let alone the fix stage.
             try:
+                # Do not execute a conditional repair outside its registered
+                # population. Validation already excludes those cases, but
+                # generating for them wastes compute and can advance a
+                # stochastic model before the applicable cases are sampled.
+                if not self._applies(candidate, case):
+                    return case.id, None
                 return case.id, strategy(model, case)
             except Exception as exc:
                 logger.warning("FixAgent: %s failed on case %s: %s", candidate.name, case.id, exc)

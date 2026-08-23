@@ -99,8 +99,8 @@ def load_weights(model, resolved: Resolved, args, task: T.Task):
 
 def build_judge(args):
     """``(judge, coder_provider, coder_model, coder_extra_args)`` — the same three
-    providers as the m1_m4 examples; the CLI default is agy, our compose files
-    pin claude / claude-opus-5 / high."""
+    providers as the m1_m4 examples; the benchmark CLI and compose files pin
+    Codex / gpt-5.6-terra / medium."""
     if args.judge_provider == "agy":
         from evalvitals.agent_runtime.judges import AgyModel
 
@@ -115,8 +115,12 @@ def build_judge(args):
         from evalvitals.agent_runtime.judges import CodexModel
 
         name = args.judge_model or "gpt-5.6-terra"
-        judge = CodexModel(model=name, timeout_sec=600)
-        coder = ("codex", name, ())
+        judge = CodexModel(model=name, effort=args.judge_effort, timeout_sec=600)
+        coder_extra = (
+            ("-c", f'model_reasoning_effort="{args.judge_effort}"')
+            if args.judge_effort else ()
+        )
+        coder = ("codex", name, coder_extra)
     probe = judge.generate("Reply with exactly OK")
     if not probe.strip():
         raise RuntimeError(f"{args.judge_provider} judge returned an empty availability probe")
@@ -250,16 +254,24 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         if sampled:
             floor.update(temperature=gen_kwargs["temperature"], top_p=gen_kwargs["top_p"])
         fix_kwargs.update(baseline_generation_kwargs=floor, floor_candidates=("self_consistency_5",))
+    prewritten_code = (
+        Path(args.fix_code_file).read_text(encoding="utf-8")
+        if args.fix_code_file else ""
+    )
     fix_agent = FixAgent(
         judge=judge, max_tier=args.fix_tier, score_fn=T.score_case, run_logger=ctx.logger,
         cli_config=(CliAgentConfig(provider=coder_provider, timeout_sec=420, model=coder_model,
                                    extra_args=coder_extra) if args.allow_codegen else None),
         allow_codegen=args.allow_codegen, run_context=ctx,
         max_validation_cases=args.fix_validation_cases, alpha=0.05,
-        candidate_allowlist={"coded_pipeline"} if args.code_only else None,
+        candidate_allowlist=(
+            {args.fix_candidate} if args.fix_candidate
+            else ({"coded_pipeline"} if args.code_only else None)
+        ),
         max_repair_rounds=2,
         **({"max_judge_candidates": 1} if args.code_only else {}),
         exec_timeout_sec=args.fix_exec_timeout,
+        prewritten_code=prewritten_code,
         **fix_kwargs,
     )
     explorer = None
@@ -298,12 +310,20 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     if not args.skip_fix:
         # No M5-verified hypothesis still gets M4 + a fix attempt on the best
         # unverified leads (the candidate validation on CONFIRM is the gate).
-        proposal = loop.run_m4(report, cases, allow_unverified=True)
-        if proposal is not None:
-            tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
-            print(f"M4 experiment on the {tag} hypothesis: status={proposal.status}")
+        # An explicitly pre-registered fix is already the experiment the
+        # caller asked to validate.  Running an unrelated M4 surgery first is
+        # pure latency and can contend for the same GPU; it cannot influence
+        # the frozen candidate or its EXPLORE/CONFIRM verdict.
+        if args.fix_candidate or args.code_only:
+            requested = args.fix_candidate or "coded_pipeline"
+            print(f"M4: skipped for pre-registered fix candidate {requested!r}")
         else:
-            print("M4: no hypothesis to experiment on")
+            proposal = loop.run_m4(report, cases, allow_unverified=True)
+            if proposal is not None:
+                tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
+                print(f"M4 experiment on the {tag} hypothesis: status={proposal.status}")
+            else:
+                print("M4: no hypothesis to experiment on")
         outcome = loop.run_fix(report, cases, max_tier=args.fix_tier, auto_escalate=args.auto_escalate,
                                allow_unverified=True)
         attempted = []

@@ -1,7 +1,7 @@
 """examples/benchmark entry point: one (modality, model size, dataset) cell per invocation.
 
     python -m _common.run --modality vlm --model qwen3.5-2b --dataset chartqa \
-        --judge-provider claude --judge-model claude-opus-5 --judge-effort high
+        --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium
 
 Data lands in ``<data-dir>/<dataset>/`` (frozen once, shared by every family of
 the modality), outputs in ``<run-dir>/<model>/<dataset>[.<tag>]/``.
@@ -54,14 +54,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="baseline samples per case in the fix stage (default: 5 when sampling, 1 greedy)")
     p.add_argument("--enable-thinking", action="store_true",
                    help="turn the model's thinking mode ON for every call (default OFF on every model)")
-    p.add_argument("--judge-provider", choices=["agy", "claude", "codex"], default="agy")
-    p.add_argument("--judge-model", default="")
-    p.add_argument("--judge-effort", default="high")
+    p.add_argument("--judge-provider", choices=["agy", "claude", "codex"], default="codex")
+    p.add_argument("--judge-model", default="gpt-5.6-terra")
+    p.add_argument("--judge-effort", default="medium")
     p.add_argument("--fix-tier", choices=["L1", "L2", "L3a"], default="L3a")
     p.add_argument("--allow-codegen", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--auto-escalate", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--code-only", action="store_true",
                    help="restrict the fix pool to the coder-written L2 pipeline")
+    p.add_argument("--fix-code-file", default="",
+                   help="frozen Python pipeline to validate with --code-only (skip code generation)")
+    p.add_argument("--fix-candidate", default="",
+                   help="pre-register and validate only this named fix candidate")
     p.add_argument("--explore", action=argparse.BooleanOptionalAction, default=True,
                    help="in-cycle free-form EDA between M1 and M2")
     p.add_argument("--max-cycles", type=int, default=1)

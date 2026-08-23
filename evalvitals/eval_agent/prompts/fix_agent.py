@@ -143,7 +143,8 @@ using ONLY these tools:
 {catalog}
 - baseline_output in "{cases_file}" IS the direct baseline answer — use it as \
 the baseline; a plain model_generate(case_id) is answered from that record and \
-is free; at most 4 model-hitting calls per case;
+is free; the TOTAL number of enhanced model_generate(...) PLUS model_attend(...) \
+calls must be at most 4 per case (model_attend is not free);
 - the host's selection guard reverts a case to its baseline unless at least \
 {min_support} DISTINCT enhanced calls returned your final answer (answer tags \
 such as "FINAL: <answer>" are stripped when matching);
@@ -152,6 +153,8 @@ such as "FINAL: <answer>" are stripped when matching);
 exactly:
   {marker}{{"per_case": [{{"sample_id": "<case id>", "output": "<final answer text>"}}]}}
 - standard library + numpy only; no network, no file writes; under ~80 lines.
+- overwrite pipeline.py with ONLY the corrected user pipeline; do not copy or \
+modify fix_pipeline_exec.py and do not append the old program after the repair.
 - repair the MODEL, not the task: the code is re-run with every model_generate() \
 call answered by the model's original recorded answer, and failing cases it still \
 gets right then are excluded from the score.  If it timed out, make FEWER model \

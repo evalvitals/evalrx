@@ -155,6 +155,36 @@ def test_vote_uses_extracted_final_answer_not_whole_text():
     assert answer_key("FINAL: 4 and more", r"FINAL:\s*(\d+)") == "4"
 
 
+def test_label_free_consensus_override_preserves_baseline_on_any_countervote():
+    case = list(_mc_batch(1, 0))[0]  # recorded baseline answer is (C)
+
+    class Sampler(Model):
+        capabilities = frozenset({Capability.GENERATE})
+        modalities = frozenset({"text"})
+
+        def __init__(self, replies):
+            self.replies = iter(replies)
+
+        def generate(self, inputs, **kwargs):
+            return next(self.replies)
+
+        def forward(self, inputs, capture, spec=None):
+            raise NotImplementedError
+
+    spec = PipelineSpec(
+        name="guarded", n_samples=3, baseline_override_min_support=2
+    )
+    capture: dict = {}
+    mixed = ["Answer: (B)", "Answer: (B)", "Answer: (C)"]
+    assert run_pipeline(Sampler(mixed), case, spec, _mc_score, capture=capture) is False
+    assert capture["winner"] == case.observed
+
+    unanimous = ["Answer: (B)", "Answer: (B)", "Answer: (B)"]
+    assert run_pipeline(Sampler(unanimous), case, spec, _mc_score) is True
+    roundtrip = PipelineSpec.from_dict(spec.to_dict())
+    assert roundtrip is not None and roundtrip.baseline_override_min_support == 2
+
+
 def test_max_tokens_cap_is_above_long_form_baselines():
     assert MAX_TOKENS_CAP >= 20480
     spec = PipelineSpec.from_dict({"name": "long", "generation_kwargs": {"max_tokens": 20480}})

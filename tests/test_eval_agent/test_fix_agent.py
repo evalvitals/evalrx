@@ -21,7 +21,13 @@ from evalvitals.eval_agent import (
     route_min_tier,
 )
 from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.stages.fix_agent import FixCandidate, FixValidation
+from evalvitals.eval_agent.stages.fix_agent import (
+    FixCandidate,
+    FixValidation,
+    _chart_arithmetic_predicate,
+    _chart_count_extract_predicate,
+    _malformed_choice_predicate,
+)
 
 # ── tiers ─────────────────────────────────────────────────────────────────────
 
@@ -849,6 +855,111 @@ def test_code_only_still_fields_the_coded_pipeline():
     proposed = agent._propose([_hyp("x")], _gold_yes_batch(image=_img()), HopelessModel())
     assert [c.name for c in proposed] == ["coded_pipeline"]
     assert len(judge.prompts) == 1 and "EXECUTION CONTRACT" in judge.prompts[0]
+
+
+def test_allowlisted_builtin_is_materialised_before_judge_truncation():
+    judge = ScriptedJudge(
+        json.dumps([{"name": "unrelated", "prompt_template": "Ignore. {prompt}"}])
+    )
+    agent = FixAgent(
+        judge=judge, max_tier="L2", allow_codegen=False,
+        candidate_allowlist={"self_refine"},
+    )
+    candidates = agent._propose(
+        [_hyp("chart reasoning")], _gold_yes_batch(image=_img()), HopelessModel()
+    )
+    assert [c.name for c in candidates] == ["self_refine"]
+    assert judge.prompts == []
+
+
+def test_malformed_choice_candidate_is_gold_free_gated_and_pre_registered():
+    malformed = FailureCase(
+        id="bad", inputs=Inputs(prompt="listen", audio="x.wav"), expected="A",
+        observed="thought: option A or B\nstill analyzing", label=Label.FAIL,
+        metadata={"task": "multiple_choice_letter"},
+    )
+    clean = FailureCase(
+        id="clean", inputs=Inputs(prompt="listen", audio="x.wav"), expected="B",
+        observed="(B)", label=Label.PASS, metadata={"task": "multiple_choice_letter"},
+    )
+    # The gate depends only on the recorded output contract, not expected/gold.
+    assert _malformed_choice_predicate(malformed)
+    malformed.expected = "D"
+    assert _malformed_choice_predicate(malformed)
+    assert not _malformed_choice_predicate(clean)
+
+    judge = ScriptedJudge("[]")
+    agent = FixAgent(
+        judge=judge, max_tier="L2", allow_codegen=False,
+        candidate_allowlist={"malformed_choice_consensus"},
+    )
+    candidates = agent._propose([_hyp("malformed output")], CaseBatch([malformed, clean]),
+                                HopelessModel())
+    assert [c.name for c in candidates] == ["malformed_choice_consensus"]
+    assert candidates[0].predicate is _malformed_choice_predicate
+    assert judge.prompts == []
+
+
+def test_chart_arithmetic_candidate_is_gold_free_and_skips_out_of_scope_calls():
+    arithmetic = FailureCase(
+        id="arithmetic", inputs=Inputs(prompt="What is the difference?", image=_img()),
+        expected="1", observed="2", label=Label.FAIL,
+        metadata={"task": "exact_or_numeric"},
+    )
+    lookup = FailureCase(
+        id="lookup", inputs=Inputs(prompt="Which country is blue?", image=_img()),
+        expected="France", observed="Spain", label=Label.FAIL,
+        metadata={"task": "exact_or_numeric"},
+    )
+    assert _chart_arithmetic_predicate(arithmetic)
+    arithmetic.expected = "999"  # the predicate never reads gold
+    assert _chart_arithmetic_predicate(arithmetic)
+    assert not _chart_arithmetic_predicate(lookup)
+
+    judge = ScriptedJudge("[]")
+    agent = FixAgent(
+        judge=judge, max_tier="L2", allow_codegen=False,
+        candidate_allowlist={"chart_arithmetic_verify"},
+    )
+    batch = CaseBatch([arithmetic, lookup])
+    candidates = agent._propose([_hyp("chart arithmetic")], batch, HopelessModel())
+    assert [c.name for c in candidates] == ["chart_arithmetic_verify"]
+    assert judge.prompts == []
+
+    class CountingModel(Model):
+        capabilities = frozenset({Capability.GENERATE})
+        modalities = frozenset({"text", "image"})
+
+        def __init__(self):
+            self.calls = 0
+
+        def generate(self, inputs, **kwargs):
+            self.calls += 1
+            return "1"
+
+        def forward(self, inputs, capture, spec=None):
+            raise NotImplementedError
+
+    model = CountingModel()
+    agent._candidate_scores(candidates[0], model, batch)
+    assert model.calls == 3  # one chain-of-verification; lookup was never run
+
+
+def test_chart_count_extract_gate_is_gold_free_and_excludes_color_questions():
+    count = FailureCase(
+        id="count", inputs=Inputs(prompt="How many countries exceed 70%?", image=_img()),
+        expected="2", observed="1", label=Label.FAIL,
+        metadata={"task": "exact_or_numeric"},
+    )
+    color = FailureCase(
+        id="color", inputs=Inputs(prompt="What's the color of the line?", image=_img()),
+        expected="orange", observed="red", label=Label.FAIL,
+        metadata={"task": "exact_or_numeric"},
+    )
+    assert _chart_count_extract_predicate(count)
+    count.expected = "999"
+    assert _chart_count_extract_predicate(count)
+    assert not _chart_count_extract_predicate(color)
 
 
 def test_l1_template_candidate_preserves_non_image_modality_fields():

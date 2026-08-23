@@ -21,6 +21,10 @@ class CodexAgent(CliAgentBase):
             self._binary,
             "exec",
             prompt,
+            # Generated-code workspaces are intentionally isolated artifact
+            # directories, not Git checkouts.  Codex otherwise exits before
+            # doing any work with "Not inside a trusted directory".
+            "--skip-git-repo-check",
             "--sandbox",
             "workspace-write",
             "--json",

@@ -101,8 +101,9 @@ sample the `m1_m4` examples use; the manifest protocol is modality-blind
   vLLM endpoint (~29 tok/s on the 2B; ~25 s per causal-judgement item), so the
   llm default is 256 rows, not a census; `--backend endpoint` is the fast path
   when a vLLM server is up.
-* **Judge/coder pinned to Claude Opus 5** in every compose command (the CLI
-  default stays `agy`).
+* **Judge/coder pinned to Codex `gpt-5.6-terra` at medium effort** in every
+  compose command and in the CLI defaults. The Codex npm package, Node runtime,
+  and authenticated `CODEX_HOME` are mounted through `.env`.
 * **Nemotron's FP8 checkpoints** (`nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8`,
   `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8`) are ModelOpt exports:
   transformers has no ModelOpt quantizer and refuses fp8 below compute
