@@ -451,3 +451,44 @@ def test_a_paired_contrast_is_named_by_its_arms():
         == "describe first vs sensitive"
     # Still honest when nothing names the subject.
     assert measured_label(_R({})).startswith("unnamed contrast")
+
+
+# ── M4 must report the search, not only its winner ───────────────────────────
+
+def test_the_selection_sweep_reaches_the_wire():
+    """A run that swept seven candidates and confirmed one reported one row.
+
+    FixOutcome carries `selection_attempted`; FixOutput had no field for it, so
+    everything the search RULED OUT lived only in a markdown file. On the live
+    audio-visual run that meant four L2 candidates were invisible and every
+    reader concluded L2 had never been attempted.
+    """
+    from types import SimpleNamespace
+
+    from evalvitals.contract.emit import from_fix_outcome
+
+    outcome = SimpleNamespace(
+        max_tier="L3a", routed=[], attempted=[], best=None, fixed=False,
+        ebh_survivors=[], repair_rounds=1, recommendation=None, refine_signal=None,
+        selected_on_explore="visual_grounding",
+        selection_attempted=[
+            {"name": "visual_grounding", "tier": "L1", "n_pairs": 60,
+             "n_fixed": 8, "n_broken": 0, "effect": 0.1333, "verdict": "fixed"},
+            {"name": "audio_evidence_then_answer", "tier": "L1", "n_pairs": 60,
+             "n_fixed": 7, "n_broken": 8, "effect": -0.0167, "verdict": "unsafe"},
+            {"name": "coded_pipeline", "tier": "L2", "n_pairs": 60,
+             "n_fixed": 8, "n_broken": 3, "effect": 0.0833, "verdict": "partial"},
+        ],
+    )
+    wire = from_fix_outcome(outcome, trace_id="t")
+
+    assert [r.tier for r in wire.selection] == ["L1", "L1", "L2"]
+    assert wire.selected_on_explore == "visual_grounding"
+    # A candidate that made things worse is a result and must survive to the wire.
+    unsafe = next(r for r in wire.selection if r.verdict == "unsafe")
+    assert (unsafe.n_fixed, unsafe.n_broken) == (7, 8)
+    # Selection rows carry no confirmation statistics, so they cannot be misread
+    # as evidence: they were never validated on held-out cases.
+    assert all(r.e_value is None and not r.reject for r in wire.selection)
+    # And they stay out of the evidential list.
+    assert wire.attempted == []

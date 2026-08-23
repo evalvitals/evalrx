@@ -2,8 +2,8 @@ import { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import ReactECharts from "echarts-for-react";
 import { AlertTriangle, ArrowLeft, BarChart3, Beaker, CheckCircle2, ChevronRight, Microscope, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
-import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, HypothesisTestOutput,
-  Modality, ProbeOutput, ReportData } from "./types";
+import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixOutput,
+  HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
 
 export function EvidenceView({ data, back, initialStage }: { data: ReportData; back: () => void; initialStage?: string }) {
   const [selected, setSelected] = useState(initialStage || data.stages[0]?.id);
@@ -256,9 +256,59 @@ function VerdictCard({ result, fallback, index }: { result: any; fallback: any; 
   return <article className={`verdict-card verdict-${status}`}><header>{icon}<div><span>H{index + 1} · INDEPENDENT CHECK</span><strong>{plainStatus(status)}</strong></div></header><h3>{hypothesis}</h3><div className="verdict-metrics"><span><small>MEASURED DIFFERENCE</small><b>{number(result.effect_size ?? evidence.effect_size)}</b></span><span><small>CONFIDENCE</small><b>{percent(result.confidence ?? fallback?.confidence_score)}</b></span><span><small>LIKELY RANGE</small><b>{formatInterval(ci)}</b></span><span><small>TYPE OF EVIDENCE</small><b>{plainEvidence(result.evidence_grade || evidence.evidence_grade)}</b></span></div><p className="verdict-reason">{plainVerdict(result.verdict || evidence.m5_verdict || "No validation explanation was retained.")}</p><div className="verdict-foot"><span className={result.protocol_consistent === false ? "bad" : "good"}>{result.protocol_consistent === false ? "Does not match the requested evaluation" : "Matches the requested evaluation"}</span><span>{evidence.fdr?.method ? "Multiple-comparison check applied" : "Independent evidence"}</span></div><details><summary>Technical audit evidence</summary><pre>{JSON.stringify(evidence, null, 2)}</pre></details></article>;
 }
 
+/**
+ * The candidates a run tried while CHOOSING one, from the contract.
+ *
+ * These never reached the legacy stage view, which carries only what was
+ * confirmed. A run that swept seven candidates across L1 and L2 and confirmed
+ * one L1 therefore displayed a single L1 row, and every reader concluded L2 was
+ * never attempted. What got ruled out is part of what the run found.
+ *
+ * Kept visually apart from the confirmation, and labelled, because these
+ * numbers CHOSE the candidate and so cannot also test it — presenting them in
+ * one table would invite exactly the double-dip the two-stage protocol exists
+ * to prevent.
+ */
+function SelectionSweep({ report }: { report: ReportData }) {
+  const m4 = findContract<FixOutput>(report, "m4_fix");
+  const rows = m4?.selection || [];
+  if (!rows.length) return null;
+  const tiers = [...new Set(rows.map((r) => r.tier))].sort();
+  const tone = (v?: string) => v === "fixed" ? "ok"
+    : v === "unsafe" || v === "regressed" ? "bad"
+    : v === "partial" || v === "model_independent" ? "warn" : "";
+  return <section className="phase">
+    <span className="eyebrow">Stage 1 · choosing — not evidence</span>
+    <h3>{rows.length === 1 ? "One repair was tried" : `${rows.length} repairs were tried`}</h3>
+    <p className="stat-caption">
+      Each was run on the diagnosis cases to pick one worth confirming. These numbers chose
+      the candidate, so they cannot also test it — read them as what was ruled out, never as
+      results.{m4?.selected_on_explore ? ` “${m4.selected_on_explore}” was taken forward.` : ""}
+    </p>
+    <div className="scroll"><table>
+      <thead><tr>{["", "Tier", "Candidate", "Outcome", "Repaired", "Broke", "Difference"]
+        .map((h) => <th key={h}>{h}</th>)}</tr></thead>
+      <tbody>{rows.map((r, i) => <tr key={`${r.name}-${i}`}>
+        <td><span className={`chip ${tone(r.verdict)}`}><span className="dot" /></span></td>
+        <td>{r.tier}</td>
+        <td className="txt">{r.name}</td>
+        <td>{String(r.verdict || "").replace(/_/g, " ")}</td>
+        <td>{r.n_fixed}</td>
+        <td>{r.n_broken}</td>
+        <td>{r.effect === null || r.effect === undefined ? "—"
+          : `${r.effect >= 0 ? "+" : ""}${Number(r.effect).toFixed(3)}`}</td>
+      </tr>)}</tbody>
+    </table></div>
+    {tiers.length > 1 && <p className="mono-sm">
+      Tiers reached: {tiers.join(", ")}. A tier missing here had no candidate to offer —
+      for L3a that usually means the model exposes no internals to read.
+    </p>}
+  </section>;
+}
+
 function M4Detail({ data, report }: { data: any; report: ReportData }) {
   const candidates = data.candidates || [];
-  if (!data.ran || !candidates.length) return <><StageBanner kind="INTERVENTION" title="Repair and regression check">M4 compares targeted changes against the same unmodified baseline cases.</StageBanner><EmptyStage title={data.skipped ? "Repair was deliberately held back" : data.ran ? "No repair candidate was testable" : "Repair was not reached"} body={data.skipped ? (data.skip_detail || "The evidence review did not yet accept a mechanism for repair. The next step is a targeted diagnostic probe, not a failed repair.") : data.ran ? "The stage opened, but no accepted and testable mechanism produced a repair candidate." : "The run stopped before a targeted intervention could be evaluated."} /></>;
+  if (!data.ran || !candidates.length) return <><StageBanner kind="INTERVENTION" title="Repair and regression check">M4 compares targeted changes against the same unmodified baseline cases.</StageBanner><SelectionSweep report={report} /><EmptyStage title={data.skipped ? "Repair was deliberately held back" : data.ran ? "No repair candidate was testable" : "Repair was not reached"} body={data.skipped ? (data.skip_detail || "The evidence review did not yet accept a mechanism for repair. The next step is a targeted diagnostic probe, not a failed repair.") : data.ran ? "The stage opened, but no accepted and testable mechanism produced a repair candidate." : "The run stopped before a targeted intervention could be evaluated."} /></>;
   const fixed = candidates.reduce((sum: number, item: any) => sum + Number(item.n_fixed || 0), 0);
   const broken = candidates.reduce((sum: number, item: any) => sum + Number(item.n_broken || 0), 0);
   const winner = candidates.find((item: any) => item.fixed) || candidates.reduce((best: any, item: any) => Number(item.effect || -Infinity) > Number(best?.effect || -Infinity) ? item : best, null);
@@ -269,7 +319,8 @@ function M4Detail({ data, report }: { data: any; report: ReportData }) {
     <div className={`repair-outcome ${data.fixed ? "success" : "neutral"}`}><Wrench /><div><span>FINAL REPAIR OUTCOME</span><h3>{data.fixed ? "A repair was confirmed" : "No candidate passed the repair gate"}</h3><p>{winner?.summary || "Inspect the full candidate sweep below."}</p></div></div>
     {data.examples?.length > 0 && <ExampleSection eyebrow="A repaired case" title="One real before-and-after repair" note="This is a case counted as fixed. The repair was accepted only after checking every paired case for improvements and regressions."><div className="example-deck">{data.examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
     {data.operation_previews?.length > 0 && <RepairOperationPreviews examples={data.operation_previews} report={report} />}
-    <div className="repair-chart"><h3>Paired case flips vs. baseline</h3><ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} /></div>
+    <SelectionSweep report={report} />
+    <div className="repair-chart"><h3>Confirmed on held-out cases: paired flips vs. baseline</h3><ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} /></div>
     <div className="candidate-list">{candidates.map((candidate: any, index: number) => <article className={`candidate-card candidate-${candidate.verdict || "unknown"}`} key={`${candidate.name}-${index}`}><header><span>{candidate.tier || "?"}</span><div><h3>{candidate.name || `Candidate ${index + 1}`}</h3><small>{plainCandidateKind(candidate.kind)}</small></div><b>{candidate.fixed ? "helped" : "did not pass"}</b></header><div className="candidate-metrics"><span><b>{candidate.n_fixed ?? 0}</b> errors fixed</span><span><b>{candidate.n_broken ?? 0}</b> new errors</span><span><b>{number(candidate.effect)}</b> net change</span><span><b>{percent(candidate.coverage)}</b> of errors covered</span></div><p>{candidate.summary}</p><details><summary>Technical repair definition and affected cases</summary><KeyValueGrid values={candidate.payload || {}} />{candidate.fixed_cases?.length > 0 && <small>Fixed cases: {candidate.fixed_cases.join(", ")}</small>}{candidate.broken_cases?.length > 0 && <small>Broken cases: {candidate.broken_cases.join(", ")}</small>}</details></article>)}</div>
   </>;
 }

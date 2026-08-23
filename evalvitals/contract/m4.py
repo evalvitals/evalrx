@@ -180,7 +180,27 @@ class FixOutput(StageEnvelope):
     )
 
     attempted: list[FixAttemptWire] = Field(
-        default_factory=list, description="Every candidate validated against the unmodified baseline."
+        default_factory=list,
+        description="The CONFIRMATION evidence: candidates validated on the held-out split. "
+                    "With a confirm split in play this is exactly one frozen candidate — "
+                    "selecting and testing on the same cases is the error the two-stage "
+                    "protocol exists to prevent.",
+    )
+    selection: list[FixAttemptWire] = Field(
+        default_factory=list,
+        description="The candidates tried while CHOOSING one, on the diagnosis split. "
+                    "Descriptive only — never confirmation evidence, and a reader must not "
+                    "add these effect sizes to the ones above.\n\n"
+                    "Carried because omitting it misrepresents the search: a run that tried "
+                    "seven candidates across L1 and L2 and confirmed one L1 reported a "
+                    "single L1 row, and every reader concluded L2 was never attempted. "
+                    "What was ruled out is part of what the run found — an `unsafe` "
+                    "candidate that repaired 7 cases and broke 8 is a result.",
+    )
+    selected_on_explore: str | None = Field(
+        default=None,
+        description="Which candidate the selection phase froze for confirmation. Names a "
+                    "row in `selection`; `best` names one in `attempted`.",
     )
 
     best: str | None = Field(

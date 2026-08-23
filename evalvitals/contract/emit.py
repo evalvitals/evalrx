@@ -691,6 +691,25 @@ def from_fix_outcome(
             verdict=verdict,
             summary=str(_val(v, "summary", "") or ""),
         ))
+    # The selection phase's audit rows: name/tier/n_pairs/n_fixed/n_broken/
+    # effect/verdict, and nothing else — they were never validated, so the
+    # statistical fields stay empty rather than being filled with numbers a
+    # reader could mistake for confirmation.
+    selection = [
+        FixAttemptWire(
+            tier=_tier(row.get("tier")),
+            name=str(row.get("name") or "candidate"),
+            n_pairs=int(row.get("n_pairs") or 0),
+            n_fixed=int(row.get("n_fixed") or 0),
+            n_broken=int(row.get("n_broken") or 0),
+            effect=row.get("effect"),
+            verdict=row.get("verdict") or "no_effect",
+            summary="selection phase — descriptive only, not confirmation evidence",
+        )
+        for row in (_val(outcome, "selection_attempted", []) or [])
+        if isinstance(row, dict)
+    ]
+
     fixed = bool(_val(outcome, "fixed", False))
     best = _val(outcome, "best", None)
     best_name = str(_val(best, "name", best) or "") or None
@@ -719,6 +738,8 @@ def from_fix_outcome(
         routed=[{str(k): str(v) for k, v in dict(r).items()}
                 for r in (_val(outcome, "routed", []) or []) if isinstance(r, dict)],
         attempted=attempts,
+        selection=selection,
+        selected_on_explore=(str(_val(outcome, "selected_on_explore", "") or "") or None),
         best=best_name,
         fixed=fixed and any(a.name == best_name for a in attempts),
         ebh_survivors=[str(x) for x in (_val(outcome, "ebh_survivors", []) or [])],

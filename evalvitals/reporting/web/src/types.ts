@@ -29,6 +29,7 @@ export type ContractPayloads = {
 
 export type {
   AnalyzerSelection,
+  FixAttemptWire,
   DiagnosisOutput,
   FixOutput,
   HypothesisTestOutput,
