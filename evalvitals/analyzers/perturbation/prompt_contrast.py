@@ -140,6 +140,19 @@ class PromptContrastAnalyzer(Analyzer):
     )
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
+    signal_docs = {
+        'n_broken_by_describe_first': ('Broken by describe-first', 'Cases that were right and became wrong. A rewrite that fixes some and breaks others is not an improvement.'),
+        'n_broken_by_sensitive': ('Broken by report-subtle', 'Cases that were right and became wrong under the same instruction.'),
+        'n_cases': 'How many cases were re-asked under each prompt strategy.',
+        'n_fixed_by_describe_first': ('Fixed by describe-first', 'Cases that were wrong and became right when told to describe first.'),
+        'n_fixed_by_sensitive': ('Fixed by report-subtle', 'Cases that were wrong and became right when told to report subtle findings.'),
+        'n_strategies': 'How many prompt strategies were compared, including the unchanged baseline.',
+        'n_unscored': 'Answers that could not be graded, so they enter no comparison.',
+        'prompt_sensitivity': ('Answer moves with wording', "How much this case's answer changed across the prompt rewrites. 0 means every wording produced the same answer; high means the answer depends on how the question was phrased. Independent of whether any answer was correct."),
+        'success_rate_baseline': ('Correct, unchanged prompt', 'Share correct with the original question — the line every rewrite is measured against.'),
+        'success_rate_describe_first': ('Correct, describe-first', 'Share correct when told to describe what it perceives before answering. Higher than baseline means the failure was in answering, not in perceiving.'),
+        'success_rate_sensitive': ('Correct, report-subtle', "Share correct when told to report a finding even if subtle. Higher than baseline means the model's yes/no threshold was set too high, not that it could not tell."),
+    }
 
     def __init__(
         self,

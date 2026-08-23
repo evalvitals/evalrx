@@ -135,6 +135,20 @@ class PerturbationBattery(Analyzer):
     name = "perturbation_battery"
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
+    signal_docs = {
+        'baseline_answer': 'What the model answered before any perturbation.',
+        'invariance_break_rate': ('Breaks on reworded input', 'For this case: share of meaning-preserving rewordings that changed the answer.'),
+        'mean_invariance_break_rate': ('Breaks on reworded input', 'Share of meaning-PRESERVING rewordings that changed the answer. The question meant the same thing; a high rate means the model is keying on surface form rather than content.'),
+        'n_altering': 'How many meaning-changing edits this case was asked under.',
+        'n_cases': 'How many cases were re-asked under perturbed wordings.',
+        'n_memorization_suspect': ('Suspected recital', 'Cases where changing the actual content left the answer unmoved — the shape of reciting a remembered result rather than working it out.'),
+        'n_preserving': 'How many meaning-preserving rewordings this case was asked under.',
+        'n_scored': 'How many of those could be compared against a baseline answer.',
+        'noop_break_rate': ('Broken by an irrelevant clause', 'Share of cases where adding one true but irrelevant sentence flipped the answer. The single most diagnostic arm of the battery: nothing about the question changed.'),
+        'noop_clause_flipped': ('Flipped by a no-op clause', "Adding one true but irrelevant sentence changed this case's answer."),
+        'restate_question_flipped': ('Flipped by rewording', "Restating the same question in different words changed this case's answer."),
+        'sensitivity_rate': ('Responds to real changes', 'For this case: share of meaning-ALTERING edits that did change the answer. Low is bad — the model ignored a change that should matter.'),
+    }
 
     def __init__(
         self,
