@@ -282,16 +282,48 @@ def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None
 # and the bare ``startswith("HYPOTHESIS:")`` check saw none of them: a live
 # qwen3.5-2b/bbh_word_sorting run had three well-formed hypotheses in the
 # response and M3 reported zero. Normalise the label, leave the text alone.
-# ``**HYPOTHESIS 1:**`` / ``HYPOTHESIS #2:`` / ``HYPOTHESIS (3):`` — a numbered
-# label (gemma-4-e2b/bbh_causal_judgement, 2026-08-22: three well-formed
-# hypotheses, zero parsed, the run diagnosed a template instead).
+#
+# The ordinal AFTER the label is the same bug and was missed the first time.
+# ``HYPOTHESIS 1:`` is how a model numbers a list of three of them — the most
+# natural formatting there is, and the one Opus used on a 560-case audio-visual
+# run: three hypotheses, each with a test design naming a BH-surviving signal,
+# and M3 again reported zero. Two and a half hours of GPU and a high-effort
+# judge, discarded over a digit. Accept the ordinal in either position.
 _LABEL_LINE = re.compile(
     r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]*\s*"
     r"(HYPOTHESIS|PLAIN_STATEMENT|PLAIN_LANGUAGE|FAILURE_MODE|TEST|EXPECTED_ASSOCIATION|KEEP|REJECT|REASON)"
-    r"(?:\s*(?:#|No\.?)?\s*\(?\d+\)?)?"
-    r"\s*[*_`]*\s*:\s*[*_`]*\s*",
+    r"(?:\s*[#(]?\d+[.)]?)?"        # HYPOTHESIS 1:  /  TEST #2:  /  REASON (3):
+    r"\s*(?P<close>[*_`]*)\s*:\s*(?P<after>[*_`]*)\s*",
     re.IGNORECASE,
 )
+
+
+#: A leading emphasis/code marker, past any list bullet or heading. Its presence
+#: is what makes a marker after the colon a CLOSER rather than content.
+_OPENING_MARKER = re.compile(r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]")
+
+
+#: A value that is ENTIRELY one code span or emphasis pair: `mode`, **mode**.
+_WRAPPED_VALUE = re.compile(r"^([*_`]{1,2})(.+?)\1$")
+
+
+def _unwrap_value(value: str) -> str:
+    """Strip wrapping decoration from a value that is a bare identifier.
+
+    Applied to FAILURE_MODE and EXPECTED_ASSOCIATION only. Those are looked up
+    verbatim -- ``_FAILURE_MODE_TO_ANALYZERS["ignored_obs"]`` decides which
+    analyzers the next cycle re-probes with -- so a judge writing
+    ``FAILURE_MODE: `ignored_obs` `` must not produce a key with a backtick in
+    it. Prose fields (HYPOTHESIS, TEST) keep their code spans: there the
+    backticks mark identifiers inside a sentence and removing them was its own
+    bug.
+
+    Only an ENTIRELY wrapped value is unwrapped, so ``some `sig` text`` is left
+    exactly as written.
+    """
+    text = value.strip()
+    m = _WRAPPED_VALUE.match(text)
+    return m.group(2).strip() if m else text
 
 
 def _normalise_label_line(line: str) -> str:
@@ -302,9 +334,18 @@ def _normalise_label_line(line: str) -> str:
     m = _LABEL_LINE.match(line)
     if not m:
         return line
-    rest = line[m.end():].strip()
-    # a trailing closing emphasis left over from ``**HYPOTHESIS:** ... **``
-    rest = re.sub(r"[*_`]+$", "", rest).strip()
+
+    # Decoration is only decoration when something opened it. `**KEEP:** x` and
+    # `` `KEEP:` x `` wrap the LABEL, so the marker after the colon closes that
+    # wrapper and goes. `TEST: `modality_ablation.grounded_in_audio` ...` opens a
+    # code span belonging to the CONTENT, and eating it corrupts the identifier
+    # M5 routes on. The difference is whether the line opened with a marker at
+    # all -- so decide on that rather than on the marker's position.
+    opened = bool(_OPENING_MARKER.match(line))
+    rest = line[m.end():] if opened else (m.group("after") or "") + line[m.end():]
+    rest = rest.strip()
+    if opened:
+        rest = re.sub(r"[*_`]+$", "", rest).strip()
     return f"{m.group(1).upper()}: {rest}"
 
 
@@ -335,7 +376,7 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
             if hypotheses and not hypotheses[-1].plain_statement:
                 hypotheses[-1].plain_statement = plain_statement
         elif line.upper().startswith("FAILURE_MODE:") and statement:
-            mode = line[len("FAILURE_MODE:"):].strip()
+            mode = _unwrap_value(line[len("FAILURE_MODE:"):])
             hypotheses.append(
                 Hypothesis(
                     statement=statement,
@@ -350,9 +391,9 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
             # Attach the test design to the most recent hypothesis.
             hypotheses[-1].test_design = line[len("TEST:"):].strip()
         elif line.upper().startswith("EXPECTED_ASSOCIATION:") and hypotheses:
-            hypotheses[-1].expected_association = (
-                line[len("EXPECTED_ASSOCIATION:"):].strip().lower()
-            )
+            hypotheses[-1].expected_association = _unwrap_value(
+                line[len("EXPECTED_ASSOCIATION:"):]
+            ).lower()
     return hypotheses
 
 

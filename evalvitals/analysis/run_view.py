@@ -14,12 +14,29 @@ write the contract; these adapters keep existing report bundles and historical
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
 
-class StageId(StrEnum):
+class _StrEnum(str, Enum):
+    """``enum.StrEnum`` for the Python floor this package declares.
+
+    ``StrEnum`` is 3.11+, and ``pyproject.toml`` says ``requires-python >=3.10``
+    with 3.10 in the CI matrix — so importing it here broke collection of this
+    module, and of its tests, on the oldest version we claim to support.
+
+    ``(str, Enum)`` is what the rest of the codebase already uses
+    (:class:`evalvitals.core.case.Label`); the explicit ``__str__`` is what
+    keeps it interchangeable, since plain ``(str, Enum)`` formats as
+    ``StageId.M1`` where ``StrEnum`` formats as ``M1``.
+    """
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+
+class StageId(_StrEnum):
     """Pipeline identifiers retained for auditability, not navigation order."""
 
     M1 = "M1"
@@ -29,7 +46,7 @@ class StageId(StrEnum):
     M4 = "M4"
 
 
-class StageState(StrEnum):
+class StageState(_StrEnum):
     """Reader-visible stage state; absence is distinct from an empty result."""
 
     NOT_STARTED = "not_started"

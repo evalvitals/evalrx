@@ -21,6 +21,9 @@ class OPERAAnalyzer(Analyzer):
     name = "opera"
     requires = frozenset({Capability.ATTENTION})
     applies_to_modalities = frozenset({"image"})
+    # An omni model DECLARES image even on an audio benchmark, so the registry
+    # match alone still offers this on a batch with no images in it.
+    requires_modalities = frozenset({"image"})
 
     def _run(self, model, cases):
         raise NotImplementedError("Stage 2: attention over-trust diagnosis (needs decode-loop control).")

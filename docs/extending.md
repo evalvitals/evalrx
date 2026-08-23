@@ -268,6 +268,23 @@ probe = StrategyProbe(priority_override={
 loop = AutoDiagnoseLoop(model=my_model, probe=probe, ...)
 ```
 
+An override is looked up by `ModelKind` and replaces composition entirely — it
+is an explicit statement about ordering, so the batch's modality slots do not
+reorder it. Without one, ranking composes the per-slot lists in
+`_SLOT_PRIORITY`, which is where a new modality's analyzers belong.
+
+An analyzer that dereferences a media slot must say so:
+
+```python
+class MyAudioAnalyzer(Analyzer):
+    applies_to_modalities = frozenset({"text", "audio"})   # what the MODEL must accept
+    requires_modalities   = frozenset({"audio"})           # what the BATCH must fill
+```
+
+The first is matched by intersection against the model's declaration, so
+`"text"` alone matches every model; the second is the gate that keeps the
+analyzer off a batch with no audio in it.
+
 ## Log and persist a diagnosis run
 
 The recommended way to persist a run is `RunContext` — it owns the whole

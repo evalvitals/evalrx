@@ -46,6 +46,7 @@ from evalvitals.analyzers.perturbation.context_shap import ContextShapAnalyzer
 from evalvitals.analyzers.perturbation.cot_faithfulness import CoTFaithfulnessAnalyzer
 from evalvitals.analyzers.perturbation.format_sensitivity import FormatSensitivityAnalyzer
 from evalvitals.analyzers.perturbation.mm_shap import MMShapAnalyzer
+from evalvitals.analyzers.perturbation.modality_ablation import ModalityAblationAnalyzer
 from evalvitals.analyzers.perturbation.perturbation_battery import PerturbationBattery
 from evalvitals.analyzers.perturbation.prompt_contrast import PromptContrastAnalyzer
 from evalvitals.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
@@ -157,6 +158,27 @@ def _contrast_batch() -> CaseBatch:
         label=Label.FAIL,
     )
     return CaseBatch([case])
+
+
+def _ablation_batch() -> CaseBatch:
+    """Two audio cases — enough for the swap mode to find a donor."""
+    return CaseBatch([
+        FailureCase(
+            id=f"abl{i}",
+            inputs=Inputs(prompt="What do you hear?", audio=f"clip{i}.wav"),
+            expected={"all_of": ["dog"]},
+            label=Label.FAIL,
+        )
+        for i in range(2)
+    ])
+
+
+class _SlotSensitiveModel(FakeModel):
+    """Answers from the audio slot, so ablating it visibly moves the answer."""
+
+    def generate(self, inputs, **kwargs) -> str:
+        audio = getattr(inputs, "audio", None)
+        return f"a dog in {audio}" if audio else "I cannot hear anything"
 
 
 def _reasoning_batch() -> CaseBatch:
@@ -287,6 +309,10 @@ _RUNNABLE: list[tuple[Any, Any, Any]] = [
     (LinearProbeAnalyzer(epochs=50), _FULL, _LABELLED),
     # perturbation — text path; default scorer falls back to model.logprobs
     (MMShapAnalyzer(n_samples=4),    _FULL, _STANDARD),
+    (ModalityAblationAnalyzer(),     _SlotSensitiveModel(
+        capabilities={Capability.GENERATE},
+        modalities={"text", "audio"},
+    ), _ablation_batch()),
     # agent analyzers — all consume a Trajectory-bearing CaseBatch
     (LoopDetector(),                 None,  _traj_batch()),
     (IgnoredObservationDetector(),   None,  _traj_batch()),
@@ -394,8 +420,17 @@ _EXPECTED_FINDING_KEYS: dict[str, set[str]] = {
     "verbalized_confidence": {"verbalized_confidence", "parsed", "raw_tail"},
     "cka": {"n_layers", "mean_offdiagonal_cka", "adjacent_layer_cka", "_caveat"},
     "mm_shap": {
-        "mm_score", "text_contribution", "image_contribution", "has_image",
+        "mm_score", "media_score", "text_contribution", "probed_slots",
         "top_text_tokens", "_note",
+        "has_image", "image_contribution", "image_score",
+        "has_audio", "audio_contribution", "audio_score",
+        "has_video", "video_contribution", "video_score",
+    },
+    "modality_ablation": {
+        "n_cases_probed", "mode", "probed_slots", "_note", "per_case", "by_strategy",
+        "n_probed_image", "ungrounded_rate_image", "ablation_mode_image",
+        "n_probed_audio", "ungrounded_rate_audio", "ablation_mode_audio",
+        "n_probed_video", "ungrounded_rate_video", "ablation_mode_video",
     },
     "loop_detect": {"n_trajectories", "n_with_loops", "per_case"},
     "ignored_obs": {"n_trajectories", "n_with_ignored_obs", "per_case"},
@@ -495,6 +530,26 @@ def _check_mm_shap(f: dict[str, Any]) -> None:
     assert _between(f["mm_score"], 0, 1)
     assert f["has_image"] is False
     assert len(f["top_text_tokens"]) <= 4
+    # A text-only case fills no slot: every per-slot field must read None, not
+    # 0.0 — "no image in this case" is not "the image contributed nothing".
+    assert f["probed_slots"] == []
+    for slot in ("image", "audio", "video"):
+        assert f[f"has_{slot}"] is False
+        assert f[f"{slot}_contribution"] is None
+        assert f[f"{slot}_score"] is None
+
+
+def _check_modality_ablation(f: dict[str, Any]) -> None:
+    assert f["n_cases_probed"] == 2
+    assert f["probed_slots"] == ["audio"]
+    assert f["n_probed_audio"] == 2
+    # The model answers from the audio slot, so dropping it moves every answer.
+    assert f["ungrounded_rate_audio"] == 0.0
+    assert f["ablation_mode_audio"] == "drop"
+    # Slots no case filled stay None rather than collapsing to a rate of 0.
+    assert f["n_probed_image"] == 0 and f["ungrounded_rate_image"] is None
+    assert all(row["grounded_in_audio"] is True for row in f["per_case"])
+    assert set(f["by_strategy"]) == {"baseline", "without_audio"}
 
 
 def _check_loop_detect(f: dict[str, Any]) -> None:
@@ -733,6 +788,7 @@ _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
     "verbalized_confidence": _check_verbalized_confidence,
     "cka": _check_cka,
     "mm_shap": _check_mm_shap,
+    "modality_ablation": _check_modality_ablation,
     "loop_detect": _check_loop_detect,
     "ignored_obs": _check_ignored_obs,
     "first_error_judge": _check_first_error_judge,

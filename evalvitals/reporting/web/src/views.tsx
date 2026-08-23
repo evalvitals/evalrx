@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import ReactECharts from "echarts-for-react";
 import { AlertTriangle, ArrowLeft, BarChart3, Beaker, CheckCircle2, ChevronRight, Microscope, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
-import type { Case, DebugEvent, ReportData } from "./types";
+import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, HypothesisTestOutput,
+  Modality, ProbeOutput, ReportData } from "./types";
 
 export function EvidenceView({ data, back, initialStage }: { data: ReportData; back: () => void; initialStage?: string }) {
   const [selected, setSelected] = useState(initialStage || data.stages[0]?.id);
@@ -16,7 +17,7 @@ export function EvidenceView({ data, back, initialStage }: { data: ReportData; b
 function StageArtifact({ stage, detail, report }: { stage: string; detail: Record<string, any>; report: ReportData }) {
   if (stage === "m1") return <M1Detail data={detail.m1 || {}} report={report} />;
   if (stage === "m2") return <M2Detail data={detail.m2 || {}} />;
-  if (stage === "m3") return <M3Detail data={detail.m3 || {}} />;
+  if (stage === "m3") return <M3Detail data={detail.m3 || {}} report={report} />;
   if (stage === "m5") return <M5Detail data={detail.m5 || {}} report={report} />;
   if (stage === "m4") return <M4Detail data={detail.m4 || {}} report={report} />;
   return <EmptyStage title="No stage data" body="This stage did not retain a structured artifact." />;
@@ -30,11 +31,41 @@ function StageKpis({ items }: { items: Array<{ label: string; value: React.React
   return <div className="stage-kpis">{items.map((item) => <article key={item.label}><span>{item.label}</span><strong>{item.value ?? "—"}</strong>{item.note && <small>{item.note}</small>}</article>)}</div>;
 }
 
+/**
+ * Which modality the run was actually about, read from M1's contract payload.
+ *
+ * The three sets are shown separately because they disagree in exactly the case
+ * that used to go wrong silently: an omni model declares four modalities, the
+ * benchmark fills one, and analyzer routing must follow the batch. A single
+ * "model kind" label could not express that, and rendering only the model's
+ * declaration would tell the reader the run probed images when it probed audio.
+ */
+function ModalityBand({ selection }: { selection?: AnalyzerSelection }) {
+  if (!selection) return null;
+  const routed = selection.routed_on || [];
+  const declared = selection.model_modalities || [];
+  const probed = selection.probed_modalities || [];
+  const narrowed = declared.length > routed.length;
+  return <div className="modality-band">
+    <div><small>ROUTED ON</small><b>{routed.map(labelModality).join(" + ") || "text"}</b></div>
+    <div><small>MODEL ACCEPTS</small><b>{declared.map(labelModality).join(" + ") || "text"}</b></div>
+    <div><small>CASES CARRIED</small><b>{probed.map(labelModality).join(" + ") || "text"}</b></div>
+    {selection.is_agent && <div><small>SHAPE</small><b>agent trajectories</b></div>}
+    {narrowed && <p className="modality-note">The model accepts more than this benchmark exercises, so the checks were narrowed to what the cases actually contain.</p>}
+  </div>;
+}
+
+function labelModality(slot: Modality): string {
+  return { text: "text", image: "images", audio: "audio", video: "video" }[slot] || slot;
+}
+
 function M1Detail({ data, report }: { data: any; report: ReportData }) {
   const probes = data.probes || [];
   const examples = data.examples || [];
+  const m1 = findContract<ProbeOutput>(report, "m1");
   return <>
     <StageBanner kind="MEASURE" title="Behavioral checkup">We give the model real tasks, then run several checks on its behavior. This tells us where it struggles; it does not yet tell us why.</StageBanner>
+    <ModalityBand selection={m1?.selection} />
     <StageKpis items={[{ label: "Probes run", value: data.n_probes || probes.length }, { label: "Cases measured", value: data.n_measured || "—" }, { label: "Runtime", value: seconds(data.duration) }]} />
     {examples.length > 0 && <ExampleSection eyebrow="A real example" title="What one M1 check looks like" note="Examples make the measurement concrete. The result below is based on all measured cases, not just this one."><div className="example-deck">{examples.map((example: any) => <M1Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
     {data.operations?.length > 0 && <OperationExamples examples={data.operations} report={report} />}
@@ -43,6 +74,24 @@ function M1Detail({ data, report }: { data: any; report: ReportData }) {
       <div className="probe-expanded"><p>{probe.description}</p>{Object.keys(probe.finding_summary || {}).length > 0 && <KeyValueGrid values={probe.finding_summary} />}{Object.keys(probe.raw_finding_summary || {}).length > 0 && <details className="nested-detail"><summary>Technical measurement names and raw values</summary><KeyValueGrid values={probe.raw_finding_summary} /></details>}{probe.sample_rows?.length > 0 && <details className="nested-detail"><summary>Inspect {probe.sample_rows.length} representative measurement rows</summary><RecordTable rows={probe.sample_rows} /></details>}</div>
     </details>)}</div>
   </>;
+}
+
+/**
+ * The newest contract payload for a stage, across cycles.
+ *
+ * Spans are "c<cycle>.<stage>", so the last key in sort order is the last cycle
+ * that ran. Returns undefined for a run that predates contract emission — the
+ * caller must render without it rather than showing an error, since those runs
+ * are still perfectly readable through the legacy stage_detail.
+ */
+function findContract<T>(report: ReportData, stage: string): T | undefined {
+  const payloads = report.contract;
+  if (!payloads) return undefined;
+  const keys = Object.keys(payloads).filter((k) => k.endsWith(`.${stage}`) || k === stage);
+  if (!keys.length) return undefined;
+  const payload = payloads[keys.sort()[keys.length - 1]];
+  if (!payload || "error" in payload) return undefined;
+  return payload as T;
 }
 
 function ExampleSection({ eyebrow, title, note, children }: { eyebrow: string; title: string; note: string; children: React.ReactNode }) {
@@ -98,20 +147,83 @@ function StatEvidenceChart({ stats, title, note }: { stats: any[]; title: string
   return <section className="stat-evidence"><header><span>VISUAL SUMMARY OF M2</span><h3>{title}</h3><p>{note}</p></header><ReactECharts option={option} style={{ height: Math.max(300, rows.length * 48) }} />{rateRows.length > 0 && <><h4 className="stat-subtitle">What those patterns mean in the cases</h4><p className="stat-caption">For each measured behavior, compare the error rate among cases with that behavior against all other cases. This is an observed comparison, not a causal claim.</p><ReactECharts option={rateOption} style={{ height: Math.max(280, rateRows.length * 48) }} /></>}<details><summary>Technical measurement names and test records</summary><RecordTable rows={rows.map((item) => ({ measurement: item.raw_signal, effect: item.effect, interval: item.ci, error_rate_with_behavior: item.fail_rate_signal, error_rate_other_cases: item.fail_rate_control, passed_screen: item.reject, tool: item.tool }))} /></details></section>;
 }
 
-function M3Detail({ data }: { data: any }) {
+/**
+ * Hypotheses M3 proposed with no test_design, from the contract.
+ *
+ * The legacy card renders "No test design was retained", which says the design
+ * existed and was lost. It did not exist: the judge proposed a mechanism and no
+ * way to be wrong about it. That distinction decides how to read M5 — such a
+ * claim returns INCONCLUSIVE however much evidence the next cycle gathers, and
+ * without saying so the reader concludes "needs more data" and runs it again.
+ */
+function untestableIds(report: ReportData): Set<string> {
+  const m3 = findContract<DiagnosisOutput>(report, "m3");
+  return new Set((m3?.hypotheses || []).filter((h) => !h.test_design?.trim()).map((h) => h.id));
+}
+
+/** A design a person can act on, but that names nothing M5 measured this cycle. */
+const SIGNAL_REF = /\b[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\b/;
+const DIRECTIVES = ["prompt_contrast", "analyzer_params", "strategy_contrast", "paired_rerun"];
+function isRoutable(design?: string): boolean {
+  const t = (design || "").trim();
+  if (!t) return false;
+  return SIGNAL_REF.test(t.toLowerCase()) || DIRECTIVES.some((d) => t.includes(d));
+}
+
+function M3Detail({ data, report }: { data: any; report: ReportData }) {
   const accepted = data.hypotheses || [];
   const recovered = data.unparsed_proposals || [];
   const hypotheses = accepted.length ? accepted : recovered;
+  const m3 = findContract<DiagnosisOutput>(report, "m3");
+  const untestable = m3 ? (m3.hypotheses || []).filter((h) => !h.test_design?.trim()) : [];
+  const unroutable = m3
+    ? (m3.hypotheses || []).filter((h) => h.test_design?.trim() && !isRoutable(h.test_design))
+    : [];
   return <>
     <StageBanner kind="PROPOSAL ONLY" title="Falsifiable mechanisms">M3 turns M2 leads into explanations that could be proven wrong. These cards are proposals; validation status belongs exclusively to M5.</StageBanner>
+    {untestable.length > 0 && <div className="parser-warning"><AlertTriangle /><div>
+      <b>{untestable.length === 1 ? "One proposal names no test" : `${untestable.length} proposals name no test`}.</b>
+      <p>A hypothesis with no test design cannot be decided by any amount of evidence — M5 will return “inconclusive” for it on every cycle. Read that verdict as “this claim was never testable”, not as “not enough data yet”.</p>
+    </div></div>}
+    {unroutable.length > 0 && <div className="parser-warning"><AlertTriangle /><div>
+      <b>{unroutable.length === 1 ? "One proposal names a measurement nobody has taken yet" : `${unroutable.length} proposals name measurements nobody has taken yet`}.</b>
+      <p>These do describe an experiment — they just refer to something this cycle did not measure, so M5 has nothing to resolve them against. That is work for the next round of checks, not a claim without a falsifier.</p>
+    </div></div>}
     <StageKpis items={[{ label: "Accepted proposals", value: accepted.length }, { label: "Recovered from transcript", value: recovered.length }, { label: "Test designs", value: hypotheses.filter((item: any) => item.test_design).length }]} />
     {!accepted.length && recovered.length > 0 && <div className="parser-warning"><AlertTriangle /><div><b>The AI Doctor proposed hypotheses, but the pipeline parser rejected their format.</b><p>They are shown below for audit only and did not unlock M5 or M4.</p></div></div>}
     {data.evidence_figures?.length > 0 && <section className="m3-evidence"><header><span>THE VISUAL EVIDENCE THIS STEP STARTS FROM</span><h3>Patterns the agent is trying to explain</h3><p>These charts come from M2. They are observations that motivate the ideas below, not confirmation that an idea is true.</p></header><div className="analysis-figures">{data.evidence_figures.map((figure: any) => <EvidenceFigure figure={figure} key={figure.id} />)}</div></section>}
     {data.evidence_stats?.length > 0 && <StatEvidenceChart stats={data.evidence_stats} title="The strongest M2 patterns carried into this step" note="M3 turns these observed patterns into testable ideas. M5 is still needed to decide whether an idea holds up." />}
-    {hypotheses.length ? <div className="hypothesis-list">{hypotheses.map((hypothesis: any, index: number) => <article className="hypothesis-card" key={index}><header><span>H{index + 1}</span><em>{accepted.length ? "IDEA TO TEST" : "NOT YET USABLE"}</em></header><h3>{hypothesis.plain_statement || hypothesis.statement || hypothesis.hypothesis}</h3>{hypothesis.statement && hypothesis.plain_statement && hypothesis.statement !== hypothesis.plain_statement && <details><summary>Technical wording</summary><p>{hypothesis.statement}</p></details>}<div className="hypothesis-grid"><div><small>WHAT MAY BE GOING WRONG</small><p>{plainFailureMode(hypothesis.failure_mode)}</p></div><div><small>WHY THIS IS PLAUSIBLE</small><p>{hypothesis.basis || "Based on the patterns found in the previous step."}</p></div><div className="test-design"><small>WHAT WOULD PROVE IT WRONG?</small><p>{hypothesis.test_design || "No test design was retained."}</p>{hypothesis.expected_association && <details><summary>Technical test expression</summary><code>{hypothesis.expected_association}</code></details>}</div></div></article>)}</div> : <EmptyStage title="No formal hypotheses" body="The earlier pattern search did not yield an idea the pipeline could test." />}
+    {hypotheses.length ? <div className="hypothesis-list">{hypotheses.map((hypothesis: any, index: number) => <article className="hypothesis-card" key={index}><header><span>H{index + 1}</span><em>{accepted.length ? "IDEA TO TEST" : "NOT YET USABLE"}</em></header><h3>{hypothesis.plain_statement || hypothesis.statement || hypothesis.hypothesis}</h3>{hypothesis.statement && hypothesis.plain_statement && hypothesis.statement !== hypothesis.plain_statement && <details><summary>Technical wording</summary><p>{hypothesis.statement}</p></details>}<div className="hypothesis-grid"><div><small>WHAT MAY BE GOING WRONG</small><p>{plainFailureMode(hypothesis.failure_mode)}</p></div><div><small>WHY THIS IS PLAUSIBLE</small><p>{hypothesis.basis || "Based on the patterns found in the previous step."}</p></div><div className="test-design"><small>WHAT WOULD PROVE IT WRONG?</small><p>{hypothesis.test_design || (m3 ? "Nothing — the AI Doctor proposed no test for this idea, so no result can decide it." : "No test design was retained.")}</p>{hypothesis.expected_association && <details><summary>Technical test expression</summary><code>{hypothesis.expected_association}</code></details>}</div></div></article>)}</div> : <EmptyStage title="No formal hypotheses" body="The earlier pattern search did not yield an idea the pipeline could test." />}
     {(data.candidate_signals?.length > 0 || data.recommended_tests?.length > 0) && <details className="agent-transcript"><summary>Candidate signals and suggested follow-ups</summary>{data.candidate_signals?.length > 0 && <RecordTable rows={data.candidate_signals} />}{data.recommended_tests?.map((item: any, i: number) => <p key={i}>• {String(item)}</p>)}</details>}
     {data.agent_response && <details className="agent-transcript"><summary>AI Doctor raw response</summary><pre>{data.agent_response}</pre></details>}
   </>;
+}
+
+/**
+ * Separates "the evidence was weak" from "the claim was never decidable".
+ *
+ * Both render as INCONCLUSIVE, and only the M3<->M5 join can tell them apart:
+ * match each verdict's hypothesis_id back to the proposal and check whether it
+ * carried a test_design. Without this the reader sees "inconclusive", concludes
+ * "gather more data", and the next cycle returns the same verdict for the same
+ * reason. The join is why the ids on both sides have to agree.
+ */
+function UndecidableNote({ report }: { report: ReportData }) {
+  const m5 = findContract<HypothesisTestOutput>(report, "m5");
+  if (!m5) return null;
+  const untestable = untestableIds(report);
+  const stuck = (m5.results || []).filter(
+    (r) => r.status === "inconclusive" && untestable.has(r.hypothesis_id),
+  );
+  if (!stuck.length) return null;
+  return <div className="parser-warning"><AlertTriangle /><div>
+    <b>{stuck.length === 1 ? "One “inconclusive” verdict is not a shortage of evidence." : `${stuck.length} “inconclusive” verdicts are not a shortage of evidence.`}</b>
+    <p>
+      {stuck.map((r) => r.hypothesis_id).join(", ")} came back inconclusive because the
+      proposal named no test, so nothing measured here could have decided it either way.
+      Re-running with more cases returns the same verdict. The fix belongs in M3.
+    </p>
+  </div></div>;
 }
 
 function M5Detail({ data, report }: { data: any; report: ReportData }) {
@@ -123,6 +235,7 @@ function M5Detail({ data, report }: { data: any; report: ReportData }) {
   return <>
     <StageBanner kind="CONFIRMATORY" title="Independent check">First we freeze a possible explanation. Then we test it on fresh evidence the agent did not use to invent the explanation. This is the stage allowed to say whether the idea held up.</StageBanner>
     <StageKpis items={[{ label: "Hypotheses checked", value: results.length }, { label: "Supported", value: statuses("supported") }, { label: "Refuted", value: statuses("refuted") }, { label: "Inconclusive", value: statuses("inconclusive") }, { label: "Protocol-consistent", value: `${consistent}/${results.length}` }]} />
+    <UndecidableNote report={report} />
     {examples.length > 0 && <ExampleSection eyebrow="A validation example" title="How we decide whether an explanation survives" note="This is one recorded validation check. Its conclusion uses the complete independent test set—not a hand-picked example."><div className="example-deck">{examples.map((example: any) => <M5Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
     <div className="verdict-list">{results.map((result: any, index: number) => <VerdictCard result={result} fallback={data.event} index={index} key={index} />)}</div>
   </>;

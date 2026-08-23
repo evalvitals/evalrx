@@ -98,8 +98,12 @@ class FixInput(WireModel):
     hypothesis_ids: list[str]
     data: CaseBatchRef
     model_name: str
-    max_tier: Literal["L1", "L2", "L3a", "L3b", "L4"] = Field(
-        description="L1 prompt / L2 scaffold / L3a internals-read / L3b internals-write / L4 params."
+    max_tier: Literal["L0", "L1", "L2", "L3a", "L3b", "L4"] = Field(
+        description="L0 runtime config / L1 prompt / L2 scaffold / L3a internals-read / "
+                    "L3b internals-write / L4 params.\n\n"
+                    "L0 is in this list because `FixTier` has it — decoding settings are a "
+                    "real, and the least invasive, place to intervene. Omitting it made a "
+                    "tier the pipeline can produce unrepresentable."
     )
     max_repair_rounds: int = Field(
         default=1, ge=1, description="Feedback-driven propose->validate rounds. 1 = no loop."
@@ -115,7 +119,7 @@ class FixAttemptWire(WireModel):
     delta is not the same claim and must never be displayed as if it were.
     """
 
-    tier: Literal["L1", "L2", "L3a", "L3b", "L4"]
+    tier: Literal["L0", "L1", "L2", "L3a", "L3b", "L4"]
     name: str
     kind: str | None = None
     source: str | None = None
@@ -170,7 +174,7 @@ class FixOutput(StageEnvelope):
     would put a second, drifting copy in every report a reader loads.
     """
 
-    max_tier: Literal["L1", "L2", "L3a", "L3b", "L4"]
+    max_tier: Literal["L0", "L1", "L2", "L3a", "L3b", "L4"]
     routed: list[dict[str, str]] = Field(
         default_factory=list, description="Which hypothesis went to which tier, and why."
     )

@@ -14,6 +14,8 @@ prompts to a file in the sandboxed workspace instead of passing them inline.
 
 from __future__ import annotations
 
+import shutil
+
 import os
 import stat
 import textwrap
@@ -31,6 +33,14 @@ def _echo_argv_script(tmp_path: Path) -> str:
     script.write_text('#!/bin/sh\necho GOT_ARGS:"$@"\n', encoding="utf-8")
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     return str(script)
+
+
+
+#: A no-op executable, located rather than assumed. ``/bin/true`` exists on
+#: Linux and not on macOS (it is /usr/bin/true there), so hardcoding the path
+#: failed the whole parametrised suite on a Mac with FileNotFoundError -- a test
+#: portability bug that reads exactly like six broken providers.
+NOOP_BINARY = shutil.which("true") or "/usr/bin/true"
 
 
 class TestAgyModelLargePrompt:
@@ -71,13 +81,13 @@ class TestCliAgentBaseLargePrompt:
             return ["/bin/sh", "-c", 'echo GOT_ARGS:"$@"', "--", prompt]
 
     def test_small_prompt_stays_inline(self, tmp_path):
-        agent = self._EchoAgent(binary_path="/bin/true", timeout_sec=10)
+        agent = self._EchoAgent(binary_path=NOOP_BINARY, timeout_sec=10)
         result = agent.run("short task", tmp_path)
         assert "short task" in result.raw_output
         assert not (tmp_path / "prompt.txt").exists()
 
     def test_large_prompt_spills_to_workdir(self, tmp_path):
-        agent = self._EchoAgent(binary_path="/bin/true", timeout_sec=10)
+        agent = self._EchoAgent(binary_path=NOOP_BINARY, timeout_sec=10)
         big_prompt = textwrap.dedent("evidence row\n") * 10_000  # well over 60KB
         result = agent.run(big_prompt, tmp_path)
         prompt_file = tmp_path / "prompt.txt"
@@ -105,10 +115,10 @@ def test_every_real_provider_gets_the_spill_for_free(tmp_path, provider_module, 
     import importlib
 
     cls = getattr(importlib.import_module(provider_module), class_name)
-    agent = cls(binary_path="/bin/true", timeout_sec=10)
+    agent = cls(binary_path=NOOP_BINARY, timeout_sec=10)
     big_prompt = "G" * (CliAgentBase._LARGE_PROMPT_BYTES + 1)
     # Exercise the real path: run() must write prompt.txt before _build_cmd
-    # ever sees the oversized text. binary_path="/bin/true" makes the actual
+    # ever sees the oversized text. binary_path=NOOP_BINARY makes the actual
     # subprocess a no-op; only the pre-exec spill-to-file behavior is under test.
     agent.run(big_prompt, tmp_path)
     assert (tmp_path / "prompt.txt").read_text(encoding="utf-8") == big_prompt
