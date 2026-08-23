@@ -205,6 +205,61 @@
       "title": "JoinReport",
       "type": "object"
     },
+    "ModelRef": {
+      "additionalProperties": false,
+      "description": "Identity + declared capabilities of the model under diagnosis.\n\n``modalities`` is a SET, matched by subset against each analyzer's\n``applies_to_modalities``. Adding a modality adds one member here, not a new\ncombination type.",
+      "properties": {
+        "name": {
+          "description": "What to call this model on a screen — a spec key or a product name, e.g. 'qwen3.5-2b' or 'VideoLLaMA2.1-7B-AV'.",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "backend": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend"
+        },
+        "modalities": {
+          "items": {
+            "enum": [
+              "text",
+              "image",
+              "audio",
+              "video"
+            ],
+            "type": "string"
+          },
+          "title": "Modalities",
+          "type": "array"
+        },
+        "capabilities": {
+          "description": "e.g. GENERATE / LOGPROBS / ATTENTION / HIDDEN_STATES.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ModelRef",
+      "type": "object"
+    },
     "PerCaseRow": {
       "additionalProperties": true,
       "description": "One measurement row. THE contract of the whole pipeline.\n\nOnly ``sample_id`` is fixed. Every other key is analyzer-defined; any key\nwhose value is a finite number or bool is automatically harvested as a signal\nnamed ``\"<analyzer>.<key>\"``. Non-numeric values are carried for display and\nignored by the statistics.",
@@ -243,6 +298,14 @@
         },
         "findings": {
           "$ref": "#/$defs/FindingsWire"
+        },
+        "signal_docs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "metric -> what it measures, in one plain sentence, from the analyzer that produced it. The analyzer is the only thing that knows; every reader downstream was otherwise guessing from the identifier, and guessing produced chart labels no one could read. A metric absent here is undocumented — report it as such, do not paraphrase the name.",
+          "title": "Signal Docs",
+          "type": "object"
         },
         "artifact_paths": {
           "additionalProperties": {
@@ -388,6 +451,18 @@
     },
     "status": {
       "$ref": "#/$defs/StageStatus"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Who was diagnosed. Carried on the OUTPUT, not only on ProbeInput: a reader opens this file with no input beside it, and the only identity here used to be `ResultWire.model`, a repr — so the answer to 'which model is this report about' was a memory address."
     },
     "results": {
       "additionalProperties": {

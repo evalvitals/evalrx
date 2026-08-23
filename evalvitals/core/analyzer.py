@@ -68,6 +68,26 @@ class Analyzer(ABC):
     #: Empty (the default) means the analysis needs no particular slot filled.
     #: Selection gates this against the slots the batch in hand actually fills.
     requires_modalities: frozenset[str] = frozenset()
+    #: ``metric name -> what it measures, in one plain sentence``.
+    #:
+    #: The analyzer is the only thing that knows what its own numbers mean, and
+    #: without saying so every consumer has to guess from the identifier. The
+    #: dashboard guessed by replacing underscores with spaces, which is how a
+    #: chart came to be labelled "output chars (answer extraction audit)" and
+    #: how six different metrics all truncated to "Did the model g...".
+    #:
+    #: Write it for someone who has not read this file: say what the number
+    #: counts and which direction is bad. Undocumented metrics still work --
+    #: they are reported as undocumented rather than dressed up, so the gap is
+    #: visible instead of being filled with plausible-looking prose.
+    #:
+    #: A value may be the sentence alone, or ``(short_label, sentence)`` when the
+    #: metric needs a name a chart axis can hold — roughly 24 characters, since
+    #: a bar chart's label column is narrow and anything longer is truncated to
+    #: an ellipsis that identifies nothing. Without a short label the identifier
+    #: is humanized as the fallback, which reads as jargon but at least does not
+    #: pretend to be an explanation.
+    signal_docs: dict[str, "str | tuple[str, str]"] = {}
 
     def __init__(self, **params: Any) -> None:
         # Store hyper-parameters sklearn-style for introspection / reproduction.

@@ -43,6 +43,8 @@
       "description": "Identity + declared capabilities of the model under diagnosis.\n\n``modalities`` is a SET, matched by subset against each analyzer's\n``applies_to_modalities``. Adding a modality adds one member here, not a new\ncombination type.",
       "properties": {
         "name": {
+          "description": "What to call this model on a screen — a spec key or a product name, e.g. 'qwen3.5-2b' or 'VideoLLaMA2.1-7B-AV'.",
+          "minLength": 1,
           "title": "Name",
           "type": "string"
         },

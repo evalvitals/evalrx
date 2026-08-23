@@ -56,6 +56,21 @@ class MMShapAnalyzer(Analyzer):
     name = "mm_shap"
     requires = frozenset({Capability.LOGPROBS})
     applies_to_modalities = frozenset({"text", "image", "audio", "video"})
+    signal_docs = {
+        'audio_contribution': 'How much the audio drove the answer.',
+        'audio_score': ("Audio's share", "The audio's share of everything that drove the answer."),
+        'has_audio': 'Whether this case had audio at all.',
+        'has_image': 'Whether this case had an image at all.',
+        'has_video': 'Whether this case had video at all.',
+        'image_contribution': 'How much the image drove the answer.',
+        'image_score': ("Image's share", "The image's share of everything that drove the answer."),
+        'media_score': ('Reliance on media', 'How much the answer rested on the pictures and sound together, rather than on the question text alone.'),
+        'mm_score': ('Reliance on the image', 'How much the answer rested on the image, from 0 (all text) to 1 (all image).'),
+        'probed_slots': 'Which modalities were present to weigh.',
+        'text_contribution': ('Reliance on the question', "How much the question's own wording drove the answer."),
+        'video_contribution': 'How much the video drove the answer.',
+        'video_score': ("Video's share", "The video's share of everything that drove the answer."),
+    }
     #: Needs at least one media slot filled — with none, every player is a word
     #: and the "modality contribution" it reports is a text-only tautology.
     requires_modalities = frozenset(MEDIA_SLOTS)

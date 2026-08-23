@@ -37,7 +37,8 @@ from evalvitals.contract.common import (
     StageStatus, WireModel,
 )
 from evalvitals.contract.m1 import (
-    AnalyzerSelection, FindingsWire, PerCaseRow, ProbeOutput, ResultWire,
+    _PYTHON_REPR, AnalyzerSelection, FindingsWire, ModelRef, PerCaseRow, ProbeOutput,
+    ResultWire,
 )
 from evalvitals.contract.m2 import (
     AnalysisFindingWire, CorrectedRejections, StatsReportWire, StatsToolResultWire,
@@ -118,11 +119,95 @@ def case_ref(path: str, cases: Iterable[Any], split: str | None = None) -> CaseB
 # M1
 # ---------------------------------------------------------------------------
 
+def _signal_docs(analyzer: str) -> dict[str, str]:
+    """The registered analyzer's own explanation of its metrics.
+
+    Read from the registry rather than passed in, so an analyzer that documents
+    itself is documented everywhere it appears without the caller doing anything.
+    """
+    try:
+        from evalvitals.core.registry import registry
+
+        cls = registry.analyzers.get(analyzer) if registry.analyzers.has(analyzer) else None
+    except Exception:  # noqa: BLE001 - a glossary must never break emission
+        return {}
+    docs = getattr(cls, "signal_docs", None) or {}
+    out: dict[str, str] = {}
+    for key, value in docs.items():
+        # `(short_label, sentence)` or just the sentence.
+        sentence = value[1] if isinstance(value, (tuple, list)) and len(value) == 2 else value
+        if str(sentence).strip():
+            out[str(key)] = str(sentence)
+    return out
+
+
+def _signal_labels(analyzer: str) -> dict[str, str]:
+    """Short, chart-ready names the analyzer gave its metrics, where it gave any."""
+    try:
+        from evalvitals.core.registry import registry
+
+        cls = registry.analyzers.get(analyzer) if registry.analyzers.has(analyzer) else None
+    except Exception:  # noqa: BLE001
+        return {}
+    docs = getattr(cls, "signal_docs", None) or {}
+    return {
+        str(k): str(v[0]).strip()
+        for k, v in docs.items()
+        if isinstance(v, (tuple, list)) and len(v) == 2 and str(v[0]).strip()
+    }
+
+
+def model_name(model: Any) -> str:
+    """A stable, readable name for a model object.
+
+    Asked in order: an explicit ``display_name``, the spec key it was composed
+    from, a plain ``name``/``key``, then the class name. Never ``repr()`` — the
+    default one embeds a memory address, so it is unreadable AND changes every
+    run, which makes two runs of the same model look like two models.
+
+    A producer that wants an exact product label ("VideoLLaMA2.1-7B-AV") sets
+    ``display_name`` on its Model; the class name is the fallback, not the goal.
+    """
+    if isinstance(model, str):
+        text = model.strip()
+        return text if text and not _PYTHON_REPR.match(text) else "unknown model"
+    for attr in ("display_name", "name"):
+        value = getattr(model, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    spec = getattr(model, "spec", None)
+    for owner in (spec, model):
+        key = getattr(owner, "key", None)
+        if isinstance(key, str) and key.strip():
+            return key.strip()
+    return type(model).__name__
+
+
+def _readable_model(recorded: Any, live: Any) -> str:
+    """The recorded name when it is one, otherwise the live model's."""
+    name = model_name(recorded)
+    if name != "unknown model":
+        return name
+    return model_name(live) if live is not None else "unknown model"
+
+
+def model_ref(model: Any, *, backend: str | None = None) -> ModelRef:
+    """Build the :class:`ModelRef` carried on M1's output."""
+    caps = getattr(model, "capabilities", frozenset()) or frozenset()
+    return ModelRef(
+        name=model_name(model),
+        backend=backend or getattr(getattr(model, "runtime", None), "backend", None),
+        modalities=sorted(getattr(model, "modalities", frozenset({"text"})) or {"text"}),  # type: ignore[arg-type]
+        capabilities=sorted(str(getattr(c, "value", c)) for c in caps),
+    )
+
+
 def from_probe_results(
     results: dict[str, Any],
     *,
     trace_id: str,
     cycle: int = 0,
+    model: Any = None,
     model_modalities: Iterable[str] = ("text",),
     probed_modalities: Iterable[str] = ("text",),
     routed_on: Iterable[str] | None = None,
@@ -156,8 +241,12 @@ def from_probe_results(
             rows.append(PerCaseRow(sample_id=str(sample_id), **flat))
         light = {k: v for k, v in findings.items() if _scalar(v) or isinstance(v, (list, dict))}
         wire[name] = ResultWire(
+            signal_docs=_signal_docs(name),
             analyzer=name,
-            model=str(_val(res, "model", "")),
+            # The readable name, not the repr the Result recorded. `or` is not
+            # enough: the recorded string is a repr, which is truthy, so it has
+            # to be REJECTED before falling back to the live model object.
+            model=_readable_model(_val(res, "model", ""), model),
             n_cases=len(_val(res, "cases", []) or []),
             findings=FindingsWire(per_case=rows, by_strategy=by_strategy, **light),
             metadata=dict(_val(res, "metadata", {}) or {}),
@@ -168,6 +257,7 @@ def from_probe_results(
         **envelope("m1", trace_id=trace_id, cycle=cycle,
                    state=StageState.SUCCEEDED if wire else StageState.EMPTY,
                    duration_sec=duration_sec),
+        model=model_ref(model) if model is not None else None,
         results=wire,
         selection=AnalyzerSelection(
             model_modalities=sorted(model_modalities),      # type: ignore[arg-type]
@@ -185,11 +275,68 @@ def from_probe_results(
 # M2
 # ---------------------------------------------------------------------------
 
+def signal_meaning(result: Any, glossary: "dict[str, dict[str, str]] | None" = None) -> "str | None":
+    """The producing analyzer's sentence for this result's signal, or ``None``.
+
+    ``None`` is reported as undocumented. It is not filled in by paraphrasing the
+    identifier: "output_chars" became "output chars", which reads like an
+    explanation and explains nothing, and a plausible-but-wrong gloss on a
+    statistic is worse than an admitted missing one.
+    """
+    cfg = _val(result, "config", {}) or {}
+    signal = str(cfg.get("signal") or cfg.get("metric") or "")
+    if not signal or not glossary:
+        return None
+    analyzer, _, metric = signal.partition(".")
+    return (glossary.get(analyzer) or {}).get(metric or analyzer)
+
+
+def measured_label(result: Any) -> str:
+    """A human, chart-ready name for WHAT a statistical result is about.
+
+    Built from the signal (``<analyzer>.<metric>``) because that is the subject;
+    the tool is the procedure and labelling a row with it produced two bars both
+    reading "Mcnemar evalue". Paired tools carry no signal at all, so they fall
+    back to naming the contrast — still the subject, never the procedure.
+
+    Deliberately mechanical: underscores to spaces, analyzer and metric kept
+    apart. Inventing prose here would put a second, drifting description beside
+    the analyzer's own.
+    """
+    cfg = _val(result, "config", {}) or {}
+    signal = cfg.get("signal") or cfg.get("metric") or ""
+    if signal:
+        analyzer, _, metric = str(signal).partition(".")
+        # The analyzer's own short name wins: it is written for a reader, where
+        # the identifier is written for the code.
+        named = _signal_labels(analyzer).get(metric or analyzer)
+        if named:
+            return named
+        pretty = str(metric or analyzer).replace("_", " ").strip()
+        origin = analyzer.replace("_", " ").strip() if metric else ""
+        return f"{pretty} ({origin})" if origin else pretty
+    for key in ("strategy", "contrast", "arm", "candidate"):
+        if cfg.get(key):
+            return f"{str(cfg[key]).replace('_', ' ')} vs baseline"
+    # Nothing named the subject; say so rather than borrowing the tool's name.
+    return f"unnamed contrast ({str(_val(result, 'tool', '')).replace('_', ' ')})"
+
+
 def from_stats_report(
     report: Any, *, trace_id: str, cycle: int = 0,
     raw_results_ref: str | None = None, duration_sec: float | None = None,
+    glossary: "dict[str, dict[str, str]] | None" = None,
 ) -> StatsReportWire:
-    """``StatsAnalysisReport`` -> :class:`StatsReportWire`."""
+    """``StatsAnalysisReport`` -> :class:`StatsReportWire`.
+
+    ``glossary`` is ``{analyzer: {metric: sentence}}``, normally M1's collected
+    ``signal_docs``; it is what turns a row's machine signal name into something
+    a reader can act on.
+    """
+    if glossary is None:
+        glossary = {name: _signal_docs(name)
+                    for name in {str((_val(r, "config", {}) or {}).get("signal", "")).partition(".")[0]
+                                 for r in (_val(report, "stats_results", []) or [])} if name}
     findings = [
         AnalysisFindingWire(
             analyzer=_val(f, "analyzer", ""), metric=_val(f, "metric", ""),
@@ -203,7 +350,9 @@ def from_stats_report(
     ]
     stats = [
         StatsToolResultWire(
-            tool=_val(r, "tool", ""), config=dict(_val(r, "config", {}) or {}),
+            tool=_val(r, "tool", ""), measured=measured_label(r),
+            means=signal_meaning(r, glossary),
+            config=dict(_val(r, "config", {}) or {}),
             ok=bool(_val(r, "ok", False)), error=_val(r, "error"),
             effect=_val(r, "effect"), ci=_val(r, "ci"), p_value=_val(r, "p_value"),
             e_value=_val(r, "e_value"), underpowered=bool(_val(r, "underpowered", False)),
@@ -669,6 +818,7 @@ __all__ = [
     "CONTRACT_DIR", "STAGE_WIRE", "ContractEmitter", "envelope", "write_index",
     "from_cases", "case_ref", "from_probe_results", "from_stats_report",
     "from_diagnosis", "from_test_results", "from_intervention", "from_fix_outcome",
+    "model_name", "model_ref", "measured_label", "signal_meaning",
     "hypothesis_id",
     "methodology_from_candidate",
 ]

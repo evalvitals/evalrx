@@ -60,7 +60,15 @@ export type Chart = {
   kind: "donut" | "bar";
   title: string;
   subtitle?: string;
-  series: Array<{ label: string; raw_label?: string; value: number; highlight?: boolean }>;
+  series: Array<{
+    label: string;
+    /** The producing analyzer's own sentence for what this measures. Empty when
+     *  it documented none — say so, never paraphrase the identifier. */
+    means?: string;
+    raw_label?: string;
+    value: number;
+    highlight?: boolean;
+  }>;
 };
 
 export type Case = {

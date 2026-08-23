@@ -355,6 +355,9 @@ export interface MethodologyWire {
  * combination type.
  */
 export interface ModelRef {
+  /**
+   * What to call this model on a screen — a spec key or a product name, e.g. 'qwen3.5-2b' or 'VideoLLaMA2.1-7B-AV'.
+   */
   name: string;
   backend?: string | null;
   modalities?: ("text" | "image" | "audio" | "video")[];
@@ -414,6 +417,10 @@ export interface ResultWire {
   n_cases: number;
   findings?: FindingsWire;
   /**
+   * metric -> what it measures, in one plain sentence, from the analyzer that produced it. The analyzer is the only thing that knows; every reader downstream was otherwise guessing from the identifier, and guessing produced chart labels no one could read. A metric absent here is undocumented — report it as such, do not paraphrase the name.
+   */
+  signal_docs?: { [key: string]: string };
+  /**
    * Heavy outputs, by artifact key.
    */
   artifact_paths?: { [key: string]: ArtifactRef };
@@ -463,6 +470,16 @@ export interface StatsToolResultWire {
    * e.g. signal_label_assoc / mcnemar_evalue / bootstrap_diff / rank_corr
    */
   tool: string;
+  /**
+   * WHAT this result is about, in words, and unique within the report — the label a chart axis or a table row should carry.
+   *
+   * `tool` is the procedure, not the subject, and using it as a label put two rows reading 'Mcnemar evalue' on a chart with no way to tell them apart. `config['signal']` is the subject but is a machine name, and is absent on paired tools entirely. Neither can label a row on its own, so the producer states the label here.
+   */
+  measured?: string | null;
+  /**
+   * What the measured quantity IS, in one sentence, taken from the producing analyzer's `signal_docs`. Null means the analyzer did not document that metric — render it as undocumented rather than inventing a gloss, because a plausible wrong explanation of a statistic is worse than an admitted missing one.
+   */
+  means?: string | null;
   /**
    * Includes 'signal' — the routing key.
    */
@@ -842,6 +859,10 @@ export interface ProbeOutput {
    */
   produced_at: string;
   status: StageStatus;
+  /**
+   * Who was diagnosed. Carried on the OUTPUT, not only on ProbeInput: a reader opens this file with no input beside it, and the only identity here used to be `ResultWire.model`, a repr — so the answer to 'which model is this report about' was a memory address.
+   */
+  model?: ModelRef | null;
   results?: { [key: string]: ResultWire };
   selection?: AnalyzerSelection;
   /**

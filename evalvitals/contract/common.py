@@ -153,10 +153,21 @@ class MediaRef(WireModel):
     ``kind`` tells the reader whether a preview is even possible: an in-memory
     PIL image that was never persisted degrades to ``descriptor`` (e.g.
     ``"<image 640x480>"``), and offering a broken preview for it is a bug.
+
+    A ``path`` must be RELATIVE TO THE RUN ROOT, which means the run has to carry
+    the file: the media a case was evaluated on is part of the evidence, not an
+    external dependency. An absolute path is only meaningful on the machine that
+    produced it, so a run recording one is readable nowhere else — every audio
+    and video preview 404s and an audio-visual report silently becomes text. The
+    run logger copies case media under ``artifacts/case_media/`` for exactly this
+    reason; point at that copy, and keep the producer's original path (if it is
+    worth keeping at all) as provenance that nothing resolves against.
     """
 
     kind: Literal["path", "url", "descriptor"]
-    value: str
+    value: str = Field(
+        description="Relative to runRoot when kind is 'path'. Never an absolute host path.",
+    )
     mime: str | None = None
     n_bytes: int | None = None
 

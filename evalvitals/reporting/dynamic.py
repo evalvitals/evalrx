@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-REPORT_DATA_VERSION = 8
+REPORT_DATA_VERSION = 9
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalvitals-report@1"
@@ -100,21 +100,35 @@ def build_report_data(
     resolved_example = Path(example_dir).resolve() if example_dir else _infer_example_dir(root)
     raw = extract_run_data(root, resolved_example)
     events = _read_events(root)
-    case_events = [event.get("case") for event in events if event.get("event") == "case_record"]
+    # The logger copies each case's media under artifacts/case_media/ and records
+    # the RUN-RELATIVE path beside the case. Carry it onto the case: inputs.<slot>
+    # holds the absolute path on the producing host, so a run read anywhere else
+    # -- unzipped on a laptop, which is the normal way these are looked at --
+    # resolves every preview to a file that is not there.
+    case_events = []
+    for event in events:
+        if event.get("event") != "case_record":
+            continue
+        case = event.get("case")
+        if isinstance(case, dict):
+            local = [p for p in (event.get("media_paths") or []) if isinstance(p, str)]
+            case_events.append({**case, "_media_paths": local} if local else case)
     cases = [case for case in case_events if isinstance(case, dict)] or list(raw.get("cases") or [])
     run = dict(raw.get("run") or {})
     trace_id = str((events[-1] if events else {}).get("trace_id") or root.name)
     reader = dict(raw.get("reader_report") or {})
 
+    # Read before anything that can use it: the typed payloads outrank the run
+    # log wherever both describe the same thing.
+    contract = _contract_payloads(root)
     findings = _findings(reader, raw)
-    charts = _charts(run, raw)
+    charts = _charts(run, raw, contract)
     repairs = _repairs(raw)
     media = _media_index(cases)
     normalized_cases = [_normalise_case(case, media) for case in cases if isinstance(case, dict)]
     normalized_cases = _merge_recorded_case_evidence(normalized_cases, root)
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
     stages = _stages(raw, stage_detail.get("m4") if isinstance(stage_detail, dict) else None)
-    contract = _contract_payloads(root)
 
     return _json_safe(
         {
@@ -123,7 +137,10 @@ def build_report_data(
             "source_event_seq": max((int(e.get("event_seq") or 0) for e in events), default=0),
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "setting": {
-                "model": run.get("model") or "Target model",
+                # The contract's ModelRef is a NAME; run.model is whatever the
+                # producer stringified, which for a custom Model subclass was
+                # repr() -- an unreadable line ending in a memory address.
+                "model": _contract_model_name(contract) or run.get("model") or "Target model",
                 "dataset": run.get("benchmark_name") or "Evaluation dataset",
                 "question": reader.get("question") or "Why did the model fail, and can we fix it?",
                 "protocol": run.get("protocol") or "",
@@ -993,7 +1010,8 @@ def _findings(reader: Mapping[str, Any], raw: Mapping[str, Any]) -> list[dict[st
     return result
 
 
-def _charts(run: Mapping[str, Any], raw: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _charts(run: Mapping[str, Any], raw: Mapping[str, Any],
+            contract: "Mapping[str, Any] | None" = None) -> list[dict[str, Any]]:
     charts: list[dict[str, Any]] = []
     labels = run.get("label_distribution") or {}
     if isinstance(labels, dict) and labels:
@@ -1001,16 +1019,32 @@ def _charts(run: Mapping[str, Any], raw: Mapping[str, Any]) -> list[dict[str, An
             "id": "outcomes", "kind": "donut", "title": "Evaluation outcomes",
             "series": [{"label": str(k).title(), "value": v} for k, v in labels.items() if isinstance(v, (int, float))],
         })
-    stats = (raw.get("m2") or {}).get("stats") or []
+    # Prefer the contract's rows: `measured` is a name for the SUBJECT and is
+    # unique across the report, so the axis cannot end up with two bars reading
+    # "Mcnemar evalue" (the tool) or several truncating to the same sentence.
+    contract_rows = _contract_stats(contract or {})
     effect_rows = []
-    for item in stats[:8]:
-        if isinstance(item, dict) and isinstance(item.get("effect"), (int, float)):
-            signal = ((item.get("config") or {}).get("signal") if isinstance(item.get("config"), Mapping) else None)
+    for item in contract_rows[:8]:
+        if isinstance(item.get("effect"), (int, float)):
+            signal = (item.get("config") or {}).get("signal")
             effect_rows.append({
-                "label": _plain_signal(signal or item.get("tool") or "signal"),
-                "raw_label": str(signal or item.get("tool") or ""),
-                "value": item["effect"], "highlight": bool(item.get("reject")),
+                "label": item.get("measured") or _plain_signal(signal or item.get("tool")),
+                # The analyzer's own sentence. Absent means undocumented, and the
+                # UI must say that rather than paraphrase the identifier.
+                "means": item.get("means") or "",
+                "raw_label": str(signal or item.get("analysis_key") or item.get("tool") or ""),
+                "value": item["effect"], "highlight": bool(item.get("fdr_corrected")),
             })
+    if not effect_rows:
+        stats = (raw.get("m2") or {}).get("stats") or []
+        for item in stats[:8]:
+            if isinstance(item, dict) and isinstance(item.get("effect"), (int, float)):
+                signal = ((item.get("config") or {}).get("signal") if isinstance(item.get("config"), Mapping) else None)
+                effect_rows.append({
+                    "label": _plain_signal(signal or item.get("tool") or "signal"),
+                    "raw_label": str(signal or item.get("tool") or ""),
+                    "value": item["effect"], "highlight": bool(item.get("reject")),
+                })
     if effect_rows:
         charts.append({
             "id": "effects", "kind": "bar", "title": "Which behaviors appear most connected to errors?",
@@ -1076,28 +1110,77 @@ def _contract_payloads(root: Path) -> dict[str, Any]:
     return out
 
 
+def _contract_model_name(contract: Mapping[str, Any]) -> str:
+    """The model's name from M1's payload, or "" for a run that emitted none."""
+    for key in sorted(contract):
+        if not key.endswith(".m1"):
+            continue
+        ref = (contract[key] or {}).get("model") or {}
+        name = str(ref.get("name") or "").strip()
+        if name:
+            return name
+    return ""
+
+
+def _contract_stats(contract: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """M2's statistical rows from the newest cycle that has any."""
+    for key in sorted(contract, reverse=True):
+        if not key.endswith(".m2"):
+            continue
+        rows = (contract[key] or {}).get("stats_results")
+        if isinstance(rows, list) and rows:
+            return rows
+    return []
+
+
 def _media_index(cases: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """One entry per distinct media file, preferring the copy inside the run.
+
+    ``inputs.<slot>`` is where the producer read the file from — an absolute path
+    on that host, and meaningless on any other. The run logger already copied the
+    file to ``artifacts/case_media/`` and recorded that relative path, so a run
+    unzipped elsewhere still has its media; index by that when it exists and keep
+    the original only as the fallback for runs that predate the copy.
+    """
     media: list[dict[str, Any]] = []
     seen: set[str] = set()
     for case in cases:
         inputs = case.get("inputs") if isinstance(case.get("inputs"), dict) else case
+        # Slots and copies are recorded in the same order, so they zip up.
+        local = [p for p in (case.get("_media_paths") or []) if isinstance(p, str)]
+        i = 0
         for kind in ("audio", "image", "video"):
-            path = inputs.get(kind) or inputs.get(f"{kind}_path")
-            if not isinstance(path, str) or not path or path in seen or path.startswith("<"):
+            source = inputs.get(kind) or inputs.get(f"{kind}_path")
+            if not isinstance(source, str) or not source or source.startswith("<"):
+                continue
+            path = local[i] if i < len(local) else source
+            i += 1
+            if path in seen:
                 continue
             seen.add(path)
-            media.append({"id": f"media-{len(media) + 1}", "kind": kind, "path": path})
+            media.append({"id": f"media-{len(media) + 1}", "kind": kind,
+                          "path": path, "source": source})
     return media
 
 
 def _normalise_case(case: Mapping[str, Any], media: list[dict[str, Any]]) -> dict[str, Any]:
     inputs = case.get("inputs") if isinstance(case.get("inputs"), dict) else {}
     prompt = inputs.get("prompt") or case.get("instruction") or case.get("prompt") or ""
-    media_by_path = {item["path"]: item["id"] for item in media}
+    # Match on either key: the index prefers the in-run copy, and a run without
+    # copies still resolves through the producer's original path.
+    media_by_path: dict[str, str] = {}
+    for item in media:
+        media_by_path[item["path"]] = item["id"]
+        if item.get("source"):
+            media_by_path[item["source"]] = item["id"]
     media_ids = []
+    for path in (case.get("_media_paths") or []):
+        if isinstance(path, str) and path in media_by_path and media_by_path[path] not in media_ids:
+            media_ids.append(media_by_path[path])
     for kind in ("audio", "image", "video"):
         value = inputs.get(kind) or case.get(f"{kind}_path") or case.get(kind)
-        if isinstance(value, str) and value in media_by_path:
+        if isinstance(value, str) and value in media_by_path \
+                and media_by_path[value] not in media_ids:
             media_ids.append(media_by_path[value])
     return {
         "id": str(case.get("id") or case.get("case_id") or f"case-{id(case)}"),

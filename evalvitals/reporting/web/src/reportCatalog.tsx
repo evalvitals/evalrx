@@ -61,7 +61,7 @@ function EvidenceChart({ chart }: { chart: Chart }) {
     yAxis: { type: "category", data: chart.series.map((item) => item.label), axisLabel: { color: "#b8c9c4", width: 96, overflow: "truncate" }, axisLine: { show: false }, axisTick: { show: false } },
     series: [{ type: "bar", data: chart.series.map((item) => ({ value: item.value, itemStyle: { color: item.highlight ? "#6bd8ad" : "#586a65", borderRadius: 4 } })), barWidth: 13 }],
   };
-  return <article className="chart-card"><h3>{chart.title}</h3>{chart.subtitle && <p>{chart.subtitle}</p>}<ReactECharts option={option} style={{ height: 250 }} />{chart.series.some((item) => item.raw_label) && <details className="chart-audit"><summary>Technical measurement names</summary>{chart.series.map((item) => item.raw_label && <code key={item.raw_label}>{item.raw_label}</code>)}</details>}</article>;
+  return <article className="chart-card"><h3>{chart.title}</h3>{chart.subtitle && <p>{chart.subtitle}</p>}<ReactECharts option={option} style={{ height: 250 }} />{chart.series.some((item) => item.means || item.raw_label) && <div className="chart-legend">{chart.series.map((item) => <div key={item.raw_label || item.label}><b>{item.label}</b>{item.means ? <span>{item.means}</span> : <em>The analyzer did not document what this measures.</em>}<code>{item.raw_label}</code></div>)}</div>}</article>;
 }
 
 export const { registry } = defineRegistry(reportCatalog, {

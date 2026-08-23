@@ -18,10 +18,24 @@ changes — adding a field is additive and does not bump it, so a reader must
 │   ├── m4_fix.json           post-loop stages carry no cycle prefix
 │   └── <stage>.invalid.json  a payload that FAILED validation, with the error
 ├── run_log.jsonl             the raw event stream (untyped; predates this)
+├── artifacts/
+│   ├── case_media/           the media each case was evaluated on
+│   └── *.npy, *.json         heavy arrays, referenced by path, never inlined
 ├── report/                   human deliverables
-├── figures/                  M1 heatmaps, M2 effect plots
-└── artifacts/                heavy arrays referenced by path, never inlined
+└── figures/                  M1 heatmaps, M2 effect plots
 ```
+
+**The run carries its own data.** Media a case was evaluated on is copied
+into `artifacts/case_media/`, and every `MediaRef` path is relative to the
+run root. A run pointing at the dataset where the producing machine kept
+it would be readable only on that machine — and the normal way these are
+read is zipped, moved, opened somewhere else. So the archive is the
+evidence, complete, and needs nothing mounted beside it.
+
+That costs size: the Music-AVQA audio-visual run is 145 KB without its
+media and 162 MB with it. It is the right trade — a diagnosis whose
+evidence has gone missing is not a diagnosis. Strip the media only for a
+reader that wants the numbers alone, and know that is what you did.
 
 The file name is `c<cycle>.<stage>.json`. A stage that runs once after the
 loop has no cycle prefix. `<stage>.invalid.json` means that stage produced

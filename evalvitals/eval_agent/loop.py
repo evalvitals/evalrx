@@ -693,7 +693,7 @@ class VLDiagnoseLoop:
         is_agent = bool(data is not None and _carries_trajectories(data))
         self._emit(f"c{cycle}.m1", lambda: from_probe_results(
             probe_results,
-            trace_id=self.emitter.trace_id, cycle=cycle,
+            trace_id=self.emitter.trace_id, cycle=cycle, model=self.model,
             model_modalities=declared, probed_modalities=probed, routed_on=routed,
             is_agent=is_agent,
             selector="llm_judge" if getattr(self.probe_agent, "judge", None) else "static_strategy",

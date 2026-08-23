@@ -309,3 +309,84 @@ def test_m2_reports_partial_when_tested_results_do_not_reach_the_payload():
         trace_id="t", cycle=0,
     )
     assert quiet.status.state.value == "empty"
+
+
+# ── the payload has to be readable by a person ───────────────────────────────
+
+def test_a_model_is_named_not_repred():
+    """The UI showed `<videollama2_model.MockAVModel object at 0x795d025e8590>`.
+
+    Unreadable, and worse: the address changes every run, so two runs of the
+    same model record two different identities and nothing compares across them.
+    """
+    from evalvitals.contract import ModelRef
+    from evalvitals.contract.emit import model_name
+
+    class MockAVModel:
+        pass
+
+    class Named:
+        display_name = "VideoLLaMA2.1-7B-AV"
+
+    class Composed:
+        class spec:
+            key = "qwen3.5-2b"
+
+    assert model_name(MockAVModel()) == "MockAVModel"      # stable fallback
+    assert model_name(Named()) == "VideoLLaMA2.1-7B-AV"    # what a producer should set
+    assert model_name(Composed()) == "qwen3.5-2b"
+    assert model_name("<foo.Bar object at 0x7f00>") == "unknown model"
+
+    # And the contract refuses to record one, so this cannot regress quietly.
+    with pytest.raises(ValueError):
+        ModelRef(name="<videollama2_model.MockAVModel object at 0x795d025e8590>")
+
+
+def test_m1_output_carries_the_model_identity(tmp_path):
+    """A reader opens c0.m1.json with no ProbeInput beside it."""
+    files = _run(tmp_path, WITH_TEST_RESPONSE)
+    m1 = _latest(files, "m1", ProbeOutput)
+    assert m1.model is not None
+    assert m1.model.name and "object at 0x" not in m1.model.name
+    assert m1.model.modalities == ["text"]
+
+
+def test_every_statistical_result_carries_a_distinct_human_label():
+    """A chart axis needs a name for the SUBJECT, unique across rows.
+
+    `tool` is the procedure -- labelling with it put two bars both reading
+    "Mcnemar evalue" on one chart with nothing to tell them apart. `config
+    ['signal']` is the subject but is a machine name, and paired tools carry
+    none at all.
+    """
+    from evalvitals.analysis.stats_agent import StatsAnalysisReport
+    from evalvitals.analysis.stats_tools import StatsToolResult
+    from evalvitals.contract.emit import from_stats_report, measured_label
+
+    class _R:
+        def __init__(self, tool, cfg): self.tool, self.config = tool, cfg
+
+    # The analyzer's own short name wins over the identifier -- it is written
+    # for a reader, and a bar chart's label column truncates anything longer.
+    assert measured_label(_R("signal_label_assoc", {"signal": "answer_extraction_audit.output_chars"})) \
+        == "Answer length"
+    # An undocumented metric still gets a distinct label, just an unhelpful one:
+    # jargon that admits it is jargon, never a paraphrase posing as an explanation.
+    assert measured_label(_R("signal_label_assoc", {"signal": "contamination_score.guided_gain"})) \
+        == "guided gain (contamination score)"
+    assert measured_label(_R("mcnemar_evalue", {"strategy": "describe_first"})) \
+        == "describe first vs baseline"
+    # No subject named anywhere: say so, rather than borrowing the tool's name.
+    assert measured_label(_R("mcnemar_evalue", {})).startswith("unnamed contrast")
+
+    # Collisions are separated, because two identically labelled rows are two
+    # rows a reader cannot distinguish.
+    wire = from_stats_report(
+        StatsAnalysisReport(
+            model_name="m",
+            stats_results=[StatsToolResult(tool="mcnemar_evalue", ok=True) for _ in range(3)],
+        ),
+        trace_id="t", cycle=0,
+    )
+    labels = [r.measured for r in wire.stats_results]
+    assert len(set(labels)) == 3, labels

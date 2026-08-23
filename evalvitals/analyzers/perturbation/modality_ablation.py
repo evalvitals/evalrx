@@ -58,6 +58,26 @@ class ModalityAblationAnalyzer(Analyzer):
     )
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image", "audio", "video"})
+    signal_docs = {
+        'ablation_audio_is_swap': "The audio was replaced with another case's rather than removed.",
+        'ablation_image_is_swap': "The image was replaced with another case's rather than removed.",
+        'ablation_mode_audio': 'How the audio was removed for these cases.',
+        'ablation_mode_image': 'How the image was removed for these cases.',
+        'ablation_mode_video': 'How the video was removed for these cases.',
+        'ablation_video_is_swap': "The video was replaced with another case's rather than removed.",
+        'grounded_in_audio': ('Actually listened', 'The answer changed when the audio was taken away — the model was listening.'),
+        'grounded_in_image': ('Actually looked', 'The answer changed when the image was taken away — the model was using it.'),
+        'grounded_in_video': ('Actually watched', 'The answer changed when the video was taken away — the model was watching.'),
+        'mode': "How the modality was removed: dropped entirely, or swapped for another case's.",
+        'n_cases_probed': 'How many cases were re-asked with a modality removed.',
+        'n_probed_audio': 'How many cases had audio to test.',
+        'n_probed_image': 'How many cases had an image to test.',
+        'n_probed_video': 'How many cases had video to test.',
+        'probed_slots': 'Which modalities were tested this way.',
+        'ungrounded_rate_audio': ('Ignored the audio', 'Share of cases whose answer did NOT change when the audio was removed — the model was not listening.'),
+        'ungrounded_rate_image': ('Ignored the image', 'Share of cases whose answer did NOT change when the image was removed — the model was not looking.'),
+        'ungrounded_rate_video': ('Ignored the video', 'Share of cases whose answer did NOT change when the video was removed — the model was not watching.'),
+    }
     #: Needs a filled slot to ablate. Without one there is nothing to remove and
     #: the analyzer would report a grounding rate over zero probes.
     requires_modalities = frozenset(MEDIA_SLOTS)

@@ -69,6 +69,24 @@ class StatsToolResultWire(WireModel):
     """
 
     tool: str = Field(description="e.g. signal_label_assoc / mcnemar_evalue / bootstrap_diff / rank_corr")
+    measured: str | None = Field(
+        default=None,
+        description="WHAT this result is about, in words, and unique within the report — "
+                    "the label a chart axis or a table row should carry.\n\n"
+                    "`tool` is the procedure, not the subject, and using it as a label "
+                    "put two rows reading 'Mcnemar evalue' on a chart with no way to "
+                    "tell them apart. `config['signal']` is the subject but is a machine "
+                    "name, and is absent on paired tools entirely. Neither can label a "
+                    "row on its own, so the producer states the label here.",
+    )
+    means: str | None = Field(
+        default=None,
+        description="What the measured quantity IS, in one sentence, taken from the "
+                    "producing analyzer's `signal_docs`. Null means the analyzer did not "
+                    "document that metric — render it as undocumented rather than "
+                    "inventing a gloss, because a plausible wrong explanation of a "
+                    "statistic is worse than an admitted missing one.",
+    )
     config: dict[str, Any] = Field(default_factory=dict, description="Includes 'signal' — the routing key.")
     ok: bool
     error: str | None = None
@@ -239,6 +257,29 @@ class StatsReportWire(StageEnvelope):
             if any(f.severity == level for f in self.findings):
                 return level  # type: ignore[return-value]
         return "none"
+
+    @model_validator(mode="after")
+    def _measured_labels_are_distinct(self) -> "StatsReportWire":
+        """Two rows labelled the same are two rows a reader cannot tell apart.
+
+        Deduplicated rather than rejected: a colliding label is a presentation
+        fault, and dropping the whole M2 payload over one would lose the
+        statistics too. The suffix is the tool, then an ordinal — enough to
+        separate them without inventing meaning.
+        """
+        rows = self.stats_results
+        if not isinstance(rows, list):
+            return self
+        seen: dict[str, int] = {}
+        for r in rows:
+            if not r.measured:
+                continue
+            if r.measured in seen:
+                seen[r.measured] += 1
+                r.measured = f"{r.measured} ({r.tool}, {seen[r.measured]})"
+            else:
+                seen[r.measured] = 1
+        return self
 
     @model_validator(mode="after")
     def _descriptive_has_no_verdict(self) -> "StatsReportWire":
