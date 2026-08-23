@@ -6,6 +6,35 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — `examples/benchmark/tools/extract_figure_data.py`, run dir → case-study figure data
+
+A benchmark run's numbers were previously readable only through the dashboard or
+by hand-reading `logs/artifacts/`, which is the wrong shape for producing a paper
+figure. The new tool takes a run root — the directory `_common/runner.py` writes,
+holding `summary.json` and `logs/` — and emits the same numbers in three shapes:
+a sectioned JSON document for reading, a flat JSONL stream for plotting code, and
+a Markdown write-up of the figure with character-bar charts. Standard library
+only; it imports nothing from `evalvitals` and reads only run artifacts.
+
+One record per figure block: the header strip, the M1 analyzer families and the
+signal bar chart, the M2 correction families and per-test rows (explore and
+held-out kept apart), the M3 hypotheses with the critic's objections, the M5
+held-out verdicts, the M4 L1–L4 repair ladder, the accepted repair, the paired
+held-out validation, and one illustrative case. Every record carries the artifact
+path it was read from, so a number in a figure can be traced back.
+
+Because a figure fails silently — a plausible wrong number gets printed, nothing
+raises — each extraction also self-checks into `qa_flags`: two hypotheses sharing
+one test and effect, a verdict whose observed sign contradicts its stated
+direction, a repair accepted with no supported hypothesis, several surviving
+signals where the chart shows one, a continuous signal that was quartile-binned,
+an illustrative case drawn from explore, and a fix that broke previously-correct
+cases.
+
+`tests/test_examples/test_figure_data_extract.py` pins those numbers on a
+synthetic run, including an AST check that the `summary.json` keys the tool reads
+are still the ones `_common/runner.py` writes.
+
 ### Added — dashboard case-study view for paper-method bench runs (audio + image)
 
 `evalvitals dashboard` now recognises a third run shape: a paper-method bench
