@@ -107,6 +107,12 @@ def test_no_stage_wrote_an_invalid_marker(tmp_path):
         # The case the old per-kind enum could not express: an omni model
         # evaluated on audio must be routed as audio, not as everything it can do.
         ({"text", "image", "audio", "video"}, {"audio": "a.wav"},                  ["audio", "text"],         "alm"),
+        # An audio-visual model on audio-visual video (Music-AVQA / VideoLLaMA2-AV).
+        # `video` is a slot of its own, and a case carrying BOTH is not the same as
+        # one carrying video alone -- the audio in an .mp4 is only under test when
+        # the producer says so.
+        ({"text", "audio", "video"},        {"audio": "c.mp4", "video": "c.mp4"},  ["audio", "text", "video"], "avlm"),
+        ({"text", "audio", "video"},        {"video": "c.mp4"},                    ["text", "video"],          "vlm"),
     ],
 )
 def test_m1_records_which_modality_the_run_was_routed_on(
