@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-REPORT_DATA_VERSION = 10
+REPORT_DATA_VERSION = 11
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalvitals-report@1"
@@ -986,12 +986,18 @@ def _repair_candidate(value: Any) -> dict[str, Any]:
     payload = value.get("payload") if isinstance(value.get("payload"), Mapping) else {}
     return {
         "tier": value.get("tier"), "name": value.get("name"), "kind": value.get("kind"),
+        # `ref` and `headline` are what a reader sees; `name` is only the join
+        # key. Both are carried here so the legacy report path shows the same
+        # identifier and the same sentence as the contract-backed views.
+        "ref": value.get("ref") or "", "headline": value.get("headline") or "",
         "source": value.get("source"), "verdict": value.get("verdict"),
         "n_pairs": value.get("n_pairs"), "n_baseline_correct": value.get("n_baseline_correct"),
         "n_candidate_correct": value.get("n_candidate_correct"),
         "n_fixed": value.get("n_fixed", len(fixed_cases)), "n_broken": value.get("n_broken", len(broken_cases)),
         "effect": value.get("effect"), "e_value": value.get("e_value"),
         "coverage": value.get("coverage"), "reject": value.get("reject"), "fixed": value.get("fixed"),
+        "n_model_independent": value.get("n_model_independent"),
+        "n_unstable": value.get("n_unstable"),
         "summary": value.get("summary"), "payload": dict(payload),
         "fixed_cases": fixed_cases[:20], "broken_cases": broken_cases[:20],
     }

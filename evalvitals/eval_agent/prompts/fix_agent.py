@@ -17,8 +17,18 @@ template applied to every case prompt; it MUST contain the literal placeholder
 {{prompt}}.  Keep the final-answer format the scorer expects recoverable; do
 not ask the model to suppress its reasoning if the task needs it.
 
+
+"what_it_does" is shown to a reader who has never heard of this model, this
+benchmark, or this field -- write it for a bright high-school student.  One
+sentence, present tense, plain words, saying what CHANGES for the model.  Do
+not name the tier, do not use metric or method jargon, and do not restate the
+snake_case name in English.
+Good:  "Asks the model to describe what it hears before it answers."
+Bad:   "L1 audio-evidence-first prompt scaffold with deferred answering."
+
 Reply with ONLY a JSON array:
-[{{"name": "<short_snake_case>", "prompt_template": "<template with {{prompt}}>"}}]"""
+[{{"name": "<short_snake_case>", "what_it_does": "<one plain sentence>",
+   "prompt_template": "<template with {{prompt}}>"}}]"""
 
 _L2_PROMPT = """\
 You are designing SCAFFOLD-LEVEL fixes (tier L2: a pipeline around the \
@@ -46,8 +56,18 @@ RAISE the baseline budget — a value below it is raised to the baseline, so
 never try to shorten the model's chain of thought; temperature 0 makes
 n_samples>1 pointless. For structured answer tasks, output_key_pattern may be
 a regex with one capture group used for answer-only voting; it must not
-contain gold answers. Reply with ONLY a JSON array:
-[{{"name": "<short_snake_case>",
+contain gold answers.
+
+"what_it_does" is shown to a reader who has never heard of this model, this
+benchmark, or this field -- write it for a bright high-school student.  One
+sentence, present tense, plain words, saying what CHANGES for the model.  Do
+not name the tier, do not use metric or method jargon, and do not restate the
+snake_case name in English.
+Good:  "Asks the model to describe what it hears before it answers."
+Bad:   "L1 audio-evidence-first prompt scaffold with deferred answering."
+
+Reply with ONLY a JSON array:
+[{{"name": "<short_snake_case>", "what_it_does": "<one plain sentence>",
    "image_ops": [{{"tool": "<catalog name>", "params": {{}}}}],
    "prompt_template": "{{prompt}}", "n_samples": 1,
    "generation_kwargs": {{}}, "strategy": "direct",
@@ -121,6 +141,11 @@ EXECUTION CONTRACT:
   not the model, and is excluded from the fix score — a pipeline that computes
   the answer itself (sorting, arithmetic, lookup, a hard-coded default) scores
   zero.  Verify, vote, re-ask, re-prompt, zoom: make the model get it right.
+
+Begin the code with a single comment line:
+  # WHAT_IT_DOES: <one sentence for a reader who has never heard of this model,
+  #   this benchmark, or this field -- plain words, present tense, saying what
+  #   your pipeline makes the model do differently.  No jargon, no tier names.>
 
 Return ONLY the Python code{fences_hint}."""
 

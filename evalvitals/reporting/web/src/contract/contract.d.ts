@@ -183,7 +183,24 @@ export interface FindingsWire {
  */
 export interface FixAttemptWire {
   tier: "L0" | "L1" | "L2" | "L3a" | "L3b" | "L4";
+  /**
+   * The reader-facing identifier, e.g. `R3`. Assigned by the producer over the whole run and STABLE across `selection` and `attempted`, so a reader who sees R3 in the sweep can find R3's card and know it is the same repair.
+   *
+   * This exists because `name` cannot do the job. Consumers that numbered rows by list position gave the same repair two different numbers in the two lists, which is worse than no number at all. Empty means the producer assigned none; a consumer may then number by position, but only within one list and never as a cross-list identity.
+   */
+  ref?: string;
+  /**
+   * Machine slug, e.g. `audio_evidence_then_answer`. It is the JOIN KEY — `best`, `selected_on_explore` and `ebh_survivors` all name a candidate this way — and it is what the attempt folder on disk is called.
+   *
+   * It is NOT the label to show a reader. These slugs are chosen by the agent while naming its log files, so they read as identifiers rather than as language. Show `ref` to point at a candidate and `headline` to say what it does.
+   */
   name: string;
+  /**
+   * One plain sentence saying what this repair changes, written for a reader with no background in the field: no tier names, no metric names, no jargon, no slug echoed back. "Ask the model to describe what it hears before answering" — not "audio-evidence-first prompt scaffold".
+   *
+   * Empty when the producer had nothing readable to offer, which a consumer should render as an honest blank rather than by humanising the slug: `audio_evidence_then_answer` -> "Audio Evidence Then Answer" invents fluency the run never had.
+   */
+  headline?: string;
   kind?: string | null;
   source?: string | null;
   /**

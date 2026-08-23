@@ -1732,7 +1732,9 @@ class VLDiagnoseLoop:
         if max_tier is not None:
             agent.max_tier = parse_tier(max_tier)
         if confirm is not None:
-            from evalvitals.eval_agent.stages.fix_agent import FixOutcome
+            from evalvitals.eval_agent.stages.fix_agent import (
+                FixOutcome, plain_description,
+            )
 
             agent_logger = getattr(agent, "run_logger", None)
             agent.run_logger = None
@@ -1771,9 +1773,13 @@ class VLDiagnoseLoop:
                 ),
                 default=None,
             )
+            # `headline` travels with the audit row because the candidate
+            # object does not: the contract emitter sees only these dicts, and
+            # a slug is the one thing it must not show a reader.
             audit = [
                 {
                     "name": validation.candidate.name,
+                    "headline": plain_description(validation.candidate),
                     "tier": validation.candidate.tier.label,
                     "n_pairs": validation.n_pairs,
                     "n_fixed": validation.n_fixed,

@@ -2,8 +2,8 @@ import { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import ReactECharts from "echarts-for-react";
 import { AlertTriangle, ArrowLeft, BarChart3, Beaker, CheckCircle2, ChevronRight, Microscope, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
-import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixOutput,
-  HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
+import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixAttemptWire,
+  FixOutput, HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
 
 export function EvidenceView({ data, back, navigate, initialStage }: { data: ReportData; back: () => void; navigate?: (view: string) => void; initialStage?: string }) {
   const [selected, setSelected] = useState(initialStage || data.stages[0]?.id);
@@ -269,40 +269,91 @@ function VerdictCard({ result, fallback, index }: { result: any; fallback: any; 
  * one table would invite exactly the double-dip the two-stage protocol exists
  * to prevent.
  */
+/**
+ * Every repair the run tried, keyed by the identifier the producer assigned.
+ *
+ * `name` is a slug the agent chose while naming its log folder — it is a join
+ * key, not language, and putting it on screen made readers try to decode it.
+ * The contract carries `ref` ("R3") to point at a repair and `headline` to say
+ * what it does; both come from the producer, which is the only place that
+ * knows. A candidate with no headline is left blank rather than shown as its
+ * slug in title case, which would read as an explanation the run never gave.
+ */
+function repairRefs(report: ReportData): Map<string, FixAttemptWire> {
+  const m4 = findContract<FixOutput>(report, "m4_fix");
+  const byName = new Map<string, FixAttemptWire>();
+  for (const row of [...(m4?.selection || []), ...(m4?.attempted || [])]) {
+    if (!byName.has(row.name)) byName.set(row.name, row);
+  }
+  return byName;
+}
+
+function refFor(report: ReportData, name?: string) {
+  if (!name) return "";
+  const row = repairRefs(report).get(name);
+  if (row?.ref) return row.ref;
+  const order = [...repairRefs(report).keys()].indexOf(name);
+  return order >= 0 ? `R${order + 1}` : "";
+}
+
+function headlineFor(report: ReportData, name?: string) {
+  return (name && repairRefs(report).get(name)?.headline) || "";
+}
+
 function SelectionSweep({ report }: { report: ReportData }) {
   const m4 = findContract<FixOutput>(report, "m4_fix");
   const rows = m4?.selection || [];
   if (!rows.length) return null;
   const tiers = [...new Set(rows.map((r) => r.tier))].sort();
+  const anyHeadline = rows.some((r) => r.headline);
+  const chosen = m4?.selected_on_explore;
   const tone = (v?: string) => v === "fixed" ? "ok"
     : v === "unsafe" || v === "regressed" ? "bad"
     : v === "partial" || v === "model_independent" ? "warn" : "";
+  // The verdicts are contract enum values, and three of the seven do not
+  // survive being read literally: "no effect" invites "so it did nothing",
+  // which is the result; "model independent" means the scaffold, not the
+  // model, produced the answer.
+  const plainVerdictWord = (v?: string) => ({
+    fixed: "fixed errors",
+    partial: "helped some, hurt some",
+    unsafe: "broke more than it fixed",
+    regressed: "made things worse",
+    no_effect: "changed nothing",
+    not_executed: "could not run",
+    model_independent: "the scaffold answered, not the model",
+  } as Record<string, string>)[String(v || "")] || String(v || "").replace(/_/g, " ");
   return <section className="phase">
     <span className="eyebrow">Stage 1 · choosing — not evidence</span>
     <h3>{rows.length === 1 ? "One repair was tried" : `${rows.length} repairs were tried`}</h3>
     <p className="stat-caption">
       Each was run on the diagnosis cases to pick one worth confirming. These numbers chose
-      the candidate, so they cannot also test it — read them as what was ruled out, never as
-      results.{m4?.selected_on_explore ? ` “${m4.selected_on_explore}” was taken forward.` : ""}
+      the repair, so they cannot also test it — read them as what was ruled out, never as
+      results.{chosen ? ` ${refFor(report, chosen) || chosen} was taken forward.` : ""}
     </p>
     <div className="scroll"><table>
-      <thead><tr>{["", "Tier", "Candidate", "Outcome", "Repaired", "Broke", "Difference"]
-        .map((h) => <th key={h}>{h}</th>)}</tr></thead>
-      <tbody>{rows.map((r, i) => <tr key={`${r.name}-${i}`}>
+      <thead><tr>{["", "#", "Tier", ...(anyHeadline ? ["What it changes"] : []),
+        "Result", "Errors fixed", "New errors", "Net change"]
+        .map((h, i) => <th key={`${h}-${i}`}>{h}</th>)}</tr></thead>
+      <tbody>{rows.map((r, i) => <tr key={`${r.name}-${i}`}
+        className={chosen && r.name === chosen ? "row-chosen" : undefined}>
         <td><span className={`chip ${tone(r.verdict)}`}><span className="dot" /></span></td>
+        <td className="repair-ref">{r.ref || `R${i + 1}`}</td>
         <td>{r.tier}</td>
-        <td className="txt">{r.name}</td>
-        <td>{String(r.verdict || "").replace(/_/g, " ")}</td>
+        {anyHeadline && <td className="txt">{r.headline || <em className="muted">not described</em>}</td>}
+        <td>{plainVerdictWord(r.verdict)}</td>
         <td>{r.n_fixed}</td>
         <td>{r.n_broken}</td>
         <td>{r.effect === null || r.effect === undefined ? "—"
           : `${r.effect >= 0 ? "+" : ""}${Number(r.effect).toFixed(3)}`}</td>
       </tr>)}</tbody>
     </table></div>
-    {tiers.length > 1 && <p className="mono-sm">
-      Tiers reached: {tiers.join(", ")}. A tier missing here had no candidate to offer —
-      for L3a that usually means the model exposes no internals to read.
-    </p>}
+    <p className="mono-sm">
+      “Net change” is the share of cases that improved minus the share that got worse, so
+      +0.083 means about eight cases in a hundred came out better than before.
+      {tiers.length > 1 && ` Tiers reached: ${tiers.join(", ")}. A tier missing here had no
+        repair to offer — for L3a that usually means the model exposes no internals to read.`}
+    </p>
   </section>;
 }
 
@@ -342,17 +393,55 @@ function M4Detail({ data, report, navigate }: { data: any; report: ReportData; n
   const fixed = candidates.reduce((sum: number, item: any) => sum + Number(item.n_fixed || 0), 0);
   const broken = candidates.reduce((sum: number, item: any) => sum + Number(item.n_broken || 0), 0);
   const winner = candidates.find((item: any) => item.fixed) || candidates.reduce((best: any, item: any) => Number(item.effect || -Infinity) > Number(best?.effect || -Infinity) ? item : best, null);
-  const option = { grid: { left: 145, right: 24, top: 18, bottom: 32 }, color: ["#6bd8ad", "#f06d5f"], tooltip: { trigger: "axis" }, legend: { textStyle: { color: "#9fb2ac" } }, xAxis: { type: "value", axisLabel: { color: "#8fa49d" }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: { type: "category", data: candidates.map((item: any) => `${item.tier || "?"} · ${item.name}`).reverse(), axisLabel: { color: "#b8c9c4", width: 130, overflow: "truncate" } }, series: [{ name: "Repaired", type: "bar", stack: "cases", data: candidates.map((item: any) => item.n_fixed || 0).reverse() }, { name: "Broken", type: "bar", stack: "cases", data: candidates.map((item: any) => item.n_broken || 0).reverse() }] };
+  const option = { grid: { left: 145, right: 24, top: 18, bottom: 32 }, color: ["#6bd8ad", "#f06d5f"], tooltip: { trigger: "axis" }, legend: { textStyle: { color: "#9fb2ac" } }, xAxis: { type: "value", axisLabel: { color: "#8fa49d" }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: { type: "category", data: candidates.map((item: any, i: number) => `${refFor(report, item.name) || `R${i + 1}`} · ${item.tier || "?"}`).reverse(), axisLabel: { color: "#b8c9c4", width: 130, overflow: "truncate" } }, series: [{ name: "Repaired", type: "bar", stack: "cases", data: candidates.map((item: any) => item.n_fixed || 0).reverse() }, { name: "Broken", type: "bar", stack: "cases", data: candidates.map((item: any) => item.n_broken || 0).reverse() }] };
   return <>
     <StageBanner kind="INTERVENTION" title="Paired repair sweep">Every candidate is compared case-by-case with the unchanged model. A useful repair must fix failures without creating regressions and survive family-wise selection.</StageBanner>
-    <StageKpis items={[{ label: "Candidates tried", value: candidates.length }, { label: "Repaired flips", value: fixed }, { label: "Broken flips", value: broken }, { label: "Best candidate", value: winner?.name || "—", note: winner?.tier }]} />
-    <div className={`repair-outcome ${data.fixed ? "success" : "neutral"}`}><Wrench /><div><span>FINAL REPAIR OUTCOME</span><h3>{data.fixed ? "A repair was confirmed" : "No candidate passed the repair gate"}</h3><p>{winner?.summary || "Inspect the full candidate sweep below."}</p></div></div>
+    <StageKpis items={[{ label: "Candidates tried", value: candidates.length }, { label: "Repaired flips", value: fixed }, { label: "Broken flips", value: broken }, { label: "Best repair", value: refFor(report, winner?.name) || winner?.name || "—", note: headlineFor(report, winner?.name) || winner?.tier }]} />
+    <div className={`repair-outcome ${data.fixed ? "success" : "neutral"}`}><Wrench /><div><span>FINAL REPAIR OUTCOME</span><h3>{data.fixed ? "A repair was confirmed" : "No candidate passed the repair gate"}</h3><p>{headlineFor(report, winner?.name) || winner?.summary || "Inspect the full repair sweep below."}</p></div></div>
     {data.examples?.length > 0 && <ExampleSection eyebrow="A repaired case" title="One real before-and-after repair" note="This is a case counted as fixed. The repair was accepted only after checking every paired case for improvements and regressions."><div className="example-deck">{data.examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
     {data.operation_previews?.length > 0 && <RepairOperationPreviews examples={data.operation_previews} report={report} />}
     <SelectionSweep report={report} />
     <div className="repair-chart"><h3>Confirmed on held-out cases: paired flips vs. baseline</h3><ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} /></div>
-    <div className="candidate-list">{candidates.map((candidate: any, index: number) => <article className={`candidate-card candidate-${candidate.verdict || "unknown"}`} key={`${candidate.name}-${index}`}><header><span>{candidate.tier || "?"}</span><div><h3>{candidate.name || `Candidate ${index + 1}`}</h3><small>{plainCandidateKind(candidate.kind)}</small></div><b>{candidate.fixed ? "helped" : "did not pass"}</b></header><div className="candidate-metrics"><span><b>{candidate.n_fixed ?? 0}</b> errors fixed</span><span><b>{candidate.n_broken ?? 0}</b> new errors</span><span><b>{number(candidate.effect)}</b> net change</span><span><b>{percent(candidate.coverage)}</b> of errors covered</span></div><p>{candidate.summary}</p><details><summary>Technical repair definition and affected cases</summary><KeyValueGrid values={candidate.payload || {}} /></details><CaseLinks ids={candidate.fixed_cases} kind="fixed" report={report} navigate={navigate} /><CaseLinks ids={candidate.broken_cases} kind="broken" report={report} navigate={navigate} /></article>)}</div>
+    <div className="candidate-list">{candidates.map((candidate: any, index: number) => <article className={`candidate-card candidate-${candidate.verdict || "unknown"}`} key={`${candidate.name}-${index}`}><header><span>{refFor(report, candidate.name) || `R${index + 1}`}<em>{candidate.tier || "?"}</em></span><div><h3>{headlineFor(report, candidate.name) || candidate.summary || plainCandidateKind(candidate.kind)}</h3><small className="mono-sm">{candidate.name}</small></div><b>{candidate.fixed ? "helped" : "did not pass"}</b></header><div className="candidate-metrics"><span><b>{candidate.n_fixed ?? 0}</b> errors fixed</span><span><b>{candidate.n_broken ?? 0}</b> new errors</span><span><b>{number(candidate.effect)}</b> net change</span><span><b>{percent(candidate.coverage)}</b> of errors covered</span></div><RepairVerdict candidate={candidate} /><details><summary>Technical repair definition and affected cases</summary>{candidate.summary && <pre className="stat-line">{candidate.summary}</pre>}<KeyValueGrid values={candidate.payload || {}} /></details><CaseLinks ids={candidate.fixed_cases} kind="fixed" report={report} navigate={navigate} /><CaseLinks ids={candidate.broken_cases} kind="broken" report={report} navigate={navigate} /></article>)}</div>
   </>;
+}
+
+/**
+ * What the paired test found, as a sentence.
+ *
+ * The producer's own line reads
+ * `[mcnemar + e-value (paired binary)] effect=+0.1833 (B>A) CI=+0.0833..+0.3000,
+ * e=45.01 -> REJECT H0`. That is the audit record and it stays reachable under
+ * the details toggle, but it is not an answer to "did this repair work?" for
+ * anyone who has not met an e-value. The numbers here are the same numbers.
+ */
+function RepairVerdict({ candidate }: { candidate: any }) {
+  const fixed = Number(candidate.n_fixed || 0);
+  const broke = Number(candidate.n_broken || 0);
+  const pairs = Number(candidate.n_pairs || 0);
+  const e = typeof candidate.e_value === "number" && Number.isFinite(candidate.e_value)
+    ? candidate.e_value : null;
+  // An e-value is odds: e=45 means the evidence runs about 45 to 1 against
+  // this being luck. "Reject at 0.05" is the same statement in a dialect
+  // nobody outside the field speaks.
+  const odds = e === null ? null
+    : e >= 1000 ? "over 1000 to 1"
+    : e >= 10 ? `about ${Math.round(e)} to 1`
+    : `about ${e.toFixed(1)} to 1`;
+  const counted = pairs > 0
+    ? `Across ${pairs} case${pairs === 1 ? "" : "s"} it was tested on, this repair fixed ${fixed} and broke ${broke}.`
+    : `This repair fixed ${fixed} case${fixed === 1 ? "" : "s"} and broke ${broke}.`;
+  const judged = odds === null
+    ? "The run recorded no significance test for it."
+    : candidate.reject
+      ? `The evidence against that being luck runs ${odds}, which is strong enough to count.`
+      : `The evidence against that being luck runs only ${odds}, which is not strong enough to count.`;
+  const covered = typeof candidate.coverage === "number" && Number.isFinite(candidate.coverage)
+    ? ` It applied to ${percent(candidate.coverage)} of the failures it was aimed at.` : "";
+  const independent = Number(candidate.n_model_independent || 0) > 0
+    ? ` ${candidate.n_model_independent} case${candidate.n_model_independent === 1 ? " was" : "s were"} solved by the added code rather than by the model, and were left out of the count.`
+    : "";
+  return <p className="repair-verdict">{counted} {judged}{covered}{independent}</p>;
 }
 
 function M4Example({ example, report }: { example: any; report: ReportData }) {
@@ -364,7 +453,7 @@ function OperationExamples({ examples, report }: { examples: any[]; report: Repo
 }
 
 function RepairOperationPreviews({ examples, report }: { examples: any[]; report: ReportData }) {
-  return <ExampleSection eyebrow="A repair operation, made concrete" title="What the image-aware repair would do to a real case" note="This shows the source case and the operation declared by the repair candidate. It does not claim an altered image or a successful answer unless the run recorded one."><div className="operation-deck">{examples.map((example) => <article className="operation-card repair-operation" key={example.id}><header><span>{example.executed ? "CANDIDATE WAS TESTED" : "CANDIDATE PREVIEW — NOT EXECUTED"}</span><em>{example.candidate}</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><p className="operation-prompt">{example.input}</p><div className="example-flow"><div><small>BASELINE ANSWER</small><b>{displayValue(example.observed)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><div className="operation-steps">{example.operations.map((operation: any, index: number) => <div key={`${operation.raw_action}-${index}`}><span>{index + 1}</span><section><b>{operation.action}</b>{Object.keys(operation.parameters || {}).length > 0 && <small>{Object.entries(operation.parameters).map(([key, value]) => `${humanize(key)}: ${formatCompact(value)}`).join(" · ")}</small>}</section></div>)}</div></article>)}</div></ExampleSection>;
+  return <ExampleSection eyebrow="A repair operation, made concrete" title="What the image-aware repair would do to a real case" note="This shows the source case and the operation declared by the repair candidate. It does not claim an altered image or a successful answer unless the run recorded one."><div className="operation-deck">{examples.map((example) => <article className="operation-card repair-operation" key={example.id}><header><span>{example.executed ? "CANDIDATE WAS TESTED" : "CANDIDATE PREVIEW — NOT EXECUTED"}</span><em>{refFor(report, example.candidate) || example.candidate}</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><p className="operation-prompt">{example.input}</p><div className="example-flow"><div><small>BASELINE ANSWER</small><b>{displayValue(example.observed)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><div className="operation-steps">{example.operations.map((operation: any, index: number) => <div key={`${operation.raw_action}-${index}`}><span>{index + 1}</span><section><b>{operation.action}</b>{Object.keys(operation.parameters || {}).length > 0 && <small>{Object.entries(operation.parameters).map(([key, value]) => `${humanize(key)}: ${formatCompact(value)}`).join(" · ")}</small>}</section></div>)}</div></article>)}</div></ExampleSection>;
 }
 
 function EmptyStage({ title, body }: { title: string; body: string }) { return <div className="empty-stage"><ShieldCheck /><div><h3>{title}</h3><p>{body}</p></div></div>; }
