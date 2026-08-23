@@ -161,17 +161,33 @@ function untestableIds(report: ReportData): Set<string> {
   return new Set((m3?.hypotheses || []).filter((h) => !h.test_design?.trim()).map((h) => h.id));
 }
 
+/** A design a person can act on, but that names nothing M5 measured this cycle. */
+const SIGNAL_REF = /\b[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\b/;
+const DIRECTIVES = ["prompt_contrast", "analyzer_params", "strategy_contrast", "paired_rerun"];
+function isRoutable(design?: string): boolean {
+  const t = (design || "").trim();
+  if (!t) return false;
+  return SIGNAL_REF.test(t.toLowerCase()) || DIRECTIVES.some((d) => t.includes(d));
+}
+
 function M3Detail({ data, report }: { data: any; report: ReportData }) {
   const accepted = data.hypotheses || [];
   const recovered = data.unparsed_proposals || [];
   const hypotheses = accepted.length ? accepted : recovered;
   const m3 = findContract<DiagnosisOutput>(report, "m3");
   const untestable = m3 ? (m3.hypotheses || []).filter((h) => !h.test_design?.trim()) : [];
+  const unroutable = m3
+    ? (m3.hypotheses || []).filter((h) => h.test_design?.trim() && !isRoutable(h.test_design))
+    : [];
   return <>
     <StageBanner kind="PROPOSAL ONLY" title="Falsifiable mechanisms">M3 turns M2 leads into explanations that could be proven wrong. These cards are proposals; validation status belongs exclusively to M5.</StageBanner>
     {untestable.length > 0 && <div className="parser-warning"><AlertTriangle /><div>
       <b>{untestable.length === 1 ? "One proposal names no test" : `${untestable.length} proposals name no test`}.</b>
       <p>A hypothesis with no test design cannot be decided by any amount of evidence — M5 will return “inconclusive” for it on every cycle. Read that verdict as “this claim was never testable”, not as “not enough data yet”.</p>
+    </div></div>}
+    {unroutable.length > 0 && <div className="parser-warning"><AlertTriangle /><div>
+      <b>{unroutable.length === 1 ? "One proposal names a measurement nobody has taken yet" : `${unroutable.length} proposals name measurements nobody has taken yet`}.</b>
+      <p>These do describe an experiment — they just refer to something this cycle did not measure, so M5 has nothing to resolve them against. That is work for the next round of checks, not a claim without a falsifier.</p>
     </div></div>}
     <StageKpis items={[{ label: "Accepted proposals", value: accepted.length }, { label: "Recovered from transcript", value: recovered.length }, { label: "Test designs", value: hypotheses.filter((item: any) => item.test_design).length }]} />
     {!accepted.length && recovered.length > 0 && <div className="parser-warning"><AlertTriangle /><div><b>The AI Doctor proposed hypotheses, but the pipeline parser rejected their format.</b><p>They are shown below for audit only and did not unlock M5 or M4.</p></div></div>}
