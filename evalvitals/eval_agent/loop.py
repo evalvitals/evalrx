@@ -1580,27 +1580,32 @@ class VLDiagnoseLoop:
             if _hyp_key(tr.hypothesis) not in refuted_ids
         ]
         hypotheses_note = ""
-        if not hypotheses and allow_unverified:
-            # No verified hypothesis, but the caller opted in: the fix still
-            # runs on the best UNVERIFIED leads (M5-tested, non-refuted,
-            # highest confidence first; else the last cycle's proposals). They
-            # reach the proposer flagged as leads, not facts — the fix gate is
-            # the candidate validation, not the hypothesis, so this is safe;
-            # an M4 experiment that supported one of them upgrades it in the
-            # note.
-            hypotheses = [
+        if allow_unverified:
+            # Opt-in exploratory repair keeps strong inconclusive leads even
+            # when M5 happened to verify a different, narrower hypothesis. A
+            # secondary supported symptom must not crowd the plausible causal
+            # mechanisms out of the intervention search. They remain clearly
+            # marked as leads; only the final candidate validation is a fix.
+            leads = [
                 h for h in _unverified_hypotheses(report)
                 if _hyp_key(h) not in refuted_ids
+                and _hyp_key(h) not in {_hyp_key(v) for v in hypotheses}
             ][:3]
+            had_verified = bool(hypotheses)
+            hypotheses.extend(leads)
             supported = _m4_supported_key(report)
-            hypotheses_note = (
-                "UNVERIFIED: M5 found no statistically significant evidence for these "
-                "hypotheses (they are the best-scoring leads, not established mechanisms)"
-                + ("; the M4 intervention experiment SUPPORTED the first one"
-                   if supported and hypotheses and _hyp_key(hypotheses[0]) == supported else "")
-                + ". Treat them as hints about WHERE to intervene; the candidate "
-                "validation, not the hypothesis, decides."
-            )
+            if leads:
+                hypotheses_note = (
+                    ("MIXED EVIDENCE: verified hypotheses come first; the remaining "
+                     if had_verified else
+                     "UNVERIFIED: M5 found no statistically significant evidence for these ")
+                    + "hypotheses; they are best-scoring leads, not established "
+                    "mechanisms"
+                    + ("; the M4 intervention experiment SUPPORTED the first lead"
+                       if supported and _hyp_key(leads[0]) == supported else "")
+                    + ". Treat inconclusive leads only as hints about WHERE to intervene; "
+                    "the final candidate validation decides."
+                )
         if not hypotheses:
             # A repair proposal is an intervention, not another exploratory
             # probe.  Do not turn an unreviewed/unsupported M3 lead into a

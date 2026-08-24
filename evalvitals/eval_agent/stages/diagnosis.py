@@ -580,7 +580,7 @@ def _validate_hypotheses(
         import logging as _logging
         _logging.getLogger(__name__).info(
             "DiagnosisAgent validation: critic rejected all %d hypothesis(es) — "
-            "kept as flagged leads; M5 on the held-out split decides",
+            "kept as flagged leads; M5 testing decides",
             len(hypotheses),
         )
     order = {"keep": 0, "unparsed": 1, "reject": 2}
