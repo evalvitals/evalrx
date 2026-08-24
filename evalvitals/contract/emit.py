@@ -450,6 +450,7 @@ def from_diagnosis(
         hyps.append(HypothesisWire(
             id=hypothesis_id(h),
             statement=str(_val(h, "statement", "")),
+            plain_statement=str(_val(h, "plain_statement", "") or ""),
             target_model=str(_val(h, "target_model", "") or _val(diag, "model_name", "")),
             predicted_failure_mode=str(_val(h, "predicted_failure_mode", "") or "unknown"),
             # Empty stays empty. A judge that proposed no test produced an
@@ -772,7 +773,18 @@ def from_fix_outcome(
 
     fixed = bool(_val(outcome, "fixed", False))
     best = _val(outcome, "best", None)
-    best_name = str(_val(best, "name", best) or "") or None
+    # `outcome.best` is a FixValidation, whose name lives one level down on its
+    # candidate — FixValidation itself has no `.name`. Reading `.name` off it
+    # fell through to the default (the object), so `best` was serialised as a
+    # 310KB Python repr AND `fixed` below silently flipped to False, because no
+    # attempt's name could ever equal that repr. The run log said a repair was
+    # confirmed while the contract — the machine-readable copy — said none was.
+    # Seen live on qwen3.5-2b/bbh_word_sorting, both agents, 2026-08-24.
+    best_name = str(
+        _val(best, "name", None)
+        or _val(_val(best, "candidate", None), "name", None)
+        or (best if isinstance(best, str) else "")
+    ) or None
     # FixOutput refuses fixed=True unless the winning row carries a methodology.
     # Attach the one derived from what the candidate declares; when nothing is
     # describable the claim is dropped rather than the payload, and `summary`
