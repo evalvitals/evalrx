@@ -216,3 +216,49 @@ def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
         payload = client.get("/api/report").json()
     assert payload["layout"]["generated_by"]["mode"] == "deterministic-read-only"
     assert payload["data"]["setting"]["model"] == "read-only-demo"
+
+
+def test_a_pre_ref_run_still_numbers_its_repairs_the_emitters_way():
+    """The AVLM run's stored payload predates `ref`, and must still be readable.
+
+    Left to itself the frontend numbers each list from one, so the frozen
+    candidate is #1 on its card and whatever position it happened to occupy in
+    the sweep — two numbers, one repair, nothing on screen connecting them.
+    """
+    from evalvitals.reporting.dynamic import _backfill_repair_identity
+
+    payload = {
+        "selection": [
+            {"name": "visual_grounding", "tier": "L1"},
+            {"name": "audio_evidence_then_answer", "tier": "L1"},
+            {"name": "coded_pipeline", "tier": "L2"},
+        ],
+        "attempted": [{"name": "coded_pipeline", "tier": "L2"}],
+    }
+    _backfill_repair_identity(payload)
+
+    assert [r["ref"] for r in payload["selection"]] == ["R1", "R2", "R3"]
+    # Same repair, same number, in both lists.
+    assert [r["ref"] for r in payload["attempted"]] == ["R3"]
+    # The host authored two of these three and can say what they do.
+    assert payload["selection"][0]["headline"].startswith("Tells the model to read")
+    assert payload["selection"][2]["headline"].startswith("Runs a short program")
+    # The judge invented the middle one under a prompt that never asked for a
+    # description, so nothing is invented on its behalf now.
+    assert payload["selection"][1]["headline"] == ""
+
+
+def test_backfill_never_overwrites_what_the_producer_wrote():
+    from evalvitals.reporting.dynamic import _backfill_repair_identity
+
+    payload = {
+        "selection": [
+            {"name": "coded_pipeline", "tier": "L2", "ref": "R9",
+             "headline": "Re-asks the model and takes the majority answer."},
+        ],
+        "attempted": [],
+    }
+    _backfill_repair_identity(payload)
+
+    assert payload["selection"][0]["ref"] == "R9"
+    assert payload["selection"][0]["headline"].startswith("Re-asks the model")

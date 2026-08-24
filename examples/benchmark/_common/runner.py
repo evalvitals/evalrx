@@ -50,6 +50,11 @@ def load_model(resolved: Resolved, args, task: T.Task):
     from evalvitals.specs import get_spec
 
     spec = get_spec(resolved.spec_key)
+    if getattr(args, "model_path", None):
+        # Only the location changes. The spec still decides the auto class, the
+        # chat template kwargs and the modalities, so a local checkout is the
+        # same model under test rather than a differently-configured one.
+        spec = replace(spec, hf_repo=str(args.model_path))
     if args.enable_thinking:
         spec = replace(spec, chat_template_kwargs={**spec.chat_template_kwargs, "enable_thinking": True})
     gen = generation_settings(task, args)
@@ -176,6 +181,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
         scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
+        concurrency=getattr(args, "concurrency", 1),
     ).discover(model, candidates, protocol=protocol)
     cases = discovery.cases
     elapsed = time.monotonic() - started
@@ -282,6 +288,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         **({"max_judge_candidates": 1} if args.code_only else {}),
         exec_timeout_sec=args.fix_exec_timeout,
         prewritten_code=prewritten_code,
+        concurrency=getattr(args, "concurrency", 1),
         **fix_kwargs,
     )
     explorer = None

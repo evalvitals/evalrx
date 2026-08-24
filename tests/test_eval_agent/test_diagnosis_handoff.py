@@ -44,9 +44,15 @@ class CapturingJudge(FakeModel):
 
     def generate(self, inputs, **kw) -> str:
         # diagnose() makes a second adversarial-validation call; record all and
-        # let tests inspect the first (the diagnosis prompt).
+        # let tests inspect the first (the diagnosis prompt). The response
+        # carries a clean PLAIN_STATEMENT because the prompt demands one — a
+        # missing or jargon-y line costs a third call (the plain-language
+        # repair turn), which is what test_plain_language_repair covers.
         self.prompts.append(str(inputs))
-        return "HYPOTHESIS: model fails to ground answers in the image\nFAILURE_MODE: weak_visual_grounding"
+        return ("HYPOTHESIS: model fails to ground answers in the image\n"
+                "PLAIN_STATEMENT: The model answers from the wording of the question "
+                "instead of looking at the picture.\n"
+                "FAILURE_MODE: weak_visual_grounding")
 
 
 def test_prompt_includes_conclusion_evidence_and_stats():
@@ -138,6 +144,55 @@ def test_diagnose_without_cases_keeps_the_critic_prompt_label_free():
     DiagnosisAgent(judge=judge).diagnose(_stats_report_with_conclusion())
     assert "LABEL SUMMARY" not in judge.prompts[1]
     assert "Context the proposer worked from" in judge.prompts[1]  # conclusion/evidence still travel
+
+
+def test_plain_language_repair_runs_once_when_the_plain_line_is_jargon():
+    """The prompt asking for plain language is not enough on its own — a judge
+    will reuse the technical line — so the host checks it and spends ONE extra
+    call to fix it. The analysis-side hypothesis agent already worked this way;
+    this is the path the benchmark runner actually takes."""
+    class JargonThenPlain(FakeModel):
+        def __init__(self) -> None:
+            super().__init__(capabilities={Capability.GENERATE})
+            self.prompts: list[str] = []
+
+        def generate(self, inputs, **kw) -> str:
+            self.prompts.append(str(inputs))
+            plain = ("Spearman rho of 0.42 between the coefficient and the p-value"
+                     if len(self.prompts) == 1
+                     else "The model answers Yes whatever the picture shows.")
+            return ("HYPOTHESIS: model fails to ground answers in the image\n"
+                    f"PLAIN_STATEMENT: {plain}\n"
+                    "FAILURE_MODE: weak_visual_grounding")
+
+    judge = JargonThenPlain()
+    diag = DiagnosisAgent(judge=judge).diagnose(_stats_report_with_conclusion())
+    assert len(judge.prompts) == 3, "proposer, plain-language repair, then the critic"
+    assert "fail a plain-language check" in judge.prompts[1]
+    assert diag.hypotheses[0].plain_statement == (
+        "The model answers Yes whatever the picture shows."
+    )
+
+
+def test_plain_language_repair_failure_keeps_the_original_hypotheses():
+    """A repair that raises must not cost the run its diagnosis — a jargon-y
+    headline is a reader problem, not an M5 problem."""
+    class RaisesOnRepair(FakeModel):
+        def __init__(self) -> None:
+            super().__init__(capabilities={Capability.GENERATE})
+            self.calls = 0
+
+        def generate(self, inputs, **kw) -> str:
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("judge went away")
+            return ("HYPOTHESIS: model fails to ground answers in the image\n"
+                    "PLAIN_STATEMENT: rho of 0.42 against the coefficient\n"
+                    "FAILURE_MODE: weak_visual_grounding")
+
+    diag = DiagnosisAgent(judge=RaisesOnRepair()).diagnose(_stats_report_with_conclusion())
+    assert len(diag.hypotheses) == 1
+    assert diag.hypotheses[0].plain_statement == "rho of 0.42 against the coefficient"
 
 
 def test_loop_hands_the_case_batch_to_agents_that_accept_it_only():

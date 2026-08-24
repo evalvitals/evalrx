@@ -3735,3 +3735,70 @@ def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
     assert guard["unanchored_ids"] == [] and guard["n_guarded"] == 0 and guard["min_support"] == 3
     control = json.loads(control_files[0].read_text(encoding="utf-8"))
     assert control["ok"] is True and control["solved"] == []
+
+
+# ── Candidates must arrive with a sentence a reader can use ──────────────────
+
+def test_a_judge_that_echoes_the_slug_contributes_nothing():
+    """"Audio Evidence Then Answer" is the name again, not an explanation.
+
+    Accepting it would put a sentence-shaped string on screen that tells a
+    reader exactly what the slug already told them, while looking like the run
+    had described its own repair.
+    """
+    from evalvitals.eval_agent.stages.fix_agent import _judge_description
+
+    assert _judge_description({
+        "name": "audio_evidence_then_answer",
+        "what_it_does": "Audio evidence then answer.",
+    }) == ""
+    assert _judge_description({
+        "name": "audio_evidence_then_answer",
+        "what_it_does": "Asks the model to describe what it hears before it answers.",
+    }) == "Asks the model to describe what it hears before it answers."
+    assert _judge_description({"name": "x"}) == ""
+    assert _judge_description("not a proposal") == ""
+
+
+def test_a_coded_pipelines_own_header_is_its_description():
+    """L2 code has no JSON proposal to carry `what_it_does`, so it declares it
+    in the source, where the coding agent is already writing."""
+    from evalvitals.eval_agent.stages.fix_agent import _code_description
+
+    code = (
+        "# WHAT_IT_DOES: Asks the model twice and keeps the answer both tries agree on.\n"
+        "import json\n"
+        "print('x')\n"
+    )
+    assert _code_description(code) == (
+        "Asks the model twice and keeps the answer both tries agree on."
+    )
+    assert _code_description("import json\nprint('x')\n") == ""
+
+    # A model that wraps the line anyway keeps its whole sentence.
+    wrapped = (
+        "# WHAT_IT_DOES: Asks the model twice with different wording and keeps\n"
+        "#   the answer both tries agree on.\n"
+        "import json\n"
+    )
+    assert _code_description(wrapped) == (
+        "Asks the model twice with different wording and keeps the answer both "
+        "tries agree on."
+    )
+
+
+def test_plain_description_never_falls_back_to_the_slug():
+    from evalvitals.eval_agent.stages.fix_agent import (
+        FixCandidate, FixTier, plain_description,
+    )
+
+    judged = FixCandidate(
+        tier=FixTier.L1_PROMPT, name="cross_modal_rules_terse", payload={},
+        description="Gives the model a short checklist to follow before answering.",
+    )
+    builtin = FixCandidate(tier=FixTier.L1_PROMPT, name="visual_grounding", payload={})
+    unknown = FixCandidate(tier=FixTier.L1_PROMPT, name="mystery_strategy_v2", payload={})
+
+    assert plain_description(judged).startswith("Gives the model a short checklist")
+    assert plain_description(builtin).startswith("Tells the model to read the answer")
+    assert plain_description(unknown) == ""

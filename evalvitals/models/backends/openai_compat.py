@@ -30,6 +30,7 @@ import io
 from typing import Any, Callable, Optional
 
 from evalvitals.core.tool import ChatTurn
+from evalvitals.models.backends.api import parse_openai_logprobs
 from evalvitals.models.backends.base import RuntimeConfig
 
 
@@ -155,14 +156,74 @@ def openai_generate_fn(
     return _fn
 
 
+def openai_logprobs_fn(
+    *,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    client: Any = None,
+    timeout: float = 300.0,
+    top_logprobs: int = 5,
+    **sampling: Any,
+) -> Callable[..., list]:
+    """Build a ``logprobs_fn(prompt, model=...) -> list[TokenLogprob]``.
+
+    An OpenAI-compatible server returns per-token logprobs when asked, and
+    ``vllm serve`` is one. Without this the api backend declares only GENERATE,
+    so every analyzer that reads answer-token uncertainty is skipped as
+    unsupported -- on the LLM benchmark set that is `calibration` and
+    `logprob_entropy`, two of the eight pinned probes, dropped not because the
+    server cannot answer but because nobody asked it.
+    """
+    sampling.setdefault("temperature", 0.0)
+    state = {"client": client}
+
+    def _client():
+        if state["client"] is None:
+            import openai
+
+            state["client"] = openai.OpenAI(
+                base_url=base_url, api_key=api_key or "EMPTY", timeout=timeout
+            )
+        return state["client"]
+
+    def _fn(prompt: str, model: str = "", **kw) -> list:
+        kwargs: dict[str, Any] = {**sampling, **kw}
+        kwargs["logprobs"] = True
+        kwargs["top_logprobs"] = int(kwargs.pop("top_logprobs", top_logprobs))
+        resp = _client().chat.completions.create(
+            model=model, messages=[{"role": "user", "content": prompt}], **kwargs
+        )
+        logprobs = getattr(resp.choices[0], "logprobs", None)
+        content = getattr(logprobs, "content", None) if logprobs is not None else None
+        # A server that accepts `logprobs=True` and returns nothing has told us
+        # it does not support them. Returning [] would read as "this answer had
+        # no tokens", so let the caller see the empty result for what it is.
+        return parse_openai_logprobs(
+            [item.model_dump() if hasattr(item, "model_dump") else item for item in (content or [])]
+        )
+
+    return _fn
+
+
 def openai_runtime(
     *,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
     client: Any = None,
     timeout: float = 300.0,
+    with_logprobs: bool = True,
     **sampling: Any,
 ) -> RuntimeConfig:
-    """A ready :class:`RuntimeConfig` for ``compose(key, "api", runtime=...)``."""
+    """A ready :class:`RuntimeConfig` for ``compose(key, "api", runtime=...)``.
+
+    ``with_logprobs`` wires the logprobs path, which is what makes the backend
+    claim :attr:`Capability.LOGPROBS`. Pass False for an endpoint that rejects
+    the parameter -- claiming a capability the server does not have turns a
+    skipped analyzer into a failing one.
+    """
     kw = dict(base_url=base_url, api_key=api_key, client=client, timeout=timeout, **sampling)
-    return RuntimeConfig(chat_fn=openai_chat_fn(**kw), generate_fn=openai_generate_fn(**kw))
+    return RuntimeConfig(
+        chat_fn=openai_chat_fn(**kw),
+        generate_fn=openai_generate_fn(**kw),
+        logprobs_fn=openai_logprobs_fn(**kw) if with_logprobs else None,
+    )

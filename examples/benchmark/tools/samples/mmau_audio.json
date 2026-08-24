@@ -1,0 +1,1524 @@
+{
+  "headline": {
+    "model": "gemma-4-e2b-it",
+    "dataset": "MMAU/test-mini",
+    "n_cases": 256,
+    "split": "128 explore / 128 held-out",
+    "baseline_accuracy": 0.4297,
+    "confirmed_signal": "coverage_verification_gap.majority_share",
+    "hypotheses": {
+      "proposed": 3,
+      "supported": 0,
+      "inconclusive": 2
+    },
+    "accepted_repair": "verify_then_commit",
+    "accepted_tier": "L2",
+    "heldout_accuracy": "0.4296875 -> 0.6015625",
+    "cases_fixed": 30,
+    "cases_broken": 8
+  },
+  "run": {
+    "dataset": "mmau",
+    "benchmark": "MMAU/test-mini",
+    "model": "gemma-4-e2b",
+    "model_spec": "gemma-4-e2b-it",
+    "hf_repo": "google/gemma-4-E2B-it",
+    "modality": "alm",
+    "backend": "hf_local",
+    "n_cases": 256,
+    "n_explore": 128,
+    "n_heldout": 128,
+    "confirm_split": 0.5,
+    "manifest_seed": 20260814,
+    "baseline_accuracy": 0.4297,
+    "explore_label_distribution": {
+      "PASS": 55,
+      "FAIL": 73
+    },
+    "data_fingerprint": "b13f2eb0da29",
+    "generation_kwargs": {
+      "max_new_tokens": 64,
+      "do_sample": false
+    },
+    "fix_tier_cap": "L3a",
+    "auto_escalate": false,
+    "allow_codegen": true,
+    "m1_selection": "pinned",
+    "judge": "ClaudeModel(binary='/usr/local/bin/claude', model='claude-opus-5', effort='high')",
+    "coder": "claude_code:claude-opus-5",
+    "protocol": "We evaluate an audio-language model (Gemma 4 E2B-it, spec gemma-4-e2b-it = google/gemma-4-E2B-it) on MMAU test-mini: four-way multiple-choice questions about a short audio clip, spanning three domains — sound, music, and speech. The model must select the option that best matches what is actually audible in the clip. We want to know what distinguishes the questions it gets right from the ones it gets wrong.",
+    "manifest_run_id": "logs",
+    "cycles": 1,
+    "stopped_by": "max_cycles",
+    "timings_sec": {
+      "m1": 4096.506,
+      "explore": 1801.296,
+      "m2": 185.803,
+      "m3": 169.781,
+      "m5_holdout_m1": 3649.823,
+      "m5": 21.613
+    },
+    "total_duration_sec": 9924.8
+  },
+  "m1_probe": {
+    "analyzers": {
+      "selection_mode": "pinned",
+      "selection_rationale": "Selected 8 analyzer(s) (answer_extraction_audit, termination_audit, selfcheck_consistency, format_sensitivity, self_consistency, calibration, logprob_entropy, coverage_verification_gap) by capability matching.",
+      "selected_analyzers": [
+        "answer_extraction_audit",
+        "termination_audit",
+        "selfcheck_consistency",
+        "format_sensitivity",
+        "self_consistency",
+        "calibration",
+        "logprob_entropy",
+        "coverage_verification_gap"
+      ],
+      "families": [
+        {
+          "family": "black_box_behavior",
+          "label": "BLACK-BOX BEHAVIOR",
+          "selected": true,
+          "analyzers": [
+            "answer_extraction_audit",
+            "termination_audit",
+            "selfcheck_consistency",
+            "format_sensitivity",
+            "self_consistency",
+            "calibration",
+            "coverage_verification_gap"
+          ]
+        },
+        {
+          "family": "internal_white_box",
+          "label": "INTERNAL / WHITE-BOX",
+          "selected": true,
+          "analyzers": [
+            "logprob_entropy"
+          ]
+        },
+        {
+          "family": "multimodal",
+          "label": "MULTIMODAL",
+          "selected": false
+        },
+        {
+          "family": "other",
+          "label": "OTHER",
+          "selected": false
+        }
+      ],
+      "n_probe_passes": 2,
+      "probe_cycles": [
+        0,
+        -1
+      ],
+      "headline_metrics": {
+        "answer_extraction_audit": {
+          "n_cases": 128,
+          "n_gradable": 128,
+          "n_labelled_fail": 73,
+          "n_extraction_suspect": 22,
+          "suspect_rate": 0.3014,
+          "n_reasked": 0,
+          "n_extraction_point_miss": 15,
+          "missing_tag_rate": 1.0
+        },
+        "logprob_entropy": {
+          "n_tokens": 2,
+          "mean_logprob": -0.237,
+          "perplexity": 1.2675,
+          "min_token_logprob": -0.4741,
+          "mean_top_entropy": 0.3315
+        },
+        "self_consistency": {
+          "n_samples": 5,
+          "consistency": 0.6,
+          "n_unique": 2,
+          "compared_on": "raw_text",
+          "raw_text_consistency": 0.6,
+          "modal_answer": "(A)",
+          "n_semantic_clusters": 1,
+          "semantic_entropy": -0.0,
+          "normalized_semantic_entropy": -0.0,
+          "semantic_consistency": 1.0,
+          "entailment": "lexical_proxy"
+        },
+        "termination_audit": {
+          "n_cases": 128,
+          "clean_rate": 0.3359,
+          "non_clean_rate": 0.6641,
+          "truncation_rate": 0.0,
+          "degenerate_rate": 0.0,
+          "giveup_rate": 0.0156,
+          "recovered_rate": 0.0235
+        },
+        "calibration": {
+          "n_cases": 128,
+          "n_unlabelled_skipped": 0,
+          "n_bins": 10
+        },
+        "format_sensitivity": {
+          "n_cases": 128,
+          "n_scored": 125,
+          "mean_flip_rate": 0.336
+        },
+        "selfcheck_consistency": {
+          "n_cases": 128,
+          "n_samples": 4,
+          "degenerate_sampling": false,
+          "mean_inconsistency": 0.0975
+        },
+        "coverage_verification_gap": {
+          "n_cases": 128,
+          "n_scored": 128,
+          "k": 5,
+          "mean_pass_at_k": 0.6797,
+          "mean_majority_correct": 0.4688,
+          "coverage_gap_rate": 0.2109,
+          "no_coverage_rate": 0.3203,
+          "degenerate_sampling": false
+        }
+      }
+    },
+    "signal_curve": {
+      "phase": "explore",
+      "signal": "coverage_verification_gap.majority_share",
+      "analyzer": "coverage_verification_gap",
+      "field": "majority_share",
+      "all_surviving_signals": [
+        "answer_extraction_audit.output_chars",
+        "coverage_verification_gap.n_unique",
+        "selfcheck_consistency.n_sentences",
+        "termination_audit.output_chars",
+        "termination_audit.output_words",
+        "termination_audit.matches_output_contract",
+        "coverage_verification_gap.coverage_gap",
+        "coverage_verification_gap.majority_share"
+      ],
+      "n_surviving_signals": 8,
+      "binning": "levels",
+      "n_distinct_values": 5,
+      "n_cases": 128,
+      "bins": [
+        {
+          "value": 0.2,
+          "n_cases": 26,
+          "n_fail": 23,
+          "failure_rate": 0.8846
+        },
+        {
+          "value": 0.4,
+          "n_cases": 31,
+          "n_fail": 24,
+          "failure_rate": 0.7742
+        },
+        {
+          "value": 0.6,
+          "n_cases": 11,
+          "n_fail": 5,
+          "failure_rate": 0.4545
+        },
+        {
+          "value": 0.8,
+          "n_cases": 12,
+          "n_fail": 6,
+          "failure_rate": 0.5
+        },
+        {
+          "value": 1.0,
+          "n_cases": 48,
+          "n_fail": 15,
+          "failure_rate": 0.3125
+        }
+      ]
+    }
+  },
+  "m2_statistics": {
+    "explore": {
+      "family": {
+        "n_results_total": 27,
+        "n_signal_label_assoc": 16,
+        "n_degenerate": 1,
+        "n_in_correction_family": 15,
+        "correction_method": "BH",
+        "survivors": [
+          "answer_extraction_audit.output_chars",
+          "coverage_verification_gap.n_unique",
+          "format_sensitivity.n_unparsed",
+          "selfcheck_consistency.n_sentences",
+          "termination_audit.output_chars",
+          "termination_audit.output_words",
+          "termination_audit.matches_output_contract",
+          "coverage_verification_gap.coverage_gap",
+          "coverage_verification_gap.majority_share"
+        ]
+      },
+      "tests": [
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.n_options",
+          "effect": 0.4435,
+          "ci": [
+            0.3548,
+            0.5242
+          ],
+          "p_value": 0.1339974690663667,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 4,
+          "n_control": 124,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.5565
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.gave_up",
+          "effect": 0.4365,
+          "ci": [
+            0.3492,
+            0.5238
+          ],
+          "p_value": 0.5060285433070866,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 2,
+          "n_control": 126,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.5635
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.gave_up",
+          "effect": 0.4365,
+          "ci": [
+            0.3492,
+            0.5238
+          ],
+          "p_value": 0.5060285433070866,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 2,
+          "n_control": 126,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.5635
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.output_chars",
+          "effect": 0.4267,
+          "ci": [
+            0.2611,
+            0.5745
+          ],
+          "p_value": 2.062854990436188e-06,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 57,
+          "n_control": 71,
+          "fail_rate_signal": 0.807,
+          "fail_rate_control": 0.3803
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "selfcheck_consistency.n_sentences",
+          "effect": 0.4267,
+          "ci": [
+            0.2611,
+            0.5745
+          ],
+          "p_value": 2.062854990436188e-06,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 57,
+          "n_control": 71,
+          "fail_rate_signal": 0.807,
+          "fail_rate_control": 0.3803
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.output_chars",
+          "effect": 0.4267,
+          "ci": [
+            0.2611,
+            0.5745
+          ],
+          "p_value": 2.062854990436188e-06,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 57,
+          "n_control": 71,
+          "fail_rate_signal": 0.807,
+          "fail_rate_control": 0.3803
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.output_words",
+          "effect": 0.4267,
+          "ci": [
+            0.2611,
+            0.5745
+          ],
+          "p_value": 2.062854990436188e-06,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 57,
+          "n_control": 71,
+          "fail_rate_signal": 0.807,
+          "fail_rate_control": 0.3803
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.n_unique",
+          "effect": 0.4229,
+          "ci": [
+            0.2727,
+            0.5781
+          ],
+          "p_value": 1.8607653211531183e-06,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 54,
+          "n_control": 74,
+          "fail_rate_signal": 0.8148,
+          "fail_rate_control": 0.3919
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.n_unparsed",
+          "effect": 0.3865,
+          "ci": [
+            0.2269,
+            0.5281
+          ],
+          "p_value": 6.764590605380508e-05,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 38,
+          "n_control": 90,
+          "fail_rate_signal": 0.8421,
+          "fail_rate_control": 0.4556
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.coverage_gap",
+          "effect": 0.2629,
+          "ci": [
+            0.0777,
+            0.4459
+          ],
+          "p_value": 0.016342210856731026,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 27,
+          "n_control": 101,
+          "fail_rate_signal": 0.7778,
+          "fail_rate_control": 0.5149
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "coverage_verification_gap.n_unique",
+          "effect": 0.2613,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.format_flip_rate",
+          "effect": 0.2522,
+          "ci": [
+            -0.0478,
+            0.487
+          ],
+          "p_value": 0.1850239540812816,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 10,
+          "n_control": 115,
+          "fail_rate_signal": 0.8,
+          "fail_rate_control": 0.5478
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "selfcheck_consistency.n_sentences",
+          "effect": 0.2419,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "answer_extraction_audit.output_chars",
+          "effect": 0.2357,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "termination_audit.output_chars",
+          "effect": 0.2357,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "termination_audit.output_words",
+          "effect": 0.2223,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "format_sensitivity.n_unparsed",
+          "effect": 0.1508,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "format_sensitivity.format_flip_rate",
+          "effect": 0.0996,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "format_sensitivity.n_options",
+          "effect": 0.078,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.positional_bias",
+          "effect": 0.0587,
+          "ci": [
+            -0.121,
+            0.2408
+          ],
+          "p_value": 0.579864343166894,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 48,
+          "n_control": 77,
+          "fail_rate_signal": 0.6042,
+          "fail_rate_control": 0.5455
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "format_sensitivity.positional_bias",
+          "effect": 0.0326,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "termination_audit.continuation_chars",
+          "effect": 0.0221,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.continuation_chars",
+          "effect": -0.0006,
+          "ci": [
+            -0.2134,
+            0.2057
+          ],
+          "p_value": 1.0,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 41,
+          "n_control": 44,
+          "fail_rate_signal": 0.6585,
+          "fail_rate_control": 0.6591
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "coverage_verification_gap.majority_share",
+          "effect": -0.2609,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.matches_output_contract",
+          "effect": -0.2635,
+          "ci": [
+            -0.4386,
+            -0.0884
+          ],
+          "p_value": 0.005061563356758562,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 43,
+          "n_control": 85,
+          "fail_rate_signal": 0.3953,
+          "fail_rate_control": 0.6588
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.majority_share",
+          "effect": -0.4147,
+          "ci": [
+            -0.5696,
+            -0.2598
+          ],
+          "p_value": 2.673178071392436e-06,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 60,
+          "n_control": 68,
+          "fail_rate_signal": 0.35,
+          "fail_rate_control": 0.7647
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.n_variants",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        }
+      ]
+    },
+    "heldout": {
+      "family": {
+        "n_results_total": 27,
+        "n_signal_label_assoc": 16,
+        "n_degenerate": 1,
+        "n_in_correction_family": 15,
+        "correction_method": "BH",
+        "survivors": [
+          "answer_extraction_audit.output_chars",
+          "coverage_verification_gap.n_unique",
+          "selfcheck_consistency.n_sentences",
+          "termination_audit.output_chars",
+          "termination_audit.output_words",
+          "termination_audit.matches_output_contract",
+          "coverage_verification_gap.coverage_gap",
+          "coverage_verification_gap.majority_share"
+        ]
+      },
+      "tests": [
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.n_options",
+          "effect": 0.4472,
+          "ci": [
+            0.3577,
+            0.5287
+          ],
+          "p_value": 0.06992231439820022,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 5,
+          "n_control": 123,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.5528
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.gave_up",
+          "effect": 0.44,
+          "ci": [
+            0.3598,
+            0.528
+          ],
+          "p_value": 0.2590428149606299,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 3,
+          "n_control": 125,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.56
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.gave_up",
+          "effect": 0.44,
+          "ci": [
+            0.3598,
+            0.528
+          ],
+          "p_value": 0.2590428149606299,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 3,
+          "n_control": 125,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.56
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "selfcheck_consistency.n_sentences",
+          "effect": 0.41,
+          "ci": [
+            0.2598,
+            0.5603
+          ],
+          "p_value": 6.267155063417498e-06,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 47,
+          "n_control": 81,
+          "fail_rate_signal": 0.8298,
+          "fail_rate_control": 0.4198
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.output_words",
+          "effect": 0.41,
+          "ci": [
+            0.2598,
+            0.5603
+          ],
+          "p_value": 6.267155063417498e-06,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 47,
+          "n_control": 81,
+          "fail_rate_signal": 0.8298,
+          "fail_rate_control": 0.4198
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.n_unique",
+          "effect": 0.3951,
+          "ci": [
+            0.237,
+            0.5426
+          ],
+          "p_value": 1.2404170225886603e-05,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 57,
+          "n_control": 71,
+          "fail_rate_signal": 0.7895,
+          "fail_rate_control": 0.3944
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.output_chars",
+          "effect": 0.3511,
+          "ci": [
+            0.1931,
+            0.5062
+          ],
+          "p_value": 7.648889251842115e-05,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 61,
+          "n_control": 67,
+          "fail_rate_signal": 0.7541,
+          "fail_rate_control": 0.403
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.output_chars",
+          "effect": 0.3511,
+          "ci": [
+            0.1931,
+            0.5062
+          ],
+          "p_value": 7.648889251842115e-05,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 61,
+          "n_control": 67,
+          "fail_rate_signal": 0.7541,
+          "fail_rate_control": 0.403
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.coverage_gap",
+          "effect": 0.3462,
+          "ci": [
+            0.1621,
+            0.5098
+          ],
+          "p_value": 0.001608621611476901,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 26,
+          "n_control": 102,
+          "fail_rate_signal": 0.8462,
+          "fail_rate_control": 0.5
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "coverage_verification_gap.n_unique",
+          "effect": 0.2614,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "answer_extraction_audit.output_chars",
+          "effect": 0.2067,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "termination_audit.output_chars",
+          "effect": 0.2067,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.n_unparsed",
+          "effect": 0.1989,
+          "ci": [
+            0.0086,
+            0.3915
+          ],
+          "p_value": 0.08689608304437024,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 29,
+          "n_control": 99,
+          "fail_rate_signal": 0.7241,
+          "fail_rate_control": 0.5253
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "termination_audit.output_words",
+          "effect": 0.1831,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "selfcheck_consistency.n_sentences",
+          "effect": 0.1821,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "format_sensitivity.format_flip_rate",
+          "effect": 0.12,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "format_sensitivity.positional_bias",
+          "effect": 0.0761,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "format_sensitivity.n_options",
+          "effect": 0.0757,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "format_sensitivity.n_unparsed",
+          "effect": 0.0687,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.format_flip_rate",
+          "effect": 0.0643,
+          "ci": [
+            -0.1107,
+            0.2429
+          ],
+          "p_value": 0.58705060693217,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 56,
+          "n_control": 70,
+          "fail_rate_signal": 0.6071,
+          "fail_rate_control": 0.5429
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "termination_audit.continuation_chars",
+          "effect": 0.0352,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.positional_bias",
+          "effect": 0.0207,
+          "ci": [
+            -0.1619,
+            0.1997
+          ],
+          "p_value": 0.8500578077061166,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 41,
+          "n_control": 85,
+          "fail_rate_signal": 0.5854,
+          "fail_rate_control": 0.5647
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.continuation_chars",
+          "effect": -0.0573,
+          "ci": [
+            -0.2561,
+            0.1415
+          ],
+          "p_value": 0.638829332339054,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 40,
+          "n_control": 41,
+          "fail_rate_signal": 0.65,
+          "fail_rate_control": 0.7073
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "coverage_verification_gap.majority_share",
+          "effect": -0.2673,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.matches_output_contract",
+          "effect": -0.296,
+          "ci": [
+            -0.4607,
+            -0.1224
+          ],
+          "p_value": 0.0015670537471025924,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 47,
+          "n_control": 81,
+          "fail_rate_signal": 0.383,
+          "fail_rate_control": 0.679
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.majority_share",
+          "effect": -0.4423,
+          "ci": [
+            -0.6032,
+            -0.2794
+          ],
+          "p_value": 7.790776065466661e-07,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 52,
+          "n_control": 76,
+          "fail_rate_signal": 0.3077,
+          "fail_rate_control": 0.75
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "format_sensitivity.n_variants",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        }
+      ]
+    }
+  },
+  "m3_hypotheses": {
+    "proposed": [
+      {
+        "hypothesis_id": "H1",
+        "failure_mode": "truncation",
+        "statement": "The leaked reasoning channel is a chat-template defect (`enable_thinking=False` is silently ignored by the gemma-4-e2b-it template) that emits a multi-hundred-token `Thinking Process:` preamble, so the defect is *not* repairable by a small budget bump — at 64+~250 additional characters the answer letter still has not appeared in 83 of 85 continuations (`recovered_rate = 0.0235`), meaning the required budget is ≥512 new tokens, not ~128.",
+        "test_design": "`termination_audit.continuation_chars` — currently inconclusive (effect −0.0006, CI −0.213..+0.206, τ = +0.022), which is itself the confirming evidence: a genuine \"few tokens short\" defect would show `continuation_has_answer` recovering on most non-clean cases, and it recovers on 2/85. Next cycle: re-collect `baseline.json` at `max_new_tokens=512` with the template's thinking channel verified off at the token level (assert the rendered prompt string, not the kwarg), and score a `fixed_by_budget_512` flag per case.",
+        "status_at_proposal": "proposed"
+      },
+      {
+        "hypothesis_id": "H2",
+        "failure_mode": "answer_extraction",
+        "statement": "The grader's fallback extractor corrupts labels in *both* directions — it assigns FAIL to prose outputs whose gold string is present (`strict_match=1 & labelled_fail=1` on ≥12 cases: `a24ba06b`, `38d52315`, `45b81135`, `72fb5481`, `aac54520`, `3169f037`, `8ec14515`, `f13fab4f`, `f002617e`, `dbed711d`, `a61044e3`, `676a6e29`) and PASS to prose outputs with no letter at all (`labelled_fail=0 & strict_match=0`: `1b87bc3e`, `6daf1dda`, `90bbd0d8`, `16faf4a0`, `c9f57ab1`), so the FAIL label feeding every M2 correlation is noise on the non-clean stratum rather than a uniformly deflated score.",
+        "test_design": "`answer_extraction_audit.extraction_point_miss` and `label_disagrees` — HIGHER on failing cases; `answer_extraction_audit.missing_tag_rate = 1.0` and `suspect_rate = 0.3014` (6× the 5% contamination threshold) already indicate no case ever produced a parseable answer tag. Next cycle: run the audit with `reask=True` and compare `n_reask_confirmed` against the stored labels; a bidirectional-corruption account predicts disagreement in both directions, a pure-truncation account predicts disagreement only in the FAIL→PASS direction.",
+        "status_at_proposal": "proposed"
+      },
+      {
+        "hypothesis_id": "H3",
+        "failure_mode": "language_prior_bias",
+        "statement": "Restricted to the 43 contract-respecting (`termination_class == 'clean'`) cases, answers are produced from an option-letter/text prior rather than from the audio — the model's own leaked text says so verbatim (\"Since I cannot directly listen to an audio file, I must rely on the provided context\", `00127c2e`, `1af356cb`) — so the ~60% \"real capability\" figure is a text-prior ceiling, not audio perception.",
+        "test_design": "`format_sensitivity.positional_bias` and `format_sensitivity.format_flip_rate` — both HIGHER on failing cases, but re-run **stratified to `matches_output_contract == 1`**; pooled they are inconclusive (+0.059 and +0.252, CIs crossing zero) precisely because the 85 leaked cases dominate the pool. Corroborating marginals already present: `mean_flip_rate = 0.336` and a modal-letter histogram skewed away from uniform (B=38, D=37, C=32 vs A=16). Decisive next-cycle intervention: an audio-ablation contrast — re-run the clean stratum with silence and with a mismatched clip substituted; if accuracy is statistically unchanged, the audio channel is not being used.",
+        "expected_direction": "higher_in_fail",
+        "status_at_proposal": "proposed"
+      }
+    ],
+    "adversarial_critic": {
+      "n_proposed": 3,
+      "n_critic_kept": 0,
+      "n_critic_rejected": 0,
+      "review": {
+        "n_kept": 0,
+        "n_rejected": 0,
+        "decisions": [
+          {
+            "statement": "The leaked reasoning channel is a chat-template defect (`enable_thinking=False` is silently ignored by the gemma-4-e2b-it template) that emits a multi-hundred-token `Thinking Process:` preamble, so the defect is *not* repairable by a small budget bump — at 64+~250 additional characters the answer letter still has not appeared in 83 of 85 continuations (`recovered_rate = 0.0235`), meaning the required budget is ≥512 new tokens, not ~128.",
+            "decision": "unparsed",
+            "reason": ""
+          },
+          {
+            "statement": "The grader's fallback extractor corrupts labels in *both* directions — it assigns FAIL to prose outputs whose gold string is present (`strict_match=1 & labelled_fail=1` on ≥12 cases: `a24ba06b`, `38d52315`, `45b81135`, `72fb5481`, `aac54520`, `3169f037`, `8ec14515`, `f13fab4f`, `f002617e`, `dbed711d`, `a61044e3`, `676a6e29`) and PASS to prose outputs with no letter at all (`labelled_fail=0 & strict_match=0`: `1b87bc3e`, `6daf1dda`, `90bbd0d8`, `16faf4a0`, `c9f57ab1`), so the FAIL label feeding every M2 correlation is noise on the non-clean stratum rather than a uniformly deflated score.",
+            "decision": "unparsed",
+            "reason": ""
+          },
+          {
+            "statement": "Restricted to the 43 contract-respecting (`termination_class == 'clean'`) cases, answers are produced from an option-letter/text prior rather than from the audio — the model's own leaked text says so verbatim (\"Since I cannot directly listen to an audio file, I must rely on the provided context\", `00127c2e`, `1af356cb`) — so the ~60% \"real capability\" figure is a text-prior ceiling, not audio perception.",
+            "decision": "unparsed",
+            "reason": ""
+          }
+        ]
+      },
+      "note": "critic objections are recorded, not vetoes; adjudication is statistical"
+    }
+  },
+  "m5_verdicts": [
+    {
+      "hypothesis_id": "H1",
+      "failure_mode": "truncation",
+      "status": "inconclusive",
+      "statement": "The leaked reasoning channel is a chat-template defect (`enable_thinking=False` is silently ignored by the gemma-4-e2b-it template) that emits a multi-hundred-token `Thinking Process:` preamble, so the defect is *not* repairable by a small budget bump — at 64+~250 additional characters the answer letter still has not appeared in 83 of 85 continuations (`recovered_rate = 0.0235`), meaning the required budget is ≥512 new tokens, not ~128.",
+      "test_name": "signal_label_assoc",
+      "effect": -0.0573,
+      "ci": [
+        -0.2561,
+        0.1415
+      ],
+      "reject": false,
+      "underpowered": false,
+      "evidence_grade": "observational",
+      "protocol_consistent": true,
+      "confidence_score": 0.072,
+      "fdr": {
+        "method": "BH",
+        "alpha": 0.05,
+        "n_tested": 15,
+        "rejected_tools": [
+          "signal_label_assoc"
+        ],
+        "rejected_result_keys": [
+          "signal_label_assoc:answer_extraction_audit.output_chars",
+          "signal_label_assoc:coverage_verification_gap.n_unique",
+          "signal_label_assoc:selfcheck_consistency.n_sentences",
+          "signal_label_assoc:termination_audit.output_chars",
+          "signal_label_assoc:termination_audit.output_words",
+          "signal_label_assoc:termination_audit.matches_output_contract",
+          "signal_label_assoc:coverage_verification_gap.coverage_gap",
+          "signal_label_assoc:coverage_verification_gap.majority_share"
+        ],
+        "families": {
+          "bh": {
+            "method": "BH",
+            "n_tested": 15,
+            "rejected_result_keys": [
+              "signal_label_assoc:answer_extraction_audit.output_chars",
+              "signal_label_assoc:coverage_verification_gap.n_unique",
+              "signal_label_assoc:selfcheck_consistency.n_sentences",
+              "signal_label_assoc:termination_audit.output_chars",
+              "signal_label_assoc:termination_audit.output_words",
+              "signal_label_assoc:termination_audit.matches_output_contract",
+              "signal_label_assoc:coverage_verification_gap.coverage_gap",
+              "signal_label_assoc:coverage_verification_gap.majority_share"
+            ]
+          }
+        }
+      },
+      "verdict_text": "No significant M2 result (best: signal 'termination_audit.continuation_chars' vs FAIL: [clustered bootstrap (unpaired)] effect=-0.0573 (A>B) CI=-0.2561..+0.1415 -> inconclusive [BH: NOT survived, p=0.639, n_signal=40])",
+      "split": "heldout"
+    },
+    {
+      "hypothesis_id": "H2",
+      "failure_mode": "answer_extraction",
+      "status": "inconclusive",
+      "statement": "The grader's fallback extractor corrupts labels in *both* directions — it assigns FAIL to prose outputs whose gold string is present (`strict_match=1 & labelled_fail=1` on ≥12 cases: `a24ba06b`, `38d52315`, `45b81135`, `72fb5481`, `aac54520`, `3169f037`, `8ec14515`, `f13fab4f`, `f002617e`, `dbed711d`, `a61044e3`, `676a6e29`) and PASS to prose outputs with no letter at all (`labelled_fail=0 & strict_match=0`: `1b87bc3e`, `6daf1dda`, `90bbd0d8`, `16faf4a0`, `c9f57ab1`), so the FAIL label feeding every M2 correlation is noise on the non-clean stratum rather than a uniformly deflated score.",
+      "test_name": "stats_results",
+      "evidence_grade": "none",
+      "protocol_consistent": true,
+      "confidence_score": 0.0,
+      "verdict_text": "designated evidence not measured this cycle: the test design names answer_extraction_audit.extraction_point_miss, answer_extraction_audit.missing_tag_rate, label_disagrees, n_reask_confirmed, suspect_rate but M2 has no result for them — not judged on unrelated signals (next cycle's M1 targets the design)",
+      "split": "heldout"
+    },
+    {
+      "hypothesis_id": "H3",
+      "failure_mode": "language_prior_bias",
+      "status": "refuted",
+      "statement": "Restricted to the 43 contract-respecting (`termination_class == 'clean'`) cases, answers are produced from an option-letter/text prior rather than from the audio — the model's own leaked text says so verbatim (\"Since I cannot directly listen to an audio file, I must rely on the provided context\", `00127c2e`, `1af356cb`) — so the ~60% \"real capability\" figure is a text-prior ceiling, not audio perception.",
+      "test_name": "signal_label_assoc",
+      "expected_direction": "higher_in_fail",
+      "effect": -0.296,
+      "ci": [
+        -0.4607,
+        -0.1224
+      ],
+      "reject": true,
+      "underpowered": false,
+      "evidence_grade": "observational",
+      "protocol_consistent": true,
+      "confidence_score": 0.467,
+      "fdr": {
+        "method": "BH",
+        "alpha": 0.05,
+        "n_tested": 15,
+        "rejected_tools": [
+          "signal_label_assoc"
+        ],
+        "rejected_result_keys": [
+          "signal_label_assoc:answer_extraction_audit.output_chars",
+          "signal_label_assoc:coverage_verification_gap.n_unique",
+          "signal_label_assoc:selfcheck_consistency.n_sentences",
+          "signal_label_assoc:termination_audit.output_chars",
+          "signal_label_assoc:termination_audit.output_words",
+          "signal_label_assoc:termination_audit.matches_output_contract",
+          "signal_label_assoc:coverage_verification_gap.coverage_gap",
+          "signal_label_assoc:coverage_verification_gap.majority_share"
+        ],
+        "families": {
+          "bh": {
+            "method": "BH",
+            "n_tested": 15,
+            "rejected_result_keys": [
+              "signal_label_assoc:answer_extraction_audit.output_chars",
+              "signal_label_assoc:coverage_verification_gap.n_unique",
+              "signal_label_assoc:selfcheck_consistency.n_sentences",
+              "signal_label_assoc:termination_audit.output_chars",
+              "signal_label_assoc:termination_audit.output_words",
+              "signal_label_assoc:termination_audit.matches_output_contract",
+              "signal_label_assoc:coverage_verification_gap.coverage_gap",
+              "signal_label_assoc:coverage_verification_gap.majority_share"
+            ]
+          }
+        }
+      },
+      "verdict_text": "signal_label_assoc: signal 'termination_audit.matches_output_contract' vs FAIL: [clustered bootstrap (unpaired)] effect=-0.2960 (A>B) CI=-0.4607..-0.1224 -> REJECT H0 [BH: survived, p=0.00157, n_signal=47] [hypothesis predicts the signal HIGHER on failures; observed effect -0.296 -> opposite]",
+      "split": "heldout"
+    }
+  ],
+  "m4_repair_search": {
+    "ladder": [
+      {
+        "tier": "L1",
+        "label": "Prompt / instructions",
+        "n_candidates": 3,
+        "best_effect": 0.1172,
+        "best_candidate": "letter_line_then_reasoning",
+        "status": "not_selected",
+        "within_cap": true,
+        "tier_cap": "L3a"
+      },
+      {
+        "tier": "L2",
+        "label": "Scaffold / tools / multi-call",
+        "n_candidates": 4,
+        "best_effect": 0.2109,
+        "best_candidate": "verify_then_commit",
+        "status": "accepted",
+        "within_cap": true,
+        "tier_cap": "L3a"
+      },
+      {
+        "tier": "L3",
+        "label": "Internals / read & write",
+        "n_candidates": 1,
+        "best_effect": 0.1875,
+        "best_candidate": "coded_pipeline",
+        "status": "not_selected",
+        "within_cap": true,
+        "tier_cap": "L3a"
+      },
+      {
+        "tier": "L4",
+        "label": "Re-training",
+        "n_candidates": 0,
+        "status": "untouched",
+        "within_cap": false,
+        "tier_cap": "L3a"
+      }
+    ],
+    "candidates_selected_on_explore": [
+      {
+        "tier": "L1",
+        "name": "answer_first_hard_contract",
+        "n_pairs": 128,
+        "n_fixed": 15,
+        "n_broken": 13,
+        "effect": 0.0156,
+        "verdict": "partial",
+        "selected": false
+      },
+      {
+        "tier": "L1",
+        "name": "letter_line_then_reasoning",
+        "n_pairs": 128,
+        "n_fixed": 29,
+        "n_broken": 14,
+        "effect": 0.1172,
+        "verdict": "partial",
+        "selected": false
+      },
+      {
+        "tier": "L1",
+        "name": "fewshot_format_anchor",
+        "n_pairs": 128,
+        "n_fixed": 15,
+        "n_broken": 39,
+        "effect": -0.1875,
+        "verdict": "regressed",
+        "selected": false
+      },
+      {
+        "tier": "L2",
+        "name": "long_budget_final_tag",
+        "n_pairs": 128,
+        "n_fixed": 34,
+        "n_broken": 14,
+        "effect": 0.1562,
+        "verdict": "partial",
+        "selected": false
+      },
+      {
+        "tier": "L2",
+        "name": "no_think_letter_vote",
+        "n_pairs": 128,
+        "n_fixed": 27,
+        "n_broken": 8,
+        "effect": 0.1484,
+        "verdict": "fixed",
+        "selected": false
+      },
+      {
+        "tier": "L2",
+        "name": "verify_then_commit",
+        "n_pairs": 128,
+        "n_fixed": 36,
+        "n_broken": 9,
+        "effect": 0.2109,
+        "verdict": "fixed",
+        "selected": true
+      },
+      {
+        "tier": "L2",
+        "name": "self_consistency_5",
+        "n_pairs": 128,
+        "n_fixed": 3,
+        "n_broken": 7,
+        "effect": -0.0312,
+        "verdict": "unsafe",
+        "selected": false
+      },
+      {
+        "tier": "L3a",
+        "name": "coded_pipeline",
+        "n_pairs": 128,
+        "n_fixed": 27,
+        "n_broken": 3,
+        "effect": 0.1875,
+        "verdict": "fixed",
+        "selected": false
+      }
+    ],
+    "candidates_confirmed_on_heldout": [
+      {
+        "tier": "L2",
+        "name": "verify_then_commit",
+        "n_pairs": 128,
+        "n_fixed": 30,
+        "n_broken": 8,
+        "effect": 0.1719,
+        "ci": [
+          0.0781,
+          0.2578
+        ],
+        "e_value": 144.12,
+        "verdict": "fixed",
+        "coverage": 1.0,
+        "selected": true
+      }
+    ]
+  },
+  "accepted_repair": {
+    "name": "verify_then_commit",
+    "tier": "L2",
+    "strategy": "chain_of_verification",
+    "n_samples": 3,
+    "generation_kwargs": {
+      "max_tokens": 768,
+      "temperature": 0.6,
+      "do_sample": true,
+      "top_p": 0.9
+    },
+    "output_key_pattern": "(?s).*FINAL[^A-Da-d]{0,8}([A-Da-d])",
+    "steps": [
+      "{prompt}",
+      "Procedure (keep the whole reply under 120 words): 1. In one sentence, state only what you actually hear in the clip (events, instruments, voices, tempo feel, room/background) — do not mention the options yet. 2. In one sentence, check each option against that description and rule out the ones contradicted by it. 3. Then stop reasoning and output the final line in exactly this form: FINAL: <letter> with <letter> one of A, B, C, or D. Guess your most likely option rather than refusing; the FINAL line is mandatory and must be the last line.",
+      "sample 3 times, take the modal answer"
+    ],
+    "modifies_parameters": false,
+    "trial_root": "../../../../app/work/outputs/gemma-4-e2b/mmau.chain1/logs/fixes/07_L2_verify_then_commit",
+    "prompt_template_lines": [
+      "{prompt}",
+      "",
+      "Procedure (keep the whole reply under 120 words):",
+      "1. In one sentence, state only what you actually hear in the clip (events, instruments, voices, tempo feel, room/background) — do not mention the options yet.",
+      "2. In one sentence, check each option against that description and rule out the ones contradicted by it.",
+      "3. Then stop reasoning and output the final line in exactly this form:",
+      "FINAL: <letter>",
+      "with <letter> one of A, B, C, or D. Guess your most likely option rather than refusing; the FINAL line is mandatory and must be the last line."
+    ]
+  },
+  "heldout_validation": {
+    "phase": "heldout",
+    "candidate": "verify_then_commit",
+    "tier": "L2",
+    "n_pairs": 128,
+    "n_baseline_correct": 55,
+    "n_candidate_correct": 77,
+    "baseline_rate": 0.4297,
+    "candidate_rate": 0.6016,
+    "n_fixed": 30,
+    "n_broken": 8,
+    "both_correct": 47,
+    "both_wrong": 43,
+    "effect": 0.1719,
+    "ci": [
+      0.0781,
+      0.2578
+    ],
+    "e_value": 144.12,
+    "noise_model": "mcnemar",
+    "reject": true,
+    "coverage": 1.0,
+    "n_applicable": 128,
+    "n_unstable_dropped": 0,
+    "n_model_independent_excluded": 0,
+    "verdict": "fixed",
+    "ebh_survivors": [
+      "verify_then_commit"
+    ],
+    "summary": "[mcnemar + e-value (paired binary)] effect=+0.1719 (B>A) CI=+0.0781..+0.2578, e=144.12 -> REJECT H0 [fixed, coverage=100%]"
+  },
+  "example_case": {
+    "case_id": "12b245bb-65b5-4ffc-8743-3e8c4481bfb5",
+    "split": "explore",
+    "question": "How many times did the cat meowing sound appear?\n\n(A) 1\n(B) 2\n(C) 3\n(D) 4\n\nListen to the audio and reply with only the option letter (A, B, C, or D).",
+    "gold": "A",
+    "baseline_output": "B",
+    "label": "fail",
+    "signal": "coverage_verification_gap.majority_share",
+    "signal_values": {
+      "sample_id": "12b245bb-65b5-4ffc-8743-3e8c4481bfb5",
+      "n_samples": 5,
+      "n_graded": 5,
+      "n_correct": 0,
+      "n_unique": 1,
+      "pass_at_k": 0.0,
+      "any_correct": 0,
+      "majority_correct": 0,
+      "majority_share": 1.0,
+      "coverage_gap": 0,
+      "modal_answer": "b"
+    },
+    "media_paths": [
+      "logs/artifacts/case_media/8da763f8ed4a6956_12b245bb-65b5-4ffc-8743-3e8c4481bfb5.wav"
+    ],
+    "note": "illustrative case drawn from the explore split; held-out cases have no stored media in this run"
+  },
+  "qa_flags": [
+    {
+      "level": "warning",
+      "code": "direction_mismatch",
+      "detail": "H3 expects higher_in_fail but the observed effect is -0.296"
+    },
+    {
+      "level": "note",
+      "code": "example_case_from_explore",
+      "detail": "the illustrative case comes from the explore split; do not present its treated output as a measured held-out result"
+    },
+    {
+      "level": "note",
+      "code": "multiple_signals_survived",
+      "detail": "8 signals survived correction; the figure plots coverage_verification_gap.majority_share and must say so rather than implying a single finding"
+    },
+    {
+      "level": "warning",
+      "code": "repair_without_supported_hypothesis",
+      "detail": "a repair was accepted although no hypothesis reached 'supported'; present the gain as an empirical fix, not as a validated mechanism"
+    },
+    {
+      "level": "note",
+      "code": "accepted_fix_breaks_cases",
+      "detail": "the accepted fix broke 8 previously-correct cases; report it alongside the gain"
+    }
+  ],
+  "_sources": {
+    "example_case": "logs/report/discovery_cases.json + run_log case_record",
+    "m1_analyzers": "logs/run_log.jsonl:probe",
+    "m1_signal_curve": "logs/artifacts/c0_coverage_verification_gap.result.json + run_log case_record labels",
+    "m2_family": "logs/artifacts/c0_m2_stats_results.json",
+    "m2_test": "logs/artifacts/c0_m2_stats_results.json",
+    "m3_critic": "logs/run_log.jsonl:diagnosis",
+    "m3_hypothesis": "logs/run_log.jsonl:diagnosis",
+    "m4_candidate": "logs/run_log.jsonl:fix.selection_attempted",
+    "m4_ladder": "logs/run_log.jsonl:fix",
+    "m5_verdict": "logs/run_log.jsonl:surgery[module=m5] + logs/report/m5_results.json",
+    "qa_flags": "derived from the blocks above",
+    "repair": "logs/run_log.jsonl:fix.best.payload",
+    "run": "summary.json + logs/manifest.json + logs/run_log.jsonl",
+    "validation": "logs/run_log.jsonl:fix.best"
+  }
+}

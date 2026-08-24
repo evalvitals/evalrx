@@ -3,7 +3,27 @@
 from __future__ import annotations
 
 import pytest
-import torch
+
+try:
+    import torch
+except ModuleNotFoundError as exc:  # pragma: no cover - depends on the box
+    # Only ``FakeModel``'s tensor methods need torch. Importing it at module
+    # scope made a multi-gigabyte dependency a precondition for collecting ANY
+    # test, so a machine without it could not run the contract or reporting
+    # suites -- which are pure Python and have no tensors in them at all.
+    torch = None  # type: ignore[assignment]
+    _TORCH_IMPORT_ERROR: "ModuleNotFoundError | None" = exc
+else:
+    _TORCH_IMPORT_ERROR = None
+
+
+def _torch():
+    """torch, or a clear error naming what actually needs it."""
+    if torch is None:
+        raise RuntimeError(
+            "this test drives FakeModel's tensor path and needs torch installed"
+        ) from _TORCH_IMPORT_ERROR
+    return torch
 
 from evalvitals.core.capability import Capability
 from evalvitals.core.model import Model, Trace
@@ -42,8 +62,8 @@ class FakeModel(Model):
         return "fake-output"
 
     def unembed_weight(self):
-        torch.manual_seed(1)
-        return torch.rand(self._vocab, self._hidden_dim)
+        _torch().manual_seed(1)
+        return _torch().rand(self._vocab, self._hidden_dim)
 
     def logprobs(self, inputs, **kwargs):
         from evalvitals.core.model import TokenLogprob
@@ -55,22 +75,22 @@ class FakeModel(Model):
         ]
 
     def forward(self, inputs, capture: set[Capability], spec=None) -> Trace:
-        torch.manual_seed(0)
+        _torch().manual_seed(0)
         provided: set[Capability] = set()
         attentions = hidden_states = logits = None
         if Capability.ATTENTION in capture and Capability.ATTENTION in self.capabilities:
             attentions = [
-                torch.rand(self._n_heads, self._seq_len, self._seq_len)
+                _torch().rand(self._n_heads, self._seq_len, self._seq_len)
                 for _ in range(self._n_layers)
             ]
             provided.add(Capability.ATTENTION)
         if Capability.HIDDEN_STATES in capture and Capability.HIDDEN_STATES in self.capabilities:
             hidden_states = [
-                torch.rand(self._seq_len, self._hidden_dim) for _ in range(self._n_layers + 1)
+                _torch().rand(self._seq_len, self._hidden_dim) for _ in range(self._n_layers + 1)
             ]
             provided.add(Capability.HIDDEN_STATES)
         if Capability.LOGITS in capture and Capability.LOGITS in self.capabilities:
-            logits = torch.rand(self._seq_len, self._vocab)
+            logits = _torch().rand(self._seq_len, self._vocab)
             provided.add(Capability.LOGITS)
         return Trace(
             tokens=[f"t{i}" for i in range(self._seq_len)],
@@ -94,7 +114,7 @@ def pytest_addoption(parser):
 def pytest_collection_modifyitems(config, items):
     if config.getoption("--run-gpu"):
         # If --run-gpu is passed, verify CUDA is available
-        if not torch.cuda.is_available():
+        if not _torch().cuda.is_available():
             skip_gpu = pytest.mark.skip(reason="--run-gpu specified but no CUDA GPU is available")
             for item in items:
                 if "gpu" in item.keywords:

@@ -30,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--backend", choices=["hf_local", "endpoint"], default="hf_local",
                    help="hf_local = in-process transformers (default; white-box + paper methods); "
                         "endpoint = OpenAI-compatible server (black-box)")
+    p.add_argument("--concurrency", type=int, default=1,
+                   help="Cases generated at once during baseline discovery. Honoured only for "
+                        "--backend endpoint (a local backend shares one GPU and is not "
+                        "thread-safe); a served model can only batch requests it has in hand.")
     p.add_argument("--base-url", default="http://host.docker.internal:8020/v1")
     p.add_argument("--api-key", default="EMPTY")
     p.add_argument("--data-dir", default="data")
@@ -39,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--download-limit", type=int, default=None,
                    help="rows to freeze when the manifest is missing (default: the task's; 0 = whole slice)")
     p.add_argument("--seed", type=int, default=None, help="sampling seed for a fresh manifest (default: the task's)")
+    p.add_argument("--model-path", default=None,
+                   help="Load the weights from this local directory instead of the spec's "
+                        "hub id. For an air-gapped box, a git-cloned checkout, or pinning "
+                        "an exact revision; everything else about the spec is unchanged.")
     p.add_argument("--device", default=None, help="cuda | cuda:0 | auto (default: auto for 2-GPU sizes, else cuda)")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--attn-impl", choices=["sdpa", "eager", "auto"], default=None,

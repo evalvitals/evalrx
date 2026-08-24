@@ -28,7 +28,10 @@ from typing import TYPE_CHECKING, Any
 
 from evalvitals.agent_runtime.json_shape import validate_json_shape
 from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.prompts.diagnosis import _DIAGNOSE_PROMPT, _VALIDATE_PROMPT
+from evalvitals.analysis.plain_language import jargon_violation
+from evalvitals.eval_agent.prompts.diagnosis import (
+    _DIAGNOSE_PROMPT, _PLAIN_REPAIR_PROMPT, _VALIDATE_PROMPT,
+)
 
 if TYPE_CHECKING:
     from evalvitals.analysis.analysis_module import AnalysisReport
@@ -662,6 +665,42 @@ class DiagnosisAgent:
     def judge(self, value: "Model") -> None:
         self._judge = value
 
+    def _repair_plain_language(
+        self, raw: str, hypotheses: list[Hypothesis], model_name: str,
+    ) -> list[Hypothesis]:
+        """One bounded retry when a PLAIN_STATEMENT line is missing or jargon-y.
+
+        The prompt asking for plain language is not enough on its own — a judge
+        will happily reuse the technical line — so the same host-side check the
+        explorer and the analysis-side hypothesis agent already run
+        (:func:`~evalvitals.analysis.plain_language.jargon_violation`) also
+        guards this path, which is the one the benchmark runner takes. Never
+        raises: a failed repair keeps the original hypotheses, since a jargon-y
+        headline is worse than no diagnosis only for the reader, not for M5.
+        """
+        if not hypotheses:
+            return hypotheses
+        violations = [
+            f"hypothesis {i}'s PLAIN_STATEMENT {reason}: {h.plain_statement!r}"
+            for i, h in enumerate(hypotheses, start=1)
+            for reason in [jargon_violation(h.plain_statement, h.statement)]
+            if reason
+        ]
+        if not violations:
+            return hypotheses
+        try:
+            repaired_raw = self.judge.generate(_PLAIN_REPAIR_PROMPT.format(
+                raw=raw, violations="\n".join(f"- {v}" for v in violations),
+            ))
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "DiagnosisAgent: plain-language repair failed: %s", exc)
+            return hypotheses
+        repaired = _parse_hypotheses(str(repaired_raw), model_name)
+        return repaired or hypotheses
+
     def diagnose(
         self,
         analysis: "AnalysisReport | dict[str, Result]",
@@ -774,6 +813,9 @@ class DiagnosisAgent:
         else:
             raw = self.judge.generate(prompt)
         proposed_hypotheses = _parse_hypotheses(str(raw), analysis.model_name or model_name)
+        proposed_hypotheses = self._repair_plain_language(
+            str(raw), proposed_hypotheses, analysis.model_name or model_name,
+        )
         hypotheses = list(proposed_hypotheses)
 
         # Adversarial validation: run a second critic call at temperature=0 to

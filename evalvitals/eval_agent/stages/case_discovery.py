@@ -48,6 +48,19 @@ class CaseDiscoveryAgent:
         judge:             Optional LLM judge used when no scorer is supplied.
         generation_kwargs: Extra kwargs forwarded to ``model.generate``.
         include_unknown:   Keep UNKNOWN cases in the returned batch.
+        concurrency:       How many cases may be generated at once.  Only the
+                           ``model.generate`` calls fan out; scoring and
+                           labelling stay sequential and in input order, so the
+                           report is identical whatever this is set to.
+
+                           Values above 1 are honoured ONLY for an API-backed
+                           handle, following the same rule as
+                           :func:`evalvitals.models.agent.run_batch`: HTTP is
+                           reentrant, a local backend sharing one GPU is not.
+                           Against a local ``vllm serve`` this is the
+                           difference between one request in flight and a
+                           batch -- the server can only batch what it has been
+                           given.
     """
 
     def __init__(
@@ -56,11 +69,13 @@ class CaseDiscoveryAgent:
         judge: "Model | None" = None,
         generation_kwargs: dict[str, Any] | None = None,
         include_unknown: bool = True,
+        concurrency: int = 1,
     ) -> None:
         self.scorer = scorer
         self.judge = judge
         self.generation_kwargs = generation_kwargs or {}
         self.include_unknown = include_unknown
+        self.concurrency = max(1, int(concurrency))
 
     def discover(
         self,
@@ -73,10 +88,12 @@ class CaseDiscoveryAgent:
         labeled: list[FailureCase] = []
         errors: list[str] = []
         counts = {Label.PASS: 0, Label.FAIL: 0, Label.UNKNOWN: 0}
+        cases = list(candidates)
 
-        for case in candidates:
+        for case, observed, gen_error in self._generate(model, cases):
             try:
-                observed = model.generate(case.inputs, **self.generation_kwargs)
+                if gen_error is not None:
+                    raise gen_error
                 case.observed = observed
                 label, reason = self._score_with_reason(case, str(observed), protocol)
             except Exception as exc:  # noqa: BLE001 - discovery should continue
@@ -102,6 +119,54 @@ class CaseDiscoveryAgent:
             n_unknown=counts[Label.UNKNOWN],
             errors=errors,
         )
+
+    def _generate(
+        self, model: "Model", cases: list[FailureCase]
+    ) -> "list[tuple[FailureCase, Any, Exception | None]]":
+        """``(case, observed, error)`` per case, in input order.
+
+        The exception is carried rather than raised so the caller keeps its one
+        place that turns any failure into an UNKNOWN label -- a case whose
+        generation failed and a case whose scoring failed are the same
+        observation, and both must leave the batch intact.
+        """
+        workers = self._workers(model, len(cases))
+        if workers <= 1:
+            out = []
+            for case in cases:
+                try:
+                    out.append((case, model.generate(case.inputs, **self.generation_kwargs), None))
+                except Exception as exc:  # noqa: BLE001
+                    out.append((case, None, exc))
+            return out
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _one(case: FailureCase):
+            try:
+                return case, model.generate(case.inputs, **self.generation_kwargs), None
+            except Exception as exc:  # noqa: BLE001
+                return case, None, exc
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return list(pool.map(_one, cases))
+
+    def _workers(self, model: "Model", n_cases: int) -> int:
+        """Concurrency actually allowed for this handle.
+
+        A local backend is silently forced back to 1 rather than warned about:
+        unlike ``run_batch``, nothing here asked for parallelism per case --
+        the caller set one number for a whole run that may mix handles, and a
+        warning per discovery pass would be noise about a setting that is
+        behaving correctly.
+        """
+        if self.concurrency <= 1:
+            return 1
+        from evalvitals.models.backends.api import APIModel
+
+        if not isinstance(model, APIModel):
+            return 1
+        return min(self.concurrency, max(1, n_cases))
 
     def _score_with_reason(
         self,

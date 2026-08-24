@@ -17,7 +17,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-REPORT_DATA_VERSION = 9
+# 15: `setting.diagnosed_by` — which agent drove the run.
+# 14: M3 hypotheses recover the plain sentence from proposed_hypotheses.
+# 13: paired M2 rows carry the strategy pair they compared, so several tests
+#     that share one tool no longer share one label. Bumping this is what
+#     makes an already-published run pick the change up — `report_is_current`
+#     only tracks new EVENTS, so without the bump every existing run would
+#     keep serving the labels its old compiler produced.
+REPORT_DATA_VERSION = 15
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalvitals-report@1"
@@ -127,6 +134,13 @@ def build_report_data(
     media = _media_index(cases)
     normalized_cases = [_normalise_case(case, media) for case in cases if isinstance(case, dict)]
     normalized_cases = _merge_recorded_case_evidence(normalized_cases, root)
+    # Attach what M4's repair answered on each case, so "12 repaired, 1 broken"
+    # is thirteen cases a reader can open rather than two numbers.
+    repairs = _repair_outcomes(root, contract)
+    for case in normalized_cases:
+        hit = repairs.get(case["id"])
+        if hit:
+            case["repair"] = hit
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
     stages = _stages(raw, stage_detail.get("m4") if isinstance(stage_detail, dict) else None)
 
@@ -144,6 +158,9 @@ def build_report_data(
                 "dataset": run.get("benchmark_name") or "Evaluation dataset",
                 "question": reader.get("question") or "Why did the model fail, and can we fix it?",
                 "protocol": run.get("protocol") or "",
+                # Who drove the pipeline, as opposed to `model`, which is what
+                # it was pointed at. Empty when the run recorded neither.
+                "diagnosed_by": _diagnosed_by(root, run),
                 "n_cases": int(run.get("n_cases") or len(normalized_cases)),
             },
             "summary": {
@@ -392,6 +409,45 @@ def report_is_current(run_dir: str | Path) -> bool:
     return cached_seq >= evidence_seq
 
 
+#: CLI providers under the names their vendors use. A provider absent here is
+#: shown as the run recorded it — a slug is a poor label but an honest one, and
+#: better than a guess at what product it belongs to.
+_AGENT_LABEL = {
+    "claude": "Claude Code", "claude_code": "Claude Code",
+    "agy": "Antigravity", "antigravity": "Antigravity",
+    "codex": "Codex", "gemini_cli": "Gemini CLI", "opencode": "OpenCode",
+    "kimi_cli": "Kimi CLI", "llm": "LLM",
+}
+
+
+def _diagnosed_by(root: Path, run: Mapping[str, Any]) -> str:
+    """Which agent drove this run, as one display string, or "" if unrecorded.
+
+    Two runs of the same benchmark against the same model differ ONLY in the
+    agent that drove them, and the report never said which — open both and they
+    are indistinguishable. The run manifest records the choice cleanly
+    (`judge_provider` / `judge_model`); the run_start event's `coder`
+    ("claude_code:opus") is the fallback for a run written before the manifest,
+    and its `judge` is a repr, so it is read only for its provider prefix.
+    """
+    config = _load_json(root / "manifest.json")
+    config = (config or {}).get("config") if isinstance(config, Mapping) else None
+    provider = model = ""
+    if isinstance(config, Mapping):
+        provider = str(config.get("judge_provider") or "")
+        model = str(config.get("judge_model") or "")
+    if not provider:
+        coder = str(run.get("coder") or "")
+        if ":" in coder:
+            provider, _, model = coder.partition(":")
+        else:
+            provider = coder
+    if not provider:
+        return ""
+    label = _AGENT_LABEL.get(provider.strip().lower(), provider.strip())
+    return f"{label} · {model.strip()}" if model.strip() else label
+
+
 def _stages(raw: Mapping[str, Any], m4_detail: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     definitions = [
         ("M1", "Check behavior", "See what the model does differently when it succeeds or fails", raw.get("m1"), "results"),
@@ -463,6 +519,18 @@ def _stage_detail(
     agent_response = str(m3_call.get("response") or "")
     m3 = dict(raw.get("m3") or {})
     hypotheses = list(m3.get("hypotheses") or explore.get("hypotheses") or [])
+    # Runs recorded before the log writer carried `plain_statement` on this list
+    # still have it on `proposed_hypotheses`, which the critic step copies from.
+    # Joining on the statement recovers the plain sentence the judge did write,
+    # instead of leaving the report showing only the technical line. A run with
+    # neither is left exactly as it is — nothing is paraphrased into existence.
+    proposed = {str(h.get("statement") or ""): h
+                for h in (m3.get("proposed_hypotheses") or []) if isinstance(h, Mapping)}
+    for h in hypotheses:
+        if isinstance(h, dict) and not h.get("plain_statement"):
+            recovered = proposed.get(str(h.get("statement") or ""), {}).get("plain_statement")
+            if recovered:
+                h["plain_statement"] = recovered
 
     m5 = dict(raw.get("m5") or {})
     saved_m5 = _load_json(logs_dir / "report" / "m5_results.json")
@@ -682,12 +750,19 @@ def _display_stat(value: Mapping[str, Any]) -> dict[str, Any]:
     config = value.get("config") if isinstance(value.get("config"), Mapping) else {}
     signal = str(config.get("signal") or value.get("signal") or value.get("tool") or "")
     details = value.get("details") if isinstance(value.get("details"), Mapping) else {}
+    # A PAIRED tool compares two strategies and carries no `signal`, so `signal`
+    # falls through to the tool name and every such row was labelled with the
+    # same words ("Mcnemar Evalue"). Three identically-labelled bars is not a
+    # chart. The pair it actually compared is right there in the config, and it
+    # is the only thing that tells the rows apart.
+    groups = [str(name) for name in (config.get("strategies") or []) if name]
+    label = _stat_label(config, signal, value.get("tool"))
     return {
-        "label": _plain_signal(signal), "raw_signal": signal,
+        "label": label, "raw_signal": signal, "groups": groups,
         "effect": value.get("effect"), "ci": value.get("ci"),
         "reject": bool(value.get("reject")), "underpowered": bool(value.get("underpowered")),
         "summary": value.get("summary") or "", "p_value": value.get("p_value"),
-        "tool": value.get("tool"),
+        "tool": value.get("tool"), "e_value": value.get("e_value"),
         "fail_rate_signal": details.get("fail_rate_signal"),
         "fail_rate_control": details.get("fail_rate_control"),
     }
@@ -890,6 +965,23 @@ def _plain_label(value: Any) -> str:
     return re.sub(r"\s+", " ", raw.replace("_", " ")).strip().capitalize()
 
 
+def _stat_label(config: "Mapping[str, Any] | None", signal: Any, tool: Any) -> str:
+    """A name for what one statistical test measured, unique within a report.
+
+    A signal test names its signal. A PAIRED test names none — it compares two
+    strategies — so the label used to fall through to the tool, and every paired
+    row in the report came out reading "Mcnemar Evalue". The pair it compared is
+    the thing that tells those rows apart, and it is already in the config.
+    """
+    cfg = config if isinstance(config, Mapping) else {}
+    if cfg.get("signal"):
+        return _plain_signal(cfg["signal"])
+    groups = [str(name) for name in (cfg.get("strategies") or []) if name]
+    if len(groups) >= 2:
+        return f"{_plain_label(groups[-1])} vs {_plain_label(groups[0])}"
+    return _plain_signal(signal or tool)
+
+
 def _plain_signal(value: Any) -> str:
     """Convert ``analyzer.metric`` into a question a non-expert can read."""
     raw = str(value or "")
@@ -971,6 +1063,25 @@ def _load_json(path: Path) -> Any:
         return None
 
 
+def _repair_headline(value: Mapping[str, Any]) -> str:
+    """The candidate's own sentence, or the host's for a candidate it authored.
+
+    Looking `visual_grounding` up in the fix agent's own table is not a
+    consumer guessing at a slug -- it is the package that named the candidate
+    saying what it does. Runs recorded before `headline` existed become
+    readable this way; a judge-invented name the host never heard of still
+    resolves to "" and renders blank.
+    """
+    headline = " ".join(str(value.get("headline") or "").split())
+    if headline:
+        return headline[:300]
+    try:
+        from evalvitals.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+    except Exception:
+        return ""
+    return _BUILTIN_DESCRIPTIONS.get(str(value.get("name") or ""), "")
+
+
 def _repair_candidate(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         return {}
@@ -979,12 +1090,18 @@ def _repair_candidate(value: Any) -> dict[str, Any]:
     payload = value.get("payload") if isinstance(value.get("payload"), Mapping) else {}
     return {
         "tier": value.get("tier"), "name": value.get("name"), "kind": value.get("kind"),
+        # `ref` and `headline` are what a reader sees; `name` is only the join
+        # key. Both are carried here so the legacy report path shows the same
+        # identifier and the same sentence as the contract-backed views.
+        "ref": value.get("ref") or "", "headline": _repair_headline(value),
         "source": value.get("source"), "verdict": value.get("verdict"),
         "n_pairs": value.get("n_pairs"), "n_baseline_correct": value.get("n_baseline_correct"),
         "n_candidate_correct": value.get("n_candidate_correct"),
         "n_fixed": value.get("n_fixed", len(fixed_cases)), "n_broken": value.get("n_broken", len(broken_cases)),
         "effect": value.get("effect"), "e_value": value.get("e_value"),
         "coverage": value.get("coverage"), "reject": value.get("reject"), "fixed": value.get("fixed"),
+        "n_model_independent": value.get("n_model_independent"),
+        "n_unstable": value.get("n_unstable"),
         "summary": value.get("summary"), "payload": dict(payload),
         "fixed_cases": fixed_cases[:20], "broken_cases": broken_cases[:20],
     }
@@ -1041,7 +1158,7 @@ def _charts(run: Mapping[str, Any], raw: Mapping[str, Any],
             if isinstance(item, dict) and isinstance(item.get("effect"), (int, float)):
                 signal = ((item.get("config") or {}).get("signal") if isinstance(item.get("config"), Mapping) else None)
                 effect_rows.append({
-                    "label": _plain_signal(signal or item.get("tool") or "signal"),
+                    "label": _stat_label(item.get("config"), signal, item.get("tool")),
                     "raw_label": str(signal or item.get("tool") or ""),
                     "value": item["effect"], "highlight": bool(item.get("reject")),
                 })
@@ -1058,10 +1175,14 @@ def _repairs(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
     fix = raw.get("m4_fix") or {}
     if not fix.get("ran"):
         return []
-    confirm = fix.get("confirm") or {}
+    confirm = fix.get("confirm") if isinstance(fix.get("confirm"), Mapping) else {}
+    # Early runs recorded the winning candidate as its bare name; later ones
+    # record the whole candidate. Both name the same repair.
+    best = fix.get("best")
+    best_name = str(best.get("name") or "") if isinstance(best, Mapping) else str(best or "")
     return [{
         "id": "repair-1", "fixed": bool(fix.get("fixed")),
-        "title": (fix.get("best") or {}).get("name") or confirm.get("name") or "Targeted repair",
+        "title": best_name or confirm.get("name") or "Targeted repair",
         "effect": confirm.get("effect"),
         "fixed_cases": len(confirm.get("fixed_cases") or []),
         "broken_cases": len(confirm.get("broken_cases") or []),
@@ -1107,6 +1228,90 @@ def _contract_payloads(root: Path) -> dict[str, Any]:
         # "c0.m1.json" -> "c0.m1"; ".invalid.json" keeps its suffix so a reader
         # can see that a stage failed validation rather than silently missing it.
         out[path.name[: -len(".json")]] = payload
+    for key, payload in out.items():
+        if key.endswith("m4_fix"):
+            _backfill_repair_identity(payload)
+    return out
+
+
+def _backfill_repair_identity(payload: Any) -> None:
+    """Give a pre-`ref` run the same numbering a current run would emit.
+
+    Runs recorded before these fields existed carry neither, and a consumer
+    left to number rows itself gives the frozen candidate one number in the
+    sweep and another on its card. The assignment here is the emitter's, done
+    the emitter's way -- selection order first, one number per distinct name --
+    so an old report and a new one read alike.
+
+    It only ever FILLS BLANKS. What a producer actually wrote is never
+    overwritten, and a `headline` is only ever taken from the fix agent's table
+    of its own candidates: a judge-invented name nobody described stays blank,
+    because inventing a sentence for it here would be this file guessing.
+    """
+    if not isinstance(payload, dict):
+        return
+    try:
+        from evalvitals.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+    except Exception:
+        _BUILTIN_DESCRIPTIONS = {}
+    refs: dict[str, str] = {}
+    for group in ("selection", "attempted"):
+        for row in payload.get(group) or []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "")
+            ref = refs.get(name)
+            if ref is None:
+                ref = f"R{len(refs) + 1}"
+                refs[name] = ref
+            row.setdefault("ref", "")
+            if not row["ref"]:
+                row["ref"] = ref
+            row.setdefault("headline", "")
+            if not row["headline"]:
+                row["headline"] = _BUILTIN_DESCRIPTIONS.get(name, "")
+
+
+def _repair_outcomes(root: Path, contract: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """What each repair candidate answered, per case.
+
+    ``case_id -> {candidate, tier, status, output}``. The counts in M4 say twelve
+    cases were repaired and one broken; this is what lets a reader open those
+    thirteen and see what actually changed. Without it a repair is a number.
+
+    Read from each attempt's ``trial_root/outputs.jsonl`` rather than the wire,
+    because it is one row per case per candidate — the contract points at the
+    file instead of inlining it, and this is the reader following the pointer.
+    Confirmation attempts only: the selection sweep chose the candidate and its
+    per-case results are not evidence about it.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for key in sorted(contract):
+        if not key.endswith("m4_fix"):
+            continue
+        for attempt in (contract[key] or {}).get("attempted") or []:
+            trial = str(attempt.get("trial_root") or "")
+            if not trial:
+                continue
+            path = (root / trial / "outputs.jsonl")
+            if not path.is_file():
+                path = Path(trial) / "outputs.jsonl"   # a run read where it was produced
+            if not path.is_file():
+                continue
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                cid = str(row.get("case_id") or "")
+                if not cid:
+                    continue
+                out[cid] = {
+                    "candidate": attempt.get("name"),
+                    "tier": attempt.get("tier"),
+                    "status": row.get("status"),
+                    "output": row.get("output"),
+                }
     return out
 
 

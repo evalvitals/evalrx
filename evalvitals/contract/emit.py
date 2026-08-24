@@ -450,6 +450,7 @@ def from_diagnosis(
         hyps.append(HypothesisWire(
             id=hypothesis_id(h),
             statement=str(_val(h, "statement", "")),
+            plain_statement=str(_val(h, "plain_statement", "") or ""),
             target_model=str(_val(h, "target_model", "") or _val(diag, "model_name", "")),
             predicted_failure_mode=str(_val(h, "predicted_failure_mode", "") or "unknown"),
             # Empty stays empty. A judge that proposed no test produced an
@@ -659,8 +660,64 @@ def _tier(value: Any, default: str = "L1") -> str:
     return text or default
 
 
+def _relative_trial(trial: Any, run_root: "str | Path | None") -> "str | None":
+    """A trial folder as a run-relative path.
+
+    The trial records an absolute path on the producing host. Left that way it
+    resolves nowhere else, and the per-case outputs it points at -- the only
+    record of what a repair actually answered -- become unreachable the moment
+    the run is read somewhere other than where it ran.
+    """
+    raw = str(_val(trial, "root", "") or "")
+    if not raw:
+        return None
+    if run_root is None:
+        return raw
+    try:
+        return str(Path(raw).resolve().relative_to(Path(run_root).resolve()))
+    except (ValueError, OSError):
+        return raw
+
+
+def _headline(candidate: Any) -> str:
+    """The candidate's plain sentence, resolved the same way the agent would.
+
+    Imported lazily: `evalvitals.contract` is installable on its own, and a
+    hard dependency on the pipeline package would break that.
+    """
+    described = " ".join(str(_val(candidate, "description", "") or "").split())
+    if described:
+        return described[:300]
+    try:
+        from evalvitals.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+    except Exception:
+        return ""
+    name = str(_val(candidate, "name", "") or "")
+    return _BUILTIN_DESCRIPTIONS.get(name, "")
+
+
+def _assign_refs(*groups: "list[FixAttemptWire]") -> None:
+    """Give every distinct candidate one `R<n>`, shared across all groups.
+
+    Selection rows are numbered first because the sweep happened first, so the
+    numbering reads in the order the run actually tried things. A candidate
+    appearing in both lists -- the frozen one always does -- keeps the same
+    number in both, which is the entire point of the field: a reader who sees
+    R3 in the sweep and R3 on a card must be looking at one repair, not two.
+    """
+    refs: "dict[str, str]" = {}
+    for group in groups:
+        for row in group:
+            ref = refs.get(row.name)
+            if ref is None:
+                ref = f"R{len(refs) + 1}"
+                refs[row.name] = ref
+            row.ref = ref
+
+
 def from_fix_outcome(
     outcome: Any, *, trace_id: str, cycle: int = -1, duration_sec: float | None = None,
+    run_root: "str | Path | None" = None,
 ) -> FixOutput:
     """``FixOutcome`` -> :class:`FixOutput`."""
     attempts: list[FixAttemptWire] = []
@@ -674,8 +731,9 @@ def from_fix_outcome(
         attempts.append(FixAttemptWire(
             tier=_tier(_val(cand, "tier", "L1")),
             name=str(_val(cand, "name", "") or "candidate"),
+            headline=_headline(cand),
             kind=_val(cand, "kind"), source=_val(cand, "source"),
-            trial_root=str(_val(trial, "root", "") or "") or None,
+            trial_root=_relative_trial(trial, run_root),
             n_pairs=int(_val(v, "n_pairs", 0) or 0),
             n_baseline_correct=int(_val(v, "n_baseline_correct", 0) or 0),
             n_fixed=int(_val(v, "n_fixed", 0) or 0),
@@ -691,9 +749,42 @@ def from_fix_outcome(
             verdict=verdict,
             summary=str(_val(v, "summary", "") or ""),
         ))
+    # The selection phase's audit rows: name/tier/n_pairs/n_fixed/n_broken/
+    # effect/verdict, and nothing else — they were never validated, so the
+    # statistical fields stay empty rather than being filled with numbers a
+    # reader could mistake for confirmation.
+    selection = [
+        FixAttemptWire(
+            tier=_tier(row.get("tier")),
+            name=str(row.get("name") or "candidate"),
+            headline=" ".join(str(row.get("headline") or "").split())[:300],
+            n_pairs=int(row.get("n_pairs") or 0),
+            n_fixed=int(row.get("n_fixed") or 0),
+            n_broken=int(row.get("n_broken") or 0),
+            effect=row.get("effect"),
+            verdict=row.get("verdict") or "no_effect",
+            summary="selection phase — descriptive only, not confirmation evidence",
+        )
+        for row in (_val(outcome, "selection_attempted", []) or [])
+        if isinstance(row, dict)
+    ]
+
+    _assign_refs(selection, attempts)
+
     fixed = bool(_val(outcome, "fixed", False))
     best = _val(outcome, "best", None)
-    best_name = str(_val(best, "name", best) or "") or None
+    # `outcome.best` is a FixValidation, whose name lives one level down on its
+    # candidate — FixValidation itself has no `.name`. Reading `.name` off it
+    # fell through to the default (the object), so `best` was serialised as a
+    # 310KB Python repr AND `fixed` below silently flipped to False, because no
+    # attempt's name could ever equal that repr. The run log said a repair was
+    # confirmed while the contract — the machine-readable copy — said none was.
+    # Seen live on qwen3.5-2b/bbh_word_sorting, both agents, 2026-08-24.
+    best_name = str(
+        _val(best, "name", None)
+        or _val(_val(best, "candidate", None), "name", None)
+        or (best if isinstance(best, str) else "")
+    ) or None
     # FixOutput refuses fixed=True unless the winning row carries a methodology.
     # Attach the one derived from what the candidate declares; when nothing is
     # describable the claim is dropped rather than the payload, and `summary`
@@ -719,6 +810,8 @@ def from_fix_outcome(
         routed=[{str(k): str(v) for k, v in dict(r).items()}
                 for r in (_val(outcome, "routed", []) or []) if isinstance(r, dict)],
         attempted=attempts,
+        selection=selection,
+        selected_on_explore=(str(_val(outcome, "selected_on_explore", "") or "") or None),
         best=best_name,
         fixed=fixed and any(a.name == best_name for a in attempts),
         ebh_survivors=[str(x) for x in (_val(outcome, "ebh_survivors", []) or [])],

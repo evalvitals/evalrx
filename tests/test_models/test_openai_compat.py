@@ -205,3 +205,82 @@ def test_run_batch_no_warning_when_sequential():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         run_batch(Local(), ["x"], tools_factory=lambda c: [], concurrency=1)
+
+
+# ----------------------------------------------------------------------
+# logprobs: what makes a served model claim Capability.LOGPROBS
+# ----------------------------------------------------------------------
+
+class _FakeLogprobClient:
+    """Records the request and replies in vLLM's OpenAI-compatible shape."""
+
+    def __init__(self, content=None):
+        self.seen = {}
+        self._content = content if content is not None else [
+            {"token": "apple", "logprob": -0.005,
+             "top_logprobs": [{"token": "apple", "logprob": -0.005},
+                              {"token": "Apple", "logprob": -5.3}]},
+            {"token": " fig", "logprob": -0.012, "top_logprobs": []},
+        ]
+        outer = self
+
+        class _Completions:
+            def create(self, **kw):
+                outer.seen = kw
+                return type("R", (), {"choices": [type("C", (), {
+                    "logprobs": type("L", (), {"content": outer._content})(),
+                })()]})()
+
+        self.chat = type("Chat", (), {"completions": _Completions()})()
+
+
+def test_a_served_model_can_report_token_logprobs():
+    """`vllm serve` returns them; the endpoint path was not asking.
+
+    The api backend claims Capability.LOGPROBS only when a `logprobs_fn` is
+    wired, so without one every analyzer reading answer-token uncertainty is
+    skipped as unsupported -- `calibration` and `logprob_entropy` on the LLM
+    benchmark set. They were dropped because nobody asked the server, not
+    because it could not answer.
+    """
+    from evalvitals.models.backends.openai_compat import openai_logprobs_fn
+
+    client = _FakeLogprobClient()
+    fn = openai_logprobs_fn(client=client, temperature=0.0, max_tokens=16)
+    out = fn("Sort: pear apple fig", model="qwen3.5-2b")
+
+    assert client.seen["logprobs"] is True
+    assert client.seen["top_logprobs"] == 5
+    assert client.seen["model"] == "qwen3.5-2b"
+    assert [t.token for t in out] == ["apple", " fig"]
+    assert out[0].logprob == pytest.approx(-0.005)
+    assert out[0].top["Apple"] == pytest.approx(-5.3)
+
+
+def test_wiring_logprobs_is_what_grants_the_capability():
+    """And opting out must actually withhold it: claiming LOGPROBS against an
+    endpoint that rejects the parameter turns a skipped analyzer into a failing
+    one, which is the worse outcome."""
+    from evalvitals.models.backends.openai_compat import openai_runtime
+
+    with_lp = openai_runtime(client=_FakeLogprobClient(), base_url="http://127.0.0.1:8020/v1")
+    without = openai_runtime(
+        client=_FakeLogprobClient(), base_url="http://127.0.0.1:8020/v1", with_logprobs=False
+    )
+    assert with_lp.logprobs_fn is not None
+    assert without.logprobs_fn is None
+
+    spec_key = "qwen3.5-2b"
+    served = compose(spec_key, "api", with_lp, set())
+    blind = compose(spec_key, "api", without, set())
+    assert Capability.LOGPROBS in served.capabilities
+    assert Capability.LOGPROBS not in blind.capabilities
+
+
+def test_an_endpoint_that_returns_no_logprobs_yields_no_tokens():
+    """Not an exception, and not a fabricated zero -- an empty list, which is
+    what "this server answered without them" honestly looks like."""
+    from evalvitals.models.backends.openai_compat import openai_logprobs_fn
+
+    fn = openai_logprobs_fn(client=_FakeLogprobClient(content=[]))
+    assert fn("hi", model="m") == []
