@@ -42,12 +42,16 @@ must agree on: `n_measured` probes taken, `n_forwarded` entering the
 multiplicity-correction family, which is also the BH denominator and the forest
 plot's row count.
 
-`FIGURE_PROMPT.md` + `reference/` turn the JSON into the figure: hand Claude the
-extracted document, the prompt spec (layout coordinates, palette, which field
-goes on which card) and a reference PDF, and it draws the SVG. The spec makes the
-`qa_flags` binding — an example case drawn from explore may not be written up as
-"fixed", a repair accepted with no supported hypothesis must carry the callout,
-a fix that broke cases must print the broken count next to the gain.
+The drawing half ships as an Agent Skill, `tools/case-study-figure/`: point it at
+a run root and it runs the extractor, then draws the SVG from the JSON —
+`SKILL.md` for the workflow, `references/figure-spec.md` for the layout
+coordinates, palette and per-card field mapping, plus a target-style PDF and two
+finished SVGs drawn from the two runs in `samples/`. Install it with `cp -r` into
+`~/.claude/skills/`, or hand it to a coding agent with `explore --skill <dir>`.
+The skill makes `qa_flags` binding — an example case drawn from explore may not
+be written up as "fixed", a repair accepted with no supported hypothesis must
+carry the callout, a fix that broke cases must print the broken count next to the
+gain.
 
 Because a figure fails silently — a plausible wrong number gets printed, nothing
 raises — each extraction also self-checks into `qa_flags`: two hypotheses sharing

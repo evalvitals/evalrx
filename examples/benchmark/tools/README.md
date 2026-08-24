@@ -57,25 +57,42 @@ python extract_figure_data.py ../vlm/qwen/outputs/qwen3.5-2b -o all_runs
 
 ---
 
-## Having Claude draw the figure
+## Drawing the figure — the `case-study-figure` skill
 
-1. Run the extraction to get `mydata.json`.
-2. Open a new conversation and upload `mydata.json` + [`FIGURE_PROMPT.md`](FIGURE_PROMPT.md)
-   + `reference/qualitative_vlm_L2.pdf`.
-3. Ask: **following the spec in FIGURE_PROMPT.md, draw a case-study figure from the
-   numbers in mydata.json in the same style as the reference PDF, output an SVG.**
+The drawing half ships as an Agent Skill in
+[`case-study-figure/`](case-study-figure/SKILL.md). It runs the extractor itself, then
+draws the SVG from the JSON — you point it at a run root and get a file back.
 
-`FIGURE_PROMPT.md` pins the layout coordinates, the palette, which fields go on which
-card, and a set of honesty rules — an example case drawn from explore may not be written
-up as "fixed", every `qa_flags` entry has to be accounted for on the figure.
+Three ways to reach it:
 
-`reference/` holds two finished figures to hand over as templates:
+```bash
+# 1. Claude Code with this repo open: just ask
+#    "draw the case study figure for examples/benchmark/vlm/qwen/outputs/qwen3.5-2b/chartqa"
 
-| file | |
+# 2. install it for every project on this machine
+cp -r examples/benchmark/tools/case-study-figure ~/.claude/skills/
+
+# 3. hand it to an explore run's coding agent
+evalvitals explore … --skill examples/benchmark/tools/case-study-figure
+```
+
+`SKILL.md` carries the workflow and the honesty rules — every number has to come from
+the extract, and each `qa_flags` entry has a mandatory consequence on the figure (an
+example case drawn from explore may not be written up as "fixed", a repair accepted
+with no supported hypothesis has to carry the callout, a fix that broke cases has to
+print the broken count next to the gain).
+[`references/figure-spec.md`](case-study-figure/references/figure-spec.md) carries the
+layout coordinates, the palette and the per-card field mapping, alongside:
+
+| file in `case-study-figure/references/` | |
 | --- | --- |
 | `qualitative_vlm_L2.pdf` | the target style |
-| `casestudy_chartqa.svg` | the VLM example |
-| `casestudy_mmau.svg` | the audio example |
+| `casestudy_chartqa.svg` | the VLM example, drawn from `samples/chartqa_vlm.json` |
+| `casestudy_mmau.svg` | the audio example, drawn from `samples/mmau_audio.json` |
+
+Without the skill installed, the same thing works by hand: upload the extracted
+`.json`, `SKILL.md`, `references/figure-spec.md` and the reference PDF to a fresh
+conversation and ask for the figure.
 
 ---
 
@@ -167,7 +184,7 @@ at the end of the Markdown). Currently reported:
 - `accepted_fix_breaks_cases` — the fix broke cases that were previously correct
 
 Read them before drawing, so a known problem does not end up printed in a paper.
-`FIGURE_PROMPT.md` requires Claude to account for each one.
+The `case-study-figure` skill makes each one binding on the figure it draws.
 
 ---
 
@@ -181,8 +198,8 @@ The output of two real runs, for comparison:
 | `mmau_audio.json` / `.md` | Audio LLM, MMAU, 8 probes (white-box included), 43 ▸ 15, 8 surviving signals, no supported hypothesis, L2 repair 43.0% → 60.2% |
 
 The two runs have very different shapes, which makes them a useful reference for
-judging whether the tool behaved sensibly on your own logs. The two SVGs in `reference/`
-were drawn from exactly these two files.
+judging whether the tool behaved sensibly on your own logs. The two SVGs in
+`case-study-figure/references/` were drawn from exactly these two files.
 
 ---
 

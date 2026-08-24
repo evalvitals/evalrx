@@ -7,6 +7,10 @@ whose 2x2 does not add up, a summary key silently renamed in ``_common/runner.py
 so the header strip goes blank. None of that raises — it just ships. Each test
 below pins one of those numbers on a synthetic run whose answers are known by
 construction.
+
+The last three cover the `case-study-figure` skill that draws from this data —
+in particular that every `qa_flags` the tool can emit has a stated consequence on
+the figure, since a caveat with no rule is a caveat the figure quietly omits.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -386,3 +391,49 @@ def test_trial_root_is_reanchored_on_the_run_root(efd, tmp_path):
     recs = efd.extract(str(root))
     repair = next(r for r in recs if r["block"] == "repair")
     assert "99_missing" in repair["trial_root"] and not repair["trial_root"].startswith("logs/")
+# --------------------------------------------------------------------------
+# the case-study-figure skill, which draws from what the tool extracts
+# --------------------------------------------------------------------------
+
+_SKILL = _TOOL / "case-study-figure"
+
+
+def _frontmatter(text: str) -> dict:
+    assert text.startswith("---\n"), "SKILL.md must open with YAML frontmatter"
+    block = text.split("---\n", 2)[1]
+    out, key = {}, None
+    for line in block.splitlines():
+        if line and not line.startswith((" ", "\t")):
+            key, _, value = line.partition(":")
+            out[key.strip()] = value.strip()
+        elif key:
+            out[key] += " " + line.strip()
+    return out
+
+
+def test_the_skill_is_a_well_formed_agent_skill():
+    meta = _frontmatter((_SKILL / "SKILL.md").read_text(encoding="utf-8"))
+    assert meta["name"] == _SKILL.name, "the skill's name must match its directory"
+    assert meta["version"] and meta["description"]
+    # bundled_skill_paths() only picks up a directory with a SKILL.md at its root
+    assert (_SKILL / "SKILL.md").is_file()
+
+
+def test_every_qa_flag_the_tool_emits_is_binding_on_the_figure():
+    """A new flag with no rule in the skill is a caveat the figure would omit."""
+    emitted = set(re.findall(r'"code": "([a-z_]+)"',
+                             (_TOOL / "extract_figure_data.py").read_text(encoding="utf-8")))
+    assert len(emitted) >= 8, "expected the tool's qa_flags to be found by name"
+    skill = (_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    missing = {code for code in emitted if code not in skill}
+    assert not missing, f"qa_flags with no consequence stated in SKILL.md: {missing}"
+
+
+def test_the_skill_only_points_at_files_that_exist():
+    for doc in (_SKILL / "SKILL.md", _SKILL / "references" / "figure-spec.md"):
+        for target in re.findall(r"\]\((?!https?:)([^)#]+)\)", doc.read_text(encoding="utf-8")):
+            assert (doc.parent / target).resolve().exists(), f"{doc.name} -> {target}"
+    # step 1 of the skill runs the extractor by this path
+    assert "extract_figure_data.py" in (_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    for asset in ("casestudy_chartqa.svg", "casestudy_mmau.svg", "qualitative_vlm_L2.pdf"):
+        assert (_SKILL / "references" / asset).is_file()
