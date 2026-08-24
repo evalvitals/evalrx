@@ -325,7 +325,15 @@ class FixCandidate:
 
     Attributes:
         tier:        Intervention space the candidate lives in.
-        name:        Short identifier.
+        name:        Short identifier -- a slug, used to key trial folders and
+                     to join validations back to their candidate.  It is not
+                     shown to a reader; ``description`` is.
+        description: One plain sentence saying what this candidate does, for
+                     someone with no background in the field.  Supplied by the
+                     judge where the judge invented the candidate, and by
+                     :data:`_BUILTIN_DESCRIPTIONS` for the host's own.  Empty
+                     is allowed and means "nothing readable to say" -- readers
+                     are shown a blank rather than the slug in title case.
         kind:        ``"template"`` (L1) | ``"spec"`` (L2 declarative) |
                      ``"code"`` (agent-written pipeline) |
                      ``"registered_repair"`` (runtime-discovered executor) |
@@ -352,8 +360,155 @@ class FixCandidate:
     payload: "dict[str, Any]"
     kind: str = "spec"
     source: str = "judge"
+    description: str = ""
     predicate: "Callable[[FailureCase], bool] | None" = None
     trial: "Trial | None" = None
+
+
+#: What each of the host's own repairs does, in one sentence, for a reader who
+#: has never heard of this model or this field.  It lives here rather than in
+#: the frontend because only this module knows what these candidates actually
+#: do; a consumer handed ``vcd_diffusion_noise`` can title-case it and nothing
+#: more, which produces a label that looks explained and is not.
+#:
+#: Judge-invented candidates are not in this table -- they carry their own
+#: sentence from ``what_it_does`` in the proposal.  A name in neither place
+#: resolves to "" and is rendered blank, on purpose.
+_BUILTIN_DESCRIPTIONS: "dict[str, str]" = {
+    "aad_silence_contrast":
+        "Compares the model's answer with what it says when the sound is replaced by "
+        "silence, and keeps only the part the sound itself explains.",
+    "aad_silence_contrast_gated_false_yes":
+        "Compares the answer with what the model says when the sound is replaced by "
+        "silence, applied only where it said yes to something the audio does not support.",
+    "annotate_horizontal_band_count":
+        "Counts the bars in the chart and writes that number onto the picture before asking.",
+    "answer_bbox_crop":
+        "Crops the picture down to the region the answer is about before asking.",
+    "assertive_grounding":
+        "Tells the model to answer from what is actually in the picture rather than from "
+        "what it expects to be there.",
+    "attend_carefully":
+        "Adds an instruction to examine the input closely before answering.",
+    "chain_of_verification":
+        "Has the model draft an answer, then check it with its own follow-up questions "
+        "before committing.",
+    "coded_pipeline":
+        "Runs a short program the agent wrote that re-asks the model several different "
+        "ways and keeps the answer those attempts agree on.",
+    "detector_visual_search_consensus":
+        "Uses an object detector to pick regions to look at, asks about each one, and "
+        "keeps the answer the regions agree on.",
+    "finetune_recipe":
+        "Writes down a retraining plan for a person to run later. Nothing is changed "
+        "automatically.",
+    "guided_visual_search_consensus":
+        "Uses the question to choose which parts of the picture to zoom into, then keeps "
+        "the answer those views agree on.",
+    "icd_instruction_disturbance":
+        "Compares the answer with what the model says under a deliberately misleading "
+        "instruction, and discounts whatever the misleading version produced too.",
+    "icd_instruction_disturbance_gated_false_yes":
+        "Discounts whatever a deliberately misleading instruction also produced, applied "
+        "only where the model said yes to something the picture does not support.",
+    "icd_instruction_disturbance_question":
+        "Attaches a deliberately misleading instruction to the question itself, and "
+        "discounts whatever the model says in both versions.",
+    "ifcd_truthx_contrast":
+        "Nudges the model's internal state toward the pattern it shows when it is being "
+        "truthful, and compares that with the untouched run.",
+    "increase_max_tokens":
+        "Gives the model more room to write, so answers are not cut off part-way.",
+    "least_to_most":
+        "Breaks the question into smaller steps and has the model work through them in order.",
+    "opera_overtrust_binary":
+        "Stops the model leaning too hard on a few words it has already written when it "
+        "makes a yes-or-no call.",
+    "pai_image_attention":
+        "Makes the model weigh the picture more heavily and its own prior expectations less.",
+    "salient_crop":
+        "Crops the picture to its most eye-catching region before asking.",
+    "self_consistency_5":
+        "Asks the same question five times and keeps the answer the model gives most often.",
+    "self_refine":
+        "Has the model criticise its own first answer and then rewrite it.",
+    "separate_horizontal_bands":
+        "Splits the chart into separate bars so each one can be read on its own.",
+    "tcd_temporal_blur":
+        "Compares the answer with what the model says when the timing in the clip is "
+        "smeared out, and keeps the part real timing explains.",
+    "upscale_sharpen":
+        "Enlarges and sharpens the picture before asking.",
+    "vcd_diffusion_noise":
+        "Compares the answer with what the model says when the picture is replaced by "
+        "noise, and discounts whatever it would have said without seeing anything.",
+    "vcd_diffusion_noise_gated_false_yes":
+        "Discounts whatever the model would say without seeing the picture, applied only "
+        "where it said yes to something the picture does not support.",
+    "vicrop_consensus_guard":
+        "Zooms into the region the model was already looking at, and changes the answer "
+        "only when the zoomed views agree.",
+    "vicrop_relative_attention":
+        "Finds the region the model was already looking at and zooms into it before asking again.",
+    "visual_grounding":
+        "Tells the model to read the answer off the picture first and to fall back on "
+        "general knowledge only after that.",
+    "zoom_equalize":
+        "Zooms in and evens out the brightness so faint details become visible.",
+}
+
+
+def _judge_description(proposal: "Any") -> str:
+    """The proposal's own ``what_it_does``, cleaned, or "".
+
+    Judges that ignore the field, or answer it with the snake_case name in
+    title case, contribute nothing a reader could not already see -- both come
+    back empty rather than as a sentence that only looks like one.
+    """
+    if not isinstance(proposal, dict):
+        return ""
+    text = " ".join(str(proposal.get("what_it_does", "") or "").split()).strip()
+    if not text:
+        return ""
+    name = str(proposal.get("name", "") or "").strip()
+    if name and text.lower().rstrip(".") == name.replace("_", " ").lower():
+        return ""
+    return text[:300]
+
+
+def _code_description(code: str) -> str:
+    """The ``# WHAT_IT_DOES:`` header the codegen prompt asks for.
+
+    The prompt asks for one line and shows a one-line example, but a model that
+    wraps it anyway should not lose the second half of its own sentence, so
+    immediately following comment lines are folded in until the code starts.
+    """
+    lines = code.splitlines()[:12]
+    for index, line in enumerate(lines):
+        if not line.strip().upper().startswith("# WHAT_IT_DOES:"):
+            continue
+        parts = [line.strip().split(":", 1)[1]]
+        for follow in lines[index + 1:]:
+            stripped = follow.strip()
+            if not stripped.startswith("#"):
+                break
+            body = stripped.lstrip("#").strip()
+            if not body or body.upper().startswith("WHAT_IT_DOES"):
+                break
+            parts.append(body)
+        return " ".join(" ".join(parts).split()).strip()[:300]
+    return ""
+
+
+def plain_description(candidate: "FixCandidate") -> str:
+    """One sentence for a reader, or "" when there is honestly nothing to say.
+
+    Never falls back to the slug.  ``audio_evidence_then_answer`` rendered as
+    "Audio Evidence Then Answer" reads like an explanation the run never
+    produced, and a blank is the more honest signal that it did not.
+    """
+    described = (candidate.description or "").strip()
+    return described or _BUILTIN_DESCRIPTIONS.get(candidate.name, "")
 
 
 @dataclass
@@ -682,6 +837,7 @@ class FixAgent:
         self,
         judge: "Model | None" = None,
         max_tier: "str | FixTier" = FixTier.L2_SCAFFOLD,
+        min_tier: "str | FixTier | None" = None,
         score_fn: "Callable[[FailureCase, str], Optional[bool]] | None" = None,
         run_logger: "Any | None" = None,
         cli_config: "CliAgentConfig | None" = None,
@@ -717,6 +873,10 @@ class FixAgent:
         self._judge = judge
         self._finetune_pool = finetune_pool
         self.max_tier = parse_tier(max_tier)
+        # Normally a fixed-ceiling run considers every cheaper tier. The loop's
+        # auto-escalation path sets this transiently so each ladder station
+        # evaluates only the newly opened intervention space.
+        self.min_tier = parse_tier(min_tier) if min_tier is not None else None
         self._score = score_fn or _default_score
         self.run_logger = run_logger
         self._cli_config = cli_config
@@ -853,8 +1013,30 @@ class FixAgent:
                     candidate.trial = self._run_context.new_trial(
                         "fixes", f"{candidate.tier.label}_{candidate.name}"
                     )
+                logger.info(
+                    "FixAgent: validating tier=%s candidate=%s kind=%s source=%s",
+                    candidate.tier.label,
+                    candidate.name,
+                    candidate.kind,
+                    candidate.source,
+                )
                 validation = self._validate(candidate, model, data, baseline, unstable)
                 outcome.attempted.append(validation)
+                logger.info(
+                    "FixAgent: result tier=%s candidate=%s verdict=%s "
+                    "effect=%s fixed=%d broken=%d pairs=%d",
+                    candidate.tier.label,
+                    candidate.name,
+                    validation.verdict,
+                    (
+                        "n/a"
+                        if validation.effect is None
+                        else f"{validation.effect:+.4f}"
+                    ),
+                    validation.n_fixed,
+                    validation.n_broken,
+                    validation.n_pairs,
+                )
                 round_fixed = round_fixed or validation.fixed
             outcome.repair_rounds = round_idx + 1
             if round_fixed:
@@ -1338,12 +1520,18 @@ class FixAgent:
             frozenset({name}) for name in catalog_method_names
         }
         skip_lower_tiers = preregistered_only or catalog_method_only
-        if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
+        if (
+            not code_only
+            and not skip_lower_tiers
+            and self.max_tier >= FixTier.L0_RUNTIME_CONFIG
+            and (self.min_tier is None or self.min_tier <= FixTier.L0_RUNTIME_CONFIG)
+        ):
             candidates += self._runtime_candidates(data, prior_names)
         if (
             not code_only
             and not skip_lower_tiers
             and self.max_tier >= FixTier.L1_PROMPT
+            and (self.min_tier is None or self.min_tier <= FixTier.L1_PROMPT)
             and not self._paper_methods_only
         ):
             candidates += self._l1_candidates(
@@ -1355,7 +1543,12 @@ class FixAgent:
                 tasks=tasks,
                 context_block=context_block,
             )
-        if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L2_SCAFFOLD:
+        if (
+            not code_only
+            and not skip_lower_tiers
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+            and (self.min_tier is None or self.min_tier <= FixTier.L2_SCAFFOLD)
+        ):
             candidates += self._l2_candidates(
                 hyp_lines,
                 examples,
@@ -1381,6 +1574,7 @@ class FixAgent:
                         )
                     )
         if (not skip_lower_tiers and self.max_tier >= FixTier.L2_SCAFFOLD
+                and (self.min_tier is None or self.min_tier <= FixTier.L2_SCAFFOLD)
                 and self.codegen_available):
             # The coder-written pipeline is the ONE candidate a code-only run
             # exists to field, so it sits outside the ``not code_only`` gate
@@ -1390,7 +1584,12 @@ class FixAgent:
                 context_block=context_block, catalog=catalog,
                 text_only=not has_images,
             )
-        if not code_only and not preregistered_only and self.max_tier >= FixTier.L3A_INTERNALS_READ:
+        if (
+            not code_only
+            and not preregistered_only
+            and self.max_tier >= FixTier.L3A_INTERNALS_READ
+            and (self.min_tier is None or self.min_tier <= FixTier.L3A_INTERNALS_READ)
+        ):
             candidates += self._l3_candidates(
                 hyp_lines,
                 model,
@@ -1400,8 +1599,15 @@ class FixAgent:
                 has_audio=has_audio,
                 tasks=tasks,
             )
-        if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L4_PARAMETERS:
+        if (
+            not code_only
+            and not skip_lower_tiers
+            and self.max_tier >= FixTier.L4_PARAMETERS
+            and (self.min_tier is None or self.min_tier <= FixTier.L4_PARAMETERS)
+        ):
             candidates += self._l4_candidates(hyp_lines)
+        if self.min_tier is not None:
+            candidates = [c for c in candidates if c.tier >= self.min_tier]
         if self._candidate_allowlist is not None:
             candidates = [c for c in candidates if c.name in self._candidate_allowlist]
         self._enforce_generation_floor(candidates)
@@ -1694,6 +1900,7 @@ class FixAgent:
                         tier=FixTier.L1_PROMPT,
                         name=name,
                         kind="template",
+                        description=_judge_description(p),
                         payload={"prompt_template": template},
                     )
                 )
@@ -1775,7 +1982,10 @@ class FixAgent:
             spec = PipelineSpec.from_dict(p) if isinstance(p, dict) else None
             if spec is not None:
                 out.append(
-                    FixCandidate(tier=FixTier.L2_SCAFFOLD, name=spec.name, payload=spec.to_dict())
+                    FixCandidate(
+                        tier=FixTier.L2_SCAFFOLD, name=spec.name,
+                        description=_judge_description(p), payload=spec.to_dict(),
+                    )
                 )
         if not out:
             image_defaults = [
@@ -2152,6 +2362,7 @@ class FixAgent:
                 tier=tier,
                 name="coded_pipeline",
                 kind="code",
+                description=_code_description(code),
                 payload={
                     "code": code,
                     "enable_attend": enable_attend,

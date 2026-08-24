@@ -451,3 +451,166 @@ def test_a_paired_contrast_is_named_by_its_arms():
         == "describe first vs sensitive"
     # Still honest when nothing names the subject.
     assert measured_label(_R({})).startswith("unnamed contrast")
+
+
+# ── M4 must report the search, not only its winner ───────────────────────────
+
+def test_the_selection_sweep_reaches_the_wire():
+    """A run that swept seven candidates and confirmed one reported one row.
+
+    FixOutcome carries `selection_attempted`; FixOutput had no field for it, so
+    everything the search RULED OUT lived only in a markdown file. On the live
+    audio-visual run that meant four L2 candidates were invisible and every
+    reader concluded L2 had never been attempted.
+    """
+    from types import SimpleNamespace
+
+    from evalvitals.contract.emit import from_fix_outcome
+
+    outcome = SimpleNamespace(
+        max_tier="L3a", routed=[], attempted=[], best=None, fixed=False,
+        ebh_survivors=[], repair_rounds=1, recommendation=None, refine_signal=None,
+        selected_on_explore="visual_grounding",
+        selection_attempted=[
+            {"name": "visual_grounding", "tier": "L1", "n_pairs": 60,
+             "n_fixed": 8, "n_broken": 0, "effect": 0.1333, "verdict": "fixed"},
+            {"name": "audio_evidence_then_answer", "tier": "L1", "n_pairs": 60,
+             "n_fixed": 7, "n_broken": 8, "effect": -0.0167, "verdict": "unsafe"},
+            {"name": "coded_pipeline", "tier": "L2", "n_pairs": 60,
+             "n_fixed": 8, "n_broken": 3, "effect": 0.0833, "verdict": "partial"},
+        ],
+    )
+    wire = from_fix_outcome(outcome, trace_id="t")
+
+    assert [r.tier for r in wire.selection] == ["L1", "L1", "L2"]
+    assert wire.selected_on_explore == "visual_grounding"
+    # A candidate that made things worse is a result and must survive to the wire.
+    unsafe = next(r for r in wire.selection if r.verdict == "unsafe")
+    assert (unsafe.n_fixed, unsafe.n_broken) == (7, 8)
+    # Selection rows carry no confirmation statistics, so they cannot be misread
+    # as evidence: they were never validated on held-out cases.
+    assert all(r.e_value is None and not r.reject for r in wire.selection)
+    # And they stay out of the evidential list.
+    assert wire.attempted == []
+
+
+# ── M4 must be pointable-at and readable, not just correct ───────────────────
+
+def test_the_same_repair_carries_one_number_in_both_lists():
+    """The frozen candidate appears twice; numbering it by position renamed it.
+
+    The sweep table read `selection` and the cards read `attempted`, and each
+    numbered its own rows from one. The repair that was swept 3rd and confirmed
+    alone therefore showed as #3 in the table and #1 on its card, and nothing on
+    screen said they were the same thing. `ref` is assigned once, by the
+    producer, over both lists.
+    """
+    from types import SimpleNamespace
+
+    from evalvitals.contract.emit import from_fix_outcome
+
+    confirmed = SimpleNamespace(
+        candidate=SimpleNamespace(
+            tier="L2", name="coded_pipeline", kind="code", source="cli:claude",
+            trial=None, description="",
+        ),
+        verdict="fixed", n_pairs=24, n_baseline_correct=9, n_fixed=8, n_broken=1,
+        fixed_cases=[], broken_cases=[], n_applicable=15, coverage=1.0,
+        n_unstable=0, n_model_independent=0, effect=0.29, e_value=45.0,
+        reject=True, fixed=True, summary="held up on the untouched split",
+    )
+    outcome = SimpleNamespace(
+        max_tier="L2", routed=[], attempted=[confirmed], best=None, fixed=False,
+        ebh_survivors=[], repair_rounds=1, recommendation=None, refine_signal=None,
+        selected_on_explore="coded_pipeline",
+        selection_attempted=[
+            {"name": "visual_grounding", "tier": "L1", "n_pairs": 24, "n_fixed": 2,
+             "n_broken": 0, "effect": 0.08, "verdict": "partial",
+             "headline": "Tells the model to read the answer off the picture first."},
+            {"name": "audio_evidence_then_answer", "tier": "L1", "n_pairs": 24,
+             "n_fixed": 1, "n_broken": 3, "effect": -0.08, "verdict": "unsafe",
+             "headline": "Asks the model to describe what it hears before answering."},
+            {"name": "coded_pipeline", "tier": "L2", "n_pairs": 24, "n_fixed": 8,
+             "n_broken": 1, "effect": 0.29, "verdict": "fixed", "headline": ""},
+        ],
+    )
+    wire = from_fix_outcome(outcome, trace_id="t")
+
+    swept = {row.name: row.ref for row in wire.selection}
+    assert swept == {
+        "visual_grounding": "R1",
+        "audio_evidence_then_answer": "R2",
+        "coded_pipeline": "R3",
+    }
+    # The confirmed row is the SAME repair as the third swept one, so it keeps
+    # R3 rather than restarting the count.
+    assert [row.ref for row in wire.attempted] == ["R3"]
+
+
+def test_an_undescribed_repair_stays_blank_rather_than_title_cased():
+    """`audio_evidence_then_answer` is a log-folder name, not English.
+
+    Humanising it to "Audio Evidence Then Answer" reads as though the run
+    explained the repair, when what actually happened is that nobody did. The
+    blank is the honest rendering, so the contract must be able to express it.
+    """
+    from types import SimpleNamespace
+
+    from evalvitals.contract.emit import from_fix_outcome
+
+    outcome = SimpleNamespace(
+        max_tier="L1", routed=[], attempted=[], best=None, fixed=False,
+        ebh_survivors=[], repair_rounds=1, recommendation=None, refine_signal=None,
+        selected_on_explore=None,
+        selection_attempted=[
+            # The judge answered `what_it_does`, so this one has a sentence.
+            {"name": "audio_evidence_then_answer", "tier": "L1", "n_pairs": 24,
+             "n_fixed": 1, "n_broken": 3, "effect": -0.08, "verdict": "unsafe",
+             "headline": "Asks the model to describe what it hears before it answers."},
+            # This judge ignored the field. Nothing is invented on its behalf.
+            {"name": "cross_modal_rules_terse", "tier": "L1", "n_pairs": 24,
+             "n_fixed": 2, "n_broken": 1, "effect": 0.04, "verdict": "partial"},
+        ],
+    )
+    wire = from_fix_outcome(outcome, trace_id="t")
+
+    described, undescribed = wire.selection
+    assert described.headline.startswith("Asks the model to describe")
+    assert undescribed.headline == ""
+    # The slug survives as the join key either way -- it is what `best`,
+    # `selected_on_explore` and the trial folder on disk all name.
+    assert undescribed.name == "cross_modal_rules_terse"
+
+
+def test_the_hosts_own_repairs_describe_themselves():
+    """A built-in candidate carries no judge text, and still must not be blank.
+
+    Only the fix agent knows what `vcd_diffusion_noise` does; a consumer handed
+    that string can title-case it and nothing more.
+    """
+    from types import SimpleNamespace
+
+    from evalvitals.contract.emit import from_fix_outcome
+
+    attempt = SimpleNamespace(
+        candidate=SimpleNamespace(
+            tier="L0", name="vcd_diffusion_noise", kind="vcd",
+            source="paper_default", trial=None, description="",
+        ),
+        verdict="no_effect", n_pairs=24, n_baseline_correct=9, n_fixed=0,
+        n_broken=0, fixed_cases=[], broken_cases=[], n_applicable=15,
+        coverage=1.0, n_unstable=0, n_model_independent=0, effect=0.0,
+        e_value=1.0, reject=False, fixed=False, summary="",
+    )
+    outcome = SimpleNamespace(
+        max_tier="L0", routed=[], attempted=[attempt], best=None, fixed=False,
+        ebh_survivors=[], repair_rounds=1, recommendation=None, refine_signal=None,
+        selected_on_explore=None, selection_attempted=[],
+    )
+    wire = from_fix_outcome(outcome, trace_id="t")
+
+    headline = wire.attempted[0].headline
+    assert "picture is replaced by" in headline
+    # Written for a reader, which means none of the words that make the slug
+    # unreadable in the first place.
+    assert not any(word in headline.lower() for word in ("vcd", "diffusion", "l0", "tier"))

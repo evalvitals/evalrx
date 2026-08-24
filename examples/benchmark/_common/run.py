@@ -30,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--backend", choices=["hf_local", "endpoint"], default="hf_local",
                    help="hf_local = in-process transformers (default; white-box + paper methods); "
                         "endpoint = OpenAI-compatible server (black-box)")
+    p.add_argument("--concurrency", type=int, default=1,
+                   help="Cases generated at once during baseline discovery. Honoured only for "
+                        "--backend endpoint (a local backend shares one GPU and is not "
+                        "thread-safe); a served model can only batch requests it has in hand.")
     p.add_argument("--base-url", default="http://host.docker.internal:8020/v1")
     p.add_argument("--api-key", default="EMPTY")
     p.add_argument("--data-dir", default="data")
@@ -39,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--download-limit", type=int, default=None,
                    help="rows to freeze when the manifest is missing (default: the task's; 0 = whole slice)")
     p.add_argument("--seed", type=int, default=None, help="sampling seed for a fresh manifest (default: the task's)")
+    p.add_argument("--model-path", default=None,
+                   help="Load the weights from this local directory instead of the spec's "
+                        "hub id. For an air-gapped box, a git-cloned checkout, or pinning "
+                        "an exact revision; everything else about the spec is unchanged.")
     p.add_argument("--device", default=None, help="cuda | cuda:0 | auto (default: auto for 2-GPU sizes, else cuda)")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--attn-impl", choices=["sdpa", "eager", "auto"], default=None,
@@ -87,13 +95,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--analyzer-max-cases", type=int, default=0, help="cap per analyzer (0 = every case)")
     p.add_argument("--m2-codegen", action=argparse.BooleanOptionalAction, default=None,
                    help="coder-written M2 statistics tools (default: on for llm, off otherwise)")
-    p.add_argument("--fix-validation-cases", type=int, default=256)
+    p.add_argument(
+        "--fix-validation-cases",
+        type=int,
+        default=64,
+        help=(
+            "cap cases per candidate during EXPLORE selection (default: 64); "
+            "the frozen winner still uses every untouched CONFIRM case"
+        ),
+    )
     p.add_argument("--fix-exec-timeout", type=int, default=2400)
     p.add_argument("--fix-repair-rounds", type=int, default=2,
                    help="feedback-driven coded-pipeline attempts (default: 2)")
     p.add_argument("--baseline-only", action="store_true",
                    help="download + load + Stage 0 only (no judge): the per-cell smoke check")
     p.add_argument("--skip-fix", action="store_true", help="stop after M1..M5")
+    p.add_argument(
+        "--skip-m4",
+        action="store_true",
+        help="skip the optional pre-fix surgery experiment; keep the full tiered fix search",
+    )
     p.add_argument("--download-only", action="store_true")
     p.add_argument("--no-download", action="store_true")
     p.add_argument("--smoke-test", action="store_true", help="scorer/matrix checks, no data, no model")

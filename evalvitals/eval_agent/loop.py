@@ -499,7 +499,7 @@ class VLDiagnoseLoop:
             from evalvitals.contract.emit import from_fix_outcome
 
             self._emit("m4_fix", lambda: from_fix_outcome(
-                outcome, trace_id=self.emitter.trace_id,
+                outcome, trace_id=self.emitter.trace_id, run_root=self.emitter.root,
             ))
         return outcome
 
@@ -1110,6 +1110,13 @@ class VLDiagnoseLoop:
                 _run_config(self, data, loop_name="VLDiagnoseLoop")
             )
             self.run_logger.log_cases(data)
+            if confirm is not None:
+                # `data` is the explore split by now, so logging only it left the
+                # held-out cases unrecorded — and those are the ones M5's verdict
+                # and M4's repair are measured on. A report then cannot show a
+                # single case behind its strongest evidence: the repair's own
+                # per-case outputs joined to nothing.
+                self.run_logger.log_cases(confirm)
 
         for cycle in range(self.max_cycles):
             if self.token_budget > 0 and self._tokens_used >= self.token_budget:
@@ -1472,12 +1479,14 @@ class VLDiagnoseLoop:
             logger.info("run_m4: no verified hypotheses to act on.")
             return None
 
-        # Confirm the fix on the held-out partition (leak #3): the loop generated
-        # the hypothesis on EXPLORE, so M4 must operate on CONFIRM — data it never
-        # mined. Deterministic re-split of the same batch; no-op when off.
-        _, confirm = self._split_explore_confirm(data)
+        # M4 is an adaptive experiment: its verdict changes which hypothesis
+        # reaches the repair proposer.  It therefore belongs to EXPLORE, not
+        # the final repair CONFIRM partition.  Touching CONFIRM here would make
+        # the later candidate choice depend on the same cases used for its
+        # significance gate.
+        explore, confirm = self._split_explore_confirm(data)
         if confirm is not None:
-            data = confirm
+            data = explore
 
         results: dict[str, Any] = (
             report.final_stats_report.raw_results
@@ -1578,27 +1587,32 @@ class VLDiagnoseLoop:
             if _hyp_key(tr.hypothesis) not in refuted_ids
         ]
         hypotheses_note = ""
-        if not hypotheses and allow_unverified:
-            # No verified hypothesis, but the caller opted in: the fix still
-            # runs on the best UNVERIFIED leads (M5-tested, non-refuted,
-            # highest confidence first; else the last cycle's proposals). They
-            # reach the proposer flagged as leads, not facts — the fix gate is
-            # the candidate validation, not the hypothesis, so this is safe;
-            # an M4 experiment that supported one of them upgrades it in the
-            # note.
-            hypotheses = [
+        if allow_unverified:
+            # Opt-in exploratory repair keeps strong inconclusive leads even
+            # when M5 happened to verify a different, narrower hypothesis. A
+            # secondary supported symptom must not crowd the plausible causal
+            # mechanisms out of the intervention search. They remain clearly
+            # marked as leads; only the final candidate validation is a fix.
+            leads = [
                 h for h in _unverified_hypotheses(report)
                 if _hyp_key(h) not in refuted_ids
+                and _hyp_key(h) not in {_hyp_key(v) for v in hypotheses}
             ][:3]
+            had_verified = bool(hypotheses)
+            hypotheses.extend(leads)
             supported = _m4_supported_key(report)
-            hypotheses_note = (
-                "UNVERIFIED: M5 found no statistically significant evidence for these "
-                "hypotheses (they are the best-scoring leads, not established mechanisms)"
-                + ("; the M4 intervention experiment SUPPORTED the first one"
-                   if supported and hypotheses and _hyp_key(hypotheses[0]) == supported else "")
-                + ". Treat them as hints about WHERE to intervene; the candidate "
-                "validation, not the hypothesis, decides."
-            )
+            if leads:
+                hypotheses_note = (
+                    ("MIXED EVIDENCE: verified hypotheses come first; the remaining "
+                     if had_verified else
+                     "UNVERIFIED: M5 found no statistically significant evidence for these ")
+                    + "hypotheses; they are best-scoring leads, not established "
+                    "mechanisms"
+                    + ("; the M4 intervention experiment SUPPORTED the first lead"
+                       if supported and _hyp_key(leads[0]) == supported else "")
+                    + ". Treat inconclusive leads only as hints about WHERE to intervene; "
+                    "the final candidate validation decides."
+                )
         if not hypotheses:
             # A repair proposal is an intervention, not another exploratory
             # probe.  Do not turn an unreviewed/unsupported M3 lead into a
@@ -1652,6 +1666,7 @@ class VLDiagnoseLoop:
                 else FixTier.L3B_INTERNALS_WRITE
             )
             agent_logger = getattr(agent, "run_logger", None)
+            original_min_tier = getattr(agent, "min_tier", None)
             agent.run_logger = None
             attempted: "list" = []
             prior: "list" = []
@@ -1661,6 +1676,7 @@ class VLDiagnoseLoop:
                     if tier > ceiling:
                         break
                     agent.max_tier = tier
+                    agent.min_tier = tier
                     logger.info(
                         "run_fix: EXPLORE trying tier %s (%d prior attempt(s))",
                         tier.label,
@@ -1687,6 +1703,7 @@ class VLDiagnoseLoop:
             finally:
                 agent.run_logger = agent_logger
                 agent.max_tier = ceiling
+                agent.min_tier = original_min_tier
 
             outcome = _confirm_from_explore(
                 agent,
@@ -1718,6 +1735,7 @@ class VLDiagnoseLoop:
             )
             # Suppress per-round log_fix so we can emit one combined outcome.
             agent_logger = getattr(agent, "run_logger", None)
+            original_min_tier = getattr(agent, "min_tier", None)
             agent.run_logger = None
 
             all_attempted: "list" = []
@@ -1729,6 +1747,7 @@ class VLDiagnoseLoop:
                     if tier > ceiling:
                         break
                     agent.max_tier = tier
+                    agent.min_tier = tier
                     logger.info("run_fix: trying tier %s (%d prior attempt(s))",
                                 tier.label, len(all_prior))
                     outcome = _propose_and_validate(
@@ -1745,6 +1764,7 @@ class VLDiagnoseLoop:
                     logger.info("run_fix: tier %s exhausted — escalating", tier.label)
             finally:
                 agent.run_logger = agent_logger
+                agent.min_tier = original_min_tier
 
             # Merge all rounds into one combined outcome and emit once. The
             # merged set spans every escalated tier, so it is a LARGER best-of-N
@@ -1835,7 +1855,7 @@ def _confirm_from_explore(
     repair_rounds: int,
 ) -> "Any":
     """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
-    from evalvitals.eval_agent.stages.fix_agent import FixOutcome
+    from evalvitals.eval_agent.stages.fix_agent import FixOutcome, plain_description
 
     executed = [
         validation
@@ -1857,9 +1877,13 @@ def _confirm_from_explore(
         ),
         default=None,
     )
+    # `headline` travels with the audit row because the candidate object does
+    # not: the contract emitter sees only these dicts, and a slug is the one
+    # thing it must not show a reader.
     audit = [
         {
             "name": validation.candidate.name,
+            "headline": plain_description(validation.candidate),
             "tier": validation.candidate.tier.label,
             "n_pairs": validation.n_pairs,
             "n_fixed": validation.n_fixed,
@@ -1883,7 +1907,20 @@ def _confirm_from_explore(
             },
         )
 
-    validation = agent.validate_candidate(model, confirm, selected.candidate)
+    # ``max_validation_cases`` is an EXPLORE-search budget.  Reusing that cap
+    # here would silently throw away untouched confirmation cases exactly when
+    # more power matters most.  The candidate is already frozen, so validate it
+    # on the complete CONFIRM partition and restore the agent's search budget
+    # afterwards.  Custom/legacy agents without this attribute keep their
+    # existing call contract.
+    selection_cap = getattr(agent, "max_validation_cases", None)
+    if selection_cap is not None:
+        agent.max_validation_cases = 0
+    try:
+        validation = agent.validate_candidate(model, confirm, selected.candidate)
+    finally:
+        if selection_cap is not None:
+            agent.max_validation_cases = selection_cap
     survivors = agent._ebh_survivors(
         [validation] if validation.e_value is not None else []
     )

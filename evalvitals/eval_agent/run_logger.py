@@ -51,6 +51,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import shutil
 import sys
@@ -93,6 +94,44 @@ def _externalized(summary: "dict[str, Any]") -> str:
     """
     where = summary.get("path") or "artifacts/"
     return f"({summary.get('n_items', '?')} items externalised -> {where})"
+
+
+#: Plain-language glosses for the console narration.
+#:
+#: The console is read while a run is in flight, by the same person the report
+#: is written for: someone who builds evaluations and does not do statistics.
+#: `status=supported effect=0.283` is an audit record, not a sentence, so every
+#: stage line that carries a verdict gets one plain lead ABOVE the raw fields —
+#: the raw fields stay, because they are what a bug report needs.
+
+def _odds_phrase(e_value: Any) -> str:
+    """An e-value as betting odds, or "" when there is no usable number.
+
+    An e-value IS odds against the null: e=45 means the evidence runs about 45
+    to 1 against this being chance. "Reject at alpha=0.05" is the same statement
+    in a dialect nobody outside the field speaks. Mirrors the wording the report
+    UI uses for the same number so the two never disagree.
+    """
+    try:
+        e = float(e_value)
+    except (TypeError, ValueError):
+        return ""
+    if not math.isfinite(e) or e <= 0:
+        return ""
+    if e >= 1000:
+        return "over 1000 to 1"
+    return f"about {round(e)} to 1" if e >= 10 else f"about {e:.1f} to 1"
+
+
+def _flip_phrase(payload: "dict[str, Any]") -> str:
+    """"fixed 45 and broke 6 of the 125 cases it was tested on", or ""."""
+    if payload.get("n_fixed") is None and payload.get("n_broken") is None:
+        return ""
+    fixed = int(payload.get("n_fixed") or 0)
+    broken = int(payload.get("n_broken") or 0)
+    pairs = int(payload.get("n_pairs") or 0)
+    tail = f" of the {pairs} case{'' if pairs == 1 else 's'} it was tested on" if pairs else ""
+    return f"fixed {fixed} and broke {broken}{tail}"
 
 
 def _case_snapshot(case: Any) -> "dict[str, Any]":
@@ -368,6 +407,15 @@ class _VerboseFormatter(logging.Formatter):
                     n_tested = corrected.get("n_tested")
                     tested = f" of {n_tested}" if n_tested else ""
                     lines.append(f"     fdr_survive: {len(survivors)}{tested}: {survivors}")
+                    # "3 of 17 survived e-BH" reads as a failure to anyone who
+                    # has not met the correction. It is the opposite: the filter
+                    # exists because testing 17 patterns at once turns up a few
+                    # by luck alone, and these are the ones that outlived it.
+                    lines.append(
+                        f"     in plain terms: {len(survivors)}{tested} screened patterns "
+                        "are still standing after discounting for how many were "
+                        "tried at once; the rest could be luck"
+                    )
             tool_results = p.get("stats_tool_results") or []
             if isinstance(tool_results, dict):
                 lines.append(f"     stats_tool : {_externalized(tool_results)}")
@@ -413,6 +461,15 @@ class _VerboseFormatter(logging.Formatter):
             lines = [f"\n[{module}] cycle={cycle}  '{hyp}'"]
             ev = p.get("evidence") or {}
             if module == "M5":
+                # This is the only stage allowed to say whether an explanation
+                # held up, so it is the line most worth being a sentence.
+                plain = {
+                    "supported": "the held-out half agreed with this explanation",
+                    "refuted": "the held-out half pointed the other way",
+                    "inconclusive": "the held-out half could not settle it either way",
+                }.get(str(status).lower())
+                if plain:
+                    lines.append(f"     in plain terms: {plain}")
                 lines.append(
                     f"     status={status}"
                     f"  effect={ev.get('m5_effect_size', '?')}"
@@ -470,6 +527,49 @@ class _VerboseFormatter(logging.Formatter):
             for t in p.get("tools") or []:
                 lines.append(f"     tool       : {t.get('name')} (source={t.get('source')})")
             return "\n".join(lines)
+
+        if event == "fix":
+            # Without this branch the whole M4 result reached the console as a
+            # json.dumps of the payload — the one stage whose answer is the
+            # point of the run was the one stage nobody could read.
+            best = p.get("best") or {}
+            attempted = p.get("attempted") or []
+            n = len(attempted) if isinstance(attempted, list) else 0
+            head = f"\n[M4] {n} repair candidate(s) tried"
+            ref = best.get("ref") or best.get("name")
+            if ref:
+                head += f"; best = {ref}"
+            lines = [head]
+            if best.get("headline"):
+                lines.append(f"     what it does  : {best['headline']}")
+            flips = _flip_phrase(best)
+            if flips:
+                lines.append(f"     result        : it {flips}")
+            odds = _odds_phrase(best.get("e_value"))
+            if odds:
+                strong = "strong enough to count" if best.get("reject") else "not strong enough to count"
+                lines.append(f"     is it luck?   : evidence runs {odds} against chance — {strong}")
+            independent = int(best.get("n_model_independent") or 0)
+            if independent:
+                lines.append(
+                    f"     careful       : {independent} case"
+                    f"{' was' if independent == 1 else 's were'} solved by the added "
+                    "code rather than by the model, and were left out of the count"
+                )
+            lines.append(
+                "     verdict       : "
+                + ("a repair was confirmed" if p.get("fixed")
+                   else "no candidate passed the repair gate")
+            )
+            if best.get("tier"):
+                lines.append(f"     tier={best['tier']}  effect={best.get('effect')}"
+                             f"  e_value={best.get('e_value')}  reject={best.get('reject')}")
+            return "\n".join(lines)
+
+        if event == "stage_skipped":
+            return (f"\n[{str(p.get('stage', '?')).upper()}] cycle={cycle}  skipped"
+                    f" ({p.get('reason_code')})"
+                    + (f" — {p['detail']}" if p.get("detail") else ""))
 
         if event == "loop_end":
             stopped_by = p.get("stopped_by")
@@ -1129,6 +1229,14 @@ class RunLogger:
             "hypotheses": [
                 {
                     "statement": h.statement,
+                    # The reader-facing half of the claim. `_HYPOTHESIS` in
+                    # log_schema.py has always declared it and both writers
+                    # below omitted it, so the plain sentence the judge was
+                    # asked for reached the log only under
+                    # `proposed_hypotheses` — and the report UI reads THESE
+                    # lists. Every screen therefore showed the technical
+                    # statement, and nobody could tell a plain line existed.
+                    "plain_statement": h.plain_statement,
                     "failure_mode": h.predicted_failure_mode,
                     "status": h.status.value if h.status else None,
                     # How M3 says this claim should be verified (the LLM's TEST:
@@ -1702,6 +1810,7 @@ class RunLogger:
             entry["final_hypotheses"] = [
                 {
                     "statement": h.statement,
+                    "plain_statement": h.plain_statement,
                     "failure_mode": h.predicted_failure_mode,
                     "status": h.status.value if h.status else None,
                 }

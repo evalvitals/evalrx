@@ -38,6 +38,12 @@ class _ScriptedJudge(FakeModel):
                     "hypothesis": (
                         "Failure is driven by an attention signal present on failing cases."
                     ),
+                    # Present because the prompt asks for it: a missing or
+                    # jargon-y plain line costs one extra plain-language
+                    # repair call, which would change the call count below.
+                    "plain_statement": (
+                        "The model looks at the wrong part of the input on the cases it gets wrong."
+                    ),
                     "failure_mode": "attention",
                 }
             ]

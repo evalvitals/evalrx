@@ -313,6 +313,16 @@ def test_pipeline_spec_validation():
     assert [op["tool"] for op in spec.image_ops] == ["zoom_center"]  # bogus dropped
     assert spec.n_samples == 5  # capped
 
+    multi_call = PipelineSpec.from_dict(
+        {
+            "name": "bounded_multicall",
+            "strategy": "chain_of_verification",
+            "n_samples": 5,
+        }
+    )
+    assert multi_call is not None
+    assert multi_call.n_samples == 2  # 3 calls/sample * 2 <= 6 calls/case
+
 
 def test_pipeline_passes_bounded_generation_kwargs():
     from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
@@ -1868,6 +1878,25 @@ def test_garbage_judge_falls_back_to_defaults():
     assert sources == {"default"}
     tiers = {v.candidate.tier for v in out.attempted}
     assert tiers == {FixTier.L1_PROMPT, FixTier.L2_SCAFFOLD}
+
+
+def test_min_tier_filters_cheaper_candidates_for_one_ladder_station():
+    pytest.importorskip("PIL")
+    judge = ScriptedJudge("I refuse to answer in JSON.")
+    agent = FixAgent(
+        judge=judge,
+        max_tier="L2",
+        min_tier="L2",
+        allow_codegen=False,
+    )
+    out = agent.propose_and_validate(
+        HopelessModel(), _gold_yes_batch(image=_img()), [_hyp("x")]
+    )
+
+    assert out.attempted
+    assert {v.candidate.tier for v in out.attempted} == {FixTier.L2_SCAFFOLD}
+    assert len(judge.prompts) == 1
+    assert "L2" in judge.prompts[0]
 
 
 def test_no_rubric_cases_yield_recommendation_not_crash():
@@ -3706,3 +3735,70 @@ def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
     assert guard["unanchored_ids"] == [] and guard["n_guarded"] == 0 and guard["min_support"] == 3
     control = json.loads(control_files[0].read_text(encoding="utf-8"))
     assert control["ok"] is True and control["solved"] == []
+
+
+# ── Candidates must arrive with a sentence a reader can use ──────────────────
+
+def test_a_judge_that_echoes_the_slug_contributes_nothing():
+    """"Audio Evidence Then Answer" is the name again, not an explanation.
+
+    Accepting it would put a sentence-shaped string on screen that tells a
+    reader exactly what the slug already told them, while looking like the run
+    had described its own repair.
+    """
+    from evalvitals.eval_agent.stages.fix_agent import _judge_description
+
+    assert _judge_description({
+        "name": "audio_evidence_then_answer",
+        "what_it_does": "Audio evidence then answer.",
+    }) == ""
+    assert _judge_description({
+        "name": "audio_evidence_then_answer",
+        "what_it_does": "Asks the model to describe what it hears before it answers.",
+    }) == "Asks the model to describe what it hears before it answers."
+    assert _judge_description({"name": "x"}) == ""
+    assert _judge_description("not a proposal") == ""
+
+
+def test_a_coded_pipelines_own_header_is_its_description():
+    """L2 code has no JSON proposal to carry `what_it_does`, so it declares it
+    in the source, where the coding agent is already writing."""
+    from evalvitals.eval_agent.stages.fix_agent import _code_description
+
+    code = (
+        "# WHAT_IT_DOES: Asks the model twice and keeps the answer both tries agree on.\n"
+        "import json\n"
+        "print('x')\n"
+    )
+    assert _code_description(code) == (
+        "Asks the model twice and keeps the answer both tries agree on."
+    )
+    assert _code_description("import json\nprint('x')\n") == ""
+
+    # A model that wraps the line anyway keeps its whole sentence.
+    wrapped = (
+        "# WHAT_IT_DOES: Asks the model twice with different wording and keeps\n"
+        "#   the answer both tries agree on.\n"
+        "import json\n"
+    )
+    assert _code_description(wrapped) == (
+        "Asks the model twice with different wording and keeps the answer both "
+        "tries agree on."
+    )
+
+
+def test_plain_description_never_falls_back_to_the_slug():
+    from evalvitals.eval_agent.stages.fix_agent import (
+        FixCandidate, FixTier, plain_description,
+    )
+
+    judged = FixCandidate(
+        tier=FixTier.L1_PROMPT, name="cross_modal_rules_terse", payload={},
+        description="Gives the model a short checklist to follow before answering.",
+    )
+    builtin = FixCandidate(tier=FixTier.L1_PROMPT, name="visual_grounding", payload={})
+    unknown = FixCandidate(tier=FixTier.L1_PROMPT, name="mystery_strategy_v2", payload={})
+
+    assert plain_description(judged).startswith("Gives the model a short checklist")
+    assert plain_description(builtin).startswith("Tells the model to read the answer")
+    assert plain_description(unknown) == ""

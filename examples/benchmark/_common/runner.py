@@ -50,6 +50,11 @@ def load_model(resolved: Resolved, args, task: T.Task):
     from evalvitals.specs import get_spec
 
     spec = get_spec(resolved.spec_key)
+    if getattr(args, "model_path", None):
+        # Only the location changes. The spec still decides the auto class, the
+        # chat template kwargs and the modalities, so a local checkout is the
+        # same model under test rather than a differently-configured one.
+        spec = replace(spec, hf_repo=str(args.model_path))
     if args.enable_thinking:
         spec = replace(spec, chat_template_kwargs={**spec.chat_template_kwargs, "enable_thinking": True})
     gen = generation_settings(task, args)
@@ -184,6 +189,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
         scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
+        concurrency=getattr(args, "concurrency", 1),
     ).discover(model, candidates, protocol=protocol)
     cases = discovery.cases
     elapsed = time.monotonic() - started
@@ -290,6 +296,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         **({"max_judge_candidates": 1} if args.code_only else {}),
         exec_timeout_sec=args.fix_exec_timeout,
         prewritten_code=prewritten_code,
+        concurrency=getattr(args, "concurrency", 1),
         **fix_kwargs,
     )
     explorer = None
@@ -308,6 +315,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
         fix_agent=fix_agent, max_cycles=args.max_cycles, run_logger=ctx.logger,
         confirm_split=0.5, confirm_split_seed=20260818,
+        # This benchmark reserves CONFIRM exclusively for the final frozen
+        # repair. M5 screens hypotheses on EXPLORE; otherwise its verdict (and
+        # the M4 decision it triggers) would adapt repair selection to the same
+        # cases later used for the significance gate.
+        m5_holdout=False,
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer, explore_dir=run_dir / "explore", verbose=True,
     )
@@ -332,7 +344,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         # caller asked to validate.  Running an unrelated M4 surgery first is
         # pure latency and can contend for the same GPU; it cannot influence
         # the frozen candidate or its EXPLORE/CONFIRM verdict.
-        if args.fix_candidate or args.code_only or args.registered_repairs_only:
+        if args.skip_m4:
+            print("M4: skipped by --skip-m4 (tiered fix search remains enabled)")
+        elif args.fix_candidate or args.code_only or args.registered_repairs_only:
             requested = (
                 args.fix_candidate or ("coded_pipeline" if args.code_only else "registered methods")
             )

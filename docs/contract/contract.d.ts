@@ -183,7 +183,24 @@ export interface FindingsWire {
  */
 export interface FixAttemptWire {
   tier: "L0" | "L1" | "L2" | "L3a" | "L3b" | "L4";
+  /**
+   * The reader-facing identifier, e.g. `R3`. Assigned by the producer over the whole run and STABLE across `selection` and `attempted`, so a reader who sees R3 in the sweep can find R3's card and know it is the same repair.
+   *
+   * This exists because `name` cannot do the job. Consumers that numbered rows by list position gave the same repair two different numbers in the two lists, which is worse than no number at all. Empty means the producer assigned none; a consumer may then number by position, but only within one list and never as a cross-list identity.
+   */
+  ref?: string;
+  /**
+   * Machine slug, e.g. `audio_evidence_then_answer`. It is the JOIN KEY — `best`, `selected_on_explore` and `ebh_survivors` all name a candidate this way — and it is what the attempt folder on disk is called.
+   *
+   * It is NOT the label to show a reader. These slugs are chosen by the agent while naming its log files, so they read as identifiers rather than as language. Show `ref` to point at a candidate and `headline` to say what it does.
+   */
   name: string;
+  /**
+   * One plain sentence saying what this repair changes, written for a reader with no background in the field: no tier names, no metric names, no jargon, no slug echoed back. "Ask the model to describe what it hears before answering" — not "audio-evidence-first prompt scaffold".
+   *
+   * Empty when the producer had nothing readable to offer, which a consumer should render as an honest blank rather than by humanising the slug: `audio_evidence_then_answer` -> "Audio Evidence Then Answer" invents fluency the run never had.
+   */
+  headline?: string;
   kind?: string | null;
   source?: string | null;
   /**
@@ -191,7 +208,9 @@ export interface FixAttemptWire {
    */
   methodology?: MethodologyWire | null;
   /**
-   * Self-contained attempt folder. Preferred join key across rounds — name alone is not unique.
+   * Self-contained attempt folder, RELATIVE TO THE RUN ROOT. Preferred join key across rounds — name alone is not unique.
+   *
+   * It holds `outputs.jsonl`, one line per validated case: `{case_id, status, output}` where status is fixed / broken / unchanged. That is what a reader needs to study a repair case by case — the candidate's actual answer beside the baseline's — and it is kept out of this payload because it is one row per case per candidate. Recorded relative because an absolute producer path resolves nowhere else, which is the same reason MediaRef paths are relative.
    */
   trial_root?: string | null;
   n_pairs?: number;
@@ -279,6 +298,10 @@ export interface HypothesisWire {
    * Technical mechanism claim.
    */
   statement: string;
+  /**
+   * The SAME claim in one everyday sentence, for a reader who runs evaluations and does no statistics. Not a second, softer claim — a second rendering of this one, checked host-side against a jargon list before it is accepted (see analysis.plain_language). Empty when the producer wrote none; a consumer should then show `statement` rather than paraphrase it into something the run never said.
+   */
+  plain_statement?: string;
   target_model: string;
   predicted_failure_mode: string;
   /**
@@ -685,9 +708,19 @@ export interface FixOutput {
    */
   routed?: ({ [key: string]: string })[];
   /**
-   * Every candidate validated against the unmodified baseline.
+   * The CONFIRMATION evidence: candidates validated on the held-out split. With a confirm split in play this is exactly one frozen candidate — selecting and testing on the same cases is the error the two-stage protocol exists to prevent.
    */
   attempted?: (FixAttemptWire)[];
+  /**
+   * The candidates tried while CHOOSING one, on the diagnosis split. Descriptive only — never confirmation evidence, and a reader must not add these effect sizes to the ones above.
+   *
+   * Carried because omitting it misrepresents the search: a run that tried seven candidates across L1 and L2 and confirmed one L1 reported a single L1 row, and every reader concluded L2 was never attempted. What was ruled out is part of what the run found — an `unsafe` candidate that repaired 7 cases and broke 8 is a result.
+   */
+  selection?: (FixAttemptWire)[];
+  /**
+   * Which candidate the selection phase froze for confirmation. Names a row in `selection`; `best` names one in `attempted`.
+   */
+  selected_on_explore?: string | null;
   /**
    * Winning candidate NAME. The row itself is in `attempted`.
    */

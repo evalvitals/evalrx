@@ -612,13 +612,20 @@ class PipelineSpec:
         strategy = str(d.get("strategy", "direct")).strip().lower()
         if strategy not in _SCAFFOLD_STRATEGIES:
             strategy = "direct"
+        # Bound the product, not just n_samples: repeating a three-call
+        # strategy five times silently creates 15 generations per case (3840
+        # calls on a 256-case EXPLORE split). Six calls/case still permits a
+        # useful vote while keeping one autonomous candidate operationally
+        # bounded. Direct candidates retain the historical cap of five.
+        calls_per_sample = len(STRATEGY_CALLS.get(strategy, (("direct", ""),)))
+        sample_cap = min(5, max(1, 6 // calls_per_sample))
         pattern = _safe_output_key_pattern(d.get("output_key_pattern"))
         try:
             override_support = max(0, int(d.get("baseline_override_min_support", 0)))
         except (TypeError, ValueError):
             override_support = 0
         return cls(name=name, image_ops=ops, prompt_template=template,
-                   n_samples=min(n_samples, 5), generation_kwargs=generation_kwargs,
+                   n_samples=min(n_samples, sample_cap), generation_kwargs=generation_kwargs,
                    strategy=strategy, output_key_pattern=pattern,
                    baseline_override_min_support=min(override_support, 5))
 

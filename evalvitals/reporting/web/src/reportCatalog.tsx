@@ -7,6 +7,7 @@ import ReactECharts from "echarts-for-react";
 import { ArrowUpRight, Check, CircleDot, Database, Wrench } from "lucide-react";
 import { z } from "zod";
 import type { Chart, ReportData, Stage } from "./types";
+import { outcomeColors } from "./reportAccess";
 
 const ids = z.array(z.string()).optional();
 export const reportCatalog = defineCatalog(schema, {
@@ -53,15 +54,22 @@ const nodeTypes = { stage: StageNode };
 function EvidenceChart({ chart }: { chart: Chart }) {
   const option = chart.kind === "donut" ? {
     tooltip: { trigger: "item" },
-    color: ["#f06d5f", "#6bd8ad", "#89a6ff", "#f4ca72"],
+    // Keyed to what each slice means, not to its position in the series: the
+    // compiler emits [Fail, Pass] on one run and [Pass, Fail] on the next, and
+    // a positional palette painted the passes red on half the reports.
+    color: outcomeColors(chart.series.map((item) => item.label)),
     series: [{ type: "pie", radius: ["54%", "76%"], center: ["50%", "52%"], label: { color: "#b8c9c4", formatter: "{b}  {c}" }, data: chart.series.map((item) => ({ name: item.label, value: item.value })) }],
   } : {
-    grid: { left: 110, right: 24, top: 12, bottom: 22 },
+    grid: { left: 168, right: 24, top: 12, bottom: 22 },
     xAxis: { type: "value", splitLine: { lineStyle: { color: "#23332f" } }, axisLabel: { color: "#8da19b" } },
-    yAxis: { type: "category", data: chart.series.map((item) => item.label), axisLabel: { color: "#b8c9c4", width: 96, overflow: "truncate" }, axisLine: { show: false }, axisTick: { show: false } },
+    // These labels are analyzer questions, not short keys. Truncating eight of
+    // them to the same "Did the model g..." left a chart whose bars nobody
+    // could tell apart, so they wrap and the chart grows a row at a time.
+    yAxis: { type: "category", data: chart.series.map((item) => item.label), axisLabel: { color: "#b8c9c4", width: 154, overflow: "break", lineHeight: 13, fontSize: 11 }, axisLine: { show: false }, axisTick: { show: false } },
     series: [{ type: "bar", data: chart.series.map((item) => ({ value: item.value, itemStyle: { color: item.highlight ? "#6bd8ad" : "#586a65", borderRadius: 4 } })), barWidth: 13 }],
   };
-  return <article className="chart-card"><h3>{chart.title}</h3>{chart.subtitle && <p>{chart.subtitle}</p>}<ReactECharts option={option} style={{ height: 250 }} />{chart.series.some((item) => item.means || item.raw_label) && <div className="chart-legend">{chart.series.map((item) => <div key={item.raw_label || item.label}><b>{item.label}</b>{item.means ? <span>{item.means}</span> : <em>The analyzer did not document what this measures.</em>}<code>{item.raw_label}</code></div>)}</div>}</article>;
+  const height = chart.kind === "donut" ? 250 : Math.max(250, chart.series.length * 42 + 40);
+  return <article className="chart-card"><h3>{chart.title}</h3>{chart.subtitle && <p>{chart.subtitle}</p>}<ReactECharts option={option} notMerge style={{ height }} />{chart.series.some((item) => item.means || item.raw_label) && <div className="chart-legend">{chart.series.map((item) => <div key={item.raw_label || item.label}><b>{item.label}</b>{item.means ? <span>{item.means}</span> : <em>The analyzer did not document what this measures.</em>}<code>{item.raw_label}</code></div>)}</div>}</article>;
 }
 
 export const { registry } = defineRegistry(reportCatalog, {
@@ -77,6 +85,14 @@ export const { registry } = defineRegistry(reportCatalog, {
           <div><small>MODEL</small><strong>{data.setting.model}</strong></div>
           <ArrowUpRight size={20} />
           <div><small>EVALUATED ON</small><strong>{data.setting.dataset}</strong></div>
+          {/* Two runs of one benchmark against one model differ only in the
+              agent that drove them. Without this the two reports are
+              indistinguishable side by side. Omitted, not guessed, when the
+              run recorded no agent. */}
+          {data.setting.diagnosed_by && <>
+            <ArrowUpRight size={20} />
+            <div><small>DIAGNOSED BY</small><strong title={data.setting.diagnosed_by}>{data.setting.diagnosed_by}</strong></div>
+          </>}
         </div>
       </section>;
     },

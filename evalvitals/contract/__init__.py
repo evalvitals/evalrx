@@ -13,6 +13,29 @@ Scope: this describes the SERIALIZED shape, not the in-memory dataclasses. They
 differ (``AnalysisReport.to_dict()`` drops ``raw_results``), and only the
 serialized shape is what another process actually receives.
 
+Reader-facing text
+------------------
+Every field a frontend puts on screen is written for a reader with no
+background in this field -- assume a bright high-school student who has never
+heard of an e-value, a tier, or a paired flip. That obligation sits here, on
+the producer, and not on the frontend, for one reason: a consumer handed
+``mcnemar_evalue`` or ``audio_evidence_then_answer`` can only guess, and a
+guess dressed as a label ("Mcnemar Evalue") reads as though the run explained
+itself when it did not.
+
+So the contract separates the two jobs wherever they collide:
+
+* an IDENTIFIER (``FixAttemptWire.name``, a signal's dotted path) joins records
+  and must never change to suit a reader;
+* a LABEL (``StatsToolResultWire.measured``, ``FixAttemptWire.ref``) is what a
+  reader points at;
+* a SENTENCE (``StatsToolResultWire.means``, ``FixAttemptWire.headline``,
+  ``MethodologyWire.summary``) says what it means in plain language.
+
+A producer with nothing readable to offer leaves the label and sentence empty.
+An honest blank is a smaller error than a title-cased slug, because the blank
+is visible and the slug is not.
+
 Requires the ``contract`` extra: ``pip install evalvitals[contract]``.
 """
 

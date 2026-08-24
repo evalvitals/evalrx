@@ -885,3 +885,44 @@ def test_run_fix_allow_unverified_uses_unverified_leads_and_says_so():
     agent = FixAgent(judge=judge, max_tier="L1")
     agent.propose_and_validate(CountingModel(), _mc_batch(), stub.hypotheses, context=stub.context)
     assert "UNVERIFIED: M5 found no statistically significant evidence" in judge.prompts[-1]
+
+
+def test_run_fix_allow_unverified_keeps_leads_beside_verified_symptom():
+    from evalvitals.eval_agent import VLDiagnoseLoop
+    from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+
+    report, hs = _inconclusive_report()
+    symptom = _hyp("secondary malformed-output symptom")
+    symptom.id = "verified-symptom"
+    supported = HypothesisTestResult(
+        hypothesis=symptom,
+        status=HypothesisStatus.SUPPORTED,
+        test_name="t",
+        effect_size=0.3,
+        is_consistent_with_protocol=True,
+        confidence=0.6,
+        verdict="supported",
+    )
+    report.verified_hypotheses = [supported]
+    report.all_test_results.append(supported)
+    report.final_hypotheses.append(symptom)
+
+    class Recorder:
+        run_logger = None
+
+        def propose_and_validate(self, model, data, hypotheses, context=None):
+            self.hypotheses = list(hypotheses)
+            self.context = context
+            return object()
+
+    stub = Recorder()
+    loop = VLDiagnoseLoop(
+        model=CountingModel(),
+        protocol=ExperimentProtocol(description="d"),
+        fix_agent=stub,
+    )
+    loop.run_fix(report, _mc_batch(), allow_unverified=True)
+
+    assert [h.id for h in stub.hypotheses] == ["verified-symptom", "h1", "h0"]
+    assert stub.context.hypotheses_note.startswith("MIXED EVIDENCE")
