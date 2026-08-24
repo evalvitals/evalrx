@@ -1872,10 +1872,12 @@ def test_garbage_judge_falls_back_to_defaults():
 
 def test_min_tier_filters_cheaper_candidates_for_one_ladder_station():
     pytest.importorskip("PIL")
+    judge = ScriptedJudge("I refuse to answer in JSON.")
     agent = FixAgent(
-        judge=ScriptedJudge("I refuse to answer in JSON."),
+        judge=judge,
         max_tier="L2",
         min_tier="L2",
+        allow_codegen=False,
     )
     out = agent.propose_and_validate(
         HopelessModel(), _gold_yes_batch(image=_img()), [_hyp("x")]
@@ -1883,6 +1885,8 @@ def test_min_tier_filters_cheaper_candidates_for_one_ladder_station():
 
     assert out.attempted
     assert {v.candidate.tier for v in out.attempted} == {FixTier.L2_SCAFFOLD}
+    assert len(judge.prompts) == 1
+    assert "L2" in judge.prompts[0]
 
 
 def test_no_rubric_cases_yield_recommendation_not_crash():

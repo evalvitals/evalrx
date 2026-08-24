@@ -1343,12 +1343,18 @@ class FixAgent:
             frozenset({name}) for name in catalog_method_names
         }
         skip_lower_tiers = preregistered_only or catalog_method_only
-        if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
+        if (
+            not code_only
+            and not skip_lower_tiers
+            and self.max_tier >= FixTier.L0_RUNTIME_CONFIG
+            and (self.min_tier is None or self.min_tier <= FixTier.L0_RUNTIME_CONFIG)
+        ):
             candidates += self._runtime_candidates(data, prior_names)
         if (
             not code_only
             and not skip_lower_tiers
             and self.max_tier >= FixTier.L1_PROMPT
+            and (self.min_tier is None or self.min_tier <= FixTier.L1_PROMPT)
             and not self._paper_methods_only
         ):
             candidates += self._l1_candidates(
@@ -1360,7 +1366,12 @@ class FixAgent:
                 tasks=tasks,
                 context_block=context_block,
             )
-        if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L2_SCAFFOLD:
+        if (
+            not code_only
+            and not skip_lower_tiers
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+            and (self.min_tier is None or self.min_tier <= FixTier.L2_SCAFFOLD)
+        ):
             candidates += self._l2_candidates(
                 hyp_lines,
                 examples,
@@ -1386,6 +1397,7 @@ class FixAgent:
                         )
                     )
         if (not skip_lower_tiers and self.max_tier >= FixTier.L2_SCAFFOLD
+                and (self.min_tier is None or self.min_tier <= FixTier.L2_SCAFFOLD)
                 and self.codegen_available):
             # The coder-written pipeline is the ONE candidate a code-only run
             # exists to field, so it sits outside the ``not code_only`` gate
@@ -1395,7 +1407,12 @@ class FixAgent:
                 context_block=context_block, catalog=catalog,
                 text_only=not has_images,
             )
-        if not code_only and not preregistered_only and self.max_tier >= FixTier.L3A_INTERNALS_READ:
+        if (
+            not code_only
+            and not preregistered_only
+            and self.max_tier >= FixTier.L3A_INTERNALS_READ
+            and (self.min_tier is None or self.min_tier <= FixTier.L3A_INTERNALS_READ)
+        ):
             candidates += self._l3_candidates(
                 hyp_lines,
                 model,
@@ -1405,7 +1422,12 @@ class FixAgent:
                 has_audio=has_audio,
                 tasks=tasks,
             )
-        if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L4_PARAMETERS:
+        if (
+            not code_only
+            and not skip_lower_tiers
+            and self.max_tier >= FixTier.L4_PARAMETERS
+            and (self.min_tier is None or self.min_tier <= FixTier.L4_PARAMETERS)
+        ):
             candidates += self._l4_candidates(hyp_lines)
         if self.min_tier is not None:
             candidates = [c for c in candidates if c.tier >= self.min_tier]
