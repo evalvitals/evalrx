@@ -59,7 +59,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--judge-effort", default="medium")
     p.add_argument("--fix-tier", choices=["L1", "L2", "L3a"], default="L3a")
     p.add_argument("--allow-codegen", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--auto-escalate", action=argparse.BooleanOptionalAction, default=False)
+    p.add_argument(
+        "--auto-escalate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "search L0, L1, L2, then L3a up to --fix-tier on EXPLORE; "
+            "freeze one candidate for CONFIRM"
+        ),
+    )
     p.add_argument("--code-only", action="store_true",
                    help="restrict the fix pool to the coder-written pipeline (L2 unless its "
                         "source actually reads model internals, then L3a)")

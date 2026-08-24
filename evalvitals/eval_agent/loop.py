@@ -1565,18 +1565,6 @@ class VLDiagnoseLoop:
         if confirm is not None:
             data = confirm
 
-        # Tier escalation is feedback-driven: the next tier is authored after
-        # observing which CONFIRM cases the previous tier repaired/broke.  That
-        # invalidates the holdout just as surely as tuning a prompt on it.  A
-        # held-out run therefore pre-registers one repair family at the caller's
-        # configured ceiling; a failed attempt needs a fresh split/run seed.
-        if confirm is not None and auto_escalate:
-            logger.warning(
-                "run_fix: disabling adaptive tier escalation on held-out "
-                "confirmation data; use a fresh split for another attempt"
-            )
-            auto_escalate = False
-
         agent = fix_agent or self.fix_agent
         # M4's intervention experiment (run_m4) can REFUTE the very hypothesis
         # M5 verified. A refuted hypothesis must not reach the proposer as
@@ -1645,8 +1633,81 @@ class VLDiagnoseLoop:
         )
         context.hypotheses_note = hypotheses_note
 
+        # With a held-out split, the entire tier ladder is searched on EXPLORE.
+        # Feedback may adapt the next tier there; CONFIRM remains untouched
+        # until one candidate is frozen and evaluated exactly once.  This keeps
+        # automatic L0 -> L1 -> L2 -> L3a -> L3b escalation without tuning on
+        # the holdout.  Each ceiling is tried separately: cheaper candidates
+        # are not pooled with a newly opened, more invasive tier.
+        if auto_escalate and confirm is not None:
+            ladder = [
+                FixTier.L0_RUNTIME_CONFIG,
+                FixTier.L1_PROMPT,
+                FixTier.L2_SCAFFOLD,
+                FixTier.L3A_INTERNALS_READ,
+                FixTier.L3B_INTERNALS_WRITE,
+            ]
+            ceiling = (
+                parse_tier(max_tier) if max_tier is not None
+                else FixTier.L3B_INTERNALS_WRITE
+            )
+            agent_logger = getattr(agent, "run_logger", None)
+            agent.run_logger = None
+            attempted: "list" = []
+            prior: "list" = []
+            repair_rounds = 0
+            try:
+                for tier in ladder:
+                    if tier > ceiling:
+                        break
+                    agent.max_tier = tier
+                    logger.info(
+                        "run_fix: EXPLORE trying tier %s (%d prior attempt(s))",
+                        tier.label,
+                        len(prior),
+                    )
+                    selection = _propose_and_validate(
+                        agent,
+                        self.model,
+                        explore,
+                        hypotheses,
+                        prior_attempts=prior if prior else None,
+                        context=context,
+                    )
+                    if not hasattr(selection, "attempted"):
+                        self._set_fix_outcome(report, selection)
+                        return selection
+                    attempted.extend(selection.attempted)
+                    repair_rounds += int(getattr(selection, "repair_rounds", 0) or 0)
+                    if selection.fixed:
+                        logger.info("run_fix: EXPLORE fixed at tier %s", tier.label)
+                        break
+                    prior.extend(v for v in selection.attempted if not v.fixed)
+                    logger.info("run_fix: EXPLORE tier %s exhausted — escalating", tier.label)
+            finally:
+                agent.run_logger = agent_logger
+                agent.max_tier = ceiling
+
+            outcome = _confirm_from_explore(
+                agent,
+                self.model,
+                confirm,
+                attempted,
+                max_tier=ceiling,
+                repair_rounds=repair_rounds,
+            )
+            try:
+                if agent_logger is not None:
+                    agent_logger.log_fix(outcome)
+            except Exception as exc:
+                logger.debug("run_fix: held-out escalation log_fix failed: %s", exc)
+            self._set_fix_outcome(report, outcome)
+            return outcome
+
         if auto_escalate:
             _LADDER = [
+                FixTier.L0_RUNTIME_CONFIG,
+                FixTier.L1_PROMPT,
                 FixTier.L2_SCAFFOLD,
                 FixTier.L3A_INTERNALS_READ,
                 FixTier.L3B_INTERNALS_WRITE,
@@ -1725,8 +1786,6 @@ class VLDiagnoseLoop:
         if max_tier is not None:
             agent.max_tier = parse_tier(max_tier)
         if confirm is not None:
-            from evalvitals.eval_agent.stages.fix_agent import FixOutcome
-
             agent_logger = getattr(agent, "run_logger", None)
             agent.run_logger = None
             try:
@@ -1745,79 +1804,14 @@ class VLDiagnoseLoop:
                 self._set_fix_outcome(report, selection)
                 return selection
 
-            executed = [
-                validation
-                for validation in selection.attempted
-                if validation.n_pairs > 0 and validation.effect is not None
-            ]
-            improving = [
-                validation
-                for validation in executed
-                if validation.n_fixed > validation.n_broken
-            ]
-            selected = max(
-                improving,
-                key=lambda validation: (
-                    validation.effect or 0.0,
-                    -validation.n_broken,
-                    validation.n_fixed,
-                ),
-                default=None,
+            outcome = _confirm_from_explore(
+                agent,
+                self.model,
+                confirm,
+                selection.attempted,
+                max_tier=agent.max_tier,
+                repair_rounds=selection.repair_rounds,
             )
-            audit = [
-                {
-                    "name": validation.candidate.name,
-                    "tier": validation.candidate.tier.label,
-                    "n_pairs": validation.n_pairs,
-                    "n_fixed": validation.n_fixed,
-                    "n_broken": validation.n_broken,
-                    "effect": validation.effect,
-                    "verdict": validation.verdict,
-                }
-                for validation in selection.attempted
-            ]
-            if selected is None:
-                outcome = FixOutcome(
-                    max_tier=agent.max_tier,
-                    repair_rounds=selection.repair_rounds,
-                    selection_attempted=audit,
-                    recommendation={
-                        "recommend_tier": agent.max_tier.label,
-                        "reason": (
-                            "no EXPLORE candidate had positive net repairs; "
-                            "CONFIRM was left untouched"
-                        ),
-                    },
-                )
-            else:
-                validation = agent.validate_candidate(
-                    self.model,
-                    confirm,
-                    selected.candidate,
-                )
-                survivors = agent._ebh_survivors(
-                    [validation] if validation.e_value is not None else []
-                )
-                survived = id(validation) in survivors
-                outcome = FixOutcome(
-                    max_tier=agent.max_tier,
-                    attempted=[validation],
-                    best=validation if validation.fixed and survived else None,
-                    fixed=bool(validation.fixed and survived),
-                    repair_rounds=selection.repair_rounds,
-                    ebh_survivors=[validation.candidate.name] if survived else [],
-                    selection_attempted=audit,
-                    selected_on_explore=selected.candidate.name,
-                )
-                if not outcome.fixed:
-                    outcome.recommendation = {
-                        "recommend_tier": agent.max_tier.label,
-                        "reason": (
-                            "the candidate selected on EXPLORE did not validate "
-                            "on untouched CONFIRM"
-                        ),
-                    }
-                outcome.refine_signal = agent._refine_signal([validation], confirm)
             try:
                 if agent_logger is not None:
                     agent_logger.log_fix(outcome)
@@ -1829,6 +1823,91 @@ class VLDiagnoseLoop:
         outcome = _propose_and_validate(agent, self.model, data, hypotheses, context=context)
         self._set_fix_outcome(report, outcome)
         return outcome
+
+
+def _confirm_from_explore(
+    agent: "Any",
+    model: "Any",
+    confirm: "CaseBatch",
+    attempted: "list[Any]",
+    *,
+    max_tier: "Any",
+    repair_rounds: int,
+) -> "Any":
+    """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
+    from evalvitals.eval_agent.stages.fix_agent import FixOutcome
+
+    executed = [
+        validation
+        for validation in attempted
+        if validation.n_pairs > 0 and validation.effect is not None
+    ]
+    improving = [
+        validation
+        for validation in executed
+        if validation.n_fixed > validation.n_broken
+    ]
+    selected = max(
+        improving,
+        key=lambda validation: (
+            validation.effect or 0.0,
+            -validation.n_broken,
+            validation.n_fixed,
+            -int(validation.candidate.tier),
+        ),
+        default=None,
+    )
+    audit = [
+        {
+            "name": validation.candidate.name,
+            "tier": validation.candidate.tier.label,
+            "n_pairs": validation.n_pairs,
+            "n_fixed": validation.n_fixed,
+            "n_broken": validation.n_broken,
+            "effect": validation.effect,
+            "verdict": validation.verdict,
+        }
+        for validation in attempted
+    ]
+    if selected is None:
+        return FixOutcome(
+            max_tier=max_tier,
+            repair_rounds=repair_rounds,
+            selection_attempted=audit,
+            recommendation={
+                "recommend_tier": max_tier.label,
+                "reason": (
+                    "no EXPLORE candidate had positive net repairs; "
+                    "CONFIRM was left untouched"
+                ),
+            },
+        )
+
+    validation = agent.validate_candidate(model, confirm, selected.candidate)
+    survivors = agent._ebh_survivors(
+        [validation] if validation.e_value is not None else []
+    )
+    survived = id(validation) in survivors
+    outcome = FixOutcome(
+        max_tier=max_tier,
+        attempted=[validation],
+        best=validation if validation.fixed and survived else None,
+        fixed=bool(validation.fixed and survived),
+        repair_rounds=repair_rounds,
+        ebh_survivors=[validation.candidate.name] if survived else [],
+        selection_attempted=audit,
+        selected_on_explore=selected.candidate.name,
+    )
+    if not outcome.fixed:
+        outcome.recommendation = {
+            "recommend_tier": max_tier.label,
+            "reason": (
+                "the candidate selected on EXPLORE did not validate "
+                "on untouched CONFIRM"
+            ),
+        }
+    outcome.refine_signal = agent._refine_signal([validation], confirm)
+    return outcome
 
 
 def _analyzer_names_from_stats(stats_report: "Any") -> "list[str]":

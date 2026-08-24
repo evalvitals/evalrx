@@ -273,3 +273,15 @@ def test_generation_settings_sample_only_for_llm_tasks(common):
     greedy_llm = generation_settings(tasks.get("bbh_causal_judgement"), parse(
         ["--modality", "llm", "--model", "qwen3.5-2b", "--temperature", "0"]))
     assert greedy_llm == {"max_new_tokens": 2048, "do_sample": False}
+
+
+def test_benchmark_autofix_escalates_by_default(common):
+    _, _, _, run = common
+    parse = run.build_parser().parse_args
+    default = parse(["--modality", "vlm", "--model", "qwen3.5-2b"])
+    disabled = parse([
+        "--modality", "vlm", "--model", "qwen3.5-2b", "--no-auto-escalate",
+    ])
+
+    assert default.auto_escalate is True
+    assert disabled.auto_escalate is False
