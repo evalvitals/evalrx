@@ -1,0 +1,1241 @@
+{
+  "headline": {
+    "model": "gemma-4-e2b-it",
+    "dataset": "ChartQA/test_human",
+    "n_cases": 256,
+    "split": "128 explore / 128 held-out",
+    "baseline_accuracy": 0.4922,
+    "confirmed_signal": "coverage_verification_gap.n_unique",
+    "hypotheses": {
+      "proposed": 3,
+      "supported": 2,
+      "inconclusive": 1
+    },
+    "accepted_repair": "transcribe_then_refine_zoom",
+    "accepted_tier": "L2",
+    "heldout_accuracy": "0.4921875 -> 0.796875",
+    "cases_fixed": 45,
+    "cases_broken": 6
+  },
+  "run": {
+    "dataset": "chartqa",
+    "benchmark": "ChartQA/test_human",
+    "model": "gemma-4-e2b",
+    "model_spec": "gemma-4-e2b-it",
+    "hf_repo": "google/gemma-4-E2B-it",
+    "modality": "vlm",
+    "backend": "hf_local",
+    "n_cases": 256,
+    "n_explore": 128,
+    "n_heldout": 128,
+    "confirm_split": 0.5,
+    "manifest_seed": 5022,
+    "baseline_accuracy": 0.4922,
+    "explore_label_distribution": {
+      "FAIL": 65,
+      "PASS": 63
+    },
+    "data_fingerprint": "c00c6add32b7",
+    "generation_kwargs": {
+      "max_new_tokens": 64,
+      "do_sample": false
+    },
+    "fix_tier_cap": "L3a",
+    "auto_escalate": false,
+    "allow_codegen": true,
+    "m1_selection": "pinned",
+    "judge": "ClaudeModel(binary='/usr/local/bin/claude', model='claude-opus-5', effort='high')",
+    "coder": "claude_code:claude-opus-5",
+    "protocol": "Evaluate a vision-language model (Gemma 4 E2B-it, spec gemma-4-e2b-it = google/gemma-4-E2B-it) on the human-authored ChartQA test split. Questions require reading chart marks and labels, comparing quantities, and performing arithmetic or logical reasoning. Diagnose whether errors reflect answer extraction, unstable visual evidence, or failure to verify a candidate answer.",
+    "manifest_run_id": "logs",
+    "cycles": 1,
+    "stopped_by": "max_cycles",
+    "timings_sec": {
+      "m1": 323.001,
+      "explore": 630.773,
+      "m2": 241.673,
+      "m3": 104.709,
+      "m5_holdout_m1": 366.139,
+      "m5": 15.377
+    },
+    "total_duration_sec": 1681.7
+  },
+  "m1_probe": {
+    "analyzers": {
+      "selection_mode": "pinned",
+      "selection_rationale": "Selected 3 analyzer(s) (answer_extraction_audit, selfcheck_consistency, coverage_verification_gap) by capability matching.",
+      "selected_analyzers": [
+        "answer_extraction_audit",
+        "selfcheck_consistency",
+        "coverage_verification_gap"
+      ],
+      "families": [
+        {
+          "family": "black_box_behavior",
+          "label": "BLACK-BOX BEHAVIOR",
+          "selected": true,
+          "analyzers": [
+            "answer_extraction_audit",
+            "selfcheck_consistency",
+            "coverage_verification_gap"
+          ]
+        },
+        {
+          "family": "internal_white_box",
+          "label": "INTERNAL / WHITE-BOX",
+          "selected": false
+        },
+        {
+          "family": "multimodal",
+          "label": "MULTIMODAL",
+          "selected": false
+        },
+        {
+          "family": "other",
+          "label": "OTHER",
+          "selected": false
+        }
+      ],
+      "n_probe_passes": 2,
+      "probe_cycles": [
+        0,
+        -1
+      ],
+      "headline_metrics": {
+        "answer_extraction_audit": {
+          "n_cases": 128,
+          "n_gradable": 128,
+          "n_labelled_fail": 65,
+          "n_extraction_suspect": 3,
+          "suspect_rate": 0.0462,
+          "n_reasked": 0,
+          "n_extraction_point_miss": 0,
+          "missing_tag_rate": 1.0
+        },
+        "selfcheck_consistency": {
+          "n_cases": 128,
+          "n_samples": 4,
+          "degenerate_sampling": false,
+          "mean_inconsistency": 0.0426
+        },
+        "coverage_verification_gap": {
+          "n_cases": 128,
+          "n_scored": 128,
+          "k": 5,
+          "mean_pass_at_k": 0.5078,
+          "mean_majority_correct": 0.4531,
+          "coverage_gap_rate": 0.0547,
+          "no_coverage_rate": 0.4922,
+          "degenerate_sampling": false
+        }
+      }
+    },
+    "signal_curve": {
+      "phase": "explore",
+      "signal": "coverage_verification_gap.n_unique",
+      "analyzer": "coverage_verification_gap",
+      "field": "n_unique",
+      "all_surviving_signals": [
+        "coverage_verification_gap.n_unique"
+      ],
+      "n_surviving_signals": 1,
+      "binning": "levels",
+      "n_distinct_values": 5,
+      "n_cases": 128,
+      "bins": [
+        {
+          "value": 1,
+          "n_cases": 76,
+          "n_fail": 25,
+          "failure_rate": 0.3289
+        },
+        {
+          "value": 2,
+          "n_cases": 21,
+          "n_fail": 13,
+          "failure_rate": 0.619
+        },
+        {
+          "value": 3,
+          "n_cases": 13,
+          "n_fail": 10,
+          "failure_rate": 0.7692
+        },
+        {
+          "value": 4,
+          "n_cases": 6,
+          "n_fail": 6,
+          "failure_rate": 1.0
+        },
+        {
+          "value": 5,
+          "n_cases": 12,
+          "n_fail": 11,
+          "failure_rate": 0.9167
+        }
+      ]
+    }
+  },
+  "m2_statistics": {
+    "explore": {
+      "family": {
+        "n_results_total": 21,
+        "n_signal_label_assoc": 15,
+        "n_degenerate": 6,
+        "n_in_correction_family": 9,
+        "correction_method": "BH",
+        "survivors": [
+          "coverage_verification_gap.n_unique"
+        ]
+      },
+      "tests": [
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.gave_up",
+          "effect": 0.4961,
+          "ci": [
+            0.4094,
+            0.5827
+          ],
+          "p_value": 1.0,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 1,
+          "n_control": 127,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.5039
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.n_unique",
+          "effect": 0.4403,
+          "ci": [
+            0.2783,
+            0.5901
+          ],
+          "p_value": 9.650507011821217e-07,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 52,
+          "n_control": 76,
+          "fail_rate_signal": 0.7692,
+          "fail_rate_control": 0.3289
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "selfcheck_consistency.selfcheck_worst_sentence",
+          "effect": 0.4118,
+          "ci": [
+            0.1765,
+            0.6471
+          ],
+          "p_value": 0.28157894736842104,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 3,
+          "n_control": 17,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.5882
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "selfcheck_consistency.selfcheck_inconsistency",
+          "effect": 0.4118,
+          "ci": [
+            0.1765,
+            0.6471
+          ],
+          "p_value": 0.28157894736842104,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 3,
+          "n_control": 17,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.5882
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "coverage_verification_gap.n_unique",
+          "effect": 0.2386,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.coverage_gap",
+          "effect": 0.2184,
+          "ci": [
+            -0.1358,
+            0.5209
+          ],
+          "p_value": 0.44031592087574417,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 7,
+          "n_control": 121,
+          "fail_rate_signal": 0.7143,
+          "fail_rate_control": 0.4959
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.output_chars",
+          "effect": 0.1787,
+          "ci": [
+            0.005,
+            0.3454
+          ],
+          "p_value": 0.05108751714282175,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 54,
+          "n_control": 74,
+          "fail_rate_signal": 0.6111,
+          "fail_rate_control": 0.4324
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "selfcheck_consistency.n_sentences",
+          "effect": 0.1685,
+          "ci": [
+            -0.0575,
+            0.387
+          ],
+          "p_value": 0.22431569078938374,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 20,
+          "n_control": 108,
+          "fail_rate_signal": 0.65,
+          "fail_rate_control": 0.4815
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "selfcheck_consistency.selfcheck_worst_sentence",
+          "effect": 0.1105,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "selfcheck_consistency.selfcheck_inconsistency",
+          "effect": 0.1105,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "answer_extraction_audit.output_chars",
+          "effect": 0.0693,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "selfcheck_consistency.n_sentences",
+          "effect": 0.0456,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.gold_yes",
+          "effect": -0.0081,
+          "ci": [
+            -0.5163,
+            0.5081
+          ],
+          "p_value": 1.0,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 4,
+          "n_control": 124,
+          "fail_rate_signal": 0.5,
+          "fail_rate_control": 0.5081
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.answered_yes",
+          "effect": -0.1787,
+          "ci": [
+            -0.568,
+            0.456
+          ],
+          "p_value": 0.6161417322834646,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 3,
+          "n_control": 125,
+          "fail_rate_signal": 0.3333,
+          "fail_rate_control": 0.512
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "coverage_verification_gap.majority_share",
+          "effect": -0.2352,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.majority_share",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.has_answer_tag",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.has_output",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 128,
+          "n_control": 0
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.output_truncated",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.n_graded",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.n_samples",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        }
+      ]
+    },
+    "heldout": {
+      "family": {
+        "n_results_total": 21,
+        "n_signal_label_assoc": 15,
+        "n_degenerate": 7,
+        "n_in_correction_family": 8,
+        "correction_method": "BH",
+        "survivors": [
+          "coverage_verification_gap.n_unique"
+        ]
+      },
+      "tests": [
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.n_unique",
+          "effect": 0.4586,
+          "ci": [
+            0.301,
+            0.6075
+          ],
+          "p_value": 2.2081510638229278e-07,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 58,
+          "n_control": 70,
+          "fail_rate_signal": 0.7586,
+          "fail_rate_control": 0.3
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "selfcheck_consistency.selfcheck_worst_sentence",
+          "effect": 0.3125,
+          "ci": [
+            0.125,
+            0.5625
+          ],
+          "p_value": 0.5751633986928104,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 2,
+          "n_control": 16,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.6875
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "selfcheck_consistency.selfcheck_inconsistency",
+          "effect": 0.3125,
+          "ci": [
+            0.125,
+            0.5625
+          ],
+          "p_value": 0.5751633986928104,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 2,
+          "n_control": 16,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.6875
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "coverage_verification_gap.n_unique",
+          "effect": 0.2592,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "selfcheck_consistency.n_sentences",
+          "effect": 0.2495,
+          "ci": [
+            0.0271,
+            0.4535
+          ],
+          "p_value": 0.0736551753959145,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 18,
+          "n_control": 110,
+          "fail_rate_signal": 0.7222,
+          "fail_rate_control": 0.4727
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "selfcheck_consistency.selfcheck_worst_sentence",
+          "effect": 0.0654,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "selfcheck_consistency.selfcheck_inconsistency",
+          "effect": 0.0654,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "selfcheck_consistency.n_sentences",
+          "effect": 0.0614,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.output_chars",
+          "effect": 0.0369,
+          "ci": [
+            -0.139,
+            0.2072
+          ],
+          "p_value": 0.7188912760635924,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 49,
+          "n_control": 79,
+          "fail_rate_signal": 0.5306,
+          "fail_rate_control": 0.4937
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "answer_extraction_audit.output_chars",
+          "effect": -0.0033,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.coverage_gap",
+          "effect": -0.0081,
+          "ci": [
+            -0.5161,
+            0.4919
+          ],
+          "p_value": 1.0,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 4,
+          "n_control": 124,
+          "fail_rate_signal": 0.5,
+          "fail_rate_control": 0.5081
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.gold_yes",
+          "effect": -0.0838,
+          "ci": [
+            -0.4274,
+            0.3119
+          ],
+          "p_value": 0.7155703860188207,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 7,
+          "n_control": 121,
+          "fail_rate_signal": 0.4286,
+          "fail_rate_control": 0.5124
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "coverage_verification_gap.majority_share",
+          "effect": -0.2553,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.answered_yes",
+          "effect": -0.5242,
+          "ci": [
+            -0.6129,
+            -0.4355
+          ],
+          "p_value": 0.05583661417322835,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 4,
+          "n_control": 124,
+          "fail_rate_signal": 0.0,
+          "fail_rate_control": 0.5242
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.majority_share",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.gave_up",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.has_answer_tag",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.has_output",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 128,
+          "n_control": 0
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.output_truncated",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.n_graded",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "coverage_verification_gap.n_samples",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 128
+        }
+      ]
+    }
+  },
+  "m3_hypotheses": {
+    "proposed": [
+      {
+        "hypothesis_id": "H1",
+        "failure_mode": "computation_slip",
+        "statement": "Failures concentrate on questions requiring a *derived* quantity (difference, ratio, percent-of-total, sum) because the model composes an arithmetic result from two or more separately-estimated values, so each sample re-estimates the operands and the error compounds — yielding 4–5 distinct answers in 5 draws and a correct answer that is never sampled.",
+        "test_design": "coverage_verification_gap.n_unique` HIGHER on failing cases, restricted to the derived-quantity question subset (723, 759, 1172, 1113, 1217, 725, 1067, 1137, 519 as seed members); confirm with a prompt_contrast intervention that forces operand read-out first (\"list the two values you are using, then compute\") and score `fixed_by_readout_first` — the split should collapse `n_unique` toward 1 and raise pass@1 on that subset but not on lookup questions.",
+        "expected_direction": "higher_in_fail",
+        "status_at_proposal": "proposed"
+      },
+      {
+        "hypothesis_id": "H2",
+        "failure_mode": "ignored_obs",
+        "statement": "A second, disjoint failure population is *stable* misperception — the model binds the question's label to the wrong bar/series/axis tick and returns the identical wrong value in all 5 samples (`n_unique` = 1, `majority_share` = 1.0, `no_coverage` = 1), so it is invisible to any sampling-based confidence signal and unfixable by voting or verification.",
+        "test_design": "Within cases where `coverage_verification_gap.pass_at_k` = 0, `coverage_verification_gap.majority_share` HIGHER (and `n_unique` LOWER) than in cases where the gold appeared at least once — i.e. certainty is *anti*-diagnostic of correctness in the no-coverage stratum; then run a visual-perturbation intervention next cycle (crop/zoom to the queried region, or relabel-series prompt naming the target category explicitly) and score `fixed_by_region_crop`, which should repair the stable-wrong subgroup while leaving the high-`n_unique` subgroup unchanged.",
+        "expected_direction": "lower_in_fail",
+        "status_at_proposal": "proposed"
+      },
+      {
+        "hypothesis_id": "H3",
+        "failure_mode": "language_prior_bias",
+        "statement": "On binary/comparison questions the model applies a polarity prior rather than reading the chart, defaulting to \"No\" for comparison-style prompts regardless of the true relation (503, 1092 both gold-Yes answered \"No\"; 19 gold-No answered \"Yes\"), so accuracy on this slice tracks the base rate of the prior, not the evidence.",
+        "test_design": "answer_extraction_audit.answered_yes` LOWER on failing yes/no cases while `answer_extraction_audit.gold_yes` is HIGHER on failing yes/no cases (a \"No\"-default signature: fails cluster where gold is Yes); n is only ~8 binary cases here, so the next cycle should enlarge the yes/no slice and add a polarity-flip prompt_contrast (ask the logically inverted question) — a genuine prior predicts the same surface answer under inversion.",
+        "expected_direction": "higher_in_fail",
+        "status_at_proposal": "proposed"
+      }
+    ],
+    "adversarial_critic": {
+      "n_proposed": 3,
+      "n_critic_kept": 0,
+      "n_critic_rejected": 3,
+      "review": {
+        "n_kept": 0,
+        "n_rejected": 3,
+        "decisions": [
+          {
+            "statement": "Failures concentrate on questions requiring a *derived* quantity (difference, ratio, percent-of-total, sum) because the model composes an arithmetic result from two or more separately-estimated values, so each sample re-estimates the operands and the error compounds — yielding 4–5 distinct answers in 5 draws and a correct answer that is never sampled.",
+            "decision": "reject",
+            "reason": "Confounded by answer-space cardinality: continuous numeric targets can take unboundedly many distinct string values while categorical/binary targets cannot, so `n_unique` = 5 on numeric items is partly mechanical, and \"hard fine-grained numeric read + strict match tolerance\" (cf. stable single-value misreads `216` \"1.93 t\", `285` \"0.115\", `827` \"30.11\") explains the same rows without any composition step; the \"never sampled\" clause is also false for 2 of the 12 `n_unique` = 5 cases (`607`, `768` have `any_correct` = 1)."
+          },
+          {
+            "statement": "A second, disjoint failure population is *stable* misperception — the model binds the question's label to the wrong bar/series/axis tick and returns the identical wrong value in all 5 samples (`n_unique` = 1, `majority_share` = 1.0, `no_coverage` = 1), so it is invisible to any sampling-based confidence signal and unfixable by voting or verification.",
+            "decision": "reject",
+            "reason": "\"Unfixable by verification\" is untested and overgeneralised — `mean_verify_correct` is `null` (no verifier was ever run); only self-consistency voting was measured, and a verifier with a different prompt or a re-crop of the chart is a different intervention. \"Disjoint population\" is also asserted, not shown: nothing distinguishes these from the low-entropy tail of a single difficulty distribution, and `n_unique` = 1 is mechanically favoured for binary/categorical answer spaces."
+          },
+          {
+            "statement": "On binary/comparison questions the model applies a polarity prior rather than reading the chart, defaulting to \"No\" for comparison-style prompts regardless of the true relation (503, 1092 both gold-Yes answered \"No\"; 19 gold-No answered \"Yes\"), so accuracy on this slice tracks the base rate of the prior, not the evidence.",
+            "decision": "reject",
+            "reason": "The statistics reject it: `answered_yes` vs FAIL is inconclusive (effect −0.18, CI −0.57..+0.46), and the yes/no slice is only 10 of 128 cases with 7/10 correct (70%) — *better* than the 49% baseline, so failures are anti-concentrated here; the model's \"No\" rate (7/10) also closely tracks the gold \"No\" rate (6/10), which is what reading the chart would produce. The \"comparison-style prompts\" restriction is additionally unverifiable, as no question text is recorded."
+          }
+        ]
+      },
+      "note": "critic objections are recorded, not vetoes; adjudication is statistical"
+    }
+  },
+  "m5_verdicts": [
+    {
+      "hypothesis_id": "H1",
+      "failure_mode": "computation_slip",
+      "status": "supported",
+      "statement": "Failures concentrate on questions requiring a *derived* quantity (difference, ratio, percent-of-total, sum) because the model composes an arithmetic result from two or more separately-estimated values, so each sample re-estimates the operands and the error compounds — yielding 4–5 distinct answers in 5 draws and a correct answer that is never sampled.",
+      "test_name": "signal_label_assoc",
+      "expected_direction": "higher_in_fail",
+      "effect": 0.4586,
+      "ci": [
+        0.301,
+        0.6075
+      ],
+      "reject": true,
+      "underpowered": false,
+      "evidence_grade": "observational",
+      "protocol_consistent": true,
+      "confidence_score": 0.599,
+      "fdr": {
+        "method": "BH",
+        "alpha": 0.05,
+        "n_tested": 8,
+        "rejected_tools": [
+          "signal_label_assoc"
+        ],
+        "rejected_result_keys": [
+          "signal_label_assoc:coverage_verification_gap.n_unique"
+        ],
+        "families": {
+          "bh": {
+            "method": "BH",
+            "n_tested": 8,
+            "rejected_result_keys": [
+              "signal_label_assoc:coverage_verification_gap.n_unique"
+            ]
+          }
+        }
+      },
+      "verdict_text": "signal_label_assoc: signal 'coverage_verification_gap.n_unique' vs FAIL: [clustered bootstrap (unpaired)] effect=+0.4586 (B>A) CI=+0.3010..+0.6075 -> REJECT H0 [BH: survived, p=2.21e-07, n_signal=58] [hypothesis predicts the signal HIGHER on failures; observed effect +0.459 -> consistent]",
+      "split": "heldout"
+    },
+    {
+      "hypothesis_id": "H2",
+      "failure_mode": "ignored_obs",
+      "status": "supported",
+      "statement": "A second, disjoint failure population is *stable* misperception — the model binds the question's label to the wrong bar/series/axis tick and returns the identical wrong value in all 5 samples (`n_unique` = 1, `majority_share` = 1.0, `no_coverage` = 1), so it is invisible to any sampling-based confidence signal and unfixable by voting or verification.",
+      "test_name": "signal_label_assoc",
+      "expected_direction": "lower_in_fail",
+      "effect": 0.4586,
+      "ci": [
+        0.301,
+        0.6075
+      ],
+      "reject": true,
+      "underpowered": false,
+      "evidence_grade": "observational",
+      "protocol_consistent": true,
+      "confidence_score": 0.599,
+      "fdr": {
+        "method": "BH",
+        "alpha": 0.05,
+        "n_tested": 8,
+        "rejected_tools": [
+          "signal_label_assoc"
+        ],
+        "rejected_result_keys": [
+          "signal_label_assoc:coverage_verification_gap.n_unique"
+        ],
+        "families": {
+          "bh": {
+            "method": "BH",
+            "n_tested": 8,
+            "rejected_result_keys": [
+              "signal_label_assoc:coverage_verification_gap.n_unique"
+            ]
+          }
+        }
+      },
+      "verdict_text": "signal_label_assoc: signal 'coverage_verification_gap.n_unique' vs FAIL: [clustered bootstrap (unpaired)] effect=+0.4586 (B>A) CI=+0.3010..+0.6075 -> REJECT H0 [BH: survived, p=2.21e-07, n_signal=58] [hypothesis predicts the signal LOWER on failures; observed effect +0.459 -> consistent]",
+      "split": "heldout"
+    },
+    {
+      "hypothesis_id": "H3",
+      "failure_mode": "language_prior_bias",
+      "status": "inconclusive",
+      "statement": "On binary/comparison questions the model applies a polarity prior rather than reading the chart, defaulting to \"No\" for comparison-style prompts regardless of the true relation (503, 1092 both gold-Yes answered \"No\"; 19 gold-No answered \"Yes\"), so accuracy on this slice tracks the base rate of the prior, not the evidence.",
+      "test_name": "signal_label_assoc",
+      "expected_direction": "higher_in_fail",
+      "effect": -0.5242,
+      "ci": [
+        -0.6129,
+        -0.4355
+      ],
+      "reject": true,
+      "underpowered": false,
+      "evidence_grade": "observational",
+      "protocol_consistent": true,
+      "confidence_score": 0.747,
+      "fdr": {
+        "method": "BH",
+        "alpha": 0.05,
+        "n_tested": 8,
+        "rejected_tools": [
+          "signal_label_assoc"
+        ],
+        "rejected_result_keys": [
+          "signal_label_assoc:coverage_verification_gap.n_unique"
+        ],
+        "families": {
+          "bh": {
+            "method": "BH",
+            "n_tested": 8,
+            "rejected_result_keys": [
+              "signal_label_assoc:coverage_verification_gap.n_unique"
+            ]
+          }
+        }
+      },
+      "verdict_text": "No significant M2 result (best: signal 'answer_extraction_audit.answered_yes' vs FAIL: [clustered bootstrap (unpaired)] effect=-0.5242 (A>B) CI=-0.6129..-0.4355 -> REJECT H0 [BH: NOT survived, p=0.0558, n_signal=4])",
+      "split": "heldout"
+    }
+  ],
+  "m4_repair_search": {
+    "ladder": [
+      {
+        "tier": "L1",
+        "label": "Prompt / instructions",
+        "n_candidates": 1,
+        "best_effect": 0.0078,
+        "best_candidate": "visual_grounding",
+        "status": "not_selected",
+        "within_cap": true,
+        "tier_cap": "L3a"
+      },
+      {
+        "tier": "L2",
+        "label": "Scaffold / tools / multi-call",
+        "n_candidates": 4,
+        "best_effect": 0.2812,
+        "best_candidate": "transcribe_then_refine_zoom",
+        "status": "accepted",
+        "within_cap": true,
+        "tier_cap": "L3a"
+      },
+      {
+        "tier": "L3",
+        "label": "Internals / read & write",
+        "n_candidates": 1,
+        "best_effect": -0.0547,
+        "best_candidate": "coded_pipeline",
+        "status": "regressed",
+        "within_cap": true,
+        "tier_cap": "L3a"
+      },
+      {
+        "tier": "L4",
+        "label": "Re-training",
+        "n_candidates": 0,
+        "status": "untouched",
+        "within_cap": false,
+        "tier_cap": "L3a"
+      }
+    ],
+    "candidates_selected_on_explore": [
+      {
+        "tier": "L1",
+        "name": "visual_grounding",
+        "n_pairs": 128,
+        "n_fixed": 5,
+        "n_broken": 4,
+        "effect": 0.0078,
+        "verdict": "partial",
+        "selected": false
+      },
+      {
+        "tier": "L2",
+        "name": "grounded_label_binding_upscale",
+        "n_pairs": 128,
+        "n_fixed": 27,
+        "n_broken": 16,
+        "effect": 0.0859,
+        "verdict": "partial",
+        "selected": false
+      },
+      {
+        "tier": "L2",
+        "name": "rebind_verify_contrast",
+        "n_pairs": 128,
+        "n_fixed": 29,
+        "n_broken": 16,
+        "effect": 0.1016,
+        "verdict": "partial",
+        "selected": false
+      },
+      {
+        "tier": "L2",
+        "name": "transcribe_then_refine_zoom",
+        "n_pairs": 128,
+        "n_fixed": 44,
+        "n_broken": 8,
+        "effect": 0.2812,
+        "verdict": "fixed",
+        "selected": true
+      },
+      {
+        "tier": "L2",
+        "name": "self_consistency_5",
+        "n_pairs": 128,
+        "n_fixed": 2,
+        "n_broken": 0,
+        "effect": 0.0156,
+        "verdict": "partial",
+        "selected": false
+      },
+      {
+        "tier": "L3a",
+        "name": "coded_pipeline",
+        "n_pairs": 128,
+        "n_fixed": 2,
+        "n_broken": 9,
+        "effect": -0.0547,
+        "verdict": "unsafe",
+        "selected": false
+      }
+    ],
+    "candidates_confirmed_on_heldout": [
+      {
+        "tier": "L2",
+        "name": "transcribe_then_refine_zoom",
+        "n_pairs": 128,
+        "n_fixed": 45,
+        "n_broken": 6,
+        "effect": 0.3047,
+        "ci": [
+          0.2109,
+          0.3984
+        ],
+        "e_value": 2404505.33,
+        "verdict": "fixed",
+        "coverage": 1.0,
+        "selected": true
+      }
+    ]
+  },
+  "accepted_repair": {
+    "name": "transcribe_then_refine_zoom",
+    "tier": "L2",
+    "strategy": "self_refine",
+    "image_ops": [
+      {
+        "tool": "crop_salient_region",
+        "params": {
+          "padding": 0.06,
+          "min_delta": 18
+        }
+      },
+      {
+        "tool": "upscale",
+        "params": {
+          "factor": 2.0
+        }
+      },
+      {
+        "tool": "enhance_contrast",
+        "params": {
+          "factor": 1.4
+        }
+      }
+    ],
+    "n_samples": 3,
+    "generation_kwargs": {
+      "max_tokens": 900,
+      "temperature": 0.8,
+      "do_sample": true,
+      "top_p": 0.95
+    },
+    "output_key_pattern": "(?i)final answer:\\s*\\**\\s*([^\\n\\*]+)",
+    "steps": [
+      "image ops: crop_salient_region(padding=0.06, min_delta=18), upscale(factor=2.0), enhance_contrast(factor=1.4)",
+      "First transcribe the chart, then answer from your transcription.",
+      "TRANSCRIPTION: list every data mark you can see as `label -> value` (one per line), taking labels from the axis ticks and legend text exactly as printed. Include marks that seem irrelevant to the question. If there are multiple panels or series, group the lines under the panel/series name.",
+      "Then re-check the transcription once: are any two lines swapped, is any value assigned to the wrong label, and did you miss a mark at either end of the axis? Fix the list if so.",
+      "Finally answer the question using ONLY the corrected list. Match the chart's own format (bare number with the chart's precision, or the exact label text) - no units, no explanation.",
+      "Question: {prompt}",
+      "End with exactly one line: Final answer: <short answer>",
+      "sample 3 times, take the modal answer"
+    ],
+    "modifies_parameters": false,
+    "trial_root": "../../../../app/work/outputs/gemma-4-e2b/chartqa.chain1/logs/fixes/05_L2_transcribe_then_refine_zoom",
+    "prompt_template_lines": [
+      "First transcribe the chart, then answer from your transcription.",
+      "",
+      "TRANSCRIPTION: list every data mark you can see as `label -> value` (one per line), taking labels from the axis ticks and legend text exactly as printed. Include marks that seem irrelevant to the question. If there are multiple panels or series, group the lines under the panel/series name.",
+      "",
+      "Then re-check the transcription once: are any two lines swapped, is any value assigned to the wrong label, and did you miss a mark at either end of the axis? Fix the list if so.",
+      "",
+      "Finally answer the question using ONLY the corrected list. Match the chart's own format (bare number with the chart's precision, or the exact label text) - no units, no explanation.",
+      "",
+      "Question: {prompt}",
+      "",
+      "End with exactly one line:",
+      "Final answer: <short answer>"
+    ]
+  },
+  "heldout_validation": {
+    "phase": "heldout",
+    "candidate": "transcribe_then_refine_zoom",
+    "tier": "L2",
+    "n_pairs": 128,
+    "n_baseline_correct": 63,
+    "n_candidate_correct": 102,
+    "baseline_rate": 0.4922,
+    "candidate_rate": 0.7969,
+    "n_fixed": 45,
+    "n_broken": 6,
+    "both_correct": 57,
+    "both_wrong": 20,
+    "effect": 0.3047,
+    "ci": [
+      0.2109,
+      0.3984
+    ],
+    "e_value": 2404505.33,
+    "noise_model": "mcnemar",
+    "reject": true,
+    "coverage": 1.0,
+    "n_applicable": 128,
+    "n_unstable_dropped": 0,
+    "n_model_independent_excluded": 0,
+    "verdict": "fixed",
+    "ebh_survivors": [
+      "transcribe_then_refine_zoom"
+    ],
+    "summary": "[mcnemar + e-value (paired binary)] effect=+0.3047 (B>A) CI=+0.2109..+0.3984, e=2404505.33 -> REJECT H0 [fixed, coverage=100%]"
+  },
+  "example_case": {
+    "case_id": "chartqa-human-1142",
+    "split": "explore",
+    "question": "Work out the ratio of the bigger segment to the smaller one? Answer with only the short answer.",
+    "gold": [
+      "1.577"
+    ],
+    "baseline_output": "1.8:1",
+    "label": "fail",
+    "signal": "coverage_verification_gap.n_unique",
+    "signal_values": {
+      "sample_id": "chartqa-human-1142",
+      "n_samples": 5,
+      "n_graded": 5,
+      "n_correct": 0,
+      "n_unique": 5,
+      "pass_at_k": 0.0,
+      "any_correct": 0,
+      "majority_correct": 0,
+      "majority_share": 0.2,
+      "coverage_gap": 0,
+      "modal_answer": "1.83"
+    },
+    "media_paths": [
+      "logs/artifacts/case_media/af398fbef42b31e9_chartqa-01142.png"
+    ],
+    "note": "illustrative case drawn from the explore split; held-out cases have no stored media in this run"
+  },
+  "qa_flags": [
+    {
+      "level": "warning",
+      "code": "shared_test_between_hypotheses",
+      "detail": "H2 (ignored_obs) reuses the test and effect of H1; it has no independent predicate"
+    },
+    {
+      "level": "warning",
+      "code": "direction_mismatch",
+      "detail": "H2 expects lower_in_fail but the observed effect is +0.459"
+    },
+    {
+      "level": "warning",
+      "code": "direction_mismatch",
+      "detail": "H3 expects higher_in_fail but the observed effect is -0.524"
+    },
+    {
+      "level": "note",
+      "code": "correction_family_size_differs",
+      "detail": "multiplicity family size differs across phases: {'explore': 9, 'heldout': 8}"
+    },
+    {
+      "level": "note",
+      "code": "example_case_from_explore",
+      "detail": "the illustrative case comes from the explore split; do not present its treated output as a measured held-out result"
+    },
+    {
+      "level": "note",
+      "code": "accepted_fix_breaks_cases",
+      "detail": "the accepted fix broke 6 previously-correct cases; report it alongside the gain"
+    }
+  ],
+  "_sources": {
+    "example_case": "logs/report/discovery_cases.json + run_log case_record",
+    "m1_analyzers": "logs/run_log.jsonl:probe",
+    "m1_signal_curve": "logs/artifacts/c0_coverage_verification_gap.result.json + run_log case_record labels",
+    "m2_family": "logs/artifacts/c0_m2_stats_results.json",
+    "m2_test": "logs/artifacts/c0_m2_stats_results.json",
+    "m3_critic": "logs/run_log.jsonl:diagnosis",
+    "m3_hypothesis": "logs/run_log.jsonl:diagnosis",
+    "m4_candidate": "logs/run_log.jsonl:fix.selection_attempted",
+    "m4_ladder": "logs/run_log.jsonl:fix",
+    "m5_verdict": "logs/run_log.jsonl:surgery[module=m5] + logs/report/m5_results.json",
+    "qa_flags": "derived from the blocks above",
+    "repair": "logs/run_log.jsonl:fix.best.payload",
+    "run": "summary.json + logs/manifest.json + logs/run_log.jsonl",
+    "validation": "logs/run_log.jsonl:fix.best"
+  }
+}
