@@ -1090,10 +1090,14 @@ def _repairs(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
     fix = raw.get("m4_fix") or {}
     if not fix.get("ran"):
         return []
-    confirm = fix.get("confirm") or {}
+    confirm = fix.get("confirm") if isinstance(fix.get("confirm"), Mapping) else {}
+    # Early runs recorded the winning candidate as its bare name; later ones
+    # record the whole candidate. Both name the same repair.
+    best = fix.get("best")
+    best_name = str(best.get("name") or "") if isinstance(best, Mapping) else str(best or "")
     return [{
         "id": "repair-1", "fixed": bool(fix.get("fixed")),
-        "title": (fix.get("best") or {}).get("name") or confirm.get("name") or "Targeted repair",
+        "title": best_name or confirm.get("name") or "Targeted repair",
         "effect": confirm.get("effect"),
         "fixed_cases": len(confirm.get("fixed_cases") or []),
         "broken_cases": len(confirm.get("broken_cases") or []),
