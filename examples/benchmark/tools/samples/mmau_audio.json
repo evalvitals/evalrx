@@ -1409,7 +1409,7 @@
       "sample 3 times, take the modal answer"
     ],
     "modifies_parameters": false,
-    "trial_root": "../../../../app/work/outputs/gemma-4-e2b/mmau.chain1/logs/fixes/07_L2_verify_then_commit",
+    "trial_root": "logs/fixes/07_L2_verify_then_commit",
     "prompt_template_lines": [
       "{prompt}",
       "",

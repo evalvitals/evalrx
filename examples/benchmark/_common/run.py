@@ -65,14 +65,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--judge-provider", choices=["agy", "claude", "codex"], default="codex")
     p.add_argument("--judge-model", default="gpt-5.6-terra")
     p.add_argument("--judge-effort", default="medium")
-    p.add_argument("--fix-tier", choices=["L1", "L2", "L3a"], default="L3a")
+    p.add_argument("--fix-tier", choices=["L1", "L2", "L3a", "L3b"], default="L3b",
+                   help="fix-search ceiling; L3b opens the pre-audited internals-write "
+                        "primitives (VLM + hf_local only; models without a usable "
+                        "executor skip the tier)")
     p.add_argument("--allow-codegen", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument(
         "--auto-escalate",
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "search L0, L1, L2, then L3a up to --fix-tier on EXPLORE; "
+            "search L0, L1, L2, L3a, then L3b up to --fix-tier on EXPLORE; "
             "freeze one candidate for CONFIRM"
         ),
     )

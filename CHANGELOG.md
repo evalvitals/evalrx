@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — `extract_figure_data.py` re-anchors `trial_root` on the run root
+
+The run log records the writer's absolute path — inside a container that is
+`/app/work/outputs/<run>/logs/...`, which exists on no host — and relpath
+against it emitted a `../../..` chain whose length depended on where the reader
+sat. The accepted repair's `trial_root` is now the run-root-relative
+`logs/fixes/<NN_name>` whenever that directory exists under the run being read,
+with the old behaviour kept for paths that genuinely live elsewhere.
+
 ### Added — `examples/benchmark/tools/extract_figure_data.py`, run dir → case-study figure data
 
 A benchmark run's numbers were previously readable only through the dashboard or

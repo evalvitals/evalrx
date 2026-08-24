@@ -154,6 +154,28 @@ class Run:
         except ValueError:
             return abspath
 
+    def rooted(self, recorded: str) -> str:
+        """A recorded path re-anchored on THIS run root.
+
+        The run log records absolute paths from the process that wrote it — in a
+        container that is ``/app/work/outputs/<run>/logs/...``, which exists on
+        no host. ``os.path.relpath`` against such a path walks up to ``/`` and
+        yields a ``../../..`` chain whose length depends on where the READER
+        sits. The artifact itself lives inside the run dir, so re-anchor: take
+        the ``logs/...`` suffix when the result exists under the root, else
+        fall back to :meth:`relpath` for a path that really is elsewhere.
+        """
+        recorded = str(recorded or "")
+        marker = os.sep + "logs" + os.sep
+        idx = recorded.rfind(marker)
+        if idx >= 0:
+            candidate = recorded[idx + 1:]
+            if os.path.isdir(os.path.join(self.root, candidate)) or os.path.isfile(
+                os.path.join(self.root, candidate)
+            ):
+                return candidate.replace(os.sep, "/")
+        return self.relpath(recorded)
+
     # -- events -----------------------------------------------------------
 
     def event(self, name: str, cycle: Any = "__any__") -> Optional[dict]:
@@ -790,7 +812,7 @@ def block_repair(run: Run) -> List[dict]:
             "prompt_template": payload.get("prompt_template"),
             "steps": _prompt_steps(payload),
             "modifies_parameters": False,
-            "trial_root": run.relpath(best.get("trial_root") or "")
+            "trial_root": run.rooted(best.get("trial_root") or "")
             if best.get("trial_root")
             else None,
             "source": "logs/run_log.jsonl:fix.best.payload",
