@@ -13,7 +13,7 @@ from evalvitals.reporting.dynamic import (
     publish_report,
     report_is_current,
 )
-from evalvitals.reporting.server import _resolve_media
+from evalvitals.reporting.server import _resolve_media, _resolve_report_root
 
 EmbedMedia = Literal["representative", "all", "none"]
 
@@ -27,7 +27,12 @@ def export_static_report(
     model: object | None = None,
 ) -> Path:
     """Write a portable HTML snapshot without introducing another renderer."""
-    root = Path(run_dir).resolve()
+    # `serve` accepts either a run directory or its logs/ child and resolves
+    # between them; the export did not, so the same path produced two different
+    # reports — the export compiled from the enclosing directory and missed
+    # everything keyed to the log dir (the run manifest, and with it the agent
+    # that drove the run). One resolver for both entry points.
+    root = _resolve_report_root(Path(run_dir).resolve())
     if model is not None or not report_is_current(root):
         publish_report(root, example_dir=example_dir, model=model)
     data, layout = load_published_report(root)
