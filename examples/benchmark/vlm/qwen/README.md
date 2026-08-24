@@ -38,8 +38,8 @@ DATASET=chartqa CUDA_VISIBLE_DEVICES=0 docker compose run -d --name vlm-qwen3.5-
 docker logs -f vlm-qwen3.5-2b-chartqa
 ```
 
-Every size's command pins the judge and coder to Claude Opus 5 (`--judge-provider
-claude --judge-model claude-opus-5 --judge-effort high`); thinking is OFF on every
+Every size's command pins the judge and coder to Codex Terra (`--judge-provider
+codex --judge-model gpt-5.6-terra --judge-effort medium`); thinking is OFF on every
 model (`--enable-thinking` turns it on for one run); the model runs in-process
 (`hf_local`; `EXTRA_ARGS="--backend endpoint --base-url http://host.docker.internal:8020/v1"`
 talks to a vLLM server instead).

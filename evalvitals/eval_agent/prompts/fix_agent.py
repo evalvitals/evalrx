@@ -79,7 +79,11 @@ EXECUTION CONTRACT:
   prompt override, optional image transforms applied to the case's image
   first, optional bounded decoding controls (temperature, top_p, stop,
   max_tokens — max_tokens can only RAISE the baseline budget; a lower value is
-  raised to it).  image_ops MUST be a list of
+  raised to it).  IMPORTANT: ``prompt`` REPLACES the original prompt; it is
+  not prepended automatically.  Every answer-producing override must include
+  ``case["prompt"]`` itself (for example, ``instruction + "\\n\\n" +
+  case["prompt"]``), or the model will never see the question.  image_ops MUST
+  be a list of
   {{"tool": "<name>", "params": {{...}}}} dicts using ONLY these tools
   (anything else is rejected with an error):
 {catalog}{attend_hint}
@@ -105,7 +109,9 @@ EXECUTION CONTRACT:
   matching); never rewrite, reformat or compute the answer yourself.
   Pattern the host accepts:
       base = case["baseline_output"] or ""
-      votes = [model_generate(cid, prompt=p1), model_generate(cid, prompt=p2, image_ops=ops)]
+      question = case["prompt"]
+      votes = [model_generate(cid, prompt=p1 + "\\n\\n" + question),
+               model_generate(cid, prompt=p2 + "\\n\\n" + question, image_ops=ops)]
       final = the answer that >= {min_support} votes agree on if it differs from base, else base
 {selection_guidance}
 - The LAST line of stdout MUST be exactly:
@@ -143,7 +149,8 @@ using ONLY these tools:
 {catalog}
 - baseline_output in "{cases_file}" IS the direct baseline answer — use it as \
 the baseline; a plain model_generate(case_id) is answered from that record and \
-is free; at most 4 model-hitting calls per case;
+is free; the TOTAL number of enhanced model_generate(...) PLUS model_attend(...) \
+calls must be at most 4 per case (model_attend is not free);
 - the host's selection guard reverts a case to its baseline unless at least \
 {min_support} DISTINCT enhanced calls returned your final answer (answer tags \
 such as "FINAL: <answer>" are stripped when matching);
@@ -152,6 +159,8 @@ such as "FINAL: <answer>" are stripped when matching);
 exactly:
   {marker}{{"per_case": [{{"sample_id": "<case id>", "output": "<final answer text>"}}]}}
 - standard library + numpy only; no network, no file writes; under ~80 lines.
+- overwrite pipeline.py with ONLY the corrected user pipeline; do not copy or \
+modify fix_pipeline_exec.py and do not append the old program after the repair.
 - repair the MODEL, not the task: the code is re-run with every model_generate() \
 call answered by the model's original recorded answer, and failing cases it still \
 gets right then are excluded from the score.  If it timed out, make FEWER model \
@@ -172,9 +181,9 @@ AVAILABLE PRIMITIVES:
 Propose up to {k} configurations.  Reply with ONLY a JSON array:
 [{{"primitive": "<name from the list>", "params": {{...}}}}]"""
 
-_PAPER_METHOD_PROMPT = """\
-You are selecting which PAPER-METHOD repair(s), if any, apply to the \
-failure(s) below.  Each candidate is a specific, pre-implemented \
+_REPAIR_CATALOG_PROMPT = """\
+You are selecting which REGISTERED repair capability, if any, applies to the \
+failure(s) below.  Each candidate is a specific, pre-audited \
 intervention that targets ONE named failure mechanism — read what mechanism \
 each one actually targets, then select it ONLY when the verified hypotheses \
 describe that same mechanism, not merely because it is technically able to \

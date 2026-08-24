@@ -384,10 +384,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--fix-max-tier", default="L3a",
-        help="highest intervention tier FixAgent may propose. AAD itself is L0, "
-             "but the judge's L1/L2 candidates, the self_consistency floor and "
-             "the coded pipeline are gated behind L1/L2 -- L0 would silently "
-             "shrink the open pool back to AAD alone (mmau_qwen2_audio: L3a).",
+        help="highest intervention tier FixAgent may propose. AAD reads and "
+             "combines logits from paired forwards, so it is L3a; L0 admits "
+             "runtime-configuration repairs only.",
     )
     parser.add_argument(
         "--judge-provider", choices=["claude", "agy"], default="agy",
@@ -515,6 +514,18 @@ def main() -> int:
     diagnosis_agent = None if args.analysis_only else DiagnosisAgent(judge=judge)
     hypothesis_tester = None if args.analysis_only else HypothesisTester(judge=judge, min_effect=0.05)
 
+    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
+    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+
+    coder_cfg = CliAgentConfig(
+        provider="antigravity" if args.judge_provider == "agy" else "claude_code",
+        model=args.judge_model,
+        timeout_sec=900,
+        extra_args=(
+            () if args.judge_provider == "agy"
+            else (("--effort", args.judge_effort) if args.judge_effort else ())
+        ),
+    )
     fix_agent = FixAgent(
         judge=judge,
         max_tier=args.fix_max_tier,
@@ -538,18 +549,6 @@ def main() -> int:
     print(f"  explore/confirm split: {len(cases) - n_confirm} explore "
           f"(M1-M5 discovery) / {n_confirm} confirm (held out for run_fix)")
 
-    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
-    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
-
-    coder_cfg = CliAgentConfig(
-        provider="antigravity" if args.judge_provider == "agy" else "claude_code",
-        model=args.judge_model,
-        timeout_sec=900,
-        extra_args=(
-            () if args.judge_provider == "agy"
-            else (("--effort", args.judge_effort) if args.judge_effort else ())
-        ),
-    )
     explorer = None
     if args.explore and not args.analysis_only:
         from evalvitals.agent_runtime.sandbox import ExperimentSandbox

@@ -1,7 +1,7 @@
 """examples/benchmark entry point: one (modality, model size, dataset) cell per invocation.
 
     python -m _common.run --modality vlm --model qwen3.5-2b --dataset chartqa \
-        --judge-provider claude --judge-model claude-opus-5 --judge-effort high
+        --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium
 
 Data lands in ``<data-dir>/<dataset>/`` (frozen once, shared by every family of
 the modality), outputs in ``<run-dir>/<model>/<dataset>[.<tag>]/``.
@@ -54,14 +54,30 @@ def build_parser() -> argparse.ArgumentParser:
                    help="baseline samples per case in the fix stage (default: 5 when sampling, 1 greedy)")
     p.add_argument("--enable-thinking", action="store_true",
                    help="turn the model's thinking mode ON for every call (default OFF on every model)")
-    p.add_argument("--judge-provider", choices=["agy", "claude", "codex"], default="agy")
-    p.add_argument("--judge-model", default="")
-    p.add_argument("--judge-effort", default="high")
+    p.add_argument("--judge-provider", choices=["agy", "claude", "codex"], default="codex")
+    p.add_argument("--judge-model", default="gpt-5.6-terra")
+    p.add_argument("--judge-effort", default="medium")
     p.add_argument("--fix-tier", choices=["L1", "L2", "L3a"], default="L3a")
     p.add_argument("--allow-codegen", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--auto-escalate", action=argparse.BooleanOptionalAction, default=False)
+    p.add_argument(
+        "--auto-escalate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "search L0, L1, L2, then L3a up to --fix-tier on EXPLORE; "
+            "freeze one candidate for CONFIRM"
+        ),
+    )
     p.add_argument("--code-only", action="store_true",
-                   help="restrict the fix pool to the coder-written L2 pipeline")
+                   help="restrict the fix pool to the coder-written pipeline (L2 unless its "
+                        "source actually reads model internals, then L3a)")
+    p.add_argument("--fix-code-file", default="",
+                   help="frozen Python pipeline to validate with --code-only (skip code generation)")
+    p.add_argument("--fix-candidate", default="",
+                   help="pre-register and validate only this named fix candidate")
+    p.add_argument("--registered-repairs-only", action="store_true",
+                   help="restrict discovery to structurally compatible registered repair methods; "
+                        "the agent still selects the mechanism and no method name is pre-registered")
     p.add_argument("--explore", action=argparse.BooleanOptionalAction, default=True,
                    help="in-cycle free-form EDA between M1 and M2")
     p.add_argument("--max-cycles", type=int, default=1)
@@ -73,6 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="coder-written M2 statistics tools (default: on for llm, off otherwise)")
     p.add_argument("--fix-validation-cases", type=int, default=256)
     p.add_argument("--fix-exec-timeout", type=int, default=2400)
+    p.add_argument("--fix-repair-rounds", type=int, default=2,
+                   help="feedback-driven coded-pipeline attempts (default: 2)")
     p.add_argument("--baseline-only", action="store_true",
                    help="download + load + Stage 0 only (no judge): the per-cell smoke check")
     p.add_argument("--skip-fix", action="store_true", help="stop after M1..M5")
@@ -84,9 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _smoke_test() -> None:
-    from .scoring import score_output
-    from .models import cells
     from evalvitals.specs import get_spec
+
+    from .models import cells
+    from .scoring import score_output
 
     assert score_output("exact_or_numeric", "Values: 40\nFinal answer: 42", ["42"], numeric_tolerance=0.05)
     assert score_output("exact_or_numeric", "Final answer: 6.8%", ["6.8"], numeric_tolerance=0.05)

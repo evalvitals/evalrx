@@ -431,7 +431,10 @@ _add(ModelSpec(
     auto_class="Qwen2AudioForConditionalGeneration", processor_class="Qwen2AudioProcessor",
     min_transformers="4.45.0",
     module_paths=ModulePaths(decoder_layers="language_model.model.layers"),
-    audio=AudioSpec(audio_token_id_attr="audio_token_id", audio_tower="audio_tower"),
+    # transformers 5.x places the backbone under Qwen2AudioForConditionalGeneration.model;
+    # the encoder is therefore model.audio_tower (the older 4.x class exposed
+    # audio_tower directly on the generation wrapper).
+    audio=AudioSpec(audio_token_id_attr="audio_token_id", audio_tower="model.audio_tower"),
     caveats=(
         "audio-only input -> text output; no vision/video heads at all",
         "WhisperFeatureExtractor window is 30s (chunk_length) on this checkpoint -- longer "
