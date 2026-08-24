@@ -160,6 +160,30 @@ def run_dir_for(args, task: T.Task) -> Path:
     return Path(args.run_dir) / args.model / leaf
 
 
+def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
+    """``loop.run_fix`` with every file the run has written so far held in
+    memory and off disk (``evalvitals.eval_agent.label_quarantine``).
+
+    By the time the fix stage starts, ``baseline.json``, ``logs/report/
+    discovery_cases.json``, the ``case_record`` events, the M1 signal tables
+    (``gold_yes`` is the gold answer on a yes/no task) and the M4 workspace all
+    carry per-case labels for EVERY case, CONFIRM included -- and the coder
+    CLI (``Bash Edit Write Read``) and the pipeline sandbox both run from a
+    workspace two directory levels below them. The prompt-level withholding
+    stays as it was; this closes the file-system channel beside it. Restored
+    byte-for-byte afterwards, with ``fix_quarantine.json`` naming what was hidden.
+
+    Not covered: the dataset manifest on the ``data/`` bind mount (``gold``
+    column) -- a root process in the same container can always read it.
+    """
+    from evalvitals.eval_agent.label_quarantine import quarantine_run_dir
+
+    with quarantine_run_dir(run_dir, append_logs=[ctx.log_path]) as q:
+        print(f"[fix] label quarantine: {len(q.hidden)} run-dir file(s) held in memory "
+              "for the fix stage (restored afterwards; see fix_quarantine.json)")
+        return loop.run_fix(report, cases, **fix_kwargs)
+
+
 def run(args, task: T.Task, resolved: Resolved) -> int:
     manifest = ensure_manifest(task, args)
     if args.download_only:
@@ -358,8 +382,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                 print(f"M4 experiment on the {tag} hypothesis: status={proposal.status}")
             else:
                 print("M4: no hypothesis to experiment on")
-        outcome = loop.run_fix(report, cases, max_tier=args.fix_tier, auto_escalate=args.auto_escalate,
-                               allow_unverified=True)
+        outcome = run_fix_isolated(loop, run_dir, ctx, report, cases, max_tier=args.fix_tier,
+                                   auto_escalate=args.auto_escalate, allow_unverified=True)
         attempted = []
         for validation in outcome.attempted:
             effect = "n/a" if validation.effect is None else f"{validation.effect:+.3f}"

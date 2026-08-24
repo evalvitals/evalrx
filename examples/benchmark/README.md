@@ -119,6 +119,23 @@ sample the `m1_m4` examples use; the manifest protocol is modality-blind
   catalog selection, which is modality-gated on the MODEL — on a multimodal spec
   running a text task it can pick image analyzers, hence the pinned default.
 
+### Held-out isolation during the fix stage
+
+The repair coder (`claude -p` with `Bash Edit Write Read`) and the coded-pipeline
+sandbox both run from a workspace *inside* the run directory, and by the time the
+fix stage starts that directory holds per-case labels for every case, CONFIRM
+included (`baseline.json`, `logs/report/discovery_cases.json`, the `case_record`
+events, the M1 signal tables — `gold_yes` is the gold answer on a yes/no task —
+and the M4 workspace). `run_fix_isolated` in `_common/runner.py` therefore holds
+every file the run has written so far in memory and off disk for the duration
+of `run_fix`, then restores it byte-for-byte; `fix_quarantine.json` in the run
+directory names what was hidden. This complements the prompt-level withholding
+(EXPLORE-only examples, no gold in any fix payload), it does not replace it.
+
+Not covered: the dataset manifest on the `data/` bind mount still carries the
+`gold` column, and a root process in the same container can read it. Hiding
+that needs uid separation for the coder/sandbox or host-side label delivery.
+
 ## Run
 
 ```bash

@@ -324,3 +324,63 @@ def test_skip_m4_is_independent_of_fix_and_tier_search(common):
     assert args.skip_fix is False
     assert args.auto_escalate is True
     assert args.fix_candidate == ""
+
+
+def test_run_fix_isolated_hides_the_run_dir_from_the_fix_stage_and_restores_it(common, tmp_path):
+    """The fix stage must not be able to read baseline.json / discovery_cases /
+    the event log from its workspace; afterwards everything is back and the
+    events the fix stage logged are appended after the pre-fix ones."""
+    import importlib
+    import logging
+
+    runner = importlib.import_module("_common.runner")
+
+    run_dir = tmp_path / "run"
+    (run_dir / "logs" / "report").mkdir(parents=True)
+    (run_dir / "baseline.json").write_text('[{"id": "c-0", "expected": "Yes", "label": "fail"}]')
+    (run_dir / "logs" / "report" / "discovery_cases.json").write_text('[{"expected": "Yes"}]')
+    log_path = run_dir / "logs" / "run_log.jsonl"
+    log_path.write_text('{"event": "case_record", "expected": "Yes"}\n')
+
+    lg = logging.getLogger("bench-quarantine-wiring-test")
+    lg.propagate = False
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    lg.addHandler(handler)
+    lg.setLevel(logging.INFO)
+
+    class Ctx:
+        pass
+
+    ctx = Ctx()
+    ctx.log_path = log_path
+
+    class Loop:
+        def run_fix(self, report, cases, **kw):
+            # what the coder/sandbox could reach from logs/fixes/<trial>/workspace
+            assert not (run_dir / "baseline.json").exists()
+            assert not (run_dir / "logs" / "report" / "discovery_cases.json").exists()
+            assert log_path.read_text() == ""
+            assert "expected" not in " ".join(
+                p.read_text(errors="replace") for p in run_dir.rglob("*") if p.is_file())
+            lg.info('{"event": "fix", "candidate": "x"}')
+            handler.flush()
+            (run_dir / "logs" / "fixes").mkdir()
+            (run_dir / "logs" / "fixes" / "outcome.md").write_text("NOT FIXED")
+            return {"kw": kw, "report": report, "cases": cases}
+
+    try:
+        outcome = runner.run_fix_isolated(Loop(), run_dir, ctx, "REPORT", ["c-0"],
+                                          max_tier="L3b", auto_escalate=True)
+    finally:
+        lg.removeHandler(handler)
+        handler.close()
+
+    assert outcome == {"kw": {"max_tier": "L3b", "auto_escalate": True},
+                       "report": "REPORT", "cases": ["c-0"]}
+    assert (run_dir / "baseline.json").read_text() == '[{"id": "c-0", "expected": "Yes", "label": "fail"}]'
+    assert (run_dir / "logs" / "report" / "discovery_cases.json").read_text() == '[{"expected": "Yes"}]'
+    assert log_path.read_text() == ('{"event": "case_record", "expected": "Yes"}\n'
+                                    '{"event": "fix", "candidate": "x"}\n')
+    assert (run_dir / "logs" / "fixes" / "outcome.md").read_text() == "NOT FIXED"
+    assert (run_dir / "fix_quarantine.json").exists()
