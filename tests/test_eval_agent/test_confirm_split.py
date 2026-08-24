@@ -78,6 +78,7 @@ class _RecordingFixAgent:
 
     run_logger = None
     max_tier = FixTier.L2_SCAFFOLD
+    max_validation_cases = 5
 
     def __init__(self):
         self.seen_ids = None
@@ -86,6 +87,7 @@ class _RecordingFixAgent:
         self.calls = 0
         self.tiers = []
         self.min_tiers = []
+        self.confirm_cap = None
 
     def propose_and_validate(self, model, data, hypotheses, proposal_data=None):
         self.calls += 1
@@ -114,6 +116,7 @@ class _RecordingFixAgent:
         )
 
     def validate_candidate(self, model, data, candidate):
+        self.confirm_cap = self.max_validation_cases
         self.confirm_ids = {id(c) for c in data}
         return FixValidation(
             candidate=candidate,
@@ -156,6 +159,8 @@ def test_run_fix_validates_on_confirm_partition():
     assert stub.confirm_ids == confirm_ids
     assert stub.seen_ids.isdisjoint(stub.confirm_ids)
     assert len(stub.confirm_ids) == 12
+    assert stub.confirm_cap == 0  # selection cap is disabled for final confirmation
+    assert stub.max_validation_cases == 5  # and restored afterwards
     assert outcome.selected_on_explore == "stub"
     assert outcome.selection_attempted[0]["n_fixed"] == 1
     assert len(outcome.attempted) == 1  # only the CONFIRM validation is final

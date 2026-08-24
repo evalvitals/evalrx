@@ -87,7 +87,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--analyzer-max-cases", type=int, default=0, help="cap per analyzer (0 = every case)")
     p.add_argument("--m2-codegen", action=argparse.BooleanOptionalAction, default=None,
                    help="coder-written M2 statistics tools (default: on for llm, off otherwise)")
-    p.add_argument("--fix-validation-cases", type=int, default=256)
+    p.add_argument(
+        "--fix-validation-cases",
+        type=int,
+        default=64,
+        help=(
+            "cap cases per candidate during EXPLORE selection (default: 64); "
+            "the frozen winner still uses every untouched CONFIRM case"
+        ),
+    )
     p.add_argument("--fix-exec-timeout", type=int, default=2400)
     p.add_argument("--fix-repair-rounds", type=int, default=2,
                    help="feedback-driven coded-pipeline attempts (default: 2)")

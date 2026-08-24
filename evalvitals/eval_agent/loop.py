@@ -1896,7 +1896,20 @@ def _confirm_from_explore(
             },
         )
 
-    validation = agent.validate_candidate(model, confirm, selected.candidate)
+    # ``max_validation_cases`` is an EXPLORE-search budget.  Reusing that cap
+    # here would silently throw away untouched confirmation cases exactly when
+    # more power matters most.  The candidate is already frozen, so validate it
+    # on the complete CONFIRM partition and restore the agent's search budget
+    # afterwards.  Custom/legacy agents without this attribute keep their
+    # existing call contract.
+    selection_cap = getattr(agent, "max_validation_cases", None)
+    if selection_cap is not None:
+        agent.max_validation_cases = 0
+    try:
+        validation = agent.validate_candidate(model, confirm, selected.candidate)
+    finally:
+        if selection_cap is not None:
+            agent.max_validation_cases = selection_cap
     survivors = agent._ebh_survivors(
         [validation] if validation.e_value is not None else []
     )
