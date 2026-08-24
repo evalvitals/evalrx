@@ -17,7 +17,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-REPORT_DATA_VERSION = 11
+# 15: `setting.diagnosed_by` — which agent drove the run.
+# 14: M3 hypotheses recover the plain sentence from proposed_hypotheses.
+# 13: paired M2 rows carry the strategy pair they compared, so several tests
+#     that share one tool no longer share one label. Bumping this is what
+#     makes an already-published run pick the change up — `report_is_current`
+#     only tracks new EVENTS, so without the bump every existing run would
+#     keep serving the labels its old compiler produced.
+REPORT_DATA_VERSION = 15
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalvitals-report@1"
@@ -151,6 +158,9 @@ def build_report_data(
                 "dataset": run.get("benchmark_name") or "Evaluation dataset",
                 "question": reader.get("question") or "Why did the model fail, and can we fix it?",
                 "protocol": run.get("protocol") or "",
+                # Who drove the pipeline, as opposed to `model`, which is what
+                # it was pointed at. Empty when the run recorded neither.
+                "diagnosed_by": _diagnosed_by(root, run),
                 "n_cases": int(run.get("n_cases") or len(normalized_cases)),
             },
             "summary": {
@@ -399,6 +409,45 @@ def report_is_current(run_dir: str | Path) -> bool:
     return cached_seq >= evidence_seq
 
 
+#: CLI providers under the names their vendors use. A provider absent here is
+#: shown as the run recorded it — a slug is a poor label but an honest one, and
+#: better than a guess at what product it belongs to.
+_AGENT_LABEL = {
+    "claude": "Claude Code", "claude_code": "Claude Code",
+    "agy": "Antigravity", "antigravity": "Antigravity",
+    "codex": "Codex", "gemini_cli": "Gemini CLI", "opencode": "OpenCode",
+    "kimi_cli": "Kimi CLI", "llm": "LLM",
+}
+
+
+def _diagnosed_by(root: Path, run: Mapping[str, Any]) -> str:
+    """Which agent drove this run, as one display string, or "" if unrecorded.
+
+    Two runs of the same benchmark against the same model differ ONLY in the
+    agent that drove them, and the report never said which — open both and they
+    are indistinguishable. The run manifest records the choice cleanly
+    (`judge_provider` / `judge_model`); the run_start event's `coder`
+    ("claude_code:opus") is the fallback for a run written before the manifest,
+    and its `judge` is a repr, so it is read only for its provider prefix.
+    """
+    config = _load_json(root / "manifest.json")
+    config = (config or {}).get("config") if isinstance(config, Mapping) else None
+    provider = model = ""
+    if isinstance(config, Mapping):
+        provider = str(config.get("judge_provider") or "")
+        model = str(config.get("judge_model") or "")
+    if not provider:
+        coder = str(run.get("coder") or "")
+        if ":" in coder:
+            provider, _, model = coder.partition(":")
+        else:
+            provider = coder
+    if not provider:
+        return ""
+    label = _AGENT_LABEL.get(provider.strip().lower(), provider.strip())
+    return f"{label} · {model.strip()}" if model.strip() else label
+
+
 def _stages(raw: Mapping[str, Any], m4_detail: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     definitions = [
         ("M1", "Check behavior", "See what the model does differently when it succeeds or fails", raw.get("m1"), "results"),
@@ -470,6 +519,18 @@ def _stage_detail(
     agent_response = str(m3_call.get("response") or "")
     m3 = dict(raw.get("m3") or {})
     hypotheses = list(m3.get("hypotheses") or explore.get("hypotheses") or [])
+    # Runs recorded before the log writer carried `plain_statement` on this list
+    # still have it on `proposed_hypotheses`, which the critic step copies from.
+    # Joining on the statement recovers the plain sentence the judge did write,
+    # instead of leaving the report showing only the technical line. A run with
+    # neither is left exactly as it is — nothing is paraphrased into existence.
+    proposed = {str(h.get("statement") or ""): h
+                for h in (m3.get("proposed_hypotheses") or []) if isinstance(h, Mapping)}
+    for h in hypotheses:
+        if isinstance(h, dict) and not h.get("plain_statement"):
+            recovered = proposed.get(str(h.get("statement") or ""), {}).get("plain_statement")
+            if recovered:
+                h["plain_statement"] = recovered
 
     m5 = dict(raw.get("m5") or {})
     saved_m5 = _load_json(logs_dir / "report" / "m5_results.json")
@@ -689,12 +750,19 @@ def _display_stat(value: Mapping[str, Any]) -> dict[str, Any]:
     config = value.get("config") if isinstance(value.get("config"), Mapping) else {}
     signal = str(config.get("signal") or value.get("signal") or value.get("tool") or "")
     details = value.get("details") if isinstance(value.get("details"), Mapping) else {}
+    # A PAIRED tool compares two strategies and carries no `signal`, so `signal`
+    # falls through to the tool name and every such row was labelled with the
+    # same words ("Mcnemar Evalue"). Three identically-labelled bars is not a
+    # chart. The pair it actually compared is right there in the config, and it
+    # is the only thing that tells the rows apart.
+    groups = [str(name) for name in (config.get("strategies") or []) if name]
+    label = _stat_label(config, signal, value.get("tool"))
     return {
-        "label": _plain_signal(signal), "raw_signal": signal,
+        "label": label, "raw_signal": signal, "groups": groups,
         "effect": value.get("effect"), "ci": value.get("ci"),
         "reject": bool(value.get("reject")), "underpowered": bool(value.get("underpowered")),
         "summary": value.get("summary") or "", "p_value": value.get("p_value"),
-        "tool": value.get("tool"),
+        "tool": value.get("tool"), "e_value": value.get("e_value"),
         "fail_rate_signal": details.get("fail_rate_signal"),
         "fail_rate_control": details.get("fail_rate_control"),
     }
@@ -897,6 +965,23 @@ def _plain_label(value: Any) -> str:
     return re.sub(r"\s+", " ", raw.replace("_", " ")).strip().capitalize()
 
 
+def _stat_label(config: "Mapping[str, Any] | None", signal: Any, tool: Any) -> str:
+    """A name for what one statistical test measured, unique within a report.
+
+    A signal test names its signal. A PAIRED test names none — it compares two
+    strategies — so the label used to fall through to the tool, and every paired
+    row in the report came out reading "Mcnemar Evalue". The pair it compared is
+    the thing that tells those rows apart, and it is already in the config.
+    """
+    cfg = config if isinstance(config, Mapping) else {}
+    if cfg.get("signal"):
+        return _plain_signal(cfg["signal"])
+    groups = [str(name) for name in (cfg.get("strategies") or []) if name]
+    if len(groups) >= 2:
+        return f"{_plain_label(groups[-1])} vs {_plain_label(groups[0])}"
+    return _plain_signal(signal or tool)
+
+
 def _plain_signal(value: Any) -> str:
     """Convert ``analyzer.metric`` into a question a non-expert can read."""
     raw = str(value or "")
@@ -1073,7 +1158,7 @@ def _charts(run: Mapping[str, Any], raw: Mapping[str, Any],
             if isinstance(item, dict) and isinstance(item.get("effect"), (int, float)):
                 signal = ((item.get("config") or {}).get("signal") if isinstance(item.get("config"), Mapping) else None)
                 effect_rows.append({
-                    "label": _plain_signal(signal or item.get("tool") or "signal"),
+                    "label": _stat_label(item.get("config"), signal, item.get("tool")),
                     "raw_label": str(signal or item.get("tool") or ""),
                     "value": item["effect"], "highlight": bool(item.get("reject")),
                 })

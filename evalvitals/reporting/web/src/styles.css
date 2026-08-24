@@ -93,3 +93,58 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .run-switch { display: inline-flex; align-items: center; gap: 7px; background: none; border: 1px solid var(--line); padding: 6px 11px; font: 500 10px DM Mono, monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
 .run-switch:hover { border-color: var(--green); color: var(--green); }
 .run-switch:disabled { cursor: progress; opacity: .6; }
+
+/* ── L2: the per-stage brief ─────────────────────────────────────────────
+   Deliberately roomier than the L3 record below it. The whole point of the
+   layer is that a reader can take it in without scanning, so the verdict gets
+   display type, the numbers get space, and nothing on the screen is a raw
+   identifier. Same palette and type scale as everything else — this is another
+   depth of the same report, not another product. */
+.evidence-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; flex-wrap:wrap; }
+.evidence-head>div { min-width:0; }
+.depth-switch { display:flex; border:1px solid var(--line); flex:none; margin-top:6px; }
+.depth-switch button { border:0; background:transparent; color:var(--muted); padding:8px 15px; cursor:pointer; font:10px DM Mono,monospace; letter-spacing:.09em; text-transform:uppercase; }
+.depth-switch button+button { border-left:1px solid var(--line); }
+.depth-switch button.active { background:#12241d; color:var(--green); }
+
+.stage-brief { margin-top:30px; }
+.brief-verdict { max-width:760px; }
+.brief-verdict h2 { font:34px/1.28 Newsreader; margin:14px 0 0; }
+.brief-verdict .lead-small { margin:16px 0 0; font-size:13px; }
+
+.brief-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); border:1px solid var(--line); margin:34px 0; }
+.brief-kpis article { padding:18px; border-right:1px solid var(--line); display:grid; gap:6px; align-content:start; min-width:0; }
+.brief-kpis article:last-child { border-right:0; }
+.brief-kpis span { color:#71857f; font:9px DM Mono,monospace; letter-spacing:.09em; text-transform:uppercase; }
+.brief-kpis strong { font:27px Newsreader; line-height:1.1; overflow-wrap:anywhere; }
+.brief-kpis small { color:var(--muted); font-size:10px; line-height:1.5; }
+
+.brief-body { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:34px; align-items:start; }
+.brief-body-textonly { grid-template-columns:minmax(0,1fr); }
+.brief-figure { margin:0; border:1px solid var(--line); background:var(--card); padding:16px; min-width:0; }
+.brief-figure figcaption { display:flex; gap:8px; align-items:flex-start; color:var(--muted); font-size:10px; line-height:1.6; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+.brief-figure figcaption svg { flex:none; margin-top:2px; color:var(--green); }
+.brief-image { width:100%; height:auto; display:block; }
+
+.brief-points h3 { font:19px Newsreader; margin:0 0 14px; }
+.brief-points ul { list-style:none; margin:0; padding:0; display:grid; gap:13px; }
+.brief-points li { position:relative; padding-left:19px; color:#c4d3ce; font-size:12.5px; line-height:1.68; }
+.brief-points li:before { content:""; position:absolute; left:0; top:8px; width:6px; height:6px; background:var(--green); border-radius:50%; opacity:.75; }
+
+.brief-caveat { display:flex; gap:14px; align-items:flex-start; border:1px solid #765f32; background:#211c11; color:#d6bf89; padding:18px; margin-top:34px; }
+.brief-caveat svg { flex:none; margin-top:1px; color:#f4ca72; }
+.brief-caveat p { margin:0; font-size:11.5px; line-height:1.7; }
+
+.brief-deepen { margin-top:34px; display:flex; align-items:center; gap:9px; border:1px solid var(--line); background:transparent; color:var(--green); padding:13px 19px; cursor:pointer; font:11px DM Mono,monospace; letter-spacing:.08em; text-transform:uppercase; }
+.brief-deepen:hover { background:#12241d; }
+
+@media (max-width:1080px) {
+  .brief-body { grid-template-columns:minmax(0,1fr); }
+}
+
+/* Which agent drove this run — carried in the topbar so it stays on screen at
+   every depth, which is where two reports actually get compared. */
+.topbar .run-agent { border: 1px solid var(--line); padding: 5px 11px; color: var(--green); font: 500 10px "DM Mono", monospace; letter-spacing: .09em; gap: 8px; white-space: nowrap; }
+.topbar .run-agent svg { flex: none; }
+.detail-page nav .shell-agent { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); padding: 5px 11px; color: var(--green); font: 500 10px "DM Mono", monospace; letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; }
+.detail-page nav .shell-agent svg { flex: none; }

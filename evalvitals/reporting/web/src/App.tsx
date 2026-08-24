@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { JSONUIProvider, Renderer } from "@json-render/react";
-import { Activity } from "lucide-react";
+import { Activity, Bot } from "lucide-react";
 import { registry, ReportProviders } from "./reportCatalog";
 import type { LayoutEnvelope, ReportData } from "./types";
 import { RunDrop, RunSwitch, type UploadedRun } from "./upload";
@@ -46,7 +46,7 @@ export function App() {
     return <CasesView data={payload.data} back={back} initialCaseId={view.split(":")[1]} />;
   if (view === "debug") return <DebugView data={payload.data} back={back} />;
   return <>
-    <div className="topbar"><a href="#"><span className="logo-mark">EV</span><strong>EvalVitals</strong></a>{!embedded && <RunSwitch onLoaded={accept} />}<div><span className="live-dot" /> report complete</div><code>{payload.data.trace_id.slice(0, 8)}</code></div>
+    <div className="topbar"><a href="#"><span className="logo-mark">EV</span><strong>EvalVitals</strong></a>{!embedded && <RunSwitch onLoaded={accept} />}{payload.data.setting.diagnosed_by && <div className="run-agent" title="The agent that drove this run"><Bot size={13} />{payload.data.setting.diagnosed_by}</div>}<div><span className="live-dot" /> report complete</div><code>{payload.data.trace_id.slice(0, 8)}</code></div>
     <ReportProviders data={payload.data} navigate={setView}><JSONUIProvider registry={registry} initialState={{}}><Renderer spec={payload.layout.spec} registry={registry} /></JSONUIProvider></ReportProviders>
     <footer><span>EvalVitals</span><p>Evidence is progressively disclosed from overview to raw audit logs.</p><small>Layout: {payload.layout.generated_by.mode}</small></footer>
   </>;

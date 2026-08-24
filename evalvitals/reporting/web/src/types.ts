@@ -96,7 +96,9 @@ export type Case = {
 
 export type ReportData = {
   trace_id: string;
-  setting: { model: string; dataset: string; question: string; protocol: string; n_cases: number };
+  /** `model` is what was diagnosed; `diagnosed_by` is the agent that did the
+   *  diagnosing. Empty on a run that recorded neither a manifest nor a coder. */
+  setting: { model: string; dataset: string; question: string; protocol: string; n_cases: number; diagnosed_by?: string };
   summary: { headline: string; answer: string; confidence: string; stopped_by: string };
   metrics: Array<{ id: string; label: string; value: string | number }>;
   stages: Stage[];

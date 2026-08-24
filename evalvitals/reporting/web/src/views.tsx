@@ -1,16 +1,55 @@
 import { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import ReactECharts from "echarts-for-react";
-import { AlertTriangle, ArrowLeft, BarChart3, Beaker, CheckCircle2, ChevronRight, Microscope, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BarChart3, Beaker, Bot, CheckCircle2, ChevronRight, Microscope, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
 import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixAttemptWire,
   FixOutput, HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
+import { buildBrief, StageBrief } from "./brief";
+import { findContract } from "./reportAccess";
 
+/**
+ * A stage, at whichever of the two depths the reader asked for.
+ *
+ * Clicking a stage on the overview used to land on the complete record — every
+ * probe, every raw metric name, the model's full output — which is the right
+ * page for auditing a conclusion and the wrong one for finding out what the
+ * conclusion IS. The brief (L2) answers that in one screen and hands the reader
+ * a way down; the full record (L3) is unchanged behind it, because nothing in
+ * it was surplus, it was just never the first thing anyone needed.
+ *
+ * Depth resets when the reader moves to another stage: arriving at M5 already
+ * scrolled into its raw event log is a state nobody asked for.
+ */
 export function EvidenceView({ data, back, navigate, initialStage }: { data: ReportData; back: () => void; navigate?: (view: string) => void; initialStage?: string }) {
   const [selected, setSelected] = useState(initialStage || data.stages[0]?.id);
+  const [full, setFull] = useState(false);
   const stage = data.stages.find((item) => item.id === selected);
   const events = data.debug.events.filter((event) => String(event.stage || "").toLowerCase().includes(selected));
-  return <DetailShell title="Stage evidence" subtitle="The measurements, reasoning, and artifacts behind this step." back={back}>
-    <div className="evidence-layout"><aside className="stage-list">{data.stages.map((item) => <button className={selected === item.id ? "active" : ""} key={item.id} onClick={() => setSelected(item.id)}><span>{item.code}</span><div><strong>{item.title}</strong><small>{item.status.replaceAll("-", " ")}</small></div><ChevronRight /></button>)}</aside><section className="evidence-detail"><span className="section-kicker">{stage?.code} · {stage?.status}</span><h2>{stage?.title}</h2><p className="lead-small">{stage?.purpose}</p><StageArtifact stage={selected || ""} detail={data.stage_detail || {}} report={data} navigate={navigate} /><details className="raw-events"><summary>Raw agent events ({events.length})</summary>{events.length ? events.map((event, index) => <EventRow event={event} key={`${event.event_seq}-${index}`} />) : <p className="empty">No stage-level events were retained.</p>}</details></section></div>
+  const brief = selected ? buildBrief(selected, data) : null;
+  const show = (id: string) => { setSelected(id); setFull(false); };
+  return <DetailShell
+    title={full ? "Everything this step recorded" : "What this step found"}
+    subtitle={full
+      ? "The complete record behind the summary: every measurement, artifact and agent event."
+      : "One screen per step: the finding, the numbers behind it, and what it does not settle."}
+    back={back}
+    agent={data.setting.diagnosed_by}
+  >
+    <div className="evidence-layout"><aside className="stage-list">{data.stages.map((item) => <button className={selected === item.id ? "active" : ""} key={item.id} onClick={() => show(item.id)}><span>{item.code}</span><div><strong>{item.title}</strong><small>{item.status.replaceAll("-", " ")}</small></div><ChevronRight /></button>)}</aside><section className="evidence-detail">
+      <header className="evidence-head">
+        <div><span className="section-kicker">{stage?.code} · {stage?.status?.replaceAll("-", " ")}</span><h2>{stage?.title}</h2><p className="lead-small">{stage?.purpose}</p></div>
+        {brief && <div className="depth-switch" role="tablist" aria-label="Level of detail">
+          <button role="tab" aria-selected={!full} className={full ? "" : "active"} onClick={() => setFull(false)}>Summary</button>
+          <button role="tab" aria-selected={full} className={full ? "active" : ""} onClick={() => setFull(true)}>Full record</button>
+        </div>}
+      </header>
+      {brief && !full
+        ? <StageBrief brief={brief} onDeepen={() => setFull(true)} />
+        : <>
+          <StageArtifact stage={selected || ""} detail={data.stage_detail || {}} report={data} navigate={navigate} />
+          <details className="raw-events"><summary>Raw agent events ({events.length})</summary>{events.length ? events.map((event, index) => <EventRow event={event} key={`${event.event_seq}-${index}`} />) : <p className="empty">No stage-level events were retained.</p>}</details>
+        </>}
+    </section></div>
   </DetailShell>;
 }
 
@@ -74,24 +113,6 @@ function M1Detail({ data, report }: { data: any; report: ReportData }) {
       <div className="probe-expanded"><p>{probe.description}</p>{Object.keys(probe.finding_summary || {}).length > 0 && <KeyValueGrid values={probe.finding_summary} />}{Object.keys(probe.raw_finding_summary || {}).length > 0 && <details className="nested-detail"><summary>Technical measurement names and raw values</summary><KeyValueGrid values={probe.raw_finding_summary} /></details>}{probe.sample_rows?.length > 0 && <details className="nested-detail"><summary>Inspect {probe.sample_rows.length} representative measurement rows</summary><RecordTable rows={probe.sample_rows} /></details>}</div>
     </details>)}</div>
   </>;
-}
-
-/**
- * The newest contract payload for a stage, across cycles.
- *
- * Spans are "c<cycle>.<stage>", so the last key in sort order is the last cycle
- * that ran. Returns undefined for a run that predates contract emission — the
- * caller must render without it rather than showing an error, since those runs
- * are still perfectly readable through the legacy stage_detail.
- */
-function findContract<T>(report: ReportData, stage: string): T | undefined {
-  const payloads = report.contract;
-  if (!payloads) return undefined;
-  const keys = Object.keys(payloads).filter((k) => k.endsWith(`.${stage}`) || k === stage);
-  if (!keys.length) return undefined;
-  const payload = payloads[keys.sort()[keys.length - 1]];
-  if (!payload || "error" in payload) return undefined;
-  return payload as T;
 }
 
 function ExampleSection({ eyebrow, title, note, children }: { eyebrow: string; title: string; note: string; children: React.ReactNode }) {
@@ -234,7 +255,7 @@ function M5Detail({ data, report }: { data: any; report: ReportData }) {
   const examples = data.examples || [];
   return <>
     <StageBanner kind="CONFIRMATORY" title="Independent check">First we freeze a possible explanation. Then we test it on fresh evidence the agent did not use to invent the explanation. This is the stage allowed to say whether the idea held up.</StageBanner>
-    <StageKpis items={[{ label: "Hypotheses checked", value: results.length }, { label: "Supported", value: statuses("supported") }, { label: "Refuted", value: statuses("refuted") }, { label: "Inconclusive", value: statuses("inconclusive") }, { label: "Protocol-consistent", value: `${consistent}/${results.length}` }]} />
+    <StageKpis items={[{ label: "Hypotheses checked", value: results.length }, { label: "Supported", value: statuses("supported") }, { label: "Refuted", value: statuses("refuted") }, { label: "Inconclusive", value: statuses("inconclusive") }, { label: "Answered the question asked", value: `${consistent}/${results.length}` }]} />
     <UndecidableNote report={report} />
     {examples.length > 0 && <ExampleSection eyebrow="A validation example" title="How we decide whether an explanation survives" note="This is one recorded validation check. Its conclusion uses the complete independent test set—not a hand-picked example."><div className="example-deck">{examples.map((example: any) => <M5Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
     <div className="verdict-list">{results.map((result: any, index: number) => <VerdictCard result={result} fallback={data.event} index={index} key={index} />)}</div>
@@ -395,14 +416,18 @@ function M4Detail({ data, report, navigate }: { data: any; report: ReportData; n
   const winner = candidates.find((item: any) => item.fixed) || candidates.reduce((best: any, item: any) => Number(item.effect || -Infinity) > Number(best?.effect || -Infinity) ? item : best, null);
   const option = { grid: { left: 145, right: 24, top: 18, bottom: 32 }, color: ["#6bd8ad", "#f06d5f"], tooltip: { trigger: "axis" }, legend: { textStyle: { color: "#9fb2ac" } }, xAxis: { type: "value", axisLabel: { color: "#8fa49d" }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: { type: "category", data: candidates.map((item: any, i: number) => `${refFor(report, item.name) || `R${i + 1}`} · ${item.tier || "?"}`).reverse(), axisLabel: { color: "#b8c9c4", width: 130, overflow: "truncate" } }, series: [{ name: "Repaired", type: "bar", stack: "cases", data: candidates.map((item: any) => item.n_fixed || 0).reverse() }, { name: "Broken", type: "bar", stack: "cases", data: candidates.map((item: any) => item.n_broken || 0).reverse() }] };
   return <>
-    <StageBanner kind="INTERVENTION" title="Paired repair sweep">Every candidate is compared case-by-case with the unchanged model. A useful repair must fix failures without creating regressions and survive family-wise selection.</StageBanner>
-    <StageKpis items={[{ label: "Candidates tried", value: candidates.length }, { label: "Repaired flips", value: fixed }, { label: "Broken flips", value: broken }, { label: "Best repair", value: refFor(report, winner?.name) || winner?.name || "—", note: headlineFor(report, winner?.name) || winner?.tier }]} />
-    <div className={`repair-outcome ${data.fixed ? "success" : "neutral"}`}><Wrench /><div><span>FINAL REPAIR OUTCOME</span><h3>{data.fixed ? "A repair was confirmed" : "No candidate passed the repair gate"}</h3><p>{headlineFor(report, winner?.name) || winner?.summary || "Inspect the full repair sweep below."}</p></div></div>
+    <StageBanner kind="INTERVENTION" title="Paired repair sweep">Every candidate is compared case-by-case with the unchanged model. A useful repair must fix failures without breaking cases that were right before, and its lead must hold up after discounting for how many candidates were tried at once.</StageBanner>
+    <StageKpis items={[{ label: "Candidates tried", value: candidates.length }, { label: "Repaired flips", value: fixed }, { label: "Broken flips", value: broken }, { label: "Best repair", value: refFor(report, winner?.name) || (winner ? `R${candidates.indexOf(winner) + 1}` : "—"), note: headlineFor(report, winner?.name) || winner?.headline || winner?.tier }]} />
+    <div className={`repair-outcome ${data.fixed ? "success" : "neutral"}`}><Wrench /><div><span>FINAL REPAIR OUTCOME</span><h3>{data.fixed ? "A repair was confirmed" : "No candidate passed the repair gate"}</h3><p>{headlineFor(report, winner?.name) || winner?.headline || winner?.summary || "Inspect the full repair sweep below."}</p></div></div>
     {data.examples?.length > 0 && <ExampleSection eyebrow="A repaired case" title="One real before-and-after repair" note="This is a case counted as fixed. The repair was accepted only after checking every paired case for improvements and regressions."><div className="example-deck">{data.examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
     {data.operation_previews?.length > 0 && <RepairOperationPreviews examples={data.operation_previews} report={report} />}
     <SelectionSweep report={report} />
     <div className="repair-chart"><h3>Confirmed on held-out cases: paired flips vs. baseline</h3><ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} /></div>
-    <div className="candidate-list">{candidates.map((candidate: any, index: number) => <article className={`candidate-card candidate-${candidate.verdict || "unknown"}`} key={`${candidate.name}-${index}`}><header><span>{refFor(report, candidate.name) || `R${index + 1}`}<em>{candidate.tier || "?"}</em></span><div><h3>{headlineFor(report, candidate.name) || candidate.summary || plainCandidateKind(candidate.kind)}</h3><small className="mono-sm">{candidate.name}</small></div><b>{candidate.fixed ? "helped" : "did not pass"}</b></header><div className="candidate-metrics"><span><b>{candidate.n_fixed ?? 0}</b> errors fixed</span><span><b>{candidate.n_broken ?? 0}</b> new errors</span><span><b>{number(candidate.effect)}</b> net change</span><span><b>{percent(candidate.coverage)}</b> of errors covered</span></div><RepairVerdict candidate={candidate} /><details><summary>Technical repair definition and affected cases</summary>{candidate.summary && <pre className="stat-line">{candidate.summary}</pre>}<KeyValueGrid values={candidate.payload || {}} /></details><CaseLinks ids={candidate.fixed_cases} kind="fixed" report={report} navigate={navigate} /><CaseLinks ids={candidate.broken_cases} kind="broken" report={report} navigate={navigate} /></article>)}</div>
+    <div className="candidate-list">{candidates.map((candidate: any, index: number) => <article className={`candidate-card candidate-${candidate.verdict || "unknown"}`} key={`${candidate.name}-${index}`}><header><span>{refFor(report, candidate.name) || `R${index + 1}`}<em>{candidate.tier || "?"}</em></span><div>{/* The producer's own headline, from the contract or the stage row. The
+      raw `summary` is the audit line ("[mcnemar + e-value …] -> REJECT H0") and
+      set as a card TITLE it is the first thing the reader met; it stays intact
+      under the details toggle below. */}
+    <h3>{headlineFor(report, candidate.name) || candidate.headline || plainCandidateKind(candidate.kind)}</h3><small className="mono-sm">{candidate.name}</small></div><b>{candidate.fixed ? "helped" : "did not pass"}</b></header><div className="candidate-metrics"><span><b>{candidate.n_fixed ?? 0}</b> errors fixed</span><span><b>{candidate.n_broken ?? 0}</b> new errors</span><span><b>{number(candidate.effect)}</b> net change</span><span><b>{percent(candidate.coverage)}</b> of errors covered</span></div><RepairVerdict candidate={candidate} /><details><summary>Technical repair definition and affected cases</summary>{candidate.summary && <pre className="stat-line">{candidate.summary}</pre>}<KeyValueGrid values={candidate.payload || {}} /></details><CaseLinks ids={candidate.fixed_cases} kind="fixed" report={report} navigate={navigate} /><CaseLinks ids={candidate.broken_cases} kind="broken" report={report} navigate={navigate} /></article>)}</div>
   </>;
 }
 
@@ -499,7 +524,7 @@ export function CasesView({ data, back, initialCaseId }: { data: ReportData; bac
   });
   const parentRef = useRef<HTMLDivElement>(null);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 92, overscan: 8 });
-  return <DetailShell title="Case Studio" subtitle="Inspect the actual input, expected answer, model output, and attached media." back={back}>
+  return <DetailShell title="Case Studio" subtitle="Inspect the actual input, expected answer, model output, and attached media." back={back} agent={data.setting.diagnosed_by}>
     <div className="case-toolbar"><label><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search cases" /></label><div>{["all", "fail", "pass", "fixed", "broken", "unchanged"].map((value) => <button className={status === value ? "active" : ""} onClick={() => setStatus(value)} key={value}>{value}</button>)}</div><span>{rows.length} cases</span></div>
     <div className="case-studio"><div className="virtual-list" ref={parentRef}><div style={{ height: virtual.getTotalSize(), position: "relative" }}>{virtual.getVirtualItems().map((row) => { const item = rows[row.index]; return <button className={`virtual-row ${selected?.id === item.id ? "active" : ""}`} key={item.id} onClick={() => setSelected(item)} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: row.size, transform: `translateY(${row.start}px)` }}><span className={`status status-${item.status}`}>{item.status}</span><div><strong>{item.id}</strong><p>{item.prompt || "No prompt retained"}</p></div><ChevronRight /></button>; })}</div></div><CaseDetail item={selected || rows[0]} data={data} /></div>
   </DetailShell>;
@@ -560,11 +585,18 @@ export function DebugView({ data, back }: { data: ReportData; back: () => void }
   const eventTypes = [...new Set(data.debug.events.map((event) => event.event))];
   const parentRef = useRef<HTMLDivElement>(null);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 84, overscan: 10 });
-  return <DetailShell title="Agent audit log" subtitle="The most detailed layer: ordered decisions, tools, stage events, and publication provenance." back={back}><div className="debug-toolbar"><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All event types</option>{eventTypes.map((value) => <option key={value}>{value}</option>)}</select><span>{rows.length} / {data.debug.event_count} events</span></div><div className="debug-list" ref={parentRef}><div style={{ height: virtual.getTotalSize(), position: "relative" }}>{virtual.getVirtualItems().map((row) => <div className="debug-row" key={row.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: row.size, transform: `translateY(${row.start}px)` }}><EventRow event={rows[row.index]} /></div>)}</div></div></DetailShell>;
+  return <DetailShell title="Agent audit log" subtitle="The most detailed layer: ordered decisions, tools, stage events, and publication provenance." back={back} agent={data.setting.diagnosed_by}><div className="debug-toolbar"><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">All event types</option>{eventTypes.map((value) => <option key={value}>{value}</option>)}</select><span>{rows.length} / {data.debug.event_count} events</span></div><div className="debug-list" ref={parentRef}><div style={{ height: virtual.getTotalSize(), position: "relative" }}>{virtual.getVirtualItems().map((row) => <div className="debug-row" key={row.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: row.size, transform: `translateY(${row.start}px)` }}><EventRow event={rows[row.index]} /></div>)}</div></div></DetailShell>;
 }
 
-function DetailShell({ title, subtitle, back, children }: { title: string; subtitle: string; back: () => void; children: React.ReactNode }) {
-  return <main className="detail-page"><nav><button onClick={back}><ArrowLeft size={17} /> Overview</button><div><strong>{title}</strong><span>{subtitle}</span></div></nav>{children}</main>;
+/**
+ * The frame every depth below the overview sits in.
+ *
+ * `agent` rides along because the overview's topbar — the only other place the
+ * run says which agent produced it — is not rendered here, and these are the
+ * screens where two runs actually get compared side by side.
+ */
+function DetailShell({ title, subtitle, back, agent, children }: { title: string; subtitle: string; back: () => void; agent?: string; children: React.ReactNode }) {
+  return <main className="detail-page"><nav><button onClick={back}><ArrowLeft size={17} /> Overview</button><div><strong>{title}</strong><span>{subtitle}</span></div>{agent && <span className="shell-agent" title="The agent that drove this run"><Bot size={13} />{agent}</span>}</nav>{children}</main>;
 }
 
 function EventRow({ event }: { event: DebugEvent }) {
