@@ -682,6 +682,7 @@ class FixAgent:
         self,
         judge: "Model | None" = None,
         max_tier: "str | FixTier" = FixTier.L2_SCAFFOLD,
+        min_tier: "str | FixTier | None" = None,
         score_fn: "Callable[[FailureCase, str], Optional[bool]] | None" = None,
         run_logger: "Any | None" = None,
         cli_config: "CliAgentConfig | None" = None,
@@ -717,6 +718,10 @@ class FixAgent:
         self._judge = judge
         self._finetune_pool = finetune_pool
         self.max_tier = parse_tier(max_tier)
+        # Normally a fixed-ceiling run considers every cheaper tier. The loop's
+        # auto-escalation path sets this transiently so each ladder station
+        # evaluates only the newly opened intervention space.
+        self.min_tier = parse_tier(min_tier) if min_tier is not None else None
         self._score = score_fn or _default_score
         self.run_logger = run_logger
         self._cli_config = cli_config
@@ -1402,6 +1407,8 @@ class FixAgent:
             )
         if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L4_PARAMETERS:
             candidates += self._l4_candidates(hyp_lines)
+        if self.min_tier is not None:
+            candidates = [c for c in candidates if c.tier >= self.min_tier]
         if self._candidate_allowlist is not None:
             candidates = [c for c in candidates if c.name in self._candidate_allowlist]
         self._enforce_generation_floor(candidates)

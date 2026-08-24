@@ -85,10 +85,12 @@ class _RecordingFixAgent:
         self.confirm_ids = None
         self.calls = 0
         self.tiers = []
+        self.min_tiers = []
 
     def propose_and_validate(self, model, data, hypotheses, proposal_data=None):
         self.calls += 1
         self.tiers.append(self.max_tier)
+        self.min_tiers.append(getattr(self, "min_tier", None))
         self.seen_ids = {id(c) for c in data}
         self.proposal_ids = (
             {id(c) for c in proposal_data} if proposal_data is not None else None
@@ -205,6 +207,7 @@ def test_run_fix_escalates_on_explore_then_confirms_once():
         FixTier.L2_SCAFFOLD,
         FixTier.L3A_INTERNALS_READ,
     ]
+    assert stub.min_tiers == stub.tiers
     assert stub.seen_ids is not None
     assert stub.confirm_ids is not None
     explore, confirm = loop._split_explore_confirm(batch)

@@ -1870,6 +1870,21 @@ def test_garbage_judge_falls_back_to_defaults():
     assert tiers == {FixTier.L1_PROMPT, FixTier.L2_SCAFFOLD}
 
 
+def test_min_tier_filters_cheaper_candidates_for_one_ladder_station():
+    pytest.importorskip("PIL")
+    agent = FixAgent(
+        judge=ScriptedJudge("I refuse to answer in JSON."),
+        max_tier="L2",
+        min_tier="L2",
+    )
+    out = agent.propose_and_validate(
+        HopelessModel(), _gold_yes_batch(image=_img()), [_hyp("x")]
+    )
+
+    assert out.attempted
+    assert {v.candidate.tier for v in out.attempted} == {FixTier.L2_SCAFFOLD}
+
+
 def test_no_rubric_cases_yield_recommendation_not_crash():
     cases = CaseBatch([FailureCase(id="u", inputs=Inputs(prompt="q"), label=Label.FAIL)])
     agent = FixAgent(judge=None, max_tier="L1")

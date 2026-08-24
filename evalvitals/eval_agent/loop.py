@@ -1659,6 +1659,7 @@ class VLDiagnoseLoop:
                 else FixTier.L3B_INTERNALS_WRITE
             )
             agent_logger = getattr(agent, "run_logger", None)
+            original_min_tier = getattr(agent, "min_tier", None)
             agent.run_logger = None
             attempted: "list" = []
             prior: "list" = []
@@ -1668,6 +1669,7 @@ class VLDiagnoseLoop:
                     if tier > ceiling:
                         break
                     agent.max_tier = tier
+                    agent.min_tier = tier
                     logger.info(
                         "run_fix: EXPLORE trying tier %s (%d prior attempt(s))",
                         tier.label,
@@ -1694,6 +1696,7 @@ class VLDiagnoseLoop:
             finally:
                 agent.run_logger = agent_logger
                 agent.max_tier = ceiling
+                agent.min_tier = original_min_tier
 
             outcome = _confirm_from_explore(
                 agent,
@@ -1725,6 +1728,7 @@ class VLDiagnoseLoop:
             )
             # Suppress per-round log_fix so we can emit one combined outcome.
             agent_logger = getattr(agent, "run_logger", None)
+            original_min_tier = getattr(agent, "min_tier", None)
             agent.run_logger = None
 
             all_attempted: "list" = []
@@ -1736,6 +1740,7 @@ class VLDiagnoseLoop:
                     if tier > ceiling:
                         break
                     agent.max_tier = tier
+                    agent.min_tier = tier
                     logger.info("run_fix: trying tier %s (%d prior attempt(s))",
                                 tier.label, len(all_prior))
                     outcome = _propose_and_validate(
@@ -1752,6 +1757,7 @@ class VLDiagnoseLoop:
                     logger.info("run_fix: tier %s exhausted — escalating", tier.label)
             finally:
                 agent.run_logger = agent_logger
+                agent.min_tier = original_min_tier
 
             # Merge all rounds into one combined outcome and emit once. The
             # merged set spans every escalated tier, so it is a LARGER best-of-N
