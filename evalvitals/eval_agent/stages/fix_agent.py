@@ -858,8 +858,30 @@ class FixAgent:
                     candidate.trial = self._run_context.new_trial(
                         "fixes", f"{candidate.tier.label}_{candidate.name}"
                     )
+                logger.info(
+                    "FixAgent: validating tier=%s candidate=%s kind=%s source=%s",
+                    candidate.tier.label,
+                    candidate.name,
+                    candidate.kind,
+                    candidate.source,
+                )
                 validation = self._validate(candidate, model, data, baseline, unstable)
                 outcome.attempted.append(validation)
+                logger.info(
+                    "FixAgent: result tier=%s candidate=%s verdict=%s "
+                    "effect=%s fixed=%d broken=%d pairs=%d",
+                    candidate.tier.label,
+                    candidate.name,
+                    validation.verdict,
+                    (
+                        "n/a"
+                        if validation.effect is None
+                        else f"{validation.effect:+.4f}"
+                    ),
+                    validation.n_fixed,
+                    validation.n_broken,
+                    validation.n_pairs,
+                )
                 round_fixed = round_fixed or validation.fixed
             outcome.repair_rounds = round_idx + 1
             if round_fixed:
