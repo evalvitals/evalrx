@@ -202,6 +202,12 @@ def test_default_tasks_and_pinned_sets(common):
 
 def test_cli_no_model_paths(common, capsys):
     _, _, _, run = common
+    defaults = run.build_parser().parse_args([])
+    assert (defaults.judge_provider, defaults.judge_model, defaults.judge_effort) == (
+        "codex", "gpt-5.6-terra", "medium"
+    )
+    assert defaults.fix_repair_rounds == 2
+    assert run.build_parser().parse_args(["--fix-repair-rounds", "4"]).fix_repair_rounds == 4
     assert run.main(["--smoke-test"]) == 0
     assert "Smoke test passed" in capsys.readouterr().out
     assert run.main(["--list"]) == 0
@@ -210,7 +216,7 @@ def test_cli_no_model_paths(common, capsys):
         run.main(["--modality", "vlm", "--model", "qwen3.5-2b", "--dataset", "mmau", "--no-download"])
 
 
-def test_leaf_compose_files_cover_every_cell_and_pin_opus5(common):
+def test_leaf_compose_files_cover_every_cell_and_pin_codex_terra(common):
     import yaml
 
     models, *_ = common
@@ -223,7 +229,10 @@ def test_leaf_compose_files_cover_every_cell_and_pin_opus5(common):
         svc = services[size.key]
         cmd = svc["command"]
         assert f"--model {size.key}" in cmd and f"--modality {modality}" in cmd
-        assert "--judge-provider claude --judge-model claude-opus-5 --judge-effort high" in cmd
+        assert (
+            "--judge-provider codex --judge-model gpt-5.6-terra "
+            "--judge-effort medium"
+        ) in cmd
         assert ("--device auto" in cmd) == (size.gpus > 1)
         assert svc["extends"]["file"] == "../../_common/compose/base.yml"
         assert (leaf / svc["extends"]["file"]).resolve().is_file()
@@ -264,3 +273,27 @@ def test_generation_settings_sample_only_for_llm_tasks(common):
     greedy_llm = generation_settings(tasks.get("bbh_causal_judgement"), parse(
         ["--modality", "llm", "--model", "qwen3.5-2b", "--temperature", "0"]))
     assert greedy_llm == {"max_new_tokens": 2048, "do_sample": False}
+
+
+def test_benchmark_autofix_escalates_by_default(common):
+    _, _, _, run = common
+    parse = run.build_parser().parse_args
+    default = parse(["--modality", "vlm", "--model", "qwen3.5-2b"])
+    disabled = parse([
+        "--modality", "vlm", "--model", "qwen3.5-2b", "--no-auto-escalate",
+    ])
+
+    assert default.auto_escalate is True
+    assert disabled.auto_escalate is False
+
+
+def test_skip_m4_is_independent_of_fix_and_tier_search(common):
+    _, _, _, run = common
+    args = run.build_parser().parse_args([
+        "--modality", "vlm", "--model", "qwen3.5-2b", "--skip-m4",
+    ])
+
+    assert args.skip_m4 is True
+    assert args.skip_fix is False
+    assert args.auto_escalate is True
+    assert args.fix_candidate == ""

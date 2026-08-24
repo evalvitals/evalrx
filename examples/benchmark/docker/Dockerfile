@@ -42,6 +42,7 @@ RUN pip install --no-cache-dir "/evalvitals[data,viz]" pandas requests openai sc
 COPY examples/dataset_selection/llm_band_probe /app/examples/dataset_selection/llm_band_probe
 COPY examples/dataset_selection/llm_benchmark/datasets.py /app/examples/dataset_selection/llm_benchmark/datasets.py
 COPY examples/benchmark/_common /app/examples/benchmark/_common
+COPY --chmod=0755 examples/benchmark/docker/codex /usr/local/bin/codex
 
 ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/examples/benchmark
 WORKDIR /app/work
@@ -73,6 +74,7 @@ RUN pip install --no-cache-dir \
 COPY examples/dataset_selection/llm_band_probe /app/examples/dataset_selection/llm_band_probe
 COPY examples/dataset_selection/llm_benchmark/datasets.py /app/examples/dataset_selection/llm_benchmark/datasets.py
 COPY examples/benchmark/_common /app/examples/benchmark/_common
+COPY --chmod=0755 examples/benchmark/docker/codex /usr/local/bin/codex
 ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/examples/benchmark
 WORKDIR /app/work
 CMD ["python", "-m", "_common.run", "--list"]

@@ -11,7 +11,7 @@ from evalvitals.analysis.run_codebase import run_codebase_cli
 
 
 def serve_report(
-    run_dir: str | Path,
+    run_dir: str | Path | None,
     *,
     port: int,
     no_audio: bool = False,
@@ -33,7 +33,7 @@ def _langfuse_cache(trace_id: str) -> Path:
     return Path(".evalvitals-cache") / safe_id
 
 
-def _resolve_report_source(source: str, trace_id: str | None, run_dir: str) -> str:
+def _resolve_report_source(source: str, trace_id: str | None, run_dir: str | None) -> str | None:
     if source == "auto":
         if trace_id:
             try:
@@ -210,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Publish (if needed) and serve the dynamic completed-run UI.",
         description="Generate (if needed) ReportData and serve the agent-composed React UI backed by Langfuse or a local run cache.",
     )
-    serve.add_argument("run_dir", nargs="?", default="outputs", help="Run directory.")
+    serve.add_argument("run_dir", nargs="?", default=None, help="Run directory. Omit to start empty and drop a zipped run on the page.")
     serve.add_argument("--port", type=int, default=8501, help="Loopback port (default: 8501).")
     serve.add_argument("--no-audio", action="store_true", help=argparse.SUPPRESS)
     serve.add_argument("--no-browser", action="store_true", help="Do not open a browser automatically.")

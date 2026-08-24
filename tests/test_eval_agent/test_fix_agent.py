@@ -21,7 +21,15 @@ from evalvitals.eval_agent import (
     route_min_tier,
 )
 from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.stages.fix_agent import FixCandidate, FixValidation
+from evalvitals.eval_agent.stages.fix_agent import (
+    FixCandidate,
+    FixValidation,
+    _chart_arithmetic_predicate,
+    _chart_count_extract_predicate,
+    _code_copies_example,
+    _code_redefines_model_bridge,
+    _malformed_choice_predicate,
+)
 
 # ── tiers ─────────────────────────────────────────────────────────────────────
 
@@ -305,6 +313,16 @@ def test_pipeline_spec_validation():
     assert [op["tool"] for op in spec.image_ops] == ["zoom_center"]  # bogus dropped
     assert spec.n_samples == 5  # capped
 
+    multi_call = PipelineSpec.from_dict(
+        {
+            "name": "bounded_multicall",
+            "strategy": "chain_of_verification",
+            "n_samples": 5,
+        }
+    )
+    assert multi_call is not None
+    assert multi_call.n_samples == 2  # 3 calls/sample * 2 <= 6 calls/case
+
 
 def test_pipeline_passes_bounded_generation_kwargs():
     from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
@@ -478,6 +496,12 @@ class VCDSensitiveModel(Model):
 
     def generate_vcd(self, inputs, **kwargs):
         return "Yes."
+
+    def generate_vcd_baseline(self, inputs, **kwargs):
+        return "No."
+
+    def paper_method_fidelity(self, method):
+        return "per_item_seeded_sampler_specialization" if method == "vcd" else "unavailable"
 
     def forward(self, inputs, capture, spec=None):
         raise NotImplementedError
@@ -851,6 +875,111 @@ def test_code_only_still_fields_the_coded_pipeline():
     assert len(judge.prompts) == 1 and "EXECUTION CONTRACT" in judge.prompts[0]
 
 
+def test_allowlisted_builtin_is_materialised_before_judge_truncation():
+    judge = ScriptedJudge(
+        json.dumps([{"name": "unrelated", "prompt_template": "Ignore. {prompt}"}])
+    )
+    agent = FixAgent(
+        judge=judge, max_tier="L2", allow_codegen=False,
+        candidate_allowlist={"self_refine"},
+    )
+    candidates = agent._propose(
+        [_hyp("chart reasoning")], _gold_yes_batch(image=_img()), HopelessModel()
+    )
+    assert [c.name for c in candidates] == ["self_refine"]
+    assert judge.prompts == []
+
+
+def test_malformed_choice_candidate_is_gold_free_gated_and_pre_registered():
+    malformed = FailureCase(
+        id="bad", inputs=Inputs(prompt="listen", audio="x.wav"), expected="A",
+        observed="thought: option A or B\nstill analyzing", label=Label.FAIL,
+        metadata={"task": "multiple_choice_letter"},
+    )
+    clean = FailureCase(
+        id="clean", inputs=Inputs(prompt="listen", audio="x.wav"), expected="B",
+        observed="(B)", label=Label.PASS, metadata={"task": "multiple_choice_letter"},
+    )
+    # The gate depends only on the recorded output contract, not expected/gold.
+    assert _malformed_choice_predicate(malformed)
+    malformed.expected = "D"
+    assert _malformed_choice_predicate(malformed)
+    assert not _malformed_choice_predicate(clean)
+
+    judge = ScriptedJudge("[]")
+    agent = FixAgent(
+        judge=judge, max_tier="L2", allow_codegen=False,
+        candidate_allowlist={"malformed_choice_consensus"},
+    )
+    candidates = agent._propose([_hyp("malformed output")], CaseBatch([malformed, clean]),
+                                HopelessModel())
+    assert [c.name for c in candidates] == ["malformed_choice_consensus"]
+    assert candidates[0].predicate is _malformed_choice_predicate
+    assert judge.prompts == []
+
+
+def test_chart_arithmetic_candidate_is_gold_free_and_skips_out_of_scope_calls():
+    arithmetic = FailureCase(
+        id="arithmetic", inputs=Inputs(prompt="What is the difference?", image=_img()),
+        expected="1", observed="2", label=Label.FAIL,
+        metadata={"task": "exact_or_numeric"},
+    )
+    lookup = FailureCase(
+        id="lookup", inputs=Inputs(prompt="Which country is blue?", image=_img()),
+        expected="France", observed="Spain", label=Label.FAIL,
+        metadata={"task": "exact_or_numeric"},
+    )
+    assert _chart_arithmetic_predicate(arithmetic)
+    arithmetic.expected = "999"  # the predicate never reads gold
+    assert _chart_arithmetic_predicate(arithmetic)
+    assert not _chart_arithmetic_predicate(lookup)
+
+    judge = ScriptedJudge("[]")
+    agent = FixAgent(
+        judge=judge, max_tier="L2", allow_codegen=False,
+        candidate_allowlist={"chart_arithmetic_verify"},
+    )
+    batch = CaseBatch([arithmetic, lookup])
+    candidates = agent._propose([_hyp("chart arithmetic")], batch, HopelessModel())
+    assert [c.name for c in candidates] == ["chart_arithmetic_verify"]
+    assert judge.prompts == []
+
+    class CountingModel(Model):
+        capabilities = frozenset({Capability.GENERATE})
+        modalities = frozenset({"text", "image"})
+
+        def __init__(self):
+            self.calls = 0
+
+        def generate(self, inputs, **kwargs):
+            self.calls += 1
+            return "1"
+
+        def forward(self, inputs, capture, spec=None):
+            raise NotImplementedError
+
+    model = CountingModel()
+    agent._candidate_scores(candidates[0], model, batch)
+    assert model.calls == 3  # one chain-of-verification; lookup was never run
+
+
+def test_chart_count_extract_gate_is_gold_free_and_excludes_color_questions():
+    count = FailureCase(
+        id="count", inputs=Inputs(prompt="How many countries exceed 70%?", image=_img()),
+        expected="2", observed="1", label=Label.FAIL,
+        metadata={"task": "exact_or_numeric"},
+    )
+    color = FailureCase(
+        id="color", inputs=Inputs(prompt="What's the color of the line?", image=_img()),
+        expected="orange", observed="red", label=Label.FAIL,
+        metadata={"task": "exact_or_numeric"},
+    )
+    assert _chart_count_extract_predicate(count)
+    count.expected = "999"
+    assert _chart_count_extract_predicate(count)
+    assert not _chart_count_extract_predicate(color)
+
+
 def test_l1_template_candidate_preserves_non_image_modality_fields():
     """The L1 template runner used to rebuild a bare Inputs(prompt=...,
     image=...), silently dropping .video/.audio -- identical bug to
@@ -964,63 +1093,131 @@ def test_l0_telemetry_candidate_repairs_decode_budget_without_prompt_guessing():
     assert confirmation.n_fixed == 16 and confirmation.n_broken == 0
 
 
-def test_l0_vcd_candidate_repairs_binary_visual_grounding():
+def test_l0_does_not_admit_contrastive_decoding_candidates():
+    visual = _gold_yes_batch(n=8, image=_img())
+    for case in visual:
+        case.metadata["task"] = "yes_no"
+        case.expected = "No"
+        case.observed = "Yes"
+    audio = _gold_audio_yes_batch(n=8)
+    for case in audio:
+        case.expected = "No"
+        case.observed = "Yes"
+
+    vcd = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override visual evidence")], visual, VCDSensitiveModel()
+    )
+    aad = FixAgent(judge=None, max_tier="L0")._propose(
+        [_hyp("language priors override audio evidence")], audio, AADSensitiveModel()
+    )
+
+    assert not {"vcd", "aad", "icd"}.intersection(c.kind for c in (*vcd, *aad))
+
+
+def test_l3a_vcd_candidate_repairs_binary_visual_grounding():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
 
-    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+    out = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"vcd_diffusion_noise"}
+    ).propose_and_validate(
         VCDSensitiveModel(), batch, [_hyp("language priors override visual evidence")]
     )
 
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "vcd_diffusion_noise"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
-    assert out.best.candidate.payload["noise_step"] == 999
+    assert out.best.candidate.payload["kwargs"]["noise_step"] == 500
 
 
-def test_l0_vcd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+def test_l3a_vcd_uses_its_matched_sampling_control():
+    class GreedyAndContrastAgree(VCDSensitiveModel):
+        def generate(self, inputs, **kwargs):
+            return "Yes."
+
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "exact_or_numeric"
+    out = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"vcd_diffusion_noise"}
+    ).propose_and_validate(
+        GreedyAndContrastAgree(), batch, [_hyp("language priors override visual evidence")]
+    )
+
+    # The Stage-0 greedy arm is already correct.  VCD's matched clean sampler
+    # is wrong, so the contrastive arm still has eight genuine paired repairs.
+    assert out.best is not None
+    assert out.best.n_fixed == 8 and out.best.n_broken == 0
+
+
+def test_l3a_vcd_structural_discovery_does_not_read_expected_direction():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
         case.expected = "Yes"
         case.observed = "No"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
-        [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
-    )
-
-    assert "vcd_diffusion_noise" not in {candidate.name for candidate in candidates}
-
-
-def test_l0_icd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
-    batch = _gold_yes_batch(n=8, image=_img())
-    for case in batch:
-        case.metadata["task"] = "yes_no"
-        case.expected = "Yes"
-        case.observed = "No"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
-        [_hyp("instruction priors override visual evidence")], batch, ICDSensitiveModel()
-    )
-
-    candidate_names = {candidate.name for candidate in candidates}
-    assert "icd_instruction_disturbance" not in candidate_names
-    assert "icd_instruction_disturbance_question" not in candidate_names
-
-
-def test_l0_vcd_is_proposed_when_false_yes_hallucinations_dominate():
-    batch = _gold_yes_batch(n=8, image=_img())
-    for case in batch:
-        case.metadata["task"] = "yes_no"
-        case.expected = "No"
-        case.observed = "Yes"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"vcd_diffusion_noise"}
+    )._propose(
         [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
     )
 
     assert "vcd_diffusion_noise" in {candidate.name for candidate in candidates}
 
 
-def test_l0_vcd_is_not_proposed_on_an_audio_only_batch():
+def test_l3a_vcd_is_available_for_open_ended_visual_generation():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "exact_or_numeric"
+    candidates = FixAgent(
+        judge=ScriptedJudge('[{"name": "vcd_diffusion_noise"}]'),
+        max_tier="L3a",
+        allow_codegen=False,
+        paper_methods_only=True,
+    )._propose(
+        [_hyp("language priors override image evidence")], batch, VCDSensitiveModel()
+    )
+
+    vcd = next(candidate for candidate in candidates if candidate.name == "vcd_diffusion_noise")
+    assert vcd.payload["baseline_executor"] == "generate_vcd_baseline"
+
+
+def test_l3a_icd_structural_discovery_does_not_read_expected_direction():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.expected = "Yes"
+        case.observed = "No"
+    candidates = FixAgent(
+        judge=None,
+        max_tier="L3a",
+        candidate_allowlist={"icd_instruction_disturbance"},
+    )._propose(
+        [_hyp("instruction priors override visual evidence")], batch, ICDSensitiveModel()
+    )
+
+    candidate_names = {candidate.name for candidate in candidates}
+    assert candidate_names == {"icd_instruction_disturbance"}
+
+
+def test_l3a_vcd_is_proposed_when_false_yes_hallucinations_dominate():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.expected = "No"
+        case.observed = "Yes"
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"vcd_diffusion_noise"}
+    )._propose(
+        [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
+    )
+
+    assert "vcd_diffusion_noise" in {candidate.name for candidate in candidates}
+
+
+def test_l3a_vcd_is_not_proposed_on_an_audio_only_batch():
     """A multimodal backend exposes generate_vcd even when the batch carries
     no image (live: audiocaps_hallucination_qwen2_audio proposed both VCD
     candidates for an audio-only yes/no batch; each ran as not_executed)."""
@@ -1034,7 +1231,9 @@ def test_l0_vcd_is_not_proposed_on_an_audio_only_batch():
         case.metadata["task"] = "yes_no"
         case.expected = "No"
         case.observed = "Yes"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"aad_silence_contrast"}
+    )._propose(
         [_hyp("language priors override audio evidence")], batch, AudioBackendWithVCD()
     )
 
@@ -1044,44 +1243,51 @@ def test_l0_vcd_is_not_proposed_on_an_audio_only_batch():
     assert "aad_silence_contrast" in names  # the audio method still is
 
 
-def test_l0_aad_candidate_repairs_binary_audio_grounding():
+def test_l3a_aad_candidate_repairs_binary_audio_grounding():
     batch = _gold_audio_yes_batch(n=8)
 
-    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+    out = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"aad_silence_contrast"}
+    ).propose_and_validate(
         AADSensitiveModel(), batch, [_hyp("language priors override audio evidence")]
     )
 
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "aad_silence_contrast"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
-    assert out.best.candidate.payload["alpha"] == 0.5
+    assert out.best.candidate.payload["kwargs"]["alpha"] == 0.5
 
 
-def test_l0_aad_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+def test_l3a_aad_structural_discovery_does_not_read_expected_direction():
     batch = _gold_audio_yes_batch(n=8)
     for case in batch:
         case.expected = "Yes"
         case.observed = "No"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
-        [_hyp("language priors override audio evidence")], batch, AADSensitiveModel()
-    )
-
-    assert "aad_silence_contrast" not in {candidate.name for candidate in candidates}
-
-
-def test_l0_aad_is_proposed_when_false_yes_hallucinations_dominate():
-    batch = _gold_audio_yes_batch(n=8)
-    for case in batch:
-        case.expected = "No"
-        case.observed = "Yes"
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"aad_silence_contrast"}
+    )._propose(
         [_hyp("language priors override audio evidence")], batch, AADSensitiveModel()
     )
 
     assert "aad_silence_contrast" in {candidate.name for candidate in candidates}
 
 
-def test_l0_aad_requires_paper_method_fidelity():
+def test_l3a_aad_is_proposed_when_false_yes_hallucinations_dominate():
+    batch = _gold_audio_yes_batch(n=8)
+    for case in batch:
+        case.expected = "No"
+        case.observed = "Yes"
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"aad_silence_contrast"}
+    )._propose(
+        [_hyp("language priors override audio evidence")], batch, AADSensitiveModel()
+    )
+
+    assert "aad_silence_contrast" in {candidate.name for candidate in candidates}
+
+
+def test_l3a_aad_requires_paper_method_fidelity():
     """Structural gate only -- a model without paper_method_fidelity('aad')
     declared native must not get the candidate, judge or not."""
     batch = _gold_audio_yes_batch(n=8)
@@ -1099,7 +1305,7 @@ def test_l0_aad_requires_paper_method_fidelity():
         def forward(self, inputs, capture, spec=None):
             raise NotImplementedError
 
-    candidates = FixAgent(judge=None, max_tier="L0")._propose(
+    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
         [_hyp("language priors override audio evidence")], batch, UnfitAudioModel()
     )
 
@@ -1107,17 +1313,22 @@ def test_l0_aad_requires_paper_method_fidelity():
     assert "aad_silence_contrast_gated_false_yes" not in {candidate.name for candidate in candidates}
 
 
-def test_l0_icd_candidate_repairs_binary_visual_grounding():
+def test_l3a_icd_candidate_repairs_binary_visual_grounding():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
 
-    out = FixAgent(judge=None, max_tier="L0").propose_and_validate(
+    out = FixAgent(
+        judge=None,
+        max_tier="L3a",
+        candidate_allowlist={"icd_instruction_disturbance"},
+    ).propose_and_validate(
         ICDSensitiveModel(), batch, [_hyp("instruction priors override visual evidence")]
     )
 
     assert out.fixed is True
     assert out.best is not None and out.best.candidate.name == "icd_instruction_disturbance"
+    assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
 
 
@@ -1280,6 +1491,29 @@ def test_l3a_tcd_candidate_repairs_temporal_smoothing_bias():
     assert out.best.n_fixed == 16 and out.best.n_broken == 0
 
 
+def test_l3a_tcd_accepts_benchmark_multiple_choice_letter_task_name():
+    batch = _gold_audio_batch(n=8)
+    for case in batch:
+        case.metadata["task"] = "multiple_choice_letter"
+    judge = ScriptedJudge("[]")
+
+    candidates = FixAgent(
+        judge=judge,
+        max_tier="L3a",
+        allow_codegen=False,
+        paper_methods_only=True,
+        candidate_allowlist={"tcd_temporal_blur"},
+    )._propose(
+        [_hyp("temporal smoothing bias misses a brief acoustic event")],
+        batch,
+        TCDSensitiveModel(),
+    )
+
+    assert [candidate.name for candidate in candidates] == ["tcd_temporal_blur"]
+    assert candidates[0].tier is FixTier.L3A_INTERNALS_READ
+    assert not judge.prompts  # a frozen candidate is not subject to judge veto
+
+
 def test_l3a_tcd_is_not_proposed_when_judge_declines_the_mechanism():
     """Structurally eligible (audio, multiple_choice, TCD-capable), but the
     hypothesis names a DIFFERENT mechanism (a flat knowledge gap -- exactly
@@ -1341,7 +1575,7 @@ def test_candidate_allowlist_freezes_a_paper_candidate():
 
     out = FixAgent(
         judge=None,
-        max_tier="L0",
+        max_tier="L3a",
         candidate_allowlist={"icd_instruction_disturbance_question"},
     ).propose_and_validate(
         ICDSensitiveModel(), batch, [_hyp("instruction priors override visual evidence")]
@@ -1469,7 +1703,7 @@ def test_feedback_round_one_fails_round_two_fixes():
     assert any(judge.saw_feedback)
 
 
-def test_feedback_includes_helped_prompts_and_previous_code():
+def test_feedback_withholds_case_content_and_includes_previous_code():
     batch = _gold_yes_batch(3)
     candidate = FixCandidate(
         tier=FixTier.L2_SCAFFOLD,
@@ -1488,9 +1722,29 @@ def test_feedback_includes_helped_prompts_and_previous_code():
 
     feedback = FixAgent._format_prior([validation], batch)
 
-    assert "Is there a lesion 1?" in feedback
+    assert "Is there a lesion 1?" not in feedback
+    assert "c1" not in feedback
+    assert "1 fixed / 0 broken" in feedback
     assert "EXPLORE-TESTED IMPLEMENTATION" in feedback
     assert "print('prior implementation')" in feedback
+
+
+def test_generated_code_cannot_memorize_example_ids_or_prompt_phrases():
+    examples = """### FAIL case spatial457-123
+PROMPT: There is a blue thing that is in front of the object right of the tiny bike.
+MODEL OUTPUT (baseline): small
+"""
+    assert _code_copies_example("gate = 'spatial457-123'", examples)
+    assert _code_copies_example(
+        "gate = 'blue thing that is in front of the object right of the tiny bike'",
+        examples,
+    )
+    assert not _code_copies_example(
+        'question = case["prompt"]; gate = "left right front behind"', examples
+    )
+    assert _code_redefines_model_bridge("def model_generate(case_id):\n    return 'x'")
+    assert _code_redefines_model_bridge("async def model_attend(case_id):\n    pass")
+    assert not _code_redefines_model_bridge("answer = model_generate(case_id)")
 
 
 def test_single_round_does_not_retry_on_failure():
@@ -1624,6 +1878,25 @@ def test_garbage_judge_falls_back_to_defaults():
     assert sources == {"default"}
     tiers = {v.candidate.tier for v in out.attempted}
     assert tiers == {FixTier.L1_PROMPT, FixTier.L2_SCAFFOLD}
+
+
+def test_min_tier_filters_cheaper_candidates_for_one_ladder_station():
+    pytest.importorskip("PIL")
+    judge = ScriptedJudge("I refuse to answer in JSON.")
+    agent = FixAgent(
+        judge=judge,
+        max_tier="L2",
+        min_tier="L2",
+        allow_codegen=False,
+    )
+    out = agent.propose_and_validate(
+        HopelessModel(), _gold_yes_batch(image=_img()), [_hyp("x")]
+    )
+
+    assert out.attempted
+    assert {v.candidate.tier for v in out.attempted} == {FixTier.L2_SCAFFOLD}
+    assert len(judge.prompts) == 1
+    assert "L2" in judge.prompts[0]
 
 
 def test_no_rubric_cases_yield_recommendation_not_crash():
@@ -2207,8 +2480,8 @@ def test_attention_guided_crop_primitive_is_gone():
 
 def test_l3a_read_is_authored_not_a_canned_primitive():
     """At L3a the read lever is the coded pipeline's bridged model_attend(), not
-    a primitive: (a) no primitive candidate is proposed, and (b) the coded
-    candidate is tagged L3a with enable_attend=True."""
+    a primitive. A black-box generated scaffold remains L2 even when the bridge
+    was offered; source that actually calls model_attend is tagged L3a."""
     pytest.importorskip("PIL")
     cases = CaseBatch(
         [
@@ -2231,9 +2504,21 @@ def test_l3a_read_is_authored_not_a_canned_primitive():
     out = bare.propose_and_validate(AttnCropVLM(), cases, [hyp])
     assert not any(v.candidate.kind == "primitive" for v in out.attempted)
 
-    # (b) the read lever still exists, but as agent-written code carrying the
-    # model_attend bridge (enable_attend), tagged at the L3a tier.
-    coded = FixAgent(judge=CodeWritingJudge(), max_tier="L3a", allow_codegen=True)
+    # (b) Merely advertising model_attend does not promote code which only
+    # calls model_generate and image tools.
+    black_box = FixAgent(judge=CodeWritingJudge(), max_tier="L3a", allow_codegen=True)
+    black_box_cands = black_box._propose([hyp], cases, AttnCropVLM())
+    black_box_code = [c for c in black_box_cands if c.kind == "code"]
+    assert black_box_code and black_box_code[0].tier is FixTier.L2_SCAFFOLD
+    assert black_box_code[0].payload.get("enable_attend") is False
+
+    class AttendWritingJudge(CodeWritingJudge):
+        def generate(self, inputs, **kwargs):
+            if "EXECUTION CONTRACT" in str(inputs):
+                return f"```python\n{_ATTEND_PIPELINE}\n```"
+            return super().generate(inputs, **kwargs)
+
+    coded = FixAgent(judge=AttendWritingJudge(), max_tier="L3a", allow_codegen=True)
     cands = coded._propose([hyp], cases, AttnCropVLM())
     code_cands = [c for c in cands if c.kind == "code"]
     assert code_cands and code_cands[0].tier is FixTier.L3A_INTERNALS_READ
@@ -2580,23 +2865,13 @@ def test_self_refine_offered_for_image_reasoning_tasks_not_yes_no():
     assert {"self_refine", "self_consistency_5"}.isdisjoint(c.name for c in out_yn)
 
 
-def test_assertive_grounding_offered_only_on_false_no_dominant_slice():
-    """assertive_grounding is the dual of the direction gate that withholds
-    VCD/ICD/etc. on a false-No-dominant slice: those methods are suppressive
-    (wrong direction for under-claiming), so offer a prompt that accepts
-    partial evidence instead. Must not appear when the slice is false-Yes
-    dominant (or balanced) -- that's exactly the population the suppressive
-    methods already handle."""
+def test_l1_candidates_do_not_use_gold_direction_gates():
+    """Changing expected labels must not alter the proposed repair family."""
     agent = FixAgent(judge=None, max_tier="L1")
-    out_false_no = agent._l1_candidates(
-        "- h", "", has_images=True, tasks={"yes_no"}, binary_hallucination_supported=False
-    )
-    assert "assertive_grounding" in {c.name for c in out_false_no}
-
-    out_false_yes = agent._l1_candidates(
-        "- h", "", has_images=True, tasks={"yes_no"}, binary_hallucination_supported=True
-    )
-    assert "assertive_grounding" not in {c.name for c in out_false_yes}
+    first = agent._l1_candidates("- h", "", has_images=True, tasks={"yes_no"})
+    second = agent._l1_candidates("- h", "", has_images=True, tasks={"yes_no"})
+    assert [c.name for c in first] == [c.name for c in second]
+    assert "assertive_grounding" not in {c.name for c in first}
 
 
 def test_spec_noop_cases_are_not_applicable():
@@ -3146,6 +3421,8 @@ def test_the_coder_is_told_the_rule():
 
     assert "REPAIR THE MODEL, NOT THE TASK" in _L2_CODE_PROMPT
     assert "ORIGINAL recorded answer" in _L2_CODE_PROMPT
+    assert "prompt`` REPLACES the original prompt" in _L2_CODE_PROMPT
+    assert 'case["prompt"]' in _L2_CODE_PROMPT
     assert "{selection_guidance}" in _L2_CODE_PROMPT
     assert "at most\n  4 calls" in _L2_CODE_PROMPT
     assert "not the task" in _REPAIR_PROMPT_BODY
@@ -3458,3 +3735,70 @@ def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
     assert guard["unanchored_ids"] == [] and guard["n_guarded"] == 0 and guard["min_support"] == 3
     control = json.loads(control_files[0].read_text(encoding="utf-8"))
     assert control["ok"] is True and control["solved"] == []
+
+
+# ── Candidates must arrive with a sentence a reader can use ──────────────────
+
+def test_a_judge_that_echoes_the_slug_contributes_nothing():
+    """"Audio Evidence Then Answer" is the name again, not an explanation.
+
+    Accepting it would put a sentence-shaped string on screen that tells a
+    reader exactly what the slug already told them, while looking like the run
+    had described its own repair.
+    """
+    from evalvitals.eval_agent.stages.fix_agent import _judge_description
+
+    assert _judge_description({
+        "name": "audio_evidence_then_answer",
+        "what_it_does": "Audio evidence then answer.",
+    }) == ""
+    assert _judge_description({
+        "name": "audio_evidence_then_answer",
+        "what_it_does": "Asks the model to describe what it hears before it answers.",
+    }) == "Asks the model to describe what it hears before it answers."
+    assert _judge_description({"name": "x"}) == ""
+    assert _judge_description("not a proposal") == ""
+
+
+def test_a_coded_pipelines_own_header_is_its_description():
+    """L2 code has no JSON proposal to carry `what_it_does`, so it declares it
+    in the source, where the coding agent is already writing."""
+    from evalvitals.eval_agent.stages.fix_agent import _code_description
+
+    code = (
+        "# WHAT_IT_DOES: Asks the model twice and keeps the answer both tries agree on.\n"
+        "import json\n"
+        "print('x')\n"
+    )
+    assert _code_description(code) == (
+        "Asks the model twice and keeps the answer both tries agree on."
+    )
+    assert _code_description("import json\nprint('x')\n") == ""
+
+    # A model that wraps the line anyway keeps its whole sentence.
+    wrapped = (
+        "# WHAT_IT_DOES: Asks the model twice with different wording and keeps\n"
+        "#   the answer both tries agree on.\n"
+        "import json\n"
+    )
+    assert _code_description(wrapped) == (
+        "Asks the model twice with different wording and keeps the answer both "
+        "tries agree on."
+    )
+
+
+def test_plain_description_never_falls_back_to_the_slug():
+    from evalvitals.eval_agent.stages.fix_agent import (
+        FixCandidate, FixTier, plain_description,
+    )
+
+    judged = FixCandidate(
+        tier=FixTier.L1_PROMPT, name="cross_modal_rules_terse", payload={},
+        description="Gives the model a short checklist to follow before answering.",
+    )
+    builtin = FixCandidate(tier=FixTier.L1_PROMPT, name="visual_grounding", payload={})
+    unknown = FixCandidate(tier=FixTier.L1_PROMPT, name="mystery_strategy_v2", payload={})
+
+    assert plain_description(judged).startswith("Gives the model a short checklist")
+    assert plain_description(builtin).startswith("Tells the model to read the answer")
+    assert plain_description(unknown) == ""

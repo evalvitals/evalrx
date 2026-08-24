@@ -3,6 +3,12 @@
 _DIAGNOSE_PROMPT = """\
 You are an expert ML diagnostician. Based on the analysis report below, propose
 specific, falsifiable hypotheses about the root cause of the model's failures.
+
+Each hypothesis is written twice: once for a specialist (HYPOTHESIS, TEST) and
+once for the person who will read the report. That reader builds and runs
+evaluations but does not do statistics — they know what a benchmark, a prompt
+and a failure case are, and they have never met an e-value, a McNemar test or a
+multiple-comparisons correction. The PLAIN_STATEMENT line is written for them.
 {prior_section}
 Model: {model_name}
 Overall severity (threshold rules): {severity}
@@ -15,7 +21,15 @@ Raw findings (JSON):
 
 {available_signals_section}Propose 1-3 hypotheses. For each write:
 HYPOTHESIS: <one-sentence falsifiable technical claim about the failure mode>
-PLAIN_STATEMENT: <one-sentence plain-language explanation understandable by a layperson without technical ML or statistical background>
+PLAIN_STATEMENT: <the SAME claim as HYPOTHESIS, restated in ONE everyday
+  sentence, written for the reader described above. State what the model is
+  doing wrong, not what statistic was computed. Numbers are welcome and make
+  it better — but a number must come with what it amounts to ("gets 45 of the
+  125 wrong, nearly all of them lists longer than eight words"), never bare
+  ("fail rate 0.36"). No acronyms, no statistics jargon, no symbols (→, ρ, σ),
+  no bare metric identifiers as the subject of the sentence. Do not copy the
+  HYPOTHESIS line verbatim — this is checked, and a jargon-y or copy-pasted
+  line is sent back for a rewrite.>
 FAILURE_MODE: <short snake_case tag naming the MECHANISM, not the symptom.
   Vision/agent: attention_sink / hallucination / loop / ignored_obs / language_prior_bias
   Text reasoning: computation_slip / chain_break / knowledge_gap / selection_failure /
@@ -66,3 +80,24 @@ For each hypothesis output two lines:
 KEEP: <hypothesis statement>  or  REJECT: <hypothesis statement>
 REASON: <one or two sentences naming the flaw you found, or why it survives>
 REASON: <specific flaw, or "evidence directly supports this claim" if keeping>"""
+
+
+_PLAIN_REPAIR_PROMPT = """\
+Your previous answer below proposed hypotheses correctly, but some
+PLAIN_STATEMENT lines fail a plain-language check.
+
+PLAIN_STATEMENT must be a one-sentence everyday paraphrase of the matching
+HYPOTHESIS line, written for an engineer who runs evaluations but does no
+statistics: no statistics terms, no acronyms, no symbols, and not a verbatim
+copy of the HYPOTHESIS line. Numbers are welcome, but each one must come with
+what it amounts to rather than standing bare.
+
+Previous answer:
+{raw}
+
+Problems found:
+{violations}
+
+Rewrite the FULL set of hypotheses in the exact same
+HYPOTHESIS/PLAIN_STATEMENT/FAILURE_MODE/TEST/EXPECTED_ASSOCIATION format,
+fixing only the flagged PLAIN_STATEMENT lines. Do not change any other line."""

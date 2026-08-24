@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node /opt/codex/bin/codex.js "$@"

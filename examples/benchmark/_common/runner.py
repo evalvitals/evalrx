@@ -50,6 +50,11 @@ def load_model(resolved: Resolved, args, task: T.Task):
     from evalvitals.specs import get_spec
 
     spec = get_spec(resolved.spec_key)
+    if getattr(args, "model_path", None):
+        # Only the location changes. The spec still decides the auto class, the
+        # chat template kwargs and the modalities, so a local checkout is the
+        # same model under test rather than a differently-configured one.
+        spec = replace(spec, hf_repo=str(args.model_path))
     if args.enable_thinking:
         spec = replace(spec, chat_template_kwargs={**spec.chat_template_kwargs, "enable_thinking": True})
     gen = generation_settings(task, args)
@@ -99,8 +104,8 @@ def load_weights(model, resolved: Resolved, args, task: T.Task):
 
 def build_judge(args):
     """``(judge, coder_provider, coder_model, coder_extra_args)`` — the same three
-    providers as the m1_m4 examples; the CLI default is agy, our compose files
-    pin claude / claude-opus-5 / high."""
+    providers as the m1_m4 examples; the benchmark CLI and compose files pin
+    Codex / gpt-5.6-terra / medium."""
     if args.judge_provider == "agy":
         from evalvitals.agent_runtime.judges import AgyModel
 
@@ -115,8 +120,12 @@ def build_judge(args):
         from evalvitals.agent_runtime.judges import CodexModel
 
         name = args.judge_model or "gpt-5.6-terra"
-        judge = CodexModel(model=name, timeout_sec=600)
-        coder = ("codex", name, ())
+        judge = CodexModel(model=name, effort=args.judge_effort, timeout_sec=600)
+        coder_extra = (
+            ("-c", f'model_reasoning_effort="{args.judge_effort}"')
+            if args.judge_effort else ()
+        )
+        coder = ("codex", name, coder_extra)
     probe = judge.generate("Reply with exactly OK")
     if not probe.strip():
         raise RuntimeError(f"{args.judge_provider} judge returned an empty availability probe")
@@ -172,6 +181,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
         scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
+        concurrency=getattr(args, "concurrency", 1),
     ).discover(model, candidates, protocol=protocol)
     cases = discovery.cases
     elapsed = time.monotonic() - started
@@ -206,10 +216,19 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         raise SystemExit("M5 needs both PASS and FAIL cases; adjust --limit / --seed")
 
     from evalvitals.eval_agent import (
-        CliAgentConfig, DiagnosisAgent, FixAgent, HypothesisTester, ProbeAgent, RunContext,
-        StatsAnalysisAgent, StrategyProbe, SurgeryAgent, VLDiagnoseLoop,
+        CliAgentConfig,
+        DiagnosisAgent,
+        FixAgent,
+        HypothesisTester,
+        ProbeAgent,
+        RunContext,
+        StatsAnalysisAgent,
+        StrategyProbe,
+        SurgeryAgent,
+        VLDiagnoseLoop,
     )
     from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+    from evalvitals.eval_agent.stages.repair_catalog import method_names
 
     ctx = RunContext(run_dir / "logs", verbose=True, config={
         "benchmark": task.title, "dataset": task.name, "modality": task.modality,
@@ -250,16 +269,26 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         if sampled:
             floor.update(temperature=gen_kwargs["temperature"], top_p=gen_kwargs["top_p"])
         fix_kwargs.update(baseline_generation_kwargs=floor, floor_candidates=("self_consistency_5",))
+    prewritten_code = (
+        Path(args.fix_code_file).read_text(encoding="utf-8")
+        if args.fix_code_file else ""
+    )
     fix_agent = FixAgent(
         judge=judge, max_tier=args.fix_tier, score_fn=T.score_case, run_logger=ctx.logger,
         cli_config=(CliAgentConfig(provider=coder_provider, timeout_sec=420, model=coder_model,
                                    extra_args=coder_extra) if args.allow_codegen else None),
         allow_codegen=args.allow_codegen, run_context=ctx,
         max_validation_cases=args.fix_validation_cases, alpha=0.05,
-        candidate_allowlist={"coded_pipeline"} if args.code_only else None,
-        max_repair_rounds=2,
+        candidate_allowlist=(
+            {args.fix_candidate} if args.fix_candidate
+            else ({"coded_pipeline"} if args.code_only
+                  else (method_names() if args.registered_repairs_only else None))
+        ),
+        max_repair_rounds=max(1, args.fix_repair_rounds),
         **({"max_judge_candidates": 1} if args.code_only else {}),
         exec_timeout_sec=args.fix_exec_timeout,
+        prewritten_code=prewritten_code,
+        concurrency=getattr(args, "concurrency", 1),
         **fix_kwargs,
     )
     explorer = None
@@ -278,6 +307,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
         fix_agent=fix_agent, max_cycles=args.max_cycles, run_logger=ctx.logger,
         confirm_split=0.5, confirm_split_seed=20260818,
+        # This benchmark reserves CONFIRM exclusively for the final frozen
+        # repair. M5 screens hypotheses on EXPLORE; otherwise its verdict (and
+        # the M4 decision it triggers) would adapt repair selection to the same
+        # cases later used for the significance gate.
+        m5_holdout=False,
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer, explore_dir=run_dir / "explore", verbose=True,
     )
@@ -298,12 +332,24 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     if not args.skip_fix:
         # No M5-verified hypothesis still gets M4 + a fix attempt on the best
         # unverified leads (the candidate validation on CONFIRM is the gate).
-        proposal = loop.run_m4(report, cases, allow_unverified=True)
-        if proposal is not None:
-            tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
-            print(f"M4 experiment on the {tag} hypothesis: status={proposal.status}")
+        # An explicitly pre-registered fix is already the experiment the
+        # caller asked to validate.  Running an unrelated M4 surgery first is
+        # pure latency and can contend for the same GPU; it cannot influence
+        # the frozen candidate or its EXPLORE/CONFIRM verdict.
+        if args.skip_m4:
+            print("M4: skipped by --skip-m4 (tiered fix search remains enabled)")
+        elif args.fix_candidate or args.code_only or args.registered_repairs_only:
+            requested = (
+                args.fix_candidate or ("coded_pipeline" if args.code_only else "registered methods")
+            )
+            print(f"M4: skipped for pre-registered fix scope {requested!r}")
         else:
-            print("M4: no hypothesis to experiment on")
+            proposal = loop.run_m4(report, cases, allow_unverified=True)
+            if proposal is not None:
+                tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
+                print(f"M4 experiment on the {tag} hypothesis: status={proposal.status}")
+            else:
+                print("M4: no hypothesis to experiment on")
         outcome = loop.run_fix(report, cases, max_tier=args.fix_tier, auto_escalate=args.auto_escalate,
                                allow_unverified=True)
         attempted = []

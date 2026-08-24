@@ -577,6 +577,10 @@ class PipelineSpec:
                          code execution.
         output_key_pattern: Optional safe regex (one capture group) used to
                          aggregate structured final answers across samples.
+        baseline_override_min_support: When positive, preserve the recorded
+                         baseline unless this many enhanced samples agree on
+                         one different answer and no enhanced sample supports
+                         the baseline. This is a label-free safety gate.
     """
 
     name: str
@@ -586,6 +590,7 @@ class PipelineSpec:
     generation_kwargs: "dict[str, Any]" = field(default_factory=dict)
     strategy: str = "direct"
     output_key_pattern: str = ""
+    baseline_override_min_support: int = 0
 
     @classmethod
     def from_dict(cls, d: "dict[str, Any]") -> "PipelineSpec | None":
@@ -607,16 +612,29 @@ class PipelineSpec:
         strategy = str(d.get("strategy", "direct")).strip().lower()
         if strategy not in _SCAFFOLD_STRATEGIES:
             strategy = "direct"
+        # Bound the product, not just n_samples: repeating a three-call
+        # strategy five times silently creates 15 generations per case (3840
+        # calls on a 256-case EXPLORE split). Six calls/case still permits a
+        # useful vote while keeping one autonomous candidate operationally
+        # bounded. Direct candidates retain the historical cap of five.
+        calls_per_sample = len(STRATEGY_CALLS.get(strategy, (("direct", ""),)))
+        sample_cap = min(5, max(1, 6 // calls_per_sample))
         pattern = _safe_output_key_pattern(d.get("output_key_pattern"))
+        try:
+            override_support = max(0, int(d.get("baseline_override_min_support", 0)))
+        except (TypeError, ValueError):
+            override_support = 0
         return cls(name=name, image_ops=ops, prompt_template=template,
-                   n_samples=min(n_samples, 5), generation_kwargs=generation_kwargs,
-                   strategy=strategy, output_key_pattern=pattern)
+                   n_samples=min(n_samples, sample_cap), generation_kwargs=generation_kwargs,
+                   strategy=strategy, output_key_pattern=pattern,
+                   baseline_override_min_support=min(override_support, 5))
 
     def to_dict(self) -> "dict[str, Any]":
         return {"name": self.name, "image_ops": self.image_ops,
                 "prompt_template": self.prompt_template, "n_samples": self.n_samples,
                 "generation_kwargs": self.generation_kwargs, "strategy": self.strategy,
-                "output_key_pattern": self.output_key_pattern}
+                "output_key_pattern": self.output_key_pattern,
+                "baseline_override_min_support": self.baseline_override_min_support}
 
 
 _SCAFFOLD_STRATEGIES = frozenset({
@@ -918,6 +936,19 @@ def run_pipeline(
     for output in outputs:
         grouped.setdefault(answer_key(output, pattern), []).append(output)
     winner = max(grouped.values(), key=len)[0]
+    min_support = max(0, int(spec.baseline_override_min_support))
+    if min_support:
+        baseline = str(getattr(case, "observed", "") or "")
+        baseline_key = answer_key(baseline, pattern)
+        alternatives = [group for key, group in grouped.items() if key != baseline_key]
+        best_alternative = max(alternatives, key=len) if alternatives else []
+        # Any enhanced support for the baseline is evidence against a safe
+        # override. The fallback is the exact recorded output, not a host-side
+        # rewrite, so this gate never solves the benchmark task itself.
+        if baseline_key in grouped or len(best_alternative) < min_support:
+            winner = baseline
+        else:
+            winner = best_alternative[0]
     if capture is not None:
         capture["winner"] = winner
     return score_to_bool(score_fn(case, winner))

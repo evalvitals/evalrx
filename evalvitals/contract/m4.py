@@ -120,7 +120,38 @@ class FixAttemptWire(WireModel):
     """
 
     tier: Literal["L0", "L1", "L2", "L3a", "L3b", "L4"]
-    name: str
+
+    ref: str = Field(
+        default="",
+        description="The reader-facing identifier, e.g. `R3`. Assigned by the producer over the "
+                    "whole run and STABLE across `selection` and `attempted`, so a reader who "
+                    "sees R3 in the sweep can find R3's card and know it is the same repair.\n\n"
+                    "This exists because `name` cannot do the job. Consumers that numbered rows "
+                    "by list position gave the same repair two different numbers in the two "
+                    "lists, which is worse than no number at all. Empty means the producer "
+                    "assigned none; a consumer may then number by position, but only within one "
+                    "list and never as a cross-list identity.",
+    )
+    name: str = Field(
+        description="Machine slug, e.g. `audio_evidence_then_answer`. It is the JOIN KEY — "
+                    "`best`, `selected_on_explore` and `ebh_survivors` all name a candidate this "
+                    "way — and it is what the attempt folder on disk is called.\n\n"
+                    "It is NOT the label to show a reader. These slugs are chosen by the agent "
+                    "while naming its log files, so they read as identifiers rather than as "
+                    "language. Show `ref` to point at a candidate and `headline` to say what it "
+                    "does.",
+    )
+    headline: str = Field(
+        default="",
+        description="One plain sentence saying what this repair changes, written for a reader "
+                    "with no background in the field: no tier names, no metric names, no jargon, "
+                    "no slug echoed back. \"Ask the model to describe what it hears before "
+                    "answering\" — not \"audio-evidence-first prompt scaffold\".\n\n"
+                    "Empty when the producer had nothing readable to offer, which a consumer "
+                    "should render as an honest blank rather than by humanising the slug: "
+                    "`audio_evidence_then_answer` -> \"Audio Evidence Then Answer\" invents "
+                    "fluency the run never had.",
+    )
     kind: str | None = None
     source: str | None = None
     methodology: MethodologyWire | None = Field(
@@ -131,8 +162,16 @@ class FixAttemptWire(WireModel):
                     "be reviewed, only trusted.",
     )
     trial_root: str | None = Field(
-        default=None, description="Self-contained attempt folder. Preferred join key across rounds — "
-                                  "name alone is not unique."
+        default=None,
+        description="Self-contained attempt folder, RELATIVE TO THE RUN ROOT. Preferred join "
+                    "key across rounds — name alone is not unique.\n\n"
+                    "It holds `outputs.jsonl`, one line per validated case: "
+                    "`{case_id, status, output}` where status is fixed / broken / unchanged. "
+                    "That is what a reader needs to study a repair case by case — the "
+                    "candidate's actual answer beside the baseline's — and it is kept out of "
+                    "this payload because it is one row per case per candidate. Recorded "
+                    "relative because an absolute producer path resolves nowhere else, which "
+                    "is the same reason MediaRef paths are relative.",
     )
 
     n_pairs: int = 0
@@ -180,7 +219,27 @@ class FixOutput(StageEnvelope):
     )
 
     attempted: list[FixAttemptWire] = Field(
-        default_factory=list, description="Every candidate validated against the unmodified baseline."
+        default_factory=list,
+        description="The CONFIRMATION evidence: candidates validated on the held-out split. "
+                    "With a confirm split in play this is exactly one frozen candidate — "
+                    "selecting and testing on the same cases is the error the two-stage "
+                    "protocol exists to prevent.",
+    )
+    selection: list[FixAttemptWire] = Field(
+        default_factory=list,
+        description="The candidates tried while CHOOSING one, on the diagnosis split. "
+                    "Descriptive only — never confirmation evidence, and a reader must not "
+                    "add these effect sizes to the ones above.\n\n"
+                    "Carried because omitting it misrepresents the search: a run that tried "
+                    "seven candidates across L1 and L2 and confirmed one L1 reported a "
+                    "single L1 row, and every reader concluded L2 was never attempted. "
+                    "What was ruled out is part of what the run found — an `unsafe` "
+                    "candidate that repaired 7 cases and broke 8 is a result.",
+    )
+    selected_on_explore: str | None = Field(
+        default=None,
+        description="Which candidate the selection phase froze for confirmation. Names a "
+                    "row in `selection`; `best` names one in `attempted`.",
     )
 
     best: str | None = Field(

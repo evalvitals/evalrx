@@ -26,6 +26,7 @@ class CodexModel:
         binary_path: str = "",
         timeout_sec: int = 300,
         model: str = "gpt-5.6-terra",
+        effort: str = "",
     ) -> None:
         from evalvitals.core.capability import Capability
 
@@ -38,6 +39,7 @@ class CodexModel:
         self._binary = binary
         self._timeout_sec = timeout_sec
         self._model = model
+        self._effort = effort
         self.capabilities = frozenset({Capability.GENERATE})
         self.modalities = frozenset({"text"})
 
@@ -80,6 +82,8 @@ class CodexModel:
             ]
             if self._model:
                 cmd += ["--model", self._model]
+            if self._effort:
+                cmd += ["-c", f'model_reasoning_effort="{self._effort}"']
             try:
                 proc = subprocess.run(
                     cmd,
@@ -110,4 +114,7 @@ class CodexModel:
             shutil.rmtree(workspace, ignore_errors=True)
 
     def __repr__(self) -> str:
-        return f"CodexModel(binary={self._binary!r}, model={self._model!r})"
+        return (
+            f"CodexModel(binary={self._binary!r}, model={self._model!r}, "
+            f"effort={self._effort!r})"
+        )

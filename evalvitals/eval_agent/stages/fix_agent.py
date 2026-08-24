@@ -34,10 +34,11 @@ Executors by tier:
   intermediate outputs — only the model itself is unchanged.  The code runs
   sandboxed with bridged model access (:mod:`fix_pipeline`); labels and
   rubrics never reach it, so it cannot cheat by echoing gold answers.
-* **L3a** — internals read (:mod:`fix_internals`): no canned primitive; the
-  L2 coded pipeline gets a bridged ``model_attend()`` (read-only attention
-  heatmap) and authors its own peak-find -> crop -> re-ask scaffold when the
-  tier allows.
+* **L3a** — internals read (:mod:`fix_internals`): contrastive decoders read
+  and combine logits/attention from paired forward passes. Coded pipelines
+  are L3a only when their source actually calls the bridged
+  ``model_attend()``; merely exposing that optional API does not promote an
+  otherwise black-box L2 scaffold.
 * **L3b** — internals write (:mod:`fix_internals`): pre-audited intervention
   primitives (v1: visual embedding boost via a forward hook) — the judge
   selects and parameterises; never free codegen against the model handle.
@@ -63,6 +64,7 @@ them, neither dropped nor mistaken for repairs.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import json
 import logging
@@ -77,7 +79,7 @@ from evalvitals.eval_agent.prompts.fix_agent import (
     _L2_PROMPT,
     _L3_PROMPT,
     _L4_PROMPT,
-    _PAPER_METHOD_PROMPT,
+    _REPAIR_CATALOG_PROMPT,
     _REPAIR_PROMPT_BODY,
 )
 from evalvitals.eval_agent.stages.fix_internals import (
@@ -101,6 +103,11 @@ from evalvitals.eval_agent.stages.fix_tools import (
     spec_changes_input,
 )
 from evalvitals.eval_agent.stages.probe_generator import _extract_code
+from evalvitals.eval_agent.stages.repair_catalog import (
+    discover_methods,
+    method_names,
+    supports_tier,
+)
 from evalvitals.stats import compare, compare_paired_rates
 from evalvitals.stats.ebh import ebh
 from evalvitals.stats.evalue import evalue_bernoulli
@@ -116,8 +123,9 @@ logger = logging.getLogger(__name__)
 
 
 _MAX_JUDGE_CANDIDATES = 3
-#: How many FAIL / PASS cases the proposer sees in full (prompt, the model's
-#: baseline output, expected answer when allowed). Before this the judge saw
+#: How many FAIL / PASS cases the proposer sees (prompt and the model's
+#: baseline output; expected/gold answers are always withheld). Before this the
+#: judge saw
 #: only the first 160 characters of a few failing prompts (1000 characters in
 #: total) — no model output, no answer format, no PASS contrast — and designed
 #: blind: on bbh_tracking7 it never saw an option list or an "Answer: (X)".
@@ -151,17 +159,10 @@ def _clip(text: Any, limit: int, *, tail_share: float = 0.35) -> str:
 def _format_examples(
     cases: Any,
     *,
-    with_gold: bool,
     n_fail: int = _EXAMPLE_FAILS,
     n_pass: int = _EXAMPLE_PASSES,
 ) -> str:
-    """Render FAIL (and a few PASS) cases in full for the proposer.
-
-    Each example shows the prompt, the model's baseline output and — only when
-    *with_gold* (the cases are disjoint from the validation batch) — the
-    expected answer. Deterministic: first *n_fail* FAILs and first *n_pass*
-    PASSes in batch order.
-    """
+    """Render prompts and baseline outputs; never expose expected/gold answers."""
     fails: "list[Any]" = []
     passes: "list[Any]" = []
     for case in list(cases or []):
@@ -182,62 +183,134 @@ def _format_examples(
                       _clip(raw, _EXAMPLE_OUTPUT_CHARS, tail_share=0.7)]
         else:
             lines.append("MODEL OUTPUT (baseline): (not recorded)")
-        if with_gold:
-            gold = (getattr(case, "metadata", None) or {}).get(
-                "gold", getattr(case, "expected", None))
-            if gold is not None:
-                lines.append(f"EXPECTED: {gold}")
         blocks.append("\n".join(lines))
-    header = (
-        "(from the diagnosis split — the fix is validated on a DISJOINT split; "
-        "EXPECTED is shown so you can see the answer FORMAT, never to hard-code answers)"
-        if with_gold else
-        "(from the validation batch — expected answers withheld)"
-    )
+    header = "(expected answers withheld; scored externally on disjoint cases)"
     return header + "\n\n" + "\n\n".join(blocks)
 
-def _binary_answer(value: Any) -> "str | None":
-    match = re.search(r"\b(yes|no)\b", str(value).lower())
-    return match.group(1) if match else None
+def _code_calls_name(code: str, name: str) -> bool:
+    """Return whether executable source directly calls a named model bridge."""
+    try:
+        tree = ast.parse(str(code or ""))
+    except SyntaxError:
+        return False
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == name
+        for node in ast.walk(tree)
+    )
 
 
-def _binary_hallucination_direction(data: "CaseBatch") -> "tuple[bool, int, int]":
-    """Return whether binary evidence supports a false-``Yes`` repair.
+def _code_copies_example(code: str, examples: str, *, min_words: int = 8) -> bool:
+    """Reject generated programs that memorize an example ID or prompt phrase."""
+    try:
+        constants = [
+            node.value
+            for node in ast.walk(ast.parse(str(code or "")))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ]
+    except SyntaxError:
+        return False
+    literal_text = "\n".join(constants).lower()
+    ids = re.findall(r"^###\s+(?:FAIL|PASS)\s+case\s+(\S+)", examples, re.MULTILINE)
+    if any(case_id.lower() in literal_text for case_id in ids):
+        return True
+    prompts = re.findall(r"^PROMPT:\s*(.+)$", examples, re.MULTILINE)
+    literal_words = re.findall(r"[a-z0-9]+", literal_text)
+    literal_ngrams = {
+        tuple(literal_words[i : i + min_words])
+        for i in range(max(0, len(literal_words) - min_words + 1))
+    }
+    for prompt in prompts:
+        words = re.findall(r"[a-z0-9]+", prompt.lower())
+        if any(
+            tuple(words[i : i + min_words]) in literal_ngrams
+            for i in range(max(0, len(words) - min_words + 1))
+        ):
+            return True
+    return False
 
-    VCD, ICD, OPERA, PAI, and IFCD suppress answers that assert an object
-    unsupported by the image. A labelled adapter exposes this direction through
-    expected/observed answers. If it can, do not deploy a suppressive repair
-    into a false-negative dominant slice; otherwise preserve generic support.
-    """
-    false_yes = false_no = 0
-    for case in data:
-        if getattr(getattr(case, "label", None), "value", None) != "fail":
-            continue
-        expected = _binary_answer(getattr(case, "expected", None))
-        observed = _binary_answer(getattr(case, "observed", None))
-        if expected == "no" and observed == "yes":
-            false_yes += 1
-        elif expected == "yes" and observed == "no":
-            false_no += 1
-    return (false_yes + false_no == 0 or false_yes >= false_no, false_yes, false_no)
+
+def _code_redefines_model_bridge(code: str) -> bool:
+    """Reject user pipelines that shadow host-provided model bridge functions."""
+    try:
+        tree = ast.parse(str(code or ""))
+    except SyntaxError:
+        return False
+    bridge_names = {"model_generate", "model_attend"}
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in bridge_names
+        for node in ast.walk(tree)
+    )
 
 
-def _false_yes_predicate(case: Any) -> bool:
-    """Per-case gate: baseline asserted the object, gold says it isn't there.
+def _explicit_multiple_choice_answer(value: Any) -> str:
+    """Extract an explicit A-D commitment without mining unfinished prose."""
+    text = str(value or "").strip().upper()
+    marked = re.findall(
+        r"(?:FINAL(?:\s+ANSWER)?|ANSWER|CHOICE|OPTION)\s*(?::|=|\-|\bIS\b)\s*"
+        r"\(?([A-D])\)?\b",
+        text,
+    )
+    if marked:
+        return marked[-1]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    final = lines[-1] if lines else text
+    bare = re.fullmatch(r"\(?([A-D])\)?[.!]?", final)
+    return bare.group(1) if bare else ""
 
-    VCD/ICD/OPERA/PAI/IFCD are all *suppressive* -- they push the decoded
-    answer away from asserting an object the image doesn't support. That is
-    the right direction only on this per-case subpopulation. Unlike
-    :func:`_binary_hallucination_direction` (a whole-batch go/no-go gate),
-    this is meant to be attached to a :class:`FixCandidate` as its
-    ``predicate`` so the *same* candidate can be run gated (touching only
-    these cases) alongside its ungated sibling. Computed from ``expected``/
-    ``observed`` on the baseline already recorded for this case -- never
-    from a later selection/confirmation outcome.
-    """
+
+def _malformed_choice_predicate(case: Any) -> bool:
+    """Gold-free gate for re-asking only malformed multiple-choice outputs."""
+    task = str((getattr(case, "metadata", {}) or {}).get("task", ""))
+    return task == "multiple_choice_letter" and not _explicit_multiple_choice_answer(
+        getattr(case, "observed", None)
+    )
+
+
+_CHART_ARITHMETIC_RE = re.compile(
+    r"\b(?:ratio|difference|sum|total|average|percent(?:age)?|how many|"
+    r"more than|less than|times|add(?:ing|ed)?|subtract(?:ing|ed)?)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _chart_arithmetic_predicate(case: Any) -> bool:
+    """Gold-free gate for chart questions that require an explicit operation."""
+    metadata = getattr(case, "metadata", {}) or {}
+    inputs = getattr(case, "inputs", None)
     return (
-        _binary_answer(getattr(case, "expected", None)) == "no"
-        and _binary_answer(getattr(case, "observed", None)) == "yes"
+        str(metadata.get("task", "")) == "exact_or_numeric"
+        and getattr(inputs, "image", None) is not None
+        and bool(_CHART_ARITHMETIC_RE.search(str(getattr(inputs, "prompt", ""))))
+    )
+
+
+def _chart_case_predicate(case: Any) -> bool:
+    """Gold-free gate for image-backed exact/numeric chart questions."""
+    metadata = getattr(case, "metadata", {}) or {}
+    inputs = getattr(case, "inputs", None)
+    return (
+        str(metadata.get("task", "")) == "exact_or_numeric"
+        and getattr(inputs, "image", None) is not None
+    )
+
+
+_CHART_COUNT_EXTRACT_RE = re.compile(
+    r"\b(?:how many|number of)\b|"
+    r"\bvalue of the (?:gray|grey|red|blue|green|yellow|orange|purple|"
+    r"black|white|pink|brown) bar\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _chart_count_extract_predicate(case: Any) -> bool:
+    """Gold-free gate for chart counting and explicit coloured-bar lookup."""
+    return _chart_case_predicate(case) and bool(
+        _CHART_COUNT_EXTRACT_RE.search(
+            str(getattr(getattr(case, "inputs", None), "prompt", ""))
+        )
     )
 
 
@@ -252,14 +325,18 @@ class FixCandidate:
 
     Attributes:
         tier:        Intervention space the candidate lives in.
-        name:        Short identifier.
+        name:        Short identifier -- a slug, used to key trial folders and
+                     to join validations back to their candidate.  It is not
+                     shown to a reader; ``description`` is.
+        description: One plain sentence saying what this candidate does, for
+                     someone with no background in the field.  Supplied by the
+                     judge where the judge invented the candidate, and by
+                     :data:`_BUILTIN_DESCRIPTIONS` for the host's own.  Empty
+                     is allowed and means "nothing readable to say" -- readers
+                     are shown a blank rather than the slug in title case.
         kind:        ``"template"`` (L1) | ``"spec"`` (L2 declarative) |
-                     ``"code"`` (L2 agent-written pipeline) | ``"vcd"``
-                     (L0 contrastive decoding through an opt-in backend) |
-                     ``"opera"`` (L3a attention-over-trust penalty for a
-                     one-token binary decision) | ``"ifcd"`` (L3b paired
-                     TruthX internal edits) | ``"tcd"`` (L3a gated temporal
-                     contrastive decoding for audio multi-choice QA) |
+                     ``"code"`` (agent-written pipeline) |
+                     ``"registered_repair"`` (runtime-discovered executor) |
                      ``"visual_search"`` (L2 question-guided crop through an
                      opt-in backend).
         payload:     Kind-specific — template: ``{"prompt_template": ...}``;
@@ -283,8 +360,155 @@ class FixCandidate:
     payload: "dict[str, Any]"
     kind: str = "spec"
     source: str = "judge"
+    description: str = ""
     predicate: "Callable[[FailureCase], bool] | None" = None
     trial: "Trial | None" = None
+
+
+#: What each of the host's own repairs does, in one sentence, for a reader who
+#: has never heard of this model or this field.  It lives here rather than in
+#: the frontend because only this module knows what these candidates actually
+#: do; a consumer handed ``vcd_diffusion_noise`` can title-case it and nothing
+#: more, which produces a label that looks explained and is not.
+#:
+#: Judge-invented candidates are not in this table -- they carry their own
+#: sentence from ``what_it_does`` in the proposal.  A name in neither place
+#: resolves to "" and is rendered blank, on purpose.
+_BUILTIN_DESCRIPTIONS: "dict[str, str]" = {
+    "aad_silence_contrast":
+        "Compares the model's answer with what it says when the sound is replaced by "
+        "silence, and keeps only the part the sound itself explains.",
+    "aad_silence_contrast_gated_false_yes":
+        "Compares the answer with what the model says when the sound is replaced by "
+        "silence, applied only where it said yes to something the audio does not support.",
+    "annotate_horizontal_band_count":
+        "Counts the bars in the chart and writes that number onto the picture before asking.",
+    "answer_bbox_crop":
+        "Crops the picture down to the region the answer is about before asking.",
+    "assertive_grounding":
+        "Tells the model to answer from what is actually in the picture rather than from "
+        "what it expects to be there.",
+    "attend_carefully":
+        "Adds an instruction to examine the input closely before answering.",
+    "chain_of_verification":
+        "Has the model draft an answer, then check it with its own follow-up questions "
+        "before committing.",
+    "coded_pipeline":
+        "Runs a short program the agent wrote that re-asks the model several different "
+        "ways and keeps the answer those attempts agree on.",
+    "detector_visual_search_consensus":
+        "Uses an object detector to pick regions to look at, asks about each one, and "
+        "keeps the answer the regions agree on.",
+    "finetune_recipe":
+        "Writes down a retraining plan for a person to run later. Nothing is changed "
+        "automatically.",
+    "guided_visual_search_consensus":
+        "Uses the question to choose which parts of the picture to zoom into, then keeps "
+        "the answer those views agree on.",
+    "icd_instruction_disturbance":
+        "Compares the answer with what the model says under a deliberately misleading "
+        "instruction, and discounts whatever the misleading version produced too.",
+    "icd_instruction_disturbance_gated_false_yes":
+        "Discounts whatever a deliberately misleading instruction also produced, applied "
+        "only where the model said yes to something the picture does not support.",
+    "icd_instruction_disturbance_question":
+        "Attaches a deliberately misleading instruction to the question itself, and "
+        "discounts whatever the model says in both versions.",
+    "ifcd_truthx_contrast":
+        "Nudges the model's internal state toward the pattern it shows when it is being "
+        "truthful, and compares that with the untouched run.",
+    "increase_max_tokens":
+        "Gives the model more room to write, so answers are not cut off part-way.",
+    "least_to_most":
+        "Breaks the question into smaller steps and has the model work through them in order.",
+    "opera_overtrust_binary":
+        "Stops the model leaning too hard on a few words it has already written when it "
+        "makes a yes-or-no call.",
+    "pai_image_attention":
+        "Makes the model weigh the picture more heavily and its own prior expectations less.",
+    "salient_crop":
+        "Crops the picture to its most eye-catching region before asking.",
+    "self_consistency_5":
+        "Asks the same question five times and keeps the answer the model gives most often.",
+    "self_refine":
+        "Has the model criticise its own first answer and then rewrite it.",
+    "separate_horizontal_bands":
+        "Splits the chart into separate bars so each one can be read on its own.",
+    "tcd_temporal_blur":
+        "Compares the answer with what the model says when the timing in the clip is "
+        "smeared out, and keeps the part real timing explains.",
+    "upscale_sharpen":
+        "Enlarges and sharpens the picture before asking.",
+    "vcd_diffusion_noise":
+        "Compares the answer with what the model says when the picture is replaced by "
+        "noise, and discounts whatever it would have said without seeing anything.",
+    "vcd_diffusion_noise_gated_false_yes":
+        "Discounts whatever the model would say without seeing the picture, applied only "
+        "where it said yes to something the picture does not support.",
+    "vicrop_consensus_guard":
+        "Zooms into the region the model was already looking at, and changes the answer "
+        "only when the zoomed views agree.",
+    "vicrop_relative_attention":
+        "Finds the region the model was already looking at and zooms into it before asking again.",
+    "visual_grounding":
+        "Tells the model to read the answer off the picture first and to fall back on "
+        "general knowledge only after that.",
+    "zoom_equalize":
+        "Zooms in and evens out the brightness so faint details become visible.",
+}
+
+
+def _judge_description(proposal: "Any") -> str:
+    """The proposal's own ``what_it_does``, cleaned, or "".
+
+    Judges that ignore the field, or answer it with the snake_case name in
+    title case, contribute nothing a reader could not already see -- both come
+    back empty rather than as a sentence that only looks like one.
+    """
+    if not isinstance(proposal, dict):
+        return ""
+    text = " ".join(str(proposal.get("what_it_does", "") or "").split()).strip()
+    if not text:
+        return ""
+    name = str(proposal.get("name", "") or "").strip()
+    if name and text.lower().rstrip(".") == name.replace("_", " ").lower():
+        return ""
+    return text[:300]
+
+
+def _code_description(code: str) -> str:
+    """The ``# WHAT_IT_DOES:`` header the codegen prompt asks for.
+
+    The prompt asks for one line and shows a one-line example, but a model that
+    wraps it anyway should not lose the second half of its own sentence, so
+    immediately following comment lines are folded in until the code starts.
+    """
+    lines = code.splitlines()[:12]
+    for index, line in enumerate(lines):
+        if not line.strip().upper().startswith("# WHAT_IT_DOES:"):
+            continue
+        parts = [line.strip().split(":", 1)[1]]
+        for follow in lines[index + 1:]:
+            stripped = follow.strip()
+            if not stripped.startswith("#"):
+                break
+            body = stripped.lstrip("#").strip()
+            if not body or body.upper().startswith("WHAT_IT_DOES"):
+                break
+            parts.append(body)
+        return " ".join(" ".join(parts).split()).strip()[:300]
+    return ""
+
+
+def plain_description(candidate: "FixCandidate") -> str:
+    """One sentence for a reader, or "" when there is honestly nothing to say.
+
+    Never falls back to the slug.  ``audio_evidence_then_answer`` rendered as
+    "Audio Evidence Then Answer" reads like an explanation the run never
+    produced, and a blank is the more honest signal that it did not.
+    """
+    described = (candidate.description or "").strip()
+    return described or _BUILTIN_DESCRIPTIONS.get(candidate.name, "")
 
 
 @dataclass
@@ -460,13 +684,10 @@ class FixContext:
     Everything is optional; the loop builds one from its report in
     ``run_fix``. The two rules that matter:
 
-    * ``example_cases`` are shown IN FULL (prompt, the model's baseline output,
-      the expected answer, PASS/FAIL). They MUST be disjoint from the batch
-      the candidates are validated on — the loop passes its EXPLORE split, the
-      fix is scored on CONFIRM. When no example cases are given, examples are
-      drawn from the validation batch itself and the expected answer is
-      withheld (a template that encodes gold answers of the cases it is scored
-      on would be a leak, not a repair).
+    * ``example_cases`` expose only prompt, baseline output, and PASS/FAIL.
+      Expected/gold answers are always withheld. They are normally disjoint
+      from the candidate-validation batch: the loop passes its EXPLORE split
+      and scores the fix on CONFIRM.
     * ``evidence`` / ``refuted`` are read-only narrative: what M2/M5/explore
       established and what M4's intervention experiment knocked down. They
       steer *what* to propose; validation still decides *whether* it works.
@@ -616,6 +837,7 @@ class FixAgent:
         self,
         judge: "Model | None" = None,
         max_tier: "str | FixTier" = FixTier.L2_SCAFFOLD,
+        min_tier: "str | FixTier | None" = None,
         score_fn: "Callable[[FailureCase, str], Optional[bool]] | None" = None,
         run_logger: "Any | None" = None,
         cli_config: "CliAgentConfig | None" = None,
@@ -638,6 +860,7 @@ class FixAgent:
         concurrency: int = 1,
         scoring_note: str = "",
         floor_candidates: "Iterable[str] | None" = ("self_consistency_5",),
+        prewritten_code: str = "",
     ) -> None:
         if verbose:
             # Surfaces this module's own logger.info()/.warning() calls (tier
@@ -650,6 +873,10 @@ class FixAgent:
         self._judge = judge
         self._finetune_pool = finetune_pool
         self.max_tier = parse_tier(max_tier)
+        # Normally a fixed-ceiling run considers every cheaper tier. The loop's
+        # auto-escalation path sets this transiently so each ladder station
+        # evaluates only the newly opened intervention space.
+        self.min_tier = parse_tier(min_tier) if min_tier is not None else None
         self._score = score_fn or _default_score
         self.run_logger = run_logger
         self._cli_config = cli_config
@@ -684,6 +911,7 @@ class FixAgent:
         self._floor_candidates = (
             tuple(str(n) for n in floor_candidates) if floor_candidates else ()
         )
+        self._prewritten_code = str(prewritten_code or "")
         # Per-candidate scratch: case id -> the final output that was scored.
         # Filled by the strategy closures / run_pipeline capture while a
         # candidate runs; _validate moves it onto the FixValidation.
@@ -785,8 +1013,30 @@ class FixAgent:
                     candidate.trial = self._run_context.new_trial(
                         "fixes", f"{candidate.tier.label}_{candidate.name}"
                     )
+                logger.info(
+                    "FixAgent: validating tier=%s candidate=%s kind=%s source=%s",
+                    candidate.tier.label,
+                    candidate.name,
+                    candidate.kind,
+                    candidate.source,
+                )
                 validation = self._validate(candidate, model, data, baseline, unstable)
                 outcome.attempted.append(validation)
+                logger.info(
+                    "FixAgent: result tier=%s candidate=%s verdict=%s "
+                    "effect=%s fixed=%d broken=%d pairs=%d",
+                    candidate.tier.label,
+                    candidate.name,
+                    validation.verdict,
+                    (
+                        "n/a"
+                        if validation.effect is None
+                        else f"{validation.effect:+.4f}"
+                    ),
+                    validation.n_fixed,
+                    validation.n_broken,
+                    validation.n_pairs,
+                )
                 round_fixed = round_fixed or validation.fixed
             outcome.repair_rounds = round_idx + 1
             if round_fixed:
@@ -1068,14 +1318,13 @@ class FixAgent:
         )
         if context.hypotheses_note:
             hyp_lines = f"({context.hypotheses_note.strip()})\n{hyp_lines}"
-        # Full examples (prompt + the model's own output + expected answer)
-        # come from cases the proposer may see in full — the loop's EXPLORE
-        # split. Without such cases the examples are drawn from the validation
-        # batch itself and the expected answer is withheld (see FixContext).
+        # A repair proposer never receives expected/gold answers.  Examples
+        # contain only prompts and the model's recorded outputs; correctness is
+        # evaluated outside the agent on disjoint EXPLORE/CONFIRM partitions.
         if context.example_cases is not None:
-            examples = _format_examples(context.example_cases, with_gold=True)
+            examples = _format_examples(context.example_cases)
         else:
-            examples = _format_examples(data, with_gold=False)
+            examples = _format_examples(data)
         # A video frame is visual content too -- a video-only case batch (no
         # .image ever set, only .video) must not silently read as "no images"
         # and lock every image-gated L1/L2/L3 candidate out. This was found
@@ -1093,7 +1342,6 @@ class FixAgent:
         tasks = {
             str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data
         }
-        binary_hallucination_supported, _, _ = _binary_hallucination_direction(data)
         # Text-only batches: the image-tool catalog is noise for the judge and
         # an invitation to burn a candidate on a structural no-op.
         catalog = catalog_text() if has_images else _TEXT_ONLY_CATALOG_NOTE
@@ -1103,17 +1351,187 @@ class FixAgent:
         )
 
         candidates: "list[FixCandidate]" = []
+        # Pre-registered conditional repair for audio/other A-D tasks whose
+        # baseline never committed to an option.  It gates only on the
+        # observable output contract (never gold/correctness), so clean
+        # answers are preserved while malformed prose is re-asked and voted.
+        # Keeping it built-in also avoids asking codegen to rediscover this
+        # simple, high-frequency failure mode and then implement brittle
+        # option parsing from scratch.
+        malformed_name = "malformed_choice_consensus"
+        malformed_enabled = (
+            tasks == {"multiple_choice_letter"}
+            and malformed_name not in prior_names
+            and (
+                self._candidate_allowlist is None
+                or malformed_name in self._candidate_allowlist
+            )
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        )
+        if malformed_enabled:
+            spec = PipelineSpec(
+                name=malformed_name,
+                prompt_template=(
+                    "{prompt}\n\nListen to the audio evidence carefully and decide silently. "
+                    "Do not explain or repeat the choices. Reply with exactly one line: "
+                    "FINAL: X, where X is A, B, C, or D."
+                ),
+                n_samples=3,
+                generation_kwargs={"do_sample": True, "temperature": 0.35, "top_p": 0.9},
+                output_key_pattern=r"(?:FINAL(?:\s+ANSWER)?|ANSWER)\s*:\s*\(?([A-D])\)?",
+            )
+            candidates.append(
+                FixCandidate(
+                    tier=FixTier.L2_SCAFFOLD,
+                    name=malformed_name,
+                    kind="spec",
+                    source="conditional_default",
+                    payload=spec.to_dict(),
+                    predicate=_malformed_choice_predicate,
+                )
+            )
+        chart_name = "chart_arithmetic_verify"
+        chart_enabled = (
+            "exact_or_numeric" in tasks
+            and has_images
+            and chart_name not in prior_names
+            and self._candidate_allowlist is not None
+            and chart_name in self._candidate_allowlist
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        )
+        if chart_enabled:
+            spec = PipelineSpec(
+                name=chart_name,
+                prompt_template=(
+                    "Treat this as a chart measurement problem. First identify every "
+                    "legend/category and plotted value needed by the question, respecting "
+                    "the axis scale. Then perform the requested operation and independently "
+                    "check the arithmetic. Do all work internally and return only the short "
+                    "answer requested by the original question.\n\n{prompt}"
+                ),
+                strategy="chain_of_verification",
+            )
+            candidates.append(
+                FixCandidate(
+                    tier=FixTier.L2_SCAFFOLD,
+                    name=chart_name,
+                    kind="spec",
+                    source="conditional_default",
+                    payload=spec.to_dict(),
+                    predicate=_chart_arithmetic_predicate,
+                )
+            )
+        consensus_name = "chart_verified_consensus"
+        consensus_enabled = (
+            "exact_or_numeric" in tasks
+            and has_images
+            and consensus_name not in prior_names
+            and self._candidate_allowlist is not None
+            and consensus_name in self._candidate_allowlist
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        )
+        if consensus_enabled:
+            spec = PipelineSpec(
+                name=consensus_name,
+                prompt_template=(
+                    "Read the chart as measured evidence: identify the relevant labels, "
+                    "legend entries, marks, and axis scale; derive the requested answer; "
+                    "then check it independently. Work internally and return only the "
+                    "short answer requested.\n\n{prompt}"
+                ),
+                strategy="chain_of_verification",
+                n_samples=3,
+                generation_kwargs={"temperature": 0.35, "top_p": 0.9},
+                baseline_override_min_support=3,
+            )
+            candidates.append(
+                FixCandidate(
+                    tier=FixTier.L2_SCAFFOLD,
+                    name=consensus_name,
+                    kind="spec",
+                    source="conditional_default",
+                    payload=spec.to_dict(),
+                    predicate=_chart_case_predicate,
+                )
+            )
+        count_name = "upscale_count_extract"
+        count_enabled = (
+            "exact_or_numeric" in tasks
+            and has_images
+            and count_name not in prior_names
+            and self._candidate_allowlist is not None
+            and count_name in self._candidate_allowlist
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        )
+        if count_enabled:
+            count_spec = self._default_spec("upscale_sharpen")
+            if count_spec is not None:
+                count_spec.name = count_name
+                candidates.append(
+                    FixCandidate(
+                        tier=FixTier.L2_SCAFFOLD,
+                        name=count_name,
+                        kind="spec",
+                        source="conditional_default",
+                        payload=count_spec.to_dict(),
+                        predicate=_chart_count_extract_predicate,
+                    )
+                )
+        # An explicit allowlist is a pre-registration request. Built-in L2
+        # defaults must be materialised before any judge proposal/family-size
+        # truncation; filtering only afterwards could silently leave the run
+        # with attempted=0 even though the requested candidate exists.
+        requested_defaults = {
+            "self_consistency_5", "self_refine", "least_to_most",
+            "chain_of_verification", "upscale_sharpen", "zoom_equalize",
+        }
+        if (
+            self._candidate_allowlist is not None
+            and len(self._candidate_allowlist) == 1
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+        ):
+            requested = next(iter(self._candidate_allowlist))
+            if requested in requested_defaults and requested not in prior_names:
+                requested_spec = self._default_spec(requested)
+                if requested_spec is not None:
+                    candidates.append(
+                        FixCandidate(
+                            tier=FixTier.L2_SCAFFOLD,
+                            name=requested,
+                            kind="spec",
+                            source="pre_registered_default",
+                            payload=requested_spec.to_dict(),
+                        )
+                    )
         # A code-only run is a pre-registered autonomous-repair experiment.
         # Do not spend three judge calls inventing L0/L1/declarative/L3
         # candidates that the allowlist will discard afterwards; apart from
         # latency and quota waste, those calls can fail before the requested
         # coding agent is ever reached.
         code_only = self._candidate_allowlist == frozenset({"coded_pipeline"})
-        if not code_only and self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
-            candidates += self._l0_candidates(data, prior_names, model=model)
+        catalog_method_names = method_names()
+        preregistered_only = self._candidate_allowlist in {
+            frozenset({malformed_name}), frozenset({chart_name}),
+            frozenset({consensus_name}),
+            frozenset({count_name}),
+            *(frozenset({name}) for name in requested_defaults),
+        }
+        catalog_method_only = self._candidate_allowlist in {
+            frozenset({name}) for name in catalog_method_names
+        }
+        skip_lower_tiers = preregistered_only or catalog_method_only
         if (
             not code_only
+            and not skip_lower_tiers
+            and self.max_tier >= FixTier.L0_RUNTIME_CONFIG
+            and (self.min_tier is None or self.min_tier <= FixTier.L0_RUNTIME_CONFIG)
+        ):
+            candidates += self._runtime_candidates(data, prior_names)
+        if (
+            not code_only
+            and not skip_lower_tiers
             and self.max_tier >= FixTier.L1_PROMPT
+            and (self.min_tier is None or self.min_tier <= FixTier.L1_PROMPT)
             and not self._paper_methods_only
         ):
             candidates += self._l1_candidates(
@@ -1123,10 +1541,14 @@ class FixAgent:
                 prior_names,
                 has_images=has_images,
                 tasks=tasks,
-                binary_hallucination_supported=binary_hallucination_supported,
                 context_block=context_block,
             )
-        if not code_only and self.max_tier >= FixTier.L2_SCAFFOLD:
+        if (
+            not code_only
+            and not skip_lower_tiers
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+            and (self.min_tier is None or self.min_tier <= FixTier.L2_SCAFFOLD)
+        ):
             candidates += self._l2_candidates(
                 hyp_lines,
                 examples,
@@ -1151,7 +1573,9 @@ class FixAgent:
                             source="floor", payload=spec.to_dict(),
                         )
                     )
-        if self.max_tier >= FixTier.L2_SCAFFOLD and self.codegen_available:
+        if (not skip_lower_tiers and self.max_tier >= FixTier.L2_SCAFFOLD
+                and (self.min_tier is None or self.min_tier <= FixTier.L2_SCAFFOLD)
+                and self.codegen_available):
             # The coder-written pipeline is the ONE candidate a code-only run
             # exists to field, so it sits outside the ``not code_only`` gate
             # (nested inside it, --code-only proposed nothing at all).
@@ -1160,7 +1584,12 @@ class FixAgent:
                 context_block=context_block, catalog=catalog,
                 text_only=not has_images,
             )
-        if not code_only and self.max_tier >= FixTier.L3A_INTERNALS_READ:
+        if (
+            not code_only
+            and not preregistered_only
+            and self.max_tier >= FixTier.L3A_INTERNALS_READ
+            and (self.min_tier is None or self.min_tier <= FixTier.L3A_INTERNALS_READ)
+        ):
             candidates += self._l3_candidates(
                 hyp_lines,
                 model,
@@ -1169,10 +1598,16 @@ class FixAgent:
                 has_images=has_images,
                 has_audio=has_audio,
                 tasks=tasks,
-                binary_hallucination_supported=binary_hallucination_supported,
             )
-        if not code_only and self.max_tier >= FixTier.L4_PARAMETERS:
+        if (
+            not code_only
+            and not skip_lower_tiers
+            and self.max_tier >= FixTier.L4_PARAMETERS
+            and (self.min_tier is None or self.min_tier <= FixTier.L4_PARAMETERS)
+        ):
             candidates += self._l4_candidates(hyp_lines)
+        if self.min_tier is not None:
+            candidates = [c for c in candidates if c.tier >= self.min_tier]
         if self._candidate_allowlist is not None:
             candidates = [c for c in candidates if c.name in self._candidate_allowlist]
         self._enforce_generation_floor(candidates)
@@ -1223,6 +1658,22 @@ class FixAgent:
         if name == "chain_of_verification":
             return PipelineSpec(name="chain_of_verification", prompt_template="{prompt}",
                                 strategy="chain_of_verification")
+        if name == "upscale_sharpen":
+            return PipelineSpec(
+                name="upscale_sharpen",
+                image_ops=[
+                    {"tool": "upscale", "params": {"factor": 2.0}},
+                    {"tool": "sharpen", "params": {"factor": 2.0}},
+                ],
+            )
+        if name == "zoom_equalize":
+            return PipelineSpec(
+                name="zoom_equalize",
+                image_ops=[
+                    {"tool": "zoom_center", "params": {"factor": 1.6}},
+                    {"tool": "equalize", "params": {}},
+                ],
+            )
         return None
 
     def _resolve_max_tokens_floor(self, model: "Model | None", data: "CaseBatch") -> "int | None":
@@ -1337,21 +1788,12 @@ class FixAgent:
         if not lines:
             return ""
         return "\n" + "\n".join(lines) + "\n"
-    def _l0_candidates(
+    def _runtime_candidates(
         self,
         data: "CaseBatch",
         prior_names: "frozenset[str]" = frozenset(),
-        *,
-        model: "Model | None" = None,
     ) -> "list[FixCandidate]":
-        """Propose a bounded decoding repair only from recorded telemetry.
-
-        A short answer is not proof of truncation.  We require a backend to
-        record ``metadata['finish_reason'] == 'length'`` and the baseline
-        ``metadata['generation_config']['max_tokens']`` for at least one
-        failing case. This makes the candidate useful for any OpenAI-style or
-        local backend while preventing prompt-specific guesswork.
-        """
+        """Propose a decode-budget repair only from recorded telemetry."""
         caps: "list[int]" = []
         policy_caps: "list[int]" = []
         for case in data:
@@ -1374,10 +1816,8 @@ class FixAgent:
                 continue
             if cap < policy_cap <= 8192:
                 policy_caps.append(policy_cap)
+
         out: "list[FixCandidate]" = []
-        # A single, auditable policy: use the deployment's explicit safe cap
-        # when present; otherwise double the observed cap. Use the maximum seen
-        # cap so a mixed batch never *reduces* any case's decode budget.
         if caps and "increase_max_tokens" not in prior_names:
             old_cap = max(caps)
             new_cap = max(policy_caps) if policy_caps else min(8192, old_cap * 2)
@@ -1395,193 +1835,6 @@ class FixAgent:
                         payload=spec.to_dict(),
                     )
                 )
-
-        # VCD (Leng et al., CVPR 2024) is a decoding-space repair for binary
-        # visual-grounding tasks. It contrasts first-token logits from the
-        # original and a diffusion-distorted image. Do not offer it for open
-        # generation: applying a first-token approximation there would not be
-        # the paper's method. Backends opt in explicitly via ``generate_vcd``.
-        from evalvitals.core.capability import Capability
-
-        tasks = {str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data}
-        supports_logprobs = bool(
-            model is not None and Capability.LOGPROBS in getattr(model, "capabilities", frozenset())
-        )
-        supports_vcd = supports_logprobs and callable(getattr(model, "generate_vcd", None))
-        # VCD distorts an IMAGE; a multimodal backend exposes generate_vcd even
-        # when this batch is audio-only (caught live: audiocaps_hallucination
-        # proposed both VCD candidates, each ran as not_executed). Require a
-        # visual input on at least one case, like every other visual tier.
-        has_visual = any(
-            getattr(getattr(case, "inputs", None), "image", None) is not None
-            or getattr(getattr(case, "inputs", None), "video", None) is not None
-            for case in data
-        )
-        supports_vcd = supports_vcd and has_visual
-        hallucination_direction_supported, _, _ = _binary_hallucination_direction(data)
-        if (
-            tasks == {"yes_no"}
-            and supports_vcd
-            and hallucination_direction_supported
-            and "vcd_diffusion_noise" not in prior_names
-        ):
-            # VCD appendix A fixes POPE's total diffusion steps at 999
-            # (MME/LLaVA-Bench use 500), with alpha=1 and beta=0.1.
-            vcd_payload = {
-                "alpha": 1.0,
-                "beta": 0.1,
-                "noise_step": 999,
-            }
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
-                    name="vcd_diffusion_noise",
-                    kind="vcd",
-                    source="paper_default",
-                    payload=vcd_payload,
-                )
-            )
-        # Gated sibling (defect 3's refine_signal, operationalised): VCD is a
-        # *suppressive* repair -- it is the right direction only on cases
-        # where the baseline asserted an object the image doesn't support
-        # (false-Yes). Proposing this alongside the ungated candidate lets a
-        # near-cancelling whole-slice result (helps false-Yes cases, hurts
-        # false-No ones -- exactly the "heterogeneous_failure_mode" pattern
-        # every POPE report already surfaces) resolve into a real, narrower
-        # fix instead of a null. The predicate reads each case's own
-        # already-recorded baseline expected/observed -- never a selection or
-        # confirmation outcome -- so this is a candidate design choice, not a
-        # post-hoc tuning of which cases to report.
-        if (
-            tasks == {"yes_no"}
-            and supports_vcd
-            and "vcd_diffusion_noise_gated_false_yes" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
-                    name="vcd_diffusion_noise_gated_false_yes",
-                    kind="vcd",
-                    source="conditional_default",
-                    payload={"alpha": 1.0, "beta": 0.1, "noise_step": 999},
-                    predicate=_false_yes_predicate,
-                )
-            )
-        # AAD (Hsu et al. 2025, arXiv:2506.07233) is VCD's same shape applied
-        # to audio instead of an image: contrasts real-audio decoding against
-        # the identical prompt with the waveform silenced, at every step. No
-        # internals read (no attention weights, no layer stability) -- just
-        # two generate()-compatible forward passes and a LogitsProcessor, the
-        # same cost/risk class as VCD, so it belongs at L0 next to it, not
-        # gated through the L3a judge-selected paper-method catalog.
-        paper_fidelity_early = getattr(model, "paper_method_fidelity", None)
-        aad_fidelity = (
-            paper_fidelity_early("aad") if callable(paper_fidelity_early) else "unavailable"
-        )
-        supports_aad = callable(getattr(model, "generate_aad", None))
-        if (
-            tasks == {"yes_no"}
-            and supports_aad
-            and aad_fidelity == "native_silence_contrast"
-            and hallucination_direction_supported
-            and "aad_silence_contrast" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
-                    name="aad_silence_contrast",
-                    kind="aad",
-                    source="paper_default",
-                    payload={"alpha": 0.5},
-                )
-            )
-        # Gated sibling, same reasoning as vcd_diffusion_noise_gated_false_yes
-        # above: AAD is suppressive (promotes tokens whose probability rises
-        # WITH audio, i.e. demotes an audio-ungrounded over-affirmation), so
-        # it is the right direction only on false-Yes cases.
-        if (
-            tasks == {"yes_no"}
-            and supports_aad
-            and aad_fidelity == "native_silence_contrast"
-            and "aad_silence_contrast_gated_false_yes" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
-                    name="aad_silence_contrast_gated_false_yes",
-                    kind="aad",
-                    source="conditional_default",
-                    payload={"alpha": 0.5},
-                    predicate=_false_yes_predicate,
-                )
-            )
-        # ICD (Wang et al., ACL 2024) has the same binary, token-level
-        # admission requirements but its negative condition is an instruction
-        # disturbance rather than a corrupted image.  A backend can expose an
-        # architecture-native method (e.g. an InstructBLIP Q-Former) or an
-        # explicitly labelled architecture-adapted implementation.
-        paper_fidelity = getattr(model, "paper_method_fidelity", None)
-        icd_fidelity = paper_fidelity("icd") if callable(paper_fidelity) else "unavailable"
-        if (
-            tasks == {"yes_no"}
-            and supports_logprobs
-            and hallucination_direction_supported
-            and callable(getattr(model, "generate_instruction_cd", None))
-            and (
-                icd_fidelity in {"exact", "native_binary_specialization"}
-                or (icd_fidelity == "adapted" and self._allow_adapted_paper_methods)
-            )
-            and "icd_instruction_disturbance" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
-                    name="icd_instruction_disturbance",
-                    kind="icd",
-                    source="paper_default",
-                    payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"},
-                )
-            )
-            # The official ICD POPE runner evaluates both Q-Former conditions:
-            # disturbance alone and disturbance concatenated with the question.
-            # The latter exists only on the native Q-Former architecture; a
-            # decoder-prefix approximation would be a new, ungrounded method.
-            if (
-                icd_fidelity in {"exact", "native_binary_specialization"}
-                and "icd_instruction_disturbance_question" not in prior_names
-            ):
-                out.append(
-                    FixCandidate(
-                        tier=FixTier.L0_RUNTIME_CONFIG,
-                        name="icd_instruction_disturbance_question",
-                        kind="icd",
-                        source="paper_default",
-                        payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "question"},
-                    )
-                )
-        # Gated sibling, same rationale as VCD's above: ICD is also
-        # suppressive, so restrict it to the per-case false-Yes subset rather
-        # than requiring the whole slice to be false-Yes dominant.
-        if (
-            tasks == {"yes_no"}
-            and supports_logprobs
-            and callable(getattr(model, "generate_instruction_cd", None))
-            and (
-                icd_fidelity in {"exact", "native_binary_specialization"}
-                or (icd_fidelity == "adapted" and self._allow_adapted_paper_methods)
-            )
-            and "icd_instruction_disturbance_gated_false_yes" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L0_RUNTIME_CONFIG,
-                    name="icd_instruction_disturbance_gated_false_yes",
-                    kind="icd",
-                    source="conditional_default",
-                    payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"},
-                    predicate=_false_yes_predicate,
-                )
-            )
         return out
 
     @staticmethod
@@ -1590,11 +1843,9 @@ class FixAgent:
 
         Coded pipelines carry fresh source each round, so they never collide;
         templates / specs / primitives dedup on their defining payload. The
-        candidate's ``name`` is always part of the signature: two candidates
-        can share a kind and payload while differing only in ``predicate``
-        (for example a paper method and its per-case-gated sibling, see
-        ``_false_yes_predicate``) -- that is a different candidate, not a
-        duplicate, and must not be silently dropped by the round's dedup set.
+        candidate's ``name`` is always part of the signature, so separately
+        registered experiments never collapse merely because their defaults
+        happen to match.
         """
         p = candidate.payload
         if candidate.kind == "template":
@@ -1622,7 +1873,6 @@ class FixAgent:
         *,
         has_images: bool = False,
         tasks: "set[str] | None" = None,
-        binary_hallucination_supported: bool = True,
         context_block: str = "",
     ) -> "list[FixCandidate]":
         proposals = self._ask_judge(
@@ -1650,6 +1900,7 @@ class FixAgent:
                         tier=FixTier.L1_PROMPT,
                         name=name,
                         kind="template",
+                        description=_judge_description(p),
                         payload={"prompt_template": template},
                     )
                 )
@@ -1673,40 +1924,6 @@ class FixAgent:
                         )
                     },
                 ),
-            )
-        # Dual of the direction gate that withholds VCD/ICD/OPERA/PAI/IFCD on
-        # a false-No-dominant slice (_binary_hallucination_direction): those
-        # methods are all suppressive (push away from asserting an object),
-        # which is the wrong direction for under-claiming. This is the
-        # opposite-direction lever within our own framework -- a prompt that
-        # asks the model to accept partial/ambiguous visual evidence rather
-        # than requiring certainty before answering Yes. It is scoped to the
-        # same batch-level diagnosis signal (never a specific case's outcome)
-        # and only proposed for binary tasks where the direction is not
-        # false-Yes-dominant, so it is never offered alongside (and diluting)
-        # the already-validated false-Yes-side candidates.
-        if (
-            has_images
-            and tasks == {"yes_no"}
-            and not binary_hallucination_supported
-            and "assertive_grounding" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L1_PROMPT,
-                    name="assertive_grounding",
-                    kind="template",
-                    source="default",
-                    payload={
-                        "prompt_template": (
-                            "Inspect the image for {failure_axis}. If there is plausible visual "
-                            "evidence for the object or attribute in the question -- even if "
-                            "partial, small, or ambiguous -- answer Yes. Only answer No if you "
-                            "are confident no such evidence is present anywhere in the "
-                            "image.\n\n{prompt}"
-                        )
-                    },
-                )
             )
         if not out and not has_structural_proposal and "attend_carefully" not in prior_names:
             # The judge gave nothing usable: one conservative default. Worded
@@ -1765,7 +1982,10 @@ class FixAgent:
             spec = PipelineSpec.from_dict(p) if isinstance(p, dict) else None
             if spec is not None:
                 out.append(
-                    FixCandidate(tier=FixTier.L2_SCAFFOLD, name=spec.name, payload=spec.to_dict())
+                    FixCandidate(
+                        tier=FixTier.L2_SCAFFOLD, name=spec.name,
+                        description=_judge_description(p), payload=spec.to_dict(),
+                    )
                 )
         if not out:
             image_defaults = [
@@ -2051,7 +2271,7 @@ class FixAgent:
             if self._run_context is not None
             else None
         )
-        enable_attend = (
+        attend_available = (
             self.max_tier >= FixTier.L3A_INTERNALS_READ
             and Capability.ATTENTION in getattr(model, "capabilities", frozenset())
         )
@@ -2061,9 +2281,10 @@ class FixAgent:
                 '{"grid": [[float,...],...], "shape": [H, W]}  is ALSO defined: '
                 "the model's attention heatmap over image patches (read-only "
                 "internals). Use it e.g. to find where the model looks, then "
-                "crop_region there and re-ask."
+                "crop_region there and re-ask. This forward pass counts as ONE "
+                "of the per-case model-call budget below."
             )
-            if enable_attend
+            if attend_available
             else ""
         )
         code, source, prompt, raw = "", "", "", ""
@@ -2085,13 +2306,20 @@ class FixAgent:
             selection_guidance=selection_guidance,
             min_support=min_support,
         )
-        if self._cli_config is not None and self._cli_config.provider != "llm":
+        if self._prewritten_code.strip():
+            code = self._prewritten_code
+            source = "prewritten"
+            prompt = "Frozen prewritten coded pipeline supplied by the caller."
+        elif self._cli_config is not None and self._cli_config.provider != "llm":
             prompt = (
                 _L2_CODE_PROMPT.format(fences_hint=", written to a file named pipeline.py", **base)
                 + prior_text
             )
             code, raw = self._write_code_cli(prompt, trial)
             source = f"cli:{self._cli_config.provider}"
+            if _code_copies_example(code, examples) or _code_redefines_model_bridge(code):
+                logger.warning("FixAgent: generated code violated anti-memorization/bridge rules; dropped")
+                code = ""
         if not code.strip() and self._judge is not None:
             self._last_raw_stream = ""
             prompt = (
@@ -2115,17 +2343,26 @@ class FixAgent:
                     logger.warning("FixAgent: judge code failed to parse; dropped")
                     code = ""
             source = "judge"
+        if _code_copies_example(code, examples) or _code_redefines_model_bridge(code):
+            logger.warning("FixAgent: generated code violated anti-memorization/bridge rules; dropped")
+            code = ""
         self._emit_codegen(
             "coded_pipeline", prompt, source, code, raw, ok=bool(code.strip()), trial=trial
         )
         if not code.strip():
             return []
+        # Classify by the intervention the generated program actually uses,
+        # not by an optional bridge merely being advertised in its prompt.
+        # This prevents black-box multi-call/image-tool scaffolds from being
+        # reported as L3a just because the model happens to expose attention.
+        enable_attend = attend_available and _code_calls_name(code, "model_attend")
         tier = FixTier.L3A_INTERNALS_READ if enable_attend else FixTier.L2_SCAFFOLD
         return [
             FixCandidate(
                 tier=tier,
                 name="coded_pipeline",
                 kind="code",
+                description=_code_description(code),
                 payload={
                     "code": code,
                     "enable_attend": enable_attend,
@@ -2146,12 +2383,13 @@ class FixAgent:
         if prior_text:
             return (
                 "- This is a FEEDBACK-DRIVEN EXPLORE revision. Use the prior "
-                "helped/hurt prompts and implementation below as training "
-                "feedback. Gate the revised fix on a prompt/task subtype that "
-                "actually benefited and return baseline_output (the direct "
-                "baseline) elsewhere. If the prior attempt repaired zero "
-                "cases, abandon its override mechanism instead of merely "
-                "retuning it."
+                "aggregate fixed/broken counts and implementation below as "
+                "training feedback. Raw case IDs, prompts, and answers are "
+                "deliberately withheld: revise the general mechanism, never "
+                "match a benchmark item or phrase. Keep baseline_output outside "
+                "a label-free, generally applicable gate. If the prior attempt "
+                "repaired zero cases, abandon its override mechanism instead of "
+                "merely retuning it."
             )
         if self.max_repair_rounds > 1:
             return (
@@ -2217,16 +2455,11 @@ class FixAgent:
     ) -> str:
         """Format failed prior attempts as a context block for judge prompts.
 
-        Beyond "try a different mechanism", this surfaces the *partition* a
-        prior candidate induced (helped vs hurt) so the next proposal can scope
-        the fix instead of blindly transforming the whole population — a
-        candidate that helps one subset and breaks another is asking to be
-        gated by a predicate, not replaced (defect 3).
+        Only aggregate outcomes and the attempted implementation are exposed.
+        Raw IDs, prompts, and answers would let a later round memorize EXPLORE
+        cases, so they never enter repair feedback.
         """
-        prompt_by_id = {
-            case.id: str(getattr(getattr(case, "inputs", None), "prompt", ""))
-            for case in (data or [])
-        }
+        del data
         items = []
         implementations = []
         heterogeneous = []
@@ -2235,24 +2468,14 @@ class FixAgent:
             if c.kind == "finetune_spec":
                 continue
             effect = f"effect={v.effect:+.2f}" if v.effect is not None else "did not execute"
-            broken = f", broke {v.broken_cases[:3]}" if v.broken_cases else ""
             trunc = (
                 f"; {v.n_truncated} model call(s) hit the decode cap — its breaks are "
                 "truncation, not the idea: give the model MORE room, never less"
                 if v.n_truncated else ""
             )
-            helped_prompts = [
-                prompt_by_id.get(case_id, "")[:180]
-                for case_id in v.fixed_cases[:8]
-            ]
-            hurt_prompts = [
-                prompt_by_id.get(case_id, "")[:180]
-                for case_id in v.broken_cases[:8]
-            ]
             items.append(
                 f"- [{c.tier.label}/{c.kind}] {c.name}: "
-                f"{v.n_fixed} fixed / {v.n_broken} broken ({effect}{broken}{trunc}); "
-                f"helped prompts={helped_prompts}; hurt prompts={hurt_prompts}"
+                f"{v.n_fixed} fixed / {v.n_broken} broken ({effect}{trunc})"
             )
             code = c.payload.get("code") if c.kind == "code" else None
             if isinstance(code, str) and code.strip():
@@ -2261,11 +2484,10 @@ class FixAgent:
                 )
             if v.n_fixed > 0 and v.n_broken > 0:
                 heterogeneous.append(
-                    f"  '{c.name}' HELPED {v.fixed_cases[:4]} but HURT "
-                    f"{v.broken_cases[:4]} — these two groups differ; either gate "
-                    "the fix so it only applies to the helped group, or target the "
-                    f"mechanism that separates them. HELPED PROMPTS={helped_prompts}; "
-                    f"HURT PROMPTS={hurt_prompts}."
+                    f"  '{c.name}' helped {v.n_fixed} and hurt {v.n_broken} cases. "
+                    "The effect is heterogeneous, but case-level content is withheld; "
+                    "replace the mechanism or derive a label-free gate from runtime "
+                    "signals available on every future case."
                 )
         if not items:
             return ""
@@ -2350,269 +2572,129 @@ class FixAgent:
         has_images: bool = False,
         has_audio: bool = False,
         tasks: "set[str] | None" = None,
-        binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
-        """Judge-parameterised configs of the pre-audited internals primitives."""
+        """Select from the repair capabilities discovered at runtime.
+
+        This layer is intentionally method-agnostic: executor names, fidelity
+        gates, task compatibility, defaults, and evidence-facing descriptions
+        live in :mod:`repair_catalog`.  The judge sees only structurally
+        executable entries and performs mechanism matching against diagnosis.
+        """
         out: "list[FixCandidate]" = []
 
         def finalize(options: "list[FixCandidate]") -> "list[FixCandidate]":
-            # A frozen experiment may request a later catalogued candidate.
-            # Apply that allowlist before the ordinary proposal cap; otherwise
-            # an unrelated earlier default can silently erase the requested
-            # paper route before ``_propose`` gets a chance to filter it.
             if self._candidate_allowlist is not None:
                 options = [c for c in options if c.name in self._candidate_allowlist]
             return options[: self.max_judge_candidates]
-        # Paper-method routes (OPERA/ViCrop/IFCD/PAI/TCD): each targets ONE
-        # named failure mechanism, not "any failure this model/task shape can
-        # exhibit". The condition below for each is STRUCTURAL eligibility
-        # only -- can it physically run at all (capability, modality, task
-        # shape, paper_method_fidelity, tier ceiling, not already tried)?
-        # Whether its mechanism actually matches what was diagnosed is a
-        # judgment call, not a fact you can `in`-check off the hypothesis
-        # string -- so it is delegated to the judge below, over the catalog
-        # of only the structurally-eligible candidates. No judge configured
-        # -> _ask_judge returns [] -> no paper-method candidate is proposed;
-        # there is no keyword fallback (a substring match is not a decision,
-        # it is a hardcoded stand-in for one -- that was the actual gap here,
-        # not that TCD specifically lacked a keyword list PAI/OPERA had).
-        paper_fidelity = getattr(model, "paper_method_fidelity", None)
-        opera_fidelity = paper_fidelity("opera") if callable(paper_fidelity) else "unavailable"
-        vicrop_fidelity = paper_fidelity("vicrop") if callable(paper_fidelity) else "unavailable"
-        pai_fidelity = paper_fidelity("pai") if callable(paper_fidelity) else "unavailable"
-        # IFCD needs a trained TruthX representation editor. The available
-        # public Vicuna artifact is useful for a controlled transfer trial,
-        # but it is not IFCD's MSCOCO-trained editor, so it is opt-in through
-        # ``allow_adapted_paper_methods`` and never passed off as native.
-        ifcd_fidelity = paper_fidelity("ifcd") if callable(paper_fidelity) else "unavailable"
-        # TCD (Li et al. 2026, arXiv:2604.15383) is a decoding-time repair for
-        # unified audio-language models -- not a POPE-style yes_no task, so
-        # scoped separately from the VCD/ICD/OPERA binary-hallucination
-        # candidates. Needs ATTENTION (the decoder's audio-attention ratio
-        # drives both the stability score and the per-step gate) on top of
-        # the audio encoder's own hidden states, so it belongs at L3a like
-        # OPERA, not L0 like VCD.
-        tcd_fidelity = paper_fidelity("tcd") if callable(paper_fidelity) else "unavailable"
 
-        _eligible: "list[tuple[str, FixCandidate, str]]" = []
-        if (
-            has_images
-            and tasks == {"yes_no"}
-            and binary_hallucination_supported
-            and callable(getattr(model, "generate_opera_binary", None))
-            and opera_fidelity == "native_binary_specialization"
-            and "opera_overtrust_binary" not in prior_names
-        ):
-            _eligible.append((
-                "opera_overtrust_binary",
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="opera_overtrust_binary",
-                    kind="opera",
-                    source="paper_default_binary_specialization",
-                    payload={"num_attn_candidates": 5, "penalty_weight": 1.0},
-                ),
-                "OPERA: on binary yes/no questions, penalises next-token candidates "
-                "that neglect image attention during decoding -- targets object/"
-                "attribute hallucination caused by language priors overriding visual "
-                "evidence (POPE-style over-trust).",
-            ))
-        # ViCrop (MLLMs Know Where to Look, ICLR 2025) is a read-only,
-        # architecture-native paper route: task/general attention ratio,
-        # adaptive crop, and an original+crop answer.  It must not be proposed
-        # for a model whose vision/attention contract differs from LLaVA.
-        if (
-            has_images
-            and callable(getattr(model, "generate_vicrop", None))
-            and vicrop_fidelity == "native_selector_specialization"
-            and "vicrop_relative_attention" not in prior_names
-        ):
-            _eligible.append((
-                "vicrop_relative_attention",
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="vicrop_relative_attention",
-                    kind="vicrop",
-                    source="paper_default",
-                    payload={"layer": 14},
-                ),
-                "ViCrop: uses attention to locate and crop the relevant image region "
-                "before re-answering -- targets SMALL or LOCAL visual detail missed at "
-                "the model's native resolution (tiny text, small objects, fine detail), "
-                "not general hallucination and not a knowledge gap.",
-            ))
-        # This is a label-free deployment guard for transferring ViCrop to a
-        # new local-detail benchmark, not a claim that the paper used it.
-        if (
-            has_images
-            and callable(getattr(model, "generate_vicrop_consensus", None))
-            and vicrop_fidelity == "native_selector_specialization"
-            and "vicrop_consensus_guard" not in prior_names
-        ):
-            _eligible.append((
-                "vicrop_consensus_guard",
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="vicrop_consensus_guard",
-                    kind="vicrop_consensus",
-                    source="safety_guard",
-                    payload={"layer": 14},
-                ),
-                "ViCrop (consensus-guarded): the same small/local visual-detail "
-                "crop-and-reanswer repair as vicrop_relative_attention, but only "
-                "applies the cropped answer when it agrees with the original -- same "
-                "target mechanism, a safety variant, not a different mechanism.",
-            ))
-        if (
-            self.max_tier >= FixTier.L3B_INTERNALS_WRITE
-            and has_images
-            and tasks == {"yes_no"}
-            and binary_hallucination_supported
-            and callable(getattr(model, "generate_ifcd", None))
-            and ifcd_fidelity == "adapted_truthx_artifact"
-            and self._allow_adapted_paper_methods
-            and "ifcd_truthx_contrast" not in prior_names
-        ):
-            _eligible.append((
-                "ifcd_truthx_contrast",
-                FixCandidate(
-                    tier=FixTier.L3B_INTERNALS_WRITE,
-                    name="ifcd_truthx_contrast",
-                    kind="ifcd",
-                    source="paper_adapted_truthx_artifact",
-                    payload={"alpha": 0.1, "beta": 0.1, "edit_strength": 0.5, "top_layers": 15},
-                ),
-                "IFCD: on binary yes/no questions, contrasts internal representations "
-                "against a trained truthfulness-editing direction -- targets the same "
-                "object/attribute hallucination (language priors overriding visual "
-                "evidence) as OPERA, via representation editing instead of "
-                "decoding-time attention.",
-            ))
-        # PAI (ECCV 2024) is a distinct LLaVA mechanism: it changes the
-        # image-attention logits while decoding, so it is an L3b intervention.
-        # The native executor pairs the paper's attention branch with its
-        # classifier-free-guidance cache; the source's pinned LLaVA stack is
-        # still recorded as an architecture specialization.
-        if (
-            self.max_tier >= FixTier.L3B_INTERNALS_WRITE
-            and has_images
-            and (tasks != {"yes_no"} or binary_hallucination_supported)
-            and callable(getattr(model, "generate_pai", None))
-            and pai_fidelity == "native_attention_cfg_specialization"
-            and "pai_image_attention" not in prior_names
-        ):
-            _eligible.append((
-                "pai_image_attention",
-                FixCandidate(
-                    tier=FixTier.L3B_INTERNALS_WRITE,
-                    name="pai_image_attention",
-                    kind="pai",
-                    source="paper_default_attention_cfg",
-                    payload={
-                        "alpha": 0.2,
-                        "guidance_scale": 2.0,
-                        "start_layer": 2,
-                        "end_layer": 32,
-                    },
-                ),
-                "PAI: amplifies image-attention logits during decoding via "
-                "classifier-free guidance -- targets the same hallucination / "
-                "language-prior-override mechanism as OPERA/IFCD, for open-ended "
-                "(not just yes/no) tasks.",
-            ))
-        if (
-            has_audio
-            and tasks == {"multiple_choice"}
-            and callable(getattr(model, "generate_tcd", None))
-            and callable(getattr(model, "generate_tcd_baseline", None))
-            and (
-                tcd_fidelity == "native_layer_matched_stability"
-                or (
-                    tcd_fidelity == "adapted_truncated_layer_stability"
-                    and self._allow_adapted_paper_methods
-                )
+        discovered = discover_methods(
+            model,
+            max_tier=self.max_tier,
+            has_images=has_images,
+            has_audio=has_audio,
+            tasks=tasks or set(),
+            allow_adapted=self._allow_adapted_paper_methods,
+            prior_names=prior_names,
+        )
+        if discovered:
+            by_name = {method.name: method for method in discovered}
+            catalog_lines = "\n".join(
+                f"- {method.name} [{method.tier.label}]: {method.description}"
+                for method in discovered
             )
-            and "tcd_temporal_blur" not in prior_names
-        ):
-            # No payload tuning: Table 6's own framing is "a single default
-            # configuration... requires little tuning" -- the blur window and
-            # update scale are already per-example adaptive (Eq. 5-6), so an
-            # empty payload runs generate_tcd() at TCDHyperparams() defaults
-            # rather than inventing a sweep the paper itself doesn't do.
-            _eligible.append((
-                "tcd_temporal_blur",
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="tcd_temporal_blur",
-                    kind="tcd",
-                    source="paper_default",
-                    payload={},
-                ),
-                "TCD: contrasts decoding against a temporally-blurred version of the "
-                "audio -- targets under-weighting of TRANSIENT, fine-grained acoustic "
-                "detail (brief sounds, precise event timing/counting, telling multiple "
-                "speakers apart) in favour of temporally-smooth context or language "
-                "priors, on audio multiple-choice questions. Does NOT address a flat "
-                "audio-perception knowledge gap (the answer is never in the model's "
-                "sample pool at all) or a positional/letter-choice bias unrelated to "
-                "audio content.",
-            ))
+            requested = (
+                next(iter(self._candidate_allowlist))
+                if self._candidate_allowlist is not None
+                and len(self._candidate_allowlist) == 1
+                else None
+            )
+            selected_names: list[str]
+            if requested in by_name:
+                # A one-name allowlist is a frozen experiment. Structural
+                # discovery still gates it, but mechanism matching is already
+                # pre-registered and cannot be vetoed by a fresh judge call.
+                selected_names = [requested]
+            else:
+                selected_names = []
+                for proposal in self._ask_judge(
+                    _REPAIR_CATALOG_PROMPT.format(
+                        hypotheses=hyp_lines,
+                        catalog=catalog_lines,
+                        k=self.max_judge_candidates,
+                    )
+                    + prior_text
+                ):
+                    name = str(proposal.get("name", ""))
+                    if name in by_name and name not in selected_names:
+                        selected_names.append(name)
+            for name in selected_names:
+                method = by_name[name]
+                out.append(
+                    FixCandidate(
+                        tier=method.tier,
+                        name=method.name,
+                        kind="registered_repair",
+                        source=method.source,
+                        payload={
+                            "executor": method.executor,
+                            "baseline_executor": method.baseline_executor,
+                            "kwargs": dict(method.payload),
+                            "pass_baseline_answer": method.pass_baseline_answer,
+                        },
+                    )
+                )
 
-        if _eligible:
-            by_name = {name: cand for name, cand, _desc in _eligible}
-            catalog_lines = "\n".join(f"- {name}: {desc}" for name, _cand, desc in _eligible)
-            picked: "set[str]" = set()
-            for p in self._ask_judge(
-                _PAPER_METHOD_PROMPT.format(
-                    hypotheses=hyp_lines, catalog=catalog_lines, k=self.max_judge_candidates,
+        # Generic pre-audited internals-write primitives share the same
+        # evidence-driven selection path but are registered separately because
+        # they are host hooks rather than model-provided executor capabilities.
+        catalog = primitives_catalog_text(model, self.max_tier)
+        if catalog:
+            for proposal in self._ask_judge(
+                _L3_PROMPT.format(
+                    hypotheses=hyp_lines,
+                    catalog=catalog,
+                    k=self.max_judge_candidates,
                 )
                 + prior_text
             ):
-                name = str(p.get("name", ""))
-                if name in by_name and name not in picked:
-                    picked.add(name)
-                    out.append(by_name[name])
-
-        catalog = primitives_catalog_text(model, self.max_tier)
-        if not catalog:
-            if not out:
-                logger.info("FixAgent: no L3 primitive is available for %r", model)
-            return finalize(out)
-        for p in self._ask_judge(
-            _L3_PROMPT.format(hypotheses=hyp_lines, catalog=catalog, k=self.max_judge_candidates)
-            + prior_text
-        ):
-            prim = INTERNALS_PRIMITIVES.get(str(p.get("primitive", "")))
-            if prim is None or prim.tier > self.max_tier or not prim.available(model):
-                continue
-            out.append(
-                FixCandidate(
-                    tier=prim.tier,
-                    name=prim.name,
-                    kind="primitive",
-                    payload={"primitive": prim.name, "params": dict(p.get("params") or {})},
-                )
-            )
-        if not out:
-            # Internals-WRITE defaults only; reads (L3a) are authored by the
-            # coded pipeline against model_attend(), not proposed as primitives.
-            defaults = {
-                "visual_embedding_boost": {"gamma": 1.5},
-            }
-            for name, params in defaults.items():
-                if name in prior_names:
+                primitive = INTERNALS_PRIMITIVES.get(str(proposal.get("primitive", "")))
+                if (
+                    primitive is None
+                    or primitive.tier > self.max_tier
+                    or not primitive.available(model)
+                ):
                     continue
-                prim = INTERNALS_PRIMITIVES[name]
-                if prim.tier <= self.max_tier and prim.available(model):
+                out.append(
+                    FixCandidate(
+                        tier=primitive.tier,
+                        name=primitive.name,
+                        kind="primitive",
+                        payload={
+                            "primitive": primitive.name,
+                            "params": dict(proposal.get("params") or {}),
+                        },
+                    )
+                )
+        if not out and catalog:
+            # Registry defaults are a fallback only when the judge returned no
+            # executable choice; no paper method is special-cased here.
+            for primitive in INTERNALS_PRIMITIVES.values():
+                if (
+                    primitive.name not in prior_names
+                    and primitive.tier <= self.max_tier
+                    and primitive.available(model)
+                ):
                     out.append(
                         FixCandidate(
-                            tier=prim.tier,
-                            name=name,
+                            tier=primitive.tier,
+                            name=primitive.name,
                             kind="primitive",
                             source="default",
-                            payload={"primitive": name, "params": params},
+                            payload={"primitive": primitive.name, "params": {}},
                         )
                     )
+        if not out and not catalog and not discovered:
+            logger.info("FixAgent: no L3 repair capability is available for %r", model)
         return finalize(out)
 
     def _l4_candidates(self, hyp_lines: str) -> "list[FixCandidate]":
@@ -2847,126 +2929,30 @@ class FixAgent:
         self, candidate: FixCandidate
     ) -> "Callable[[Model, FailureCase], Optional[bool]]":
         """Compile a candidate to a per-case success function (ab_runner shape)."""
-        if candidate.kind == "vcd":
+        if candidate.kind == "registered_repair":
 
-            def vcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
+            def registered_repair(
+                model: "Model", case: "FailureCase"
+            ) -> "Optional[bool]":
+                executor_name = str(candidate.payload.get("executor", ""))
+                kwargs = dict(candidate.payload.get("kwargs") or {})
+                if candidate.payload.get("pass_baseline_answer"):
+                    kwargs["baseline_answer"] = str(getattr(case, "observed", ""))
                 try:
-                    generate_vcd = getattr(model, "generate_vcd")
-                    output = generate_vcd(case.inputs, **candidate.payload)
+                    executor = getattr(model, executor_name)
+                    output = executor(case.inputs, **kwargs)
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
-                    logger.debug("VCD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return vcd
-        if candidate.kind == "aad":
-
-            def aad(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_aad = getattr(model, "generate_aad")
-                    output = generate_aad(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("AAD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return aad
-        if candidate.kind == "icd":
-
-            def icd(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_icd = getattr(model, "generate_instruction_cd")
-                    output = generate_icd(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("ICD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return icd
-        if candidate.kind == "vicrop":
-
-            def vicrop(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_vicrop = getattr(model, "generate_vicrop")
-                    output = generate_vicrop(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("ViCrop generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return vicrop
-        if candidate.kind == "vicrop_consensus":
-
-            def vicrop_consensus(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_vicrop = getattr(model, "generate_vicrop_consensus")
-                    output = generate_vicrop(
-                        case.inputs,
-                        baseline_answer=str(getattr(case, "observed", "")),
-                        **candidate.payload,
+                    logger.debug(
+                        "Registered repair %s failed on %s: %s",
+                        candidate.name,
+                        case.id,
+                        exc,
                     )
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("ViCrop consensus generation failed on %s: %s", case.id, exc)
                     return None
 
-            return vicrop_consensus
-        if candidate.kind == "opera":
-
-            def opera(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_opera = getattr(model, "generate_opera_binary")
-                    output = generate_opera(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("OPERA binary generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return opera
-        if candidate.kind == "ifcd":
-
-            def ifcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_ifcd = getattr(model, "generate_ifcd")
-                    output = generate_ifcd(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("IFCD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return ifcd
-        if candidate.kind == "pai":
-
-            def pai(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_pai = getattr(model, "generate_pai")
-                    output = generate_pai(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("PAI generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return pai
-        if candidate.kind == "tcd":
-
-            def tcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_tcd = getattr(model, "generate_tcd")
-                    output = generate_tcd(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("TCD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return tcd
+            return registered_repair
         if candidate.kind == "visual_search":
 
             def visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":
@@ -3072,6 +3058,12 @@ class FixAgent:
             # error) scores None for THAT case; it must never abort the whole
             # candidate — let alone the fix stage.
             try:
+                # Do not execute a conditional repair outside its registered
+                # population. Validation already excludes those cases, but
+                # generating for them wastes compute and can advance a
+                # stochastic model before the applicable cases are sampled.
+                if not self._applies(candidate, case):
+                    return case.id, None
                 return case.id, strategy(model, case)
             except Exception as exc:
                 logger.warning("FixAgent: %s failed on case %s: %s", candidate.name, case.id, exc)
@@ -3083,6 +3075,45 @@ class FixAgent:
             with ThreadPoolExecutor(max_workers=self._concurrency) as pool:
                 results = list(pool.map(guarded, cases))
             return dict(results)
+        return dict(guarded(case) for case in cases)
+
+    def _registered_baseline_scores(
+        self, candidate: FixCandidate, model: "Model", data: "CaseBatch"
+    ) -> "dict[str, Optional[bool]] | None":
+        """Run a registered repair's matched control arm, when declared.
+
+        A decoding repair may change both sampling and logits. Comparing it to
+        Stage 0's greedy output would confound those changes; this control
+        keeps the paired test about the intervention itself.
+        """
+        if candidate.kind != "registered_repair":
+            return None
+        executor_name = str(candidate.payload.get("baseline_executor", "") or "")
+        if not executor_name:
+            return None
+        executor = getattr(model, executor_name, None)
+        if not callable(executor):
+            return {case.id: None for case in data}
+
+        def guarded(case: "FailureCase") -> "tuple[str, Optional[bool]]":
+            try:
+                output = executor(case.inputs)
+                return case.id, score_to_bool(self._score(case, str(output)))
+            except Exception as exc:
+                logger.warning(
+                    "FixAgent: matched baseline %s failed on case %s: %s",
+                    executor_name,
+                    case.id,
+                    exc,
+                )
+                return case.id, None
+
+        cases = list(data)
+        if self._concurrency > 1 and len(cases) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=self._concurrency) as pool:
+                return dict(pool.map(guarded, cases))
         return dict(guarded(case) for case in cases)
 
     def _record_output(self, case_id: str, output: Any) -> None:
@@ -3226,6 +3257,8 @@ class FixAgent:
 
     def _repair_code(self, candidate: FixCandidate, error: str) -> "tuple[str, str, str]":
         """Ask the coder to fix its failed pipeline; returns (code, source, raw)."""
+        from pathlib import Path
+
         from evalvitals.eval_agent.stages.fix_pipeline import (
             CASES_FILENAME,
             RESULT_MARKER,
@@ -3252,6 +3285,12 @@ class FixAgent:
         )
         code, source, raw = "", "", ""
         if self._cli_config is not None and self._cli_config.provider != "llm":
+            # The execution host consumes/removes pipeline.py. Restore the
+            # user's source before asking the CLI coder to edit it, otherwise
+            # an agent can mistake fix_pipeline_exec.py for the target.
+            Path(self._workdir(candidate.trial), "pipeline.py").write_text(
+                str(candidate.payload.get("code", "")), encoding="utf-8"
+            )
             self._last_repair_prompt = (
                 base + "\nWrite the corrected code to a file named pipeline.py."
             )
@@ -3276,6 +3315,9 @@ class FixAgent:
                 except SyntaxError:
                     code = ""
             source = "judge"
+        if _code_redefines_model_bridge(code):
+            logger.warning("FixAgent: repaired code redefined a host model bridge; dropped")
+            code = ""
         return code, source, raw
 
     def _validate(
@@ -3312,14 +3354,21 @@ class FixAgent:
         # Baseline rates: measured by _baseline (frozen sample + k-1 fresh);
         # when a caller hands in bare booleans (tests, external drivers) they
         # are 0/1 rates.
+        matched_baseline = self._registered_baseline_scores(candidate, model, data)
         base_rates: "dict[str, Optional[float]]" = {}
         for case in data:
-            r = self._baseline_rates.get(case.id) if self._baseline_rates else None
-            if r is None:
-                b = score_to_bool(baseline.get(case.id))
+            if matched_baseline is not None:
+                b = score_to_bool(matched_baseline.get(case.id))
                 r = None if b is None else float(b)
+            else:
+                r = self._baseline_rates.get(case.id) if self._baseline_rates else None
+                if r is None:
+                    b = score_to_bool(baseline.get(case.id))
+                    r = None if b is None else float(b)
             base_rates[case.id] = r
-        if self._baseline_n:
+        if matched_baseline is not None:
+            v.n_baseline_samples = 1
+        elif self._baseline_n:
             v.n_baseline_samples = max([1] + [int(n) for n in self._baseline_n.values()])
 
         n_fail = sum(1 for c in data if getattr(c.label, "value", None) == "fail")
@@ -3489,7 +3538,10 @@ class FixAgent:
         if tier == FixTier.L3A_INTERNALS_READ:
             from evalvitals.core.capability import Capability
 
-            return Capability.ATTENTION in getattr(model, "capabilities", frozenset())
+            return (
+                Capability.ATTENTION in getattr(model, "capabilities", frozenset())
+                or supports_tier(model, tier)
+            )
         if tier == FixTier.L3B_INTERNALS_WRITE:
             return any(
                 primitive.tier == tier and primitive.available(model)

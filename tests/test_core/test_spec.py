@@ -93,6 +93,7 @@ def test_qwen2_audio_spec_is_audio_only():
     assert spec.modalities == frozenset({"text", "audio"})
     # top-level config here, unlike the Omni families' thinker_config nesting.
     assert spec.audio.audio_token_id_attr == "audio_token_id"
+    assert spec.audio.audio_tower == "model.audio_tower"
     assert spec.needs_multimodal_encode is True
 
 

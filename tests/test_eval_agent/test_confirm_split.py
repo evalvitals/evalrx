@@ -9,6 +9,8 @@ byte-for-byte no-op.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from evalvitals.core.capability import Capability
 from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalvitals.core.model import Model
@@ -76,15 +78,21 @@ class _RecordingFixAgent:
 
     run_logger = None
     max_tier = FixTier.L2_SCAFFOLD
+    max_validation_cases = 5
 
     def __init__(self):
         self.seen_ids = None
         self.proposal_ids = None
         self.confirm_ids = None
         self.calls = 0
+        self.tiers = []
+        self.min_tiers = []
+        self.confirm_cap = None
 
     def propose_and_validate(self, model, data, hypotheses, proposal_data=None):
         self.calls += 1
+        self.tiers.append(self.max_tier)
+        self.min_tiers.append(getattr(self, "min_tier", None))
         self.seen_ids = {id(c) for c in data}
         self.proposal_ids = (
             {id(c) for c in proposal_data} if proposal_data is not None else None
@@ -108,6 +116,7 @@ class _RecordingFixAgent:
         )
 
     def validate_candidate(self, model, data, candidate):
+        self.confirm_cap = self.max_validation_cases
         self.confirm_ids = {id(c) for c in data}
         return FixValidation(
             candidate=candidate,
@@ -150,6 +159,8 @@ def test_run_fix_validates_on_confirm_partition():
     assert stub.confirm_ids == confirm_ids
     assert stub.seen_ids.isdisjoint(stub.confirm_ids)
     assert len(stub.confirm_ids) == 12
+    assert stub.confirm_cap == 0  # selection cap is disabled for final confirmation
+    assert stub.max_validation_cases == 5  # and restored afterwards
     assert outcome.selected_on_explore == "stub"
     assert outcome.selection_attempted[0]["n_fixed"] == 1
     assert len(outcome.attempted) == 1  # only the CONFIRM validation is final
@@ -165,15 +176,46 @@ def test_run_fix_off_uses_full_batch():
     assert stub.confirm_ids is None
 
 
-def test_run_fix_disables_feedback_escalation_on_confirm_partition():
+def test_run_m4_adapts_on_explore_not_final_confirm():
+    batch = _batch()
+    seen = set()
+
+    class _Surgery:
+        def operate(self, hypothesis, model, results, data):
+            seen.update(id(case) for case in data)
+            return SimpleNamespace(status="refuted", evidence={})
+
+    loop = _loop(confirm_split=0.5)
+    loop.surgery_agent = _Surgery()
+    explore, confirm = loop._split_explore_confirm(batch)
+    loop.run_m4(_report(), batch, allow_unverified=True)
+
+    assert seen == {id(case) for case in explore}
+    assert seen.isdisjoint(id(case) for case in confirm)
+
+
+def test_run_fix_escalates_on_explore_then_confirms_once():
     batch = _batch()
     stub = _RecordingFixAgent()
     loop = _loop(fix_agent=stub, confirm_split=0.5)
 
-    loop.run_fix(_report(), batch, auto_escalate=True, allow_unverified=True)
+    loop.run_fix(
+        _report(), batch, auto_escalate=True, max_tier="L3a", allow_unverified=True
+    )
 
-    # Adaptive tier 2 would be authored from tier 1's holdout failures.  The
-    # held-out path therefore executes one pre-registered repair family only.
-    assert stub.calls == 1
+    # The full ladder is authored using EXPLORE only. CONFIRM is touched once,
+    # after the strongest improving candidate has been frozen.
+    assert stub.calls == 4  # L0 -> L1 -> L2 -> L3a (configured ceiling)
+    assert stub.tiers == [
+        FixTier.L0_RUNTIME_CONFIG,
+        FixTier.L1_PROMPT,
+        FixTier.L2_SCAFFOLD,
+        FixTier.L3A_INTERNALS_READ,
+    ]
+    assert stub.min_tiers == stub.tiers
     assert stub.seen_ids is not None
     assert stub.confirm_ids is not None
+    explore, confirm = loop._split_explore_confirm(batch)
+    assert stub.seen_ids == {id(case) for case in explore}
+    assert stub.confirm_ids == {id(case) for case in confirm}
+    assert stub.seen_ids.isdisjoint(stub.confirm_ids)

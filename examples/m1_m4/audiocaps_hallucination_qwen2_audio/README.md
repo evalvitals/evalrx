@@ -46,9 +46,9 @@ The fix pool is open by default (`candidate_allowlist=None`, `--fix-max-tier L3a
 like `mmau_qwen2_audio`): the judge's L1/L2 candidates, the `self_consistency_5`
 floor, a coded L2 pipeline and -- when its admission gate fires -- AAD all
 compete, selected on the explore half and confirmed on the untouched confirm
-half. `--paper-method-only` restores the AAD-only pool with no coder; note that
-`--fix-max-tier L0` would shrink the pool back to AAD as well, since every other
-family is tiered L1/L2.
+half. `--paper-method-only` restores the AAD-only pool with no coder. AAD is
+L3a because it reads and combines logits from paired real/silenced-audio
+forwards; `--fix-max-tier L0` now admits runtime-configuration repairs only.
 
 Or via Docker (see `docker-compose.yml` — mirrors `mmau_qwen2_audio`'s setup
 exactly, same base model, same judge/audio volume mounts):
@@ -60,8 +60,8 @@ docker compose up
 ## What "fixed" means here
 
 `fix_agent.py`'s admission gate for AAD (`aad_silence_contrast` /
-`aad_silence_contrast_gated_false_yes`, both L0 — no internals read needed,
-just two `generate()`-compatible forward passes) requires
+`aad_silence_contrast_gated_false_yes`, both L3a — they read and combine logits
+from two `generate()`-compatible forward passes) requires
 `case.metadata["task"] == "yes_no"`, `model.generate_aad` to exist, and
 `paper_method_fidelity("aad") == "native_silence_contrast"`. Like TCD on
 `mmau_qwen2_audio`, this run.py never names AAD or its mechanism anywhere

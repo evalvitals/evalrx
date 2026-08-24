@@ -14,12 +14,19 @@ the bottom pin the two paths to one contract."""
 
 from __future__ import annotations
 
-import torch
-from torch import nn
+import pytest
 
-from evalvitals.core.spec import ModelSpec
-from evalvitals.models.backends.base import RuntimeConfig
-from evalvitals.models.backends.hf_local import HFLocalModel
+# hf_local imports transformers at module scope, so without the `local` extra
+# this module raises during COLLECTION -- which aborts the entire run, not just
+# these tests. Every other optional-dependency module in the suite guards the
+# same way (see tests/integration/test_audio_processor.py).
+torch = pytest.importorskip("torch")
+pytest.importorskip("transformers")
+from torch import nn  # noqa: E402
+
+from evalvitals.core.spec import ModelSpec  # noqa: E402
+from evalvitals.models.backends.base import RuntimeConfig  # noqa: E402
+from evalvitals.models.backends.hf_local import HFLocalModel  # noqa: E402
 
 
 class _Tok:
