@@ -206,6 +206,8 @@ def test_cli_no_model_paths(common, capsys):
     assert (defaults.judge_provider, defaults.judge_model, defaults.judge_effort) == (
         "codex", "gpt-5.6-terra", "medium"
     )
+    assert defaults.fix_repair_rounds == 2
+    assert run.build_parser().parse_args(["--fix-repair-rounds", "4"]).fix_repair_rounds == 4
     assert run.main(["--smoke-test"]) == 0
     assert "Smoke test passed" in capsys.readouterr().out
     assert run.main(["--list"]) == 0

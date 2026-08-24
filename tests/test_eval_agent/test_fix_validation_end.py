@@ -24,7 +24,6 @@ verdict on the qwen3.5-2b bbh_tracking7 / bbh_word_sorting runs):
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -275,14 +274,21 @@ def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
     assert "hit the decode cap" in v.summary
     # persisted beside the record, not inline in the event
     logger.close()
-    fix_events = [json.loads(l) for l in (tmp_path / "logs" / "run_log.jsonl").read_text().splitlines()
-                  if '"event": "fix"' in l]
+    fix_events = [
+        json.loads(line)
+        for line in (tmp_path / "logs" / "run_log.jsonl").read_text().splitlines()
+        if '"event": "fix"' in line
+    ]
     assert fix_events
     att = fix_events[-1]["attempted"][0]
     assert "outputs" not in att and att["n_outputs"] == len(batch)
     assert att["n_truncated"] == len(batch)
-    rows = [json.loads(l) for l in
-            next((tmp_path / "logs" / "fixes").glob("*rewrite*/outputs.jsonl")).read_text().splitlines()]
+    rows = [
+        json.loads(line)
+        for line in next(
+            (tmp_path / "logs" / "fixes").glob("*rewrite*/outputs.jsonl")
+        ).read_text().splitlines()
+    ]
     assert {r["case_id"] for r in rows} == {c.id for c in batch}
     assert {r["status"] for r in rows} <= {"fixed", "broken", "unchanged"}
     # the feedback block for a next round names truncation as the cause
@@ -292,14 +298,12 @@ def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
 # ── proposer context ──────────────────────────────────────────────────────────
 
 
-def test_examples_show_outputs_and_gold_only_from_disjoint_cases():
+def test_examples_show_outputs_but_never_gold():
     batch = _mc_batch(2, 1)
-    with_gold = _format_examples(batch, with_gold=True)
-    without = _format_examples(batch, with_gold=False)
-    assert "MODEL OUTPUT" in with_gold and "Answer: (C)" in with_gold
-    assert "EXPECTED: (B)" in with_gold
-    assert "EXPECTED" not in without and "withheld" in without
-    assert "PASS case" in with_gold  # a PASS contrast is included
+    rendered = _format_examples(batch)
+    assert "MODEL OUTPUT" in rendered and "Answer: (C)" in rendered
+    assert "EXPECTED" not in rendered and "withheld" in rendered
+    assert "PASS case" in rendered
 
 
 def test_proposer_sees_context_examples_scoring_and_no_image_catalog_for_text():
@@ -313,7 +317,7 @@ def test_proposer_sees_context_examples_scoring_and_no_image_catalog_for_text():
                      task_note="BBH tracking of shuffled objects")
     agent.propose_and_validate(CountingModel(), _mc_batch(2, 2), [_hyp("h")], context=ctx)
     l2_prompt = judge.prompts[-1]
-    assert "EXPECTED: (B)" in l2_prompt              # full examples from the explore split
+    assert "EXPECTED" not in l2_prompt               # gold is never exposed to the proposer
     assert "last 'Answer:' line" in l2_prompt        # scoring rule
     assert "BASELINE DECODING: max_tokens=4096" in l2_prompt
     assert "M2: signal foo" in l2_prompt              # evidence

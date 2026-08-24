@@ -26,6 +26,8 @@ from evalvitals.eval_agent.stages.fix_agent import (
     FixValidation,
     _chart_arithmetic_predicate,
     _chart_count_extract_predicate,
+    _code_copies_example,
+    _code_redefines_model_bridge,
     _malformed_choice_predicate,
 )
 
@@ -484,6 +486,9 @@ class VCDSensitiveModel(Model):
 
     def generate_vcd(self, inputs, **kwargs):
         return "Yes."
+
+    def paper_method_fidelity(self, method):
+        return "per_item_seeded_sampler_specialization" if method == "vcd" else "unavailable"
 
     def forward(self, inputs, capture, spec=None):
         raise NotImplementedError
@@ -1111,35 +1116,40 @@ def test_l3a_vcd_candidate_repairs_binary_visual_grounding():
     assert out.best is not None and out.best.candidate.name == "vcd_diffusion_noise"
     assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
-    assert out.best.candidate.payload["noise_step"] == 999
+    assert out.best.candidate.payload["kwargs"]["noise_step"] == 999
 
 
-def test_l3a_vcd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+def test_l3a_vcd_structural_discovery_does_not_read_expected_direction():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
         case.expected = "Yes"
         case.observed = "No"
-    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"vcd_diffusion_noise"}
+    )._propose(
         [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
     )
 
-    assert "vcd_diffusion_noise" not in {candidate.name for candidate in candidates}
+    assert "vcd_diffusion_noise" in {candidate.name for candidate in candidates}
 
 
-def test_l3a_icd_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+def test_l3a_icd_structural_discovery_does_not_read_expected_direction():
     batch = _gold_yes_batch(n=8, image=_img())
     for case in batch:
         case.metadata["task"] = "yes_no"
         case.expected = "Yes"
         case.observed = "No"
-    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
+    candidates = FixAgent(
+        judge=None,
+        max_tier="L3a",
+        candidate_allowlist={"icd_instruction_disturbance"},
+    )._propose(
         [_hyp("instruction priors override visual evidence")], batch, ICDSensitiveModel()
     )
 
     candidate_names = {candidate.name for candidate in candidates}
-    assert "icd_instruction_disturbance" not in candidate_names
-    assert "icd_instruction_disturbance_question" not in candidate_names
+    assert candidate_names == {"icd_instruction_disturbance"}
 
 
 def test_l3a_vcd_is_proposed_when_false_yes_hallucinations_dominate():
@@ -1148,7 +1158,9 @@ def test_l3a_vcd_is_proposed_when_false_yes_hallucinations_dominate():
         case.metadata["task"] = "yes_no"
         case.expected = "No"
         case.observed = "Yes"
-    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"vcd_diffusion_noise"}
+    )._propose(
         [_hyp("language priors override visual evidence")], batch, VCDSensitiveModel()
     )
 
@@ -1169,7 +1181,9 @@ def test_l3a_vcd_is_not_proposed_on_an_audio_only_batch():
         case.metadata["task"] = "yes_no"
         case.expected = "No"
         case.observed = "Yes"
-    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"aad_silence_contrast"}
+    )._propose(
         [_hyp("language priors override audio evidence")], batch, AudioBackendWithVCD()
     )
 
@@ -1192,19 +1206,21 @@ def test_l3a_aad_candidate_repairs_binary_audio_grounding():
     assert out.best is not None and out.best.candidate.name == "aad_silence_contrast"
     assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
-    assert out.best.candidate.payload["alpha"] == 0.5
+    assert out.best.candidate.payload["kwargs"]["alpha"] == 0.5
 
 
-def test_l3a_aad_is_not_proposed_when_false_negatives_dominate_binary_diagnosis():
+def test_l3a_aad_structural_discovery_does_not_read_expected_direction():
     batch = _gold_audio_yes_batch(n=8)
     for case in batch:
         case.expected = "Yes"
         case.observed = "No"
-    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"aad_silence_contrast"}
+    )._propose(
         [_hyp("language priors override audio evidence")], batch, AADSensitiveModel()
     )
 
-    assert "aad_silence_contrast" not in {candidate.name for candidate in candidates}
+    assert "aad_silence_contrast" in {candidate.name for candidate in candidates}
 
 
 def test_l3a_aad_is_proposed_when_false_yes_hallucinations_dominate():
@@ -1212,7 +1228,9 @@ def test_l3a_aad_is_proposed_when_false_yes_hallucinations_dominate():
     for case in batch:
         case.expected = "No"
         case.observed = "Yes"
-    candidates = FixAgent(judge=None, max_tier="L3a")._propose(
+    candidates = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"aad_silence_contrast"}
+    )._propose(
         [_hyp("language priors override audio evidence")], batch, AADSensitiveModel()
     )
 
@@ -1635,7 +1653,7 @@ def test_feedback_round_one_fails_round_two_fixes():
     assert any(judge.saw_feedback)
 
 
-def test_feedback_includes_helped_prompts_and_previous_code():
+def test_feedback_withholds_case_content_and_includes_previous_code():
     batch = _gold_yes_batch(3)
     candidate = FixCandidate(
         tier=FixTier.L2_SCAFFOLD,
@@ -1654,9 +1672,29 @@ def test_feedback_includes_helped_prompts_and_previous_code():
 
     feedback = FixAgent._format_prior([validation], batch)
 
-    assert "Is there a lesion 1?" in feedback
+    assert "Is there a lesion 1?" not in feedback
+    assert "c1" not in feedback
+    assert "1 fixed / 0 broken" in feedback
     assert "EXPLORE-TESTED IMPLEMENTATION" in feedback
     assert "print('prior implementation')" in feedback
+
+
+def test_generated_code_cannot_memorize_example_ids_or_prompt_phrases():
+    examples = """### FAIL case spatial457-123
+PROMPT: There is a blue thing that is in front of the object right of the tiny bike.
+MODEL OUTPUT (baseline): small
+"""
+    assert _code_copies_example("gate = 'spatial457-123'", examples)
+    assert _code_copies_example(
+        "gate = 'blue thing that is in front of the object right of the tiny bike'",
+        examples,
+    )
+    assert not _code_copies_example(
+        'question = case["prompt"]; gate = "left right front behind"', examples
+    )
+    assert _code_redefines_model_bridge("def model_generate(case_id):\n    return 'x'")
+    assert _code_redefines_model_bridge("async def model_attend(case_id):\n    pass")
+    assert not _code_redefines_model_bridge("answer = model_generate(case_id)")
 
 
 def test_single_round_does_not_retry_on_failure():
@@ -2758,23 +2796,13 @@ def test_self_refine_offered_for_image_reasoning_tasks_not_yes_no():
     assert {"self_refine", "self_consistency_5"}.isdisjoint(c.name for c in out_yn)
 
 
-def test_assertive_grounding_offered_only_on_false_no_dominant_slice():
-    """assertive_grounding is the dual of the direction gate that withholds
-    VCD/ICD/etc. on a false-No-dominant slice: those methods are suppressive
-    (wrong direction for under-claiming), so offer a prompt that accepts
-    partial evidence instead. Must not appear when the slice is false-Yes
-    dominant (or balanced) -- that's exactly the population the suppressive
-    methods already handle."""
+def test_l1_candidates_do_not_use_gold_direction_gates():
+    """Changing expected labels must not alter the proposed repair family."""
     agent = FixAgent(judge=None, max_tier="L1")
-    out_false_no = agent._l1_candidates(
-        "- h", "", has_images=True, tasks={"yes_no"}, binary_hallucination_supported=False
-    )
-    assert "assertive_grounding" in {c.name for c in out_false_no}
-
-    out_false_yes = agent._l1_candidates(
-        "- h", "", has_images=True, tasks={"yes_no"}, binary_hallucination_supported=True
-    )
-    assert "assertive_grounding" not in {c.name for c in out_false_yes}
+    first = agent._l1_candidates("- h", "", has_images=True, tasks={"yes_no"})
+    second = agent._l1_candidates("- h", "", has_images=True, tasks={"yes_no"})
+    assert [c.name for c in first] == [c.name for c in second]
+    assert "assertive_grounding" not in {c.name for c in first}
 
 
 def test_spec_noop_cases_are_not_applicable():
@@ -3324,6 +3352,8 @@ def test_the_coder_is_told_the_rule():
 
     assert "REPAIR THE MODEL, NOT THE TASK" in _L2_CODE_PROMPT
     assert "ORIGINAL recorded answer" in _L2_CODE_PROMPT
+    assert "prompt`` REPLACES the original prompt" in _L2_CODE_PROMPT
+    assert 'case["prompt"]' in _L2_CODE_PROMPT
     assert "{selection_guidance}" in _L2_CODE_PROMPT
     assert "at most\n  4 calls" in _L2_CODE_PROMPT
     assert "not the task" in _REPAIR_PROMPT_BODY

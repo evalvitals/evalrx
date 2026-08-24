@@ -103,7 +103,11 @@ from evalvitals.eval_agent.stages.fix_tools import (
     spec_changes_input,
 )
 from evalvitals.eval_agent.stages.probe_generator import _extract_code
-from evalvitals.eval_agent.stages.repair_catalog import discover_methods, method_names
+from evalvitals.eval_agent.stages.repair_catalog import (
+    discover_methods,
+    method_names,
+    supports_tier,
+)
 from evalvitals.stats import compare, compare_paired_rates
 from evalvitals.stats.ebh import ebh
 from evalvitals.stats.evalue import evalue_bernoulli
@@ -119,8 +123,9 @@ logger = logging.getLogger(__name__)
 
 
 _MAX_JUDGE_CANDIDATES = 3
-#: How many FAIL / PASS cases the proposer sees in full (prompt, the model's
-#: baseline output, expected answer when allowed). Before this the judge saw
+#: How many FAIL / PASS cases the proposer sees (prompt and the model's
+#: baseline output; expected/gold answers are always withheld). Before this the
+#: judge saw
 #: only the first 160 characters of a few failing prompts (1000 characters in
 #: total) — no model output, no answer format, no PASS contrast — and designed
 #: blind: on bbh_tracking7 it never saw an option list or an "Answer: (X)".
@@ -154,17 +159,10 @@ def _clip(text: Any, limit: int, *, tail_share: float = 0.35) -> str:
 def _format_examples(
     cases: Any,
     *,
-    with_gold: bool,
     n_fail: int = _EXAMPLE_FAILS,
     n_pass: int = _EXAMPLE_PASSES,
 ) -> str:
-    """Render FAIL (and a few PASS) cases in full for the proposer.
-
-    Each example shows the prompt, the model's baseline output and — only when
-    *with_gold* (the cases are disjoint from the validation batch) — the
-    expected answer. Deterministic: first *n_fail* FAILs and first *n_pass*
-    PASSes in batch order.
-    """
+    """Render prompts and baseline outputs; never expose expected/gold answers."""
     fails: "list[Any]" = []
     passes: "list[Any]" = []
     for case in list(cases or []):
@@ -185,24 +183,9 @@ def _format_examples(
                       _clip(raw, _EXAMPLE_OUTPUT_CHARS, tail_share=0.7)]
         else:
             lines.append("MODEL OUTPUT (baseline): (not recorded)")
-        if with_gold:
-            gold = (getattr(case, "metadata", None) or {}).get(
-                "gold", getattr(case, "expected", None))
-            if gold is not None:
-                lines.append(f"EXPECTED: {gold}")
         blocks.append("\n".join(lines))
-    header = (
-        "(from the diagnosis split — the fix is validated on a DISJOINT split; "
-        "EXPECTED is shown so you can see the answer FORMAT, never to hard-code answers)"
-        if with_gold else
-        "(from the validation batch — expected answers withheld)"
-    )
+    header = "(expected answers withheld; scored externally on disjoint cases)"
     return header + "\n\n" + "\n\n".join(blocks)
-
-def _binary_answer(value: Any) -> "str | None":
-    match = re.search(r"\b(yes|no)\b", str(value).lower())
-    return match.group(1) if match else None
-
 
 def _code_calls_name(code: str, name: str) -> bool:
     """Return whether executable source directly calls a named model bridge."""
@@ -218,43 +201,47 @@ def _code_calls_name(code: str, name: str) -> bool:
     )
 
 
-def _binary_hallucination_direction(data: "CaseBatch") -> "tuple[bool, int, int]":
-    """Return whether binary evidence supports a false-``Yes`` repair.
+def _code_copies_example(code: str, examples: str, *, min_words: int = 8) -> bool:
+    """Reject generated programs that memorize an example ID or prompt phrase."""
+    try:
+        constants = [
+            node.value
+            for node in ast.walk(ast.parse(str(code or "")))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        ]
+    except SyntaxError:
+        return False
+    literal_text = "\n".join(constants).lower()
+    ids = re.findall(r"^###\s+(?:FAIL|PASS)\s+case\s+(\S+)", examples, re.MULTILINE)
+    if any(case_id.lower() in literal_text for case_id in ids):
+        return True
+    prompts = re.findall(r"^PROMPT:\s*(.+)$", examples, re.MULTILINE)
+    literal_words = re.findall(r"[a-z0-9]+", literal_text)
+    literal_ngrams = {
+        tuple(literal_words[i : i + min_words])
+        for i in range(max(0, len(literal_words) - min_words + 1))
+    }
+    for prompt in prompts:
+        words = re.findall(r"[a-z0-9]+", prompt.lower())
+        if any(
+            tuple(words[i : i + min_words]) in literal_ngrams
+            for i in range(max(0, len(words) - min_words + 1))
+        ):
+            return True
+    return False
 
-    VCD, ICD, OPERA, PAI, and IFCD suppress answers that assert an object
-    unsupported by the image. A labelled adapter exposes this direction through
-    expected/observed answers. If it can, do not deploy a suppressive repair
-    into a false-negative dominant slice; otherwise preserve generic support.
-    """
-    false_yes = false_no = 0
-    for case in data:
-        if getattr(getattr(case, "label", None), "value", None) != "fail":
-            continue
-        expected = _binary_answer(getattr(case, "expected", None))
-        observed = _binary_answer(getattr(case, "observed", None))
-        if expected == "no" and observed == "yes":
-            false_yes += 1
-        elif expected == "yes" and observed == "no":
-            false_no += 1
-    return (false_yes + false_no == 0 or false_yes >= false_no, false_yes, false_no)
 
-
-def _false_yes_predicate(case: Any) -> bool:
-    """Per-case gate: baseline asserted the object, gold says it isn't there.
-
-    VCD/ICD/OPERA/PAI/IFCD are all *suppressive* -- they push the decoded
-    answer away from asserting an object the image doesn't support. That is
-    the right direction only on this per-case subpopulation. Unlike
-    :func:`_binary_hallucination_direction` (a whole-batch go/no-go gate),
-    this is meant to be attached to a :class:`FixCandidate` as its
-    ``predicate`` so the *same* candidate can be run gated (touching only
-    these cases) alongside its ungated sibling. Computed from ``expected``/
-    ``observed`` on the baseline already recorded for this case -- never
-    from a later selection/confirmation outcome.
-    """
-    return (
-        _binary_answer(getattr(case, "expected", None)) == "no"
-        and _binary_answer(getattr(case, "observed", None)) == "yes"
+def _code_redefines_model_bridge(code: str) -> bool:
+    """Reject user pipelines that shadow host-provided model bridge functions."""
+    try:
+        tree = ast.parse(str(code or ""))
+    except SyntaxError:
+        return False
+    bridge_names = {"model_generate", "model_attend"}
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in bridge_names
+        for node in ast.walk(tree)
     )
 
 
@@ -340,12 +327,8 @@ class FixCandidate:
         tier:        Intervention space the candidate lives in.
         name:        Short identifier.
         kind:        ``"template"`` (L1) | ``"spec"`` (L2 declarative) |
-                     ``"code"`` (L2 agent-written pipeline) | ``"vcd"``
-                     (L3a contrastive decoding through an opt-in backend) |
-                     ``"opera"`` (L3a attention-over-trust penalty for a
-                     one-token binary decision) | ``"ifcd"`` (L3b paired
-                     TruthX internal edits) | ``"tcd"`` (L3a gated temporal
-                     contrastive decoding for audio multi-choice QA) |
+                     ``"code"`` (agent-written pipeline) |
+                     ``"registered_repair"`` (runtime-discovered executor) |
                      ``"visual_search"`` (L2 question-guided crop through an
                      opt-in backend).
         payload:     Kind-specific — template: ``{"prompt_template": ...}``;
@@ -546,13 +529,10 @@ class FixContext:
     Everything is optional; the loop builds one from its report in
     ``run_fix``. The two rules that matter:
 
-    * ``example_cases`` are shown IN FULL (prompt, the model's baseline output,
-      the expected answer, PASS/FAIL). They MUST be disjoint from the batch
-      the candidates are validated on — the loop passes its EXPLORE split, the
-      fix is scored on CONFIRM. When no example cases are given, examples are
-      drawn from the validation batch itself and the expected answer is
-      withheld (a template that encodes gold answers of the cases it is scored
-      on would be a leak, not a repair).
+    * ``example_cases`` expose only prompt, baseline output, and PASS/FAIL.
+      Expected/gold answers are always withheld. They are normally disjoint
+      from the candidate-validation batch: the loop passes its EXPLORE split
+      and scores the fix on CONFIRM.
     * ``evidence`` / ``refuted`` are read-only narrative: what M2/M5/explore
       established and what M4's intervention experiment knocked down. They
       steer *what* to propose; validation still decides *whether* it works.
@@ -1156,14 +1136,13 @@ class FixAgent:
         )
         if context.hypotheses_note:
             hyp_lines = f"({context.hypotheses_note.strip()})\n{hyp_lines}"
-        # Full examples (prompt + the model's own output + expected answer)
-        # come from cases the proposer may see in full — the loop's EXPLORE
-        # split. Without such cases the examples are drawn from the validation
-        # batch itself and the expected answer is withheld (see FixContext).
+        # A repair proposer never receives expected/gold answers.  Examples
+        # contain only prompts and the model's recorded outputs; correctness is
+        # evaluated outside the agent on disjoint EXPLORE/CONFIRM partitions.
         if context.example_cases is not None:
-            examples = _format_examples(context.example_cases, with_gold=True)
+            examples = _format_examples(context.example_cases)
         else:
-            examples = _format_examples(data, with_gold=False)
+            examples = _format_examples(data)
         # A video frame is visual content too -- a video-only case batch (no
         # .image ever set, only .video) must not silently read as "no images"
         # and lock every image-gated L1/L2/L3 candidate out. This was found
@@ -1181,7 +1160,6 @@ class FixAgent:
         tasks = {
             str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data
         }
-        binary_hallucination_supported, _, _ = _binary_hallucination_direction(data)
         # Text-only batches: the image-tool catalog is noise for the judge and
         # an invitation to burn a candidate on a structural no-op.
         catalog = catalog_text() if has_images else _TEXT_ONLY_CATALOG_NOTE
@@ -1361,9 +1339,7 @@ class FixAgent:
         }
         skip_lower_tiers = preregistered_only or catalog_method_only
         if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L0_RUNTIME_CONFIG:
-            candidates += self._runtime_and_contrastive_candidates(
-                data, prior_names, model=model
-            )
+            candidates += self._runtime_candidates(data, prior_names)
         if (
             not code_only
             and not skip_lower_tiers
@@ -1377,7 +1353,6 @@ class FixAgent:
                 prior_names,
                 has_images=has_images,
                 tasks=tasks,
-                binary_hallucination_supported=binary_hallucination_supported,
                 context_block=context_block,
             )
         if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L2_SCAFFOLD:
@@ -1424,7 +1399,6 @@ class FixAgent:
                 has_images=has_images,
                 has_audio=has_audio,
                 tasks=tasks,
-                binary_hallucination_supported=binary_hallucination_supported,
             )
         if not code_only and not skip_lower_tiers and self.max_tier >= FixTier.L4_PARAMETERS:
             candidates += self._l4_candidates(hyp_lines)
@@ -1608,22 +1582,12 @@ class FixAgent:
         if not lines:
             return ""
         return "\n" + "\n".join(lines) + "\n"
-    def _runtime_and_contrastive_candidates(
+    def _runtime_candidates(
         self,
         data: "CaseBatch",
         prior_names: "frozenset[str]" = frozenset(),
-        *,
-        model: "Model | None" = None,
     ) -> "list[FixCandidate]":
-        """Propose structurally gated runtime and contrastive repairs.
-
-        The L0 runtime candidate comes only from recorded telemetry. A short
-        answer is not proof of truncation, so we require a backend to
-        record ``metadata['finish_reason'] == 'length'`` and the baseline
-        ``metadata['generation_config']['max_tokens']`` for at least one
-        failing case. VCD/AAD/ICD are admitted only at L3a and only when the
-        backend exposes their required paired-logit executor and fidelity.
-        """
+        """Propose a decode-budget repair only from recorded telemetry."""
         caps: "list[int]" = []
         policy_caps: "list[int]" = []
         for case in data:
@@ -1646,10 +1610,8 @@ class FixAgent:
                 continue
             if cap < policy_cap <= 8192:
                 policy_caps.append(policy_cap)
+
         out: "list[FixCandidate]" = []
-        # A single, auditable policy: use the deployment's explicit safe cap
-        # when present; otherwise double the observed cap. Use the maximum seen
-        # cap so a mixed batch never *reduces* any case's decode budget.
         if caps and "increase_max_tokens" not in prior_names:
             old_cap = max(caps)
             new_cap = max(policy_caps) if policy_caps else min(8192, old_cap * 2)
@@ -1667,199 +1629,6 @@ class FixAgent:
                         payload=spec.to_dict(),
                     )
                 )
-
-        # VCD (Leng et al., CVPR 2024) is a decoding-space repair for binary
-        # visual-grounding tasks. It contrasts first-token logits from the
-        # original and a diffusion-distorted image. Do not offer it for open
-        # generation: applying a first-token approximation there would not be
-        # the paper's method. Backends opt in explicitly via ``generate_vcd``.
-        from evalvitals.core.capability import Capability
-
-        tasks = {str((getattr(case, "metadata", {}) or {}).get("task", "")) for case in data}
-        supports_logprobs = bool(
-            model is not None and Capability.LOGPROBS in getattr(model, "capabilities", frozenset())
-        )
-        internals_read_allowed = self.max_tier >= FixTier.L3A_INTERNALS_READ
-        supports_vcd = supports_logprobs and callable(getattr(model, "generate_vcd", None))
-        # VCD distorts an IMAGE; a multimodal backend exposes generate_vcd even
-        # when this batch is audio-only (caught live: audiocaps_hallucination
-        # proposed both VCD candidates, each ran as not_executed). Require a
-        # visual input on at least one case, like every other visual tier.
-        has_visual = any(
-            getattr(getattr(case, "inputs", None), "image", None) is not None
-            or getattr(getattr(case, "inputs", None), "video", None) is not None
-            for case in data
-        )
-        supports_vcd = supports_vcd and has_visual
-        hallucination_direction_supported, _, _ = _binary_hallucination_direction(data)
-        if (
-            internals_read_allowed
-            and tasks == {"yes_no"}
-            and supports_vcd
-            and hallucination_direction_supported
-            and "vcd_diffusion_noise" not in prior_names
-        ):
-            # VCD appendix A fixes POPE's total diffusion steps at 999
-            # (MME/LLaVA-Bench use 500), with alpha=1 and beta=0.1.
-            vcd_payload = {
-                "alpha": 1.0,
-                "beta": 0.1,
-                "noise_step": 999,
-            }
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="vcd_diffusion_noise",
-                    kind="vcd",
-                    source="paper_default",
-                    payload=vcd_payload,
-                )
-            )
-        # Gated sibling (defect 3's refine_signal, operationalised): VCD is a
-        # *suppressive* repair -- it is the right direction only on cases
-        # where the baseline asserted an object the image doesn't support
-        # (false-Yes). Proposing this alongside the ungated candidate lets a
-        # near-cancelling whole-slice result (helps false-Yes cases, hurts
-        # false-No ones -- exactly the "heterogeneous_failure_mode" pattern
-        # every POPE report already surfaces) resolve into a real, narrower
-        # fix instead of a null. The predicate reads each case's own
-        # already-recorded baseline expected/observed -- never a selection or
-        # confirmation outcome -- so this is a candidate design choice, not a
-        # post-hoc tuning of which cases to report.
-        if (
-            internals_read_allowed
-            and tasks == {"yes_no"}
-            and supports_vcd
-            and "vcd_diffusion_noise_gated_false_yes" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="vcd_diffusion_noise_gated_false_yes",
-                    kind="vcd",
-                    source="conditional_default",
-                    payload={"alpha": 1.0, "beta": 0.1, "noise_step": 999},
-                    predicate=_false_yes_predicate,
-                )
-            )
-        # AAD (Hsu et al. 2025, arXiv:2506.07233) is VCD's same shape applied
-        # to audio instead of an image: contrasts real-audio decoding against
-        # the identical prompt with the waveform silenced, at every step.
-        # Attention weights are not required, but the method reads and combines
-        # token logits from two forward passes. Under the intervention-space
-        # taxonomy that is an L3a internals-read repair, like VCD and TCD.
-        paper_fidelity_early = getattr(model, "paper_method_fidelity", None)
-        aad_fidelity = (
-            paper_fidelity_early("aad") if callable(paper_fidelity_early) else "unavailable"
-        )
-        supports_aad = callable(getattr(model, "generate_aad", None))
-        if (
-            internals_read_allowed
-            and tasks == {"yes_no"}
-            and supports_aad
-            and aad_fidelity == "native_silence_contrast"
-            and hallucination_direction_supported
-            and "aad_silence_contrast" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="aad_silence_contrast",
-                    kind="aad",
-                    source="paper_default",
-                    payload={"alpha": 0.5},
-                )
-            )
-        # Gated sibling, same reasoning as vcd_diffusion_noise_gated_false_yes
-        # above: AAD is suppressive (promotes tokens whose probability rises
-        # WITH audio, i.e. demotes an audio-ungrounded over-affirmation), so
-        # it is the right direction only on false-Yes cases.
-        if (
-            internals_read_allowed
-            and tasks == {"yes_no"}
-            and supports_aad
-            and aad_fidelity == "native_silence_contrast"
-            and "aad_silence_contrast_gated_false_yes" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="aad_silence_contrast_gated_false_yes",
-                    kind="aad",
-                    source="conditional_default",
-                    payload={"alpha": 0.5},
-                    predicate=_false_yes_predicate,
-                )
-            )
-        # ICD (Wang et al., ACL 2024) has the same binary, token-level
-        # admission requirements but its negative condition is an instruction
-        # disturbance rather than a corrupted image.  A backend can expose an
-        # architecture-native method (e.g. an InstructBLIP Q-Former) or an
-        # explicitly labelled architecture-adapted implementation.
-        paper_fidelity = getattr(model, "paper_method_fidelity", None)
-        icd_fidelity = paper_fidelity("icd") if callable(paper_fidelity) else "unavailable"
-        if (
-            internals_read_allowed
-            and tasks == {"yes_no"}
-            and supports_logprobs
-            and hallucination_direction_supported
-            and callable(getattr(model, "generate_instruction_cd", None))
-            and (
-                icd_fidelity in {"exact", "native_binary_specialization"}
-                or (icd_fidelity == "adapted" and self._allow_adapted_paper_methods)
-            )
-            and "icd_instruction_disturbance" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="icd_instruction_disturbance",
-                    kind="icd",
-                    source="paper_default",
-                    payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"},
-                )
-            )
-            # The official ICD POPE runner evaluates both Q-Former conditions:
-            # disturbance alone and disturbance concatenated with the question.
-            # The latter exists only on the native Q-Former architecture; a
-            # decoder-prefix approximation would be a new, ungrounded method.
-            if (
-                icd_fidelity in {"exact", "native_binary_specialization"}
-                and "icd_instruction_disturbance_question" not in prior_names
-            ):
-                out.append(
-                    FixCandidate(
-                        tier=FixTier.L3A_INTERNALS_READ,
-                        name="icd_instruction_disturbance_question",
-                        kind="icd",
-                        source="paper_default",
-                        payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "question"},
-                    )
-                )
-        # Gated sibling, same rationale as VCD's above: ICD is also
-        # suppressive, so restrict it to the per-case false-Yes subset rather
-        # than requiring the whole slice to be false-Yes dominant.
-        if (
-            internals_read_allowed
-            and tasks == {"yes_no"}
-            and supports_logprobs
-            and callable(getattr(model, "generate_instruction_cd", None))
-            and (
-                icd_fidelity in {"exact", "native_binary_specialization"}
-                or (icd_fidelity == "adapted" and self._allow_adapted_paper_methods)
-            )
-            and "icd_instruction_disturbance_gated_false_yes" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L3A_INTERNALS_READ,
-                    name="icd_instruction_disturbance_gated_false_yes",
-                    kind="icd",
-                    source="conditional_default",
-                    payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"},
-                    predicate=_false_yes_predicate,
-                )
-            )
         return out
 
     @staticmethod
@@ -1868,11 +1637,9 @@ class FixAgent:
 
         Coded pipelines carry fresh source each round, so they never collide;
         templates / specs / primitives dedup on their defining payload. The
-        candidate's ``name`` is always part of the signature: two candidates
-        can share a kind and payload while differing only in ``predicate``
-        (for example a paper method and its per-case-gated sibling, see
-        ``_false_yes_predicate``) -- that is a different candidate, not a
-        duplicate, and must not be silently dropped by the round's dedup set.
+        candidate's ``name`` is always part of the signature, so separately
+        registered experiments never collapse merely because their defaults
+        happen to match.
         """
         p = candidate.payload
         if candidate.kind == "template":
@@ -1900,7 +1667,6 @@ class FixAgent:
         *,
         has_images: bool = False,
         tasks: "set[str] | None" = None,
-        binary_hallucination_supported: bool = True,
         context_block: str = "",
     ) -> "list[FixCandidate]":
         proposals = self._ask_judge(
@@ -1951,40 +1717,6 @@ class FixAgent:
                         )
                     },
                 ),
-            )
-        # Dual of the direction gate that withholds VCD/ICD/OPERA/PAI/IFCD on
-        # a false-No-dominant slice (_binary_hallucination_direction): those
-        # methods are all suppressive (push away from asserting an object),
-        # which is the wrong direction for under-claiming. This is the
-        # opposite-direction lever within our own framework -- a prompt that
-        # asks the model to accept partial/ambiguous visual evidence rather
-        # than requiring certainty before answering Yes. It is scoped to the
-        # same batch-level diagnosis signal (never a specific case's outcome)
-        # and only proposed for binary tasks where the direction is not
-        # false-Yes-dominant, so it is never offered alongside (and diluting)
-        # the already-validated false-Yes-side candidates.
-        if (
-            has_images
-            and tasks == {"yes_no"}
-            and not binary_hallucination_supported
-            and "assertive_grounding" not in prior_names
-        ):
-            out.append(
-                FixCandidate(
-                    tier=FixTier.L1_PROMPT,
-                    name="assertive_grounding",
-                    kind="template",
-                    source="default",
-                    payload={
-                        "prompt_template": (
-                            "Inspect the image for {failure_axis}. If there is plausible visual "
-                            "evidence for the object or attribute in the question -- even if "
-                            "partial, small, or ambiguous -- answer Yes. Only answer No if you "
-                            "are confident no such evidence is present anywhere in the "
-                            "image.\n\n{prompt}"
-                        )
-                    },
-                )
             )
         if not out and not has_structural_proposal and "attend_carefully" not in prior_names:
             # The judge gave nothing usable: one conservative default. Worded
@@ -2339,7 +2071,8 @@ class FixAgent:
                 '{"grid": [[float,...],...], "shape": [H, W]}  is ALSO defined: '
                 "the model's attention heatmap over image patches (read-only "
                 "internals). Use it e.g. to find where the model looks, then "
-                "crop_region there and re-ask."
+                "crop_region there and re-ask. This forward pass counts as ONE "
+                "of the per-case model-call budget below."
             )
             if attend_available
             else ""
@@ -2374,6 +2107,9 @@ class FixAgent:
             )
             code, raw = self._write_code_cli(prompt, trial)
             source = f"cli:{self._cli_config.provider}"
+            if _code_copies_example(code, examples) or _code_redefines_model_bridge(code):
+                logger.warning("FixAgent: generated code violated anti-memorization/bridge rules; dropped")
+                code = ""
         if not code.strip() and self._judge is not None:
             self._last_raw_stream = ""
             prompt = (
@@ -2397,6 +2133,9 @@ class FixAgent:
                     logger.warning("FixAgent: judge code failed to parse; dropped")
                     code = ""
             source = "judge"
+        if _code_copies_example(code, examples) or _code_redefines_model_bridge(code):
+            logger.warning("FixAgent: generated code violated anti-memorization/bridge rules; dropped")
+            code = ""
         self._emit_codegen(
             "coded_pipeline", prompt, source, code, raw, ok=bool(code.strip()), trial=trial
         )
@@ -2433,12 +2172,13 @@ class FixAgent:
         if prior_text:
             return (
                 "- This is a FEEDBACK-DRIVEN EXPLORE revision. Use the prior "
-                "helped/hurt prompts and implementation below as training "
-                "feedback. Gate the revised fix on a prompt/task subtype that "
-                "actually benefited and return baseline_output (the direct "
-                "baseline) elsewhere. If the prior attempt repaired zero "
-                "cases, abandon its override mechanism instead of merely "
-                "retuning it."
+                "aggregate fixed/broken counts and implementation below as "
+                "training feedback. Raw case IDs, prompts, and answers are "
+                "deliberately withheld: revise the general mechanism, never "
+                "match a benchmark item or phrase. Keep baseline_output outside "
+                "a label-free, generally applicable gate. If the prior attempt "
+                "repaired zero cases, abandon its override mechanism instead of "
+                "merely retuning it."
             )
         if self.max_repair_rounds > 1:
             return (
@@ -2504,16 +2244,11 @@ class FixAgent:
     ) -> str:
         """Format failed prior attempts as a context block for judge prompts.
 
-        Beyond "try a different mechanism", this surfaces the *partition* a
-        prior candidate induced (helped vs hurt) so the next proposal can scope
-        the fix instead of blindly transforming the whole population — a
-        candidate that helps one subset and breaks another is asking to be
-        gated by a predicate, not replaced (defect 3).
+        Only aggregate outcomes and the attempted implementation are exposed.
+        Raw IDs, prompts, and answers would let a later round memorize EXPLORE
+        cases, so they never enter repair feedback.
         """
-        prompt_by_id = {
-            case.id: str(getattr(getattr(case, "inputs", None), "prompt", ""))
-            for case in (data or [])
-        }
+        del data
         items = []
         implementations = []
         heterogeneous = []
@@ -2522,24 +2257,14 @@ class FixAgent:
             if c.kind == "finetune_spec":
                 continue
             effect = f"effect={v.effect:+.2f}" if v.effect is not None else "did not execute"
-            broken = f", broke {v.broken_cases[:3]}" if v.broken_cases else ""
             trunc = (
                 f"; {v.n_truncated} model call(s) hit the decode cap — its breaks are "
                 "truncation, not the idea: give the model MORE room, never less"
                 if v.n_truncated else ""
             )
-            helped_prompts = [
-                prompt_by_id.get(case_id, "")[:180]
-                for case_id in v.fixed_cases[:8]
-            ]
-            hurt_prompts = [
-                prompt_by_id.get(case_id, "")[:180]
-                for case_id in v.broken_cases[:8]
-            ]
             items.append(
                 f"- [{c.tier.label}/{c.kind}] {c.name}: "
-                f"{v.n_fixed} fixed / {v.n_broken} broken ({effect}{broken}{trunc}); "
-                f"helped prompts={helped_prompts}; hurt prompts={hurt_prompts}"
+                f"{v.n_fixed} fixed / {v.n_broken} broken ({effect}{trunc})"
             )
             code = c.payload.get("code") if c.kind == "code" else None
             if isinstance(code, str) and code.strip():
@@ -2548,11 +2273,10 @@ class FixAgent:
                 )
             if v.n_fixed > 0 and v.n_broken > 0:
                 heterogeneous.append(
-                    f"  '{c.name}' HELPED {v.fixed_cases[:4]} but HURT "
-                    f"{v.broken_cases[:4]} — these two groups differ; either gate "
-                    "the fix so it only applies to the helped group, or target the "
-                    f"mechanism that separates them. HELPED PROMPTS={helped_prompts}; "
-                    f"HURT PROMPTS={hurt_prompts}."
+                    f"  '{c.name}' helped {v.n_fixed} and hurt {v.n_broken} cases. "
+                    "The effect is heterogeneous, but case-level content is withheld; "
+                    "replace the mechanism or derive a label-free gate from runtime "
+                    "signals available on every future case."
                 )
         if not items:
             return ""
@@ -2637,7 +2361,6 @@ class FixAgent:
         has_images: bool = False,
         has_audio: bool = False,
         tasks: "set[str] | None" = None,
-        binary_hallucination_supported: bool = True,
     ) -> "list[FixCandidate]":
         """Select from the repair capabilities discovered at runtime.
 
@@ -2659,7 +2382,6 @@ class FixAgent:
             has_images=has_images,
             has_audio=has_audio,
             tasks=tasks or set(),
-            binary_hallucination_supported=binary_hallucination_supported,
             allow_adapted=self._allow_adapted_paper_methods,
             prior_names=prior_names,
         )
@@ -2700,9 +2422,13 @@ class FixAgent:
                     FixCandidate(
                         tier=method.tier,
                         name=method.name,
-                        kind=method.kind,
+                        kind="registered_repair",
                         source=method.source,
-                        payload=dict(method.payload),
+                        payload={
+                            "executor": method.executor,
+                            "kwargs": dict(method.payload),
+                            "pass_baseline_answer": method.pass_baseline_answer,
+                        },
                     )
                 )
 
@@ -2991,126 +2717,30 @@ class FixAgent:
         self, candidate: FixCandidate
     ) -> "Callable[[Model, FailureCase], Optional[bool]]":
         """Compile a candidate to a per-case success function (ab_runner shape)."""
-        if candidate.kind == "vcd":
+        if candidate.kind == "registered_repair":
 
-            def vcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
+            def registered_repair(
+                model: "Model", case: "FailureCase"
+            ) -> "Optional[bool]":
+                executor_name = str(candidate.payload.get("executor", ""))
+                kwargs = dict(candidate.payload.get("kwargs") or {})
+                if candidate.payload.get("pass_baseline_answer"):
+                    kwargs["baseline_answer"] = str(getattr(case, "observed", ""))
                 try:
-                    generate_vcd = getattr(model, "generate_vcd")
-                    output = generate_vcd(case.inputs, **candidate.payload)
+                    executor = getattr(model, executor_name)
+                    output = executor(case.inputs, **kwargs)
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
-                    logger.debug("VCD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return vcd
-        if candidate.kind == "aad":
-
-            def aad(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_aad = getattr(model, "generate_aad")
-                    output = generate_aad(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("AAD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return aad
-        if candidate.kind == "icd":
-
-            def icd(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_icd = getattr(model, "generate_instruction_cd")
-                    output = generate_icd(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("ICD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return icd
-        if candidate.kind == "vicrop":
-
-            def vicrop(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_vicrop = getattr(model, "generate_vicrop")
-                    output = generate_vicrop(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("ViCrop generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return vicrop
-        if candidate.kind == "vicrop_consensus":
-
-            def vicrop_consensus(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_vicrop = getattr(model, "generate_vicrop_consensus")
-                    output = generate_vicrop(
-                        case.inputs,
-                        baseline_answer=str(getattr(case, "observed", "")),
-                        **candidate.payload,
+                    logger.debug(
+                        "Registered repair %s failed on %s: %s",
+                        candidate.name,
+                        case.id,
+                        exc,
                     )
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("ViCrop consensus generation failed on %s: %s", case.id, exc)
                     return None
 
-            return vicrop_consensus
-        if candidate.kind == "opera":
-
-            def opera(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_opera = getattr(model, "generate_opera_binary")
-                    output = generate_opera(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("OPERA binary generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return opera
-        if candidate.kind == "ifcd":
-
-            def ifcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_ifcd = getattr(model, "generate_ifcd")
-                    output = generate_ifcd(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("IFCD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return ifcd
-        if candidate.kind == "pai":
-
-            def pai(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_pai = getattr(model, "generate_pai")
-                    output = generate_pai(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("PAI generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return pai
-        if candidate.kind == "tcd":
-
-            def tcd(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                try:
-                    generate_tcd = getattr(model, "generate_tcd")
-                    output = generate_tcd(case.inputs, **candidate.payload)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self._score(case, str(output)))
-                except Exception as exc:
-                    logger.debug("TCD generation failed on %s: %s", case.id, exc)
-                    return None
-
-            return tcd
+            return registered_repair
         if candidate.kind == "visual_search":
 
             def visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":
@@ -3376,6 +3006,8 @@ class FixAgent:
 
     def _repair_code(self, candidate: FixCandidate, error: str) -> "tuple[str, str, str]":
         """Ask the coder to fix its failed pipeline; returns (code, source, raw)."""
+        from pathlib import Path
+
         from evalvitals.eval_agent.stages.fix_pipeline import (
             CASES_FILENAME,
             RESULT_MARKER,
@@ -3402,6 +3034,12 @@ class FixAgent:
         )
         code, source, raw = "", "", ""
         if self._cli_config is not None and self._cli_config.provider != "llm":
+            # The execution host consumes/removes pipeline.py. Restore the
+            # user's source before asking the CLI coder to edit it, otherwise
+            # an agent can mistake fix_pipeline_exec.py for the target.
+            Path(self._workdir(candidate.trial), "pipeline.py").write_text(
+                str(candidate.payload.get("code", "")), encoding="utf-8"
+            )
             self._last_repair_prompt = (
                 base + "\nWrite the corrected code to a file named pipeline.py."
             )
@@ -3426,6 +3064,9 @@ class FixAgent:
                 except SyntaxError:
                     code = ""
             source = "judge"
+        if _code_redefines_model_bridge(code):
+            logger.warning("FixAgent: repaired code redefined a host model bridge; dropped")
+            code = ""
         return code, source, raw
 
     def _validate(
@@ -3639,21 +3280,9 @@ class FixAgent:
         if tier == FixTier.L3A_INTERNALS_READ:
             from evalvitals.core.capability import Capability
 
-            if Capability.ATTENTION in getattr(model, "capabilities", frozenset()):
-                return True
-            # Contrastive decoders are L3a even when they do not expose raw
-            # attention tensors: their dedicated executors read and combine
-            # logits from paired forward passes.
-            return any(
-                callable(getattr(model, method, None))
-                for method in (
-                    "generate_vcd",
-                    "generate_aad",
-                    "generate_instruction_cd",
-                    "generate_tcd",
-                    "generate_vicrop",
-                    "generate_opera_binary",
-                )
+            return (
+                Capability.ATTENTION in getattr(model, "capabilities", frozenset())
+                or supports_tier(model, tier)
             )
         if tier == FixTier.L3B_INTERNALS_WRITE:
             return any(

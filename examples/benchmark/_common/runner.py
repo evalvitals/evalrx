@@ -210,8 +210,16 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         raise SystemExit("M5 needs both PASS and FAIL cases; adjust --limit / --seed")
 
     from evalvitals.eval_agent import (
-        CliAgentConfig, DiagnosisAgent, FixAgent, HypothesisTester, ProbeAgent, RunContext,
-        StatsAnalysisAgent, StrategyProbe, SurgeryAgent, VLDiagnoseLoop,
+        CliAgentConfig,
+        DiagnosisAgent,
+        FixAgent,
+        HypothesisTester,
+        ProbeAgent,
+        RunContext,
+        StatsAnalysisAgent,
+        StrategyProbe,
+        SurgeryAgent,
+        VLDiagnoseLoop,
     )
     from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
 
@@ -268,7 +276,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             {args.fix_candidate} if args.fix_candidate
             else ({"coded_pipeline"} if args.code_only else None)
         ),
-        max_repair_rounds=2,
+        max_repair_rounds=max(1, args.fix_repair_rounds),
         **({"max_judge_candidates": 1} if args.code_only else {}),
         exec_timeout_sec=args.fix_exec_timeout,
         prewritten_code=prewritten_code,

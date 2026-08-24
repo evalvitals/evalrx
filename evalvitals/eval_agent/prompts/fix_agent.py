@@ -79,7 +79,11 @@ EXECUTION CONTRACT:
   prompt override, optional image transforms applied to the case's image
   first, optional bounded decoding controls (temperature, top_p, stop,
   max_tokens — max_tokens can only RAISE the baseline budget; a lower value is
-  raised to it).  image_ops MUST be a list of
+  raised to it).  IMPORTANT: ``prompt`` REPLACES the original prompt; it is
+  not prepended automatically.  Every answer-producing override must include
+  ``case["prompt"]`` itself (for example, ``instruction + "\\n\\n" +
+  case["prompt"]``), or the model will never see the question.  image_ops MUST
+  be a list of
   {{"tool": "<name>", "params": {{...}}}} dicts using ONLY these tools
   (anything else is rejected with an error):
 {catalog}{attend_hint}
@@ -105,7 +109,9 @@ EXECUTION CONTRACT:
   matching); never rewrite, reformat or compute the answer yourself.
   Pattern the host accepts:
       base = case["baseline_output"] or ""
-      votes = [model_generate(cid, prompt=p1), model_generate(cid, prompt=p2, image_ops=ops)]
+      question = case["prompt"]
+      votes = [model_generate(cid, prompt=p1 + "\\n\\n" + question),
+               model_generate(cid, prompt=p2 + "\\n\\n" + question, image_ops=ops)]
       final = the answer that >= {min_support} votes agree on if it differs from base, else base
 {selection_guidance}
 - The LAST line of stdout MUST be exactly:

@@ -1,10 +1,7 @@
-"""Runtime-discovered, pre-audited repair capabilities.
+"""Declarative discovery of pre-audited model repair capabilities.
 
-This registry deliberately lives outside :mod:`fix_agent`.  Diagnosis reports
-mechanisms; the repair agent receives only the structurally executable entries
-returned here and decides which mechanism match (if any) is supported by the
-evidence.  Adding an executor therefore extends this catalog without adding a
-method-specific routing branch to the agent.
+The fix agent only sees compatible descriptions from this registry.  It has no
+method names, benchmark names, or method-specific executor branches.
 """
 
 from __future__ import annotations
@@ -12,27 +9,37 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from evalvitals.core.capability import Capability
 from evalvitals.eval_agent.stages.fix_tiers import FixTier
 
 
 @dataclass(frozen=True)
 class RepairMethod:
-    """A discoverable repair executor plus the evidence-facing description."""
-
     name: str
     tier: FixTier
-    kind: str
     executor: str
     description: str
-    source: str = "paper_default"
+    source: str = "registered"
     payload: dict[str, Any] = field(default_factory=dict)
     baseline_executor: str | None = None
+    fidelity_key: str | None = None
+    accepted_fidelities: frozenset[str] = frozenset()
+    adapted_fidelities: frozenset[str] = frozenset()
+    required_inputs: frozenset[str] = frozenset()
+    accepted_tasks: frozenset[str] = frozenset()
+    requires_logprobs: bool = False
+    pass_baseline_answer: bool = False
 
 
 def method_names() -> frozenset[str]:
-    """Stable names understood by explicit frozen-experiment allowlists."""
-
     return frozenset(method.name for method in _METHODS)
+
+
+def supports_tier(model: Any, tier: FixTier) -> bool:
+    return any(
+        method.tier == tier and callable(getattr(model, method.executor, None))
+        for method in _METHODS
+    )
 
 
 def discover_methods(
@@ -42,166 +49,118 @@ def discover_methods(
     has_images: bool,
     has_audio: bool,
     tasks: set[str],
-    binary_hallucination_supported: bool,
     allow_adapted: bool,
     prior_names: frozenset[str] = frozenset(),
 ) -> list[RepairMethod]:
-    """Return methods that can physically execute for this model and batch.
-
-    This is capability discovery, not mechanism matching.  In particular, it
-    never reads hypothesis text.  The judge receives the resulting catalog and
-    may decline every entry when the diagnosis does not support one.
-    """
+    """Return physically executable repairs without consulting labels or data IDs."""
 
     fidelity_fn = getattr(model, "paper_method_fidelity", None)
-
-    def fidelity(key: str) -> str:
-        return fidelity_fn(key) if callable(fidelity_fn) else "unavailable"
-
+    capabilities = getattr(model, "capabilities", frozenset())
+    inputs = frozenset(
+        name for name, present in (("image", has_images), ("audio", has_audio)) if present
+    )
     available: list[RepairMethod] = []
     for method in _METHODS:
         if method.name in prior_names or method.tier > max_tier:
             continue
         if not callable(getattr(model, method.executor, None)):
             continue
-        if method.baseline_executor and not callable(
-            getattr(model, method.baseline_executor, None)
-        ):
+        if method.baseline_executor and not callable(getattr(model, method.baseline_executor, None)):
             continue
-        if not _structurally_eligible(
-            method,
-            fidelity=fidelity,
-            has_images=has_images,
-            has_audio=has_audio,
-            tasks=tasks,
-            binary_hallucination_supported=binary_hallucination_supported,
-            allow_adapted=allow_adapted,
-        ):
+        if not method.required_inputs.issubset(inputs):
             continue
+        if method.accepted_tasks and not tasks.issubset(method.accepted_tasks):
+            continue
+        if method.requires_logprobs and Capability.LOGPROBS not in capabilities:
+            continue
+        if method.fidelity_key:
+            fidelity = fidelity_fn(method.fidelity_key) if callable(fidelity_fn) else "unavailable"
+            accepted = method.accepted_fidelities | (
+                method.adapted_fidelities if allow_adapted else frozenset()
+            )
+            if fidelity not in accepted:
+                continue
         available.append(method)
     return available
 
 
-def _structurally_eligible(
-    method: RepairMethod,
-    *,
-    fidelity,
-    has_images: bool,
-    has_audio: bool,
-    tasks: set[str],
-    binary_hallucination_supported: bool,
-    allow_adapted: bool,
-) -> bool:
-    """Architecture/task gates only; never infer a mechanism from labels."""
-
-    key = method.kind
-    if key == "opera":
-        return (
-            has_images
-            and tasks == {"yes_no"}
-            and binary_hallucination_supported
-            and fidelity("opera") == "native_binary_specialization"
-        )
-    if key in {"vicrop", "vicrop_consensus"}:
-        return has_images and fidelity("vicrop") == "native_selector_specialization"
-    if key == "ifcd":
-        return (
-            has_images
-            and tasks == {"yes_no"}
-            and binary_hallucination_supported
-            and fidelity("ifcd") == "adapted_truthx_artifact"
-            and allow_adapted
-        )
-    if key == "pai":
-        return (
-            has_images
-            and (tasks != {"yes_no"} or binary_hallucination_supported)
-            and fidelity("pai") == "native_attention_cfg_specialization"
-        )
-    if key == "tcd":
-        method_fidelity = fidelity("tcd")
-        return (
-            has_audio
-            and tasks in ({"multiple_choice"}, {"multiple_choice_letter"})
-            and (
-                method_fidelity == "native_layer_matched_stability"
-                or (method_fidelity == "adapted_truncated_layer_stability" and allow_adapted)
-            )
-        )
-    return False
-
+_YES_NO = frozenset({"yes_no"})
+_AUDIO_MC = frozenset({"multiple_choice", "multiple_choice_letter"})
 
 _METHODS: tuple[RepairMethod, ...] = (
     RepairMethod(
-        name="opera_overtrust_binary",
-        tier=FixTier.L3A_INTERNALS_READ,
-        kind="opera",
-        executor="generate_opera_binary",
-        source="paper_default_binary_specialization",
-        payload={"num_attn_candidates": 5, "penalty_weight": 1.0},
-        description=(
-            "Penalises binary next-token candidates that neglect image attention; "
-            "targets object or attribute hallucination caused by language priors "
-            "overriding visual evidence."
-        ),
+        "vcd_diffusion_noise", FixTier.L3A_INTERNALS_READ, "generate_vcd",
+        "Contrast original and corrupted-image decoding when visual claims follow language priors.",
+        payload={"alpha": 1.0, "beta": 0.1, "noise_step": 999},
+        fidelity_key="vcd", accepted_fidelities=frozenset({
+            "exact", "native_binary_specialization", "per_item_seeded_sampler_specialization",
+        }),
+        required_inputs=frozenset({"image"}), accepted_tasks=_YES_NO, requires_logprobs=True,
     ),
     RepairMethod(
-        name="vicrop_relative_attention",
-        tier=FixTier.L3A_INTERNALS_READ,
-        kind="vicrop",
-        executor="generate_vicrop",
-        payload={"layer": 14},
-        description=(
-            "Uses attention to locate and crop a relevant image region before "
-            "re-answering; targets small or local visual detail missed at native resolution."
-        ),
+        "aad_silence_contrast", FixTier.L3A_INTERNALS_READ, "generate_aad",
+        "Contrast normal and silenced-audio decoding when claims ignore acoustic evidence.",
+        payload={"alpha": 0.5}, fidelity_key="aad",
+        accepted_fidelities=frozenset({"native_silence_contrast"}),
+        required_inputs=frozenset({"audio"}), accepted_tasks=_YES_NO,
     ),
     RepairMethod(
-        name="vicrop_consensus_guard",
-        tier=FixTier.L3A_INTERNALS_READ,
-        kind="vicrop_consensus",
-        executor="generate_vicrop_consensus",
-        source="safety_guard",
-        payload={"layer": 14},
-        description=(
-            "Attention-guided crop and re-answer with a label-free consensus guard; "
-            "a safer transfer variant for small or local visual detail."
-        ),
+        "icd_instruction_disturbance", FixTier.L3A_INTERNALS_READ, "generate_instruction_cd",
+        "Contrast normal and instruction-disturbed decoding when instruction priors override vision.",
+        payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"}, fidelity_key="icd",
+        accepted_fidelities=frozenset({"exact", "native_binary_specialization"}),
+        adapted_fidelities=frozenset({"adapted"}), required_inputs=frozenset({"image"}),
+        accepted_tasks=_YES_NO, requires_logprobs=True,
     ),
     RepairMethod(
-        name="ifcd_truthx_contrast",
-        tier=FixTier.L3B_INTERNALS_WRITE,
-        kind="ifcd",
-        executor="generate_ifcd",
-        source="paper_adapted_truthx_artifact",
+        "icd_instruction_disturbance_question", FixTier.L3A_INTERNALS_READ,
+        "generate_instruction_cd",
+        "Use architecture-native question-conditioned instruction contrast for visual grounding.",
+        payload={"alpha": 1.0, "beta": 0.1, "qformer_mode": "question"}, fidelity_key="icd",
+        accepted_fidelities=frozenset({"exact", "native_binary_specialization"}),
+        required_inputs=frozenset({"image"}), accepted_tasks=_YES_NO, requires_logprobs=True,
+    ),
+    RepairMethod(
+        "opera_overtrust_binary", FixTier.L3A_INTERNALS_READ, "generate_opera_binary",
+        "Penalise binary token candidates that neglect image attention.",
+        payload={"num_attn_candidates": 5, "penalty_weight": 1.0}, fidelity_key="opera",
+        accepted_fidelities=frozenset({"native_binary_specialization"}),
+        required_inputs=frozenset({"image"}), accepted_tasks=_YES_NO,
+    ),
+    RepairMethod(
+        "vicrop_relative_attention", FixTier.L3A_INTERNALS_READ, "generate_vicrop",
+        "Use attention to locate and crop visual detail before re-answering.",
+        payload={"layer": 14}, fidelity_key="vicrop",
+        accepted_fidelities=frozenset({"native_selector_specialization"}),
+        required_inputs=frozenset({"image"}),
+    ),
+    RepairMethod(
+        "vicrop_consensus_guard", FixTier.L3A_INTERNALS_READ, "generate_vicrop_consensus",
+        "Use an attention crop with a label-free baseline-consensus guard.",
+        payload={"layer": 14}, fidelity_key="vicrop",
+        accepted_fidelities=frozenset({"native_selector_specialization"}),
+        required_inputs=frozenset({"image"}), pass_baseline_answer=True,
+    ),
+    RepairMethod(
+        "ifcd_truthx_contrast", FixTier.L3B_INTERNALS_WRITE, "generate_ifcd",
+        "Contrast representations against a trained truthfulness direction.",
         payload={"alpha": 0.1, "beta": 0.1, "edit_strength": 0.5, "top_layers": 15},
-        description=(
-            "Contrasts internal representations against a trained truthfulness direction; "
-            "targets visual hallucination driven by language priors."
-        ),
+        fidelity_key="ifcd", adapted_fidelities=frozenset({"adapted_truthx_artifact"}),
+        required_inputs=frozenset({"image"}), accepted_tasks=_YES_NO,
     ),
     RepairMethod(
-        name="pai_image_attention",
-        tier=FixTier.L3B_INTERNALS_WRITE,
-        kind="pai",
-        executor="generate_pai",
-        source="paper_default_attention_cfg",
+        "pai_image_attention", FixTier.L3B_INTERNALS_WRITE, "generate_pai",
+        "Amplify image-attention logits with guidance when language overrides vision.",
         payload={"alpha": 0.2, "guidance_scale": 2.0, "start_layer": 2, "end_layer": 32},
-        description=(
-            "Amplifies image-attention logits during decoding with classifier-free "
-            "guidance; targets visual evidence being overridden by language priors."
-        ),
+        fidelity_key="pai", accepted_fidelities=frozenset({"native_attention_cfg_specialization"}),
+        required_inputs=frozenset({"image"}),
     ),
     RepairMethod(
-        name="tcd_temporal_blur",
-        tier=FixTier.L3A_INTERNALS_READ,
-        kind="tcd",
-        executor="generate_tcd",
-        baseline_executor="generate_tcd_baseline",
-        description=(
-            "Contrasts decoding against a temporally blurred audio view; targets "
-            "under-weighted transient acoustic detail, not a flat knowledge gap or "
-            "an unrelated option-position bias."
-        ),
+        "tcd_temporal_blur", FixTier.L3A_INTERNALS_READ, "generate_tcd",
+        "Contrast decoding against temporally blurred audio to recover transient detail.",
+        baseline_executor="generate_tcd_baseline", fidelity_key="tcd",
+        accepted_fidelities=frozenset({"native_layer_matched_stability"}),
+        adapted_fidelities=frozenset({"adapted_truncated_layer_stability"}),
+        required_inputs=frozenset({"audio"}), accepted_tasks=_AUDIO_MC,
     ),
 )

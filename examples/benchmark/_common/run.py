@@ -78,6 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="coder-written M2 statistics tools (default: on for llm, off otherwise)")
     p.add_argument("--fix-validation-cases", type=int, default=256)
     p.add_argument("--fix-exec-timeout", type=int, default=2400)
+    p.add_argument("--fix-repair-rounds", type=int, default=2,
+                   help="feedback-driven coded-pipeline attempts (default: 2)")
     p.add_argument("--baseline-only", action="store_true",
                    help="download + load + Stage 0 only (no judge): the per-cell smoke check")
     p.add_argument("--skip-fix", action="store_true", help="stop after M1..M5")
