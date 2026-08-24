@@ -1,0 +1,208 @@
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="1760" height="1010" viewBox="0 0 1760 1010" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>EvalVitals ChartQA case study</title>
+<desc>EvalVitals applied to Gemma-4-E2B on ChartQA: probing, statistical screening, hypotheses, held-out verification, and a validated L2 repair.</desc>
+<rect x="0" y="0" width="1760" height="1010" rx="0" fill="#FFFFFF"/>
+<rect x="440" y="16" width="880" height="50" rx="3" fill="#111111"/>
+<text x="880" y="48" font-size="16.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">256 ChartVQA cases &#183; Gemma-4-E2B &#183; baseline 49.2%</text>
+<line x1="880" y1="66" x2="880" y2="84" stroke="#BDBDBD" stroke-width="2"/>
+<line x1="278" y1="84" x2="1430" y2="84" stroke="#BDBDBD" stroke-width="2"/>
+<line x1="278" y1="84" x2="278" y2="100" stroke="#BDBDBD" stroke-width="2"/>
+<line x1="1430" y1="84" x2="1430" y2="100" stroke="#BDBDBD" stroke-width="2"/>
+<rect x="272" y="78" width="12" height="12" rx="0" fill="#4DC3E8"/>
+<rect x="1424" y="78" width="12" height="12" rx="0" fill="#111111"/>
+<rect x="20" y="100" width="931" height="42" rx="3" fill="#EAF3FE"/>
+<text x="44" y="127" font-size="16" fill="#1E7BE0" font-weight="700">EXPLORE / DISCOVERY</text>
+<text x="270" y="127" font-size="12" fill="#8A8880">probe freely &#183; inspect many signals &#183; form hypotheses</text>
+<rect x="961" y="100" width="779" height="42" rx="3" fill="#F0F0EE"/>
+<text x="985" y="127" font-size="16" fill="#111111" font-weight="700">HELD-OUT / VALIDATION</text>
+<text x="1225" y="127" font-size="12" fill="#8A8880">unseen cases only</text>
+<rect x="20" y="160" width="336" height="500" rx="3" fill="#FFFFFF" stroke="#E3E1DA" stroke-width="1"/>
+<rect x="20" y="160" width="336" height="5" rx="0" fill="#4DC3E8"/>
+<text x="40" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M1</text>
+<text x="40" y="216" font-size="16.5" fill="#111111" font-weight="700">Suspicious Behavior Detection</text>
+<text x="40" y="234" font-size="10.5" fill="#4A4A4A">Run the analyzer probing library,</text>
+<text x="40" y="248" font-size="10.5" fill="#4A4A4A">find per-case suspicious behaviors</text>
+<rect x="40" y="260" width="296" height="65" rx="3" fill="#EAF3FE" stroke="#1E7BE0" stroke-width="1.3"/>
+<text x="50" y="275" font-size="10" fill="#1E7BE0" font-weight="700">BLACK-BOX BEHAVIOR</text>
+<rect x="280" y="264" width="48" height="14" rx="2" fill="#1E7BE0"/>
+<text x="304" y="274.5" font-size="8.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">SELECTED</text>
+<text x="50" y="292" font-size="10" fill="#111111" font-weight="700">&#183; consistency across 5 resamples</text>
+<text x="50" y="307" font-size="10" fill="#4A4A4A">&#183; coverage / verification gap</text>
+<text x="50" y="322" font-size="10" fill="#4A4A4A">&#183; answer-extraction audit</text>
+<rect x="40" y="333" width="296" height="50" rx="3" fill="#FFFFFF"/>
+<text x="50" y="348" font-size="10" fill="#B0AEA6" font-weight="700">INTERNAL / WHITE-BOX</text>
+<text x="50" y="365" font-size="10" fill="#B0AEA6">&#183; attention &amp; attribution</text>
+<text x="50" y="380" font-size="10" fill="#B0AEA6">&#183; logits &amp; representations</text>
+<rect x="40" y="391" width="296" height="35" rx="3" fill="#FFFFFF"/>
+<text x="50" y="406" font-size="10" fill="#B0AEA6" font-weight="700">MULTIMODAL</text>
+<text x="50" y="423" font-size="10" fill="#B0AEA6">&#183; grounding &amp; hallucination</text>
+<line x1="40" y1="438" x2="336" y2="438" stroke="#EDEBE4" stroke-width="1"/>
+<text x="40" y="458" font-size="11.5" fill="#111111" font-weight="700">What the Probes Ask?</text>
+<text x="40" y="478" font-size="10" fill="#4A4A4A">- Did it answer in the form we asked for?</text>
+<text x="40" y="494" font-size="10" fill="#4A4A4A">- Did it give up answering?</text>
+<text x="40" y="510" font-size="10" fill="#4A4A4A">- Same question five times, same answer?</text>
+<text x="40" y="526" font-size="10" fill="#4A4A4A">- Asked to check itself, does it change?</text>
+<text x="40" y="542" font-size="10" fill="#4A4A4A">- Did it ever produce the right answer?</text>
+<rect x="40" y="568" width="296" height="42" rx="3" fill="#F7F6F1"/>
+<rect x="50" y="578" width="276" height="8" rx="2" fill="#D5D3CB"/>
+<rect x="50" y="578" width="95.53846153846153" height="8" rx="2" fill="#1E7BE0"/>
+<text x="50" y="602" font-size="11" fill="#111111" font-weight="700">26 measurements, <tspan fill="#1E7BE0">9</tspan> forwarded to M2</text>
+<rect x="364" y="160" width="281" height="500" rx="3" fill="#FFFFFF" stroke="#E3E1DA" stroke-width="1"/>
+<rect x="364" y="160" width="281" height="5" rx="0" fill="#4DC3E8"/>
+<text x="382" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M2</text>
+<text x="382" y="216" font-size="16.5" fill="#111111" font-weight="700">Statistical Screening</text>
+<text x="382" y="234" font-size="10.5" fill="#4A4A4A">Using plots to explain, statistical tests to</text>
+<text x="382" y="248" font-size="10.5" fill="#4A4A4A">decide</text>
+<text x="382" y="276" font-size="12" fill="#1E7BE0" font-weight="700">Forest plot</text>
+<line x1="504.5" y1="286" x2="504.5" y2="420" stroke="#C9C7BF" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="550.8" y1="297.1" x2="602.7" y2="297.1" stroke="#1E7B34" stroke-width="1.4"/>
+<circle cx="577.7" cy="297.1" r="4" fill="#1E7B34"/>
+<line x1="572.6" y1="311.3" x2="601.5" y2="311.3" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="587.0" cy="311.3" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="534.0" y1="325.6" x2="612.2" y2="325.6" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="573.1" cy="325.6" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="534.0" y1="339.8" x2="612.2" y2="339.8" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="573.1" cy="339.8" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="481.9" y1="354.0" x2="591.2" y2="354.0" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="540.8" cy="354.0" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="505.3" y1="368.2" x2="561.9" y2="368.2" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="534.3" cy="368.2" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="494.8" y1="382.4" x2="568.9" y2="382.4" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="532.6" cy="382.4" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="418.6" y1="396.7" x2="589.0" y2="396.7" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="503.2" cy="396.7" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="410.0" y1="410.9" x2="580.4" y2="410.9" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="474.7" cy="410.9" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<text x="421.2857142857143" y="436" font-size="9.5" fill="#8A8880" text-anchor="middle">&#8722;0.5</text>
+<text x="504.5" y="436" font-size="9.5" fill="#8A8880" text-anchor="middle">0</text>
+<text x="587.7142857142858" y="436" font-size="9.5" fill="#8A8880" text-anchor="middle">+0.5</text>
+<text x="504.5" y="452" font-size="9.5" fill="#8A8880" text-anchor="middle">one row per candidate signal, extra</text>
+<text x="504.5" y="464" font-size="9.5" fill="#8A8880" text-anchor="middle">failure rate when the signal is high</text>
+<text x="382" y="516" font-size="12" fill="#1E7BE0" font-weight="700">Statistical Tests</text>
+<text x="382" y="532" font-size="10.5" fill="#111111" font-weight="700">1 of 9 signals survives</text>
+<text x="382" y="546" font-size="10.5" fill="#111111" font-weight="700">Benjamini&#8211;Hochberg (BH)</text>
+<rect x="382" y="546" width="245" height="26" rx="3" fill="#F7F6F1"/>
+<text x="504.5" y="563" font-size="10.5" fill="#4A4A4A" text-anchor="middle">+0.44,  CI [+0.28, +0.59],  p = 9.7e&#8722;7</text>
+<rect x="655" y="160" width="296" height="500" rx="3" fill="#FFFFFF" stroke="#E3E1DA" stroke-width="1"/>
+<rect x="655" y="160" width="296" height="5" rx="0" fill="#4DC3E8"/>
+<text x="675" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M3</text>
+<text x="675" y="216" font-size="16.5" fill="#111111" font-weight="700">Hypothesis Formation</text>
+<text x="675" y="234" font-size="10.5" fill="#4A4A4A">Explore the reason behind the signals</text>
+<text x="803.0" y="270" font-size="10.5" fill="#4A4A4A" font-weight="700" text-anchor="middle">THE THREE HYPOTHESES</text>
+<rect x="675" y="284" width="256" height="56" rx="3" fill="#F7FAFE" stroke="#1E7BE0" stroke-width="1.2"/>
+<text x="687" y="302" font-size="11" fill="#1E7BE0" font-weight="700">H1 Calculation error</text>
+<text x="687" y="318" font-size="10" fill="#4A4A4A">Predictions give difference,</text>
+<text x="687" y="333" font-size="10" fill="#4A4A4A">ratio or sum</text>
+<rect x="675" y="356" width="256" height="41" rx="3" fill="#F7FAFE" stroke="#1E7BE0" stroke-width="1.2"/>
+<text x="687" y="374" font-size="11" fill="#1E7BE0" font-weight="700">H2 Consistent error over datasets</text>
+<text x="687" y="390" font-size="10" fill="#4A4A4A">5 identical answers, all are wrong</text>
+<rect x="675" y="413" width="256" height="71" rx="3" fill="#F7FAFE" stroke="#1E7BE0" stroke-width="1.2"/>
+<text x="687" y="431" font-size="11" fill="#1E7BE0" font-weight="700">H3 Language prior</text>
+<text x="687" y="447" font-size="10" fill="#4A4A4A">The model overlooks the image,</text>
+<text x="687" y="462" font-size="10" fill="#4A4A4A">directly answers from its</text>
+<text x="687" y="477" font-size="10" fill="#4A4A4A">parametric knowledge</text>
+<rect x="961" y="160" width="264" height="500" rx="3" fill="#FFFFFF" stroke="#111111" stroke-width="2"/>
+<rect x="961" y="160" width="264" height="5" rx="0" fill="#111111"/>
+<text x="979" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M5</text>
+<text x="979" y="216" font-size="16.5" fill="#111111" font-weight="700">Held-out Verification</text>
+<text x="979" y="234" font-size="10.5" fill="#4A4A4A">Confirm whether the hypothesis is</text>
+<text x="979" y="248" font-size="10.5" fill="#4A4A4A">verified over the held-out cases</text>
+<rect x="979" y="282" width="104" height="24" rx="3" fill="#E3F5E8"/>
+<text x="1031" y="298" font-size="10.5" fill="#1E7B34" font-weight="700" text-anchor="middle">SUPPORTED</text>
+<text x="1093" y="298" font-size="10" fill="#4A4A4A">H1 calculation error</text>
+<rect x="979" y="334" width="104" height="24" rx="3" fill="#E3F5E8"/>
+<text x="1031" y="350" font-size="10.5" fill="#1E7B34" font-weight="700" text-anchor="middle">SUPPORTED</text>
+<text x="1093" y="343" font-size="10" fill="#4A4A4A">H2 Consistent error</text>
+<text x="1093" y="357" font-size="10" fill="#4A4A4A">over datasets</text>
+<rect x="979" y="386" width="104" height="24" rx="3" fill="#EDEDED"/>
+<text x="1031" y="402" font-size="9.5" fill="#555555" font-weight="700" text-anchor="middle">INCONCLUSIVE</text>
+<text x="1093" y="402" font-size="10" fill="#4A4A4A">H3 language prior</text>
+<rect x="1233" y="160" width="507" height="500" rx="3" fill="#FFFFFF" stroke="#1E7BE0" stroke-width="1.6"/>
+<rect x="1233" y="160" width="507" height="5" rx="0" fill="#1E7BE0"/>
+<text x="1253" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M4</text>
+<text x="1253" y="216" font-size="16.5" fill="#111111" font-weight="700">Validated Repair</text>
+<text x="1253" y="234" font-size="10.5" fill="#4A4A4A">Fix the failure with the validated repair ladder</text>
+<rect x="1253" y="248" width="467" height="30" rx="3" fill="#F2F7FE"/>
+<circle cx="1271" cy="263" r="10.5" fill="#1E7BE0"/>
+<text x="1271" y="267" font-size="9.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">L1</text>
+<text x="1289" y="267" font-size="11.5" fill="#111111" font-weight="700">Prompt / instructions</text>
+<text x="1710" y="267" font-size="10.5" fill="#8A8880" text-anchor="end">Non-significant +0.01</text>
+<rect x="1253" y="284" width="467" height="30" rx="3" fill="#E3F5E8" stroke="#1E7B34" stroke-width="1.3"/>
+<circle cx="1271" cy="299" r="10.5" fill="#1E7B34"/>
+<text x="1271" y="303" font-size="9.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">L2</text>
+<text x="1289" y="303" font-size="11.5" fill="#111111" font-weight="700">Scaffold / tools / multi-call</text>
+<text x="1710" y="303" font-size="10.5" fill="#1E7B34" font-weight="700" text-anchor="end">Accepted  +0.28</text>
+<rect x="1253" y="320" width="467" height="30" rx="3" fill="#FBE5E5"/>
+<circle cx="1271" cy="335" r="10.5" fill="#C0392B"/>
+<text x="1271" y="339" font-size="9.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">L3</text>
+<text x="1289" y="339" font-size="11.5" fill="#111111" font-weight="700">Internals / read &amp; write</text>
+<text x="1710" y="339" font-size="10.5" fill="#C0392B" font-weight="700" text-anchor="end">Regressed  &#8722;0.06</text>
+<rect x="1253" y="356" width="467" height="30" rx="3" fill="#F7F6F1"/>
+<circle cx="1271" cy="371" r="10.5" fill="#C9C7BF"/>
+<text x="1271" y="375" font-size="9.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">L4</text>
+<text x="1289" y="375" font-size="11.5" fill="#B0AEA6" font-weight="700">Re-training</text>
+<text x="1710" y="375" font-size="10.5" fill="#B0AEA6" text-anchor="end">Untouched</text>
+<text x="1253" y="398" font-size="10.5" fill="#111111" font-weight="700">6 CANDIDATES TRIED ON EXPLORE</text>
+<line x1="1443" y1="414" x2="1443" y2="524" stroke="#C9C7BF" stroke-width="1"/>
+<text x="1253" y="428" font-size="10" fill="#4A4A4A">L1 visual_grounding</text>
+<rect x="1443" y="420" width="4.48" height="11" rx="1" fill="#B4B2A9"/>
+<text x="1253" y="446" font-size="10" fill="#4A4A4A">L2 grounded_upscale</text>
+<rect x="1443" y="438" width="48.16" height="11" rx="1" fill="#B4B2A9"/>
+<text x="1253" y="464" font-size="10" fill="#4A4A4A">L2 rebind_verify</text>
+<rect x="1443" y="456" width="57.12" height="11" rx="1" fill="#B4B2A9"/>
+<text x="1253" y="482" font-size="10" fill="#1E7B34" font-weight="700">L2 transcribe_zoom</text>
+<rect x="1443" y="474" width="157.36" height="11" rx="1" fill="#1E7B34"/>
+<text x="1253" y="500" font-size="10" fill="#4A4A4A">L2 self_consistency</text>
+<rect x="1443" y="492" width="8.96" height="11" rx="1" fill="#B4B2A9"/>
+<text x="1253" y="518" font-size="10" fill="#C0392B">L3a coded_pipeline</text>
+<rect x="1412.2" y="510" width="30.8" height="11" rx="1" fill="#E05A4E"/>
+<text x="1415.0" y="538" font-size="9.5" fill="#C0392B" text-anchor="middle">&#8722;0.05</text>
+<text x="1443" y="538" font-size="9.5" fill="#8A8880" text-anchor="middle">0</text>
+<text x="1499.0" y="538" font-size="9.5" fill="#8A8880" text-anchor="middle">+0.1</text>
+<text x="1555.0" y="538" font-size="9.5" fill="#8A8880" text-anchor="middle">+0.2</text>
+<rect x="20" y="676" width="1720" height="310" rx="3" fill="#FFFFFF" stroke="#1E7B34" stroke-width="1.6"/>
+<text x="42" y="710" font-size="16.5" fill="#111111" font-weight="700">The accepted repair &#8212; transcribe_then_refine_zoom (L2 scaffold)</text>
+<text x="42" y="730" font-size="10.5" fill="#8A8880">Example: chartqa-human-1142 &#8212; Q: Work out the ratio of the bigger segment to the smaller one?   A: 1.577</text>
+<image x="42" y="742" width="208" height="140" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVgAAADwCAIAAADKNusgAABAUUlEQVR42u19d4AcR5X3e1XV3ZNns7S7Wq1ysCzbkoMkg7OB7+B8xAMMPjgODBw+4t3HwWEOPu6OIxwYDJhoHPDZ2GBs44BtyVGWlaMVrBw2a/Pkme6q9/3RkzZJsuLuTD2Ed6a3p6XprvrV74X6PZRSAQABAQEAEAAQEWSNiBDdlwjatGkb50YjjqA7pwGLZ3LuDQEhIhCiIyUUIQFRMQ5AESxoINCmbaJiQx4FsliACAhAhIDuGSKLAkSUm/NEeSggAMy9IX1HtWmboIYIBNlp72ICKSqgA4JwuYAiAiIhBOqFX5u2ibjuEx0TCIZPbKWU4yhCQAQgEFkuoMgwOGMaBrRpm5DzHxEAcDQ0oGIQcBGBiDhnRJBxHMYYAgjXI1CkEIW+rdq0TTQIcH9iPoqXDfUVaEAeHQgR8kjhhg+VUggIiMK9jFI6BKBN2wRDASIqmv8jnIN8nB8BAXOIkGcQ6LoCwEARiRx8FF1SmzZtEwQFqIgB5ACh6Ew3TEjZ03KIQOSGDomISCkCBOEeI00ItGmbgFzAzfezojAAFUcEwJ352Q9SFgdyDAKIckAi3AKC7AFNCbRpmxhYgACgiIiIM2SMHfdTikg6ChhkAweQTRcyIgA3fagJgTZtEwYCKDuNc8FCxviJfJYhKgQgUgjo0gYFpLKzXxAURxC0adM2zrGg6McbXMNz+wjQZRQEoEC5l2AIqFFAm7aJY5hbuF0nX40aRIDRSowoGyfI/gBAN1SAgIyAslFEbdq0jW+/oChSWMQOhuEEYk9/5GjvAI5WJkxDyw+IgEgpIgHZagRt2rRNIDqQdw6G/DqVzqTSmQNHOhUpwxBey/RY5jC3wmUDxVlHAmJ570HHCbRpG/+0YMgLGh47GIjGN27fF0umkqnMpu37+gdjw8GCCsGCoogjsJyboFFAm7aJwQhGogJkC4dock1lc+Mk23EytjOlvra+rqpIUmToR6j4oyBG/Qu0adM2XikBjeLxF5njONXhICJKRw6f2pQvIcZhQQa90UibtlJhC4gA0Di5Juj3AkA0niSCExQWYPr2adM2oXyDoZuKR8xzFwXcF8N/izlZEshvR8q+0kCgTduE8gzGChgU3AXXBRgjuTjGdbVroE3bhCIEhRcECKBGqSmgYlDIL/2QFSFwaQXl9h+5Ww80EJTWelFUVUZUFFjK8j+WVa/LjaescsVwxqltPDOCLJ939xdLRel0xjSNYwcDiMBxHFsqQ4hieRLUjKA0pn1BdZaAc1aQrD7WsBjzV4pAEWFO5FYLWI4vMpBVGQNEzAI9ERMsYzsZ20EAldtDXNAdJwAE5mqQAAhDAIBS5MYWipWNNBBMMFPZ7WKEiIyxYRNeSpVMpSPRWFdPX1dPbyQad6R0HCdjOwyUd8oSNCs8QlkCTQMtjl6TVQd5lZ97DTQEMgQ27IK5SnaGGhfGESmA3C5ERswQhpJK5XYV5mkg5ZRICIEh45wVgoPFOUTNCCbQyq8UARDnrsBs9gFGorGu7r5DbR37D7YcONJ2qLWjo6u7s7s3GounM3YqlbYdx9WnJkf6fKL+rd+LWbMMSDOGHJEx4AwtgV4Tq/y8Nsirg6IuxGdNMufVm5MrRG2QczaEXioixCxf0HZOHUBy5cmziz9jjNCtDERCKkQR3MQCusJkDAgxJ1jmyhpC9mFqIBjHiz+RUoozhoicZ6fe/kOtew4eXr9155btu/cePNLS3pVMpR1HKukwzoUQQnD3Ix6P5UMPICCilFQRMGpCpikYI0aUpY1EkHEoaavuqNzZTlKCIhAcTIG1QT6lymiuEfPqrXkN5vwGqzrAeY4VuExB04Sz7x3kJAkghwJEQMgwO/8JqUijyOV3LnJnpc0oL0yS3XioGcH4nf+klEv8GecA0DcwuGbja6+s3/Lymk37D7d29/ZLpRgyyzRM0/D7PC7qZ4WmCrvLSFJWqc6R5DjoOCTZ8KwSQ2AMTZ53QtH1PXpjsn3AWb0PiKIGh/oKY16DuWyWd/E0z8ImyxIFREAErYN/rpwERWRwnmVueZmB0YJCUipHqmJNM+0ajNeHqhQCMMaAcwA43NrxlxdWrXh53cbtu9o7uzPpjGmZlmmEgwHX2SNFKuc1HOfSx/5lsVuZeyk4GjwbgiCCnqjz/A77mdfiAQuba4wlM7zXne+/bIbHb7E8ImiCcFacgizrd10DBlDw33CUp51/IkIwpXIKR3m3gjQQjKenK5USnHPGAKClvfO5lev+vPzlVzds7erpY4hej8fv8wT9PlejTip1Vv5VQ7akGgJNgYgoFR04au9sy/zv6sjMOuOa+f6/utB/UbPHHY1uVlsThDPuIAAggFKKsm4/jZz5oxEDIiLG0N1tmNcu1UBw7iFAKcU5F5wDwIuvbrj34SeffWlNe2c3MvR7PVUVYQBSipQiBfIUKQedBlwgALAM9JqMiA5227va++9eOXBeo/WW8/03LAo01xjZkwmYLls944gApAo9TrOtTorZ/9AjBEMbGue2JKMuKDqnEECcM875wGD0oceX3/fIU+u37Einbb/PW1kRcue/lPK0/Y2nlSzIIkRQira1pDccSN350sDbFvo/sDS0qNnjjj2pgGs4OH1jJhfwy4Z+iIY4Y+6El0odONypiGY11/Phd99NIRTpDuRcBQ0E5xACsPNoz10PPf7b3z+272CLYQi/z+vzepVSp3H+D5/Bp/t6LiL4TPRbLJGh+16NPLIx9uY53g8uDV17np8zzQ5OMwmAoQpFw4YWIh5q7TrQ2gkAjOHsaQ3uwWFPbWRIUQPBWYQAACUl55xzPNLeeef9j937xycOtbT7fJ7qyrCbLDxTEHCGTREAEUeo8DGpYPn2+HM74ouneW6+puKvLggg6tjBaRxEWEzrh7sKAIlESnAGiIlkGkbWmGbLkSiPKe4BDQRnyaRSnDHO+UAkevtvHvj1/Y+0dhz1+7zVlWGplHM25j8RnvFB6tYXhLyMCDYdSn/6t51XzPV9+rrKN8/xgs4snCZGMJa751YZJ9IZd/In0ml31B0jZqT3GpxdX4CIM2Y7zr1/fPIHv/zdrj0HA/6zCQFnIE5wHNQDAPBbCIArdydW70u+baH/09dVXtBk6cDBKT/D0RWK3I2FR9q7ByJxQ3AAiMQSh9uOzmiaXJAnISBytx0WFIpQA8HZmBJScc444nOvrPt/P/zVK+u3eEyzuios5dmDABqTSp55fwEg6GWK4InNsed2Jj68LPS5t1VV+JgivanpdFMFBACorQpXhQNtXT2ZjDO9aTJnHE7sPmsgOINEgIg4Z929/d+67Ve/uf9RqVRlOESkHOdcBALOkTxt1lnwMangFy8MvPR64is3VL/lfL+mBifrG2CBFOR2DuTN77UAIOhvglF3oCIUhRiwsKNZKxSdOSLg7g7845MrrnjPx39614MejxX0+6SUSp0zwehz2OLShYNqPzvUY998Z8eX7j96NOJwBopAN948aTjH4UGDbI4GEV2IGHlvtULR2ZtsSinOWVd377/8x48eeOxp0zCqKyscKeW5HPJY+Hnu/hWOAo+BAPjQmsiafcn/+/aqd18SdJ0InVB44w+UxkJ5RYVH7h4fRg6KFYpc04zgtHrF2c3C7PlV669+3833PfxkOBDwWKYzMZOCZyhwoAgq/OxoxPnc77q+/PujsZRiWBA+0HZcQMd8UABRSpXJ2O5bxOy+Yoa57EzuCAA4jnQcOUzvNL87QTOC0+kOcM6kUv/1499896d3KaLqqopzEw4YnQ+MIwouFVgCPQb+76uRHW3p732wbkGjpZOLx3mImN0eMEShiLO0badth+X06Yawf3IBAt19ikIUFIoYoszCBAKgZgSnifRKyTlr6zx6w0e/8I3v/9wwTJ/HM05QYBTncnxQA6mgys92tKY/dEf7Q+siroKO0iGDE3mSOYUiRGYIgyG6VEvlOFfhLYAiQEBTCMZYQcRgCMRoRnA6HouSUnC+etNrH/3c1/cdaqmuqpTSkXpEn1jUIOBhqYz65/uPbjuSvvWdNR4DldIlyccccjmNIcxVBzLGXV1CBTkJkpxMLXOzA65oWS7pkN+txLIKRZoRnPIjIaU45/c/8vTbb/psS0dXVWXYcZzxGAkfr31upQLOMexld7408LFft/fGJGM6ZHAM7yDLB/J1QQQECMgQEVkuJuDOeXeeI8NcWXFOxzAbKKScUhlpIDhVYGaM/b8f/uojn/93KdV4cweGBwkIxmeTSyKQCmqCfOXu5E0/bz/UbXONBSfIRokEYx5TWIawTMNjmR7L9Hosr8dyX1uWYRnCYwqDMzVsKzrmQo+oGcFJu7hKuZTrlq9955vf/3ko6HcjheN9SRmP4YJ8nAUqfWxne/rGn7dvOZLWWDDW2lOkVA4MQIhs+SCOFmrNHxSC80JTC8JCewPUBUUniwJEjDFHqY9+4d/vuOvB6upKIkW6MuZ0hAyCHnZ00PnIL9pf2BXXWDCmg4DuRFYwooIQczsJRuCC6w7I3FJQaG4AqIHgpFCZIcaTqQ9++iv3PvR4dXWlc25rhUrLpAKviSlb3Xxn51+2xTQWHBMRClhQDAcMkbEhgiVZCaOsvnn+SDbigDpYeBIogADJVPqD//iVh59YUVNdNU6DAqP9yycKZ5EKTI6c4efuPbp8e5wzcDQWDFEoyjv4MFKhCBEjsUQkmsi/HeYaFkChoFOkg4Vv0CMAAKnoo1/49yeefbmmpsp2HH1bzggWEAgGyOiz93a9tCshNC8omslF8pGjhH537mvZvOPApp37d+49MjqgFIWKMNdMVQPBG4nTEBHBJ/7lW3/48/Ka6gqNAmcYdsFgKIk+c0/nq3uT2kfIzeKiFyMYXiSW6O4baG6sndE0ubt/cDCaGOUCVEwgsm80EJwoCihFjLHP3vrdu3//WHV1he3o7QNnAwssgRmHPnVX55bDac5AaSw4xkIFkMrYRFAR8leE/USQSmegqEd2nlMUZ490QdEbYapScc6+9aNf33HXg9U1lc6ERoEJFdeUCiwD42l1yz2dbf0OY2Veg4zFpQDFYR93fZ9UXRHyezft2L/xtX1+r6euumJImICywcX8BRCYm03QQHB8c6QUgt//yF++9cNfVVaFpeYCZx0L/Ca29tmfvbcrkVEIWsLgGByKFsxpnjO9cXZzwwVzpx1zMSAXVggBdUHRiXABwfnKtZs//ZX/9vm8E21BLX70NHErHRwFIR9buz/5lQe73Y1JGguKiH7BGKJlGlMm10ypr7EsgzEccTaOGMMEpGMEx8ZXpThnh1rab/rcrY50DMHVxCWmE3zmOBKq/OyP66I/eKqPl6+DQMUt6UdvUE9ZnaJRn3h+twIR5lOIpIOFx42+ZGz7Y1/6ZlvHUZ/HIydy2HrUMTPheEFlgP3omb6H10fLPomAI4Zr7k8R8ucPjrogFB/WQHAsOsAY+/r3fv7iqg0V4aBWGRof6Aw+k33zT917OjNlyQtGUSiybQeK9hoM+5NXKJJSOY5EhrkKguIeiLrBydihAc75I3954Qe/vK+yMuxM/AAhTXjnIAsEhoBISt36x+77Pt3AGVLZyKIjuh1McJhCUSqTSds2QySVFSgq9E7PahUjuX6u4G4pUiE4SNk/mhGMygWIc7b/cOs/3fpdj2WWymJaKhitIOThq/Ykb3+2v/xIAY5QKEKDG0AoHeUo5UhlS+XIoheKHKmIQLgKRW5QwG0s4QqcoI4RjLHmECml1Oe+/r3Ooz0ey1S6imXcYQGFveznz/W7FYfl5iAUKxQhICByzrkhDCEMQxiGEIILwQ1DCEMYQgghOOeY7YSc41BU8Bo0Ixg9NMA5//X9jzz13KrKcKiUQgMls1GacjpcX/tDd39cQtlUFoyhUKQAs30tsfheuIkBIER3p9IQhSIiVdTxTBcUjYIC7GBL+zf+55cBv09qLjBunxSB38I9HZnbnu5j5Sp56ioUccYsQ1imyMsT+TyWz2N5PZbXsjyWaZnCMoRgBYWiHAJgbgeTLigabdn81//88dHePtM0SklrhKDU5oojIexn96+ObD6ULhMHoVihCHIKRYbgmLWxFIoQEQ3BOeYvQXn2QJoRDPc8pWKM/emp5x9+8rnKcFCWWL6wFOcJItiS/vuJHremoGxoAQIiYbZUdKRCUQ4RaKgWgesRELpip4AFNQIdIyjGWkSMJ5L/8ePfmKZBWox8YrhyEPTwV/cmf79mkGG57E1EzIEBkhpNocg1xlhemyS35VhllYsBc3q2ehvyiOgAY/jze/+4dftuv9+rdC37hAkWkNfE25/t7xx0GJZy1HBUhSLEEZJk2Q6o1NsfdaQarlCUcx8KI5w0EAxBAXakrfOHv74vEPDLEi1eHa9q5qc4PcAjsLXPuWPFAGLJpw8KCkXFwYLhZwAcaO18ZeOOI+3dMDRbhKO0UNZAMIRu4Xd/dndHZ7dVWjHC/ODIq1uVnjkKgl72pw3RA0dtLPGoIRXxgyFBEXfQ9g3GNu/cv2t/i5Q0Y+rkqrB/eBAhux+B8pfTwcKsSaWQsV17D97/yF/CwaDUglgT0ATD/oS886WBMm+hGo0n27v6BiPxyTWVzQ114aD/GJBS3DBVA0G2LOP2Ox8YjMSE4AQ6OjARnTsKetgjG6N7OzMlXVYwXKEIhioUTZlcfcWlC+bPmrrvcPuLa1872No1zDUYmoAsVBSxsh9AijH2+r5DDz2xPBj0y5LdYlji3jMBCAaRpPrNiwNlNYCHPVTOWCjgCwd9c2c0NtRVVYQCMFSqbCzTjAAA4Gf3PNTXHzGEKG0yQAQlzJyVgoCHPbEltqfEScFwPjsSGogg4PNesnB2VThwnLM1ELg0yU0W/OHx5cHSTRYMHSRYwt9NMBhIqP99NQIlGxg9vkIR5jKLdEyFouy73KuyBgJ3W+EDjz7d1d1rmqKUowNYFpEPpcBvsWe2xXpjkrPhM8FdKsdn0dEbT1SNrVBUpEo0TKEICx/GXG+TrLx5+QIBEXHOk6n0A4896/FYeq9xaZACU0Brn/OXbXGAgnegCNwN+IjAGABAIqNOhP+pwoyikauIUoqIlFJSSve/+bfFx93zU6lUPgIVj8eLLxWLxRDRyfXLOWagarhCkZLKVc0ZS6EovwFBKWU7EoaWIOZflq9CkVQkOD7z4qs7Xt8bCgV01rBk4iCC46MbojcuDbl6xwzB1fKNJFVLr93SZyczlLLVW88PVAf5sZ2lvAhwMpl8+OGHlyxZsmLFiquuumrdunUf+9jHhpLtYdy78IKIMpnMtm3b9u7d+653vautrW3Hjh0NDQ1LliwhovXr17e3t8+aNevgwYMNDQ2hUMjn8zU2Nro172M4d5jvvIWMJdNpbjNEJJfzYJFGEZFbigwEjpKMcQAgNcp3Ll8gYAwJ4K4HH6eymSJl4R0Q+CzcdDi1/mBy6UwvAMRS6kB3Zv9R25FUHeDzG6yaIPdbbHSGPRRTdral68KiNsh9Pl8ikXjuuec2btyIiPX19S+++OKBAweuuOKK9vb2I0eOVFZW9vb2Llu2LB6Pr1+/ftmyZe3t7a2trYsWLVq8eLEQorGxsa2tTQgxMDDQ29s7e/Zsd6p3dXXF43GPx2OaZmtr64IFC8ZCgex+ASJEJJVTKGIoQLjUg0hRvmUB5HoYZSuPkXPBeFaWCMkFhxyqlG2MQCnFEPfsP7xy3Wa/z6vKJMRcHt+SIWRs+tP66J7OzGMbo09vi0VT9KbZ3r+9LHTtef7mGsNvMTqB+ySJfvvy4LYjKRdCm5qaVq9ePXfu3NWrVwPASy+9tGDBgrvvvvuZZ55JJBLr169PJpP33Xff3XffHY1G9+3b9/zzz9u2vWLFCveajuN4vd7+/v5MJtPU1NTZ2YmI6XRaCFFVVRWNRq+66qpAILBz584jR464mwWODel5hSKGTHAhDGEYpuH+3xCGIUzDMAzDMA0hhCEEY9l9CMMcAzfeWKaMwL2VT6x4uX9gsLqyQisUl1rI0MOeeS1++Wzv4mmeqdVGMV/AE1B2d38rGP7gQ3XusoGI06dPnzlz5tKlS7u7u5cuXbpv376NGzcuWrSora1t1qxZQoi6ujrGWGNjY3V19fz58w8cODBnzpy9e/e6AYLe3t6+vj4AyGQyjuNYltXR0cE5l1IyxtLp9MGDB2fMmPHSSy8NiyCMNYRd0TEAUoVgCOVAgqA4RYTZMiR3a3JBj4QKOQhMpNJKkW07oYCXsbIgCO6dkkpd9/5Prd74WsDvK/lIIQGaaNde9Q2qPB+cRMkHiTmDwYT6zSfq37bQ70hg7CTbOihVCLYRkeM4QohMJmNZVjqdHhwcrKurS6fTjDEXLBhjQoi2tja/3+/z+dxPWZYFAP39/ZzzUChERO3t7Y2Njclk0jAMAOju7q6vr0+n05ZlRSKRYDCIYwszuxFKNxegXE0tBC54bmTjUOKX7XqOAI5USlGOEiCgIqJILGkIo0wZASnFGNv++r7N23f7vJ4yyRcQQLnp/f55U/St5/sZA3ayxRPFKyMiuvPWsix3etfV1eXnebE1NjaOvFRlZWXew3dP8Hq97q/q6+vzlw2FQicQ5yn0JkAAwxDFTCYfXsjtVs5+eUPwjC1zTIEQsLhCuRxjBO7dfPSZF6OxuOBcc+mSDBl6DdxwMNUfl6dRpCDHuynXWWDUwP7oYdni84edkH977NDAsMihq1CExwoFDVEocrlAdtNiLq+YR4JyBALOuZRq+UtrTNMsIwGScqIERGAK7BhwVu1NQrEIxymSjJzgD4whClR82siDIzOLI9/iCXRryf4DcgpFmFcsBHDdE/ftWApFw7YeuFhQdkDgOgJ7DhzeufegxzKHtovXSFBqvOD5nfETnF0TgsmOplA0BCCS6UzvQDSVzqTSmd6BaDKVHv7d8yGPoYNClB8QEDJ4ac2mwcFoVWVY5wtKGAU8Bm48mEqkyWdhqeyywKHkH4d9rb0H21o6epoaahni4bajDZOqFp03cwiZKI4xFEdDym18MM4Q4MVX1yNjZSU9UG58gAgMjp2Dzq72NLjldCXyGKFQ9Ewj4S9rbnJh1AtohSIgIobYNxDZsG2Xx2MqLVVc0sYZxlK0tSUFZQOCc6ZPWbRgJhDMnta4+PyZx8qZlrNCkav9vGPP/raOo6ZhULlJFZcd7pHgsP5ACkqnY/KYCkV57IvEEn6fxTmLRBN+r2fYY9cKRYWZsHXHnlQ6XSbVU+WMA4rA5LirPRNLKVaiG7GHiplCxrY9ljmzuSFjO5ZlzmyeDMVRhLFvQbkFCxEA1m7ZjshAaxOWQZjANLC1z97TmVk8zUOqBCsqCxIDiAAQ9PuCfh8ABHyegM8zytljjHpWTsOCOGepdOb1vYdMQ1A59tIuO+xjCCmbth5JlwohOr5CUd7hHdXzHUuhSJTTTABEONLWuf9wi8cqVyWSspT73tORLofhXYgj0LAX+S5phQ3KNEShqMwYAQDsPXgkGk8yXpb7r8vPGSICjnCkzyGCkggK5RWKMKtQpJSrqTOmNlG+gkiRI8dSKMJyYgSQBQLpSCzzPhjlBH2GwLZ+J5ZWQQ/L6vdM7C80RKEIEBOplOCcsZxC0RDWR5AVKALHkcgYjCFqWlbBQgSAfYdaSEksMyTAokFUbmVFguPRiNMbk0HPxKYEoyoUMcYQ0HHkWCVE6G5AQMYFY5y5CJKTLyuUJpYLEBAA5wwADrd0cEOUY9dzgvJMlHCEZIYOddvTagxFwCf+ElCsUOQChCFQAUGuZNA9obBFioBhVrgYsSiIWKRQVDauMhECpNLpQ63tpii/UqIyNkTIOHSgO1NaYRLKKRKCAlVAASKiQp2x+x8AUG5hcUGpKKtzns86lFcdwWA03tM3IAQvQxgo256OCCgJjkZkCcBATrCgaKeAAoYoBC+4fjQEBPMxAymlUjkCAEigircslY1r4CrGHu1NpTOMlXgjQG3DXCKGMJhQAMAmeqhwhEIRARlCnMjXYkxohaLsxO/s7kmlM4isPGGgXNGPOIO+uIRSqqIoUigahgIEQ7obFbMJrVCUJcY9/YOZTIaVb38nKsOKIiJgDPti2XZAJQECoygUFVZ+RMaQsVFEkI6hUCTKaAoADEaiypHIAMqtqhCxbLdWEABn0BeTtiSDT2CFkpEKRcVlEfnpHU+mbFtyhsGAb/SQCQINEyTA8skaIADAYDQOUL7zoWwDIwwhmlbxNOWXhIk9jsdWKHIc2d0XsR2ns2dg94G2EV83uzlhJBSycsIBiMbiwMp0bcytJ+UJBGg7FEuVAA8sVIOMuonMkSoc8NVWhWdPawj4Pal0Bkc6yTSMKEM5uQaILmsCRJ0wKDsuBCAJMo4qoTDJ6KP4QEtnJJoIBb1AkLGddDozvWnyyDpaAgLCfKUplo9UmXsn7Iyt50UZGgIoRZlS0Kk9jkJRMpVxpGM70nZkPJnqG4wNQ4GxFIrKq6AoYzsIZbvfiErART5pJFAKMk4JfvdhX2nujMbe/ojf5wGAWCJZUxE6ARpRfkCgSJUvDgAxlSIUZYgFWLqx0mHDOeDzmIZwHAkAoYDPNMQoN2I0K6+MuiFEuWbRiNC0d//e63QqZgGpMvvywBCMUuhud3yFItMQPq/l81rDUSD/kQI3KCgUlU9BkXuPDCrXnAETZl/XodjGn/oNqYCXGy9gDA2B5TPaj/90cQg/KJ/dhwAAlmnA6H0jy+EOKG4F2w9sSm77lWWZZbUPmwA4glkCO5CHipVmSwtHiO7hGJkRpRSyrGrR0DPLSKGIwG0gXc7JQ5LCCnbsWN4cqDNnfMhORZCVQTNoBFIFRoATfhgj5nMHCMgwlc5kFYpgRHaUcis/geO4OmWj77grr2Chx7LKXcWcFIlA68YHp/knqbrrZLo8sACITXxGMEShKKs8QpxzALAdJ6tCMKpbhIiInHMuOAABAlEOD8pOoYgAACrCQSCC8hYsZAxsaba8+suma2vigYXgxAB5yT99Q6DXRIBS6YVatK5zzjljKldzSPnhjgWlU5Z7iS4KFFUal5lCEQIAVFeEmRBlLk9ERJzzZNrpXnN7SLYq5i3tJAICSIJKH/MYWBoQAAVp4lwSADGrRUaQEy5GBMCcPKG7yQBzU74Qaci9LK/KwqqKkGEYuvcpkRKG1dfX07vmRwEeV2iUtsckFVUFOGcTPkbgzumsKkkBA7J7kpGhq2WaNUDGWH6Tcp4fsGImkLsd5cMI0AUC0zSobBMHQ7BAGpavq2VPfNPPvCZKKll9Y0SQCmoCHABKYAnA7BJPUBBcyh5DBGTuH0SGyNxoYo4eQOH/RVKm5cYIEAFgUm2NZRpKKdCNDQBISeEJtu99Ffb+zuvxlSpRQkCloCrAYYwuYBOR3eawgBjmZzMWtMuzxnIMIosUDHMCJTk4KLs6Anfe19VUVFWE3c4w2gAASKIRPLTpMd7yuPAESckS/IoAAFAd4FAqnCevU+7O6pwvAMUFAsUj34UBLPIpEIbXJJZXibHX45naMNl2HNSMID8CkBTztqy929v3KppBoFLDAiIyBTZVCxhtnkxoLMgLEUIuSuAu+8V/CowBCAvRgxHDoHxcAykVIjY1TLJtm2kgKJonnGFKso7VPwtn9inuKzEsUASmwFl1FkBJeYRFUUB3iacC7R/Ch8j9VaHfyajrQVmNeACY2jgZtDLJiDsjhBiMxLtW3RbGPokWloqooxsprPCxujCHUlRuLSzyUAwK+T/ZXxWdBuUOBO5NmDdrGje40n0NhmGBUobl7e5qGVz/46DpOFQiu5IQwJZqSpWo8LESYwRjIcKodnwPsZyAAAFg4bxZPo9n5D4NbaSksALtB7bInb8OeK3SuEOIYEuorxCCoY4RayAoAEFT4+SpU+ozOkwwOhhIbgUPbl0OBx40PQEqjYpDggWNln62GggKQKAUhQL+GVMb02lbJw7GIgZgBA6v/72vewUzAxM9oUgAgsOFUz36wWogKBoWpADggvlzFOmaorHHBEKGzCOv/qoisQ3NwMRNIiCC7VBdWMycZLjfS5sGgoJdetF5jDH97MeGSxJCRJNO68ofhWSrnLC7khAg48C0GmNSWBQ3BdJW7kCAjAHAJRfMr6+ryWQy2jsY2z9Qpmn19ff2rbmt0ohLMCZiWxhEtCUtnGJhSewy0EBwGkkvElHj5LoFc2ak0hoIjmVKScP0d7TsTW29I+RljpqA7RMJOIOLp+sAgQaCUca3AoArly52bIdpr/E4PoIUVnD/9lXy9bu9Pq+cUKsqImSkmhQSl0736gCBBoJRPUe4/JILPR5L6czy8cFAcit4aPPj3vbHDU9QTZwkAgKkbLpgqlUb4jpAoIFgxBdmCACXXrhg2tSGVCajScEJ+FPkMO+BV++piK7hVpAmSBIBERTBVfN9AKALSTUQjBwfKKUK+L3XXn5ZKplmqNMHx3UQSDBM2HjwpZ+E0nuJ+SZEEsFRUOFjV8zxwdg7bbSVs2uQtRvecgUXetPBiWKBIYyBaLxn9W01Rp8c972SGEIqQ3PrranVgkD7BRoIxnAflVJXLl08f/b0VCqtvYMTwwJlWt7Ojra+tbcFeUqN7x6KiGBLunKulzNUCvQD1kBQWNMUZXvCcMYYYxnbnjWtKWPrWuMTvodKGh5/y75t0U0/tQyuxqvMIeb8grdfGABNB07MznZfAymlW9VHRGOV9xEVRFrddg7Fx0f6/Mf465SigjALACDG4onX9x3ad6iFM/aO66949qXVOnfwhrBAeEJde1dNDdZZ8z6eTsbGIZ9CBomkuv58/+zJptv+VNu4AILiLkxuYxZ3AhORUsqFA6UUIrqvi+f2WK9PlPCwrGDDwGD0YGv7nv2Hk6l0XU3VFUsWNU6uA4Bf3/enzTt3+71evTH5hB+nBCPQuuWxZv8kMeUGOf76prkdvv5mUQAAFAHXQDBOgABzC3sikbjrrrtuuummzs7OFStW3HLLLXlcyL8AgP7+/rVr1zY1Nc2ZM+epp566+uqrw+EwAHR0dKxcufKyyy5Lp9Pt7e2LFy9ua2s777zzxqIViLh15579h1oTyRQRTaqrXnbxBU0Nk1xAsR3HEOKD73rb2s2vBXw+PRTekAcumbd1zV1Tr6lNVC4BOzp+eiUhQtqmabXGtQv8AKD3lIwXILAdJ5OxfV6P6xc8+eSTc+bM2bNnz6pVqz784Q9v2rSpqakpGAzu3LnT4/FceumlhmG8+OKLtm0Hg0HDMHw+XzQaDYfDUspwOLxs2bKtW7dWV1e3tbUFAoGFCxcOcx+G4g/4vd65M5unTqkP+n1F/oJCRM44ALzvHdd97457ovGE4Jx0BuGEIy6csYyDXWt+Wn9NdcycjjIJ4yMRyxASGXrr+f6QhymlgeBEjX/t1q8TgVLKMo3TGzZz59tzK9f96Df3//X1VyBiLBaLxWKvvPIKY2zKlCkbNmzYsGFDPB4/cODA1q1b9+zZ09zcXF1dvXnz5sWLF2/ZsmXevHmdnZ2VlZWhUIgxZhjG7t27Fy5cOHPmzHQ63dvbyxirrq4e1WtwD1RVhutqqizTIAJFCocqOimlwqHgjt3712/Z4fd6dSrxDYEB4yKRSFD/zoppSzPgQ3DGgyYgEQgO33xPbV1IKB0gOM69olTa5ozBGc0auA7/dW++7Cf/8WX3SCqVamhouOyyyxYtWpROp/1+f1NT05VXXqmUmj9/fl1dXSqVAoDm5ub29vZAIICI7h7BVCrV09OzfPnyAwcOKKW6urqCwWAqldq5c+exl3E3WeDiAmdsVKS7+cPv8Xo8UscI3vAwUobl6e06Mrj+xx7hqHEgc8gZxNLqmvn+86dYioBrOnDiLlUilVaKbNsJBbxnepe+bduDg4M1NTVKqba2tsbGxtdff92yrFAohIiO44TDYa/X6zjOjh07Zs6cGQgEIpGIz+dzHCcej0sp29vb6+rq/H5/OBzu7u5GxJqamlOkLYyxd3/8nx9f/nI4GNBw8MZ9ci4zkeYL3sbPvyWZTHIG57DbtBsguP8zDUtmeqXSQDDm6uiunlLJgUjCEOJsA0Hx3BsnN0VKyTl/7pV17/i7z/l8OndwcvOPUSY2bcmH5YwbnXOXROAMIkm6Zr73nk816F1GbxQI2Nn/R+TrCFxQoCIrBgv3bf6ge0L+/PyRUx09nBPR1csuuWLJ4lgsznVw6aSeKgh/64bfG53PMSt0rnYluSUDH7uqArQMyUk48medvGHxi3zb5mHq6yznzxef7xYaDG3wchpgXyninH3+Ezeqc8lqJ/YSwxjYYHau+1Ugvg1E4OzvRGAM4mlaMtNz5Vwf6ejA+AeC8XgLGFOK3n7tm9965dLBSIzrQXRSRI9zHk1k2lf+yG+3KeY5+1igiD5+VQVDTQc0EJwkSQECYgy//oWbTdNUehydJBYow/QMDPQMrLstwOISDThbfdM4g2hSXXue//rz/TpZoIHgVEYSk0otu/iCv/3r6wcjMaGH0slhgZLC8h9t3ZN67RcBiynFzo7MoSLwGuyf316lqwY0EJwyLwAggK/+09+HQwHbkXpEneyklNwKHtm50n79HtPjk2e+RoszHEyoGy8PLZxiSaUriDQQnIZIgZo3a/oXPvGhSCRWvPdB2xskBpKZwdYtfzba/iys4BntlYQIaUdNqRK3XFepNxpqIDhN9wJRKfV///Ejl1x0Xiye0KnEU7iTJNHTuvbewMBaNM+gzCFHjKfVZ66vrA1xpWsHNBCcpuUFicDn9fzP17+IDHXQ8OQ5ARHnLGHDkVdu9yX3Ej8jMoecQSQpr57ru3FpSGmnQAPB6RxbnEmprlp28af+7n0DAwNCCH1PThoLDMOIxuK9a24LQZ9C8/QmERDBkRD0sG++t9YUCKjpgAaC0xwsQKXUN7/4yQsWzI3Fda3hKWCBUobh7elqjW36ScCUp3dXEkOMptQX/6pqzmRTxwg1EJwRBwEAKsLBO779Fc65VEovNafAC6RhBVr2bUpt+5XHMk/XTg7OMJKU1y3wfezKCqlFBzQQnDFSwBwp33TpRbd+/hODgxGdQThFLBBWsG3HcnH4D5Y3cOq9khAh46gqP//We2sZAqKuC9dAcOaCBYxLqb78jx/9P9e+uX8gKoTGglOYuqCUCBxa96C3+wVhheDUsAABkhn693fXTKsxtFOggeBMOwiACJyzX3zn35oaJiWSKaYJ6MmTAuAMMmQceuXn3ugWMk5+V5Lg0J9Qn7y24j2XBLXigAaCs+QgSKWap9Tfdds3XV0z3QHhFLCABOeJlN29+vYKOsldSYLBQFy9ZYHvqzdUaxkyDQRn00FgjpTXXH7Jd/7ts4ORqM4gnBoWKGFaPb09vWt+HBQJicYbSiIwBokMTa81vndjnWDuPnR9UzUQnC0TnEspP/uxD37ypvf29vUbhq4sOAUsUMr0+DuOvB7b9FOfiVKdaK8kRJASBMcf3TRpUkjo8iENBOfGR1BK/fAbX7r+yqW9fYM6cHhqWCCFFWzf8yrff5/P5zuRTd/ulE9k1H+9r3bxNI/OF2ogODeGiADo93kfuOO/F18wfzAS01hwamAg0Qge2PCo0fqE8BxnJ4IbtY0k1dffVfO+y4JSkQ4QaiA4h6QAlVI1VRUP//p7M5qnRGMJjQWndD+RJPMeWn2Xv/9VNI61Q5EhDCTkv7y96uarK6QCrl0CDQTn3EGQUjU31j/ym/+ZVFsdjSWELjQ6aU5AxBmmHGxffUelsx+ED0bjBYJBX0z943WVX3hbldLJQg0E48Q4Z1LK8+bMeOy3P5hcWx1LaCw4JSwQhtE/EOt85Ych1i/RGrYriTPojsqPXhG+9Z01SukcgQaC8YUFXEq56Px5T9zz48l1NdG49hFOAQuUMj3eo50tg+tvC5q2JO5KmyEAY9AXk/9wZcW3/7aWCJBpINBAMP6wwJFq4fxZf/ndT5oaJkeicY0Fp4AFUliB9v1b1c47A76C1thAXH3urVXffn+te5oGAQ0E49EEZ1LK+bOnP3nvj2dPb+ofiGrlglMAA8nN4IGty/HAHzy+oKMonlZff1fNV26odnOLmgtoIBjvPsLcmc3PPnDHlUsX9/b1a15w0oaoQPhbNz7E2/6i0PzOB2o/fW2FVIAaBTQQTAwsUKpxct0T9/7oI+/7697efsYY0yP3JDgBgWny7sFUfO/jd/+9/8ZlYbdeQN9LDQQTBAsYU0r5vd57fvytr33+E4PRWMZxdCrhDdIBFJz39PYvvfiCx+78nzfNr5JK6XoBDQQT7Q4yRkSK6D//9ZYHfvbtUMA/ENWlh28ESYl6+wf+/gPvXP7AHfNmTZOK9OYuDQQTdU1jiFKp99/wluce/MWbLr2wt3eAMdQSBsc2IXgskSSlfvCNL931w2/4fV6luYAGghJY3Bwp58+e/sz//vSLn7opGkuk0mlNDcaiUYyx3r6BhfNmPfvAz770yZvchvcaOs/ZYpZIpZUi23ZCAa9+DKduSin3Nj769Atf+fZPdu8/XFkRco/rm5MnAslkKmM7n/7I+779lX8K+n1SKt2E+qwZEbmd6KSSA5GEIYQGgjN1oxURZ+xob/+t37vj7gf/zDnz+7xSKqKy7priRgQGBiPTp075/tc//963XwcAUikdFNBAULKWX+UeefqFr333Z7t2HwiFAkIIKWUZ3g2GyBiLxuLCEP/wwXf+22f/ob6uxlV/0wJwGgjKhRr0D0Ru+839P7/nD70DgxWhIALIsvEUEJEzlkynE4nUmy698D+//JmrL7+kGCi1aSAoL2qwY/f+/7z9zj899bxSKhjwl0PgQHCecZxoNDZrWtMXP3nTzR96t2EIKRVjmghoIChPaqCU2yjlmRdXf/8X9768ZhMABPy+kmQHLgtwpByMxmqrKj5x47u/cPOH6mqqoCiYqk0DQZmaUgoQ3RrkR59+8fbfPrBy7WYXDlxZxBIIJboQkLHtaDwRCvjf947r//WWj86Z0QwAUkrGmCYCGgi0ZT0FxhkCKKUeefqFX/zu4VfXb0mm0gG/3zSEUkpNTDjgjAFiKp1OJFKT6qrf+/Zrb/7Qey5aMCf7lbUvoIFA2yhwUJQze3nt5rsf+vOTK1452tPn8Zhej8ftpzIhCIKbDnCkjCUSpGhG85T33/DWj33ghlnTmnJBEGS6WFADgbYxnweAKoqc7zvUct+fnnrkLy+8vu9Qxrb9Xq9lGQDjFBHc+a9IJVOZVCoVDgXffNlFH7jhrX917ZtqqipcpEMAPaI0EGh7A+wgP2fiieTKtZsfefr5Z19ee7i1AwC8HssyTUQkUifSBeBM+v9uiAOVUql0JpVOW6YxZ3rz37ztqvff8JYL5s/O+z7IUG/H1kCg7WRMKSJS+RbsPX0Dy19e8+SKV9Zsfu1wa4cjpWWaHsvkjCGioqyd4ZmPCICMuaNHSplMpW3b8XqtWc1N17zpkndcd8UVSxZ5PRZkMyOkYwETCQikHIhqIBivD8kNFuYjCL39g2s3b3/6hVWr1m/de/BIPJlSUpqmaZkG59w9TeWe7alAQ3YGY7bYTyklpcrYTjqdISIheDgUmD97xpVLFr392jctXjjfnf/ueELUWy0nGhAgSEcORhNcCNRAMK4RQaniCZZKpfcdat302q51W3ds2bFn38Ej0VgikUgCgmEYQgjBGWOMc4aAVAhEHGvu538oIsdxHEc6UtqOA1JZHisQ8E2pnzRv1vTzZk9fvHDevFnT3BBg3qMBAk0BNBBoO2uIQABQXJArpers7tm9//Ce/Yd37T+0Y/f+I60d0XgylkjEE0lSCrKzEwEBi+a8Cw2Ue+n+D4hMy6yqCFWEQ1Mm186aPnVm85S5M5sXzJ1ZX1eTX/nz6382VKDn/0QHAqkGI3EuBEMNBBPs+WVdAD5CDS0SjR/t6evpH+jrH+zo7u3o7B6MxZPJVCKZjCdTiWRKSoUIhjAsyzANwzSNcDBQXRmuqghVhkN1NVVNDZOm1E8aNu0BwC1tQEBEnQkskYHkLgZSysFIQhgCATUQTOBnqYhIETJkp29+EoGbnshPe73ylwEQgFbjn5DmTk6OmJeYcrkCAUE2XohD4wCjjojiH9kYIaIO/JXTOMr91EBQOtDgBv31rdB2QgMGCkEk1JqF2rSVJ50EoGKfTwOBNm3lygkgXzSGGgi0aStvLABgmhFo01aulu1A76KBBgJt2srbNwAE1OlDbdrKEAKycUKVf6sZgTZt5YwIWWaggUCbtnJ2Dtwkoi4o0qat3OkAFVWoatOmrWyDBaSBQJu2sscCHSzUpu1s2DDlqJMWksp/cOSLU7q+dg20aTtrDDw/PY+xs/vYUzh3HcLCvkEc+SlEdKUrlFIn2HRXA4E2bWfWlKLuvkgqbeenf1tn70AkPurkRxxFXi4vSNlxtM92HETs7h20bQcA2rv6HCkRwXZknggMDAxgbj/5SA2bUU1nDbRpO3MeATjS2bLr4Notu2sqQ9ddfmFtVXj15l29/bE50xu8HtMQIt8FLp2xbUfGE8lJNZVKkVIKEDjneW2Ytq6+9a/tqQoHZ06dvGrjzsbJNU31NRte2zepOjyrueGJF9f/3buutQwBANu2bdu1a9f+/fubmposy7r44osvvvjiY3ed1ECgTduZigsg4mA04ThyyYVzp02p6+mP1laFHUdVhHyzmut/+4flFy+cZRrGhtf2Lls07/k12y67YE7A59nw2r6Az5vO2APR+LXLLnhsxZqlF81dMLt5yuTqxsnLVm3cebjt6DuvX7ppx/5QwPfet13+/OqtXo85tb5WOg4YAgAqKyufeeaZPXv2+Hy+RCLxne9857iBA+0aaNN2JqMD4DaGdjK24+rJXXHpgsl1VU+9tGHx+TNnTWvo7OlPZezuvsHrL7+ovq6yq2egrqbCMkVdTfiapQs7u/s5Y7sPtQOAbTtrNr++eMFMwxCJZFZhcMP2vZddODcc9BuCS5ktGbZtu76+/gMf+MCSJUumTZvW0NAAx5Oc04xAm7YzAwGIRFQR8pumWL1pX2f3wHWXXwgA2/cc3nOobXZzQyyRXL9tbyqdmVQdbphUvedgW2U4UFMV6u2PHunovmj+9A2v7bNMEfB562srAWDr6wfXbd2jlJreNPmJF9bPndG4/0jnxu37bFsuXTTP7/WwnM41EX31q1+dMmWK4ziJRCIUCsHx2s9p8VJt2s64JVMZyzRcidl0xk5n7FDAR0RSKkS0HcdjmbYjAcAQPJZIeS2Tc5bO2JZpxJNpv9cCAKUoY9tSKb/X4/6KiFLpDBH4vEO0p2OxmM/nO+7kV0pFYknDEIxpFWNt2s5a1KC4vQRBMVUvzgiOPHlE9AFOXFl65JVHBQI987VpO2vxgmLHYbgfcYyTRzgdx5/8x7jyqKaBQJu2EgxPvNGPnBAQuMFIIsh35SYqVEFQUUXEkON0HJrknkA0pIKi+AonSLdIP3ltE85NoOzIP0MdrVVutkp1Qn+BOJGZ5gYjEQt0JY84ioAhAIIiwKLjUmU/JRUAAkeQBEDEGSoCIuIM81JJ7nWIgGHxW2IMi2CF3DAsZygpi2HKvU7ufPfiiojrxnzaxvuiXfABpCKGmH8x0oOQitwRLd0BT4CYRRCVmwj56mN3RripSiLgJ9YESxwXtxDhzvUDWzpSCPQPl1Re1OABgE1tqcG0vGaGnyFE02pfb2ZRgwcA1rckp1UZtX7BGfQmpM9gXiP77+A5nHDbaHXHncP99iVTvDu60j6DTa8yXFzY0ZV+/Wj6vQtD2d3Sw7An2+EHctfEeEY5CsIelr840xigbXxzAURY15LccChx0VSvz2DunAIAMcakzU9mgYWOtu5LnpsIhWlCAAh7ezM/eLnXb7IZ1eYtSyuPG1/kX7v160SglLJMY9gy6q72G9tSf/3bw2+e7n9oW2TFvvjHL6tggOtaktG0XDDJs+pQ4qFtg9U+nnLo/s2DCZsCFnv1cHLV4SQRVPv48n3xg3329Crjhf2JtUeS82qt3d2Z9a0pU+D+Xnt+nbWtM21Lahl0Xj6QqPGL21/tW9Tg6UnIlw8mZtdYW9pTLQNONK1WHkz0J+X61uScWmvV4UTroJ201X2bBhEx7GHbOtOvHE7Mr7M2tKZeOJCoDYigxUj3/dE2HskAAMF9mwevnxO4uNF7z6aBQ312XUBIgge3DHoMVASRtOpLyIwkhigVPLYrygDiGXpse7Sp0uhPSIbYFXeSDq0+nPQIfGp3zOAYzdArhxIzqkzO8G/uaTncl6ny8f96ouu6ecHmSkMSDMMZIkpnHM4ZIh4bCIghrtgXe3TdwHffWd8esV84kPjyVTUpR92/ZbA7LgFgIKXm1lqtg/ZgUi2Y5BlISYY4mJQzqk1H0eb2VF1ApBy1pSPdHZchi0dS6siA/ej2aIWXV/n49CqzM+oMptTenkxdQHTHnAoPJ6CETZMCYuXBxP5e+6IGz/J98Sof39tjW5z1J+X2ztSze2JNFWalj4csvrEtyRmEPWJda/Jwv10fFEcGMvNqrTeUZdGm7WxiweIGz8pDiY6YTNo0JSz292X29GQWTrZWHky0RZzD/fbunnRXTM6vs44M2C8djDeFjS0dqfMne1YeSnTF5Mxqc+2R5OvdGY7QErGnhIzJQeP7L/Ue7M5UB3hj2PjMox3Xz/bfeEH4d6v6Lp0VuHSKl4iGkeViIDhWsJAhEsCV0/xTJnu2dKQYw3eeFwyYbPXh5IcvCn9kcXhXdzplU3vEMQVKgtaITQC2pBq/6E/KhK38JutLyEhKWRzPn2RdM9PXGbNbB+0LGz0ph2xJbhDBljCv1nrzNF/AYo0hMaPKTNh0NCYtjgsmWTOqzYaQsXSqb3a1uWSqd3N7EgBmVZtBiyVtNZiSXoMlbDoadzyCzagyrp7h95kMNB3QNl4JARAc7rf9BmsZyDRViKtm+MMebnJoGbCrfDxksWhG1QXEQFKaHKt8fIpfvHI4YXJsHbCDFnMUPbI90hOXIYsta/bVBYy2iBPLqKawuHamf1a1hQDvvyB0ZMDuiDn1jZ6rZ/jheKmE4xQUuYvqnp7ML9f2N4XFJ5dU+gzWHZe1fg4AfQl5NOZ0xpw3T/N1Rp3XuzMXN3oYAme4+2i6PmQ0hMS6lqTB8YLJViStvAYjosMDdsqmGVWmAqrw8GhaSUWI4BEsIykjqdrH9/RkOqPOm5p9gylZ4eUDSekzWcpWgiMR7O3J+AycU2ttaU9Vetn0KvP17szRmHPFNF9fUroAEfZwPea0jccYAQACbO1IdcfkFTN88YwKmCzjkOC4cn/84iav18BYhnwGph2q8vGBpNzenjq/waMINrYkr57lj6bVlvbUeZMsr4EmR6/BntsXn1trWgJ3daQvavIGLZZx6M71/bu7M59cUrlg0ujseNTKQjsU8I1aWag9bW3aSiA8OdKUUpFYwjAMxlAAuX2R8RhMxs3JIQBjiEXQkE2EAnAEIlBQiEZQLpvoZjEZFj7lHsmHP2lIDKXwNxZ/ath/KfdbNcbfosFL2zg3RUC5+ZIf+Sofz8uNYzcJoFQuSa+AMyD3TMj3NgeZUx9VBIxlL6gUEQBDPEYCMTv3KZ8+xGP51MNycsUZveLXxVw8f3r+H4Ew/Miw46Oeg6P9d+TFRz1fm7Zxa6POAo4wchxjrpAH8hU9xWcO/SAvmggnUEFQmMAshz/atGkr26gFCESkYmTQpk1b2RgCunrmjIA0IdCmrZwJAQExdPOLmhBo01aelAABAVmOHGgs0KatTFEAEJj7AwiUUvrOaNNWPqaUgmyAEIWbN2ScJxIpj2UKwYt8h1HcCW3atE2UBf8YBxxHptIZLoRbBCBcPOCMEWPxZEopRQRuvyQotFjRSKBN20RFgtwOfndfv2vAGDOE4Ln+KpixHXfWZ5ulZd8A5YTPsligYwjatE00y0/bHApkIwKIyDBvgIgCsj5CtrqXI2YpAWAxEAy9rDZt2iYQDhQDAQAiy7/Nxgjh/wNs6kSvXdHSGAAAAABJRU5ErkJggg==" preserveAspectRatio="xMidYMid meet"/><rect x="42" y="742" width="208" height="140" fill="none" stroke="#E3E1DA" stroke-width="1"/>
+<text x="146.0" y="902" font-size="10" fill="#8A8880" text-anchor="middle">Input: chart + question</text>
+<path d="M254 812.0 L270 812.0 M265 808.0 L270 812.0 L265 816.0" fill="none" stroke="#B4B2A9" stroke-width="1.8"/>
+<rect x="276" y="742" width="190" height="140" rx="3" fill="#F7F6F1"/>
+<text x="290" y="766" font-size="11.5" fill="#111111" font-weight="700">1. Image operation</text>
+<text x="290" y="788" font-size="10.5" fill="#4A4A4A">crop salient region</text>
+<text x="290" y="806" font-size="10.5" fill="#4A4A4A">upscale &#215;2</text>
+<text x="290" y="824" font-size="10.5" fill="#4A4A4A">boost contrast &#215;1.4</text>
+<text x="290" y="858" font-size="9" fill="#8A8880">Better visual grounding</text>
+<text x="290" y="870" font-size="9" fill="#8A8880">before asking anything</text>
+<path d="M470 812.0 L486 812.0 M481 808.0 L486 812.0 L481 816.0" fill="none" stroke="#B4B2A9" stroke-width="1.8"/>
+<rect x="492" y="742" width="248" height="140" rx="3" fill="#F7F6F1"/>
+<text x="506" y="766" font-size="11.5" fill="#111111" font-weight="700">2. Forced read-out</text>
+<text x="506" y="788" font-size="11" fill="#4A4A4A" font-family="Menlo, Consolas, monospace">Men   -&gt; 61.2%</text>
+<text x="506" y="806" font-size="11" fill="#4A4A4A" font-family="Menlo, Consolas, monospace">Women -&gt; 38.8%</text>
+<text x="506" y="858" font-size="9" fill="#8A8880">Transcribe every data mark as label &#8594; value</text>
+<path d="M744 812.0 L760 812.0 M755 808.0 L760 812.0 L755 816.0" fill="none" stroke="#B4B2A9" stroke-width="1.8"/>
+<rect x="766" y="742" width="186" height="140" rx="3" fill="#F7F6F1"/>
+<text x="780" y="766" font-size="11.5" fill="#111111" font-weight="700">3. Self-check</text>
+<text x="780" y="788" font-size="10" fill="#4A4A4A">- Are two rows swapped?</text>
+<text x="780" y="806" font-size="10" fill="#4A4A4A">- Is a value on the wrong</text>
+<text x="780" y="820" font-size="10" fill="#4A4A4A">  label?</text>
+<text x="780" y="838" font-size="10" fill="#4A4A4A">- Is an end-of-axis mark</text>
+<text x="780" y="852" font-size="10" fill="#4A4A4A">  missing?</text>
+<path d="M956 812.0 L972 812.0 M967 808.0 L972 812.0 L967 816.0" fill="none" stroke="#B4B2A9" stroke-width="1.8"/>
+<rect x="978" y="742" width="160" height="140" rx="3" fill="#E3F5E8" stroke="#1E7B34" stroke-width="1.3"/>
+<text x="992" y="766" font-size="11.5" fill="#111111" font-weight="700">4. Answer</text>
+<text x="992" y="788" font-size="9.5" fill="#1E7B34">from the corrected list only</text>
+<text x="992" y="814" font-size="20" fill="#1E7B34" font-weight="700" font-family="Menlo, Consolas, monospace">1.577</text>
+<text x="992" y="858" font-size="9" fill="#8A8880">3 samples, modal answer</text>
+<text x="1170" y="742" font-size="12" fill="#111111" font-weight="700">Over the full held-out testing cases</text>
+<text x="1170" y="776" font-size="10.5" fill="#4A4A4A">Baseline</text>
+<rect x="1278" y="766" width="260" height="16" rx="2" fill="#EDEDED"/>
+<rect x="1278" y="766" width="127.92" height="16" rx="2" fill="#B4B2A9"/>
+<text x="1550" y="779" font-size="11.5" fill="#4A4A4A" font-weight="700">49.2%</text>
+<text x="1170" y="814" font-size="10.5" fill="#1E7B34">with the repair</text>
+<rect x="1278" y="804" width="260" height="16" rx="2" fill="#EDEDED"/>
+<rect x="1278" y="804" width="207.22" height="16" rx="2" fill="#1E7B34"/>
+<text x="1550" y="817" font-size="11.5" fill="#1E7B34" font-weight="700">79.7%</text>
+<text x="1170" y="852" font-size="10.5" fill="#4A4A4A">45 fixed, 6 broken, gain far beyond chance (p &#8810; .001)</text>
+<text x="1170" y="868" font-size="10.5" fill="#8A8880">Example case comes from the explore split; its treated output shows the</text>
+<text x="1170" y="884" font-size="10.5" fill="#8A8880">required form, not a measured held-out result.</text>
+</svg>
