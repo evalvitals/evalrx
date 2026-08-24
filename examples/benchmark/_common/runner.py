@@ -266,6 +266,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         max_repair_rounds=2,
         **({"max_judge_candidates": 1} if args.code_only else {}),
         exec_timeout_sec=args.fix_exec_timeout,
+        concurrency=getattr(args, "concurrency", 1),
         **fix_kwargs,
     )
     explorer = None
