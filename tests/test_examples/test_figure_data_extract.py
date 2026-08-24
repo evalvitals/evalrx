@@ -312,3 +312,33 @@ def test_document_and_markdown_render_the_run(efd, run_dir):
     assert SIGNAL in md
     assert "**40.0% → 60.0%**" in md, "the headline transition is the figure's caption"
     assert "SUPPORTED" in md
+
+
+def test_trial_root_is_reanchored_on_the_run_root(efd, tmp_path):
+    """The run log records the WRITER's absolute path — in a container that is
+    /app/work/outputs/<run>/logs/..., which exists on no host. relpath against
+    it walked up to / and emitted a ../../.. chain whose length depended on
+    where the reader sat. The artifact lives inside the run dir: re-anchor."""
+    root = make_run(tmp_path / "chartqa.chain1")
+    trial = root / "logs" / "fixes" / "05_L2_stop_sequences"
+    trial.mkdir(parents=True)
+    lines = (root / "logs" / "run_log.jsonl").read_text().splitlines()
+    events = [json.loads(x) for x in lines]
+    for e in events:
+        if e.get("event") == "fix":
+            e["best"]["trial_root"] = "/app/work/outputs/chartqa.chain1/logs/fixes/05_L2_stop_sequences"
+            e["best"]["payload"] = {"name": "stop_sequences", "strategy": "single"}
+    (root / "logs" / "run_log.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    recs = efd.extract(str(root))
+    repair = next(r for r in recs if r["block"] == "repair")
+    assert repair["trial_root"] == "logs/fixes/05_L2_stop_sequences"
+
+    # a recorded path whose logs/ suffix does NOT exist under this root keeps
+    # the old relpath fallback (it may genuinely live elsewhere)
+    for e in events:
+        if e.get("event") == "fix":
+            e["best"]["trial_root"] = "/somewhere/else/logs/fixes/99_missing"
+    (root / "logs" / "run_log.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    recs = efd.extract(str(root))
+    repair = next(r for r in recs if r["block"] == "repair")
+    assert "99_missing" in repair["trial_root"] and not repair["trial_root"].startswith("logs/")

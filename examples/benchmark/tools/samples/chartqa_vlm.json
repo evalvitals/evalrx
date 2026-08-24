@@ -1115,7 +1115,7 @@
       "sample 3 times, take the modal answer"
     ],
     "modifies_parameters": false,
-    "trial_root": "../../../../app/work/outputs/gemma-4-e2b/chartqa.chain1/logs/fixes/05_L2_transcribe_then_refine_zoom",
+    "trial_root": "logs/fixes/05_L2_transcribe_then_refine_zoom",
     "prompt_template_lines": [
       "First transcribe the chart, then answer from your transcription.",
       "",
