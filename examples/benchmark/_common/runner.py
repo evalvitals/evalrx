@@ -177,6 +177,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
         scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
+        concurrency=getattr(args, "concurrency", 1),
     ).discover(model, candidates, protocol=protocol)
     cases = discovery.cases
     elapsed = time.monotonic() - started

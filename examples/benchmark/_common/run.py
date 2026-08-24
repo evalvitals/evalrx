@@ -30,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--backend", choices=["hf_local", "endpoint"], default="hf_local",
                    help="hf_local = in-process transformers (default; white-box + paper methods); "
                         "endpoint = OpenAI-compatible server (black-box)")
+    p.add_argument("--concurrency", type=int, default=1,
+                   help="Cases generated at once during baseline discovery. Honoured only for "
+                        "--backend endpoint (a local backend shares one GPU and is not "
+                        "thread-safe); a served model can only batch requests it has in hand.")
     p.add_argument("--base-url", default="http://host.docker.internal:8020/v1")
     p.add_argument("--api-key", default="EMPTY")
     p.add_argument("--data-dir", default="data")
