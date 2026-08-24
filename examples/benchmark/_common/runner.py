@@ -329,7 +329,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         # caller asked to validate.  Running an unrelated M4 surgery first is
         # pure latency and can contend for the same GPU; it cannot influence
         # the frozen candidate or its EXPLORE/CONFIRM verdict.
-        if args.fix_candidate or args.code_only or args.registered_repairs_only:
+        if args.skip_m4:
+            print("M4: skipped by --skip-m4 (tiered fix search remains enabled)")
+        elif args.fix_candidate or args.code_only or args.registered_repairs_only:
             requested = (
                 args.fix_candidate or ("coded_pipeline" if args.code_only else "registered methods")
             )

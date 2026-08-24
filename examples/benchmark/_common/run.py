@@ -94,6 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--baseline-only", action="store_true",
                    help="download + load + Stage 0 only (no judge): the per-cell smoke check")
     p.add_argument("--skip-fix", action="store_true", help="stop after M1..M5")
+    p.add_argument(
+        "--skip-m4",
+        action="store_true",
+        help="skip the optional pre-fix surgery experiment; keep the full tiered fix search",
+    )
     p.add_argument("--download-only", action="store_true")
     p.add_argument("--no-download", action="store_true")
     p.add_argument("--smoke-test", action="store_true", help="scorer/matrix checks, no data, no model")
