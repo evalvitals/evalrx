@@ -298,6 +298,10 @@ export interface HypothesisWire {
    * Technical mechanism claim.
    */
   statement: string;
+  /**
+   * The SAME claim in one everyday sentence, for a reader who runs evaluations and does no statistics. Not a second, softer claim — a second rendering of this one, checked host-side against a jargon list before it is accepted (see analysis.plain_language). Empty when the producer wrote none; a consumer should then show `statement` rather than paraphrase it into something the run never said.
+   */
+  plain_statement?: string;
   target_model: string;
   predicted_failure_mode: string;
   /**

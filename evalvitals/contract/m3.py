@@ -63,6 +63,16 @@ class HypothesisWire(WireModel):
 
     id: str = Field(min_length=1, description="Stable id. Never slugify the statement and assume uniqueness.")
     statement: str = Field(min_length=10, description="Technical mechanism claim.")
+    plain_statement: str = Field(
+        default="",
+        description="The SAME claim in one everyday sentence, for a reader who runs "
+                    "evaluations and does no statistics. Not a second, softer claim — a "
+                    "second rendering of this one, checked host-side against a jargon "
+                    "list before it is accepted (see analysis.plain_language). Empty "
+                    "when the producer wrote none; a consumer should then show "
+                    "`statement` rather than paraphrase it into something the run "
+                    "never said.",
+    )
     target_model: str
     predicted_failure_mode: str = Field(min_length=2)
     test_design: str = Field(

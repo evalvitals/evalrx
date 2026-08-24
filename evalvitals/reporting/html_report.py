@@ -802,6 +802,12 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         },
         "m3": {
             "hypotheses": hypotheses,
+            # The proposer's own list, kept beside the (possibly reordered and
+            # critic-annotated) accepted list. It is the only place a run
+            # recorded before the log writer carried `plain_statement` on
+            # `hypotheses` still has the judge's plain sentence, and the report
+            # compiler joins the two on the statement to recover it.
+            "proposed_hypotheses": dg.get("proposed_hypotheses") or [],
             "duration": dg.get("duration_sec"),
         },
         "m5": {

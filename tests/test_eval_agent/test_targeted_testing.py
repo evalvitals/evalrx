@@ -255,6 +255,7 @@ def test_critic_rejection_annotates_instead_of_deleting():
     and the held-out M5 decides."""
     judge = TwoAnswerJudge([
         "HYPOTHESIS: the model ignores visual evidence entirely\n"
+        "PLAIN_STATEMENT: The model answers without looking at the picture.\n"
         "FAILURE_MODE: visual_blindness\n"
         "TEST: relative_attention.max_relative_weight\n"
         "EXPECTED_ASSOCIATION: lower_on_failures\n",
@@ -277,8 +278,10 @@ def test_critic_record_carries_the_proposer_reviewer_shape_too():
     the two M3-critic designs)."""
     judge = TwoAnswerJudge([
         "HYPOTHESIS: the model ignores visual evidence entirely\n"
+        "PLAIN_STATEMENT: The model answers without looking at the picture.\n"
         "FAILURE_MODE: visual_blindness\n"
         "HYPOTHESIS: the model truncates long answers\n"
+        "PLAIN_STATEMENT: The model stops writing before it reaches the answer.\n"
         "FAILURE_MODE: termination\n",
         "KEEP: the model truncates long answers\n"
         "REASON: termination_audit shows it\n"
