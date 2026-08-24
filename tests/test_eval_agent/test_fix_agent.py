@@ -313,6 +313,16 @@ def test_pipeline_spec_validation():
     assert [op["tool"] for op in spec.image_ops] == ["zoom_center"]  # bogus dropped
     assert spec.n_samples == 5  # capped
 
+    multi_call = PipelineSpec.from_dict(
+        {
+            "name": "bounded_multicall",
+            "strategy": "chain_of_verification",
+            "n_samples": 5,
+        }
+    )
+    assert multi_call is not None
+    assert multi_call.n_samples == 2  # 3 calls/sample * 2 <= 6 calls/case
+
 
 def test_pipeline_passes_bounded_generation_kwargs():
     from evalvitals.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
