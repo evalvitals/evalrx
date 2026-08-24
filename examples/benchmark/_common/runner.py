@@ -58,9 +58,17 @@ def load_model(resolved: Resolved, args, task: T.Task):
         from evalvitals.models.backends.openai_compat import openai_runtime
 
         sampling = {"temperature": gen.get("temperature", 0.0), "max_tokens": max_new}
+        # vLLM reads non-OpenAI params from the JSON body: top_k (dropped from the
+        # OpenAI schema) and chat_template_kwargs — without the latter the server
+        # renders the repo template with ITS defaults, and Nemotron 3 defaults
+        # enable_thinking=True, silently breaking the thinking-off policy that
+        # hf_local enforces through the spec.
+        extra_body: dict = {"chat_template_kwargs": dict(spec.chat_template_kwargs)}
         if gen.get("do_sample"):
             sampling["top_p"] = gen["top_p"]
-        runtime = openai_runtime(base_url=args.base_url, api_key=args.api_key, **sampling)
+            extra_body["top_k"] = gen["top_k"]
+        runtime = openai_runtime(base_url=args.base_url, api_key=args.api_key,
+                                 extra_body=extra_body, **sampling)
         # the endpoint's generate_fn carries the sampling itself; per-call kwargs are not forwarded
         return compose(spec, "api", runtime, set()), {}, spec
     from evalvitals.models.backends.base import RuntimeConfig
