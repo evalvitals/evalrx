@@ -300,6 +300,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
         fix_agent=fix_agent, max_cycles=args.max_cycles, run_logger=ctx.logger,
         confirm_split=0.5, confirm_split_seed=20260818,
+        # This benchmark reserves CONFIRM exclusively for the final frozen
+        # repair. M5 screens hypotheses on EXPLORE; otherwise its verdict (and
+        # the M4 decision it triggers) would adapt repair selection to the same
+        # cases later used for the significance gate.
+        m5_holdout=False,
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer, explore_dir=run_dir / "explore", verbose=True,
     )

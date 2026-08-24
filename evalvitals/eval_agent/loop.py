@@ -1472,12 +1472,14 @@ class VLDiagnoseLoop:
             logger.info("run_m4: no verified hypotheses to act on.")
             return None
 
-        # Confirm the fix on the held-out partition (leak #3): the loop generated
-        # the hypothesis on EXPLORE, so M4 must operate on CONFIRM — data it never
-        # mined. Deterministic re-split of the same batch; no-op when off.
-        _, confirm = self._split_explore_confirm(data)
+        # M4 is an adaptive experiment: its verdict changes which hypothesis
+        # reaches the repair proposer.  It therefore belongs to EXPLORE, not
+        # the final repair CONFIRM partition.  Touching CONFIRM here would make
+        # the later candidate choice depend on the same cases used for its
+        # significance gate.
+        explore, confirm = self._split_explore_confirm(data)
         if confirm is not None:
-            data = confirm
+            data = explore
 
         results: dict[str, Any] = (
             report.final_stats_report.raw_results

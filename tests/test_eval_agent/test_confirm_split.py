@@ -9,6 +9,8 @@ byte-for-byte no-op.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from evalvitals.core.capability import Capability
 from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalvitals.core.model import Model
@@ -165,6 +167,24 @@ def test_run_fix_off_uses_full_batch():
     assert stub.seen_ids == {id(c) for c in batch}  # unchanged: full batch
     assert stub.proposal_ids is None
     assert stub.confirm_ids is None
+
+
+def test_run_m4_adapts_on_explore_not_final_confirm():
+    batch = _batch()
+    seen = set()
+
+    class _Surgery:
+        def operate(self, hypothesis, model, results, data):
+            seen.update(id(case) for case in data)
+            return SimpleNamespace(status="refuted", evidence={})
+
+    loop = _loop(confirm_split=0.5)
+    loop.surgery_agent = _Surgery()
+    explore, confirm = loop._split_explore_confirm(batch)
+    loop.run_m4(_report(), batch, allow_unverified=True)
+
+    assert seen == {id(case) for case in explore}
+    assert seen.isdisjoint(id(case) for case in confirm)
 
 
 def test_run_fix_escalates_on_explore_then_confirms_once():
