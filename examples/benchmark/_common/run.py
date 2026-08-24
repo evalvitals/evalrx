@@ -67,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="frozen Python pipeline to validate with --code-only (skip code generation)")
     p.add_argument("--fix-candidate", default="",
                    help="pre-register and validate only this named fix candidate")
+    p.add_argument("--registered-repairs-only", action="store_true",
+                   help="restrict discovery to structurally compatible registered repair methods; "
+                        "the agent still selects the mechanism and no method name is pre-registered")
     p.add_argument("--explore", action=argparse.BooleanOptionalAction, default=True,
                    help="in-cycle free-form EDA between M1 and M2")
     p.add_argument("--max-cycles", type=int, default=1)

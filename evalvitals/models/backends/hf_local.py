@@ -810,7 +810,7 @@ class HFLocalModel(Model):
             raise ValueError("VCD visual contrast requires a VLM")
         image = getattr(inputs, "image", None)
         if image is None or isinstance(image, (list, tuple)):
-            raise ValueError("VCD requires one image and a binary answer task")
+            raise ValueError("VCD requires exactly one image")
         import hashlib
 
         import torch

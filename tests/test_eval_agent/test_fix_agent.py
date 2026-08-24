@@ -487,6 +487,9 @@ class VCDSensitiveModel(Model):
     def generate_vcd(self, inputs, **kwargs):
         return "Yes."
 
+    def generate_vcd_baseline(self, inputs, **kwargs):
+        return "No."
+
     def paper_method_fidelity(self, method):
         return "per_item_seeded_sampler_specialization" if method == "vcd" else "unavailable"
 
@@ -1116,7 +1119,27 @@ def test_l3a_vcd_candidate_repairs_binary_visual_grounding():
     assert out.best is not None and out.best.candidate.name == "vcd_diffusion_noise"
     assert out.best.candidate.tier is FixTier.L3A_INTERNALS_READ
     assert out.best.n_fixed == 8 and out.best.n_broken == 0
-    assert out.best.candidate.payload["kwargs"]["noise_step"] == 999
+    assert out.best.candidate.payload["kwargs"]["noise_step"] == 500
+
+
+def test_l3a_vcd_uses_its_matched_sampling_control():
+    class GreedyAndContrastAgree(VCDSensitiveModel):
+        def generate(self, inputs, **kwargs):
+            return "Yes."
+
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "exact_or_numeric"
+    out = FixAgent(
+        judge=None, max_tier="L3a", candidate_allowlist={"vcd_diffusion_noise"}
+    ).propose_and_validate(
+        GreedyAndContrastAgree(), batch, [_hyp("language priors override visual evidence")]
+    )
+
+    # The Stage-0 greedy arm is already correct.  VCD's matched clean sampler
+    # is wrong, so the contrastive arm still has eight genuine paired repairs.
+    assert out.best is not None
+    assert out.best.n_fixed == 8 and out.best.n_broken == 0
 
 
 def test_l3a_vcd_structural_discovery_does_not_read_expected_direction():
@@ -1132,6 +1155,23 @@ def test_l3a_vcd_structural_discovery_does_not_read_expected_direction():
     )
 
     assert "vcd_diffusion_noise" in {candidate.name for candidate in candidates}
+
+
+def test_l3a_vcd_is_available_for_open_ended_visual_generation():
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "exact_or_numeric"
+    candidates = FixAgent(
+        judge=ScriptedJudge('[{"name": "vcd_diffusion_noise"}]'),
+        max_tier="L3a",
+        allow_codegen=False,
+        paper_methods_only=True,
+    )._propose(
+        [_hyp("language priors override image evidence")], batch, VCDSensitiveModel()
+    )
+
+    vcd = next(candidate for candidate in candidates if candidate.name == "vcd_diffusion_noise")
+    assert vcd.payload["baseline_executor"] == "generate_vcd_baseline"
 
 
 def test_l3a_icd_structural_discovery_does_not_read_expected_direction():

@@ -91,11 +91,15 @@ _METHODS: tuple[RepairMethod, ...] = (
     RepairMethod(
         "vcd_diffusion_noise", FixTier.L3A_INTERNALS_READ, "generate_vcd",
         "Contrast original and corrupted-image decoding when visual claims follow language priors.",
-        payload={"alpha": 1.0, "beta": 0.1, "noise_step": 999},
+        payload={"alpha": 1.0, "beta": 0.1, "noise_step": 500},
+        baseline_executor="generate_vcd_baseline",
         fidelity_key="vcd", accepted_fidelities=frozenset({
             "exact", "native_binary_specialization", "per_item_seeded_sampler_specialization",
         }),
-        required_inputs=frozenset({"image"}), accepted_tasks=_YES_NO, requires_logprobs=True,
+        # VCD contrasts every generated token; it is not a binary-only
+        # executor.  A yes/no gate hid it from open-ended VQA before the
+        # repair agent could inspect it.
+        required_inputs=frozenset({"image"}), requires_logprobs=True,
     ),
     RepairMethod(
         "aad_silence_contrast", FixTier.L3A_INTERNALS_READ, "generate_aad",

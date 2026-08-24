@@ -222,6 +222,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         VLDiagnoseLoop,
     )
     from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+    from evalvitals.eval_agent.stages.repair_catalog import method_names
 
     ctx = RunContext(run_dir / "logs", verbose=True, config={
         "benchmark": task.title, "dataset": task.name, "modality": task.modality,
@@ -274,7 +275,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         max_validation_cases=args.fix_validation_cases, alpha=0.05,
         candidate_allowlist=(
             {args.fix_candidate} if args.fix_candidate
-            else ({"coded_pipeline"} if args.code_only else None)
+            else ({"coded_pipeline"} if args.code_only
+                  else (method_names() if args.registered_repairs_only else None))
         ),
         max_repair_rounds=max(1, args.fix_repair_rounds),
         **({"max_judge_candidates": 1} if args.code_only else {}),
@@ -322,9 +324,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         # caller asked to validate.  Running an unrelated M4 surgery first is
         # pure latency and can contend for the same GPU; it cannot influence
         # the frozen candidate or its EXPLORE/CONFIRM verdict.
-        if args.fix_candidate or args.code_only:
-            requested = args.fix_candidate or "coded_pipeline"
-            print(f"M4: skipped for pre-registered fix candidate {requested!r}")
+        if args.fix_candidate or args.code_only or args.registered_repairs_only:
+            requested = (
+                args.fix_candidate or ("coded_pipeline" if args.code_only else "registered methods")
+            )
+            print(f"M4: skipped for pre-registered fix scope {requested!r}")
         else:
             proposal = loop.run_m4(report, cases, allow_unverified=True)
             if proposal is not None:

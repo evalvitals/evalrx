@@ -2426,6 +2426,7 @@ class FixAgent:
                         source=method.source,
                         payload={
                             "executor": method.executor,
+                            "baseline_executor": method.baseline_executor,
                             "kwargs": dict(method.payload),
                             "pass_baseline_answer": method.pass_baseline_answer,
                         },
@@ -2865,6 +2866,45 @@ class FixAgent:
             return dict(results)
         return dict(guarded(case) for case in cases)
 
+    def _registered_baseline_scores(
+        self, candidate: FixCandidate, model: "Model", data: "CaseBatch"
+    ) -> "dict[str, Optional[bool]] | None":
+        """Run a registered repair's matched control arm, when declared.
+
+        A decoding repair may change both sampling and logits. Comparing it to
+        Stage 0's greedy output would confound those changes; this control
+        keeps the paired test about the intervention itself.
+        """
+        if candidate.kind != "registered_repair":
+            return None
+        executor_name = str(candidate.payload.get("baseline_executor", "") or "")
+        if not executor_name:
+            return None
+        executor = getattr(model, executor_name, None)
+        if not callable(executor):
+            return {case.id: None for case in data}
+
+        def guarded(case: "FailureCase") -> "tuple[str, Optional[bool]]":
+            try:
+                output = executor(case.inputs)
+                return case.id, score_to_bool(self._score(case, str(output)))
+            except Exception as exc:
+                logger.warning(
+                    "FixAgent: matched baseline %s failed on case %s: %s",
+                    executor_name,
+                    case.id,
+                    exc,
+                )
+                return case.id, None
+
+        cases = list(data)
+        if self._concurrency > 1 and len(cases) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=self._concurrency) as pool:
+                return dict(pool.map(guarded, cases))
+        return dict(guarded(case) for case in cases)
+
     def _record_output(self, case_id: str, output: Any) -> None:
         """Remember what a candidate produced for *case_id* (see FixValidation.outputs)."""
         if output is None:
@@ -3103,14 +3143,21 @@ class FixAgent:
         # Baseline rates: measured by _baseline (frozen sample + k-1 fresh);
         # when a caller hands in bare booleans (tests, external drivers) they
         # are 0/1 rates.
+        matched_baseline = self._registered_baseline_scores(candidate, model, data)
         base_rates: "dict[str, Optional[float]]" = {}
         for case in data:
-            r = self._baseline_rates.get(case.id) if self._baseline_rates else None
-            if r is None:
-                b = score_to_bool(baseline.get(case.id))
+            if matched_baseline is not None:
+                b = score_to_bool(matched_baseline.get(case.id))
                 r = None if b is None else float(b)
+            else:
+                r = self._baseline_rates.get(case.id) if self._baseline_rates else None
+                if r is None:
+                    b = score_to_bool(baseline.get(case.id))
+                    r = None if b is None else float(b)
             base_rates[case.id] = r
-        if self._baseline_n:
+        if matched_baseline is not None:
+            v.n_baseline_samples = 1
+        elif self._baseline_n:
             v.n_baseline_samples = max([1] + [int(n) for n in self._baseline_n.values()])
 
         n_fail = sum(1 for c in data if getattr(c.label, "value", None) == "fail")
