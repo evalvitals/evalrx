@@ -91,9 +91,15 @@ def make_run(root: Path, *, signal_values=None, m5_effect=-0.42, n_broken=1) -> 
         {"id": cid, "prompt": f"question {cid}", "expected": "42",
          "observed": "42", "label": "pass"} for cid in HELDOUT
     ])
+    # four numeric fields, one per measurement-inventory verdict: the signal
+    # itself varies (candidate), strict_match is a function of the answer key,
+    # n_options never varies, conf_logprob covers only half the cases
     _write(logs / "artifacts" / "c0_termination_audit.result.json", {
         "findings": {"per_case": [
-            {"sample_id": cid, "continuation_chars": value} for cid, _, value in rows
+            dict({"sample_id": cid, "continuation_chars": value,
+                  "strict_match": 0 if label == "fail" else 1, "n_options": 4},
+                 **({"conf_logprob": -0.1 * i} if i < len(rows) // 2 else {}))
+            for i, (cid, label, value) in enumerate(rows)
         ]},
     })
 
@@ -228,6 +234,36 @@ def test_continuous_signal_is_quartile_binned_and_flagged(efd, tmp_path):
     assert "signal_binned_for_plotting" in codes
 
 
+def test_the_measurement_funnel_says_why_each_field_was_dropped(efd, run_dir):
+    """A dropped measurement must be dropped for a stated reason, not silently."""
+    probe = one(efd.extract(str(run_dir)), "m1_probe_questions")
+    status = {m["field"]: m["status"] for m in probe["inventory"]}
+    assert status["continuation_chars"] == "candidate"
+    assert status["strict_match"] == "dropped_sees_answer_key", (
+        "a field computed from the answer key would let a signal predict the label from the label")
+    assert status["n_options"] == "dropped_never_varies"
+    assert status["conf_logprob"] == "dropped_partial_coverage"
+    assert probe["n_measured"] == 4
+    assert probe["dropped"] == {"saw_the_answer_key": 1, "never_varied": 1, "partial_coverage": 1}
+    # the funnel's other end is M2: signals that entered the correction family
+    assert probe["n_forwarded"] == 1
+
+
+def test_probe_questions_are_plain_language_and_exclude_the_answer_key(efd, run_dir):
+    probe = one(efd.extract(str(run_dir)), "m1_probe_questions")
+    asked = [q["question"] for q in probe["questions"]]
+    assert "Did it stop, or keep talking?" in asked, "continuation_chars asks this"
+    assert "Was it as sure as it sounded?" in asked, "conf_logprob asks this"
+    # strict_match is answer-key-derived, so it is not a question the probe asks
+    assert all("answer key" not in q for q in asked)
+    assert len(asked) == len(set(asked)), "one question per row, analyzers merged"
+    # the reading order is fixed, so the list is stable across runs
+    assert asked == sorted(asked, key=lambda q: efd.QUESTION_ORDER.index(q))
+    stop = next(q for q in probe["questions"] if q["question"] == "Did it stop, or keep talking?")
+    assert stop["analyzers"] == ["termination_audit"]
+    assert stop["n_candidates"] == 1
+
+
 def test_m2_family_separates_explore_from_heldout(efd, run_dir):
     records = efd.extract(str(run_dir))
     fams = {f["phase"]: f for f in blocks(records, "m2_family")}
@@ -305,13 +341,21 @@ def test_document_and_markdown_render_the_run(efd, run_dir):
     assert doc["run"]["model"] == "gemma-4-e2b"
     assert doc["headline"]["baseline_accuracy"] == 0.5
     assert doc["m1_probe"]["signal_curve"]["signal"] == SIGNAL
-    assert doc["m5_verdicts"][0]["status"] == "supported"
+    assert doc["m1_probe"]["measurement_inventory"], "the funnel travels with the document"
+    assert doc["m5_verdicts"]["verdicts"][0]["status"] == "supported"
     assert doc["_sources"], "every section must say which file it came from"
+    # the figure draws five cards in this order, named by the pipeline block
+    assert [p["module"] for p in doc["pipeline"]] == ["M1", "M2", "M3", "M5", "M4"]
+    assert doc["pipeline"][0]["name"] == "Suspicious Behavior Detection"
     md = efd.to_markdown(doc, title="chartqa.chain1")
     assert "chartqa.chain1" in md
     assert SIGNAL in md
     assert "**40.0% → 60.0%**" in md, "the headline transition is the figure's caption"
     assert "SUPPORTED" in md
+    assert "What the probes ask" in md
+    assert "4 measurements, 1 forwarded to M2" in md
+    for name in efd.MODULE_NAMES.values():
+        assert name in md
 
 
 def test_trial_root_is_reanchored_on_the_run_root(efd, tmp_path):

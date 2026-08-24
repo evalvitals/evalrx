@@ -1,4 +1,31 @@
 {
+  "pipeline": [
+    {
+      "module": "M1",
+      "name": "Suspicious Behavior Detection",
+      "subtitle": "Run the analyzer probing library, find per-case suspicious behaviors"
+    },
+    {
+      "module": "M2",
+      "name": "Statistical Screening",
+      "subtitle": "Using plots to explain, statistical tests to decide"
+    },
+    {
+      "module": "M3",
+      "name": "Hypothesis Formation",
+      "subtitle": "Explore the reason behind the signals"
+    },
+    {
+      "module": "M5",
+      "name": "Held-out Verification",
+      "subtitle": "Confirm whether the hypothesis is verified over the held-out cases"
+    },
+    {
+      "module": "M4",
+      "name": "Validated Repair",
+      "subtitle": "Fix the failure with the validated repair ladder"
+    }
+  ],
   "headline": {
     "model": "gemma-4-e2b-it",
     "dataset": "MMAU/test-mini",
@@ -61,6 +88,7 @@
     "total_duration_sec": 9924.8
   },
   "m1_probe": {
+    "module": "M1 · Suspicious Behavior Detection",
     "analyzers": {
       "selection_mode": "pinned",
       "selection_rationale": "Selected 8 analyzer(s) (answer_extraction_audit, termination_audit, selfcheck_consistency, format_sensitivity, self_consistency, calibration, logprob_entropy, coverage_verification_gap) by capability matching.",
@@ -181,6 +209,484 @@
         }
       }
     },
+    "probe_questions": {
+      "n_analyzers": 8,
+      "n_measured": 43,
+      "n_forwarded": 15,
+      "questions": [
+        {
+          "question": "Did it produce anything at all?",
+          "analyzers": [
+            "answer_extraction_audit"
+          ],
+          "n_measurements": 1,
+          "n_candidates": 0
+        },
+        {
+          "question": "Did it answer in the form we asked for?",
+          "analyzers": [
+            "answer_extraction_audit",
+            "format_sensitivity",
+            "termination_audit"
+          ],
+          "n_measurements": 4,
+          "n_candidates": 2
+        },
+        {
+          "question": "Did it give up answering?",
+          "analyzers": [
+            "answer_extraction_audit",
+            "termination_audit"
+          ],
+          "n_measurements": 2,
+          "n_candidates": 2
+        },
+        {
+          "question": "Did it stop, or keep talking?",
+          "analyzers": [
+            "answer_extraction_audit",
+            "termination_audit"
+          ],
+          "n_measurements": 7,
+          "n_candidates": 3
+        },
+        {
+          "question": "Same question five times, same answer?",
+          "analyzers": [
+            "coverage_verification_gap"
+          ],
+          "n_measurements": 4,
+          "n_candidates": 2
+        },
+        {
+          "question": "Reworded question, same answer?",
+          "analyzers": [
+            "format_sensitivity"
+          ],
+          "n_measurements": 4,
+          "n_candidates": 2
+        },
+        {
+          "question": "Asked to check itself, does it change?",
+          "analyzers": [
+            "selfcheck_consistency"
+          ],
+          "n_measurements": 3,
+          "n_candidates": 1
+        },
+        {
+          "question": "Was it as sure as it sounded?",
+          "analyzers": [
+            "calibration"
+          ],
+          "n_measurements": 2,
+          "n_candidates": 1
+        },
+        {
+          "question": "Did it ever produce the right answer?",
+          "analyzers": [
+            "coverage_verification_gap"
+          ],
+          "n_measurements": 1,
+          "n_candidates": 1
+        }
+      ],
+      "dropped": {
+        "saw_the_answer_key": 15,
+        "never_varied": 8,
+        "partial_coverage": 6
+      },
+      "note": "each case is answered five times; the probes never see the answer key"
+    },
+    "measurement_inventory": [
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "extraction_point_miss",
+        "signal": "answer_extraction_audit.extraction_point_miss",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "extraction_suspect",
+        "signal": "answer_extraction_audit.extraction_suspect",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gave_up",
+        "signal": "answer_extraction_audit.gave_up",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "Did it give up answering?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gold_in_answer_region",
+        "signal": "answer_extraction_audit.gold_in_answer_region",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gold_in_output",
+        "signal": "answer_extraction_audit.gold_in_output",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "has_answer_tag",
+        "signal": "answer_extraction_audit.has_answer_tag",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it answer in the form we asked for?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "has_output",
+        "signal": "answer_extraction_audit.has_output",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it produce anything at all?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "label_disagrees",
+        "signal": "answer_extraction_audit.label_disagrees",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "labelled_fail",
+        "signal": "answer_extraction_audit.labelled_fail",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "output_chars",
+        "signal": "answer_extraction_audit.output_chars",
+        "n_values": 128,
+        "n_distinct": 44,
+        "status": "candidate",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "output_truncated",
+        "signal": "answer_extraction_audit.output_truncated",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "strict_match",
+        "signal": "answer_extraction_audit.strict_match",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "continuation_chars",
+        "signal": "termination_audit.continuation_chars",
+        "n_values": 85,
+        "n_distinct": 63,
+        "status": "dropped_partial_coverage",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "continuation_correct",
+        "signal": "termination_audit.continuation_correct",
+        "n_values": 85,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "continuation_has_answer",
+        "signal": "termination_audit.continuation_has_answer",
+        "n_values": 85,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "gave_up",
+        "signal": "termination_audit.gave_up",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "Did it give up answering?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "has_answer_tag",
+        "signal": "termination_audit.has_answer_tag",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it answer in the form we asked for?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "looks_truncated",
+        "signal": "termination_audit.looks_truncated",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "matches_output_contract",
+        "signal": "termination_audit.matches_output_contract",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "Did it answer in the form we asked for?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "output_chars",
+        "signal": "termination_audit.output_chars",
+        "n_values": 128,
+        "n_distinct": 44,
+        "status": "candidate",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "output_words",
+        "signal": "termination_audit.output_words",
+        "n_values": 128,
+        "n_distinct": 16,
+        "status": "candidate",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "recovered_by_continuation",
+        "signal": "termination_audit.recovered_by_continuation",
+        "n_values": 85,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "repetition_score",
+        "signal": "termination_audit.repetition_score",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "selfcheck_consistency",
+        "field": "n_sentences",
+        "signal": "selfcheck_consistency.n_sentences",
+        "n_values": 128,
+        "n_distinct": 5,
+        "status": "candidate",
+        "question": "Asked to check itself, does it change?"
+      },
+      {
+        "analyzer": "selfcheck_consistency",
+        "field": "selfcheck_inconsistency",
+        "signal": "selfcheck_consistency.selfcheck_inconsistency",
+        "n_values": 57,
+        "n_distinct": 34,
+        "status": "dropped_partial_coverage",
+        "question": "Asked to check itself, does it change?"
+      },
+      {
+        "analyzer": "selfcheck_consistency",
+        "field": "selfcheck_worst_sentence",
+        "signal": "selfcheck_consistency.selfcheck_worst_sentence",
+        "n_values": 57,
+        "n_distinct": 27,
+        "status": "dropped_partial_coverage",
+        "question": "Asked to check itself, does it change?"
+      },
+      {
+        "analyzer": "format_sensitivity",
+        "field": "format_flip_rate",
+        "signal": "format_sensitivity.format_flip_rate",
+        "n_values": 125,
+        "n_distinct": 6,
+        "status": "dropped_partial_coverage",
+        "question": "Reworded question, same answer?"
+      },
+      {
+        "analyzer": "format_sensitivity",
+        "field": "n_options",
+        "signal": "format_sensitivity.n_options",
+        "n_values": 128,
+        "n_distinct": 3,
+        "status": "candidate",
+        "question": "Reworded question, same answer?"
+      },
+      {
+        "analyzer": "format_sensitivity",
+        "field": "n_unparsed",
+        "signal": "format_sensitivity.n_unparsed",
+        "n_values": 128,
+        "n_distinct": 5,
+        "status": "candidate",
+        "question": "Did it answer in the form we asked for?"
+      },
+      {
+        "analyzer": "format_sensitivity",
+        "field": "n_variants",
+        "signal": "format_sensitivity.n_variants",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "Reworded question, same answer?"
+      },
+      {
+        "analyzer": "format_sensitivity",
+        "field": "positional_bias",
+        "signal": "format_sensitivity.positional_bias",
+        "n_values": 125,
+        "n_distinct": 6,
+        "status": "dropped_partial_coverage",
+        "question": "Reworded question, same answer?"
+      },
+      {
+        "analyzer": "calibration",
+        "field": "conf_logprob",
+        "signal": "calibration.conf_logprob",
+        "n_values": 128,
+        "n_distinct": 123,
+        "status": "candidate",
+        "question": "Was it as sure as it sounded?"
+      },
+      {
+        "analyzer": "calibration",
+        "field": "conf_verbal",
+        "signal": "calibration.conf_verbal",
+        "n_values": 97,
+        "n_distinct": 5,
+        "status": "dropped_partial_coverage",
+        "question": "Was it as sure as it sounded?"
+      },
+      {
+        "analyzer": "calibration",
+        "field": "correct",
+        "signal": "calibration.correct",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Was it as sure as it sounded?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "any_correct",
+        "signal": "coverage_verification_gap.any_correct",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it ever produce the right answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "coverage_gap",
+        "signal": "coverage_verification_gap.coverage_gap",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "Did it ever produce the right answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "majority_correct",
+        "signal": "coverage_verification_gap.majority_correct",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it ever produce the right answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "majority_share",
+        "signal": "coverage_verification_gap.majority_share",
+        "n_values": 128,
+        "n_distinct": 5,
+        "status": "candidate",
+        "question": "Same question five times, same answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "n_correct",
+        "signal": "coverage_verification_gap.n_correct",
+        "n_values": 128,
+        "n_distinct": 6,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it ever produce the right answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "n_graded",
+        "signal": "coverage_verification_gap.n_graded",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Same question five times, same answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "n_samples",
+        "signal": "coverage_verification_gap.n_samples",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Same question five times, same answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "n_unique",
+        "signal": "coverage_verification_gap.n_unique",
+        "n_values": 128,
+        "n_distinct": 5,
+        "status": "candidate",
+        "question": "Same question five times, same answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "pass_at_k",
+        "signal": "coverage_verification_gap.pass_at_k",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it ever produce the right answer?"
+      }
+    ],
     "signal_curve": {
       "phase": "explore",
       "signal": "coverage_verification_gap.majority_share",
@@ -235,6 +741,7 @@
     }
   },
   "m2_statistics": {
+    "module": "M2 · Statistical Screening",
     "explore": {
       "family": {
         "n_results_total": 27,
@@ -1076,6 +1583,7 @@
     }
   },
   "m3_hypotheses": {
+    "module": "M3 · Hypothesis Formation",
     "proposed": [
       {
         "hypothesis_id": "H1",
@@ -1128,128 +1636,132 @@
       "note": "critic objections are recorded, not vetoes; adjudication is statistical"
     }
   },
-  "m5_verdicts": [
-    {
-      "hypothesis_id": "H1",
-      "failure_mode": "truncation",
-      "status": "inconclusive",
-      "statement": "The leaked reasoning channel is a chat-template defect (`enable_thinking=False` is silently ignored by the gemma-4-e2b-it template) that emits a multi-hundred-token `Thinking Process:` preamble, so the defect is *not* repairable by a small budget bump — at 64+~250 additional characters the answer letter still has not appeared in 83 of 85 continuations (`recovered_rate = 0.0235`), meaning the required budget is ≥512 new tokens, not ~128.",
-      "test_name": "signal_label_assoc",
-      "effect": -0.0573,
-      "ci": [
-        -0.2561,
-        0.1415
-      ],
-      "reject": false,
-      "underpowered": false,
-      "evidence_grade": "observational",
-      "protocol_consistent": true,
-      "confidence_score": 0.072,
-      "fdr": {
-        "method": "BH",
-        "alpha": 0.05,
-        "n_tested": 15,
-        "rejected_tools": [
-          "signal_label_assoc"
+  "m5_verdicts": {
+    "module": "M5 · Held-out Verification",
+    "verdicts": [
+      {
+        "hypothesis_id": "H1",
+        "failure_mode": "truncation",
+        "status": "inconclusive",
+        "statement": "The leaked reasoning channel is a chat-template defect (`enable_thinking=False` is silently ignored by the gemma-4-e2b-it template) that emits a multi-hundred-token `Thinking Process:` preamble, so the defect is *not* repairable by a small budget bump — at 64+~250 additional characters the answer letter still has not appeared in 83 of 85 continuations (`recovered_rate = 0.0235`), meaning the required budget is ≥512 new tokens, not ~128.",
+        "test_name": "signal_label_assoc",
+        "effect": -0.0573,
+        "ci": [
+          -0.2561,
+          0.1415
         ],
-        "rejected_result_keys": [
-          "signal_label_assoc:answer_extraction_audit.output_chars",
-          "signal_label_assoc:coverage_verification_gap.n_unique",
-          "signal_label_assoc:selfcheck_consistency.n_sentences",
-          "signal_label_assoc:termination_audit.output_chars",
-          "signal_label_assoc:termination_audit.output_words",
-          "signal_label_assoc:termination_audit.matches_output_contract",
-          "signal_label_assoc:coverage_verification_gap.coverage_gap",
-          "signal_label_assoc:coverage_verification_gap.majority_share"
-        ],
-        "families": {
-          "bh": {
-            "method": "BH",
-            "n_tested": 15,
-            "rejected_result_keys": [
-              "signal_label_assoc:answer_extraction_audit.output_chars",
-              "signal_label_assoc:coverage_verification_gap.n_unique",
-              "signal_label_assoc:selfcheck_consistency.n_sentences",
-              "signal_label_assoc:termination_audit.output_chars",
-              "signal_label_assoc:termination_audit.output_words",
-              "signal_label_assoc:termination_audit.matches_output_contract",
-              "signal_label_assoc:coverage_verification_gap.coverage_gap",
-              "signal_label_assoc:coverage_verification_gap.majority_share"
-            ]
+        "reject": false,
+        "underpowered": false,
+        "evidence_grade": "observational",
+        "protocol_consistent": true,
+        "confidence_score": 0.072,
+        "fdr": {
+          "method": "BH",
+          "alpha": 0.05,
+          "n_tested": 15,
+          "rejected_tools": [
+            "signal_label_assoc"
+          ],
+          "rejected_result_keys": [
+            "signal_label_assoc:answer_extraction_audit.output_chars",
+            "signal_label_assoc:coverage_verification_gap.n_unique",
+            "signal_label_assoc:selfcheck_consistency.n_sentences",
+            "signal_label_assoc:termination_audit.output_chars",
+            "signal_label_assoc:termination_audit.output_words",
+            "signal_label_assoc:termination_audit.matches_output_contract",
+            "signal_label_assoc:coverage_verification_gap.coverage_gap",
+            "signal_label_assoc:coverage_verification_gap.majority_share"
+          ],
+          "families": {
+            "bh": {
+              "method": "BH",
+              "n_tested": 15,
+              "rejected_result_keys": [
+                "signal_label_assoc:answer_extraction_audit.output_chars",
+                "signal_label_assoc:coverage_verification_gap.n_unique",
+                "signal_label_assoc:selfcheck_consistency.n_sentences",
+                "signal_label_assoc:termination_audit.output_chars",
+                "signal_label_assoc:termination_audit.output_words",
+                "signal_label_assoc:termination_audit.matches_output_contract",
+                "signal_label_assoc:coverage_verification_gap.coverage_gap",
+                "signal_label_assoc:coverage_verification_gap.majority_share"
+              ]
+            }
           }
-        }
+        },
+        "verdict_text": "No significant M2 result (best: signal 'termination_audit.continuation_chars' vs FAIL: [clustered bootstrap (unpaired)] effect=-0.0573 (A>B) CI=-0.2561..+0.1415 -> inconclusive [BH: NOT survived, p=0.639, n_signal=40])",
+        "split": "heldout"
       },
-      "verdict_text": "No significant M2 result (best: signal 'termination_audit.continuation_chars' vs FAIL: [clustered bootstrap (unpaired)] effect=-0.0573 (A>B) CI=-0.2561..+0.1415 -> inconclusive [BH: NOT survived, p=0.639, n_signal=40])",
-      "split": "heldout"
-    },
-    {
-      "hypothesis_id": "H2",
-      "failure_mode": "answer_extraction",
-      "status": "inconclusive",
-      "statement": "The grader's fallback extractor corrupts labels in *both* directions — it assigns FAIL to prose outputs whose gold string is present (`strict_match=1 & labelled_fail=1` on ≥12 cases: `a24ba06b`, `38d52315`, `45b81135`, `72fb5481`, `aac54520`, `3169f037`, `8ec14515`, `f13fab4f`, `f002617e`, `dbed711d`, `a61044e3`, `676a6e29`) and PASS to prose outputs with no letter at all (`labelled_fail=0 & strict_match=0`: `1b87bc3e`, `6daf1dda`, `90bbd0d8`, `16faf4a0`, `c9f57ab1`), so the FAIL label feeding every M2 correlation is noise on the non-clean stratum rather than a uniformly deflated score.",
-      "test_name": "stats_results",
-      "evidence_grade": "none",
-      "protocol_consistent": true,
-      "confidence_score": 0.0,
-      "verdict_text": "designated evidence not measured this cycle: the test design names answer_extraction_audit.extraction_point_miss, answer_extraction_audit.missing_tag_rate, label_disagrees, n_reask_confirmed, suspect_rate but M2 has no result for them — not judged on unrelated signals (next cycle's M1 targets the design)",
-      "split": "heldout"
-    },
-    {
-      "hypothesis_id": "H3",
-      "failure_mode": "language_prior_bias",
-      "status": "refuted",
-      "statement": "Restricted to the 43 contract-respecting (`termination_class == 'clean'`) cases, answers are produced from an option-letter/text prior rather than from the audio — the model's own leaked text says so verbatim (\"Since I cannot directly listen to an audio file, I must rely on the provided context\", `00127c2e`, `1af356cb`) — so the ~60% \"real capability\" figure is a text-prior ceiling, not audio perception.",
-      "test_name": "signal_label_assoc",
-      "expected_direction": "higher_in_fail",
-      "effect": -0.296,
-      "ci": [
-        -0.4607,
-        -0.1224
-      ],
-      "reject": true,
-      "underpowered": false,
-      "evidence_grade": "observational",
-      "protocol_consistent": true,
-      "confidence_score": 0.467,
-      "fdr": {
-        "method": "BH",
-        "alpha": 0.05,
-        "n_tested": 15,
-        "rejected_tools": [
-          "signal_label_assoc"
+      {
+        "hypothesis_id": "H2",
+        "failure_mode": "answer_extraction",
+        "status": "inconclusive",
+        "statement": "The grader's fallback extractor corrupts labels in *both* directions — it assigns FAIL to prose outputs whose gold string is present (`strict_match=1 & labelled_fail=1` on ≥12 cases: `a24ba06b`, `38d52315`, `45b81135`, `72fb5481`, `aac54520`, `3169f037`, `8ec14515`, `f13fab4f`, `f002617e`, `dbed711d`, `a61044e3`, `676a6e29`) and PASS to prose outputs with no letter at all (`labelled_fail=0 & strict_match=0`: `1b87bc3e`, `6daf1dda`, `90bbd0d8`, `16faf4a0`, `c9f57ab1`), so the FAIL label feeding every M2 correlation is noise on the non-clean stratum rather than a uniformly deflated score.",
+        "test_name": "stats_results",
+        "evidence_grade": "none",
+        "protocol_consistent": true,
+        "confidence_score": 0.0,
+        "verdict_text": "designated evidence not measured this cycle: the test design names answer_extraction_audit.extraction_point_miss, answer_extraction_audit.missing_tag_rate, label_disagrees, n_reask_confirmed, suspect_rate but M2 has no result for them — not judged on unrelated signals (next cycle's M1 targets the design)",
+        "split": "heldout"
+      },
+      {
+        "hypothesis_id": "H3",
+        "failure_mode": "language_prior_bias",
+        "status": "refuted",
+        "statement": "Restricted to the 43 contract-respecting (`termination_class == 'clean'`) cases, answers are produced from an option-letter/text prior rather than from the audio — the model's own leaked text says so verbatim (\"Since I cannot directly listen to an audio file, I must rely on the provided context\", `00127c2e`, `1af356cb`) — so the ~60% \"real capability\" figure is a text-prior ceiling, not audio perception.",
+        "test_name": "signal_label_assoc",
+        "expected_direction": "higher_in_fail",
+        "effect": -0.296,
+        "ci": [
+          -0.4607,
+          -0.1224
         ],
-        "rejected_result_keys": [
-          "signal_label_assoc:answer_extraction_audit.output_chars",
-          "signal_label_assoc:coverage_verification_gap.n_unique",
-          "signal_label_assoc:selfcheck_consistency.n_sentences",
-          "signal_label_assoc:termination_audit.output_chars",
-          "signal_label_assoc:termination_audit.output_words",
-          "signal_label_assoc:termination_audit.matches_output_contract",
-          "signal_label_assoc:coverage_verification_gap.coverage_gap",
-          "signal_label_assoc:coverage_verification_gap.majority_share"
-        ],
-        "families": {
-          "bh": {
-            "method": "BH",
-            "n_tested": 15,
-            "rejected_result_keys": [
-              "signal_label_assoc:answer_extraction_audit.output_chars",
-              "signal_label_assoc:coverage_verification_gap.n_unique",
-              "signal_label_assoc:selfcheck_consistency.n_sentences",
-              "signal_label_assoc:termination_audit.output_chars",
-              "signal_label_assoc:termination_audit.output_words",
-              "signal_label_assoc:termination_audit.matches_output_contract",
-              "signal_label_assoc:coverage_verification_gap.coverage_gap",
-              "signal_label_assoc:coverage_verification_gap.majority_share"
-            ]
+        "reject": true,
+        "underpowered": false,
+        "evidence_grade": "observational",
+        "protocol_consistent": true,
+        "confidence_score": 0.467,
+        "fdr": {
+          "method": "BH",
+          "alpha": 0.05,
+          "n_tested": 15,
+          "rejected_tools": [
+            "signal_label_assoc"
+          ],
+          "rejected_result_keys": [
+            "signal_label_assoc:answer_extraction_audit.output_chars",
+            "signal_label_assoc:coverage_verification_gap.n_unique",
+            "signal_label_assoc:selfcheck_consistency.n_sentences",
+            "signal_label_assoc:termination_audit.output_chars",
+            "signal_label_assoc:termination_audit.output_words",
+            "signal_label_assoc:termination_audit.matches_output_contract",
+            "signal_label_assoc:coverage_verification_gap.coverage_gap",
+            "signal_label_assoc:coverage_verification_gap.majority_share"
+          ],
+          "families": {
+            "bh": {
+              "method": "BH",
+              "n_tested": 15,
+              "rejected_result_keys": [
+                "signal_label_assoc:answer_extraction_audit.output_chars",
+                "signal_label_assoc:coverage_verification_gap.n_unique",
+                "signal_label_assoc:selfcheck_consistency.n_sentences",
+                "signal_label_assoc:termination_audit.output_chars",
+                "signal_label_assoc:termination_audit.output_words",
+                "signal_label_assoc:termination_audit.matches_output_contract",
+                "signal_label_assoc:coverage_verification_gap.coverage_gap",
+                "signal_label_assoc:coverage_verification_gap.majority_share"
+              ]
+            }
           }
-        }
-      },
-      "verdict_text": "signal_label_assoc: signal 'termination_audit.matches_output_contract' vs FAIL: [clustered bootstrap (unpaired)] effect=-0.2960 (A>B) CI=-0.4607..-0.1224 -> REJECT H0 [BH: survived, p=0.00157, n_signal=47] [hypothesis predicts the signal HIGHER on failures; observed effect -0.296 -> opposite]",
-      "split": "heldout"
-    }
-  ],
+        },
+        "verdict_text": "signal_label_assoc: signal 'termination_audit.matches_output_contract' vs FAIL: [clustered bootstrap (unpaired)] effect=-0.2960 (A>B) CI=-0.4607..-0.1224 -> REJECT H0 [BH: survived, p=0.00157, n_signal=47] [hypothesis predicts the signal HIGHER on failures; observed effect -0.296 -> opposite]",
+        "split": "heldout"
+      }
+    ]
+  },
   "m4_repair_search": {
+    "module": "M4 · Validated Repair",
     "ladder": [
       {
         "tier": "L1",
@@ -1508,6 +2020,7 @@
   "_sources": {
     "example_case": "logs/report/discovery_cases.json + run_log case_record",
     "m1_analyzers": "logs/run_log.jsonl:probe",
+    "m1_probe_questions": "logs/artifacts/c0_<analyzer>.result.json per-case fields",
     "m1_signal_curve": "logs/artifacts/c0_coverage_verification_gap.result.json + run_log case_record labels",
     "m2_family": "logs/artifacts/c0_m2_stats_results.json",
     "m2_test": "logs/artifacts/c0_m2_stats_results.json",

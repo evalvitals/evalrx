@@ -32,6 +32,23 @@ held-out verdicts, the M4 L1–L4 repair ladder, the accepted repair, the paired
 held-out validation, and one illustrative case. Every record carries the artifact
 path it was read from, so a number in a figure can be traced back.
 
+M1 also ships as a reader sees it rather than as field names: `probe_questions`
+lists what the probes actually asked in plain language (keyed by the per-case
+field, because one analyzer often asks two questions and one question is often
+answered by two analyzers), over a `measurement_inventory` that states why each
+measurement was kept or dropped — it saw the answer key, it never varied, it
+covered only part of the batch. The funnel's two ends are the numbers M1 and M2
+must agree on: `n_measured` probes taken, `n_forwarded` entering the
+multiplicity-correction family, which is also the BH denominator and the forest
+plot's row count.
+
+`FIGURE_PROMPT.md` + `reference/` turn the JSON into the figure: hand Claude the
+extracted document, the prompt spec (layout coordinates, palette, which field
+goes on which card) and a reference PDF, and it draws the SVG. The spec makes the
+`qa_flags` binding — an example case drawn from explore may not be written up as
+"fixed", a repair accepted with no supported hypothesis must carry the callout,
+a fix that broke cases must print the broken count next to the gain.
+
 Because a figure fails silently — a plausible wrong number gets printed, nothing
 raises — each extraction also self-checks into `qa_flags`: two hypotheses sharing
 one test and effect, a verdict whose observed sign contradicts its stated
