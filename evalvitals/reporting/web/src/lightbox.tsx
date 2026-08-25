@@ -7,13 +7,18 @@
  * that is legible, and the reader's only recourse was the browser's own
  * zoom, which enlarges the layout rather than the picture.
  *
+ * One click, one size: the figure fills the viewport, centred. There is no
+ * zoom control — these are a few hundred kilobytes of chart at a size the
+ * screen can hold, and a fit/actual toggle was a second decision to make
+ * before reading the thing.
+ *
  * The store is module-level rather than a context because the three places that
  * render images (the overview catalog, the stage brief, the full record) do not
  * share a parent below `App`, and threading a callback through all of them
  * would put the plumbing in every signature for the sake of one overlay.
  */
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { X } from "lucide-react";
 
 type Shot = { src: string; caption: string } | null;
 
@@ -71,13 +76,7 @@ export function ZoomableImage(
 /** The overlay itself. Mounted once, near the root. */
 export function Lightbox() {
   const shot = useSyncExternalStore(subscribe, () => current, () => null);
-  const [actualSize, setActualSize] = useState(false);
   const closeButton = useRef<HTMLButtonElement>(null);
-
-  // Fit is the right starting point for a chart that was merely too small; a
-  // reader who needs more asks for it, and then wants to pan around what they
-  // asked for, so the frame scrolls instead of scaling further.
-  useEffect(() => { setActualSize(false); }, [shot?.src]);
 
   useEffect(() => {
     if (!shot) return;
@@ -105,19 +104,12 @@ export function Lightbox() {
   >
     <div className="lightbox-bar" onClick={stop}>
       <span>{shot.caption}</span>
-      <button type="button" onClick={() => setActualSize((on) => !on)}
-        aria-pressed={actualSize}
-        title={actualSize ? "Fit to screen" : "Actual size"}>
-        {actualSize ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-        {actualSize ? "Fit" : "Zoom in"}
-      </button>
       <button type="button" ref={closeButton} onClick={closeLightbox} title="Close (Esc)">
         <X size={15} /> Close
       </button>
     </div>
-    <div className={`lightbox-frame${actualSize ? " actual" : ""}`} onClick={stop}>
-      <img src={shot.src} alt={shot.caption || "Figure"}
-        onClick={() => setActualSize((on) => !on)} />
+    <div className="lightbox-frame" onClick={stop}>
+      <img src={shot.src} alt={shot.caption || "Figure"} />
     </div>
   </div>;
 }

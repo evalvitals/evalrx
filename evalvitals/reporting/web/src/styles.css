@@ -152,9 +152,8 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 /* ── Figures open full-screen ────────────────────────────────────────────
    Every image in the report is evidence — an analyzer chart with seven axis
    labels, or the input a case was scored on — and at the size it sits on the
-   page none of that is legible. Clicking one opens it here; the frame starts
-   fitted and scrolls once the reader asks for actual size, so zooming pans
-   the picture instead of the layout. */
+   page none of that is legible. Clicking one opens it here, centred and as
+   large as the viewport allows. */
 .zoomable { cursor: zoom-in; }
 .zoomable:hover { outline: 1px solid #3c5b4f; outline-offset: 2px; }
 .zoomable:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
@@ -166,9 +165,5 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .lightbox-bar button:hover { background: #12241d; }
 .lightbox-bar button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 
-.lightbox-frame { flex: 1; min-height: 0; display: grid; place-items: center; padding: max(16px, 2vw); overflow: auto; }
-.lightbox-frame img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; background: #fff; }
-/* Actual size: the image stops being constrained and the frame becomes the
-   viewport onto it, so the scrollbars are how the reader pans. */
-.lightbox-frame.actual { place-items: start center; }
-.lightbox-frame.actual img { max-width: none; max-height: none; width: auto; cursor: zoom-out; }
+.lightbox-frame { flex: 1; min-height: 0; display: grid; place-items: center; padding: max(16px, 2vw); }
+.lightbox-frame img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; }
