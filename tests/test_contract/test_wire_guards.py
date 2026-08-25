@@ -8,14 +8,21 @@ import pytest
 from pydantic import ValidationError
 
 from evalvitals.contract import (
-    CaseBatchRef, FailureCaseWire, HypothesisStatus, InputsWire, PerCaseRow,
-    ProbeOutput, ResultWire, StageState, StageStatus,
+    CaseBatchRef,
+    FailureCaseWire,
+    HypothesisStatus,
+    InputsWire,
+    PerCaseRow,
+    ProbeOutput,
+    ResultWire,
+    StageState,
+    StageStatus,
 )
 from evalvitals.contract.m2 import CorrectedRejections, StatsToolResultWire
 from evalvitals.contract.m3 import HypothesisWire
 from evalvitals.contract.m4 import FixAttemptWire, FixOutput
-from evalvitals.contract.methodology import MethodologyWire
 from evalvitals.contract.m5 import HypothesisTestOutput, HypothesisTestResultWire
+from evalvitals.contract.methodology import MethodologyWire
 
 
 def _status(stage, state=StageState.SUCCEEDED, cycle=0):

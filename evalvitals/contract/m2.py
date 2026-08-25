@@ -14,11 +14,14 @@ from typing import Any, Literal
 from pydantic import Field, field_validator, model_validator
 
 from evalvitals.contract.common import (
-    ArtifactRef, CaseBatchRef, ExternalRef, JoinReport, OpenWireModel,
-    StageEnvelope, WireModel,
+    ArtifactRef,
+    CaseBatchRef,
+    ExternalRef,
+    JoinReport,
+    StageEnvelope,
+    WireModel,
 )
 from evalvitals.contract.m1 import ProtocolWire
-
 
 # ---------------------------------------------------------------------------
 # Input

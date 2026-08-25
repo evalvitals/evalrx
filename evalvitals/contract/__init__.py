@@ -44,29 +44,64 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from evalvitals.contract.common import (
-    SCHEMA_VERSION, ArtifactRef, CaseBatchRef, CaseBatchWire, EvidenceGrade,
-    ExternalRef, FailureCaseWire, HypothesisStatus, InputsWire, JoinReport, Label,
-    MediaRef, Modality, ProvenanceWire, Source, StageEnvelope, StageState,
-    StageStatus, StepWire, TrajectoryWire,
+    SCHEMA_VERSION,
+    ArtifactRef,
+    CaseBatchRef,
+    CaseBatchWire,
+    EvidenceGrade,
+    ExternalRef,
+    FailureCaseWire,
+    HypothesisStatus,
+    InputsWire,
+    JoinReport,
+    Label,
+    MediaRef,
+    Modality,
+    ProvenanceWire,
+    Source,
+    StageEnvelope,
+    StageState,
+    StageStatus,
+    StepWire,
+    TrajectoryWire,
 )
 from evalvitals.contract.m1 import (
-    AnalyzerSelection, FindingsWire, ModelRef, PerCaseRow, ProbeInput, ProbeOutput,
-    ProtocolWire, ResultWire,
+    AnalyzerSelection,
+    FindingsWire,
+    ModelRef,
+    PerCaseRow,
+    ProbeInput,
+    ProbeOutput,
+    ProtocolWire,
+    ResultWire,
 )
 from evalvitals.contract.m2 import (
-    AnalysisFindingWire, AnalysisInput, CorrectedRejections, ExploreContextWire,
-    StatsReportWire, StatsToolResultWire,
+    AnalysisFindingWire,
+    AnalysisInput,
+    CorrectedRejections,
+    ExploreContextWire,
+    StatsReportWire,
+    StatsToolResultWire,
 )
 from evalvitals.contract.m3 import (
-    DiagnosisInput, DiagnosisOutput, HypothesisWire,
+    DiagnosisInput,
+    DiagnosisOutput,
+    HypothesisWire,
 )
 from evalvitals.contract.m4 import (
-    FixAttemptWire, FixInput, FixOutput, InterventionOutput, SurgeryInput,
+    FixAttemptWire,
+    FixInput,
+    FixOutput,
+    InterventionOutput,
+    SurgeryInput,
+)
+from evalvitals.contract.m5 import (
+    HypothesisTestInput,
+    HypothesisTestOutput,
+    HypothesisTestResultWire,
+    TestEvidence,
 )
 from evalvitals.contract.methodology import MethodologyWire
-from evalvitals.contract.m5 import (
-    HypothesisTestInput, HypothesisTestOutput, HypothesisTestResultWire, TestEvidence,
-)
 from evalvitals.contract.pre_m1 import ProbeSearchInput, ProbeSearchOutput
 
 

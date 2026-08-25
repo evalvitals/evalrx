@@ -7,8 +7,6 @@ back in as another stage's input.
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import Field, model_validator
 
 from evalvitals.contract.common import CaseBatchRef, StageEnvelope, WireModel

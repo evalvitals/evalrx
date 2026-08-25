@@ -12,8 +12,7 @@ def test_discovery_fans_out_only_for_an_api_handle():
     """
     import threading
 
-    from evalvitals.core.capability import Capability
-    from evalvitals.core.case import FailureCase, Inputs, Label
+    from evalvitals.core.case import FailureCase, Inputs
     from evalvitals.eval_agent.stages.case_discovery import CaseDiscoveryAgent
     from evalvitals.models import RuntimeConfig, compose
 

@@ -186,8 +186,8 @@ def test_a_judge_that_never_answered_says_so_in_the_report():
     run was indistinguishable from a clean "nothing found".
     """
     from evalvitals.analysis import StatsAnalysisAgent
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
     from evalvitals.core.result import Result
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
 
     class DeadJudge:
         def generate(self, prompt, **kwargs):
@@ -204,8 +204,8 @@ def test_a_judge_that_never_answered_says_so_in_the_report():
 def test_a_judge_that_answered_leaves_no_fallback_reason():
     """"" must never have to be read as "it failed but we don't know why"."""
     from evalvitals.analysis import StatsAnalysisAgent
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
     from evalvitals.core.result import Result
+    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
 
     class LiveJudge:
         def generate(self, prompt, **kwargs):

@@ -13,14 +13,14 @@ claim became the one nobody can inspect a single case of.
 
 from __future__ import annotations
 
+import json
+
 from evalvitals.core.capability import Capability
 from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalvitals.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
 from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
-
-import json
 
 
 def _batch(n: int = 20) -> CaseBatch:
@@ -73,8 +73,8 @@ def test_logging_a_case_twice_does_not_duplicate_it(tmp_path):
         ctx.logger.log_cases(cases)
         ctx.logger.log_cases(cases)
     ids = [
-        json.loads(l)["case"]["id"]
-        for l in (ctx.root / "run_log.jsonl").read_text().splitlines()
-        if json.loads(l).get("event") == "case_record"
+        json.loads(line)["case"]["id"]
+        for line in (ctx.root / "run_log.jsonl").read_text().splitlines()
+        if json.loads(line).get("event") == "case_record"
     ]
     assert len(ids) == len(set(ids)) == 8

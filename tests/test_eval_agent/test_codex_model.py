@@ -5,8 +5,8 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
-from evalvitals.eval_agent import CodexModel
 from evalvitals.agent_runtime.providers.codex import CodexAgent
+from evalvitals.eval_agent import CodexModel
 
 
 def _fake_codex(tmp_path: Path) -> str:
