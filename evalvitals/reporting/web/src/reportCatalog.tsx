@@ -7,7 +7,7 @@ import ReactECharts from "echarts-for-react";
 import { ArrowUpRight, Check, CircleDot, Database, Wrench } from "lucide-react";
 import { z } from "zod";
 import type { Chart, ReportData, Stage } from "./types";
-import { outcomeColors } from "./reportAccess";
+import { chartValue, outcomeColors } from "./reportAccess";
 
 const ids = z.array(z.string()).optional();
 export const reportCatalog = defineCatalog(schema, {
@@ -53,7 +53,7 @@ const nodeTypes = { stage: StageNode };
 
 function EvidenceChart({ chart }: { chart: Chart }) {
   const option = chart.kind === "donut" ? {
-    tooltip: { trigger: "item" },
+    tooltip: { trigger: "item", valueFormatter: chartValue },
     // Keyed to what each slice means, not to its position in the series: the
     // compiler emits [Fail, Pass] on one run and [Pass, Fail] on the next, and
     // a positional palette painted the passes red on half the reports.

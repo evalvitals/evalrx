@@ -5,7 +5,7 @@ import { AlertTriangle, ArrowLeft, BarChart3, Beaker, Bot, CheckCircle2, Chevron
 import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixAttemptWire,
   FixOutput, HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
 import { buildBrief, StageBrief } from "./brief";
-import { findContract } from "./reportAccess";
+import { chartPercent, chartValue, findContract } from "./reportAccess";
 
 /**
  * A stage, at whichever of the two depths the reader asked for.
@@ -160,40 +160,58 @@ function EvidenceFigure({ figure }: { figure: any }) {
 }
 
 /**
- * A y-axis whose category labels are readable, and reachable when they are not.
+ * A y-axis of short numbered handles, with the real name on hover.
  *
- * These labels are analyzer questions, not keys, and one truncated line turned
- * six different measurements into six rows reading "Did the model give a usable
- * answ...". They now wrap onto up to three lines, so most are legible outright.
+ * These labels are analyzer questions — "Did the model give a usable answer? —
+ * Answer appears cut short" — and no honest amount of gutter fits eight of
+ * them. Truncated to one line they collapsed into six identical rows;
+ * wrapped, they ate half the chart. Numbering them turns the axis into an
+ * index the eye can scan, hands the width back to the bars, and puts the full
+ * name one hover away in the tooltip, which is where the numbers already are.
  *
- * For the rest, hovering the label has to work, and `axisLabel.triggerEvent`
- * does not fire once the text is wrapped — verified against the live chart,
- * where a synthetic hover over a bar opened the tooltip and the same hover over
- * its label opened nothing. The gutter is wired separately, in
- * `labelHoverTooltip` below.
+ * The rows are ordered by rank, so Behavior 1 is the strongest — the numbering
+ * carries that, it is not decoration.
  */
-const AXIS_LABEL_WIDTH = 195;
-const AXIS_GUTTER = 215;
+const AXIS_GUTTER = 96;
 
-function categoryAxis(categories: string[]) {
+function numberedAxis(count: number, noun: string) {
+  // echarts draws category index 0 at the BOTTOM of a horizontal bar chart, and
+  // every series here is reversed to put rank 1 on top; the labels reverse with
+  // them so the numbering runs downwards.
+  const labels = Array.from({ length: count }, (_, i) => `${noun} ${i + 1}`).reverse();
   return {
-    type: "category", data: categories,
-    axisLabel: {
-      color: "#b8c9c4", width: AXIS_LABEL_WIDTH, overflow: "break",
-      lineHeight: 14, fontSize: 11,
-    },
+    type: "category", data: labels,
+    axisLabel: { color: "#b8c9c4", fontSize: 11 },
+    axisTick: { show: false },
   };
 }
 
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"]/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
+}
+
 /**
- * Opens a row's tooltip while the pointer is over its LABEL.
+ * Tooltip whose heading is the full name the axis had to shorten.
  *
- * Only the gutter: inside the plot echarts' own axis trigger already does this
- * and fighting it means two handlers racing on one mousemove. `triggerEvent` on
- * the label would be the obvious route and does not fire once the text wraps —
- * checked against the live chart, where a synthetic hover over a bar opened the
- * tooltip and the same hover over its label opened nothing.
+ * `names` is in plot order (bottom-first), matching the series data, so the
+ * hovered dataIndex reads straight out of it.
  */
+function namedTooltip(names: string[], format: (value: unknown) => string) {
+  return (params: any) => {
+    const series = Array.isArray(params) ? params : [params];
+    const first = series[0] || {};
+    const head = escapeHtml(String(names[first.dataIndex] ?? first.name ?? ""));
+    const lines = series.map((row: any) =>
+      `<div style="display:flex;gap:18px;justify-content:space-between;align-items:baseline">`
+      + `<span>${row.marker} ${escapeHtml(String(row.seriesName || ""))}</span>`
+      + `<b>${escapeHtml(format(row.value))}</b></div>`).join("");
+    return `<div style="max-width:300px;white-space:normal;line-height:1.45;margin-bottom:7px">`
+      + `<b>${first.axisValue ? escapeHtml(String(first.axisValue)) + " · " : ""}${head}</b></div>${lines}`;
+  };
+}
+
+/** Hovering a label opens its row's tooltip — the axis alone no longer names it. */
 function labelHoverTooltip(rowCount: number) {
   return (chart: any) => {
     const zr = chart.getZr?.();
@@ -233,12 +251,14 @@ function labelHoverTooltip(rowCount: number) {
 function StatEvidenceChart({ stats, title, note }: { stats: any[]; title: string; note: string }) {
   const rows = stats.filter((item) => typeof item.effect === "number").slice(0, 8);
   if (!rows.length) return null;
-  const effectCategories = rows.map((item) => String(item.label)).reverse();
-  const option = { grid: { left: AXIS_GUTTER, right: 30, top: 30, bottom: 30 }, tooltip: { trigger: "axis", axisPointer: { type: "shadow" } }, xAxis: { type: "value", name: "difference in error rate", nameTextStyle: { color: "#8fa49d", fontSize: 10 }, axisLabel: { color: "#8fa49d" }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: categoryAxis(effectCategories), series: [{ name: "Observed difference", type: "bar", data: rows.map((item) => ({ value: item.effect, itemStyle: { color: item.reject ? "#6bd8ad" : "#71857f", borderRadius: 4 } })).reverse(), markLine: { silent: true, symbol: "none", lineStyle: { color: "#f4ca72", type: "dashed" }, data: [{ xAxis: 0 }] } }] };
+  const plotted = rows.slice().reverse();
+  const effectNames = plotted.map((item) => String(item.label));
+  const option = { grid: { left: AXIS_GUTTER, right: 30, top: 30, bottom: 30 }, tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: namedTooltip(effectNames, (v) => chartValue(v, { signed: true })) }, xAxis: { type: "value", name: "difference in error rate", nameTextStyle: { color: "#8fa49d", fontSize: 10 }, axisLabel: { color: "#8fa49d" }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: numberedAxis(rows.length, "Behavior"), series: [{ name: "Observed difference", type: "bar", data: plotted.map((item) => ({ value: item.effect, itemStyle: { color: item.reject ? "#6bd8ad" : "#71857f", borderRadius: 4 } })), markLine: { silent: true, symbol: "none", lineStyle: { color: "#f4ca72", type: "dashed" }, data: [{ xAxis: 0 }] } }] };
   const rateRows = rows.filter((item) => typeof item.fail_rate_signal === "number" && typeof item.fail_rate_control === "number");
-  const rateCategories = rateRows.map((item) => String(item.label)).reverse();
-  const rateOption = { grid: { left: AXIS_GUTTER, right: 30, top: 24, bottom: 28 }, tooltip: { trigger: "axis" }, legend: { top: 0, textStyle: { color: "#9fb2ac", fontSize: 10 } }, xAxis: { type: "value", max: 1, axisLabel: { color: "#8fa49d", formatter: (v: number) => `${Math.round(v * 100)}%` }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: categoryAxis(rateCategories), series: [{ name: "Cases with this behavior", type: "bar", data: rateRows.map((item) => item.fail_rate_signal).reverse(), itemStyle: { color: "#89a6ff", borderRadius: 3 } }, { name: "Other cases", type: "bar", data: rateRows.map((item) => item.fail_rate_control).reverse(), itemStyle: { color: "#657b74", borderRadius: 3 } }] };
-  return <section className="stat-evidence"><header><span>VISUAL SUMMARY OF M2</span><h3>{title}</h3><p>{note}</p></header><ReactECharts option={option} notMerge onChartReady={labelHoverTooltip(effectCategories.length)} style={{ height: Math.max(300, rows.length * 62) }} />{rateRows.length > 0 && <><h4 className="stat-subtitle">What those patterns mean in the cases</h4><p className="stat-caption">For each measured behavior, compare the error rate among cases with that behavior against all other cases. This is an observed comparison, not a causal claim.</p><ReactECharts option={rateOption} notMerge onChartReady={labelHoverTooltip(rateCategories.length)} style={{ height: Math.max(280, rateRows.length * 68) }} /></>}<details><summary>Technical measurement names and test records</summary><RecordTable rows={rows.map((item) => ({ measurement: item.raw_signal, effect: item.effect, interval: item.ci, error_rate_with_behavior: item.fail_rate_signal, error_rate_other_cases: item.fail_rate_control, passed_screen: item.reject, tool: item.tool }))} /></details></section>;
+  const ratePlotted = rateRows.slice().reverse();
+  const rateNames = ratePlotted.map((item) => String(item.label));
+  const rateOption = { grid: { left: AXIS_GUTTER, right: 30, top: 24, bottom: 28 }, tooltip: { trigger: "axis", formatter: namedTooltip(rateNames, chartPercent) }, legend: { top: 0, textStyle: { color: "#9fb2ac", fontSize: 10 } }, xAxis: { type: "value", max: 1, axisLabel: { color: "#8fa49d", formatter: (v: number) => `${Math.round(v * 100)}%` }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: numberedAxis(rateRows.length, "Pattern"), series: [{ name: "Cases with this behavior", type: "bar", data: ratePlotted.map((item) => item.fail_rate_signal), itemStyle: { color: "#89a6ff", borderRadius: 3 } }, { name: "Other cases", type: "bar", data: ratePlotted.map((item) => item.fail_rate_control), itemStyle: { color: "#657b74", borderRadius: 3 } }] };
+  return <section className="stat-evidence"><header><span>VISUAL SUMMARY OF M2</span><h3>{title}</h3><p>{note}</p></header><ReactECharts option={option} notMerge onChartReady={labelHoverTooltip(effectNames.length)} style={{ height: Math.max(300, rows.length * 46) }} />{rateRows.length > 0 && <><h4 className="stat-subtitle">What those patterns mean in the cases</h4><p className="stat-caption">For each measured behavior, compare the error rate among cases with that behavior against all other cases. This is an observed comparison, not a causal claim.</p><ReactECharts option={rateOption} notMerge onChartReady={labelHoverTooltip(rateNames.length)} style={{ height: Math.max(280, rateRows.length * 54) }} /></>}<details><summary>Technical measurement names and test records</summary><RecordTable rows={rows.map((item, index) => ({ behavior: `Behavior ${index + 1}`, name: item.label, measurement: item.raw_signal, effect: item.effect, interval: item.ci, error_rate_with_behavior: item.fail_rate_signal, error_rate_other_cases: item.fail_rate_control, passed_screen: item.reject, tool: item.tool }))} /></details></section>;
 }
 
 /**
