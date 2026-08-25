@@ -37,10 +37,12 @@ jobs:
         # pytest.importorskip() for one of them silently never runs in CI at
         # all -- which is how 16+ failures and a 4-more-hidden-behind-them
         # matplotlib gap went unnoticed.
-        # Dashboard contract tests use Streamlit's AppTest API.  Keep that
-        # optional runtime installed in CI rather than letting those tests
-        # fail during module import.
-        run: pip install -e ".[dev,local,api,data,finetune,viz,dashboard,contract]"
+        # The dynamic report server (evalvitals.reporting.dynamic) is FastAPI-
+        # backed since the Streamlit dashboard's removal (`ui` extra, not the
+        # stale `dashboard` extra pyproject.toml no longer defines) -- without
+        # it, tests/test_analysis/test_dynamic_report.py fails at import with
+        # ModuleNotFoundError: No module named 'fastapi' instead of running.
+        run: pip install -e ".[dev,local,api,data,finetune,viz,ui,contract]"
       - name: Check the generated contract artifacts are current
         # docs/contract/*.schema.json and contract.d.ts are generated from
         # evalvitals/contract/. A field added in Python and not regenerated here
