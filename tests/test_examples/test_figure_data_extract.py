@@ -7,6 +7,10 @@ whose 2x2 does not add up, a summary key silently renamed in ``_common/runner.py
 so the header strip goes blank. None of that raises — it just ships. Each test
 below pins one of those numbers on a synthetic run whose answers are known by
 construction.
+
+The last three cover the `case-study-figure` skill that draws from this data —
+in particular that every `qa_flags` the tool can emit has a stated consequence on
+the figure, since a caveat with no rule is a caveat the figure quietly omits.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -91,9 +96,15 @@ def make_run(root: Path, *, signal_values=None, m5_effect=-0.42, n_broken=1) -> 
         {"id": cid, "prompt": f"question {cid}", "expected": "42",
          "observed": "42", "label": "pass"} for cid in HELDOUT
     ])
+    # four numeric fields, one per measurement-inventory verdict: the signal
+    # itself varies (candidate), strict_match is a function of the answer key,
+    # n_options never varies, conf_logprob covers only half the cases
     _write(logs / "artifacts" / "c0_termination_audit.result.json", {
         "findings": {"per_case": [
-            {"sample_id": cid, "continuation_chars": value} for cid, _, value in rows
+            dict({"sample_id": cid, "continuation_chars": value,
+                  "strict_match": 0 if label == "fail" else 1, "n_options": 4},
+                 **({"conf_logprob": -0.1 * i} if i < len(rows) // 2 else {}))
+            for i, (cid, label, value) in enumerate(rows)
         ]},
     })
 
@@ -228,6 +239,36 @@ def test_continuous_signal_is_quartile_binned_and_flagged(efd, tmp_path):
     assert "signal_binned_for_plotting" in codes
 
 
+def test_the_measurement_funnel_says_why_each_field_was_dropped(efd, run_dir):
+    """A dropped measurement must be dropped for a stated reason, not silently."""
+    probe = one(efd.extract(str(run_dir)), "m1_probe_questions")
+    status = {m["field"]: m["status"] for m in probe["inventory"]}
+    assert status["continuation_chars"] == "candidate"
+    assert status["strict_match"] == "dropped_sees_answer_key", (
+        "a field computed from the answer key would let a signal predict the label from the label")
+    assert status["n_options"] == "dropped_never_varies"
+    assert status["conf_logprob"] == "dropped_partial_coverage"
+    assert probe["n_measured"] == 4
+    assert probe["dropped"] == {"saw_the_answer_key": 1, "never_varied": 1, "partial_coverage": 1}
+    # the funnel's other end is M2: signals that entered the correction family
+    assert probe["n_forwarded"] == 1
+
+
+def test_probe_questions_are_plain_language_and_exclude_the_answer_key(efd, run_dir):
+    probe = one(efd.extract(str(run_dir)), "m1_probe_questions")
+    asked = [q["question"] for q in probe["questions"]]
+    assert "Did it stop, or keep talking?" in asked, "continuation_chars asks this"
+    assert "Was it as sure as it sounded?" in asked, "conf_logprob asks this"
+    # strict_match is answer-key-derived, so it is not a question the probe asks
+    assert all("answer key" not in q for q in asked)
+    assert len(asked) == len(set(asked)), "one question per row, analyzers merged"
+    # the reading order is fixed, so the list is stable across runs
+    assert asked == sorted(asked, key=lambda q: efd.QUESTION_ORDER.index(q))
+    stop = next(q for q in probe["questions"] if q["question"] == "Did it stop, or keep talking?")
+    assert stop["analyzers"] == ["termination_audit"]
+    assert stop["n_candidates"] == 1
+
+
 def test_m2_family_separates_explore_from_heldout(efd, run_dir):
     records = efd.extract(str(run_dir))
     fams = {f["phase"]: f for f in blocks(records, "m2_family")}
@@ -305,10 +346,94 @@ def test_document_and_markdown_render_the_run(efd, run_dir):
     assert doc["run"]["model"] == "gemma-4-e2b"
     assert doc["headline"]["baseline_accuracy"] == 0.5
     assert doc["m1_probe"]["signal_curve"]["signal"] == SIGNAL
-    assert doc["m5_verdicts"][0]["status"] == "supported"
+    assert doc["m1_probe"]["measurement_inventory"], "the funnel travels with the document"
+    assert doc["m5_verdicts"]["verdicts"][0]["status"] == "supported"
     assert doc["_sources"], "every section must say which file it came from"
+    # the figure draws five cards in this order, named by the pipeline block
+    assert [p["module"] for p in doc["pipeline"]] == ["M1", "M2", "M3", "M5", "M4"]
+    assert doc["pipeline"][0]["name"] == "Suspicious Behavior Detection"
     md = efd.to_markdown(doc, title="chartqa.chain1")
     assert "chartqa.chain1" in md
     assert SIGNAL in md
     assert "**40.0% → 60.0%**" in md, "the headline transition is the figure's caption"
     assert "SUPPORTED" in md
+    assert "What the probes ask" in md
+    assert "4 measurements, 1 forwarded to M2" in md
+    for name in efd.MODULE_NAMES.values():
+        assert name in md
+
+
+def test_trial_root_is_reanchored_on_the_run_root(efd, tmp_path):
+    """The run log records the WRITER's absolute path — in a container that is
+    /app/work/outputs/<run>/logs/..., which exists on no host. relpath against
+    it walked up to / and emitted a ../../.. chain whose length depended on
+    where the reader sat. The artifact lives inside the run dir: re-anchor."""
+    root = make_run(tmp_path / "chartqa.chain1")
+    trial = root / "logs" / "fixes" / "05_L2_stop_sequences"
+    trial.mkdir(parents=True)
+    lines = (root / "logs" / "run_log.jsonl").read_text().splitlines()
+    events = [json.loads(x) for x in lines]
+    for e in events:
+        if e.get("event") == "fix":
+            e["best"]["trial_root"] = "/app/work/outputs/chartqa.chain1/logs/fixes/05_L2_stop_sequences"
+            e["best"]["payload"] = {"name": "stop_sequences", "strategy": "single"}
+    (root / "logs" / "run_log.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    recs = efd.extract(str(root))
+    repair = next(r for r in recs if r["block"] == "repair")
+    assert repair["trial_root"] == "logs/fixes/05_L2_stop_sequences"
+
+    # a recorded path whose logs/ suffix does NOT exist under this root keeps
+    # the old relpath fallback (it may genuinely live elsewhere)
+    for e in events:
+        if e.get("event") == "fix":
+            e["best"]["trial_root"] = "/somewhere/else/logs/fixes/99_missing"
+    (root / "logs" / "run_log.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    recs = efd.extract(str(root))
+    repair = next(r for r in recs if r["block"] == "repair")
+    assert "99_missing" in repair["trial_root"] and not repair["trial_root"].startswith("logs/")
+# --------------------------------------------------------------------------
+# the case-study-figure skill, which draws from what the tool extracts
+# --------------------------------------------------------------------------
+
+_SKILL = _TOOL / "case-study-figure"
+
+
+def _frontmatter(text: str) -> dict:
+    assert text.startswith("---\n"), "SKILL.md must open with YAML frontmatter"
+    block = text.split("---\n", 2)[1]
+    out, key = {}, None
+    for line in block.splitlines():
+        if line and not line.startswith((" ", "\t")):
+            key, _, value = line.partition(":")
+            out[key.strip()] = value.strip()
+        elif key:
+            out[key] += " " + line.strip()
+    return out
+
+
+def test_the_skill_is_a_well_formed_agent_skill():
+    meta = _frontmatter((_SKILL / "SKILL.md").read_text(encoding="utf-8"))
+    assert meta["name"] == _SKILL.name, "the skill's name must match its directory"
+    assert meta["version"] and meta["description"]
+    # bundled_skill_paths() only picks up a directory with a SKILL.md at its root
+    assert (_SKILL / "SKILL.md").is_file()
+
+
+def test_every_qa_flag_the_tool_emits_is_binding_on_the_figure():
+    """A new flag with no rule in the skill is a caveat the figure would omit."""
+    emitted = set(re.findall(r'"code": "([a-z_]+)"',
+                             (_TOOL / "extract_figure_data.py").read_text(encoding="utf-8")))
+    assert len(emitted) >= 8, "expected the tool's qa_flags to be found by name"
+    skill = (_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    missing = {code for code in emitted if code not in skill}
+    assert not missing, f"qa_flags with no consequence stated in SKILL.md: {missing}"
+
+
+def test_the_skill_only_points_at_files_that_exist():
+    for doc in (_SKILL / "SKILL.md", _SKILL / "references" / "figure-spec.md"):
+        for target in re.findall(r"\]\((?!https?:)([^)#]+)\)", doc.read_text(encoding="utf-8")):
+            assert (doc.parent / target).resolve().exists(), f"{doc.name} -> {target}"
+    # step 1 of the skill runs the extractor by this path
+    assert "extract_figure_data.py" in (_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    for asset in ("casestudy_chartqa.svg", "casestudy_mmau.svg", "qualitative_vlm_L2.pdf"):
+        assert (_SKILL / "references" / asset).is_file()

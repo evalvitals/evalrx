@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — `extract_figure_data.py` re-anchors `trial_root` on the run root
+
+The run log records the writer's absolute path — inside a container that is
+`/app/work/outputs/<run>/logs/...`, which exists on no host — and relpath
+against it emitted a `../../..` chain whose length depended on where the reader
+sat. The accepted repair's `trial_root` is now the run-root-relative
+`logs/fixes/<NN_name>` whenever that directory exists under the run being read,
+with the old behaviour kept for paths that genuinely live elsewhere.
+
 ### Added — `examples/benchmark/tools/extract_figure_data.py`, run dir → case-study figure data
 
 A benchmark run's numbers were previously readable only through the dashboard or
@@ -22,6 +31,27 @@ held-out kept apart), the M3 hypotheses with the critic's objections, the M5
 held-out verdicts, the M4 L1–L4 repair ladder, the accepted repair, the paired
 held-out validation, and one illustrative case. Every record carries the artifact
 path it was read from, so a number in a figure can be traced back.
+
+M1 also ships as a reader sees it rather than as field names: `probe_questions`
+lists what the probes actually asked in plain language (keyed by the per-case
+field, because one analyzer often asks two questions and one question is often
+answered by two analyzers), over a `measurement_inventory` that states why each
+measurement was kept or dropped — it saw the answer key, it never varied, it
+covered only part of the batch. The funnel's two ends are the numbers M1 and M2
+must agree on: `n_measured` probes taken, `n_forwarded` entering the
+multiplicity-correction family, which is also the BH denominator and the forest
+plot's row count.
+
+The drawing half ships as an Agent Skill, `tools/case-study-figure/`: point it at
+a run root and it runs the extractor, then draws the SVG from the JSON —
+`SKILL.md` for the workflow, `references/figure-spec.md` for the layout
+coordinates, palette and per-card field mapping, plus a target-style PDF and two
+finished SVGs drawn from the two runs in `samples/`. Install it with `cp -r` into
+`~/.claude/skills/`, or hand it to a coding agent with `explore --skill <dir>`.
+The skill makes `qa_flags` binding — an example case drawn from explore may not
+be written up as "fixed", a repair accepted with no supported hypothesis must
+carry the callout, a fix that broke cases must print the broken count next to the
+gain.
 
 Because a figure fails silently — a plausible wrong number gets printed, nothing
 raises — each extraction also self-checks into `qa_flags`: two hypotheses sharing

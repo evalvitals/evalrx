@@ -1,0 +1,230 @@
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="1760" height="1010" viewBox="0 0 1760 1010" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+<title>EvalVitals MMAU case study</title>
+<desc>EvalVitals applied to Gemma-4-E2B on MMAU audio understanding: probing, statistical screening, hypotheses, held-out verification, and an empirical L2 repair.</desc>
+<rect x="0" y="0" width="1760" height="1010" rx="0" fill="#FFFFFF"/>
+<rect x="440" y="16" width="880" height="50" rx="3" fill="#111111"/>
+<text x="880" y="48" font-size="16.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">256 MMAU cases &#183; Gemma-4-E2B &#183; baseline 43.0%</text>
+<line x1="880" y1="66" x2="880" y2="84" stroke="#BDBDBD" stroke-width="2"/>
+<line x1="278" y1="84" x2="1430" y2="84" stroke="#BDBDBD" stroke-width="2"/>
+<line x1="278" y1="84" x2="278" y2="100" stroke="#BDBDBD" stroke-width="2"/>
+<line x1="1430" y1="84" x2="1430" y2="100" stroke="#BDBDBD" stroke-width="2"/>
+<rect x="272" y="78" width="12" height="12" rx="0" fill="#4DC3E8"/>
+<rect x="1424" y="78" width="12" height="12" rx="0" fill="#111111"/>
+<rect x="20" y="100" width="931" height="42" rx="3" fill="#EAF3FE"/>
+<text x="44" y="127" font-size="16" fill="#1E7BE0" font-weight="700">EXPLORE / DISCOVERY</text>
+<text x="270" y="127" font-size="12" fill="#8A8880">probe freely &#183; inspect many signals &#183; form hypotheses</text>
+<rect x="961" y="100" width="779" height="42" rx="3" fill="#F0F0EE"/>
+<text x="985" y="127" font-size="16" fill="#111111" font-weight="700">HELD-OUT / VALIDATION</text>
+<text x="1225" y="127" font-size="12" fill="#8A8880">unseen cases only</text>
+<rect x="20" y="160" width="336" height="500" rx="3" fill="#FFFFFF" stroke="#E3E1DA" stroke-width="1"/>
+<rect x="20" y="160" width="336" height="5" rx="0" fill="#4DC3E8"/>
+<text x="40" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M1</text>
+<text x="40" y="216" font-size="16.5" fill="#111111" font-weight="700">Suspicious Behavior Detection</text>
+<text x="40" y="234" font-size="10.5" fill="#4A4A4A">Run the analyzer probing library,</text>
+<text x="40" y="248" font-size="10.5" fill="#4A4A4A">find per-case suspicious behaviors</text>
+<rect x="40" y="260" width="296" height="65" rx="3" fill="#EAF3FE" stroke="#1E7BE0" stroke-width="1.3"/>
+<text x="50" y="275" font-size="10" fill="#1E7BE0" font-weight="700">BLACK-BOX BEHAVIOR</text>
+<rect x="280" y="264" width="48" height="14" rx="2" fill="#1E7BE0"/>
+<text x="304" y="274.5" font-size="8.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">SELECTED</text>
+<text x="50" y="292" font-size="10" fill="#111111" font-weight="700">&#183; consistency across 5 resamples</text>
+<text x="50" y="307" font-size="10" fill="#4A4A4A">&#183; termination / format sensitivity</text>
+<text x="50" y="322" font-size="10" fill="#4A4A4A">&#183; calibration &#183; coverage gap</text>
+<rect x="40" y="333" width="296" height="35" rx="3" fill="#EAF3FE" stroke="#1E7BE0" stroke-width="1.3"/>
+<text x="50" y="348" font-size="10" fill="#1E7BE0" font-weight="700">INTERNAL / WHITE-BOX</text>
+<rect x="280" y="337" width="48" height="14" rx="2" fill="#1E7BE0"/>
+<text x="304" y="347.5" font-size="8.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">SELECTED</text>
+<text x="50" y="365" font-size="10" fill="#111111" font-weight="700">&#183; log-probability entropy</text>
+<rect x="40" y="376" width="296" height="35" rx="3" fill="#FFFFFF"/>
+<text x="50" y="391" font-size="10" fill="#B0AEA6" font-weight="700">MULTIMODAL</text>
+<text x="50" y="408" font-size="10" fill="#B0AEA6">&#183; grounding &amp; hallucination</text>
+<line x1="40" y1="423" x2="336" y2="423" stroke="#EDEBE4" stroke-width="1"/>
+<text x="40" y="443" font-size="11.5" fill="#111111" font-weight="700">What the Probes Ask?</text>
+<text x="40" y="463" font-size="10" fill="#4A4A4A">- Did it answer in the form we asked for?</text>
+<text x="40" y="479" font-size="10" fill="#4A4A4A">- Did it stop, or keep talking?</text>
+<text x="40" y="495" font-size="10" fill="#4A4A4A">- Same question five times, same answer?</text>
+<text x="40" y="511" font-size="10" fill="#4A4A4A">- Reworded question, same answer?</text>
+<text x="40" y="527" font-size="10" fill="#4A4A4A">- Was it as sure as it sounded?</text>
+<text x="40" y="543" font-size="10" fill="#4A4A4A">- Did it ever produce the right answer?</text>
+<rect x="40" y="569" width="296" height="42" rx="3" fill="#F7F6F1"/>
+<rect x="50" y="579" width="276" height="8" rx="2" fill="#D5D3CB"/>
+<rect x="50" y="579" width="96.27906976744185" height="8" rx="2" fill="#1E7BE0"/>
+<text x="50" y="603" font-size="11" fill="#111111" font-weight="700">43 measurements, <tspan fill="#1E7BE0">15</tspan> forwarded to M2</text>
+<rect x="364" y="160" width="281" height="500" rx="3" fill="#FFFFFF" stroke="#E3E1DA" stroke-width="1"/>
+<rect x="364" y="160" width="281" height="5" rx="0" fill="#4DC3E8"/>
+<text x="382" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M2</text>
+<text x="382" y="216" font-size="16.5" fill="#111111" font-weight="700">Statistical Screening</text>
+<text x="382" y="234" font-size="10.5" fill="#4A4A4A">Using plots to explain, statistical tests to</text>
+<text x="382" y="248" font-size="10.5" fill="#4A4A4A">decide</text>
+<text x="382" y="276" font-size="12" fill="#1E7BE0" font-weight="700">Forest plot</text>
+<line x1="504.5" y1="286" x2="504.5" y2="420" stroke="#C9C7BF" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="564.0" y1="294.3" x2="592.5" y2="294.3" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="578.9" cy="294.3" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="564.4" y1="302.8" x2="592.4" y2="302.8" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="577.7" cy="302.8" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="564.4" y1="311.3" x2="592.4" y2="311.3" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="577.7" cy="311.3" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="547.7" y1="319.9" x2="597.7" y2="319.9" stroke="#1E7B34" stroke-width="1.4"/>
+<circle cx="572.7" cy="319.9" r="4" fill="#1E7B34"/>
+<line x1="547.7" y1="328.4" x2="597.7" y2="328.4" stroke="#1E7B34" stroke-width="1.4"/>
+<circle cx="572.7" cy="328.4" r="4" fill="#1E7B34"/>
+<line x1="543.9" y1="336.9" x2="594.8" y2="336.9" stroke="#1E7B34" stroke-width="1.4"/>
+<circle cx="570.3" cy="336.9" r="4" fill="#1E7B34"/>
+<line x1="536.6" y1="345.5" x2="588.7" y2="345.5" stroke="#1E7B34" stroke-width="1.4"/>
+<circle cx="562.9" cy="345.5" r="4" fill="#1E7B34"/>
+<line x1="536.6" y1="354.0" x2="588.7" y2="354.0" stroke="#1E7B34" stroke-width="1.4"/>
+<circle cx="562.9" cy="354.0" r="4" fill="#1E7B34"/>
+<line x1="531.5" y1="362.5" x2="589.3" y2="362.5" stroke="#1E7B34" stroke-width="1.4"/>
+<circle cx="562.1" cy="362.5" r="4" fill="#1E7B34"/>
+<line x1="505.9" y1="371.1" x2="569.7" y2="371.1" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="537.6" cy="371.1" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="486.1" y1="379.6" x2="544.9" y2="379.6" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="515.2" cy="379.6" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="477.6" y1="388.1" x2="537.7" y2="388.1" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="507.9" cy="388.1" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="461.9" y1="396.7" x2="528.0" y2="396.7" stroke="#B4B2A9" stroke-width="1.4"/>
+<circle cx="495.0" cy="396.7" r="3.2" fill="#FFFFFF" stroke="#888780" stroke-width="1.2"/>
+<line x1="427.8" y1="405.2" x2="484.1" y2="405.2" stroke="#1E7B34" stroke-width="1.4"/>
+<circle cx="455.2" cy="405.2" r="4" fill="#1E7B34"/>
+<line x1="404.1" y1="413.7" x2="458.0" y2="413.7" stroke="#1E7B34" stroke-width="1.4"/>
+<circle cx="430.9" cy="413.7" r="4" fill="#1E7B34"/>
+<text x="421.2857142857143" y="436" font-size="9.5" fill="#8A8880" text-anchor="middle">&#8722;0.5</text>
+<text x="504.5" y="436" font-size="9.5" fill="#8A8880" text-anchor="middle">0</text>
+<text x="587.7142857142858" y="436" font-size="9.5" fill="#8A8880" text-anchor="middle">+0.5</text>
+<text x="504.5" y="452" font-size="9.5" fill="#8A8880" text-anchor="middle">one row per candidate signal, extra</text>
+<text x="504.5" y="464" font-size="9.5" fill="#8A8880" text-anchor="middle">failure rate when the signal is high</text>
+<text x="382" y="516" font-size="12" fill="#1E7BE0" font-weight="700">Statistical Tests</text>
+<text x="382" y="532" font-size="10.5" fill="#111111" font-weight="700">8 of 15 signals survive</text>
+<text x="382" y="546" font-size="10.5" fill="#111111" font-weight="700">Benjamini&#8211;Hochberg (BH)</text>
+<rect x="382" y="546" width="245" height="26" rx="3" fill="#F7F6F1"/>
+<text x="504.5" y="563" font-size="10.5" fill="#4A4A4A" text-anchor="middle">strongest &#8722;0.44,  CI [&#8722;0.60, &#8722;0.28]</text>
+<rect x="655" y="160" width="296" height="500" rx="3" fill="#FFFFFF" stroke="#E3E1DA" stroke-width="1"/>
+<rect x="655" y="160" width="296" height="5" rx="0" fill="#4DC3E8"/>
+<text x="675" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M3</text>
+<text x="675" y="216" font-size="16.5" fill="#111111" font-weight="700">Hypothesis Formation</text>
+<text x="675" y="234" font-size="10.5" fill="#4A4A4A">Explore the reason behind the signals</text>
+<text x="803.0" y="270" font-size="10.5" fill="#4A4A4A" font-weight="700" text-anchor="middle">THE THREE HYPOTHESES</text>
+<rect x="675" y="284" width="256" height="56" rx="3" fill="#F7FAFE" stroke="#1E7BE0" stroke-width="1.2"/>
+<text x="687" y="302" font-size="11" fill="#1E7BE0" font-weight="700">H1 Leaked reasoning</text>
+<text x="687" y="318" font-size="10" fill="#4A4A4A">The no-thinking flag is ignored,</text>
+<text x="687" y="333" font-size="10" fill="#4A4A4A">so the answer never arrives</text>
+<rect x="675" y="356" width="256" height="56" rx="3" fill="#F7FAFE" stroke="#1E7BE0" stroke-width="1.2"/>
+<text x="687" y="374" font-size="11" fill="#1E7BE0" font-weight="700">H2 Grader mislabels</text>
+<text x="687" y="390" font-size="10" fill="#4A4A4A">The fallback extractor scores</text>
+<text x="687" y="405" font-size="10" fill="#4A4A4A">prose answers wrong both ways</text>
+<rect x="675" y="428" width="256" height="71" rx="3" fill="#F7FAFE" stroke="#1E7BE0" stroke-width="1.2"/>
+<text x="687" y="446" font-size="11" fill="#1E7BE0" font-weight="700">H3 Language prior</text>
+<text x="687" y="462" font-size="10" fill="#4A4A4A">The model answers from the</text>
+<text x="687" y="477" font-size="10" fill="#4A4A4A">option text instead of</text>
+<text x="687" y="492" font-size="10" fill="#4A4A4A">listening to the audio</text>
+<rect x="961" y="160" width="264" height="500" rx="3" fill="#FFFFFF" stroke="#111111" stroke-width="2"/>
+<rect x="961" y="160" width="264" height="5" rx="0" fill="#111111"/>
+<text x="979" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M5</text>
+<text x="979" y="216" font-size="16.5" fill="#111111" font-weight="700">Held-out Verification</text>
+<text x="979" y="234" font-size="10.5" fill="#4A4A4A">Confirm whether the hypothesis is</text>
+<text x="979" y="248" font-size="10.5" fill="#4A4A4A">verified over the held-out cases</text>
+<rect x="979" y="282" width="104" height="24" rx="3" fill="#EDEDED"/>
+<text x="1031" y="298" font-size="9.5" fill="#555555" font-weight="700" text-anchor="middle">INCONCLUSIVE</text>
+<text x="1093" y="298" font-size="10" fill="#4A4A4A">H1 leaked reasoning</text>
+<rect x="979" y="334" width="104" height="24" rx="3" fill="#EDEDED"/>
+<text x="1031" y="350" font-size="9.5" fill="#555555" font-weight="700" text-anchor="middle">INCONCLUSIVE</text>
+<text x="1093" y="350" font-size="10" fill="#4A4A4A">H2 grader mislabels</text>
+<rect x="979" y="386" width="104" height="24" rx="3" fill="#FBE5E5"/>
+<text x="1031" y="402" font-size="10.5" fill="#C0392B" font-weight="700" text-anchor="middle">REFUTED</text>
+<text x="1093" y="402" font-size="10" fill="#4A4A4A">H3 language prior</text>
+<rect x="979" y="444" width="228" height="74" rx="3" fill="#FEF6E7" stroke="#E0A33A" stroke-width="1.2"/>
+<text x="991" y="464" font-size="10.5" fill="#8A5A00" font-weight="700">No mechanism was confirmed</text>
+<text x="991" y="482" font-size="9.5" fill="#7A5410">The loop still produced a repair that</text>
+<text x="991" y="496" font-size="9.5" fill="#7A5410">works, so the gain below is an empirical</text>
+<text x="991" y="510" font-size="9.5" fill="#7A5410">fix, not a validated mechanism.</text>
+<rect x="1233" y="160" width="507" height="500" rx="3" fill="#FFFFFF" stroke="#1E7BE0" stroke-width="1.6"/>
+<rect x="1233" y="160" width="507" height="5" rx="0" fill="#1E7BE0"/>
+<text x="1253" y="192" font-size="14" fill="#1E7BE0" font-weight="700">M4</text>
+<text x="1253" y="216" font-size="16.5" fill="#111111" font-weight="700">Validated Repair</text>
+<text x="1253" y="234" font-size="10.5" fill="#4A4A4A">Fix the failure with the validated repair ladder</text>
+<rect x="1253" y="248" width="467" height="30" rx="3" fill="#F2F7FE"/>
+<circle cx="1271" cy="263" r="10.5" fill="#1E7BE0"/>
+<text x="1271" y="267" font-size="9.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">L1</text>
+<text x="1289" y="267" font-size="11.5" fill="#111111" font-weight="700">Prompt / instructions</text>
+<text x="1710" y="267" font-size="10.5" fill="#8A8880" text-anchor="end">Not selected  +0.12</text>
+<rect x="1253" y="284" width="467" height="30" rx="3" fill="#E3F5E8" stroke="#1E7B34" stroke-width="1.3"/>
+<circle cx="1271" cy="299" r="10.5" fill="#1E7B34"/>
+<text x="1271" y="303" font-size="9.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">L2</text>
+<text x="1289" y="303" font-size="11.5" fill="#111111" font-weight="700">Scaffold / tools / multi-call</text>
+<text x="1710" y="303" font-size="10.5" fill="#1E7B34" font-weight="700" text-anchor="end">Accepted  +0.21</text>
+<rect x="1253" y="320" width="467" height="30" rx="3" fill="#F2F7FE"/>
+<circle cx="1271" cy="335" r="10.5" fill="#1E7BE0"/>
+<text x="1271" y="339" font-size="9.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">L3</text>
+<text x="1289" y="339" font-size="11.5" fill="#111111" font-weight="700">Internals / read &amp; write</text>
+<text x="1710" y="339" font-size="10.5" fill="#8A8880" text-anchor="end">Worked, more invasive  +0.19</text>
+<rect x="1253" y="356" width="467" height="30" rx="3" fill="#F7F6F1"/>
+<circle cx="1271" cy="371" r="10.5" fill="#C9C7BF"/>
+<text x="1271" y="375" font-size="9.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">L4</text>
+<text x="1289" y="375" font-size="11.5" fill="#B0AEA6" font-weight="700">Re-training</text>
+<text x="1710" y="375" font-size="10.5" fill="#B0AEA6" text-anchor="end">Untouched</text>
+<text x="1253" y="398" font-size="10.5" fill="#111111" font-weight="700">8 CANDIDATES TRIED ON EXPLORE</text>
+<line x1="1443" y1="414" x2="1443" y2="560" stroke="#C9C7BF" stroke-width="1"/>
+<text x="1253" y="428" font-size="10" fill="#4A4A4A">L1 answer_first_contract</text>
+<rect x="1443" y="420" width="6.707999999999999" height="11" rx="1" fill="#B4B2A9"/>
+<text x="1253" y="446" font-size="10" fill="#4A4A4A">L1 letter_then_reasoning</text>
+<rect x="1443" y="438" width="50.396" height="11" rx="1" fill="#B4B2A9"/>
+<text x="1253" y="464" font-size="10" fill="#C0392B">L1 fewshot_format_anchor</text>
+<rect x="1362.375" y="456" width="80.625" height="11" rx="1" fill="#E05A4E"/>
+<text x="1253" y="482" font-size="10" fill="#4A4A4A">L2 long_budget_final_tag</text>
+<rect x="1443" y="474" width="67.166" height="11" rx="1" fill="#B4B2A9"/>
+<text x="1253" y="500" font-size="10" fill="#4A4A4A">L2 no_think_letter_vote</text>
+<rect x="1443" y="492" width="63.812000000000005" height="11" rx="1" fill="#B4B2A9"/>
+<text x="1253" y="518" font-size="10" fill="#1E7B34" font-weight="700">L2 verify_then_commit</text>
+<rect x="1443" y="510" width="90.687" height="11" rx="1" fill="#1E7B34"/>
+<text x="1253" y="536" font-size="10" fill="#C0392B">L2 self_consistency_5</text>
+<rect x="1429.584" y="528" width="13.415999999999999" height="11" rx="1" fill="#E05A4E"/>
+<text x="1253" y="554" font-size="10" fill="#4A4A4A">L3a coded_pipeline</text>
+<rect x="1443" y="546" width="80.625" height="11" rx="1" fill="#B4B2A9"/>
+<text x="1378.5" y="574" font-size="9.5" fill="#C0392B" text-anchor="middle">&#8722;0.15</text>
+<text x="1443" y="574" font-size="9.5" fill="#8A8880" text-anchor="middle">0</text>
+<text x="1486.0" y="574" font-size="9.5" fill="#8A8880" text-anchor="middle">+0.1</text>
+<text x="1529.0" y="574" font-size="9.5" fill="#8A8880" text-anchor="middle">+0.2</text>
+<rect x="20" y="676" width="1720" height="310" rx="3" fill="#FFFFFF" stroke="#1E7B34" stroke-width="1.6"/>
+<text x="42" y="710" font-size="16.5" fill="#111111" font-weight="700">The accepted repair &#8212; verify_then_commit (L2 scaffold)</text>
+<text x="42" y="730" font-size="10.5" fill="#8A8880">Example: 849941ed &#8212; Q: Which instruments are primarily featured in the audio?   A: (A) Violin and Cello</text>
+<rect x="42" y="742" width="208" height="140" rx="3" fill="#F7F6F1" stroke="#E3E1DA" stroke-width="1"/><rect x="42.00" y="766.50" width="0.83" height="91.00" fill="#1E7BE0" opacity="0.85"/><rect x="43.04" y="762.76" width="0.83" height="98.48" fill="#1E7BE0" opacity="0.85"/><rect x="44.08" y="761.61" width="0.83" height="100.77" fill="#1E7BE0" opacity="0.85"/><rect x="45.12" y="767.17" width="0.83" height="89.67" fill="#1E7BE0" opacity="0.85"/><rect x="46.16" y="764.73" width="0.83" height="94.54" fill="#1E7BE0" opacity="0.85"/><rect x="47.20" y="765.28" width="0.83" height="93.45" fill="#1E7BE0" opacity="0.85"/><rect x="48.24" y="759.69" width="0.83" height="104.62" fill="#1E7BE0" opacity="0.85"/><rect x="49.28" y="764.04" width="0.83" height="95.93" fill="#1E7BE0" opacity="0.85"/><rect x="50.32" y="765.33" width="0.83" height="93.34" fill="#1E7BE0" opacity="0.85"/><rect x="51.36" y="768.18" width="0.83" height="87.64" fill="#1E7BE0" opacity="0.85"/><rect x="52.40" y="770.89" width="0.83" height="82.22" fill="#1E7BE0" opacity="0.85"/><rect x="53.44" y="770.07" width="0.83" height="83.86" fill="#1E7BE0" opacity="0.85"/><rect x="54.48" y="762.36" width="0.83" height="99.28" fill="#1E7BE0" opacity="0.85"/><rect x="55.52" y="766.42" width="0.83" height="91.16" fill="#1E7BE0" opacity="0.85"/><rect x="56.56" y="761.80" width="0.83" height="100.40" fill="#1E7BE0" opacity="0.85"/><rect x="57.60" y="763.07" width="0.83" height="97.86" fill="#1E7BE0" opacity="0.85"/><rect x="58.64" y="759.62" width="0.83" height="104.76" fill="#1E7BE0" opacity="0.85"/><rect x="59.68" y="769.08" width="0.83" height="85.84" fill="#1E7BE0" opacity="0.85"/><rect x="60.72" y="763.55" width="0.83" height="96.90" fill="#1E7BE0" opacity="0.85"/><rect x="61.76" y="759.39" width="0.83" height="105.23" fill="#1E7BE0" opacity="0.85"/><rect x="62.80" y="774.16" width="0.83" height="75.68" fill="#1E7BE0" opacity="0.85"/><rect x="63.84" y="763.38" width="0.83" height="97.24" fill="#1E7BE0" opacity="0.85"/><rect x="64.88" y="765.77" width="0.83" height="92.46" fill="#1E7BE0" opacity="0.85"/><rect x="65.92" y="768.42" width="0.83" height="87.17" fill="#1E7BE0" opacity="0.85"/><rect x="66.96" y="772.40" width="0.83" height="79.21" fill="#1E7BE0" opacity="0.85"/><rect x="68.00" y="770.84" width="0.83" height="82.33" fill="#1E7BE0" opacity="0.85"/><rect x="69.04" y="761.35" width="0.83" height="101.31" fill="#1E7BE0" opacity="0.85"/><rect x="70.08" y="758.80" width="0.83" height="106.40" fill="#1E7BE0" opacity="0.85"/><rect x="71.12" y="761.12" width="0.83" height="101.76" fill="#1E7BE0" opacity="0.85"/><rect x="72.16" y="766.45" width="0.83" height="91.10" fill="#1E7BE0" opacity="0.85"/><rect x="73.20" y="761.36" width="0.83" height="101.27" fill="#1E7BE0" opacity="0.85"/><rect x="74.24" y="759.66" width="0.83" height="104.68" fill="#1E7BE0" opacity="0.85"/><rect x="75.28" y="763.74" width="0.83" height="96.53" fill="#1E7BE0" opacity="0.85"/><rect x="76.32" y="764.11" width="0.83" height="95.78" fill="#1E7BE0" opacity="0.85"/><rect x="77.36" y="775.86" width="0.83" height="72.27" fill="#1E7BE0" opacity="0.85"/><rect x="78.40" y="773.97" width="0.83" height="76.06" fill="#1E7BE0" opacity="0.85"/><rect x="79.44" y="777.58" width="0.83" height="68.84" fill="#1E7BE0" opacity="0.85"/><rect x="80.48" y="777.15" width="0.83" height="69.70" fill="#1E7BE0" opacity="0.85"/><rect x="81.52" y="782.19" width="0.83" height="59.62" fill="#1E7BE0" opacity="0.85"/><rect x="82.56" y="779.21" width="0.83" height="65.59" fill="#1E7BE0" opacity="0.85"/><rect x="83.60" y="782.03" width="0.83" height="59.94" fill="#1E7BE0" opacity="0.85"/><rect x="84.64" y="786.06" width="0.83" height="51.88" fill="#1E7BE0" opacity="0.85"/><rect x="85.68" y="790.85" width="0.83" height="42.29" fill="#1E7BE0" opacity="0.85"/><rect x="86.72" y="787.43" width="0.83" height="49.14" fill="#1E7BE0" opacity="0.85"/><rect x="87.76" y="789.10" width="0.83" height="45.80" fill="#1E7BE0" opacity="0.85"/><rect x="88.80" y="790.22" width="0.83" height="43.57" fill="#1E7BE0" opacity="0.85"/><rect x="89.84" y="794.57" width="0.83" height="34.85" fill="#1E7BE0" opacity="0.85"/><rect x="90.88" y="795.68" width="0.83" height="32.63" fill="#1E7BE0" opacity="0.85"/><rect x="91.92" y="799.42" width="0.83" height="25.17" fill="#1E7BE0" opacity="0.85"/><rect x="92.96" y="799.07" width="0.83" height="25.86" fill="#1E7BE0" opacity="0.85"/><rect x="94.00" y="801.37" width="0.83" height="21.27" fill="#1E7BE0" opacity="0.85"/><rect x="95.04" y="802.23" width="0.83" height="19.55" fill="#1E7BE0" opacity="0.85"/><rect x="96.08" y="802.94" width="0.83" height="18.11" fill="#1E7BE0" opacity="0.85"/><rect x="97.12" y="801.03" width="0.83" height="21.93" fill="#1E7BE0" opacity="0.85"/><rect x="98.16" y="805.12" width="0.83" height="13.76" fill="#1E7BE0" opacity="0.85"/><rect x="99.20" y="806.68" width="0.83" height="10.64" fill="#1E7BE0" opacity="0.85"/><rect x="100.24" y="804.98" width="0.83" height="14.03" fill="#1E7BE0" opacity="0.85"/><rect x="101.28" y="804.67" width="0.83" height="14.66" fill="#1E7BE0" opacity="0.85"/><rect x="102.32" y="807.38" width="0.83" height="9.24" fill="#1E7BE0" opacity="0.85"/><rect x="103.36" y="807.77" width="0.83" height="8.46" fill="#1E7BE0" opacity="0.85"/><rect x="104.40" y="807.94" width="0.83" height="8.13" fill="#1E7BE0" opacity="0.85"/><rect x="105.44" y="809.22" width="0.83" height="5.55" fill="#1E7BE0" opacity="0.85"/><rect x="106.48" y="809.08" width="0.83" height="5.84" fill="#1E7BE0" opacity="0.85"/><rect x="107.52" y="808.82" width="0.83" height="6.37" fill="#1E7BE0" opacity="0.85"/><rect x="108.56" y="808.91" width="0.83" height="6.18" fill="#1E7BE0" opacity="0.85"/><rect x="109.60" y="810.05" width="0.83" height="3.89" fill="#1E7BE0" opacity="0.85"/><rect x="110.64" y="810.11" width="0.83" height="3.78" fill="#1E7BE0" opacity="0.85"/><rect x="111.68" y="809.70" width="0.83" height="4.60" fill="#1E7BE0" opacity="0.85"/><rect x="112.72" y="810.10" width="0.83" height="3.80" fill="#1E7BE0" opacity="0.85"/><rect x="113.76" y="810.51" width="0.83" height="2.97" fill="#1E7BE0" opacity="0.85"/><rect x="114.80" y="810.60" width="0.83" height="2.80" fill="#1E7BE0" opacity="0.85"/><rect x="115.84" y="810.56" width="0.83" height="2.88" fill="#1E7BE0" opacity="0.85"/><rect x="116.88" y="810.86" width="0.83" height="2.27" fill="#1E7BE0" opacity="0.85"/><rect x="117.92" y="811.00" width="0.83" height="2.00" fill="#1E7BE0" opacity="0.85"/><rect x="118.96" y="810.87" width="0.83" height="2.26" fill="#1E7BE0" opacity="0.85"/><rect x="120.00" y="811.00" width="0.83" height="2.00" fill="#1E7BE0" opacity="0.85"/><rect x="121.04" y="811.00" width="0.83" height="2.00" fill="#1E7BE0" opacity="0.85"/><rect x="122.08" y="807.74" width="0.83" height="8.52" fill="#1E7BE0" opacity="0.85"/><rect x="123.12" y="808.79" width="0.83" height="6.42" fill="#1E7BE0" opacity="0.85"/><rect x="124.16" y="809.30" width="0.83" height="5.40" fill="#1E7BE0" opacity="0.85"/><rect x="125.20" y="809.62" width="0.83" height="4.77" fill="#1E7BE0" opacity="0.85"/><rect x="126.24" y="809.25" width="0.83" height="5.51" fill="#1E7BE0" opacity="0.85"/><rect x="127.28" y="809.29" width="0.83" height="5.41" fill="#1E7BE0" opacity="0.85"/><rect x="128.32" y="809.23" width="0.83" height="5.54" fill="#1E7BE0" opacity="0.85"/><rect x="129.36" y="809.14" width="0.83" height="5.72" fill="#1E7BE0" opacity="0.85"/><rect x="130.40" y="809.28" width="0.83" height="5.45" fill="#1E7BE0" opacity="0.85"/><rect x="131.44" y="809.06" width="0.83" height="5.88" fill="#1E7BE0" opacity="0.85"/><rect x="132.48" y="809.42" width="0.83" height="5.16" fill="#1E7BE0" opacity="0.85"/><rect x="133.52" y="810.03" width="0.83" height="3.94" fill="#1E7BE0" opacity="0.85"/><rect x="134.56" y="809.94" width="0.83" height="4.13" fill="#1E7BE0" opacity="0.85"/><rect x="135.60" y="809.45" width="0.83" height="5.11" fill="#1E7BE0" opacity="0.85"/><rect x="136.64" y="809.22" width="0.83" height="5.55" fill="#1E7BE0" opacity="0.85"/><rect x="137.68" y="809.46" width="0.83" height="5.08" fill="#1E7BE0" opacity="0.85"/><rect x="138.72" y="809.76" width="0.83" height="4.48" fill="#1E7BE0" opacity="0.85"/><rect x="139.76" y="809.42" width="0.83" height="5.16" fill="#1E7BE0" opacity="0.85"/><rect x="140.80" y="809.34" width="0.83" height="5.32" fill="#1E7BE0" opacity="0.85"/><rect x="141.84" y="808.81" width="0.83" height="6.38" fill="#1E7BE0" opacity="0.85"/><rect x="142.88" y="808.88" width="0.83" height="6.25" fill="#1E7BE0" opacity="0.85"/><rect x="143.92" y="809.40" width="0.83" height="5.20" fill="#1E7BE0" opacity="0.85"/><rect x="144.96" y="809.56" width="0.83" height="4.88" fill="#1E7BE0" opacity="0.85"/><rect x="146.00" y="809.82" width="0.83" height="4.35" fill="#1E7BE0" opacity="0.85"/><rect x="147.04" y="809.73" width="0.83" height="4.53" fill="#1E7BE0" opacity="0.85"/><rect x="148.08" y="809.64" width="0.83" height="4.73" fill="#1E7BE0" opacity="0.85"/><rect x="149.12" y="809.67" width="0.83" height="4.66" fill="#1E7BE0" opacity="0.85"/><rect x="150.16" y="809.07" width="0.83" height="5.85" fill="#1E7BE0" opacity="0.85"/><rect x="151.20" y="808.22" width="0.83" height="7.55" fill="#1E7BE0" opacity="0.85"/><rect x="152.24" y="808.72" width="0.83" height="6.55" fill="#1E7BE0" opacity="0.85"/><rect x="153.28" y="808.51" width="0.83" height="6.98" fill="#1E7BE0" opacity="0.85"/><rect x="154.32" y="809.03" width="0.83" height="5.94" fill="#1E7BE0" opacity="0.85"/><rect x="155.36" y="809.68" width="0.83" height="4.65" fill="#1E7BE0" opacity="0.85"/><rect x="156.40" y="809.52" width="0.83" height="4.95" fill="#1E7BE0" opacity="0.85"/><rect x="157.44" y="809.04" width="0.83" height="5.92" fill="#1E7BE0" opacity="0.85"/><rect x="158.48" y="808.75" width="0.83" height="6.50" fill="#1E7BE0" opacity="0.85"/><rect x="159.52" y="809.14" width="0.83" height="5.71" fill="#1E7BE0" opacity="0.85"/><rect x="160.56" y="808.68" width="0.83" height="6.64" fill="#1E7BE0" opacity="0.85"/><rect x="161.60" y="807.15" width="0.83" height="9.71" fill="#1E7BE0" opacity="0.85"/><rect x="162.64" y="806.96" width="0.83" height="10.07" fill="#1E7BE0" opacity="0.85"/><rect x="163.68" y="806.95" width="0.83" height="10.10" fill="#1E7BE0" opacity="0.85"/><rect x="164.72" y="805.98" width="0.83" height="12.04" fill="#1E7BE0" opacity="0.85"/><rect x="165.76" y="806.11" width="0.83" height="11.78" fill="#1E7BE0" opacity="0.85"/><rect x="166.80" y="805.14" width="0.83" height="13.71" fill="#1E7BE0" opacity="0.85"/><rect x="167.84" y="806.95" width="0.83" height="10.09" fill="#1E7BE0" opacity="0.85"/><rect x="168.88" y="806.61" width="0.83" height="10.78" fill="#1E7BE0" opacity="0.85"/><rect x="169.92" y="806.03" width="0.83" height="11.95" fill="#1E7BE0" opacity="0.85"/><rect x="170.96" y="807.16" width="0.83" height="9.67" fill="#1E7BE0" opacity="0.85"/><rect x="172.00" y="807.25" width="0.83" height="9.49" fill="#1E7BE0" opacity="0.85"/><rect x="173.04" y="807.32" width="0.83" height="9.36" fill="#1E7BE0" opacity="0.85"/><rect x="174.08" y="806.06" width="0.83" height="11.87" fill="#1E7BE0" opacity="0.85"/><rect x="175.12" y="806.10" width="0.83" height="11.79" fill="#1E7BE0" opacity="0.85"/><rect x="176.16" y="804.61" width="0.83" height="14.78" fill="#1E7BE0" opacity="0.85"/><rect x="177.20" y="804.46" width="0.83" height="15.09" fill="#1E7BE0" opacity="0.85"/><rect x="178.24" y="804.16" width="0.83" height="15.67" fill="#1E7BE0" opacity="0.85"/><rect x="179.28" y="802.54" width="0.83" height="18.91" fill="#1E7BE0" opacity="0.85"/><rect x="180.32" y="801.58" width="0.83" height="20.83" fill="#1E7BE0" opacity="0.85"/><rect x="181.36" y="801.75" width="0.83" height="20.49" fill="#1E7BE0" opacity="0.85"/><rect x="182.40" y="802.31" width="0.83" height="19.38" fill="#1E7BE0" opacity="0.85"/><rect x="183.44" y="803.58" width="0.83" height="16.85" fill="#1E7BE0" opacity="0.85"/><rect x="184.48" y="805.36" width="0.83" height="13.27" fill="#1E7BE0" opacity="0.85"/><rect x="185.52" y="804.76" width="0.83" height="14.47" fill="#1E7BE0" opacity="0.85"/><rect x="186.56" y="804.88" width="0.83" height="14.24" fill="#1E7BE0" opacity="0.85"/><rect x="187.60" y="806.14" width="0.83" height="11.71" fill="#1E7BE0" opacity="0.85"/><rect x="188.64" y="805.00" width="0.83" height="14.00" fill="#1E7BE0" opacity="0.85"/><rect x="189.68" y="806.10" width="0.83" height="11.79" fill="#1E7BE0" opacity="0.85"/><rect x="190.72" y="805.49" width="0.83" height="13.02" fill="#1E7BE0" opacity="0.85"/><rect x="191.76" y="806.23" width="0.83" height="11.55" fill="#1E7BE0" opacity="0.85"/><rect x="192.80" y="806.24" width="0.83" height="11.52" fill="#1E7BE0" opacity="0.85"/><rect x="193.84" y="806.70" width="0.83" height="10.59" fill="#1E7BE0" opacity="0.85"/><rect x="194.88" y="804.71" width="0.83" height="14.57" fill="#1E7BE0" opacity="0.85"/><rect x="195.92" y="803.98" width="0.83" height="16.04" fill="#1E7BE0" opacity="0.85"/><rect x="196.96" y="803.78" width="0.83" height="16.44" fill="#1E7BE0" opacity="0.85"/><rect x="198.00" y="804.26" width="0.83" height="15.47" fill="#1E7BE0" opacity="0.85"/><rect x="199.04" y="804.20" width="0.83" height="15.60" fill="#1E7BE0" opacity="0.85"/><rect x="200.08" y="805.87" width="0.83" height="12.25" fill="#1E7BE0" opacity="0.85"/><rect x="201.12" y="805.96" width="0.83" height="12.09" fill="#1E7BE0" opacity="0.85"/><rect x="202.16" y="805.57" width="0.83" height="12.86" fill="#1E7BE0" opacity="0.85"/><rect x="203.20" y="805.58" width="0.83" height="12.85" fill="#1E7BE0" opacity="0.85"/><rect x="204.24" y="804.96" width="0.83" height="14.08" fill="#1E7BE0" opacity="0.85"/><rect x="205.28" y="804.97" width="0.83" height="14.07" fill="#1E7BE0" opacity="0.85"/><rect x="206.32" y="805.06" width="0.83" height="13.88" fill="#1E7BE0" opacity="0.85"/><rect x="207.36" y="804.05" width="0.83" height="15.89" fill="#1E7BE0" opacity="0.85"/><rect x="208.40" y="805.77" width="0.83" height="12.46" fill="#1E7BE0" opacity="0.85"/><rect x="209.44" y="806.09" width="0.83" height="11.82" fill="#1E7BE0" opacity="0.85"/><rect x="210.48" y="806.34" width="0.83" height="11.32" fill="#1E7BE0" opacity="0.85"/><rect x="211.52" y="807.02" width="0.83" height="9.97" fill="#1E7BE0" opacity="0.85"/><rect x="212.56" y="806.86" width="0.83" height="10.29" fill="#1E7BE0" opacity="0.85"/><rect x="213.60" y="806.51" width="0.83" height="10.99" fill="#1E7BE0" opacity="0.85"/><rect x="214.64" y="805.53" width="0.83" height="12.95" fill="#1E7BE0" opacity="0.85"/><rect x="215.68" y="805.68" width="0.83" height="12.64" fill="#1E7BE0" opacity="0.85"/><rect x="216.72" y="806.27" width="0.83" height="11.46" fill="#1E7BE0" opacity="0.85"/><rect x="217.76" y="807.42" width="0.83" height="9.17" fill="#1E7BE0" opacity="0.85"/><rect x="218.80" y="806.48" width="0.83" height="11.05" fill="#1E7BE0" opacity="0.85"/><rect x="219.84" y="807.10" width="0.83" height="9.80" fill="#1E7BE0" opacity="0.85"/><rect x="220.88" y="807.39" width="0.83" height="9.21" fill="#1E7BE0" opacity="0.85"/><rect x="221.92" y="807.81" width="0.83" height="8.37" fill="#1E7BE0" opacity="0.85"/><rect x="222.96" y="806.74" width="0.83" height="10.51" fill="#1E7BE0" opacity="0.85"/><rect x="224.00" y="806.12" width="0.83" height="11.75" fill="#1E7BE0" opacity="0.85"/><rect x="225.04" y="806.77" width="0.83" height="10.46" fill="#1E7BE0" opacity="0.85"/><rect x="226.08" y="807.13" width="0.83" height="9.75" fill="#1E7BE0" opacity="0.85"/><rect x="227.12" y="807.73" width="0.83" height="8.55" fill="#1E7BE0" opacity="0.85"/><rect x="228.16" y="807.58" width="0.83" height="8.84" fill="#1E7BE0" opacity="0.85"/><rect x="229.20" y="805.71" width="0.83" height="12.59" fill="#1E7BE0" opacity="0.85"/><rect x="230.24" y="806.35" width="0.83" height="11.31" fill="#1E7BE0" opacity="0.85"/><rect x="231.28" y="806.02" width="0.83" height="11.96" fill="#1E7BE0" opacity="0.85"/><rect x="232.32" y="805.44" width="0.83" height="13.12" fill="#1E7BE0" opacity="0.85"/><rect x="233.36" y="805.63" width="0.83" height="12.75" fill="#1E7BE0" opacity="0.85"/><rect x="234.40" y="805.54" width="0.83" height="12.93" fill="#1E7BE0" opacity="0.85"/><rect x="235.44" y="805.10" width="0.83" height="13.80" fill="#1E7BE0" opacity="0.85"/><rect x="236.48" y="806.20" width="0.83" height="11.61" fill="#1E7BE0" opacity="0.85"/><rect x="237.52" y="804.14" width="0.83" height="15.73" fill="#1E7BE0" opacity="0.85"/><rect x="238.56" y="804.57" width="0.83" height="14.86" fill="#1E7BE0" opacity="0.85"/><rect x="239.60" y="806.23" width="0.83" height="11.53" fill="#1E7BE0" opacity="0.85"/><rect x="240.64" y="805.23" width="0.83" height="13.54" fill="#1E7BE0" opacity="0.85"/><rect x="241.68" y="805.27" width="0.83" height="13.46" fill="#1E7BE0" opacity="0.85"/><rect x="242.72" y="804.78" width="0.83" height="14.43" fill="#1E7BE0" opacity="0.85"/><rect x="243.76" y="803.43" width="0.83" height="17.14" fill="#1E7BE0" opacity="0.85"/><rect x="244.80" y="805.74" width="0.83" height="12.51" fill="#1E7BE0" opacity="0.85"/><rect x="245.84" y="804.17" width="0.83" height="15.65" fill="#1E7BE0" opacity="0.85"/><rect x="246.88" y="803.17" width="0.83" height="17.66" fill="#1E7BE0" opacity="0.85"/><rect x="247.92" y="803.53" width="0.83" height="16.94" fill="#1E7BE0" opacity="0.85"/><rect x="248.96" y="802.34" width="0.83" height="19.32" fill="#1E7BE0" opacity="0.85"/><line x1="48" y1="812.0" x2="244" y2="812.0" stroke="#C9C7BF" stroke-width="0.8"/><text x="52" y="872" font-size="9.5" fill="#8A8880">10.0 s &#183; 16 kHz mono</text>
+<text x="146.0" y="902" font-size="10" fill="#8A8880" text-anchor="middle">Input: audio clip + question</text>
+<path d="M254 812.0 L270 812.0 M265 808.0 L270 812.0 L265 816.0" fill="none" stroke="#B4B2A9" stroke-width="1.8"/>
+<rect x="276" y="742" width="190" height="140" rx="3" fill="#F7F6F1"/>
+<text x="290" y="766" font-size="11.5" fill="#111111" font-weight="700">1. Describe first</text>
+<text x="290" y="788" font-size="10.5" fill="#4A4A4A">One sentence on what</text>
+<text x="290" y="806" font-size="10.5" fill="#4A4A4A">you actually hear: events,</text>
+<text x="290" y="824" font-size="10.5" fill="#4A4A4A">instruments, voices, tempo</text>
+<text x="290" y="858" font-size="9" fill="#8A8880">without looking at the options</text>
+<path d="M470 812.0 L486 812.0 M481 808.0 L486 812.0 L481 816.0" fill="none" stroke="#B4B2A9" stroke-width="1.8"/>
+<rect x="492" y="742" width="248" height="140" rx="3" fill="#F7F6F1"/>
+<text x="506" y="766" font-size="11.5" fill="#111111" font-weight="700">2. Rule out against it</text>
+<text x="506" y="788" font-size="11" fill="#4A4A4A" font-family="Menlo, Consolas, monospace">bowed strings, no drums</text>
+<text x="506" y="806" font-size="11" fill="#4A4A4A" font-family="Menlo, Consolas, monospace">-&gt; B, C, D contradicted</text>
+<text x="506" y="858" font-size="9" fill="#8A8880">Check each option against what was heard</text>
+<path d="M744 812.0 L760 812.0 M755 808.0 L760 812.0 L755 816.0" fill="none" stroke="#B4B2A9" stroke-width="1.8"/>
+<rect x="766" y="742" width="186" height="140" rx="3" fill="#F7F6F1"/>
+<text x="780" y="766" font-size="11.5" fill="#111111" font-weight="700">3. Stop reasoning</text>
+<text x="780" y="788" font-size="10" fill="#4A4A4A">- Under 120 words</text>
+<text x="780" y="806" font-size="10" fill="#4A4A4A">- Then stop and emit</text>
+<text x="780" y="820" font-size="10" fill="#4A4A4A">  the final line</text>
+<text x="780" y="838" font-size="10" fill="#4A4A4A">- Guess rather than</text>
+<text x="780" y="852" font-size="10" fill="#4A4A4A">  refuse</text>
+<path d="M956 812.0 L972 812.0 M967 808.0 L972 812.0 L967 816.0" fill="none" stroke="#B4B2A9" stroke-width="1.8"/>
+<rect x="978" y="742" width="160" height="140" rx="3" fill="#E3F5E8" stroke="#1E7B34" stroke-width="1.3"/>
+<text x="992" y="766" font-size="11.5" fill="#111111" font-weight="700">4. Commit</text>
+<text x="992" y="788" font-size="9.5" fill="#1E7B34">one mandatory last line</text>
+<text x="992" y="814" font-size="18" fill="#1E7B34" font-weight="700" font-family="Menlo, Consolas, monospace">FINAL: A</text>
+<text x="992" y="858" font-size="9" fill="#8A8880">3 samples, modal answer</text>
+<text x="1170" y="742" font-size="12" fill="#111111" font-weight="700">Over the full held-out testing cases</text>
+<text x="1170" y="776" font-size="10.5" fill="#4A4A4A">Baseline</text>
+<rect x="1278" y="766" width="260" height="16" rx="2" fill="#EDEDED"/>
+<rect x="1278" y="766" width="111.8" height="16" rx="2" fill="#B4B2A9"/>
+<text x="1550" y="779" font-size="11.5" fill="#4A4A4A" font-weight="700">43.0%</text>
+<text x="1170" y="814" font-size="10.5" fill="#1E7B34">with the repair</text>
+<rect x="1278" y="804" width="260" height="16" rx="2" fill="#EDEDED"/>
+<rect x="1278" y="804" width="156.51999999999998" height="16" rx="2" fill="#1E7B34"/>
+<text x="1550" y="817" font-size="11.5" fill="#1E7B34" font-weight="700">60.2%</text>
+<text x="1170" y="852" font-size="10.5" fill="#4A4A4A">30 fixed, 8 broken, gain far beyond chance (e-value 144)</text>
+<text x="1170" y="868" font-size="10.5" fill="#8A8880">No hypothesis reached SUPPORTED, so this is a measured improvement,</text>
+<text x="1170" y="884" font-size="10.5" fill="#8A8880">not a confirmed mechanism.</text>
+</svg>

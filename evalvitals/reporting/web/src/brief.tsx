@@ -29,9 +29,10 @@ import type {
   AnalyzerSelection, Chart, DiagnosisOutput, FixOutput, HypothesisTestOutput,
   Modality, ProbeOutput, ReportData,
 } from "./types";
+import { ZoomableImage } from "./lightbox";
 import {
-  countOf, findContract, headlineSplit, leadFrom, metric, oddsPhrase, outcomeColors,
-  plural, pointsGap, stageDetail, stripMarkdown,
+  chartValue, countOf, findContract, headlineSplit, leadFrom, metric, oddsPhrase,
+  outcomeColors, plural, pointsGap, stageDetail, stripMarkdown,
 } from "./reportAccess";
 
 /** What one L2 screen shows. Every field except `verdict` is optional, because
@@ -109,7 +110,7 @@ function reportChart(report: ReportData, id: string): Chart | undefined {
 function BriefChart({ chart }: { chart: Chart }) {
   const series = chart.series || [];
   const option = chart.kind === "donut" ? {
-    tooltip: { trigger: "item" },
+    tooltip: { trigger: "item", valueFormatter: chartValue },
     color: outcomeColors(series.map((item) => item.label)),
     // The L2 column is narrower than the L3 page, and outside labels with
     // leader lines get clipped to "Pas..." there. A legend under the ring
@@ -126,7 +127,7 @@ function BriefChart({ chart }: { chart: Chart }) {
     }],
   } : {
     grid: { left: 152, right: 26, top: 10, bottom: 24 },
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: chartValue },
     xAxis: {
       type: "value", axisLabel: { color: "#8da19b" },
       splitLine: { lineStyle: { color: "#23332f" } },
@@ -157,7 +158,8 @@ function BriefChart({ chart }: { chart: Chart }) {
 /** A saved PNG a stage produced. `data_uri` on an exported report, path on a served one. */
 function BriefImage({ figure }: { figure: any }) {
   const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
-  return <img className="brief-image" src={source} alt={figure.title || "Stage figure"} />;
+  return <ZoomableImage className="brief-image" src={source}
+    alt={figure.title || "Stage figure"} caption={figure.title || ""} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -522,7 +524,7 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
   const withEffect = results.filter((r) => typeof r.effect_size === "number");
   const option = {
     grid: { left: 130, right: 26, top: 10, bottom: 26 },
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (v: unknown) => chartValue(v, { signed: true }) },
     xAxis: {
       type: "value", axisLabel: { color: "#8da19b" },
       splitLine: { lineStyle: { color: "#23332f" } },
@@ -657,7 +659,7 @@ function briefM4(report: ReportData, detail: Record<string, any>): Brief {
   const option = {
     grid: { left: 120, right: 24, top: 26, bottom: 28 },
     color: ["#6bd8ad", "#f06d5f"],
-    tooltip: { trigger: "axis" },
+    tooltip: { trigger: "axis", valueFormatter: chartValue },
     legend: { textStyle: { color: "#9fb2ac", fontSize: 11 }, top: 0 },
     xAxis: {
       type: "value", axisLabel: { color: "#8da19b" },

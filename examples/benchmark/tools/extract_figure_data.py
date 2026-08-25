@@ -154,6 +154,28 @@ class Run:
         except ValueError:
             return abspath
 
+    def rooted(self, recorded: str) -> str:
+        """A recorded path re-anchored on THIS run root.
+
+        The run log records absolute paths from the process that wrote it — in a
+        container that is ``/app/work/outputs/<run>/logs/...``, which exists on
+        no host. ``os.path.relpath`` against such a path walks up to ``/`` and
+        yields a ``../../..`` chain whose length depends on where the READER
+        sits. The artifact itself lives inside the run dir, so re-anchor: take
+        the ``logs/...`` suffix when the result exists under the root, else
+        fall back to :meth:`relpath` for a path that really is elsewhere.
+        """
+        recorded = str(recorded or "")
+        marker = os.sep + "logs" + os.sep
+        idx = recorded.rfind(marker)
+        if idx >= 0:
+            candidate = recorded[idx + 1:]
+            if os.path.isdir(os.path.join(self.root, candidate)) or os.path.isfile(
+                os.path.join(self.root, candidate)
+            ):
+                return candidate.replace(os.sep, "/")
+        return self.relpath(recorded)
+
     # -- events -----------------------------------------------------------
 
     def event(self, name: str, cycle: Any = "__any__") -> Optional[dict]:
@@ -191,10 +213,149 @@ class Run:
         out.sort(key=lambda p: 0 if p[0] == "explore" else 1)
         return out
 
+    def measurement_inventory(self, analyzers: List[str],
+                              cycle_prefix: str = "c0") -> List[dict]:
+        """Every numeric per-case field each analyzer produced, with its status."""
+        out: List[dict] = []
+        for a in analyzers:
+            rows = self.analyzer_per_case(a, cycle_prefix)
+            if not rows:
+                continue
+            fields: Dict[str, list] = defaultdict(list)
+            for r in rows:
+                for k, v in r.items():
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        fields[k].append(v)
+            for k, vals in sorted(fields.items()):
+                if k in OUTCOME_DERIVED:
+                    status = "dropped_sees_answer_key"
+                elif len(set(vals)) == 1:
+                    status = "dropped_never_varies"
+                elif len(vals) < len(rows):
+                    status = "dropped_partial_coverage"
+                else:
+                    status = "candidate"
+                out.append({
+                    "analyzer": a,
+                    "field": k,
+                    "signal": f"{a}.{k}",
+                    "n_values": len(vals),
+                    "n_distinct": len(set(vals)),
+                    "status": status,
+                    "question": question_for(a, k),
+                })
+        return out
+
     def analyzer_per_case(self, analyzer: str, cycle_prefix: str) -> List[dict]:
         path = self.rel("artifacts", f"{cycle_prefix}_{analyzer}.result.json")
         blob = load_json(path, {}) or {}
         return (blob.get("findings") or {}).get("per_case", []) or []
+
+
+# --------------------------------------------------------------------------
+# naming and plain-language probe questions
+# --------------------------------------------------------------------------
+
+MODULE_NAMES = {
+    "M1": "Suspicious Behavior Detection",
+    "M2": "Statistical Screening",
+    "M3": "Hypothesis Formation",
+    "M5": "Held-out Verification",
+    "M4": "Validated Repair",
+}
+
+MODULE_SUBTITLES = {
+    "M1": "Run the analyzer probing library, find per-case suspicious behaviors",
+    "M2": "Using plots to explain, statistical tests to decide",
+    "M3": "Explore the reason behind the signals",
+    "M5": "Confirm whether the hypothesis is verified over the held-out cases",
+    "M4": "Fix the failure with the validated repair ladder",
+}
+
+# What a probe is actually asking, in the reader's language. Keyed by the
+# per-case field a probe emits, because one analyzer often asks two questions
+# and one question is often asked by two analyzers.
+QUESTION_BY_FIELD = {
+    "matches_output_contract": "Did it answer in the form we asked for?",
+    "has_answer_tag":          "Did it answer in the form we asked for?",
+    "n_unparsed":              "Did it answer in the form we asked for?",
+    "gave_up":                 "Did it give up answering?",
+    "has_output":              "Did it produce anything at all?",
+    "answered_yes":            "Does it lean to one answer regardless?",
+    "gold_yes":                "Does it lean to one answer regardless?",
+    "output_chars":            "Did it stop, or keep talking?",
+    "output_words":            "Did it stop, or keep talking?",
+    "output_truncated":        "Did it stop, or keep talking?",
+    "looks_truncated":         "Did it stop, or keep talking?",
+    "continuation_chars":      "Did it stop, or keep talking?",
+    "repetition_score":        "Did it stop, or keep talking?",
+    "n_unique":                "Same question five times, same answer?",
+    "majority_share":          "Same question five times, same answer?",
+    "n_samples":               "Same question five times, same answer?",
+    "n_graded":                "Same question five times, same answer?",
+    "coverage_gap":            "Did it ever produce the right answer?",
+    "format_flip_rate":        "Reworded question, same answer?",
+    "positional_bias":         "Reworded question, same answer?",
+    "n_variants":              "Reworded question, same answer?",
+    "n_options":               "Reworded question, same answer?",
+    "n_sentences":             "Asked to check itself, does it change?",
+    "selfcheck_inconsistency": "Asked to check itself, does it change?",
+    "selfcheck_worst_sentence":"Asked to check itself, does it change?",
+    "conf_logprob":            "Was it as sure as it sounded?",
+    "conf_verbal":             "Was it as sure as it sounded?",
+    "attention_entropy":       "Where was it looking?",
+    "attention_to_region":     "Where was it looking?",
+    "logprob_entropy":         "How uncertain is it inside?",
+    "token_entropy":           "How uncertain is it inside?",
+}
+
+# fallback when a field is unknown: ask by analyzer instead
+QUESTION_BY_ANALYZER = {
+    "answer_extraction_audit":   "Did the answer come out readable?",
+    "termination_audit":         "Did it stop, or keep talking?",
+    "selfcheck_consistency":     "Asked to check itself, does it change?",
+    "self_consistency":          "Same question five times, same answer?",
+    "coverage_verification_gap": "Did it ever produce the right answer?",
+    "format_sensitivity":        "Reworded question, same answer?",
+    "calibration":               "Was it as sure as it sounded?",
+    "logprob_entropy":           "How uncertain is it inside?",
+    "attention":                 "Where was it looking?",
+    "hallucination":             "Did it describe something that is not there?",
+    "multimodal_attribution":    "Did the answer use the image or audio at all?",
+    "loop_detection":            "Did it get stuck repeating itself?",
+}
+
+# reading order, so the question list is stable across runs
+QUESTION_ORDER = [
+    "Did it produce anything at all?",
+    "Did it answer in the form we asked for?",
+    "Did the answer come out readable?",
+    "Did it give up answering?",
+    "Did it stop, or keep talking?",
+    "Same question five times, same answer?",
+    "Reworded question, same answer?",
+    "Asked to check itself, does it change?",
+    "Was it as sure as it sounded?",
+    "Does it lean to one answer regardless?",
+    "Did it ever produce the right answer?",
+    "How uncertain is it inside?",
+    "Where was it looking?",
+]
+
+# fields that are a function of the answer key; testing them would let a signal
+# predict the answer from the answer
+OUTCOME_DERIVED = {
+    "labelled_fail", "strict_match", "gold_in_output", "gold_in_answer_region",
+    "label_disagrees", "extraction_suspect", "extraction_point_miss",
+    "n_correct", "any_correct", "majority_correct", "pass_at_k", "correct",
+    "continuation_correct", "continuation_has_answer", "recovered_by_continuation",
+}
+
+
+def question_for(analyzer: str, field: str) -> str:
+    if field in QUESTION_BY_FIELD:
+        return QUESTION_BY_FIELD[field]
+    return QUESTION_BY_ANALYZER.get(analyzer, f"What does {analyzer} show?")
 
 
 # --------------------------------------------------------------------------
@@ -351,6 +512,55 @@ def block_m1_analyzers(run: Run) -> List[dict]:
             "source": "logs/run_log.jsonl:probe",
         }
     ]
+
+
+def block_m1_questions(run: Run, forwarded: Optional[int]) -> List[dict]:
+    """What the probes asked, in plain language, plus the measurement funnel."""
+    probes = run.events_of("probe")
+    if not probes:
+        return []
+    analyzers = probes[0].get("selected_analyzers") or probes[0].get("analyzers") or []
+    inv = run.measurement_inventory(analyzers)
+    if not inv:
+        return []
+
+    # answer-key-derived fields are not probes asking anything; they are
+    # excluded before the question list is built
+    by_q: Dict[str, List[dict]] = defaultdict(list)
+    for m in inv:
+        if m["status"] != "dropped_sees_answer_key":
+            by_q[m["question"]].append(m)
+
+    def rank(q: str) -> tuple:
+        return (QUESTION_ORDER.index(q) if q in QUESTION_ORDER else len(QUESTION_ORDER), q)
+
+    questions = []
+    for q in sorted(by_q, key=rank):
+        rows = by_q[q]
+        questions.append({
+            "question": q,
+            "analyzers": sorted({r["analyzer"] for r in rows}),
+            "n_measurements": len(rows),
+            "n_candidates": sum(1 for r in rows if r["status"] == "candidate"),
+        })
+
+    drops = Counter(m["status"] for m in inv)
+    return [{
+        "block": "m1_probe_questions",
+        "run_id": run.run_id,
+        "n_analyzers": len(analyzers),
+        "n_measured": len(inv),
+        "n_forwarded": forwarded,
+        "questions": questions,
+        "dropped": {
+            "saw_the_answer_key": drops.get("dropped_sees_answer_key", 0),
+            "never_varied": drops.get("dropped_never_varies", 0),
+            "partial_coverage": drops.get("dropped_partial_coverage", 0),
+        },
+        "note": "each case is answered five times; the probes never see the answer key",
+        "inventory": inv,
+        "source": "logs/artifacts/c0_<analyzer>.result.json per-case fields",
+    }]
 
 
 def survivor_signals(run: Run) -> List[str]:
@@ -790,7 +1000,7 @@ def block_repair(run: Run) -> List[dict]:
             "prompt_template": payload.get("prompt_template"),
             "steps": _prompt_steps(payload),
             "modifies_parameters": False,
-            "trial_root": run.relpath(best.get("trial_root") or "")
+            "trial_root": run.rooted(best.get("trial_root") or "")
             if best.get("trial_root")
             else None,
             "source": "logs/run_log.jsonl:fix.best.payload",
@@ -1105,19 +1315,29 @@ def to_document(records: List[dict]) -> dict:
         repair["prompt_template_lines"] = rep["prompt_template"].split("\n")
 
     doc = {
+        "pipeline": [
+            {"module": m, "name": MODULE_NAMES[m], "subtitle": MODULE_SUBTITLES[m]}
+            for m in ("M1", "M2", "M3", "M5", "M4")
+        ],
         "headline": headline,
         "run": _clean(run, BOILERPLATE),
         "m1_probe": _clean({
+            "module": f'M1 \u00b7 {MODULE_NAMES["M1"]}',
             "analyzers": _clean(one("m1_analyzers"), BOILERPLATE),
+            "probe_questions": _clean(one("m1_probe_questions"),
+                                      BOILERPLATE + ("inventory",)),
+            "measurement_inventory": one("m1_probe_questions").get("inventory", []),
             "signal_curve": _clean(one("m1_signal_curve"), BOILERPLATE),
         }),
-        "m2_statistics": m2,
+        "m2_statistics": {"module": f'M2 \u00b7 {MODULE_NAMES["M2"]}', **m2},
         "m3_hypotheses": _clean({
+            "module": f'M3 \u00b7 {MODULE_NAMES["M3"]}',
             "proposed": [_clean(h, BOILERPLATE) for h in many("m3_hypothesis")],
             "adversarial_critic": _clean(one("m3_critic"), BOILERPLATE),
         }),
-        "m5_verdicts": [_clean(v, BOILERPLATE) for v in many("m5_verdict")],
-        "m4_repair_search": m4,
+        "m5_verdicts": {"module": f'M5 \u00b7 {MODULE_NAMES["M5"]}',
+                        "verdicts": [_clean(v, BOILERPLATE) for v in many("m5_verdict")]},
+        "m4_repair_search": {"module": f'M4 \u00b7 {MODULE_NAMES["M4"]}', **m4},
         "accepted_repair": repair,
         "heldout_validation": _clean(val, BOILERPLATE),
         "example_case": _clean(one("example_case"), BOILERPLATE),
@@ -1182,7 +1402,9 @@ def to_markdown(doc: dict, title: Optional[str] = None) -> str:
 
     # ---------------- M1 ----------------
     an = probe.get("analyzers", {})
-    L.append("## M1 · Probe — which analyzers ran")
+    L.append(f"## M1 · {MODULE_NAMES['M1']}")
+    L.append("")
+    L.append(f"*{MODULE_SUBTITLES['M1']}*")
     L.append("")
     for fam in an.get("families", []):
         if fam.get("label") == "OTHER" and not fam.get("selected"):
@@ -1192,6 +1414,23 @@ def to_markdown(doc: dict, title: Optional[str] = None) -> str:
         for a in fam.get("analyzers", []) or []:
             L.append(f"  - `{a}`")
     L.append("")
+
+    pq = probe.get("probe_questions", {})
+    if pq:
+        L.append("**What the probes ask**")
+        L.append("")
+        for q in pq.get("questions", []):
+            L.append(f"- {q.get('question')}")
+        L.append("")
+        d = pq.get("dropped", {})
+        L.append(f"**{pq.get('n_measured')} measurements, "
+                 f"{pq.get('n_forwarded')} forwarded to M2** \u2014 dropped: "
+                 f"{d.get('saw_the_answer_key', 0)} saw the answer key, "
+                 f"{d.get('never_varied', 0)} never varied, "
+                 f"{d.get('partial_coverage', 0)} partial coverage.")
+        L.append("")
+        L.append(f"*{pq.get('note')}*")
+        L.append("")
 
     if curve:
         surv = curve.get("n_surviving_signals", 1)
@@ -1208,7 +1447,9 @@ def to_markdown(doc: dict, title: Optional[str] = None) -> str:
         L.append("")
 
     # ---------------- M2 ----------------
-    L.append("## M2 · Statistics — is the pattern real?")
+    L.append(f"## M2 · {MODULE_NAMES['M2']}")
+    L.append("")
+    L.append(f"*{MODULE_SUBTITLES['M2']}*")
     L.append("")
     for phase in ("explore", "heldout"):
         blk = (doc.get("m2_statistics") or {}).get(phase)
@@ -1238,9 +1479,11 @@ def to_markdown(doc: dict, title: Optional[str] = None) -> str:
 
     # ---------------- M3 / M5 ----------------
     hyps = (doc.get("m3_hypotheses") or {}).get("proposed", [])
-    verdicts = doc.get("m5_verdicts", [])
+    verdicts = (doc.get("m5_verdicts") or {}).get("verdicts", [])
     by_mode = {v.get("failure_mode"): v for v in verdicts}
-    L.append("## M3 → M5 · Hypotheses, frozen then adjudicated on held-out")
+    L.append(f"## M3 · {MODULE_NAMES['M3']}  →  M5 · {MODULE_NAMES['M5']}")
+    L.append("")
+    L.append("*frozen on explore, then adjudicated on held-out cases*")
     L.append("")
     ICON = {"supported": "\u2713 SUPPORTED", "refuted": "\u2717 REFUTED",
             "inconclusive": "\u25cb INCONCLUSIVE"}
@@ -1260,7 +1503,9 @@ def to_markdown(doc: dict, title: Optional[str] = None) -> str:
 
     # ---------------- M4 ----------------
     search = doc.get("m4_repair_search", {})
-    L.append("## M4 · Repair ladder")
+    L.append(f"## M4 · {MODULE_NAMES['M4']}")
+    L.append("")
+    L.append(f"*{MODULE_SUBTITLES['M4']}*")
     L.append("")
     STATUS = {"accepted": "**accepted**", "regressed": "regressed",
               "untouched": "untouched", "not_selected": "tried, not selected"}
@@ -1362,9 +1607,18 @@ def extract(root: str, example_case: Optional[str] = None) -> List[dict]:
     signals = survivor_signals(run)
     signal = pick_curve_signal(run, signals)
     records: List[dict] = []
+    forwarded = None
+    for phase, path in run.m2_files():
+        if phase == "explore":
+            assoc = [r for r in (load_json(path, []) or [])
+                     if r.get("tool") == "signal_label_assoc"]
+            forwarded = sum(1 for r in assoc
+                            if r.get("correction_family")
+                            and "degenerate" not in (r.get("summary") or "").lower())
     for name, fn in [
         ("run", lambda: block_run(run)),
         ("m1_analyzers", lambda: block_m1_analyzers(run)),
+        ("m1_probe_questions", lambda: block_m1_questions(run, forwarded)),
         ("m1_signal_curve", lambda: block_m1_signal_curve(run, signal, signals)),
         ("m2", lambda: block_m2(run)),
         ("m3", lambda: block_m3(run)),

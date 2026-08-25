@@ -20,6 +20,10 @@ else:
     _TORCH_IMPORT_ERROR = None
 
 
+from evalvitals.core.capability import Capability
+from evalvitals.core.model import Model, Trace
+
+
 def _torch():
     """torch, or a clear error naming what actually needs it."""
     if torch is None:

@@ -148,3 +148,22 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .topbar .run-agent svg { flex: none; }
 .detail-page nav .shell-agent { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); padding: 5px 11px; color: var(--green); font: 500 10px "DM Mono", monospace; letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; }
 .detail-page nav .shell-agent svg { flex: none; }
+
+/* ── Figures open full-screen ────────────────────────────────────────────
+   Every image in the report is evidence — an analyzer chart with seven axis
+   labels, or the input a case was scored on — and at the size it sits on the
+   page none of that is legible. Clicking one opens it here, centred and as
+   large as the viewport allows. */
+.zoomable { cursor: zoom-in; }
+.zoomable:hover { outline: 1px solid #3c5b4f; outline-offset: 2px; }
+.zoomable:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+.lightbox { position: fixed; inset: 0; z-index: 200; background: rgba(4, 10, 8, .93); display: flex; flex-direction: column; }
+.lightbox-bar { display: flex; align-items: center; gap: 14px; padding: 12px max(18px, 3vw); border-bottom: 1px solid var(--line); color: var(--ink); background: #08120f; }
+.lightbox-bar span { margin-right: auto; font-size: 13px; color: var(--ink-dim, #c4d3ce); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lightbox-bar button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: transparent; color: var(--green); padding: 7px 13px; cursor: pointer; font: 500 10px "DM Mono", monospace; letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; }
+.lightbox-bar button:hover { background: #12241d; }
+.lightbox-bar button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+.lightbox-frame { flex: 1; min-height: 0; display: grid; place-items: center; padding: max(16px, 2vw); }
+.lightbox-frame img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; }

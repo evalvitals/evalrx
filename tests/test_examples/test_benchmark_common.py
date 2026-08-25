@@ -98,6 +98,33 @@ def test_resolve_accepts_a_raw_spec_key_and_rejects_unknown_models(common):
         models.resolve("qwen3.5-2b", "alm")
 
 
+def test_endpoint_backend_sends_thinking_off_and_top_k_in_extra_body(common, monkeypatch):
+    """vLLM applies the repo chat template server-side with ITS defaults —
+    Nemotron 3 defaults enable_thinking=True — so the endpoint runtime must
+    carry the spec's chat_template_kwargs (and the top_k the OpenAI schema
+    lacks) in extra_body."""
+    _, _, _, run = common
+    captured = {}
+    import evalvitals.models.backends.openai_compat as oc
+
+    def fake_runtime(**kw):
+        captured.update(kw)
+        from evalvitals.models.backends.base import RuntimeConfig
+        return RuntimeConfig(generate_fn=lambda prompt, model="", **k: "ok")
+
+    monkeypatch.setattr(oc, "openai_runtime", fake_runtime)
+    from _common import models as M
+    from _common import runner
+    from _common import tasks as T
+    args = run.build_parser().parse_args([
+        "--modality", "llm", "--model", "nemotron-3-nano-4b", "--backend", "endpoint"])
+    resolved = M.resolve("nemotron-3-nano-4b", "llm", backend="endpoint")
+    runner.load_model(resolved, args, T.get("bbh_causal_judgement"))
+    assert captured["extra_body"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["extra_body"]["top_k"] == 20 and captured["top_p"] == 0.95
+    assert captured["temperature"] == 0.6 and captured["max_tokens"] == 2048
+
+
 def test_scorers_by_task_kind(common):
     _, _, scoring, _ = common
     score = scoring.score_output
