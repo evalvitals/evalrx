@@ -33,7 +33,10 @@ from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
 pytest.importorskip("pydantic")
 
 from evalvitals.contract import (  # noqa: E402
-    SCHEMA_VERSION, DiagnosisOutput, HypothesisTestOutput, ProbeOutput,
+    SCHEMA_VERSION,
+    DiagnosisOutput,
+    HypothesisTestOutput,
+    ProbeOutput,
 )
 
 #: What the judge returned on the live run: a mechanism, a failure mode, and no

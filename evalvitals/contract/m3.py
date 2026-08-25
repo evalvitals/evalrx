@@ -9,14 +9,12 @@ route deterministically instead of re-reading the sentence.
 from __future__ import annotations
 
 import re
-
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field, field_validator
 
 from evalvitals.contract.common import HypothesisStatus, StageEnvelope, WireModel
 from evalvitals.contract.m2 import ExploreContextWire
-
 
 # ---------------------------------------------------------------------------
 # Input

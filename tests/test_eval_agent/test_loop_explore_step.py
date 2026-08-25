@@ -207,7 +207,7 @@ def test_explorer_failure_costs_the_notes_not_the_run(tmp_path):
     assert calls[:4] == ["m1", "explore", "m2", "m3"]
     assert report.final_hypotheses            # M3 still ran, on M2 alone
     assert diag.seen_context == [None]
-    events = [json.loads(l) for l in (tmp_path / "logs" / "run_log.jsonl").read_text().splitlines()]
+    events = [json.loads(line) for line in (tmp_path / "logs" / "run_log.jsonl").read_text().splitlines()]
     ex = [e for e in events if e["event"] == "explore"]
     assert len(ex) == 1 and ex[0]["ok"] is False and "no report" in ex[0]["error"]
     # the failed step is still accounted for
@@ -250,7 +250,7 @@ def test_explore_persists_beside_logs_and_m3_sees_the_rendered_chart(tmp_path):
     ctx = diag.seen_context[0]
     assert ctx.figure_paths == [str(figs[0])]
 
-    events = [json.loads(l) for l in (tmp_path / "logs" / "run_log.jsonl").read_text().splitlines()]
+    events = [json.loads(line) for line in (tmp_path / "logs" / "run_log.jsonl").read_text().splitlines()]
     ex = next(e for e in events if e["event"] == "explore")
     assert ex["ok"] is True and ex["n_charts"] == 1 and ex["n_charts_rendered"] == 1
     assert ex["report_path"] == str(out / "exploratory_report.json")
@@ -343,7 +343,7 @@ def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):
     assert "FAIL cases have ~4x longer chains" in prompt
     png = next((tmp_path / "explore" / "figures").glob("*.png"))
     assert str(png) in judge.calls[0]["images"]
-    events = [json.loads(l) for l in (tmp_path / "logs" / "run_log.jsonl").read_text().splitlines()]
+    events = [json.loads(line) for line in (tmp_path / "logs" / "run_log.jsonl").read_text().splitlines()]
     m3 = next(e for e in events if e["event"] == "diagnosis")
     assert m3.get("explore_context_used") is True
     assert "Mean n_steps by label" in (m3.get("referenced_charts") or [])

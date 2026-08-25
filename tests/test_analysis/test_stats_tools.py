@@ -6,7 +6,9 @@ def test_outcome_regrades_go_to_the_sanity_lane():
     were every BH survivor on qwen3.5-2b/minervamath and then M5's tautological
     'evidence'. They are isolated by NAME; derived mechanism flags stay."""
     from evalvitals.analysis.stats_tools import (
-        OUTCOME_REGRADE_METRICS, StatsInput, isolate_label_leaks,
+        OUTCOME_REGRADE_METRICS,
+        StatsInput,
+        isolate_label_leaks,
     )
 
     labels = {f"c{i}": i < 10 for i in range(20)}

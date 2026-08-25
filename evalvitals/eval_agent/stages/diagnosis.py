@@ -27,10 +27,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from evalvitals.agent_runtime.json_shape import validate_json_shape
-from evalvitals.eval_agent.hypothesis import Hypothesis
 from evalvitals.analysis.plain_language import jargon_violation
+from evalvitals.eval_agent.hypothesis import Hypothesis
 from evalvitals.eval_agent.prompts.diagnosis import (
-    _DIAGNOSE_PROMPT, _PLAIN_REPAIR_PROMPT, _VALIDATE_PROMPT,
+    _DIAGNOSE_PROMPT,
+    _PLAIN_REPAIR_PROMPT,
+    _VALIDATE_PROMPT,
 )
 
 if TYPE_CHECKING:

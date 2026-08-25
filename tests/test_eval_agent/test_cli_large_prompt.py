@@ -14,9 +14,8 @@ prompts to a file in the sandboxed workspace instead of passing them inline.
 
 from __future__ import annotations
 
-import shutil
-
 import os
+import shutil
 import stat
 import textwrap
 from pathlib import Path

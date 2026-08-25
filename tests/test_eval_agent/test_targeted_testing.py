@@ -469,7 +469,10 @@ def test_design_naming_unmeasured_evidence_stays_inconclusive_not_refuted():
 
 def test_identifier_helpers():
     from evalvitals.eval_agent.stages.hypothesis_tester import (
-        _identifiers, _signal_keywords, _tool_ids, _tool_keywords,
+        _identifiers,
+        _signal_keywords,
+        _tool_ids,
+        _tool_keywords,
     )
 
     assert _identifiers("Re-run `perturbation_battery` and cot_faithfulness.drift_away") == {
