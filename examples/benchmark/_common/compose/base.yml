@@ -30,6 +30,12 @@ services:
       - ${CODEX_NODE:-~/.nvm/versions/node/current/bin/node}:/usr/local/bin/node:ro
       - ${CODEX_PACKAGE:-~/.nvm/versions/node/current/lib/node_modules/@openai/codex}:/opt/codex:ro
       - ${CODEX_HOME:-~/.codex}:/home/user/.codex
+      # Optional alternate judge/coder: --judge-provider agy (Antigravity CLI,
+      # no OpenAI/Anthropic API key needed — see
+      # evalvitals/agent_runtime/judges/agy.py). Harmless to mount when unused.
+      - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
+      - ${AGY_GEMINI_HOME:-~/.gemini}:/home/user/.gemini
+      - ${AGY_CACHE_HOME:-~/.cache/antigravity}:/home/user/.cache/antigravity
     # --backend endpoint reaches a vLLM server on the host at host.docker.internal.
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -232,8 +232,8 @@ def test_run_config_records_data_fingerprint_and_labels():
 
 def test_run_logger_creates_langfuse_trace_and_spans(tmp_path):
     """RunLogger must automatically record Langfuse spans, generations, and export bundle."""
-    from evalvitals.eval_agent.run_logger import RunLogger
     from evalvitals.core.result import Result
+    from evalvitals.eval_agent.run_logger import RunLogger
 
     run_dir = tmp_path / "langfuse_run"
     logger = RunLogger(run_dir=run_dir)

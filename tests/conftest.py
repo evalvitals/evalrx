@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from evalvitals.core.capability import Capability
+from evalvitals.core.model import Model, Trace
+
 try:
     import torch
 except ModuleNotFoundError as exc:  # pragma: no cover - depends on the box
@@ -24,9 +27,6 @@ def _torch():
             "this test drives FakeModel's tensor path and needs torch installed"
         ) from _TORCH_IMPORT_ERROR
     return torch
-
-from evalvitals.core.capability import Capability
-from evalvitals.core.model import Model, Trace
 
 
 class FakeModel(Model):

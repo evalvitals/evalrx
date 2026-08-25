@@ -692,7 +692,8 @@ def test_out_tag_reads_the_frozen_batch_and_copies_it_without_touching_it(pipe, 
     assert (tagged / "cases.json").read_text() == before        # self-contained copy
     assert base.joinpath("cases.json").read_text() == before    # frozen batch untouched
     # a second load prefers the tagged copy (edit it to prove which one was read)
-    doc = json.loads((tagged / "cases.json").read_text()); doc["cases"] = doc["cases"][:5]
+    doc = json.loads((tagged / "cases.json").read_text())
+    doc["cases"] = doc["cases"][:5]
     (tagged / "cases.json").write_text(json.dumps(doc))
     batch2, _ = pipe.load_batch("m", "d", out_dir=tagged)
     assert len(list(batch2)) == 5

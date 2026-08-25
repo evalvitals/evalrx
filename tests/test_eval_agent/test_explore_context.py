@@ -233,10 +233,9 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     a reviewer must be able to read what it was shown, not only what it said."""
     import json
 
+    from evalvitals.eval_agent.hypothesis import Hypothesis
     from evalvitals.eval_agent.run_logger import RunLogger
     from evalvitals.eval_agent.stages.diagnosis import DiagnosisResult
-
-    from evalvitals.eval_agent.hypothesis import Hypothesis
 
     logger = RunLogger(run_dir=tmp_path / "run2")
     h1 = Hypothesis(statement="h1", target_model="vlm", predicted_failure_mode="x")
