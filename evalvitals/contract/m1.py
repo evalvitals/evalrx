@@ -9,15 +9,18 @@ the only hard requirement in an otherwise open payload.
 from __future__ import annotations
 
 import re
-
 from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
 from evalvitals.contract.common import (
-    ArtifactRef, CaseBatchRef, Modality, OpenWireModel, StageEnvelope, WireModel,
+    ArtifactRef,
+    CaseBatchRef,
+    Modality,
+    OpenWireModel,
+    StageEnvelope,
+    WireModel,
 )
-
 
 # ---------------------------------------------------------------------------
 # Input

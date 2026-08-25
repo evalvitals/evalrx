@@ -3789,7 +3789,9 @@ def test_a_coded_pipelines_own_header_is_its_description():
 
 def test_plain_description_never_falls_back_to_the_slug():
     from evalvitals.eval_agent.stages.fix_agent import (
-        FixCandidate, FixTier, plain_description,
+        FixCandidate,
+        FixTier,
+        plain_description,
     )
 
     judged = FixCandidate(

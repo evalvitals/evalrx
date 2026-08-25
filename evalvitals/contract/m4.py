@@ -18,10 +18,12 @@ from typing import Any, Literal
 from pydantic import Field, model_validator
 
 from evalvitals.contract.common import (
-    ArtifactRef, CaseBatchRef, HypothesisStatus, StageEnvelope, WireModel,
+    CaseBatchRef,
+    HypothesisStatus,
+    StageEnvelope,
+    WireModel,
 )
 from evalvitals.contract.methodology import MethodologyWire
-
 
 # ===========================================================================
 # M4a — SurgeryAgent: verify the mechanism

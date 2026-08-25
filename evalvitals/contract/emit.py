@@ -33,22 +33,37 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from evalvitals.contract.common import (
-    SCHEMA_VERSION, CaseBatchRef, CaseBatchWire, FailureCaseWire, StageState,
-    StageStatus, WireModel,
+    SCHEMA_VERSION,
+    CaseBatchRef,
+    CaseBatchWire,
+    FailureCaseWire,
+    StageState,
+    StageStatus,
+    WireModel,
 )
 from evalvitals.contract.m1 import (
-    _PYTHON_REPR, AnalyzerSelection, FindingsWire, ModelRef, PerCaseRow, ProbeOutput,
+    _PYTHON_REPR,
+    AnalyzerSelection,
+    FindingsWire,
+    ModelRef,
+    PerCaseRow,
+    ProbeOutput,
     ResultWire,
 )
 from evalvitals.contract.m2 import (
-    AnalysisFindingWire, CorrectedRejections, StatsReportWire, StatsToolResultWire,
+    AnalysisFindingWire,
+    CorrectedRejections,
+    StatsReportWire,
+    StatsToolResultWire,
 )
 from evalvitals.contract.m3 import DiagnosisOutput, HypothesisWire
 from evalvitals.contract.m4 import FixAttemptWire, FixOutput, InterventionOutput
-from evalvitals.contract.methodology import MethodologyWire
 from evalvitals.contract.m5 import (
-    HypothesisTestOutput, HypothesisTestResultWire, TestEvidence,
+    HypothesisTestOutput,
+    HypothesisTestResultWire,
+    TestEvidence,
 )
+from evalvitals.contract.methodology import MethodologyWire
 
 logger = logging.getLogger(__name__)
 

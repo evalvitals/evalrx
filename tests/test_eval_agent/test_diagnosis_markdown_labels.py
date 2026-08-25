@@ -298,8 +298,8 @@ def test_a_wrapped_failure_mode_unwraps_but_prose_keeps_its_code_spans():
 
 def test_the_failure_mode_keys_the_next_cycle_actually_routes_on():
     """The unwrapped mode must hit the routing table, or the fix is cosmetic."""
-    from evalvitals.eval_agent.stages.probe import _FAILURE_MODE_TO_ANALYZERS
     from evalvitals.eval_agent.stages.diagnosis import _unwrap_value
+    from evalvitals.eval_agent.stages.probe import _FAILURE_MODE_TO_ANALYZERS
 
     for wrapped in ("`ignored_obs`", "`language_prior_bias`"):
         assert _unwrap_value(wrapped) in _FAILURE_MODE_TO_ANALYZERS

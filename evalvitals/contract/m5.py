@@ -15,10 +15,13 @@ from typing import Any, Literal
 from pydantic import Field, model_validator
 
 from evalvitals.contract.common import (
-    CaseBatchRef, EvidenceGrade, HypothesisStatus, StageEnvelope, WireModel,
+    CaseBatchRef,
+    EvidenceGrade,
+    HypothesisStatus,
+    StageEnvelope,
+    WireModel,
 )
 from evalvitals.contract.m1 import ProtocolWire
-
 
 # ---------------------------------------------------------------------------
 # Input
