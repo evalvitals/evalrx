@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowLeft, BarChart3, Beaker, Bot, CheckCircle2, Chevron
 import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixAttemptWire,
   FixOutput, HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
 import { buildBrief, StageBrief } from "./brief";
+import { ZoomableImage } from "./lightbox";
 import { chartPercent, chartValue, findContract } from "./reportAccess";
 
 /**
@@ -156,7 +157,7 @@ function M2Detail({ data }: { data: any }) {
 
 function EvidenceFigure({ figure }: { figure: any }) {
   const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
-  return <figure><img src={source} alt={figure.title} /><figcaption><b>{figure.title}</b>{figure.question && <span>{figure.question}</span>}{figure.reading && <p><BarChart3 size={13} /> {figure.reading}</p>}{figure.do_not_infer && <small>Do not infer: {figure.do_not_infer}</small>}</figcaption></figure>;
+  return <figure><ZoomableImage src={source} alt={figure.title} caption={figure.title} /><figcaption><b>{figure.title}</b>{figure.question && <span>{figure.question}</span>}{figure.reading && <p><BarChart3 size={13} /> {figure.reading}</p>}{figure.do_not_infer && <small>Do not infer: {figure.do_not_infer}</small>}</figcaption></figure>;
 }
 
 /**
@@ -667,7 +668,7 @@ function TrajectoryPanel({ trajectory }: { trajectory: any }) {
 
 function MediaPreview({ media, caseId }: { media: ReportData["media"][number]; caseId: string }) {
   const source = media.data_uri || `/api/media/${encodeURIComponent(media.id)}`;
-  if (media.kind === "image") return <img className="case-media" src={source} alt={`Input for case ${caseId}`} />;
+  if (media.kind === "image") return <ZoomableImage className="case-media" src={source} alt={`Input for case ${caseId}`} caption={`Input for case ${caseId}`} />;
   if (media.kind === "video") return <video className="case-media" controls preload="metadata" src={source} />;
   return <audio controls preload="metadata" src={source} />;
 }

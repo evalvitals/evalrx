@@ -29,6 +29,7 @@ import type {
   AnalyzerSelection, Chart, DiagnosisOutput, FixOutput, HypothesisTestOutput,
   Modality, ProbeOutput, ReportData,
 } from "./types";
+import { ZoomableImage } from "./lightbox";
 import {
   chartValue, countOf, findContract, headlineSplit, leadFrom, metric, oddsPhrase,
   outcomeColors, plural, pointsGap, stageDetail, stripMarkdown,
@@ -157,7 +158,8 @@ function BriefChart({ chart }: { chart: Chart }) {
 /** A saved PNG a stage produced. `data_uri` on an exported report, path on a served one. */
 function BriefImage({ figure }: { figure: any }) {
   const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
-  return <img className="brief-image" src={source} alt={figure.title || "Stage figure"} />;
+  return <ZoomableImage className="brief-image" src={source}
+    alt={figure.title || "Stage figure"} caption={figure.title || ""} />;
 }
 
 // ---------------------------------------------------------------------------

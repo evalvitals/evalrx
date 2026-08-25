@@ -7,6 +7,7 @@ import ReactECharts from "echarts-for-react";
 import { ArrowUpRight, Check, CircleDot, Database, Wrench } from "lucide-react";
 import { z } from "zod";
 import type { Chart, ReportData, Stage } from "./types";
+import { ZoomableImage } from "./lightbox";
 import { chartValue, outcomeColors } from "./reportAccess";
 
 const ids = z.array(z.string()).optional();
@@ -145,7 +146,7 @@ function PreviewMedia({ item, data }: { item: ReportData["cases"][number]; data:
   const first = media[0];
   if (!first) return null;
   const source = first.data_uri || `/api/media/${encodeURIComponent(first.id)}`;
-  if (first.kind === "image") return <img className="case-preview-media" src={source} alt={`Input for ${item.id}`} />;
+  if (first.kind === "image") return <ZoomableImage className="case-preview-media" src={source} alt={`Input for ${item.id}`} caption={`Input for ${item.id}`} />;
   if (first.kind === "audio") return <audio className="case-preview-audio" controls preload="metadata" src={source} />;
   return <video className="case-preview-media" controls preload="metadata" src={source} />;
 }
