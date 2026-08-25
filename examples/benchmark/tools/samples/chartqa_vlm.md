@@ -4,7 +4,9 @@
 
 > 256 cases, split 128 explore / 128 held-out · baseline 49.2% · repair cap L3a · analyzer selection: pinned
 
-## M1 · Probe — which analyzers ran
+## M1 · Suspicious Behavior Detection
+
+*Run the analyzer probing library, find per-case suspicious behaviors*
 
 - **BLACK-BOX BEHAVIOR** — **selected**
   - `answer_extraction_audit`
@@ -12,6 +14,21 @@
   - `coverage_verification_gap`
 - **INTERNAL / WHITE-BOX** — available, not used
 - **MULTIMODAL** — available, not used
+
+**What the probes ask**
+
+- Did it produce anything at all?
+- Did it answer in the form we asked for?
+- Did it give up answering?
+- Did it stop, or keep talking?
+- Same question five times, same answer?
+- Asked to check itself, does it change?
+- Does it lean to one answer regardless?
+- Did it ever produce the right answer?
+
+**26 measurements, 9 forwarded to M2** — dropped: 11 saw the answer key, 5 never varied, 4 partial coverage.
+
+*each case is answered five times; the probes never see the answer key*
 
 **The signal it found:** `coverage_verification_gap.n_unique`
 
@@ -23,14 +40,18 @@
 | 4 | 6 | `████████████` 100% |
 | 5 | 12 | `███████████·` 92% |
 
-## M2 · Statistics — is the pattern real?
+## M2 · Statistical Screening
+
+*Using plots to explain, statistical tests to decide*
 
 - **explore** — 9 signals tested (BH correction), 1 survived: `coverage_verification_gap.n_unique`
 - **heldout** — 8 signals tested (BH correction), 1 survived: `coverage_verification_gap.n_unique`
 
 Strongest confirmed effect: **+0.46** extra failure rate when `coverage_verification_gap.n_unique` is high (95% CI +0.30 to +0.61)
 
-## M3 → M5 · Hypotheses, frozen then adjudicated on held-out
+## M3 · Hypothesis Formation  →  M5 · Held-out Verification
+
+*frozen on explore, then adjudicated on held-out cases*
 
 **H1 · `computation_slip` — ✓ SUPPORTED**
 
@@ -46,7 +67,9 @@ Strongest confirmed effect: **+0.46** extra failure rate when `coverage_verifica
 
 *An adversarial critic objected to 3 of 3 hypotheses; objections are recorded, not vetoes — adjudication is statistical.*
 
-## M4 · Repair ladder
+## M4 · Validated Repair
+
+*Fix the failure with the validated repair ladder*
 
 | tier | | outcome |
 | --- | --- | --- |

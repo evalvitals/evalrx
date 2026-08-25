@@ -1,4 +1,31 @@
 {
+  "pipeline": [
+    {
+      "module": "M1",
+      "name": "Suspicious Behavior Detection",
+      "subtitle": "Run the analyzer probing library, find per-case suspicious behaviors"
+    },
+    {
+      "module": "M2",
+      "name": "Statistical Screening",
+      "subtitle": "Using plots to explain, statistical tests to decide"
+    },
+    {
+      "module": "M3",
+      "name": "Hypothesis Formation",
+      "subtitle": "Explore the reason behind the signals"
+    },
+    {
+      "module": "M5",
+      "name": "Held-out Verification",
+      "subtitle": "Confirm whether the hypothesis is verified over the held-out cases"
+    },
+    {
+      "module": "M4",
+      "name": "Validated Repair",
+      "subtitle": "Fix the failure with the validated repair ladder"
+    }
+  ],
   "headline": {
     "model": "gemma-4-e2b-it",
     "dataset": "ChartQA/test_human",
@@ -61,6 +88,7 @@
     "total_duration_sec": 1681.7
   },
   "m1_probe": {
+    "module": "M1 · Suspicious Behavior Detection",
     "analyzers": {
       "selection_mode": "pinned",
       "selection_rationale": "Selected 3 analyzer(s) (answer_extraction_audit, selfcheck_consistency, coverage_verification_gap) by capability matching.",
@@ -130,6 +158,319 @@
         }
       }
     },
+    "probe_questions": {
+      "n_analyzers": 3,
+      "n_measured": 26,
+      "n_forwarded": 9,
+      "questions": [
+        {
+          "question": "Did it produce anything at all?",
+          "analyzers": [
+            "answer_extraction_audit"
+          ],
+          "n_measurements": 1,
+          "n_candidates": 0
+        },
+        {
+          "question": "Did it answer in the form we asked for?",
+          "analyzers": [
+            "answer_extraction_audit"
+          ],
+          "n_measurements": 1,
+          "n_candidates": 0
+        },
+        {
+          "question": "Did it give up answering?",
+          "analyzers": [
+            "answer_extraction_audit"
+          ],
+          "n_measurements": 1,
+          "n_candidates": 1
+        },
+        {
+          "question": "Did it stop, or keep talking?",
+          "analyzers": [
+            "answer_extraction_audit"
+          ],
+          "n_measurements": 2,
+          "n_candidates": 1
+        },
+        {
+          "question": "Same question five times, same answer?",
+          "analyzers": [
+            "coverage_verification_gap"
+          ],
+          "n_measurements": 4,
+          "n_candidates": 2
+        },
+        {
+          "question": "Asked to check itself, does it change?",
+          "analyzers": [
+            "selfcheck_consistency"
+          ],
+          "n_measurements": 3,
+          "n_candidates": 1
+        },
+        {
+          "question": "Does it lean to one answer regardless?",
+          "analyzers": [
+            "answer_extraction_audit"
+          ],
+          "n_measurements": 2,
+          "n_candidates": 0
+        },
+        {
+          "question": "Did it ever produce the right answer?",
+          "analyzers": [
+            "coverage_verification_gap"
+          ],
+          "n_measurements": 1,
+          "n_candidates": 1
+        }
+      ],
+      "dropped": {
+        "saw_the_answer_key": 11,
+        "never_varied": 5,
+        "partial_coverage": 4
+      },
+      "note": "each case is answered five times; the probes never see the answer key"
+    },
+    "measurement_inventory": [
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "answered_yes",
+        "signal": "answer_extraction_audit.answered_yes",
+        "n_values": 10,
+        "n_distinct": 2,
+        "status": "dropped_partial_coverage",
+        "question": "Does it lean to one answer regardless?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "extraction_point_miss",
+        "signal": "answer_extraction_audit.extraction_point_miss",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "extraction_suspect",
+        "signal": "answer_extraction_audit.extraction_suspect",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gave_up",
+        "signal": "answer_extraction_audit.gave_up",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "Did it give up answering?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gold_in_answer_region",
+        "signal": "answer_extraction_audit.gold_in_answer_region",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gold_in_output",
+        "signal": "answer_extraction_audit.gold_in_output",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gold_yes",
+        "signal": "answer_extraction_audit.gold_yes",
+        "n_values": 10,
+        "n_distinct": 2,
+        "status": "dropped_partial_coverage",
+        "question": "Does it lean to one answer regardless?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "has_answer_tag",
+        "signal": "answer_extraction_audit.has_answer_tag",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it answer in the form we asked for?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "has_output",
+        "signal": "answer_extraction_audit.has_output",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it produce anything at all?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "label_disagrees",
+        "signal": "answer_extraction_audit.label_disagrees",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "labelled_fail",
+        "signal": "answer_extraction_audit.labelled_fail",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "output_chars",
+        "signal": "answer_extraction_audit.output_chars",
+        "n_values": 128,
+        "n_distinct": 21,
+        "status": "candidate",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "output_truncated",
+        "signal": "answer_extraction_audit.output_truncated",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "strict_match",
+        "signal": "answer_extraction_audit.strict_match",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "selfcheck_consistency",
+        "field": "n_sentences",
+        "signal": "selfcheck_consistency.n_sentences",
+        "n_values": 128,
+        "n_distinct": 3,
+        "status": "candidate",
+        "question": "Asked to check itself, does it change?"
+      },
+      {
+        "analyzer": "selfcheck_consistency",
+        "field": "selfcheck_inconsistency",
+        "signal": "selfcheck_consistency.selfcheck_inconsistency",
+        "n_values": 20,
+        "n_distinct": 4,
+        "status": "dropped_partial_coverage",
+        "question": "Asked to check itself, does it change?"
+      },
+      {
+        "analyzer": "selfcheck_consistency",
+        "field": "selfcheck_worst_sentence",
+        "signal": "selfcheck_consistency.selfcheck_worst_sentence",
+        "n_values": 20,
+        "n_distinct": 4,
+        "status": "dropped_partial_coverage",
+        "question": "Asked to check itself, does it change?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "any_correct",
+        "signal": "coverage_verification_gap.any_correct",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it ever produce the right answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "coverage_gap",
+        "signal": "coverage_verification_gap.coverage_gap",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "Did it ever produce the right answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "majority_correct",
+        "signal": "coverage_verification_gap.majority_correct",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it ever produce the right answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "majority_share",
+        "signal": "coverage_verification_gap.majority_share",
+        "n_values": 128,
+        "n_distinct": 5,
+        "status": "candidate",
+        "question": "Same question five times, same answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "n_correct",
+        "signal": "coverage_verification_gap.n_correct",
+        "n_values": 128,
+        "n_distinct": 6,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it ever produce the right answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "n_graded",
+        "signal": "coverage_verification_gap.n_graded",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Same question five times, same answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "n_samples",
+        "signal": "coverage_verification_gap.n_samples",
+        "n_values": 128,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Same question five times, same answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "n_unique",
+        "signal": "coverage_verification_gap.n_unique",
+        "n_values": 128,
+        "n_distinct": 5,
+        "status": "candidate",
+        "question": "Same question five times, same answer?"
+      },
+      {
+        "analyzer": "coverage_verification_gap",
+        "field": "pass_at_k",
+        "signal": "coverage_verification_gap.pass_at_k",
+        "n_values": 128,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it ever produce the right answer?"
+      }
+    ],
     "signal_curve": {
       "phase": "explore",
       "signal": "coverage_verification_gap.n_unique",
@@ -177,6 +518,7 @@
     }
   },
   "m2_statistics": {
+    "module": "M2 · Statistical Screening",
     "explore": {
       "family": {
         "n_results_total": 21,
@@ -773,6 +1115,7 @@
     }
   },
   "m3_hypotheses": {
+    "module": "M3 · Hypothesis Formation",
     "proposed": [
       {
         "hypothesis_id": "H1",
@@ -827,129 +1170,133 @@
       "note": "critic objections are recorded, not vetoes; adjudication is statistical"
     }
   },
-  "m5_verdicts": [
-    {
-      "hypothesis_id": "H1",
-      "failure_mode": "computation_slip",
-      "status": "supported",
-      "statement": "Failures concentrate on questions requiring a *derived* quantity (difference, ratio, percent-of-total, sum) because the model composes an arithmetic result from two or more separately-estimated values, so each sample re-estimates the operands and the error compounds — yielding 4–5 distinct answers in 5 draws and a correct answer that is never sampled.",
-      "test_name": "signal_label_assoc",
-      "expected_direction": "higher_in_fail",
-      "effect": 0.4586,
-      "ci": [
-        0.301,
-        0.6075
-      ],
-      "reject": true,
-      "underpowered": false,
-      "evidence_grade": "observational",
-      "protocol_consistent": true,
-      "confidence_score": 0.599,
-      "fdr": {
-        "method": "BH",
-        "alpha": 0.05,
-        "n_tested": 8,
-        "rejected_tools": [
-          "signal_label_assoc"
+  "m5_verdicts": {
+    "module": "M5 · Held-out Verification",
+    "verdicts": [
+      {
+        "hypothesis_id": "H1",
+        "failure_mode": "computation_slip",
+        "status": "supported",
+        "statement": "Failures concentrate on questions requiring a *derived* quantity (difference, ratio, percent-of-total, sum) because the model composes an arithmetic result from two or more separately-estimated values, so each sample re-estimates the operands and the error compounds — yielding 4–5 distinct answers in 5 draws and a correct answer that is never sampled.",
+        "test_name": "signal_label_assoc",
+        "expected_direction": "higher_in_fail",
+        "effect": 0.4586,
+        "ci": [
+          0.301,
+          0.6075
         ],
-        "rejected_result_keys": [
-          "signal_label_assoc:coverage_verification_gap.n_unique"
-        ],
-        "families": {
-          "bh": {
-            "method": "BH",
-            "n_tested": 8,
-            "rejected_result_keys": [
-              "signal_label_assoc:coverage_verification_gap.n_unique"
-            ]
+        "reject": true,
+        "underpowered": false,
+        "evidence_grade": "observational",
+        "protocol_consistent": true,
+        "confidence_score": 0.599,
+        "fdr": {
+          "method": "BH",
+          "alpha": 0.05,
+          "n_tested": 8,
+          "rejected_tools": [
+            "signal_label_assoc"
+          ],
+          "rejected_result_keys": [
+            "signal_label_assoc:coverage_verification_gap.n_unique"
+          ],
+          "families": {
+            "bh": {
+              "method": "BH",
+              "n_tested": 8,
+              "rejected_result_keys": [
+                "signal_label_assoc:coverage_verification_gap.n_unique"
+              ]
+            }
           }
-        }
+        },
+        "verdict_text": "signal_label_assoc: signal 'coverage_verification_gap.n_unique' vs FAIL: [clustered bootstrap (unpaired)] effect=+0.4586 (B>A) CI=+0.3010..+0.6075 -> REJECT H0 [BH: survived, p=2.21e-07, n_signal=58] [hypothesis predicts the signal HIGHER on failures; observed effect +0.459 -> consistent]",
+        "split": "heldout"
       },
-      "verdict_text": "signal_label_assoc: signal 'coverage_verification_gap.n_unique' vs FAIL: [clustered bootstrap (unpaired)] effect=+0.4586 (B>A) CI=+0.3010..+0.6075 -> REJECT H0 [BH: survived, p=2.21e-07, n_signal=58] [hypothesis predicts the signal HIGHER on failures; observed effect +0.459 -> consistent]",
-      "split": "heldout"
-    },
-    {
-      "hypothesis_id": "H2",
-      "failure_mode": "ignored_obs",
-      "status": "supported",
-      "statement": "A second, disjoint failure population is *stable* misperception — the model binds the question's label to the wrong bar/series/axis tick and returns the identical wrong value in all 5 samples (`n_unique` = 1, `majority_share` = 1.0, `no_coverage` = 1), so it is invisible to any sampling-based confidence signal and unfixable by voting or verification.",
-      "test_name": "signal_label_assoc",
-      "expected_direction": "lower_in_fail",
-      "effect": 0.4586,
-      "ci": [
-        0.301,
-        0.6075
-      ],
-      "reject": true,
-      "underpowered": false,
-      "evidence_grade": "observational",
-      "protocol_consistent": true,
-      "confidence_score": 0.599,
-      "fdr": {
-        "method": "BH",
-        "alpha": 0.05,
-        "n_tested": 8,
-        "rejected_tools": [
-          "signal_label_assoc"
+      {
+        "hypothesis_id": "H2",
+        "failure_mode": "ignored_obs",
+        "status": "supported",
+        "statement": "A second, disjoint failure population is *stable* misperception — the model binds the question's label to the wrong bar/series/axis tick and returns the identical wrong value in all 5 samples (`n_unique` = 1, `majority_share` = 1.0, `no_coverage` = 1), so it is invisible to any sampling-based confidence signal and unfixable by voting or verification.",
+        "test_name": "signal_label_assoc",
+        "expected_direction": "lower_in_fail",
+        "effect": 0.4586,
+        "ci": [
+          0.301,
+          0.6075
         ],
-        "rejected_result_keys": [
-          "signal_label_assoc:coverage_verification_gap.n_unique"
-        ],
-        "families": {
-          "bh": {
-            "method": "BH",
-            "n_tested": 8,
-            "rejected_result_keys": [
-              "signal_label_assoc:coverage_verification_gap.n_unique"
-            ]
+        "reject": true,
+        "underpowered": false,
+        "evidence_grade": "observational",
+        "protocol_consistent": true,
+        "confidence_score": 0.599,
+        "fdr": {
+          "method": "BH",
+          "alpha": 0.05,
+          "n_tested": 8,
+          "rejected_tools": [
+            "signal_label_assoc"
+          ],
+          "rejected_result_keys": [
+            "signal_label_assoc:coverage_verification_gap.n_unique"
+          ],
+          "families": {
+            "bh": {
+              "method": "BH",
+              "n_tested": 8,
+              "rejected_result_keys": [
+                "signal_label_assoc:coverage_verification_gap.n_unique"
+              ]
+            }
           }
-        }
+        },
+        "verdict_text": "signal_label_assoc: signal 'coverage_verification_gap.n_unique' vs FAIL: [clustered bootstrap (unpaired)] effect=+0.4586 (B>A) CI=+0.3010..+0.6075 -> REJECT H0 [BH: survived, p=2.21e-07, n_signal=58] [hypothesis predicts the signal LOWER on failures; observed effect +0.459 -> consistent]",
+        "split": "heldout"
       },
-      "verdict_text": "signal_label_assoc: signal 'coverage_verification_gap.n_unique' vs FAIL: [clustered bootstrap (unpaired)] effect=+0.4586 (B>A) CI=+0.3010..+0.6075 -> REJECT H0 [BH: survived, p=2.21e-07, n_signal=58] [hypothesis predicts the signal LOWER on failures; observed effect +0.459 -> consistent]",
-      "split": "heldout"
-    },
-    {
-      "hypothesis_id": "H3",
-      "failure_mode": "language_prior_bias",
-      "status": "inconclusive",
-      "statement": "On binary/comparison questions the model applies a polarity prior rather than reading the chart, defaulting to \"No\" for comparison-style prompts regardless of the true relation (503, 1092 both gold-Yes answered \"No\"; 19 gold-No answered \"Yes\"), so accuracy on this slice tracks the base rate of the prior, not the evidence.",
-      "test_name": "signal_label_assoc",
-      "expected_direction": "higher_in_fail",
-      "effect": -0.5242,
-      "ci": [
-        -0.6129,
-        -0.4355
-      ],
-      "reject": true,
-      "underpowered": false,
-      "evidence_grade": "observational",
-      "protocol_consistent": true,
-      "confidence_score": 0.747,
-      "fdr": {
-        "method": "BH",
-        "alpha": 0.05,
-        "n_tested": 8,
-        "rejected_tools": [
-          "signal_label_assoc"
+      {
+        "hypothesis_id": "H3",
+        "failure_mode": "language_prior_bias",
+        "status": "inconclusive",
+        "statement": "On binary/comparison questions the model applies a polarity prior rather than reading the chart, defaulting to \"No\" for comparison-style prompts regardless of the true relation (503, 1092 both gold-Yes answered \"No\"; 19 gold-No answered \"Yes\"), so accuracy on this slice tracks the base rate of the prior, not the evidence.",
+        "test_name": "signal_label_assoc",
+        "expected_direction": "higher_in_fail",
+        "effect": -0.5242,
+        "ci": [
+          -0.6129,
+          -0.4355
         ],
-        "rejected_result_keys": [
-          "signal_label_assoc:coverage_verification_gap.n_unique"
-        ],
-        "families": {
-          "bh": {
-            "method": "BH",
-            "n_tested": 8,
-            "rejected_result_keys": [
-              "signal_label_assoc:coverage_verification_gap.n_unique"
-            ]
+        "reject": true,
+        "underpowered": false,
+        "evidence_grade": "observational",
+        "protocol_consistent": true,
+        "confidence_score": 0.747,
+        "fdr": {
+          "method": "BH",
+          "alpha": 0.05,
+          "n_tested": 8,
+          "rejected_tools": [
+            "signal_label_assoc"
+          ],
+          "rejected_result_keys": [
+            "signal_label_assoc:coverage_verification_gap.n_unique"
+          ],
+          "families": {
+            "bh": {
+              "method": "BH",
+              "n_tested": 8,
+              "rejected_result_keys": [
+                "signal_label_assoc:coverage_verification_gap.n_unique"
+              ]
+            }
           }
-        }
-      },
-      "verdict_text": "No significant M2 result (best: signal 'answer_extraction_audit.answered_yes' vs FAIL: [clustered bootstrap (unpaired)] effect=-0.5242 (A>B) CI=-0.6129..-0.4355 -> REJECT H0 [BH: NOT survived, p=0.0558, n_signal=4])",
-      "split": "heldout"
-    }
-  ],
+        },
+        "verdict_text": "No significant M2 result (best: signal 'answer_extraction_audit.answered_yes' vs FAIL: [clustered bootstrap (unpaired)] effect=-0.5242 (A>B) CI=-0.6129..-0.4355 -> REJECT H0 [BH: NOT survived, p=0.0558, n_signal=4])",
+        "split": "heldout"
+      }
+    ]
+  },
   "m4_repair_search": {
+    "module": "M4 · Validated Repair",
     "ladder": [
       {
         "tier": "L1",
@@ -1225,6 +1572,7 @@
   "_sources": {
     "example_case": "logs/report/discovery_cases.json + run_log case_record",
     "m1_analyzers": "logs/run_log.jsonl:probe",
+    "m1_probe_questions": "logs/artifacts/c0_<analyzer>.result.json per-case fields",
     "m1_signal_curve": "logs/artifacts/c0_coverage_verification_gap.result.json + run_log case_record labels",
     "m2_family": "logs/artifacts/c0_m2_stats_results.json",
     "m2_test": "logs/artifacts/c0_m2_stats_results.json",

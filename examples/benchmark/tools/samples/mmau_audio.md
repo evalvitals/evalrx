@@ -4,7 +4,9 @@
 
 > 256 cases, split 128 explore / 128 held-out · baseline 43.0% · repair cap L3a · analyzer selection: pinned
 
-## M1 · Probe — which analyzers ran
+## M1 · Suspicious Behavior Detection
+
+*Run the analyzer probing library, find per-case suspicious behaviors*
 
 - **BLACK-BOX BEHAVIOR** — **selected**
   - `answer_extraction_audit`
@@ -18,6 +20,22 @@
   - `logprob_entropy`
 - **MULTIMODAL** — available, not used
 
+**What the probes ask**
+
+- Did it produce anything at all?
+- Did it answer in the form we asked for?
+- Did it give up answering?
+- Did it stop, or keep talking?
+- Same question five times, same answer?
+- Reworded question, same answer?
+- Asked to check itself, does it change?
+- Was it as sure as it sounded?
+- Did it ever produce the right answer?
+
+**43 measurements, 15 forwarded to M2** — dropped: 15 saw the answer key, 8 never varied, 6 partial coverage.
+
+*each case is answered five times; the probes never see the answer key*
+
 **The signal it found:** `coverage_verification_gap.majority_share` — 1 of 8 signals that survived correction
 
 | majority_share | cases | failure rate |
@@ -28,14 +46,18 @@
 | 0.8 | 12 | `██████······` 50% |
 | 1.0 | 48 | `████········` 31% |
 
-## M2 · Statistics — is the pattern real?
+## M2 · Statistical Screening
+
+*Using plots to explain, statistical tests to decide*
 
 - **explore** — 15 signals tested (BH correction), 9 survived: `answer_extraction_audit.output_chars`, `coverage_verification_gap.n_unique`, `format_sensitivity.n_unparsed` …
 - **heldout** — 15 signals tested (BH correction), 8 survived: `answer_extraction_audit.output_chars`, `coverage_verification_gap.n_unique`, `selfcheck_consistency.n_sentences` …
 
 Strongest confirmed effect: **+0.41** extra failure rate when `selfcheck_consistency.n_sentences` is high (95% CI +0.26 to +0.56)
 
-## M3 → M5 · Hypotheses, frozen then adjudicated on held-out
+## M3 · Hypothesis Formation  →  M5 · Held-out Verification
+
+*frozen on explore, then adjudicated on held-out cases*
 
 **H1 · `truncation` — ○ INCONCLUSIVE**
 
@@ -49,7 +71,9 @@ Strongest confirmed effect: **+0.41** extra failure rate when `selfcheck_consist
 
 > Restricted to the 43 contract-respecting (`termination_class == 'clean'`) cases, answers are produced from an option-letter/text prior rather than from the audio — the model's own leaked text says so…
 
-## M4 · Repair ladder
+## M4 · Validated Repair
+
+*Fix the failure with the validated repair ladder*
 
 | tier | | outcome |
 | --- | --- | --- |
