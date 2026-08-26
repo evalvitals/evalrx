@@ -50,12 +50,78 @@ def _to_data_url(image: Any) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+_AUDIO_FORMATS = {".wav": "wav", ".mp3": "mp3", ".flac": "flac", ".ogg": "ogg", ".m4a": "m4a"}
+
+
+def _to_input_audio(audio: Any, sample_rate: int = 16000) -> dict:
+    """Encode *audio* as an OpenAI ``input_audio`` value (``{"data", "format"}``).
+
+    Accepts a path (format from the suffix), raw bytes (assumed WAV), or a
+    waveform -- ``np.ndarray`` or ``(np.ndarray, sample_rate)`` -- which is
+    written as 16-bit PCM WAV with the stdlib ``wave`` module so the endpoint
+    path needs no audio library of its own.
+    """
+    import os
+
+    fmt = "wav"
+    if isinstance(audio, (bytes, bytearray)):
+        data = bytes(audio)
+    elif isinstance(audio, (str, os.PathLike)):
+        path = os.fspath(audio)
+        fmt = _AUDIO_FORMATS.get(os.path.splitext(path)[1].lower(), "wav")
+        with open(path, "rb") as handle:
+            data = handle.read()
+    else:
+        import io
+        import wave
+
+        import numpy as np
+
+        if isinstance(audio, tuple) and len(audio) == 2:
+            audio, sample_rate = audio
+        arr = np.asarray(audio)
+        if arr.ndim > 1:  # (channels, n) or (n, channels) -> mono
+            arr = arr.mean(axis=0 if arr.shape[0] <= 8 else 1)
+        if np.issubdtype(arr.dtype, np.floating):
+            arr = np.clip(arr, -1.0, 1.0) * 32767.0
+        pcm = arr.astype("<i2").tobytes()
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(int(sample_rate))
+            wav.writeframes(pcm)
+        data = buf.getvalue()
+    return {"data": base64.b64encode(data).decode("ascii"), "format": fmt}
+
+
+def user_message(prompt: str, *, image: Any = None, audio: Any = None) -> dict:
+    """One user turn: a plain string, or content blocks when a media slot is set.
+
+    The blocks use the internal convention (``{"type": "image", "image": ...}``
+    / ``{"type": "audio", "audio": ...}``) that :func:`to_openai_messages`
+    converts, so ``chat_fn`` callers and ``generate_fn`` callers meet the wire
+    in one place.
+    """
+    if image is None and audio is None:
+        return {"role": "user", "content": prompt}
+    blocks: list[dict] = []
+    if audio is not None:
+        blocks.append({"type": "audio", "audio": audio})
+    if image is not None:
+        blocks.append({"type": "image", "image": image})
+    blocks.append({"type": "text", "text": prompt})
+    return {"role": "user", "content": blocks}
+
+
 def to_openai_messages(messages: list) -> list[dict]:
     """Convert internal content-block messages into OpenAI wire format.
 
     Plain-string content, assistant ``tool_calls`` and ``role="tool"`` results
     pass through unchanged; ``{"type": "image", "image": ...}`` blocks become
-    ``image_url`` blocks.
+    ``image_url`` blocks and ``{"type": "audio", "audio": ...}`` blocks become
+    ``input_audio`` blocks (base64 WAV/MP3/FLAC -- what ``vllm serve`` reads
+    for an audio model).
     """
     out: list[dict] = []
     for msg in messages:
@@ -68,6 +134,10 @@ def to_openai_messages(messages: list) -> list[dict]:
             if isinstance(block, dict) and block.get("type") == "image":
                 blocks.append(
                     {"type": "image_url", "image_url": {"url": _to_data_url(block.get("image"))}}
+                )
+            elif isinstance(block, dict) and block.get("type") == "audio":
+                blocks.append(
+                    {"type": "input_audio", "input_audio": _to_input_audio(block.get("audio"))}
                 )
             else:
                 blocks.append(block)
@@ -150,8 +220,8 @@ def openai_generate_fn(
         base_url=base_url, api_key=api_key, client=client, timeout=timeout, **sampling
     )
 
-    def _fn(prompt: str, model: str = "", **kw) -> str:
-        return chat([{"role": "user", "content": prompt}], tools=None, model=model).text
+    def _fn(prompt: str, model: str = "", *, image: Any = None, audio: Any = None, **kw) -> str:
+        return chat([user_message(prompt, image=image, audio=audio)], tools=None, model=model).text
 
     return _fn
 
@@ -186,12 +256,14 @@ def openai_logprobs_fn(
             )
         return state["client"]
 
-    def _fn(prompt: str, model: str = "", **kw) -> list:
+    def _fn(prompt: str, model: str = "", *, image: Any = None, audio: Any = None, **kw) -> list:
         kwargs: dict[str, Any] = {**sampling, **kw}
         kwargs["logprobs"] = True
         kwargs["top_logprobs"] = int(kwargs.pop("top_logprobs", top_logprobs))
         resp = _client().chat.completions.create(
-            model=model, messages=[{"role": "user", "content": prompt}], **kwargs
+            model=model,
+            messages=to_openai_messages([user_message(prompt, image=image, audio=audio)]),
+            **kwargs,
         )
         logprobs = getattr(resp.choices[0], "logprobs", None)
         content = getattr(logprobs, "content", None) if logprobs is not None else None

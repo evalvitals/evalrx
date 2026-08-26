@@ -18,7 +18,7 @@ if __package__ in (None, ""):  # `python run.py` from inside _common/ — re-roo
     __package__ = "_common"  # noqa: A001
 
 from . import tasks as T  # noqa: E402
-from .models import MODALITIES, SIZES, matrix_text, resolve  # noqa: E402
+from .models import BACKENDS, MODALITIES, SIZES, matrix_text, resolve  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,15 +27,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help=f"size key ({', '.join(SIZES)}) or a registered spec key")
     p.add_argument("--dataset", default=None, help="task name (default per modality: "
                    + ", ".join(f"{m}={n}" for m, n in T.DEFAULT_TASK.items()) + ")")
-    p.add_argument("--backend", choices=["hf_local", "endpoint"], default="hf_local",
+    p.add_argument("--backend", choices=list(BACKENDS), default="hf_local",
                    help="hf_local = in-process transformers (default; white-box + paper methods); "
-                        "endpoint = OpenAI-compatible server (black-box)")
+                        "endpoint = OpenAI-compatible server (black-box); gemini = Google Gen AI "
+                        "API through google-genai (forced for the gemini family)")
     p.add_argument("--concurrency", type=int, default=1,
                    help="Cases generated at once during baseline discovery. Honoured only for "
                         "--backend endpoint (a local backend shares one GPU and is not "
                         "thread-safe); a served model can only batch requests it has in hand.")
     p.add_argument("--base-url", default="http://host.docker.internal:8020/v1")
-    p.add_argument("--api-key", default="EMPTY")
+    p.add_argument("--api-key", default=None,
+                   help="endpoint: bearer token (default EMPTY, what vllm serve expects); "
+                        "gemini: default GEMINI_API_KEY from the environment")
+    p.add_argument("--request-timeout", type=float, default=300.0,
+                   help="per-request timeout in seconds for the API backends")
+    p.add_argument("--request-retries", type=int, default=5,
+                   help="retries with backoff on 429/5xx for --backend gemini")
+    p.add_argument("--thinking-level", choices=["minimal", "low", "medium", "high"], default=None,
+                   help="gemini: thinking_level for a 3.x model (default: the model's floor, i.e. "
+                        "minimal, or low on 3.7-flash); on a 2.5 model it maps to a thinking_budget")
+    p.add_argument("--thinking-budget", type=int, default=None,
+                   help="gemini: explicit thinking_budget for a 2.5 model (0 = off; 2.5-pro floor 128)")
     p.add_argument("--data-dir", default="data")
     p.add_argument("--run-dir", default="outputs")
     p.add_argument("--run-tag", default="", help="write to <run-dir>/<model>/<dataset>.<tag>/")
@@ -61,14 +73,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fix-baseline-repeats", type=int, default=None,
                    help="baseline samples per case in the fix stage (default: 5 when sampling, 1 greedy)")
     p.add_argument("--enable-thinking", action="store_true",
-                   help="turn the model's thinking mode ON for every call (default OFF on every model)")
+                   help="turn the model's thinking mode ON for every call (default OFF on every model; "
+                        "gemini: leave the API's default level instead of sending the floor)")
     p.add_argument("--judge-provider", choices=["agy", "claude", "codex"], default="codex")
     p.add_argument("--judge-model", default="gpt-5.6-terra")
     p.add_argument("--judge-effort", default="medium")
     p.add_argument("--fix-tier", choices=["L1", "L2", "L3a", "L3b"], default="L3b",
                    help="fix-search ceiling; L3b opens the pre-audited internals-write "
                         "primitives (VLM + hf_local only; models without a usable "
-                        "executor skip the tier)")
+                        "executor skip the tier). The API backends (endpoint, gemini) "
+                        "expose no internals: their ceiling is clamped to L2")
     p.add_argument("--allow-codegen", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument(
         "--auto-escalate",

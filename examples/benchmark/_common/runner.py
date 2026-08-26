@@ -5,7 +5,8 @@ ChartQA/Spatial457 chains) with the per-modality settings of the audio examples
 and ``llm_benchmark`` folded in as task attributes: pinned M1 set, scorer,
 protocol, generation budget. The model under test is ``hf_local`` by default
 (white-box capture + paper-method candidates stay available); ``--backend
-endpoint`` swaps in an OpenAI-compatible server for the black-box path.
+endpoint`` swaps in an OpenAI-compatible server for the black-box path and the
+``gemini`` family runs through Google's Gen AI API (``--backend gemini``, forced).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ def model_label(resolved: Resolved) -> str:
     from evalvitals.specs import get_spec
 
     spec = get_spec(resolved.spec_key)
-    return f"{resolved.label}, spec {spec.key} = {spec.hf_repo}"
+    return f"{resolved.label}, spec {spec.key} = {spec.hf_repo or ('api:' + spec.key)}"
 
 
 def generation_settings(task: T.Task, args) -> dict:
@@ -75,6 +76,24 @@ def load_model(resolved: Resolved, args, task: T.Task):
         runtime = openai_runtime(base_url=args.base_url, api_key=args.api_key,
                                  extra_body=extra_body, **sampling)
         # the endpoint's generate_fn carries the sampling itself; per-call kwargs are not forwarded
+        return compose(spec, "api", runtime, set()), {}, spec
+    if resolved.backend == "gemini":
+        from evalvitals.models.backends.gemini_compat import ThinkingPolicy, gemini_runtime
+
+        sampling = {"temperature": gen.get("temperature", 0.0), "max_output_tokens": max_new}
+        if gen.get("do_sample"):
+            sampling["top_p"] = gen["top_p"]
+            sampling["top_k"] = gen["top_k"]
+        # Thinking OFF policy, Gemini edition: the runtime sends each model's
+        # floor (minimal / low on 3.7-flash / budget 0 on 2.5) unless
+        # --thinking-level / --thinking-budget name a setting or
+        # --enable-thinking leaves the API default. No logprobs: Gemini returns
+        # none for the 3.x models, so the backend claims GENERATE only.
+        policy = ThinkingPolicy(level=args.thinking_level, budget=args.thinking_budget,
+                                floor=not args.enable_thinking)
+        runtime = gemini_runtime(api_key=args.api_key, timeout=args.request_timeout,
+                                 retries=args.request_retries, thinking=policy,
+                                 with_logprobs=False, **sampling)
         return compose(spec, "api", runtime, set()), {}, spec
     from evalvitals.models.backends.base import RuntimeConfig
 
@@ -160,6 +179,56 @@ def run_dir_for(args, task: T.Task) -> Path:
     return Path(args.run_dir) / args.model / leaf
 
 
+#: The API backends expose no internals: every L3a repair in the catalog runs a
+#: white-box executor (contrastive decoding over corrupted inputs, attention-
+#: guided crops) and L3b hooks the forward pass, so ``supports_tier`` is False
+#: there and the ladder would only ever "recommend L3b" it cannot reach.
+API_FIX_CEILING = "L2"
+
+
+def effective_fix_tier(backend: str, requested: str) -> str:
+    """``--fix-tier`` as the run can honour it: unchanged on hf_local, clamped to
+    :data:`API_FIX_CEILING` on the endpoint / gemini backends."""
+    from evalvitals.eval_agent.stages.fix_tiers import parse_tier
+
+    if backend == "hf_local" or parse_tier(requested) <= parse_tier(API_FIX_CEILING):
+        return requested
+    return API_FIX_CEILING
+
+
+def _api_model_version(model) -> str | None:
+    """The served model version behind an API model, when the runtime records it
+    (gemini: ``response.model_version``; a stable id is re-pointed silently)."""
+    fn = getattr(getattr(model, "runtime", None), "generate_fn", None)
+    state = getattr(fn, "state", None) or {}
+    version = state.get("model_version")
+    return str(version) if version else None
+
+
+def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
+    """``loop.run_fix`` with every file the run has written so far held in
+    memory and off disk (``evalvitals.eval_agent.label_quarantine``).
+
+    By the time the fix stage starts, ``baseline.json``, ``logs/report/
+    discovery_cases.json``, the ``case_record`` events, the M1 signal tables
+    (``gold_yes`` is the gold answer on a yes/no task) and the M4 workspace all
+    carry per-case labels for EVERY case, CONFIRM included -- and the coder
+    CLI (``Bash Edit Write Read``) and the pipeline sandbox both run from a
+    workspace two directory levels below them. The prompt-level withholding
+    stays as it was; this closes the file-system channel beside it. Restored
+    byte-for-byte afterwards, with ``fix_quarantine.json`` naming what was hidden.
+
+    Not covered: the dataset manifest on the ``data/`` bind mount (``gold``
+    column) -- a root process in the same container can always read it.
+    """
+    from evalvitals.eval_agent.label_quarantine import quarantine_run_dir
+
+    with quarantine_run_dir(run_dir, append_logs=[ctx.log_path]) as q:
+        print(f"[fix] label quarantine: {len(q.hidden)} run-dir file(s) held in memory "
+              "for the fix stage (restored afterwards; see fix_quarantine.json)")
+        return loop.run_fix(report, cases, **fix_kwargs)
+
+
 def run(args, task: T.Task, resolved: Resolved) -> int:
     manifest = ensure_manifest(task, args)
     if args.download_only:
@@ -205,6 +274,10 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             "id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value,
         } for c in cases],
     }
+    version = _api_model_version(model)
+    if version:
+        baseline["model_version"] = version
+        print(f"[model] served version: {version}")
     (run_dir / "baseline.json").write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n",
                                            encoding="utf-8")
     print(f"Baseline: PASS={discovery.n_pass}, FAIL={discovery.n_fail}, UNKNOWN={discovery.n_unknown}, "
@@ -337,6 +410,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         "cycles": report.cycles, "stopped_by": str(report.stopped_by),
         "n_verified": len(report.verified_hypotheses), "fix": None,
     }
+    fix_tier = effective_fix_tier(resolved.backend, args.fix_tier)
+    summary["fix_tier"] = fix_tier
+    if fix_tier != args.fix_tier:
+        print(f"[fix] --fix-tier {args.fix_tier} clamped to {fix_tier}: the {resolved.backend} backend "
+              "exposes no model internals (L3a/L3b need the white-box executors)")
     if not args.skip_fix:
         # No M5-verified hypothesis still gets M4 + a fix attempt on the best
         # unverified leads (the candidate validation on CONFIRM is the gate).
@@ -358,8 +436,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                 print(f"M4 experiment on the {tag} hypothesis: status={proposal.status}")
             else:
                 print("M4: no hypothesis to experiment on")
-        outcome = loop.run_fix(report, cases, max_tier=args.fix_tier, auto_escalate=args.auto_escalate,
-                               allow_unverified=True)
+        outcome = run_fix_isolated(loop, run_dir, ctx, report, cases, max_tier=fix_tier,
+                                   auto_escalate=args.auto_escalate, allow_unverified=True)
         attempted = []
         for validation in outcome.attempted:
             effect = "n/a" if validation.effect is None else f"{validation.effect:+.3f}"

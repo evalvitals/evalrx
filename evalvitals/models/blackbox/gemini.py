@@ -44,6 +44,25 @@ def _png_bytes(image: Any) -> bytes:
     return buf.getvalue()
 
 
+_AUDIO_MIME = {"wav": "audio/wav", "mp3": "audio/mp3", "flac": "audio/flac",
+               "ogg": "audio/ogg", "m4a": "audio/mp4"}
+
+
+def _audio_bytes(audio: Any) -> "tuple[bytes, str]":
+    """``(bytes, mime_type)`` for an audio path / raw bytes / waveform.
+
+    Reuses the endpoint path's encoder (a path keeps its own format; bytes are
+    taken as WAV; a waveform is written as 16-bit PCM WAV), so the two API
+    backends send the same bytes for the same case.
+    """
+    import base64
+
+    from evalvitals.models.backends.openai_compat import _to_input_audio
+
+    encoded = _to_input_audio(audio)
+    return base64.b64decode(encoded["data"]), _AUDIO_MIME.get(encoded["format"], "audio/wav")
+
+
 def _to_genai_contents(messages: list, types: Any) -> "tuple[Optional[str], list]":
     """Convert loop messages (OpenAI-ish history + content blocks) into
     ``(system_instruction, genai contents)``.
@@ -107,6 +126,9 @@ def _to_genai_contents(messages: list, types: Any) -> "tuple[Optional[str], list
                             data=_png_bytes(block.get("image")), mime_type="image/png"
                         )
                     )
+                elif isinstance(block, dict) and block.get("type") == "audio":
+                    data, mime = _audio_bytes(block.get("audio"))
+                    parts.append(types.Part.from_bytes(data=data, mime_type=mime))
                 elif isinstance(block, dict) and block.get("type") == "text":
                     parts.append(types.Part(text=block.get("text", "")))
         else:
