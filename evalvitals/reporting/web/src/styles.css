@@ -167,3 +167,24 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 
 .lightbox-frame { flex: 1; min-height: 0; display: grid; place-items: center; padding: max(16px, 2vw); }
 .lightbox-frame img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; }
+
+/* ── The run's own cover figure in the hero ──────────────────────────────
+   Rendered only when the run directory ships `evalvitals_main.*`; the
+   decorative rings yield to it and the whole hero centres — headline, lead,
+   then the figure at reading width, then the route bar. A side-by-side split
+   squeezed a wide landscape diagram into half the column and left the text
+   ragged against it; stacked and centred, the figure gets the width it was
+   drawn for. White ground because these are documents — diagrams and
+   exported charts — not photos, and SVG/transparent PNG needs a surface to
+   sit on (same choice the lightbox already makes). */
+.setting-hero.has-figure { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.setting-hero.has-figure:after { content: none; }
+.setting-hero.has-figure .eyebrow { justify-content: center; }
+/* Centred copy reads wider than left-set copy: the 600px lead that suits a
+   left column wraps into seven short centred lines here. ~55rem keeps it a
+   comfortable measure while halving the line count. */
+.setting-hero.has-figure .lead { margin-left: auto; margin-right: auto; max-width: 880px; }
+/* Full page-column width — the same edge the route bar and metric strip sit
+   on, one step wider than the copy above it, with the lightbox past that. */
+.hero-figure { width: 100%; margin-top: 50px; background: #fff; border: 1px solid var(--line); padding: 16px; position: relative; z-index: 1; }
+.hero-figure img { display: block; width: 100%; height: auto; }
