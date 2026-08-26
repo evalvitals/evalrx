@@ -8,6 +8,7 @@ import { ArrowUpRight, Check, CircleDot, Database, Wrench } from "lucide-react";
 import { z } from "zod";
 import type { Chart, ReportData, Stage } from "./types";
 import { ZoomableImage } from "./lightbox";
+import { CaseStudySheet as CaseStudySection } from "./caseStudy";
 import { chartValue, outcomeColors } from "./reportAccess";
 
 const ids = z.array(z.string()).optional();
@@ -21,6 +22,7 @@ export const reportCatalog = defineCatalog(schema, {
     ChartGrid: { props: z.object({ chartIds: ids }), description: "At most two evidence charts" },
     OutcomeCard: { props: z.object({}), description: "What was learned and whether repair worked" },
     CasePreview: { props: z.object({ caseIds: ids }), description: "Representative model I/O" },
+    CaseStudySheet: { props: z.object({}), description: "The whole run as one failure-to-repair sheet" },
     EvidenceIndex: { props: z.object({}), description: "Progressive disclosure navigation" },
   },
   actions: {},
@@ -133,6 +135,13 @@ export const { registry } = defineRegistry(reportCatalog, {
       const selected = data.cases.filter((item) => !props.caseIds || props.caseIds.includes(item.id)).slice(0, 4);
       if (!selected.length) return <></>;
       return <section className="section"><header><div><span className="section-kicker">REAL MODEL I/O</span><h2>Representative cases</h2></div><button className="text-button" onClick={() => navigate("cases")}>Open Case Studio <ArrowUpRight size={15} /></button></header><div className="case-preview">{selected.map((item) => <article key={item.id}><span className={`status status-${item.status}`}>{item.status}</span><h3>{item.id}</h3><p>{item.prompt}</p><PreviewMedia item={item} data={data} /></article>)}</div></section>;
+    },
+    // The sheet is the only component that renders nothing at all when its data
+    // is absent: a run that never probed has no story to tell in this shape,
+    // and an empty sheet reads as a run that found nothing.
+    CaseStudySheet: () => {
+      const data = useReport();
+      return data.case_study ? <CaseStudySection sheet={data.case_study} /> : <></>;
     },
     EvidenceIndex: () => {
       const navigate = useContext(NavContext);

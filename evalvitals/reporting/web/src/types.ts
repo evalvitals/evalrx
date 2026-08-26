@@ -94,6 +94,126 @@ export type Case = {
   };
 };
 
+/** One module's label on the case-study sheet. */
+export type CaseStudyModule = { code: string; name: string; subtitle: string };
+
+export type CaseStudyVerdict = {
+  id: string;
+  failure_mode: string;
+  status?: string | null;
+  statement?: string | null;
+  test_name?: string | null;
+  effect?: number | null;
+  ci?: number[] | null;
+  evidence_grade?: string | null;
+  underpowered?: boolean | null;
+};
+
+export type CaseStudyPhase = {
+  tests: Array<{
+    signal?: string | null;
+    effect?: number | null;
+    ci?: number[] | null;
+    p_value?: number | null;
+    survives_correction: boolean;
+    degenerate: boolean;
+    in_correction_family: boolean;
+  }>;
+  n_in_correction_family: number;
+  n_degenerate: number;
+  correction_method?: string | null;
+  survivors: string[];
+};
+
+/**
+ * The whole run as one failure-to-repair sheet, compiled by
+ * `evalvitals/reporting/case_study.py`. Absent on a run with no probe or stats
+ * artifacts — the section is dropped rather than rendered empty, so every
+ * optional block here means "this run did not get that far", never "zero".
+ */
+export type CaseStudy = {
+  modules: CaseStudyModule[];
+  headline: {
+    model?: string | null;
+    dataset?: string | null;
+    n_cases?: number | null;
+    baseline_accuracy?: number | null;
+    n_explore?: number | null;
+    n_heldout?: number | null;
+    judge?: string | null;
+    repair?: string | null;
+    repair_tier?: string | null;
+    /** candidate_rate − baseline_rate on the held-out pairs. */
+    delta?: number | null;
+  };
+  m1: {
+    selection_mode?: string | null;
+    selected_analyzers: string[];
+    families: Array<{
+      family: string;
+      label: string;
+      selected: boolean;
+      analyzers: string[];
+      /** The family's fixed probe menu, in words. `used` marks the rows this
+       *  run actually ran, `confirmed` the row that produced the surviving
+       *  signal; the rest stay greyed, so the card shows the whole menu rather
+       *  than only the order. */
+      probes: Array<{ phrase: string; used: boolean; analyzers: string[]; confirmed?: boolean }>;
+    }>;
+    questions: Array<{ question: string; analyzers: string[]; n_measurements: number; n_candidates: number }>;
+    n_analyzers: number;
+    n_measured: number;
+    /** Signals that entered the correction family: the BH denominator. */
+    n_forwarded?: number | null;
+    dropped: { saw_the_answer_key: number; never_varied: number; partial_coverage: number };
+    note: string;
+    signal_curve?: {
+      signal: string;
+      analyzer: string;
+      field: string;
+      binning: "levels" | "quartiles" | string;
+      bins: Array<{ label: string; value?: unknown; n_cases: number; n_fail: number; failure_rate?: number | null }>;
+      n_cases: number;
+      all_surviving_signals: string[];
+      n_surviving_signals: number;
+    } | null;
+  } | null;
+  m2: Record<string, CaseStudyPhase> | null;
+  m3: Array<{ id: string; failure_mode: string; statement?: string | null; expected_direction?: string | null }>;
+  m5: CaseStudyVerdict[];
+  m4: {
+    ladder: Array<{
+      tier: string; label: string; n_candidates: number; best_effect?: number | null;
+      best_candidate?: string | null; status: string; within_cap: boolean; tier_cap?: string | null;
+    }>;
+    candidates: Array<{ name?: string | null; tier: string; effect?: number | null; selected: boolean }>;
+    confirmed: Array<{ name?: string | null; tier: string; effect?: number | null; selected: boolean }>;
+  } | null;
+  repair: {
+    name?: string | null; tier?: string | null; strategy?: string | null; n_samples?: number | null;
+    steps: Array<{ title: string; lines: string[]; mono?: boolean }>;
+  } | null;
+  validation: {
+    candidate?: string | null; tier?: string | null; n_pairs: number;
+    baseline_rate?: number | null; candidate_rate?: number | null;
+    n_fixed: number; n_broken: number; both_correct: number; both_wrong: number;
+    effect?: number | null; ci?: number[] | null; e_value?: number | null; verdict?: string | null;
+  } | null;
+  example_case: {
+    case_id: string; split: string; question?: string | null; gold?: unknown;
+    /** The case's own outcome. The sheet picks a failing case, so this is how
+     *  the answer below is labelled without the reader having to infer it. */
+    label?: string | null;
+    baseline_output?: unknown;
+    /** The answer the generation ended on — the head of a chain of thought is
+     *  the least useful part of it on a card this size. */
+    baseline_answer?: string | null;
+    signal?: string | null; media_paths?: string[];
+  } | null;
+  /** The caveats the sheet must carry, derived from the run's own numbers. */
+  qa_flags: Array<{ level: string; code: string; detail: string }>;
+};
+
 export type ReportData = {
   trace_id: string;
   /** `model` is what was diagnosed; `diagnosed_by` is the agent that did the
@@ -109,6 +229,8 @@ export type ReportData = {
   stage_detail?: Record<string, any>;
   /** Contract-validated stage payloads. Absent on runs from before emission existed. */
   contract?: ContractPayloads;
+  /** The run as one sheet. Null when it produced no probe or stats artifacts. */
+  case_study?: CaseStudy | null;
   cases: Case[];
   media: Array<{ id: string; kind: string; path: string; data_uri?: string }>;
   debug: { event_count: number; events: DebugEvent[] };
