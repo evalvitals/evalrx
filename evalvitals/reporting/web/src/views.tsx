@@ -5,7 +5,8 @@ import { AlertTriangle, ArrowLeft, BarChart3, Beaker, Bot, CheckCircle2, Chevron
 import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixAttemptWire,
   FixOutput, HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
 import { buildBrief, StageBrief } from "./brief";
-import { findContract } from "./reportAccess";
+import { ZoomableImage } from "./lightbox";
+import { chartPercent, chartValue, findContract } from "./reportAccess";
 
 /**
  * A stage, at whichever of the two depths the reader asked for.
@@ -131,11 +132,63 @@ function ExampleMedia({ mediaIds, report, caseId }: { mediaIds?: string[]; repor
   return <div className="example-media">{media.map((item) => <MediaPreview key={item.id} media={item} caseId={caseId || "example"} />)}</div>;
 }
 
+/**
+ * Whether a figure is the chart a takeaway cites.
+ *
+ * The coder agent names its own files, and the two ends of this join disagree
+ * in ways seen live: a takeaway cites `failrate_coverage_verification_gap_
+ * majority_share` while the file on disk is `02_failrate_coverage_
+ * verification_gap_majority_shar.png` — an ordering prefix the citation never
+ * had, and a stem the agent cut one letter short. Exact equality told the
+ * reader "Referenced visual evidence was not found" with the chart sitting in
+ * the bundle, filed under supporting material.
+ *
+ * So the match strips a leading order prefix and accepts one side being a
+ * truncation of the other — with enough shared prefix that unrelated charts
+ * cannot collide (every explorer chart name this loose match applies to is
+ * far longer than the floor).
+ */
+function chartCited(figureId: any, citedKeys: string[]): boolean {
+  const fig = normalizeKey(figureId).replace(/^\d+/, "");
+  return citedKeys.some((cited) =>
+    fig === cited
+    || (Math.min(fig.length, cited.length) >= 16
+        && (fig.startsWith(cited) || cited.startsWith(fig))));
+}
+
+/**
+ * Figure titles with the run's own reader labels in place of flat identifiers.
+ *
+ * The explorer titles its charts with the identifiers it computed over —
+ * "Failure rate by coverage_verification_gap_majority_share" — because the
+ * identifier is all it has. The stats rows already carry the reader-facing
+ * name of each signal, so this is a lookup, not a paraphrase: a flat
+ * identifier naming a known signal becomes that signal's label, longest first
+ * so a name containing another is replaced whole. Whatever stays unmapped is
+ * only de-slugged — the same words, minus the underscores. The original title
+ * survives on the card as its hover text.
+ */
+function labelledFigures(figures: any[], stats: any[]): any[] {
+  const pairs = (stats || [])
+    .filter((row: any) => row?.raw_signal && row?.label && String(row.raw_signal).includes("."))
+    .map((row: any) => [String(row.raw_signal).replace(/\./g, "_"), String(row.label)] as const)
+    .sort((a, b) => b[0].length - a[0].length);
+  const display = (title: string) => {
+    let out = title;
+    for (const [flat, label] of pairs) out = out.split(flat).join(label);
+    return out.replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}\b/g, (m) => m.replace(/_/g, " "));
+  };
+  return (figures || []).map((figure: any) => {
+    const title = display(String(figure.title || ""));
+    return title === figure.title ? figure : { ...figure, title, raw_title: figure.title };
+  });
+}
+
 function M2Detail({ data }: { data: any }) {
-  const figures = data.figures || [];
+  const figures = labelledFigures(data.figures || [], data.stats || []);
   const takeaways = data.takeaways || [];
-  const cited = new Set(takeaways.flatMap((item: any) => item.chart_names || []).map(normalizeKey));
-  const supporting = figures.filter((figure: any) => !cited.has(normalizeKey(figure.id)));
+  const citedKeys = takeaways.flatMap((item: any) => item.chart_names || []).map(normalizeKey);
+  const supporting = figures.filter((figure: any) => !chartCited(figure.id, citedKeys));
   return <>
     <StageBanner kind="DESCRIPTIVE" title="Exploratory evidence">Patterns here were found in the analysis split. They are leads—not validated mechanisms. Only M5 can issue a held-out verdict.</StageBanner>
     <StageKpis items={[{ label: "Ranked findings", value: takeaways.length }, { label: "Visual artifacts", value: figures.length }, { label: "Statistical screens", value: data.stats?.length || 0 }]} />
@@ -143,7 +196,7 @@ function M2Detail({ data }: { data: any }) {
     {data.stats?.length > 0 && <StatEvidenceChart stats={data.stats} title="Which measured behaviors are most connected to errors?" note="Each bar summarizes the difference observed between correct and incorrect cases. It is a pattern, not proof of cause." />}
     <div className="finding-stack">{takeaways.map((item: any, index: number) => {
       const names = (item.chart_names || []).map(normalizeKey);
-      const evidence = figures.filter((figure: any) => names.includes(normalizeKey(figure.id)));
+      const evidence = figures.filter((figure: any) => chartCited(figure.id, names));
       return <article className="analysis-finding" key={index}><header><span>FINDING {String(index + 1).padStart(2, "0")}</span><h3>{item.plain_title || item.title}</h3></header>
         {evidence.length > 0 ? <div className="analysis-figures">{evidence.map((figure: any) => <EvidenceFigure figure={figure} key={figure.id} />)}</div> : <div className="missing-evidence"><AlertTriangle size={17} /> Referenced visual evidence was not found in this report bundle.</div>}
         <details className="finding-details"><summary>Interpretation, caveat, and provenance</summary>{item.analysis && <p>{item.analysis}</p>}{item.caveat && <div className="evidence-caution"><b>Boundary</b>{item.caveat}</div>}{item.table_names?.length > 0 && <small>Source tables: {item.table_names.join(", ")}</small>}</details>
@@ -156,16 +209,109 @@ function M2Detail({ data }: { data: any }) {
 
 function EvidenceFigure({ figure }: { figure: any }) {
   const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
-  return <figure><img src={source} alt={figure.title} /><figcaption><b>{figure.title}</b>{figure.question && <span>{figure.question}</span>}{figure.reading && <p><BarChart3 size={13} /> {figure.reading}</p>}{figure.do_not_infer && <small>Do not infer: {figure.do_not_infer}</small>}</figcaption></figure>;
+  return <figure><ZoomableImage src={source} alt={figure.title} caption={figure.title} /><figcaption><b title={figure.raw_title || undefined}>{figure.title}</b>{figure.question && <span>{figure.question}</span>}{figure.reading && <p><BarChart3 size={13} /> {figure.reading}</p>}{figure.do_not_infer && <small>Do not infer: {figure.do_not_infer}</small>}</figcaption></figure>;
+}
+
+/**
+ * A y-axis of short numbered handles, with the real name on hover.
+ *
+ * These labels are analyzer questions — "Did the model give a usable answer? —
+ * Answer appears cut short" — and no honest amount of gutter fits eight of
+ * them. Truncated to one line they collapsed into six identical rows;
+ * wrapped, they ate half the chart. Numbering them turns the axis into an
+ * index the eye can scan, hands the width back to the bars, and puts the full
+ * name one hover away in the tooltip, which is where the numbers already are.
+ *
+ * The rows are ordered by rank, so Behavior 1 is the strongest — the numbering
+ * carries that, it is not decoration.
+ */
+const AXIS_GUTTER = 96;
+
+function numberedAxis(count: number, noun: string) {
+  // echarts draws category index 0 at the BOTTOM of a horizontal bar chart, and
+  // every series here is reversed to put rank 1 on top; the labels reverse with
+  // them so the numbering runs downwards.
+  const labels = Array.from({ length: count }, (_, i) => `${noun} ${i + 1}`).reverse();
+  return {
+    type: "category", data: labels,
+    axisLabel: { color: "#b8c9c4", fontSize: 11 },
+    axisTick: { show: false },
+  };
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"]/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]);
+}
+
+/**
+ * Tooltip whose heading is the full name the axis had to shorten.
+ *
+ * `names` is in plot order (bottom-first), matching the series data, so the
+ * hovered dataIndex reads straight out of it.
+ */
+function namedTooltip(names: string[], format: (value: unknown) => string) {
+  return (params: any) => {
+    const series = Array.isArray(params) ? params : [params];
+    const first = series[0] || {};
+    const head = escapeHtml(String(names[first.dataIndex] ?? first.name ?? ""));
+    const lines = series.map((row: any) =>
+      `<div style="display:flex;gap:18px;justify-content:space-between;align-items:baseline">`
+      + `<span>${row.marker} ${escapeHtml(String(row.seriesName || ""))}</span>`
+      + `<b>${escapeHtml(format(row.value))}</b></div>`).join("");
+    return `<div style="max-width:300px;white-space:normal;line-height:1.45;margin-bottom:7px">`
+      + `<b>${first.axisValue ? escapeHtml(String(first.axisValue)) + " · " : ""}${head}</b></div>${lines}`;
+  };
+}
+
+/** Hovering a label opens its row's tooltip — the axis alone no longer names it. */
+function labelHoverTooltip(rowCount: number) {
+  return (chart: any) => {
+    const zr = chart.getZr?.();
+    if (!zr) return;
+    let shown = -1;
+    const hide = () => {
+      if (shown === -1) return;
+      shown = -1;
+      chart.dispatchAction({ type: "hideTip" });
+    };
+    // Two spellings of the same question; which one a build answers depends on
+    // the echarts version, so ask both and take whichever returns a number.
+    const rowAt = (x: number, y: number) => {
+      for (const value of [
+        () => chart.convertFromPixel({ gridIndex: 0 }, [x, y])?.[1],
+        () => chart.convertFromPixel({ yAxisIndex: 0 }, y),
+      ]) {
+        try {
+          const index = Math.round(Number(value()));
+          if (Number.isFinite(index)) return index;
+        } catch { /* try the other spelling */ }
+      }
+      return NaN;
+    };
+    zr.on("mousemove", (event: any) => {
+      if (event.offsetX >= AXIS_GUTTER) return hide();
+      const index = rowAt(event.offsetX, event.offsetY);
+      if (!Number.isFinite(index) || index < 0 || index >= rowCount) return hide();
+      if (index === shown) return;
+      shown = index;
+      chart.dispatchAction({ type: "showTip", seriesIndex: 0, dataIndex: index });
+    });
+    zr.on("globalout", hide);
+  };
 }
 
 function StatEvidenceChart({ stats, title, note }: { stats: any[]; title: string; note: string }) {
   const rows = stats.filter((item) => typeof item.effect === "number").slice(0, 8);
   if (!rows.length) return null;
-  const option = { grid: { left: 215, right: 30, top: 30, bottom: 30 }, tooltip: { trigger: "axis", axisPointer: { type: "shadow" } }, xAxis: { type: "value", name: "difference in error rate", nameTextStyle: { color: "#8fa49d", fontSize: 10 }, axisLabel: { color: "#8fa49d" }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: { type: "category", data: rows.map((item) => item.label).reverse(), axisLabel: { color: "#b8c9c4", width: 195, overflow: "truncate" } }, series: [{ name: "Observed difference", type: "bar", data: rows.map((item) => ({ value: item.effect, itemStyle: { color: item.reject ? "#6bd8ad" : "#71857f", borderRadius: 4 } })).reverse(), markLine: { silent: true, symbol: "none", lineStyle: { color: "#f4ca72", type: "dashed" }, data: [{ xAxis: 0 }] } }] };
+  const plotted = rows.slice().reverse();
+  const effectNames = plotted.map((item) => String(item.label));
+  const option = { grid: { left: AXIS_GUTTER, right: 30, top: 30, bottom: 30 }, tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: namedTooltip(effectNames, (v) => chartValue(v, { signed: true })) }, xAxis: { type: "value", name: "difference in error rate", nameTextStyle: { color: "#8fa49d", fontSize: 10 }, axisLabel: { color: "#8fa49d" }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: numberedAxis(rows.length, "Behavior"), series: [{ name: "Observed difference", type: "bar", data: plotted.map((item) => ({ value: item.effect, itemStyle: { color: item.reject ? "#6bd8ad" : "#71857f", borderRadius: 4 } })), markLine: { silent: true, symbol: "none", lineStyle: { color: "#f4ca72", type: "dashed" }, data: [{ xAxis: 0 }] } }] };
   const rateRows = rows.filter((item) => typeof item.fail_rate_signal === "number" && typeof item.fail_rate_control === "number");
-  const rateOption = { grid: { left: 215, right: 30, top: 24, bottom: 28 }, tooltip: { trigger: "axis" }, legend: { top: 0, textStyle: { color: "#9fb2ac", fontSize: 10 } }, xAxis: { type: "value", max: 1, axisLabel: { color: "#8fa49d", formatter: (v: number) => `${Math.round(v * 100)}%` }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: { type: "category", data: rateRows.map((item) => item.label).reverse(), axisLabel: { color: "#b8c9c4", width: 195, overflow: "truncate" } }, series: [{ name: "Cases with this behavior", type: "bar", data: rateRows.map((item) => item.fail_rate_signal).reverse(), itemStyle: { color: "#89a6ff", borderRadius: 3 } }, { name: "Other cases", type: "bar", data: rateRows.map((item) => item.fail_rate_control).reverse(), itemStyle: { color: "#657b74", borderRadius: 3 } }] };
-  return <section className="stat-evidence"><header><span>VISUAL SUMMARY OF M2</span><h3>{title}</h3><p>{note}</p></header><ReactECharts option={option} style={{ height: Math.max(300, rows.length * 48) }} />{rateRows.length > 0 && <><h4 className="stat-subtitle">What those patterns mean in the cases</h4><p className="stat-caption">For each measured behavior, compare the error rate among cases with that behavior against all other cases. This is an observed comparison, not a causal claim.</p><ReactECharts option={rateOption} style={{ height: Math.max(280, rateRows.length * 48) }} /></>}<details><summary>Technical measurement names and test records</summary><RecordTable rows={rows.map((item) => ({ measurement: item.raw_signal, effect: item.effect, interval: item.ci, error_rate_with_behavior: item.fail_rate_signal, error_rate_other_cases: item.fail_rate_control, passed_screen: item.reject, tool: item.tool }))} /></details></section>;
+  const ratePlotted = rateRows.slice().reverse();
+  const rateNames = ratePlotted.map((item) => String(item.label));
+  const rateOption = { grid: { left: AXIS_GUTTER, right: 30, top: 24, bottom: 28 }, tooltip: { trigger: "axis", formatter: namedTooltip(rateNames, chartPercent) }, legend: { top: 0, textStyle: { color: "#9fb2ac", fontSize: 10 } }, xAxis: { type: "value", max: 1, axisLabel: { color: "#8fa49d", formatter: (v: number) => `${Math.round(v * 100)}%` }, splitLine: { lineStyle: { color: "#22332e" } } }, yAxis: numberedAxis(rateRows.length, "Pattern"), series: [{ name: "Cases with this behavior", type: "bar", data: ratePlotted.map((item) => item.fail_rate_signal), itemStyle: { color: "#89a6ff", borderRadius: 3 } }, { name: "Other cases", type: "bar", data: ratePlotted.map((item) => item.fail_rate_control), itemStyle: { color: "#657b74", borderRadius: 3 } }] };
+  return <section className="stat-evidence"><header><span>VISUAL SUMMARY OF M2</span><h3>{title}</h3><p>{note}</p></header><ReactECharts option={option} notMerge onChartReady={labelHoverTooltip(effectNames.length)} style={{ height: Math.max(300, rows.length * 46) }} />{rateRows.length > 0 && <><h4 className="stat-subtitle">What those patterns mean in the cases</h4><p className="stat-caption">For each measured behavior, compare the error rate among cases with that behavior against all other cases. This is an observed comparison, not a causal claim.</p><ReactECharts option={rateOption} notMerge onChartReady={labelHoverTooltip(rateNames.length)} style={{ height: Math.max(280, rateRows.length * 54) }} /></>}<details><summary>Technical measurement names and test records</summary><RecordTable rows={rows.map((item, index) => ({ behavior: `Behavior ${index + 1}`, name: item.label, measurement: item.raw_signal, effect: item.effect, interval: item.ci, error_rate_with_behavior: item.fail_rate_signal, error_rate_other_cases: item.fail_rate_control, passed_screen: item.reject, tool: item.tool }))} /></details></section>;
 }
 
 /**
@@ -212,7 +358,7 @@ function M3Detail({ data, report }: { data: any; report: ReportData }) {
     </div></div>}
     <StageKpis items={[{ label: "Accepted proposals", value: accepted.length }, { label: "Recovered from transcript", value: recovered.length }, { label: "Test designs", value: hypotheses.filter((item: any) => item.test_design).length }]} />
     {!accepted.length && recovered.length > 0 && <div className="parser-warning"><AlertTriangle /><div><b>The AI Doctor proposed hypotheses, but the pipeline parser rejected their format.</b><p>They are shown below for audit only and did not unlock M5 or M4.</p></div></div>}
-    {data.evidence_figures?.length > 0 && <section className="m3-evidence"><header><span>THE VISUAL EVIDENCE THIS STEP STARTS FROM</span><h3>Patterns the agent is trying to explain</h3><p>These charts come from M2. They are observations that motivate the ideas below, not confirmation that an idea is true.</p></header><div className="analysis-figures">{data.evidence_figures.map((figure: any) => <EvidenceFigure figure={figure} key={figure.id} />)}</div></section>}
+    {data.evidence_figures?.length > 0 && <section className="m3-evidence"><header><span>THE VISUAL EVIDENCE THIS STEP STARTS FROM</span><h3>Patterns the agent is trying to explain</h3><p>These charts come from M2. They are observations that motivate the ideas below, not confirmation that an idea is true.</p></header><div className="analysis-figures">{labelledFigures(data.evidence_figures, data.evidence_stats || []).map((figure: any) => <EvidenceFigure figure={figure} key={figure.id} />)}</div></section>}
     {data.evidence_stats?.length > 0 && <StatEvidenceChart stats={data.evidence_stats} title="The strongest M2 patterns carried into this step" note="M3 turns these observed patterns into testable ideas. M5 is still needed to decide whether an idea holds up." />}
     {hypotheses.length ? <div className="hypothesis-list">{hypotheses.map((hypothesis: any, index: number) => <article className="hypothesis-card" key={index}><header><span>H{index + 1}</span><em>{accepted.length ? "IDEA TO TEST" : "NOT YET USABLE"}</em></header><h3>{hypothesis.plain_statement || hypothesis.statement || hypothesis.hypothesis}</h3>{hypothesis.statement && hypothesis.plain_statement && hypothesis.statement !== hypothesis.plain_statement && <details><summary>Technical wording</summary><p>{hypothesis.statement}</p></details>}<div className="hypothesis-grid"><div><small>WHAT MAY BE GOING WRONG</small><p>{plainFailureMode(hypothesis.failure_mode)}</p></div><div><small>WHY THIS IS PLAUSIBLE</small><p>{hypothesis.basis || "Based on the patterns found in the previous step."}</p></div><div className="test-design"><small>WHAT WOULD PROVE IT WRONG?</small><p>{hypothesis.test_design || (m3 ? "Nothing — the AI Doctor proposed no test for this idea, so no result can decide it." : "No test design was retained.")}</p>{hypothesis.expected_association && <details><summary>Technical test expression</summary><code>{hypothesis.expected_association}</code></details>}</div></div></article>)}</div> : <EmptyStage title="No formal hypotheses" body="The earlier pattern search did not yield an idea the pipeline could test." />}
     {(data.candidate_signals?.length > 0 || data.recommended_tests?.length > 0) && <details className="agent-transcript"><summary>Candidate signals and suggested follow-ups</summary>{data.candidate_signals?.length > 0 && <RecordTable rows={data.candidate_signals} />}{data.recommended_tests?.map((item: any, i: number) => <p key={i}>• {String(item)}</p>)}</details>}
@@ -418,8 +564,16 @@ function M4Detail({ data, report, navigate }: { data: any; report: ReportData; n
   return <>
     <StageBanner kind="INTERVENTION" title="Paired repair sweep">Every candidate is compared case-by-case with the unchanged model. A useful repair must fix failures without breaking cases that were right before, and its lead must hold up after discounting for how many candidates were tried at once.</StageBanner>
     <StageKpis items={[{ label: "Candidates tried", value: candidates.length }, { label: "Repaired flips", value: fixed }, { label: "Broken flips", value: broken }, { label: "Best repair", value: refFor(report, winner?.name) || (winner ? `R${candidates.indexOf(winner) + 1}` : "—"), note: headlineFor(report, winner?.name) || winner?.headline || winner?.tier }]} />
-    <div className={`repair-outcome ${data.fixed ? "success" : "neutral"}`}><Wrench /><div><span>FINAL REPAIR OUTCOME</span><h3>{data.fixed ? "A repair was confirmed" : "No candidate passed the repair gate"}</h3><p>{headlineFor(report, winner?.name) || winner?.headline || winner?.summary || "Inspect the full repair sweep below."}</p></div></div>
-    {data.examples?.length > 0 && <ExampleSection eyebrow="A repaired case" title="One real before-and-after repair" note="This is a case counted as fixed. The repair was accepted only after checking every paired case for improvements and regressions."><div className="example-deck">{data.examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
+    <div className={`repair-outcome ${data.fixed ? "success" : "neutral"}`}><Wrench /><div><span>FINAL REPAIR OUTCOME</span><h3>{data.fixed ? "A repair was confirmed" : "No candidate passed the repair gate"}</h3>{/* The sentence under the verdict was `candidate.summary` — the audit line,
+      "[mcnemar + e-value (paired binary)] ... -> inconclusive". Worse than
+      unreadable, it sat beside "Repaired flips: 15" with nothing explaining
+      how both are true. The derived sentence answers that: it fixed 15 and
+      broke 6, and the evidence against luck is not strong enough to count.
+      The audit line stays under the candidate's details toggle. */}
+    {(headlineFor(report, winner?.name) || winner?.headline)
+      ? <p>{headlineFor(report, winner?.name) || winner?.headline}</p>
+      : winner ? <RepairVerdict candidate={winner} /> : <p>Inspect the full repair sweep below.</p>}</div></div>
+    {data.examples?.length > 0 && <M4ExampleSection examples={data.examples} report={report} />}
     {data.operation_previews?.length > 0 && <RepairOperationPreviews examples={data.operation_previews} report={report} />}
     <SelectionSweep report={report} />
     <div className="repair-chart"><h3>Confirmed on held-out cases: paired flips vs. baseline</h3><ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} /></div>
@@ -469,8 +623,34 @@ function RepairVerdict({ candidate }: { candidate: any }) {
   return <p className="repair-verdict">{counted} {judged}{covered}{independent}</p>;
 }
 
+/**
+ * The example deck wrapper, worded for whichever case M4's search actually
+ * produced. A confirmed repair gets the "accepted" framing it earned; an
+ * unconfirmed one is still shown — that is the whole point, a reader
+ * debugging a failed search needs a real case, not just a gate that closed —
+ * but the copy around it says plainly that nothing here was accepted.
+ */
+function M4ExampleSection({ examples, report }: { examples: any[]; report: ReportData }) {
+  const first = examples[0] || {};
+  const confirmed = first.confirmed !== false;
+  const broke = !confirmed && first.kind === "broken";
+  const eyebrow = confirmed ? "A repaired case" : broke ? "What the search actually broke" : "The search's best attempt";
+  const title = confirmed ? "One real before-and-after repair"
+    : broke ? "No case was fixed — here is one that broke"
+    : "One real attempt, not an accepted repair";
+  const note = confirmed
+    ? "This is a case counted as fixed. The repair was accepted only after checking every paired case for improvements and regressions."
+    : "No candidate cleared the significance bar, so nothing below was accepted as a repair. This is the strongest attempt's own case — shown so the search is debuggable, not just marked failed.";
+  return <ExampleSection eyebrow={eyebrow} title={title} note={note}><div className="example-deck">{examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>;
+}
+
 function M4Example({ example, report }: { example: any; report: ReportData }) {
-  return <article className="example-card m4-example"><header><span className="example-step">A CASE THE REPAIR HELPED</span><em className="status status-fixed">fixed</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>BEFORE REPAIR</small><b>{example.baseline_available ? displayValue(example.baseline_output) : "Not retained"}</b></div><div><small>AFTER REPAIR</small><b>{displayValue(example.repaired_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><footer>{example.plain_reading}</footer></article>;
+  const confirmed = example.confirmed !== false;
+  const broke = example.kind === "broken";
+  const label = confirmed ? "A CASE THE REPAIR HELPED" : broke ? "A CASE THE ATTEMPT BROKE" : "A CASE THE ATTEMPT HELPED — UNCONFIRMED";
+  const status = confirmed ? "fixed" : broke ? "broken" : "unconfirmed";
+  const statusLabel = confirmed ? "fixed" : broke ? "broken" : "not confirmed";
+  return <article className="example-card m4-example"><header><span className="example-step">{label}</span><em className={`status status-${status}`}>{statusLabel}</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>{broke ? "BEFORE ATTEMPT" : "BEFORE REPAIR"}</small><b>{example.baseline_available ? displayValue(example.baseline_output) : "Not retained"}</b></div><div><small>{broke ? "AFTER ATTEMPT" : "AFTER REPAIR"}</small><b>{displayValue(example.repaired_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><footer>{example.plain_reading}</footer></article>;
 }
 
 function OperationExamples({ examples, report }: { examples: any[]; report: ReportData }) {
@@ -574,7 +754,7 @@ function TrajectoryPanel({ trajectory }: { trajectory: any }) {
 
 function MediaPreview({ media, caseId }: { media: ReportData["media"][number]; caseId: string }) {
   const source = media.data_uri || `/api/media/${encodeURIComponent(media.id)}`;
-  if (media.kind === "image") return <img className="case-media" src={source} alt={`Input for case ${caseId}`} />;
+  if (media.kind === "image") return <ZoomableImage className="case-media" src={source} alt={`Input for case ${caseId}`} caption={`Input for case ${caseId}`} />;
   if (media.kind === "video") return <video className="case-media" controls preload="metadata" src={source} />;
   return <audio controls preload="metadata" src={source} />;
 }

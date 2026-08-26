@@ -194,3 +194,26 @@ export function pointsGap(effect: any): string {
   const pp = Math.abs(value) * 100;
   return `${pp < 1 ? pp.toFixed(1) : Math.round(pp)} percentage points`;
 }
+
+/**
+ * A chart value at three decimals, which is as far as any of these statistics
+ * are meaningful.
+ *
+ * echarts hands its default tooltip the raw number, so a bootstrap effect
+ * arrived on screen as `0.5995475113122173` — eighteen digits implying a
+ * precision the estimate does not have, on the one surface a reader is meant to
+ * read at a glance. Counts stay whole; a difference keeps its sign, because the
+ * sign is which way the gap runs.
+ */
+export function chartValue(value: unknown, { signed = false } = {}): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  if (Number.isInteger(n)) return String(n);
+  return `${signed && n > 0 ? "+" : ""}${n.toFixed(3)}`;
+}
+
+/** A 0..1 rate as a percentage, for a chart whose axis is already in percent. */
+export function chartPercent(value: unknown): string {
+  const n = Number(value);
+  return Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
+}
