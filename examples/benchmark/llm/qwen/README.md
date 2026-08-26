@@ -9,7 +9,7 @@ arguments, never a rebuild.
 
 ## Sizes (services)
 
-| service / `--model` | hf_local spec (default) | endpoint spec | GPUs | note |
+| service / `--model` | hf_local spec (`--backend hf_local`) | endpoint spec (default; `—` = the hf_local spec is served) | GPUs | note |
 |---|---|---|---|---|
 | `qwen3.5-2b` | `qwen3.5-2b` | — | 1 | same checkpoint: text spec loads the language tower only, -vl adds the vision tower |
 | `qwen3.5-4b` | `qwen3.5-4b` | — | 1 | same checkpoint: text spec loads the language tower only, -vl adds the vision tower |
@@ -49,6 +49,9 @@ docker logs -f llm-qwen3.5-2b-bbh_causal_judgement
 
 Every size's command pins the judge and coder to Codex Terra (`--judge-provider
 codex --judge-model gpt-5.6-terra --judge-effort medium`); thinking is OFF on every
-model (`--enable-thinking` turns it on for one run); the model runs in-process
-(`hf_local`; `EXTRA_ARGS="--backend endpoint --base-url http://host.docker.internal:8020/v1"`
-talks to a vLLM server instead).
+model (`--enable-thinking` turns it on for one run); **text cells default to
+`--backend endpoint`**: the container talks to an OpenAI-compatible server at
+`--base-url` (default `http://host.docker.internal:8020/v1` — start a vLLM server
+for the size's spec on the host first; `--concurrency N` is honoured there).
+`EXTRA_ARGS="--backend hf_local"` runs the model in-process instead (the
+service still reserves a GPU for that case).

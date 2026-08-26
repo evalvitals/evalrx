@@ -140,12 +140,30 @@ class Resolved:
         return self.size.label if self.size is not None else self.spec_key
 
 
-def resolve(model: str, modality: str, backend: str = "hf_local") -> Resolved:
-    """``--model`` is a size key from :data:`SIZES`; a registered spec key is
-    accepted as an escape hatch (ad-hoc comparisons against models outside the
-    matrix), with no family/image bookkeeping."""
+#: The backend a cell runs on when ``--backend`` is absent. Text cells are served
+#: (an OpenAI-compatible server, vLLM in practice, at ``--base-url``): one served
+#: model answers the concurrent discovery requests that a serial in-process
+#: transformers load cannot, and the llm datasets' sampled 1-2k-token generations
+#: are where that matters. Image and audio cells stay in-process, where the
+#: white-box capture and paper-method fix candidates live. The gemini family is
+#: untouched: it runs on ``gemini`` whatever this table or the flag says.
+DEFAULT_BACKEND = {"llm": "endpoint", "vlm": "hf_local", "alm": "hf_local"}
+
+
+def default_backend(modality: str) -> str:
     if modality not in MODALITIES:
         raise ValueError(f"unknown modality {modality!r}; one of {MODALITIES}")
+    return DEFAULT_BACKEND[modality]
+
+
+def resolve(model: str, modality: str, backend: str | None = None) -> Resolved:
+    """``--model`` is a size key from :data:`SIZES`; a registered spec key is
+    accepted as an escape hatch (ad-hoc comparisons against models outside the
+    matrix), with no family/image bookkeeping. ``backend=None`` is the
+    modality's :data:`DEFAULT_BACKEND`."""
+    if modality not in MODALITIES:
+        raise ValueError(f"unknown modality {modality!r}; one of {MODALITIES}")
+    backend = backend or default_backend(modality)
     if backend not in BACKENDS:
         raise ValueError(f"unknown backend {backend!r}; one of {BACKENDS}")
     size = SIZES.get(model)

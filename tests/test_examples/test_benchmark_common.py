@@ -729,3 +729,22 @@ def test_gsm8k_cases_score_through_the_numeric_grader(common, tmp_path, monkeypa
     comma = cases[3]                                              # gold "1234"
     assert tasks.score_case(comma, "Answer: 1,234")
     assert not tasks.score_case(comma, "Answer: 1234.5")
+
+
+def test_llm_cells_default_to_the_endpoint_backend(common):
+    """Text cells run against a served model unless --backend says otherwise;
+    image/audio cells stay in-process; the gemini family ignores both."""
+    models, _, _, run = common
+    parse = run.build_parser().parse_args
+    assert parse(["--modality", "llm", "--model", "qwen3.5-2b"]).backend is None  # resolved per modality
+    assert models.default_backend("llm") == "endpoint"
+    assert models.default_backend("vlm") == "hf_local" and models.default_backend("alm") == "hf_local"
+    llm = models.resolve("qwen3.5-2b", "llm")
+    assert llm.backend == "endpoint" and llm.spec_key == "qwen3.5-2b"          # no endpoint spec -> same key
+    assert models.resolve("nemotron-3-nano-4b", "llm").spec_key == "nemotron-3-nano-4b-fp8"
+    assert models.resolve("qwen3.5-2b", "vlm").backend == "hf_local"
+    assert models.resolve("gemma-4-e2b", "alm").backend == "hf_local"
+    assert models.resolve("qwen3.5-2b", "llm", "hf_local").backend == "hf_local"  # explicit flag wins
+    assert models.resolve("gemini-2.5-flash-lite", "llm").backend == "gemini"     # family forced
+    with pytest.raises(ValueError):
+        models.default_backend("video")

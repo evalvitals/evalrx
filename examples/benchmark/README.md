@@ -96,12 +96,18 @@ sample the `m1_m4` examples use; the manifest protocol is modality-blind
   must also stop on the tokenizer's `<|im_end|>` (the template's turn end;
   `generation_config` only lists `</s>`, so every answer padded to the cap).
   The remote class has no SDPA dispatch, so nemotron sizes default to eager.
-* **`hf_local` by default for every open model** (in-process transformers:
-  white-box capture and paper-method fix candidates stay available). `--backend
-  endpoint` is the black-box alternative (OpenAI-compatible server; images and
-  audio carried as `image_url` / `input_audio`), and `--backend gemini` is the
-  Gemini family's only backend (Google Gen AI API; images and audio as inline
-  parts). The two 30B-A3B omni models need `--device auto` over two 48 GB cards
+* **The default backend follows the modality** (`_common/models.py`
+  `DEFAULT_BACKEND`): **llm cells run on `endpoint`** — an OpenAI-compatible
+  server at `--base-url` (default `http://host.docker.internal:8020/v1`, i.e. a
+  vLLM server on the host; serve the size's endpoint spec, or its hf_local spec
+  when it has none) — while **vlm / alm cells stay on `hf_local`** (in-process
+  transformers: white-box capture and paper-method fix candidates stay
+  available). `--backend hf_local` puts a text cell back in-process; `--backend
+  endpoint` serves an image/audio cell (images and audio carried as `image_url` /
+  `input_audio`); `--backend gemini` is the Gemini family's only backend (Google
+  Gen AI API; images and audio as inline parts) and is forced whatever the flag
+  says. Note the API backends clamp the fix ladder to L2, so a served text cell
+  never searches L3a/L3b. The two 30B-A3B omni models need `--device auto` over two 48 GB cards
   (`CUDA_VISIBLE_DEVICES=a,b`; their services already pass `--device auto`).
 * **Thinking OFF on every model.** Every spec in the matrix sends
   `enable_thinking=False` on each template render (Qwen3.5, Gemma 4, Nemotron 3
