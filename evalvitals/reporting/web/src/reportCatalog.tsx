@@ -78,7 +78,14 @@ export const { registry } = defineRegistry(reportCatalog, {
     ReportPage: ({ children }) => <main className="report-page">{children}</main>,
     SettingHero: () => {
       const data = useReport();
-      return <section className="setting-hero">
+      // A run that ships its own cover figure (`evalvitals_main.*` beside its
+      // baseline.json) gets it rendered where the decorative rings otherwise
+      // sit — the one picture the producer chose to explain the run, ahead of
+      // anything derived. The copy is wrapped so the grid has two cells; runs
+      // without a figure keep the single-column hero exactly as it was.
+      const hero = data.setting.hero_image;
+      return <section className={`setting-hero${hero ? " has-figure" : ""}`}>
+        <div className="hero-copy">
         <div className="eyebrow"><CircleDot size={14} /> Completed diagnostic run</div>
         <h1>From model failure<br /><span>to tested repair.</span></h1>
         <p className="lead">{data.setting.question}</p>
@@ -95,6 +102,10 @@ export const { registry } = defineRegistry(reportCatalog, {
             <div><small>DIAGNOSED BY</small><strong title={data.setting.diagnosed_by}>{data.setting.diagnosed_by}</strong></div>
           </>}
         </div>
+        </div>
+        {hero && <div className="hero-figure">
+          <ZoomableImage src={hero} alt="The figure this run shipped" caption="evalvitals_main — the figure this run shipped" />
+        </div>}
       </section>;
     },
     MetricStrip: () => {

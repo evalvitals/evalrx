@@ -8,6 +8,7 @@ arbitrary executable UI.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -17,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+# 16: `setting.hero_image` — the run's own cover figure, embedded.
 # 15: `setting.diagnosed_by` — which agent drove the run.
 # 14: M3 hypotheses recover the plain sentence from proposed_hypotheses.
 # 13: paired M2 rows carry the strategy pair they compared, so several tests
@@ -24,7 +26,7 @@ from typing import Any, Iterable, Mapping
 #     makes an already-published run pick the change up — `report_is_current`
 #     only tracks new EVENTS, so without the bump every existing run would
 #     keep serving the labels its old compiler produced.
-REPORT_DATA_VERSION = 15
+REPORT_DATA_VERSION = 16
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalvitals-report@1"
@@ -161,6 +163,8 @@ def build_report_data(
                 # Who drove the pipeline, as opposed to `model`, which is what
                 # it was pointed at. Empty when the run recorded neither.
                 "diagnosed_by": _diagnosed_by(root, run),
+                # The cover figure the run shipped, if any — see _hero_image.
+                "hero_image": _hero_image(root),
                 "n_cases": int(run.get("n_cases") or len(normalized_cases)),
             },
             "summary": {
@@ -418,6 +422,46 @@ _AGENT_LABEL = {
     "codex": "Codex", "gemini_cli": "Gemini CLI", "opencode": "OpenCode",
     "kimi_cli": "Kimi CLI", "llm": "LLM",
 }
+
+
+#: Extensions a run's cover figure may use, with the media type each carries.
+_HERO_IMAGE_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".svg": "image/svg+xml",
+}
+
+#: Above this, embedding the cover would dominate the payload the browser has
+#: to parse before anything renders — the figure is skipped, not downscaled,
+#: because resampling someone's diagram is worse than not showing it.
+_HERO_IMAGE_MAX_BYTES = 10_000_000
+
+
+def _hero_image(root: Path) -> str:
+    """The run's own cover figure as a data URI, or "" when it ships none.
+
+    A run directory may carry ``evalvitals_main.(png|jpg|jpeg|svg)`` at its
+    top level — beside baseline.json, where a person browsing the folder would
+    put the one picture that explains the run (a pipeline diagram, a headline
+    chart). The report's hero has always reserved its right half for a
+    decorative void; a run that brought its own figure fills it instead.
+
+    Embedded as a data URI rather than served by path so the portable export,
+    a dropped zip and the live server all render it identically — and checked
+    in the logs directory as well as its parent, because ``root`` is the logs
+    dir for a benchmark run and the run root for a flat one.
+    """
+    candidates = [root] + ([root.parent] if root.name == "logs" else [])
+    for directory in candidates:
+        for ext, mime in _HERO_IMAGE_TYPES.items():
+            path = directory / f"evalvitals_main{ext}"
+            try:
+                if not path.is_file() or path.stat().st_size > _HERO_IMAGE_MAX_BYTES:
+                    continue
+                payload = base64.b64encode(path.read_bytes()).decode("ascii")
+            except OSError:
+                continue
+            return f"data:{mime};base64,{payload}"
+    return ""
 
 
 def _diagnosed_by(root: Path, run: Mapping[str, Any]) -> str:
