@@ -1078,6 +1078,24 @@ def fetch_rows(spec: Spec, want: int, seed: int = 0, timeout: int = 60,
     if not total:
         return []
 
+    def get_page(offset: int, length: int):
+        payload = _get_rows({**params, "offset": offset, "length": length}, timeout, url=url)
+        if payload is None:
+            return None
+        return [(entry.get("row_idx"), entry["row"]) for entry in payload.get("rows", [])]
+
+    return _draw_windows(spec, want, seed, n_windows, total, get_page)
+
+
+def _draw_windows(spec: Spec, want: int, seed: int, n_windows: Optional[int],
+                  total: int, get_page) -> list[dict]:
+    """The seeded window draw behind ``fetch_rows``, over any pager.
+
+    ``get_page(offset, length)`` returns ``[(row_key, row), ...]`` for one
+    window or ``None`` when that window is unknown (counted, never treated as
+    empty). The datasets-server and the hub-file fallback share this so a
+    freeze taken either way is the same draw over the same slice.
+    """
     keep = spec.row_filter or (lambda row: True)
     #: windows that came back unknown after all retries — reported alongside the
     #: band so a thin sample is never read as a measured one
@@ -1114,15 +1132,11 @@ def fetch_rows(spec: Spec, want: int, seed: int = 0, timeout: int = 60,
         if offset in seen_offsets:
             continue
         seen_offsets.add(offset)
-        params["offset"] = offset
-        params["length"] = min(per_window, total - offset)
-        payload = _get_rows(params, timeout, url=url)
-        if payload is None:
+        page = get_page(offset, min(per_window, total - offset))
+        if page is None:
             fetch_rows.last_failed_windows += 1
             continue
-        for entry in payload.get("rows", []):
-            row = entry["row"]
-            key = entry.get("row_idx")
+        for key, row in page:
             if key is None:
                 key = json.dumps(row, sort_keys=True, default=str)
             if key in seen_rows:
@@ -1137,6 +1151,59 @@ def fetch_rows(spec: Spec, want: int, seed: int = 0, timeout: int = 60,
             break
     rng.shuffle(rows)
     return rows
+
+
+_WHERE_TERM = re.compile(r"""^\s*"([^"]+)"\s*=\s*'([^']*)'\s*$""")
+
+
+def parse_where(where: str) -> list[tuple[str, str]]:
+    """``"col"='value' [AND "col"='value' ...]`` -> ``[(col, value), ...]``.
+
+    That is the only shape the specs use. Anything wider (OR, !=, LIKE, an
+    unquoted name) raises, so a local filter can never quietly widen a slice
+    the server would have narrowed.
+    """
+    terms = []
+    for part in re.split(r"\s+AND\s+", where.strip(), flags=re.IGNORECASE):
+        m = _WHERE_TERM.match(part)
+        if not m:
+            raise ValueError(f"unsupported where clause for a local filter: {where!r}")
+        terms.append((m.group(1), m.group(2)))
+    return terms
+
+
+def _load_hub_rows(spec: Spec) -> list[dict]:
+    """Every row of the split in file order, from the hub's own files
+    (``datasets.load_dataset``; the datasets-server is not involved)."""
+    import datasets as hf_datasets  # the HF package; only needed on this path
+
+    config = None if spec.config == "default" else spec.config
+    ds = hf_datasets.load_dataset(spec.dataset, config, split=spec.split)
+    return [dict(row) for row in ds]
+
+
+def fetch_rows_hub(spec: Spec, want: int, seed: int = 0,
+                   n_windows: Optional[int] = None) -> list[dict]:
+    """``fetch_rows`` served from the hub files instead of the datasets-server.
+
+    The /filter index behind a ``where`` spec can answer HTTP 500 ("the dataset
+    index is loading") for hours. This loads the split itself, applies the
+    where clause locally (``parse_where``) and draws the same seeded windows
+    ``fetch_rows`` draws over the slice in file order -- the order /filter pages
+    through -- so the freeze is the server's sample, not a different one.
+    """
+    rows = _load_hub_rows(spec)
+    if spec.where:
+        terms = parse_where(spec.where)
+        rows = [r for r in rows if all(str(r.get(col)) == val for col, val in terms)]
+    total = len(rows)
+    if not total:
+        return []
+
+    def get_page(offset: int, length: int):
+        return [(i, rows[i]) for i in range(offset, min(offset + length, total))]
+
+    return _draw_windows(spec, want, seed, n_windows, total, get_page)
 
 
 # ----------------------------------------------------------------------

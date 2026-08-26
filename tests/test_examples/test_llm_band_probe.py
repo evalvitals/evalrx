@@ -748,3 +748,59 @@ def test_musr_adapter_parses_string_repr_choices(band):
     }
     prompt, gold = band._adapter_musr(row)
     assert gold == "B" and "A. Mackenzie" in prompt
+
+
+# ----------------------------------------------------------------------
+# Hub-file fallback for a datasets-server that will not serve the slice
+# ----------------------------------------------------------------------
+def test_parse_where_accepts_the_spec_shapes_and_rejects_anything_wider(band):
+    assert band.parse_where("\"discipline\"='Law'") == [("discipline", "Law")]
+    assert band.parse_where("\"discipline\"='Medicine' AND \"difficulty\"='hard'") == [
+        ("discipline", "Medicine"), ("difficulty", "hard")]
+    assert band.parse_where("\"a\"='x'  and  \"b\"='y'") == [("a", "x"), ("b", "y")]
+    for wider in ("\"discipline\"='Law' OR \"discipline\"='Economics'",
+                  "\"difficulty\"!='easy'", "discipline='Law'", "\"discipline\" LIKE 'L%'"):
+        with pytest.raises(ValueError, match="unsupported where clause"):
+            band.parse_where(wider)
+
+
+def test_hub_fallback_draws_the_sample_the_server_would_have(band, monkeypatch):
+    """/filter at HTTP 500 must not turn the freeze into a different (or wider) sample.
+
+    The server pages through the slice in file order; the fallback filters the
+    split locally and hands the same seeded window draw the same slice.
+    """
+    split = [{"discipline": ("Law", "Economics", "Medicine")[i % 3],
+              "difficulty": "hard" if i % 4 == 0 else "easy", "id": i} for i in range(2000)]
+    spec = band.Spec("medhard", "ch4", "m-a-p/SuperGPQA", split="train",
+                     where="\"discipline\"='Medicine' AND \"difficulty\"='hard'")
+    sliced = [r for r in split if r["discipline"] == "Medicine" and r["difficulty"] == "hard"]
+    _fake_server(monkeypatch, band, sliced)
+    via_server = band.fetch_rows(spec, 40, seed=3)
+
+    monkeypatch.setattr(band, "_load_hub_rows", lambda s: list(split))   # whole split, unfiltered
+    via_hub = band.fetch_rows_hub(spec, 40, seed=3)
+
+    assert len(via_hub) >= 40
+    assert via_hub == via_server
+    assert all(r["discipline"] == "Medicine" and r["difficulty"] == "hard" for r in via_hub)
+    assert band.fetch_rows.last_failed_windows == 0
+
+
+def test_hub_fallback_without_a_where_clause_is_the_plain_draw(band, monkeypatch):
+    split = [{"id": i} for i in range(300)]
+    spec = band.Spec("plain", "ch4", "some/dataset", split="train")
+    monkeypatch.setattr(band, "_load_hub_rows", lambda s: list(split))
+    via_hub = band.fetch_rows_hub(spec, 40, seed=0)
+    _fake_server(monkeypatch, band, split)
+    assert via_hub == band.fetch_rows(spec, 40, seed=0)
+
+
+def test_hub_fallback_keeps_the_row_filter_and_counts_survivors(band, monkeypatch):
+    split = [{"size": f"{i % 25}", "id": i} for i in range(1000)]
+    spec = band.Spec("rung", "ch4", "some/dataset", split="train",
+                     row_filter=band._row_in("size", ["3"]))
+    monkeypatch.setattr(band, "_load_hub_rows", lambda s: list(split))
+    got = band.fetch_rows_hub(spec, 20, seed=0)
+    assert got and all(r["size"] == "3" for r in got)
+    assert len(got) >= 20

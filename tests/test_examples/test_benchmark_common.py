@@ -384,3 +384,36 @@ def test_run_fix_isolated_hides_the_run_dir_from_the_fix_stage_and_restores_it(c
                                     '{"event": "fix", "candidate": "x"}\n')
     assert (run_dir / "logs" / "fixes" / "outcome.md").read_text() == "NOT FIXED"
     assert (run_dir / "fix_quarantine.json").exists()
+
+
+def test_llm_download_freezes_from_the_hub_when_the_datasets_server_is_down(common, tmp_path, monkeypatch, capsys):
+    """/filter answering 500 for hours must not leave a sliced dataset unfreezable."""
+    import json
+
+    from _common.tasks import llm
+
+    _, band = llm.catalog()
+
+    def _down(spec, want, seed=0, **kw):
+        raise RuntimeError(f"datasets-server unavailable for {spec.dataset}")
+
+    rows = [{"question": f"Q{i}?", "options": ["yes", "no", "maybe", "never"],
+             "answer_letter": "ABCD"[i % 4], "discipline": "Law"} for i in range(30)]
+    hub_calls = []
+
+    def _hub(spec, want, seed=0, **kw):
+        hub_calls.append((spec.name, want, seed))
+        return list(rows)
+
+    monkeypatch.setattr(band, "fetch_rows", _down)
+    monkeypatch.setattr(band, "fetch_rows_hub", _hub)
+
+    summary = llm.download(tmp_path, limit=20, seed=7, dataset="supergpqa_law")
+
+    assert summary["fetch"] == "hub" and summary["kept"] == 20
+    assert hub_calls == [("supergpqa_law", 20, 7)]
+    text = (tmp_path / "manifest.json").read_text()
+    assert text.count('"supergpqa_law-') == 20
+    assert json.loads(text)  # a manifest the run can load
+    out = capsys.readouterr().out
+    assert "datasets-server unavailable for m-a-p/SuperGPQA" in out and "hub files" in out
