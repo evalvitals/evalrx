@@ -8,7 +8,6 @@ tolerance; the manifest now follows the benchmark protocol (image/audio slots).
 from __future__ import annotations
 
 import io
-import json
 import random
 from pathlib import Path
 

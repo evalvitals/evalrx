@@ -8,8 +8,12 @@ overconfidence gap — for BOTH confidence channels (sequence logprob and
 verbalized).  A model that is wrong exactly where it is confident needs a
 different fix (abstention / recalibration) than one that is merely inaccurate.
 
-``requires=GENERATE+LOGPROBS`` (OpenAI-style endpoints qualify); labels come
-from the batch, unlabeled cases are skipped.
+``requires=GENERATE``: the verbalized channel runs on every model; the logprob
+channel needs :attr:`Capability.LOGPROBS` and is reported empty (``n=0``,
+``logprob_channel_available=False``) on a model without it -- an API model
+that returns no logprobs (Gemini) keeps its calibration signal instead of
+losing the whole analyzer. Labels come from the batch, unlabeled cases are
+skipped.
 
 References:
 - On Calibration of Modern Neural Networks — Guo et al., ICML 2017 —
@@ -85,7 +89,7 @@ class CalibrationAnalyzer(Analyzer):
     """
 
     name = "calibration"
-    requires = frozenset({Capability.GENERATE, Capability.LOGPROBS})
+    requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
     def __init__(self, n_bins: int = 10, max_cases: int = 0, elicit: str = _ELICIT) -> None:
@@ -97,11 +101,12 @@ class CalibrationAnalyzer(Analyzer):
         vb_pairs: list[tuple[float, bool]] = []
         labelled = CaseBatch([c for c in cases if c.label in (Label.PASS, Label.FAIL)])
         n_unlabelled = len(list(cases)) - len(list(labelled))
+        has_logprobs = Capability.LOGPROBS in getattr(model, "capabilities", frozenset())
         for case in labelled.stratified_head(self.max_cases):
             correct = case.label == Label.PASS
             entry: dict[str, Any] = {"sample_id": case.id, "correct": int(correct)}
 
-            toks = model.logprobs(case.inputs)
+            toks = model.logprobs(case.inputs) if has_logprobs else []
             lps = [t.logprob for t in toks]
             conf_lp = math.exp(sum(lps) / len(lps)) if lps else None
             if conf_lp is not None:
@@ -136,6 +141,7 @@ class CalibrationAnalyzer(Analyzer):
             "n_cases": len(per_case),
             "n_unlabelled_skipped": n_unlabelled,
             "n_bins": self.n_bins,
+            "logprob_channel_available": has_logprobs,
             "logprob_channel": _summary(lp_pairs),
             "verbalized_channel": _summary(vb_pairs),
             "per_case": per_case,
@@ -144,7 +150,8 @@ class CalibrationAnalyzer(Analyzer):
                 "on few labelled cases is unstable (aim for >= ~50). "
                 "conf_logprob is the geometric-mean token probability of the "
                 "model's own continuation — a proxy, not an answer probability; "
-                "on API backends it reflects only the returned top-k. A positive "
+                "on API backends it reflects only the returned top-k, and a model "
+                "without LOGPROBS reports only the verbalized channel. A positive "
                 "overconfidence_gap on FAIL-heavy slices argues for abstention/"
                 "recalibration fixes rather than capability fixes."
             ),

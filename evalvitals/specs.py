@@ -689,3 +689,39 @@ _add(ModelSpec(
 ))
 
 __all__ = ["REGISTRY", "get_spec", "list_specs"]
+
+# ----------------------------------------------------------------------
+# examples/benchmark family: Gemini (Google Gen AI API, closed weights) (2026-08-25)
+# ----------------------------------------------------------------------
+# ``api_only``: the ``api`` backend with ``gemini_compat.gemini_runtime`` (the
+# official google-genai SDK); the spec key IS the API model id (``hf_repo`` is
+# empty, ``APIModel`` sends ``spec.hf_repo or spec.key``). Every model below
+# lists text, image, video, audio and PDF as inputs on its model card, so one
+# spec serves the llm / vlm / alm cells. Thinking: the 3.x models expose
+# ``thinking_level`` (3.7-flash bottoms out at ``low``, the rest at
+# ``minimal``); the 2.5 models expose ``thinking_budget`` (0 = off on flash /
+# flash-lite; 2.5-pro cannot switch it off, floor 128) — the runtime sends the
+# floor unless told otherwise. Logprobs: none for 3.x ("working as intended",
+# Google forum 2026-08-05) and withdrawn on 2.5, so the backend is GENERATE-only
+# and the fix ladder stops at L2 (no internals for L3a/L3b).
+for _key, _thinking in (
+    ("gemini-3.7-flash", "thinking_level floor 'low' (minimal not offered)"),
+    ("gemini-3.6-flash", "thinking_level floor 'minimal'"),
+    ("gemini-3.5-flash", "thinking_level floor 'minimal'"),
+    ("gemini-3.5-flash-lite", "thinking_level floor 'minimal' (its default)"),
+    ("gemini-3.1-flash-lite", "thinking_level floor 'minimal' (levels per the card; floor unverified)"),
+    ("gemini-2.5-flash", "thinking_budget 0 turns thinking off (default on)"),
+    ("gemini-2.5-flash-lite", "thinking_budget 0 (its default)"),
+    ("gemini-2.5-pro", "thinking cannot be disabled (budget floor 128)"),
+):
+    _add(ModelSpec(
+        key=_key, family="gemini", model_type="gemini", hf_repo="", auto_class="",
+        api_only=True, attn_semantics=AttnSemantics.NONE, is_reasoning=True,
+        vision=VisionSpec(), audio=AudioSpec(), video=True,
+        caveats=(
+            "closed weights: api backend only (google-genai, GEMINI_API_KEY); no internals "
+            "and no logprobs -> GENERATE-only, fix ladder capped at L2",
+            f"thinking: {_thinking}; the benchmark runner sends the floor unless --thinking-level",
+            "inline media <= 20 MB per request; audio costs 32 tokens/s",
+        ),
+    ))

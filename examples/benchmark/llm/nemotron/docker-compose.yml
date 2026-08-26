@@ -1,7 +1,9 @@
 # LLM (text only) x Nemotron 3 Nano: one service per size, dataset/limit via env.
 #   DATASET=bbh_causal_judgement LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name llm-nemotron-3-nano-4b-bbh_causal_judgement nemotron-3-nano-4b
-# Datasets for this modality: cruxeval_output, bbh_causal_judgement, supergpqa_economics, bbh_word_sorting, bbh_tracking7, bamboogle, minervamath, supergpqa_law, supergpqa_medicine_hard.
+# Datasets for this modality: cruxeval_output, bbh_causal_judgement, supergpqa_economics, bbh_word_sorting, bbh_tracking7, bamboogle, minervamath, supergpqa_law, supergpqa_medicine_hard, hotpotqa_gepa, gsm8k.
 # EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
+# Backend: llm cells default to --backend endpoint (OpenAI-compatible server at --base-url,
+#   default http://host.docker.internal:8020/v1 = a vLLM server on the host); EXTRA_ARGS='--backend hf_local' runs in-process.
 # Judge/coder are pinned to Codex gpt-5.6-terra at medium effort.
 name: bench-llm-nemotron
 x-nemotron: &nemotron

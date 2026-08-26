@@ -113,7 +113,7 @@ class APIModel(Model):
             )
         prompt = inputs.prompt if isinstance(inputs, Inputs) else str(inputs)
         model_name = self.spec.hf_repo or self.spec.key
-        return self._generate_fn(prompt, model=model_name, **kwargs)
+        return self._generate_fn(prompt, model=model_name, **self._media(inputs), **kwargs)
 
     def chat(self, messages: list, tools=None) -> ChatTurn:
         model_name = self.spec.hf_repo or self.spec.key
@@ -132,7 +132,26 @@ class APIModel(Model):
         if self._logprobs_fn is None:
             raise CapabilityError(analyzer="logprobs", model=repr(self), missing={Capability.LOGPROBS})
         prompt = inputs.prompt if isinstance(inputs, Inputs) else str(inputs)
-        return self._logprobs_fn(prompt, model=self.spec.hf_repo or self.spec.key, **kwargs)
+        return self._logprobs_fn(
+            prompt, model=self.spec.hf_repo or self.spec.key, **self._media(inputs), **kwargs
+        )
+
+    def _media(self, inputs: Any) -> dict:
+        """The filled media slots of *inputs* that the spec declares.
+
+        ``image`` / ``audio`` go to ``generate_fn`` / ``logprobs_fn`` as
+        keyword arguments; a text-only spec never forwards them, and a slot
+        the case leaves empty is not sent. Without this the api backend
+        answered every VLM/ALM case from the prompt alone.
+        """
+        if not isinstance(inputs, Inputs):
+            return {}
+        media = {}
+        if "image" in self.modalities and inputs.image is not None:
+            media["image"] = inputs.image
+        if "audio" in self.modalities and inputs.audio is not None:
+            media["audio"] = inputs.audio
+        return media
 
     def forward(self, inputs: Any, capture: set[Capability], spec=None) -> Trace:
         missing = set(capture) & _WHITEBOX

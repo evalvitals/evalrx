@@ -1,4 +1,4 @@
-# Build every family image in one go (from any directory):
+# Build every family image in one go (from any directory; gemini = base stack, no GPU):
 #   docker compose -f examples/benchmark/docker/docker-compose.build.yml build
 # The leaf compose files carry the same build stanza, so `docker compose up --build`
 # in a leaf also works; the layer cache makes the second build a no-op.
@@ -12,3 +12,6 @@ services:
   nemotron:
     image: evalvitals-bench-nemotron
     build: {context: ../../.., dockerfile: examples/benchmark/docker/Dockerfile, target: nemotron}
+  gemini:
+    image: evalvitals-bench-gemini
+    build: {context: ../../.., dockerfile: examples/benchmark/docker/Dockerfile, target: gemini}

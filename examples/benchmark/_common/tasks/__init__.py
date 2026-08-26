@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from . import audiocaps_hallu, chartqa, llm, mmau, spatial457
+from . import audiocaps_hallu, chartqa, gsm8k, hotpotqa, llm, mmau, pope, spatial457
 from .base import (  # noqa: F401
-    Task, build_cases, label_case, load_rows, manifest_path, score_case, write_manifest,
+    Task,
+    build_cases,
+    label_case,
+    load_rows,
+    manifest_path,
+    score_case,
+    write_manifest,
 )
 
 TASKS: dict[str, Task] = {}
-for _task in (chartqa.TASK, spatial457.TASK, mmau.TASK, audiocaps_hallu.TASK, *llm.TASKS):
+for _task in (chartqa.TASK, spatial457.TASK, *pope.TASKS, mmau.TASK, audiocaps_hallu.TASK, *llm.TASKS, hotpotqa.TASK, gsm8k.TASK):
     TASKS[_task.name] = _task
 
 DEFAULT_TASK = {"vlm": "chartqa", "llm": "bbh_causal_judgement", "alm": "mmau"}

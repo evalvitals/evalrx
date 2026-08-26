@@ -26,7 +26,9 @@ def test_publish_report_contract_and_case_records(tmp_path):
     assert data["cases"][0]["id"] == "sample-1"
     assert data["cases"][0]["observed"] == "dog"
     assert envelope["format"] == "json-render"
-    assert envelope["catalog_version"] == "evalvitals-report@1"
+    # bumped to @2 when CaseStudySheet joined the catalog: a cached layout
+    # composed against the older catalog cannot name the new component.
+    assert envelope["catalog_version"] == "evalvitals-report@2"
     assert envelope["spec"]["elements"]["journey"]["type"] == "Journey"
 
 
