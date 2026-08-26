@@ -40,6 +40,9 @@ claims `GENERATE` only — `calibration` runs on its verbalized channel,
 |---|---|---|---|---|
 | `chartqa` | ChartQA/test_human | exact_or_numeric | 256 | HuggingFaceM4/ChartQA (test, human-authored) |
 | `spatial457` | Spatial457/L5_6d_spatial | exact_or_numeric | 256 | RyanWW/Spatial457 (L5_6d_spatial) |
+| `pope_random` | POPE/coco_random | yes_no | 1000 | AoiDragon/POPE coco_pope_random @08d957b9 + COCO val2014 |
+| `pope_popular` | POPE/coco_popular | yes_no | 1000 | AoiDragon/POPE coco_pope_popular @08d957b9 + COCO val2014 |
+| `pope_adversarial` | POPE/coco_adversarial | yes_no | 1000 | AoiDragon/POPE coco_pope_adversarial @08d957b9 + COCO val2014 |
 
 Data is frozen once per modality under [`../_data/`](../_data) (`<dataset>/manifest.json`
 + media), shared by all families of this modality; outputs go to

@@ -509,3 +509,77 @@ def test_load_model_gemini_branch_sends_the_floor_and_claims_generate_only(commo
     assert captured["max_output_tokens"] == 64 and captured["api_key"] == "k"
     assert captured["thinking"].level == "low" and captured["thinking"].floor is False
 
+
+
+def test_pope_tasks_are_registered_per_split(common):
+    _, tasks, _, _ = common
+    assert [n for n in tasks.names("vlm") if n.startswith("pope_")] == [
+        "pope_random", "pope_popular", "pope_adversarial"]
+    for name in ("pope_random", "pope_popular", "pope_adversarial"):
+        task = tasks.get(name)
+        assert (task.modality, task.kind) == ("vlm", "yes_no")
+        assert (task.default_limit, task.default_seed, task.max_new_tokens) == (1000, 2305, 16)
+    assert tasks.DEFAULT_TASK["vlm"] == "chartqa"  # pope is opt-in, not the default
+
+
+def _fake_pope_lines(split, n_images):
+    """Per image: no, yes, yes, no in file order — first yes is q+2, first no is q+1."""
+    lines, qid = [], 0
+    for i in range(n_images):
+        image = f"COCO_val2014_{i:012d}.jpg"
+        for obj, label in ((f"absent-{split}-a", "no"), ("cat", "yes"),
+                           ("bench", "yes"), (f"absent-{split}-b", "no")):
+            qid += 1
+            lines.append({"question_id": qid, "image": image,
+                          "text": f"Is there a {obj} in the image?", "label": label})
+    return lines
+
+
+def test_pope_download_keeps_first_yes_first_no_per_image_and_reuses_sibling_images(
+        common, tmp_path, monkeypatch):
+    _, tasks, _, _ = common
+    from _common.tasks import pope
+
+    fetched = []
+    monkeypatch.setattr(pope, "_probe_lines", lambda split, cache: _fake_pope_lines(split, 3))
+    monkeypatch.setattr(pope, "_fetch_image",
+                        lambda file_name, dest: (fetched.append(file_name), dest.write_bytes(b"img")))
+    summary = tasks.get("pope_random").download(tmp_path / "pope_random", limit=0, seed=2305)
+    assert (summary["kept"], summary["images"], summary["downloaded"]) == (6, 3, 3)
+    rows = tasks.load_rows(tmp_path / "pope_random" / "manifest.json")
+    # first yes (qid i*4+2) then first no (qid i*4+1) of every image, in file order
+    assert [r["source_index"] for r in rows] == [2, 1, 6, 5, 10, 9]
+    assert [r["answers"] for r in rows[:2]] == [["Yes"], ["No"]]
+    assert rows[0]["prompt"] == "Is there a cat in the image? Answer with only the single word Yes or No."
+    assert rows[1]["metadata"]["object"] == "absent-random-a"
+    assert all(r["task"] == "yes_no" and r["metadata"]["split"] == "random" for r in rows)
+
+    # the popular split shares the images: hardlinked from the sibling dir, no new fetches
+    summary2 = tasks.get("pope_popular").download(tmp_path / "pope_popular", limit=0, seed=2305)
+    assert (summary2["reused"], summary2["downloaded"]) == (3, 0) and fetched == fetched[:3]
+    assert (tmp_path / "pope_popular" / "images" / "COCO_val2014_000000000000.jpg").is_file()
+
+    # a smaller limit keeps whole pairs and is seed-deterministic
+    a = tasks.get("pope_adversarial").download(tmp_path / "pope_adversarial", limit=4, seed=7)
+    b = tasks.get("pope_adversarial").download(tmp_path / "pope_adv_again", limit=4, seed=7)
+    ra = tasks.load_rows(tmp_path / "pope_adversarial" / "manifest.json")
+    rb = tasks.load_rows(tmp_path / "pope_adv_again" / "manifest.json")
+    assert a["kept"] == b["kept"] == 4 and [r["id"] for r in ra] == [r["id"] for r in rb]
+
+
+def test_pope_cases_score_through_the_yes_no_grader(common, tmp_path, monkeypatch):
+    _, tasks, _, _ = common
+    from _common.tasks import pope
+
+    monkeypatch.setattr(pope, "_probe_lines", lambda split, cache: _fake_pope_lines(split, 1))
+    monkeypatch.setattr(pope, "_fetch_image", lambda file_name, dest: dest.write_bytes(b"img"))
+    tasks.get("pope_adversarial").download(tmp_path / "pope_adversarial", limit=0, seed=2305)
+    batch, _rows = tasks.build_cases(
+        tasks.get("pope_adversarial"), tmp_path / "pope_adversarial" / "manifest.json")
+    yes_case, no_case = list(batch)
+    assert yes_case.metadata["gold"] == "Yes" and no_case.metadata["gold"] == "No"
+    assert yes_case.inputs.image and yes_case.inputs.image.endswith(".jpg")
+    assert tasks.score_case(yes_case, "Yes, there is a cat.")
+    assert not tasks.score_case(yes_case, "No.")
+    assert tasks.score_case(no_case, "No, I see none.")
+    assert not tasks.score_case(no_case, "Yes")

@@ -12,7 +12,7 @@ examples/benchmark/
 ├── _common/            the code: run.py (CLI) · models.py (matrix) · tasks/ (datasets) · runner.py (loop wiring)
 ├── docker/Dockerfile   ONE multi-stage file: base → qwen | gemma | nemotron (docker-compose.build.yml builds all)
 ├── .env.example        host mount sources (copy to .env; every leaf links to it)
-├── vlm/ _data/ {qwen,gemma,nemotron}/     image + text   : chartqa, spatial457
+├── vlm/ _data/ {qwen,gemma,nemotron}/     image + text   : chartqa, spatial457, pope_{random,popular,adversarial}
 ├── llm/ _data/ {qwen,gemma,nemotron}/     text only      : the nine band-located slices of dataset_selection
 └── alm/ _data/ {qwen,gemma,nemotron}/     audio + text   : mmau, audiocaps_hallu
 ```
@@ -65,6 +65,7 @@ for the 3.x models), so `calibration` runs on its verbalized channel only,
 |---|---|---|---|---|
 | vlm | `chartqa` (default) | ChartQA test, human-authored | normalised exact match, 5 % numeric tolerance | 256 |
 | vlm | `spatial457` | Spatial457 L5_6d_spatial | normalised exact match | 256 |
+| vlm | `pope_random` / `pope_popular` / `pope_adversarial` | POPE COCO object hallucination, 1 present + 1 absent question per image (split = how the absent object is sampled) | Yes/No | 1000 |
 | llm | `bbh_causal_judgement` (default), `bbh_word_sorting`, `bbh_tracking7`, `cruxeval_output`, `bamboogle`, `minervamath`, `supergpqa_law`, `supergpqa_economics`, `supergpqa_medicine_hard` | the band-located slices of [`dataset_selection`](../dataset_selection/llm_benchmark/datasets.py) | each slice's own grader on the extracted answer | 256 |
 | alm | `mmau` (default) | MMAU test-mini, 4-way MC | option letter | 256 |
 | alm | `audiocaps_hallu` | AudioCaps object hallucination (Random) | Yes/No | 300 |
