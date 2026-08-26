@@ -13,6 +13,13 @@ from evalvitals.models.backends.api import (
     parse_openai_logprobs,
 )
 from evalvitals.models.backends.base import Backend, RuntimeConfig
+from evalvitals.models.backends.gemini_compat import (
+    ThinkingPolicy,
+    gemini_chat_fn,
+    gemini_generate_fn,
+    gemini_logprobs_fn,
+    gemini_runtime,
+)
 from evalvitals.models.backends.hf_local import HFLocalBackend, HFLocalModel
 from evalvitals.models.backends.openai_compat import (
     openai_chat_fn,
@@ -42,5 +49,10 @@ __all__ = [
     "openai_chat_fn",
     "openai_generate_fn",
     "openai_runtime",
+    "ThinkingPolicy",
+    "gemini_chat_fn",
+    "gemini_generate_fn",
+    "gemini_logprobs_fn",
+    "gemini_runtime",
     "BACKENDS",
 ]

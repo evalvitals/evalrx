@@ -34,12 +34,30 @@ differs (Qwen3.5 text tower vs vision tower); Gemma 4 is one spec for all three.
 | `gemma-4-12b` | Gemma 4 | ✓ | ✓ | ✓ | 1 | `gemma-4-12b-it` (Unified, encoder-free; audio native) |
 | `nemotron-3-nano-4b` | Nemotron 3 | ✓ | — | — | 1 | `nemotron-3-nano-4b` (BF16; `-fp8` for `--backend endpoint`) |
 | `nemotron-3-nano-omni-30b-a3b` | Nemotron 3 | — | ✓ | ✓ | 2 | `nemotron-3-nano-omni-30b-a3b-reasoning` (BF16; `-fp8` for endpoint) |
+| `gemini-3.7-flash` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.7-flash` (thinking floor `low`) |
+| `gemini-3.6-flash` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.6-flash` |
+| `gemini-3.5-flash` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.5-flash` |
+| `gemini-3.5-flash-lite` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.5-flash-lite` |
+| `gemini-3.1-flash-lite` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.1-flash-lite` |
+| `gemini-2.5-flash` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-2.5-flash` (`thinking_budget` 0) |
+| `gemini-2.5-flash-lite` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-2.5-flash-lite` (`thinking_budget` 0) |
+| `gemini-2.5-pro` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-2.5-pro` (thinking cannot be disabled; budget 128) |
 
 `python -m _common.run --list` prints the same table from the code.
 
 Gemma 4 12B **does** take audio (the model card lists audio on E2B, E4B and 12B;
 the 12B is the encoder-free "Unified" variant), so it sits in the ALM row; drop
 it from `SIZES["gemma-4-12b"].specs` if it should stay out.
+
+The Gemini rows are **closed-weight API models** (Google Gen AI API through the
+official `google-genai` SDK, `--backend gemini`, forced for the family). Every
+listed model card names text, image, video, audio and PDF as inputs, so one
+api-only spec per model id fills all three modality cells; no GPU is reserved
+(`gpus` 0), the key comes from `GEMINI_API_KEY` in `examples/benchmark/.env`.
+What the family cannot do: expose internals or logprobs (Gemini returns none
+for the 3.x models), so `calibration` runs on its verbalized channel only,
+`logprob_entropy` is skipped, and the fix ladder is **clamped to L2** —
+`--fix-tier L3a/L3b` prints the clamp and searches L0 → L1 → L2.
 
 ### Datasets
 
@@ -75,14 +93,30 @@ sample the `m1_m4` examples use; the manifest protocol is modality-blind
   must also stop on the tokenizer's `<|im_end|>` (the template's turn end;
   `generation_config` only lists `</s>`, so every answer padded to the cap).
   The remote class has no SDPA dispatch, so nemotron sizes default to eager.
-* **`hf_local` by default for every model** (in-process transformers: white-box
-  capture and paper-method fix candidates stay available). `--backend endpoint`
-  is the black-box alternative (OpenAI-compatible server; images yes, audio not
-  carried). The two 30B-A3B omni models need `--device auto` over two 48 GB cards
+* **`hf_local` by default for every open model** (in-process transformers:
+  white-box capture and paper-method fix candidates stay available). `--backend
+  endpoint` is the black-box alternative (OpenAI-compatible server; images and
+  audio carried as `image_url` / `input_audio`), and `--backend gemini` is the
+  Gemini family's only backend (Google Gen AI API; images and audio as inline
+  parts). The two 30B-A3B omni models need `--device auto` over two 48 GB cards
   (`CUDA_VISIBLE_DEVICES=a,b`; their services already pass `--device auto`).
 * **Thinking OFF on every model.** Every spec in the matrix sends
   `enable_thinking=False` on each template render (Qwen3.5, Gemma 4, Nemotron 3
-  all default ON otherwise); `--enable-thinking` flips it for one run.
+  all default ON otherwise); `--enable-thinking` flips it for one run. Gemini
+  cannot always switch thinking off, so the runtime sends each model's
+  **floor**: `thinking_level=minimal` on 3.6/3.5/3.5-lite/3.1-lite, `low` on
+  3.7-flash (its lowest), `thinking_budget=0` on 2.5-flash / flash-lite and 128
+  on 2.5-pro. `--thinking-level {minimal,low,medium,high}` / `--thinking-budget N`
+  name a setting explicitly; `--enable-thinking` leaves the API default. A model
+  that rejects the config falls back to the default once, logged, and the
+  served `model_version` is written to `baseline.json` because a stable id is
+  re-pointed silently.
+* **API backends stop the fix ladder at L2.** Every L3a repair in the catalog
+  runs a white-box executor (contrastive decoding over corrupted inputs,
+  attention-guided crops) and L3b hooks the forward pass, so on `endpoint` and
+  `gemini` the runner clamps `--fix-tier` to L2 (`summary.json` records the
+  effective `fix_tier`) instead of ending every run with a "recommend L3b" it
+  cannot act on.
 * **Text prompts go through the chat template.** `hf_local` used to tokenise a
   text-only spec's prompt verbatim (completion mode), so Qwen3.5 opened its own
   `<think>` block and ran 8192 tokens on a causal-judgement item; the runner sets
@@ -140,7 +174,7 @@ that needs uid separation for the coder/sandbox or host-side label delivery.
 
 ```bash
 cp examples/benchmark/.env.example examples/benchmark/.env      # tealab: mount sources on /tealab-data
-docker compose -f examples/benchmark/docker/docker-compose.build.yml build   # all three images
+docker compose -f examples/benchmark/docker/docker-compose.build.yml build   # all four images
 
 cd examples/benchmark/vlm/qwen
 EXTRA_ARGS="--baseline-only --limit 8" docker compose run --rm qwen3.5-2b      # per-cell smoke (no judge)
@@ -149,12 +183,18 @@ docker logs -f vlm-qwen35-4b-spatial457
 
 cd ../../alm/qwen                                                            # 2-GPU cell
 CUDA_VISIBLE_DEVICES=0,2 docker compose run -d --name alm-qwen3omni-mmau qwen3-omni-30b-a3b
+
+cd ../../llm/gemini                                                          # API cell: no GPU, GEMINI_API_KEY in .env
+EXTRA_ARGS="--baseline-only --limit 8" docker compose run --rm gemini-3.6-flash
+DATASET=bbh_word_sorting CONCURRENCY=8 docker compose run -d --name llm-gemini-3.6-flash-bbh_word_sorting gemini-3.6-flash
 ```
 
 Useful `EXTRA_ARGS`: `--baseline-only` (download + load + Stage 0, the cheap
 per-cell check), `--skip-fix` (M1..M5 only), `--code-only`, `--no-explore`,
 `--run-tag smoke`, `--analyzer-max-cases 16`, `--m1-selection judge`,
-`--backend endpoint --base-url http://host.docker.internal:8020/v1`.
+`--backend endpoint --base-url http://host.docker.internal:8020/v1`; for the
+Gemini family `--thinking-level low`, `--thinking-budget 1024`, `--concurrency 8`,
+`--request-retries 8`.
 
 Outputs: `<modality>/<family>/outputs/<model>/<dataset>[.<tag>]/` with
 `baseline.json` (every Stage 0 output + label), `logs/` (run log, artifacts,
