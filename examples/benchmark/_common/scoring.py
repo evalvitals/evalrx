@@ -5,12 +5,16 @@
 extraction, normalisation, relaxed numeric tolerance);
 ``multiple_choice_letter`` and ``yes_no`` are the MMAU / AudioCaps parsers from
 the ``m1_m4`` audio examples. ``llm_graded`` delegates to the dataset's own
-grader in ``examples/dataset_selection`` (see ``tasks/llm.py``).
+grader in ``examples/dataset_selection`` (see ``tasks/llm.py``);
+``short_answer_em`` is SQuAD's normalisation (HotpotQA's official metric and
+dspy's ``answer_exact_match``) on the extracted answer — unlike
+``normalize_answer`` it REMOVES punctuation, so ``"Paris."`` == ``"Paris"``.
 """
 
 from __future__ import annotations
 
 import re
+import string
 from typing import Any
 
 _ARTICLES = re.compile(r"\b(a|an|the)\b", re.IGNORECASE)
@@ -136,6 +140,24 @@ def parsed_yes_no(output: str) -> str:
     return m.group(1).capitalize() if m else ""
 
 
+_PUNCTUATION = set(string.punctuation)
+
+
+def squad_normalize(text: Any) -> str:
+    """SQuAD ``normalize_answer``: lower, strip punctuation, strip articles, fix
+    whitespace — the exact chain HotpotQA's official eval and dspy's
+    ``answer_exact_match`` grade with."""
+    text = str(text).lower()
+    text = "".join(ch for ch in text if ch not in _PUNCTUATION)
+    text = re.sub(r"\b(a|an|the)\b", " ", text)
+    return " ".join(text.split())
+
+
+def squad_em(observed: str, golds: list) -> bool:
+    candidate = squad_normalize(extract_final_answer(observed))
+    return any(candidate == squad_normalize(g) for g in golds)
+
+
 def score_output(kind: str, output: str, gold: Any, *, numeric_tolerance: float = 0.0,
                  choices: list | None = None, dataset: str = "") -> bool:
     """``True`` iff *output* is correct for a case of task *kind*."""
@@ -147,6 +169,8 @@ def score_output(kind: str, output: str, gold: Any, *, numeric_tolerance: float 
         return parsed_choice(output, letters) == str(golds[0]).strip().upper()
     if kind == "yes_no":
         return parsed_yes_no(output) == str(golds[0]).strip().capitalize()
+    if kind == "short_answer_em":
+        return squad_em(output, golds)
     if kind == "llm_graded":
         from .tasks import llm as _llm
 

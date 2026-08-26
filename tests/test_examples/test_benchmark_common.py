@@ -228,7 +228,8 @@ def test_default_tasks_and_pinned_sets(common):
     for modality, name in tasks.DEFAULT_TASK.items():
         assert tasks.get(name).modality == modality
     for task in tasks.TASKS.values():
-        assert task.pinned_m1 and task.kind in {"exact_or_numeric", "multiple_choice_letter", "yes_no", "llm_graded"}
+        assert task.pinned_m1 and task.kind in {
+            "exact_or_numeric", "multiple_choice_letter", "yes_no", "llm_graded", "short_answer_em"}
         assert task.download is not None and callable(task.protocol)
 
 
@@ -583,3 +584,148 @@ def test_pope_cases_score_through_the_yes_no_grader(common, tmp_path, monkeypatc
     assert not tasks.score_case(yes_case, "No.")
     assert tasks.score_case(no_case, "No, I see none.")
     assert not tasks.score_case(no_case, "Yes")
+
+
+def test_hotpotqa_gepa_is_registered(common):
+    _, tasks, _, _ = common
+    task = tasks.get("hotpotqa_gepa")
+    assert task.modality == "llm" and task.kind == "short_answer_em"
+    assert (task.default_limit, task.default_seed, task.max_new_tokens) == (300, 1, 512)
+    assert not task.short_answer  # reason-then-'Answer:' contract, like the llm tasks
+    assert "hotpotqa_gepa" in tasks.names("llm")
+    assert tasks.DEFAULT_TASK["llm"] == "bbh_causal_judgement"  # opt-in, not the default
+
+
+def _fake_hotpot_rows(n):
+    return [
+        {
+            "id": f"hp{i}", "question": f"Question {i}?", "answer": "The Beatles" if i % 4 else "yes",
+            "type": "bridge" if i % 2 else "comparison", "level": "hard",
+            "supporting_facts": {"title": [f"T{i}B", f"T{i}A"], "sent_id": [0, 0]},
+            "context": {"title": [f"T{i}A", f"T{i}B"],
+                        "sentences": [[f"S{i}a. ", f"S{i}b."], [f"S{i}c."]]},
+        }
+        for i in range(n)
+    ]
+
+
+def test_hotpotqa_download_reconstructs_the_gepa_sample(common, tmp_path, monkeypatch):
+    import random
+
+    _, tasks, _, _ = common
+    from _common.tasks import hotpotqa
+
+    # 1000 fake rows: the test pool is the first 400, larger than 300 -> the
+    # seed-1 sample engages, exactly GEPA's trim_dataset on the pool.
+    monkeypatch.setattr(hotpotqa, "_load_train_rows", lambda: _fake_hotpot_rows(1000))
+    summary = tasks.get("hotpotqa_gepa").download(tmp_path / "h", limit=0, seed=1)
+    assert summary["kept"] == 300 and summary["pool"] == [0, 400]
+    rows = tasks.load_rows(tmp_path / "h" / "manifest.json")
+    expected = random.Random(1).sample(range(400), 300)
+    assert [r["source_index"] for r in rows] == expected          # sample ORDER, not sorted
+    assert [r["sample_rank"] for r in rows] == list(range(300))
+    first = rows[0]
+    i = expected[0]
+    assert first["prompt"] == (
+        f"Context:\nT{i}A: S{i}a. S{i}b.\n\nT{i}B: S{i}c.\n\nQuestion: Question {i}?\n\n"
+        + hotpotqa.INSTRUCTION
+    )
+    assert first["answers"] == ["The Beatles" if i % 4 else "yes"]
+    assert first["task"] == "short_answer_em"
+    assert first["metadata"]["supporting_titles"] == [f"T{i}A", f"T{i}B"]  # sorted
+    assert first["metadata"]["gepa_split"] == "test" and first["metadata"]["hotpot_id"] == f"hp{i}"
+
+    # limit keeps the first rows of the same order
+    tasks.get("hotpotqa_gepa").download(tmp_path / "h50", limit=50, seed=1)
+    prefix = tasks.load_rows(tmp_path / "h50" / "manifest.json")
+    assert [r["id"] for r in prefix] == [r["id"] for r in rows[:50]]
+
+    # a pool smaller than the split size is kept whole in pool order
+    # (trim_dataset returns the dataset unchanged): 500 rows -> train pool = 100 < 150
+    monkeypatch.setattr(hotpotqa, "_load_train_rows", lambda: _fake_hotpot_rows(500))
+    small = hotpotqa.download(tmp_path / "h-train", limit=0, seed=1, split="train")
+    assert small["kept"] == 100 and small["pool"] == [400, 500]
+    train_rows = tasks.load_rows(tmp_path / "h-train" / "manifest.json")
+    assert [r["source_index"] for r in train_rows] == list(range(400, 500))
+
+
+def test_hotpotqa_cases_score_with_squad_normalisation(common, tmp_path, monkeypatch):
+    _, tasks, _, _ = common
+    from _common.tasks import hotpotqa
+
+    monkeypatch.setattr(hotpotqa, "_load_train_rows", lambda: _fake_hotpot_rows(10))
+    tasks.get("hotpotqa_gepa").download(tmp_path / "h", limit=0, seed=1)  # pool of 4, kept whole
+    batch, _rows = tasks.build_cases(tasks.get("hotpotqa_gepa"), tmp_path / "h" / "manifest.json")
+    cases = list(batch)
+    beatles = cases[1]                                            # i=1 -> "The Beatles"
+    assert beatles.metadata["gold"] == "The Beatles"
+    assert tasks.score_case(beatles, "Reasoning...\nAnswer: The Beatles.")
+    assert tasks.score_case(beatles, "the answer is beatles")     # article + case + punctuation
+    assert not tasks.score_case(beatles, "Answer: The Beatles tribute")
+    assert not tasks.score_case(beatles, "The Rolling Stones")
+    yes = cases[0]                                                # i=0 -> "yes"
+    assert yes.metadata["gold"] == "yes"
+    assert tasks.score_case(yes, "Answer: Yes.")
+    assert not tasks.score_case(yes, "Answer: no")
+
+
+def test_gsm8k_is_registered(common):
+    _, tasks, _, _ = common
+    task = tasks.get("gsm8k")
+    assert task.modality == "llm" and task.kind == "exact_or_numeric"
+    assert (task.default_limit, task.default_seed, task.max_new_tokens) == (500, 0, 1024)
+    assert not task.short_answer
+    assert "gsm8k" in tasks.names("llm")
+    assert tasks.DEFAULT_TASK["llm"] == "bbh_causal_judgement"  # opt-in, not the default
+
+
+def _fake_gsm8k_rows(n):
+    return [
+        {"question": f"Problem {i}?",
+         "answer": f"Step one.\nStep <<2+2={i}>>two.\n#### " + ("1,234" if i == 3 else str(i * 3))}
+        for i in range(n)
+    ]
+
+
+def test_gsm8k_download_samples_in_test_order_with_numeric_golds(common, tmp_path, monkeypatch):
+    import random
+
+    _, tasks, _, _ = common
+    from _common.tasks import gsm8k
+
+    monkeypatch.setattr(gsm8k, "_load_test_rows", lambda: _fake_gsm8k_rows(20))
+    summary = tasks.get("gsm8k").download(tmp_path / "g", limit=10, seed=0)
+    assert summary["kept"] == 10 and summary["test_rows"] == 20
+    rows = tasks.load_rows(tmp_path / "g" / "manifest.json")
+    expected = sorted(random.Random(0).sample(range(20), 10))
+    assert [r["source_index"] for r in rows] == expected          # test-file order
+    first = rows[0]
+    i = expected[0]
+    assert first["prompt"] == f"Problem {i}?\n\n{gsm8k.INSTRUCTION}"
+    assert first["answers"] == ["1234" if i == 3 else str(i * 3)]  # comma stripped
+    assert first["task"] == "exact_or_numeric" and first["numeric_tolerance"] == 0.0
+    assert first["metadata"]["n_reasoning_steps"] == 2
+
+    # limit=0 freezes the whole split; the sample is seed-deterministic
+    full = tasks.get("gsm8k").download(tmp_path / "g-all", limit=0, seed=0)
+    assert full["kept"] == 20
+    tasks.get("gsm8k").download(tmp_path / "g2", limit=10, seed=0)
+    assert [r["id"] for r in tasks.load_rows(tmp_path / "g2" / "manifest.json")] == [r["id"] for r in rows]
+
+
+def test_gsm8k_cases_score_through_the_numeric_grader(common, tmp_path, monkeypatch):
+    _, tasks, _, _ = common
+    from _common.tasks import gsm8k
+
+    monkeypatch.setattr(gsm8k, "_load_test_rows", lambda: _fake_gsm8k_rows(5))
+    tasks.get("gsm8k").download(tmp_path / "g", limit=0, seed=0)
+    batch, _rows = tasks.build_cases(tasks.get("gsm8k"), tmp_path / "g" / "manifest.json")
+    cases = list(batch)
+    four = cases[4]                                               # gold "12"
+    assert four.metadata["gold"] == "12"
+    assert tasks.score_case(four, "Reasoning...\nAnswer: 12")
+    assert tasks.score_case(four, "Answer: $12.00")               # currency + decimals
+    assert not tasks.score_case(four, "Answer: 13")
+    comma = cases[3]                                              # gold "1234"
+    assert tasks.score_case(comma, "Answer: 1,234")
+    assert not tasks.score_case(comma, "Answer: 1234.5")

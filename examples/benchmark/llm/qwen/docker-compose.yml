@@ -1,6 +1,6 @@
 # LLM (text only) x Qwen: one service per size, dataset/limit via env.
 #   DATASET=bbh_causal_judgement LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name llm-qwen3.5-2b-bbh_causal_judgement qwen3.5-2b
-# Datasets for this modality: cruxeval_output, bbh_causal_judgement, supergpqa_economics, bbh_word_sorting, bbh_tracking7, bamboogle, minervamath, supergpqa_law, supergpqa_medicine_hard.
+# Datasets for this modality: cruxeval_output, bbh_causal_judgement, supergpqa_economics, bbh_word_sorting, bbh_tracking7, bamboogle, minervamath, supergpqa_law, supergpqa_medicine_hard, hotpotqa_gepa, gsm8k.
 # EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
 # Judge/coder are pinned to Codex gpt-5.6-terra at medium effort.
 name: bench-llm-qwen

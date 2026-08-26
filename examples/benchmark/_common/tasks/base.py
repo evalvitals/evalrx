@@ -25,7 +25,7 @@ from ..scoring import score_output
 class Task:
     name: str                                  # registry key; also data/<name>/
     modality: str                              # vlm | llm | alm
-    kind: str                                  # exact_or_numeric | multiple_choice_letter | yes_no | llm_graded
+    kind: str                                  # exact_or_numeric | multiple_choice_letter | yes_no | llm_graded | short_answer_em
     title: str                                 # human label used in protocols/logs
     download: Callable[..., dict]              # download(out_dir: Path, limit: int, seed: int) -> summary
     protocol: Callable[[str], Any]             # protocol(model_label) -> ExperimentProtocol

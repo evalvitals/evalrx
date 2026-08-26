@@ -1,6 +1,6 @@
 # LLM (text only) x Gemini (Google Gen AI API): one service per model id, dataset/limit via env. No GPU.
 #   DATASET=bbh_causal_judgement LIMIT=256 docker compose run -d --name llm-gemini-3.6-flash-bbh_causal_judgement gemini-3.6-flash
-# Datasets for this modality: cruxeval_output, bbh_causal_judgement, supergpqa_economics, bbh_word_sorting, bbh_tracking7, bamboogle, minervamath, supergpqa_law, supergpqa_medicine_hard.
+# Datasets for this modality: cruxeval_output, bbh_causal_judgement, supergpqa_economics, bbh_word_sorting, bbh_tracking7, bamboogle, minervamath, supergpqa_law, supergpqa_medicine_hard, hotpotqa_gepa, gsm8k.
 # GEMINI_API_KEY comes from examples/benchmark/.env (this leaf links to it); CONCURRENCY sets the
 # parallel discovery requests (default 4). EXTRA_ARGS passes more run.py flags (e.g.
 # EXTRA_ARGS='--baseline-only --limit 8', '--thinking-level low', '--request-retries 8').
