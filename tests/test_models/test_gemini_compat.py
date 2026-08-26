@@ -479,3 +479,35 @@ def test_wav_encoding_helper_round_trips_a_waveform():
     with wave.open(io.BytesIO(data)) as w:
         assert w.getframerate() == 16000 and w.getnframes() == 32
     assert base64.b64encode(data)  # bytes, not a data URL
+
+
+# ----------------------------------------------------------------------
+# SDK log noise
+# ----------------------------------------------------------------------
+def test_afc_chatter_is_filtered_off_the_sdk_logger_but_real_warnings_pass():
+    import logging
+
+    from evalvitals.models.backends import gemini_compat as gc
+
+    sdk_logger = logging.getLogger("google_genai.models")
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append  # type: ignore[method-assign]
+    sdk_logger.addHandler(handler)
+    sdk_logger.setLevel(logging.INFO)
+    try:
+        gemini_runtime(client=FakeClient([]), api_key="k")  # __init__ installs the filter
+        gemini_runtime(client=FakeClient([]), api_key="k")  # idempotent: no duplicate
+        assert sdk_logger.filters.count(gc._SDK_NOISE_FILTER) == 1
+        sdk_logger.warning(
+            "Direct use of automatic function calling (AFC) in Models.generate_content"
+            " is not recommended. Instead, we recommend to use AFC in Chat.send_message."
+        )
+        sdk_logger.info("AFC is enabled with max remote calls: 10.")
+        sdk_logger.info("AFC remote call 1 is done.")
+        sdk_logger.warning("there are non-text parts in the response")
+        assert [r.getMessage() for r in records] == ["there are non-text parts in the response"]
+    finally:
+        sdk_logger.removeHandler(handler)
+        sdk_logger.removeFilter(gc._SDK_NOISE_FILTER)
+        sdk_logger.setLevel(logging.NOTSET)

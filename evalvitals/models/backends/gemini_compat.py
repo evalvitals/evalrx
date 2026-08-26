@@ -102,6 +102,32 @@ def thinking_spends_output_tokens(think: "dict | None") -> bool:
         return int(think["thinking_budget"]) > 0
     return str(think.get("thinking_level", "")).lower() != "minimal"
 
+#: google-genai logs an "automatic function calling (AFC) … not recommended"
+#: notice from ``Models.generate_content`` at WARNING; its once-per-process
+#: guard races under concurrent discovery and the notice floods stderr (seen
+#: 2026-08-25, SDK 2.20.0, concurrency 8). AFC is never enabled by this runtime
+#: (tools go in as declarations, not callables), so the notice — and the "AFC is
+#: enabled"/"AFC remote call" INFO chatter — carries no signal here. Drop exactly
+#: those records; every other SDK warning stays visible.
+_SDK_NOISE_MARKERS = ("automatic function calling", "AFC is enabled", "AFC remote call")
+
+
+class _DropSdkNoise(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(marker in msg for marker in _SDK_NOISE_MARKERS)
+
+
+_SDK_NOISE_FILTER = _DropSdkNoise()
+
+
+def silence_sdk_chatter() -> None:
+    """Keep google-genai AFC chatter off stderr (idempotent, per-logger)."""
+    sdk_logger = logging.getLogger("google_genai.models")
+    if _SDK_NOISE_FILTER not in sdk_logger.filters:
+        sdk_logger.addFilter(_SDK_NOISE_FILTER)
+
+
 _RETRY_CODES = frozenset({408, 409, 429, 500, 502, 503, 504})
 _RETRY_MARKERS = ("resource_exhausted", "unavailable", "deadline_exceeded", "overloaded", "rate limit")
 
@@ -247,6 +273,7 @@ class _Runtime:
             "headroom_for": [],
         }
         self._lock = threading.Lock()
+        silence_sdk_chatter()
 
     # -- plumbing ------------------------------------------------------
     def genai(self):
