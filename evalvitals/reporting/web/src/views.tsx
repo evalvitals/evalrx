@@ -573,7 +573,7 @@ function M4Detail({ data, report, navigate }: { data: any; report: ReportData; n
     {(headlineFor(report, winner?.name) || winner?.headline)
       ? <p>{headlineFor(report, winner?.name) || winner?.headline}</p>
       : winner ? <RepairVerdict candidate={winner} /> : <p>Inspect the full repair sweep below.</p>}</div></div>
-    {data.examples?.length > 0 && <ExampleSection eyebrow="A repaired case" title="One real before-and-after repair" note="This is a case counted as fixed. The repair was accepted only after checking every paired case for improvements and regressions."><div className="example-deck">{data.examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
+    {data.examples?.length > 0 && <M4ExampleSection examples={data.examples} report={report} />}
     {data.operation_previews?.length > 0 && <RepairOperationPreviews examples={data.operation_previews} report={report} />}
     <SelectionSweep report={report} />
     <div className="repair-chart"><h3>Confirmed on held-out cases: paired flips vs. baseline</h3><ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} /></div>
@@ -623,8 +623,34 @@ function RepairVerdict({ candidate }: { candidate: any }) {
   return <p className="repair-verdict">{counted} {judged}{covered}{independent}</p>;
 }
 
+/**
+ * The example deck wrapper, worded for whichever case M4's search actually
+ * produced. A confirmed repair gets the "accepted" framing it earned; an
+ * unconfirmed one is still shown — that is the whole point, a reader
+ * debugging a failed search needs a real case, not just a gate that closed —
+ * but the copy around it says plainly that nothing here was accepted.
+ */
+function M4ExampleSection({ examples, report }: { examples: any[]; report: ReportData }) {
+  const first = examples[0] || {};
+  const confirmed = first.confirmed !== false;
+  const broke = !confirmed && first.kind === "broken";
+  const eyebrow = confirmed ? "A repaired case" : broke ? "What the search actually broke" : "The search's best attempt";
+  const title = confirmed ? "One real before-and-after repair"
+    : broke ? "No case was fixed — here is one that broke"
+    : "One real attempt, not an accepted repair";
+  const note = confirmed
+    ? "This is a case counted as fixed. The repair was accepted only after checking every paired case for improvements and regressions."
+    : "No candidate cleared the significance bar, so nothing below was accepted as a repair. This is the strongest attempt's own case — shown so the search is debuggable, not just marked failed.";
+  return <ExampleSection eyebrow={eyebrow} title={title} note={note}><div className="example-deck">{examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>;
+}
+
 function M4Example({ example, report }: { example: any; report: ReportData }) {
-  return <article className="example-card m4-example"><header><span className="example-step">A CASE THE REPAIR HELPED</span><em className="status status-fixed">fixed</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>BEFORE REPAIR</small><b>{example.baseline_available ? displayValue(example.baseline_output) : "Not retained"}</b></div><div><small>AFTER REPAIR</small><b>{displayValue(example.repaired_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><footer>{example.plain_reading}</footer></article>;
+  const confirmed = example.confirmed !== false;
+  const broke = example.kind === "broken";
+  const label = confirmed ? "A CASE THE REPAIR HELPED" : broke ? "A CASE THE ATTEMPT BROKE" : "A CASE THE ATTEMPT HELPED — UNCONFIRMED";
+  const status = confirmed ? "fixed" : broke ? "broken" : "unconfirmed";
+  const statusLabel = confirmed ? "fixed" : broke ? "broken" : "not confirmed";
+  return <article className="example-card m4-example"><header><span className="example-step">{label}</span><em className={`status status-${status}`}>{statusLabel}</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>{broke ? "BEFORE ATTEMPT" : "BEFORE REPAIR"}</small><b>{example.baseline_available ? displayValue(example.baseline_output) : "Not retained"}</b></div><div><small>{broke ? "AFTER ATTEMPT" : "AFTER REPAIR"}</small><b>{displayValue(example.repaired_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><footer>{example.plain_reading}</footer></article>;
 }
 
 function OperationExamples({ examples, report }: { examples: any[]; report: ReportData }) {

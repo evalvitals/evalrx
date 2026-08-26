@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from evalvitals.core.capability import Capability
+from evalvitals.core.model import Model, Trace
+
 try:
     import torch
 except ModuleNotFoundError as exc:  # pragma: no cover - depends on the box
@@ -17,8 +20,6 @@ else:
     _TORCH_IMPORT_ERROR = None
 
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.model import Model, Trace
 
 
 def _torch():
