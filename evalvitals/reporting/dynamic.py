@@ -939,10 +939,25 @@ def _m4_examples(
         case = case_by_id.get(case_id)
         if not case:
             return None
-        repaired = case.get("observed")
-        baseline = baseline_by_id.get(case_id)
+        # `case["observed"]` is the Stage-0 baseline, written once per case id
+        # (RunLogger.log_cases dedupes by id) and never updated — it is NOT
+        # this candidate's repaired answer, no matter which case_record last
+        # touched it. The only place a candidate's own per-case output lives
+        # is `case["repair"]`, which build_report_data attached from that
+        # attempt's trial_root/outputs.jsonl (see _repair_outcomes). Confirm
+        # it is THIS candidate's repair, not some other one that also touched
+        # this case, before trusting it as "repaired".
+        repair_hit = case.get("repair") if isinstance(case.get("repair"), Mapping) else None
+        repaired = (
+            repair_hit.get("output")
+            if repair_hit and repair_hit.get("candidate") == winner.get("name")
+            else None
+        )
         if repaired in (None, ""):
-            return None
+            return None  # no recorded per-case output for this candidate — nothing truthful to show
+        baseline = baseline_by_id.get(case_id)
+        if baseline in (None, ""):
+            baseline = case.get("observed")  # the genuine Stage-0 answer, as a last resort
         if confirmed:
             reading = ("This case was counted as fixed in the paired repair evaluation. "
                        "The repair decision still depends on all tested cases and its "
