@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+# 17: the case-study sheet - the whole run as one page.
 # 16: `setting.hero_image` — the run's own cover figure, embedded.
 # 15: `setting.diagnosed_by` — which agent drove the run.
 # 14: M3 hypotheses recover the plain sentence from proposed_hypotheses.
@@ -26,10 +27,10 @@ from typing import Any, Iterable, Mapping
 #     makes an already-published run pick the change up — `report_is_current`
 #     only tracks new EVENTS, so without the bump every existing run would
 #     keep serving the labels its old compiler produced.
-REPORT_DATA_VERSION = 16
+REPORT_DATA_VERSION = 17
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
-CATALOG_VERSION = "evalvitals-report@1"
+CATALOG_VERSION = "evalvitals-report@2"
 
 ALLOWED_COMPONENTS = frozenset(
     {
@@ -41,6 +42,7 @@ ALLOWED_COMPONENTS = frozenset(
         "ChartGrid",
         "OutcomeCard",
         "CasePreview",
+        "CaseStudySheet",
         "EvidenceIndex",
     }
 )
@@ -104,6 +106,7 @@ def build_report_data(
 ) -> dict[str, Any]:
     """Build the renderer-neutral data model for any completed EvalVitals run."""
     root = Path(run_dir).resolve()
+    from evalvitals.reporting.case_study import build_case_study
     from evalvitals.reporting.html_report import extract_run_data
 
     resolved_example = Path(example_dir).resolve() if example_dir else _infer_example_dir(root)
@@ -145,6 +148,15 @@ def build_report_data(
             case["repair"] = hit
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
     stages = _stages(raw, stage_detail.get("m4") if isinstance(stage_detail, dict) else None)
+    setting = {
+        "model": _contract_model_name(contract) or run.get("model") or "Target model",
+        "dataset": run.get("benchmark_name") or "Evaluation dataset",
+        "n_cases": int(run.get("n_cases") or len(normalized_cases)),
+    }
+    # The same run, assembled as one failure-to-repair sheet. None when the run
+    # has no probe or stats artifacts to build it from -- the section is dropped
+    # rather than rendered empty.
+    case_study = build_case_study(root, events, setting=setting)
 
     return _json_safe(
         {
@@ -179,6 +191,7 @@ def build_report_data(
             "charts": charts,
             "repairs": repairs,
             "stage_detail": stage_detail,
+            "case_study": case_study,
             "contract": contract,
             "cases": normalized_cases,
             "media": media,
@@ -226,6 +239,9 @@ class ReportAgent:
             "chart_ids": [item.get("id") for item in data.get("charts", [])],
             "repair_ids": [item.get("id") for item in data.get("repairs", [])],
             "case_ids": [item.get("id") for item in data.get("cases", [])[:8]],
+            # Not the sheet itself -- it is large, and the agent may not copy
+            # numbers. Only whether CaseStudySheet has anything to render.
+            "has_case_study": bool(data.get("case_study")),
         }
         return f"""You are the Report Agent for EvalVitals. Compose a concise visual report
 showing the journey: model fails on a dataset -> M1 probes behavior -> M2 screens
@@ -235,6 +251,8 @@ the model. A passer-by must understand the setting and outcome without knowing E
 Return ONLY a json-render tree with shape {{"root":"id","elements":{{...}}}}.
 Allowed component types: {', '.join(sorted(ALLOWED_COMPONENTS))}.
 Required exactly once or more: SettingHero, Journey, OutcomeCard.
+Include CaseStudySheet exactly once when has_case_study is true: it is the whole
+run as one failure-to-repair sheet and belongs directly after Journey.
 ReportPage may have children. Other elements use props only.
 Every element MUST include a JSON object `"props": {{}}`, even when it has no
 properties. This is required by the json-render runtime.
@@ -254,6 +272,7 @@ def fallback_spec(data: Mapping[str, Any]) -> dict[str, Any]:
     chart_ids = [str(item.get("id")) for item in data.get("charts", [])[:2]]
     case_ids = [str(item.get("id")) for item in data.get("cases", [])[:4]]
     children = ["setting", "metrics", "journey"]
+    has_sheet = bool(data.get("case_study"))
     elements: dict[str, Any] = {
         "page": {"type": "ReportPage", "props": {}, "children": children},
         "setting": {"type": "SettingHero", "props": {}},
@@ -262,6 +281,9 @@ def fallback_spec(data: Mapping[str, Any]) -> dict[str, Any]:
         "outcome": {"type": "OutcomeCard", "props": {}},
         "evidence": {"type": "EvidenceIndex", "props": {}},
     }
+    if has_sheet:
+        elements["case_study"] = {"type": "CaseStudySheet", "props": {}}
+        children.append("case_study")
     if finding_ids:
         elements["findings"] = {"type": "FindingGrid", "props": {"findingIds": finding_ids}}
         children.append("findings")
