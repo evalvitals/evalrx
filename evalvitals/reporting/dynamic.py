@@ -899,11 +899,29 @@ def _plain_operation(value: Any) -> str:
 def _m4_examples(
     candidates: list[Mapping[str, Any]], cases: list[Mapping[str, Any]], probe_results: list[Any]
 ) -> list[dict[str, Any]]:
-    """Reconstruct a truthful before/after repair example when evidence exists."""
+    """Reconstruct a truthful before/after repair example — confirmed or not.
+
+    A candidate that never cleared the significance bar is still what the
+    search actually tried, and a reader debugging a failed repair needs to
+    see a real case, not just "no candidate passed the repair gate". Prefer a
+    `fixed` winner (statistically significant, net-positive); when none
+    exists, fall back to the strongest attempt by effect size — the same
+    fallback `M4Detail` already uses for its own "best repair" KPI — and tag
+    the example `confirmed: False` so the UI can say plainly it is one
+    candidate's attempt, not an accepted repair. When that candidate never
+    flipped a case to correct either, fall back once more to a case it broke:
+    still evidence, just of the failure mode rather than the fix.
+    """
     winner = next((item for item in candidates if item.get("fixed")), None)
+    confirmed = winner is not None
+    if winner is None:
+        winner = max(
+            (item for item in candidates if isinstance(item.get("effect"), (int, float))),
+            key=lambda item: item["effect"],
+            default=(candidates[0] if candidates else None),
+        )
     if winner is None:
         return []
-    fixed_ids = [str(item) for item in winner.get("fixed_cases") or []]
     case_by_id = {str(case.get("id")): case for case in cases}
     baseline_by_id: dict[str, Any] = {}
     for probe in probe_results:
@@ -916,22 +934,46 @@ def _m4_examples(
             output = row.get("extracted_answer", row.get("modal_answer"))
             if case_id and output not in (None, ""):
                 baseline_by_id.setdefault(case_id, output)
-    for case_id in fixed_ids:
+
+    def _build(case_id: str, kind: str) -> "dict[str, Any] | None":
         case = case_by_id.get(case_id)
         if not case:
-            continue
+            return None
         repaired = case.get("observed")
         baseline = baseline_by_id.get(case_id)
         if repaired in (None, ""):
-            continue
-        return [{
+            return None
+        if confirmed:
+            reading = ("This case was counted as fixed in the paired repair evaluation. "
+                       "The repair decision still depends on all tested cases and its "
+                       "regression checks.")
+        elif kind == "fixed":
+            reading = ("This candidate flipped this case from wrong to right, but the "
+                       "repair overall did not clear the significance bar against luck — "
+                       "read it as one attempt worth inspecting, not a confirmed fix.")
+        else:
+            reading = ("This candidate did not clear the significance bar, and did not "
+                       "flip any case to correct either — this is a case it broke instead, "
+                       "shown so the failure mode is inspectable.")
+        return {
             "id": f"m4-{winner.get('name', 'repair')}-{case_id}", "case_id": case_id,
+            "kind": kind, "confirmed": confirmed,
             "repair_name": winner.get("name") or "Recorded repair", "input": case.get("prompt") or "",
             "expected": case.get("expected"), "baseline_output": baseline,
             "repaired_output": repaired, "media_ids": list(case.get("media_ids") or []),
-            "plain_reading": "This case was counted as fixed in the paired repair evaluation. The repair decision still depends on all tested cases and its regression checks.",
+            "plain_reading": reading,
             "baseline_available": baseline not in (None, ""),
-        }]
+        }
+
+    for case_id in [str(item) for item in winner.get("fixed_cases") or []]:
+        example = _build(case_id, "fixed")
+        if example:
+            return [example]
+    for case_id in [str(item) for item in winner.get("broken_cases") or []]:
+        example = _build(case_id, "broken")
+        if example:
+            return [example]
+    return []
     return []
 
 
