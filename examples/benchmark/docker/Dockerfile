@@ -34,7 +34,8 @@ COPY . /evalvitals
 # Qwen3.5 / Gemma 4 / nemotron_h only exist in 5.x. openai: the endpoint
 # backend. requests: the LLM datasets come through the HF datasets-server.
 # scipy/soundfile: remote audio processors resample/read through them.
-RUN pip install --no-cache-dir "/evalvitals[data,viz]" pandas requests openai scipy soundfile \
+# gemini extra (google-genai): the Gemini API family (--backend gemini).
+RUN pip install --no-cache-dir "/evalvitals[data,viz,gemini]" pandas requests openai scipy soundfile \
     "transformers==5.15.0" "accelerate>=0.26.0"
 
 # The benchmark code + the LLM dataset catalog it imports, at the SAME relative
@@ -51,6 +52,11 @@ CMD ["python", "-m", "_common.run", "--list"]
 FROM base AS qwen
 
 FROM base AS gemma
+
+# Gemini (Google Gen AI API): the base stack as-is — google-genai is installed
+# there; no GPU is used, the image only carries the harness, the judge/coder
+# CLIs and the dataset catalog.
+FROM base AS gemini
 
 FROM python:3.11-slim AS nemotron
 # Not FROM base: the Mamba2 kernels the remote NemotronH code hard-imports exist

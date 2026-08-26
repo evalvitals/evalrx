@@ -80,7 +80,15 @@ def download(out_dir: Path, limit: int = 256, seed: int = 0, *, dataset: str) ->
     entry, B = _entry(dataset)
     spec = entry.spec
     n = limit if limit and limit > 0 else entry.items
-    rows = B.fetch_rows(spec, n, seed=seed)
+    fetch = "datasets-server"
+    try:
+        rows = B.fetch_rows(spec, n, seed=seed)
+    except RuntimeError as exc:
+        # The /filter index behind a sliced spec can sit at HTTP 500 for hours;
+        # the hub files are the same data, so freeze from them instead.
+        print(f"[data] {exc}; freezing from the hub files instead (datasets.load_dataset)")
+        rows = B.fetch_rows_hub(spec, n, seed=seed)
+        fetch = "hub"
     adapter = spec.adapter or B._adapter_plain(spec.question_field, spec.answer_field)
     items = []
     for row in rows:
@@ -107,7 +115,7 @@ def download(out_dir: Path, limit: int = 256, seed: int = 0, *, dataset: str) ->
     out_dir = Path(out_dir)
     write_manifest(out_dir / "manifest.json", out)
     return {"kept": len(out), "slice_items": entry.items, "is_census": len(out) >= entry.items,
-            "manifest": str(out_dir / "manifest.json")}
+            "fetch": fetch, "manifest": str(out_dir / "manifest.json")}
 
 
 def grade(dataset: str, output: str, gold: Any) -> bool:

@@ -1,0 +1,54 @@
+# ALM (audio + text) x Gemini (Google Gen AI API): one service per model id, dataset/limit via env. No GPU.
+#   DATASET=mmau LIMIT=256 docker compose run -d --name alm-gemini-3.6-flash-mmau gemini-3.6-flash
+# Datasets for this modality: mmau, audiocaps_hallu.
+# GEMINI_API_KEY comes from examples/benchmark/.env (this leaf links to it); CONCURRENCY sets the
+# parallel discovery requests (default 4). EXTRA_ARGS passes more run.py flags (e.g.
+# EXTRA_ARGS='--baseline-only --limit 8', '--thinking-level low', '--request-retries 8').
+# Judge/coder are pinned to Codex gpt-5.6-terra at medium effort. --backend gemini is forced for
+# the family; the fix ladder is clamped to L2 (no internals, no logprobs).
+name: bench-alm-gemini
+x-gemini: &gemini
+  extends:
+    file: ../../_common/compose/base.yml
+    service: bench-core                  # no GPU reservation
+  image: evalvitals-bench-gemini
+  build:
+    context: ../../../..
+    dockerfile: examples/benchmark/docker/Dockerfile
+    target: gemini
+  volumes:
+    - ../_data:/app/work/data        # frozen manifests + media, shared by every family of the modality
+    - ./outputs:/app/work/outputs    # <model>/<dataset>[.<tag>]/{baseline.json,logs,explore,summary.json}
+services:
+  gemini-3.7-flash:
+    <<: *gemini
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemini-3.7-flash --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+  gemini-3.6-flash:
+    <<: *gemini
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemini-3.6-flash --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+  gemini-3.5-flash:
+    <<: *gemini
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemini-3.5-flash --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+  gemini-3.5-flash-lite:
+    <<: *gemini
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemini-3.5-flash-lite --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+  gemini-3.1-flash-lite:
+    <<: *gemini
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemini-3.1-flash-lite --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+  gemini-2.5-flash:
+    <<: *gemini
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemini-2.5-flash --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+  gemini-2.5-flash-lite:
+    <<: *gemini
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemini-2.5-flash-lite --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+  gemini-2.5-pro:
+    <<: *gemini
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemini-2.5-pro --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-mmau} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"

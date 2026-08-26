@@ -1,6 +1,6 @@
 # VLM (image + text) x Nemotron 3 Nano: one service per size, dataset/limit via env.
 #   DATASET=chartqa LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name vlm-nemotron-3-nano-omni-30b-a3b-chartqa nemotron-3-nano-omni-30b-a3b
-# Datasets for this modality: chartqa, spatial457.
+# Datasets for this modality: chartqa, spatial457, pope_random, pope_popular, pope_adversarial.
 # EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
 # Judge/coder are pinned to Codex gpt-5.6-terra at medium effort.
 name: bench-vlm-nemotron

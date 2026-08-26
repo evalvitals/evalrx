@@ -1,9 +1,15 @@
-# Shared service template for every examples/benchmark leaf (docker compose `extends`).
+# Shared service templates for every examples/benchmark leaf (docker compose `extends`).
 # Mount SOURCES are variables with portable defaults, so a host whose docker daemon
 # cannot traverse $HOME (tealab: root-squashed NFS) sets them once in
 # examples/benchmark/.env (each leaf links to it) instead of overriding volumes.
+#
+#   bench-core  everything but the GPU reservation: the API-model family (gemini,
+#               --backend gemini) extends this — it needs the harness, the judge /
+#               coder CLIs and the data mounts, not a card.
+#   bench       bench-core + the NVIDIA reservation: the hf_local families
+#               (qwen / gemma / nemotron) extend this.
 services:
-  bench:
+  bench-core:
     working_dir: /app/work
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID
@@ -11,6 +17,8 @@ services:
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
       - HF_HOME=/hf_cache
       - HF_TOKEN=${HF_TOKEN:-}
+      # Gemini API family (--backend gemini): the key is read from the environment.
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       # claude reads its OAuth state from $HOME; IS_SANDBOX lets it accept
       # --dangerously-skip-permissions as root.
       - HOME=/home/user
@@ -39,6 +47,9 @@ services:
     # --backend endpoint reaches a vLLM server on the host at host.docker.internal.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+  bench:
+    extends:
+      service: bench-core
     deploy:
       resources:
         reservations:

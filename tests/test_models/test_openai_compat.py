@@ -284,3 +284,89 @@ def test_an_endpoint_that_returns_no_logprobs_yields_no_tokens():
 
     fn = openai_logprobs_fn(client=_FakeLogprobClient(content=[]))
     assert fn("hi", model="m") == []
+
+
+# ----------------------------------------------------------------------
+# Audio blocks + media slots on the generate / logprobs paths
+# ----------------------------------------------------------------------
+def _wav_bytes(n=16, sr=16000):
+    import io
+    import wave
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(b"\x00\x01" * n)
+    return buf.getvalue()
+
+
+def test_audio_path_becomes_an_input_audio_block(tmp_path):
+    import base64
+
+    wav = tmp_path / "clip.wav"
+    wav.write_bytes(_wav_bytes())
+    out = to_openai_messages([{"role": "user", "content": [
+        {"type": "audio", "audio": str(wav)}, {"type": "text", "text": "what sound?"}]}])
+    audio_block, text_block = out[0]["content"]
+    assert audio_block["type"] == "input_audio"
+    assert audio_block["input_audio"]["format"] == "wav"
+    assert base64.b64decode(audio_block["input_audio"]["data"]) == _wav_bytes()
+    assert text_block == {"type": "text", "text": "what sound?"}
+
+
+def test_waveform_arrays_are_encoded_as_pcm16_wav():
+    import base64
+    import io
+    import wave
+
+    import numpy as np
+
+    from evalvitals.models.backends.openai_compat import _to_input_audio
+
+    enc = _to_input_audio((np.array([0.0, 0.5, -0.5], dtype=np.float32), 8000))
+    assert enc["format"] == "wav"
+    with wave.open(io.BytesIO(base64.b64decode(enc["data"])), "rb") as w:
+        assert (w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()) == (1, 2, 8000, 3)
+
+
+def test_generate_fn_sends_the_media_slots_as_content_blocks(tmp_path):
+    from evalvitals.models.backends.openai_compat import openai_generate_fn
+
+    wav = tmp_path / "clip.wav"
+    wav.write_bytes(_wav_bytes())
+    client = _FakeClient(content="a dog")
+    fn = openai_generate_fn(client=client)
+    assert fn("what?", model="m", audio=str(wav)) == "a dog"
+    (msg,) = client.last_kwargs["messages"]
+    assert [b["type"] for b in msg["content"]] == ["input_audio", "text"]
+    # a text-only call is still a plain string turn (nothing changes for LLMs)
+    fn("hi", model="m")
+    assert client.last_kwargs["messages"] == [{"role": "user", "content": "hi"}]
+
+
+def test_api_model_forwards_only_the_slots_the_spec_declares():
+    from evalvitals.core.spec import AudioSpec, ModelSpec
+
+    seen = {}
+
+    def gen(prompt, model="", **kw):
+        seen.update(kw)
+        return "ok"
+
+    audio_spec = ModelSpec(key="t-alm", family="x", model_type="x", hf_repo="x/alm",
+                           auto_class="AutoModelForCausalLM",
+                           audio=AudioSpec(audio_token_id_attr="a", audio_tower="t"))
+    m = compose(audio_spec, "api", RuntimeConfig(generate_fn=gen), set())
+    m.generate(Inputs(prompt="p", audio="clip.wav", image="img.png"))
+    assert seen == {"audio": "clip.wav"}          # image: not a declared modality
+
+    seen.clear()
+    text_spec = ModelSpec(key="t-llm", family="x", model_type="x", hf_repo="x/llm",
+                          auto_class="AutoModelForCausalLM")
+    m = compose(text_spec, "api", RuntimeConfig(generate_fn=gen), set())
+    m.generate(Inputs(prompt="p", audio="clip.wav"))
+    assert seen == {}                              # text-only spec never forwards media
+    m.generate("bare string prompt")
+    assert seen == {}
