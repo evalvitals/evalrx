@@ -180,6 +180,11 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .setting-hero.has-figure { display: flex; flex-direction: column; align-items: center; text-align: center; }
 .setting-hero.has-figure:after { content: none; }
 .setting-hero.has-figure .eyebrow { justify-content: center; }
-.setting-hero.has-figure .lead { margin-left: auto; margin-right: auto; }
-.hero-figure { width: min(100%, 920px); margin-top: 46px; background: #fff; border: 1px solid var(--line); padding: 14px; position: relative; z-index: 1; }
+/* Centred copy reads wider than left-set copy: the 600px lead that suits a
+   left column wraps into seven short centred lines here. ~55rem keeps it a
+   comfortable measure while halving the line count. */
+.setting-hero.has-figure .lead { margin-left: auto; margin-right: auto; max-width: 880px; }
+/* Full page-column width — the same edge the route bar and metric strip sit
+   on, one step wider than the copy above it, with the lightbox past that. */
+.hero-figure { width: 100%; margin-top: 50px; background: #fff; border: 1px solid var(--line); padding: 16px; position: relative; z-index: 1; }
 .hero-figure img { display: block; width: 100%; height: auto; }
