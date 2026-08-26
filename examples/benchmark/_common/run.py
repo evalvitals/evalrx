@@ -18,7 +18,7 @@ if __package__ in (None, ""):  # `python run.py` from inside _common/ — re-roo
     __package__ = "_common"  # noqa: A001
 
 from . import tasks as T  # noqa: E402
-from .models import BACKENDS, MODALITIES, SIZES, matrix_text, resolve  # noqa: E402
+from .models import BACKENDS, MODALITIES, SIZES, default_backend, matrix_text, resolve  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,10 +27,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help=f"size key ({', '.join(SIZES)}) or a registered spec key")
     p.add_argument("--dataset", default=None, help="task name (default per modality: "
                    + ", ".join(f"{m}={n}" for m, n in T.DEFAULT_TASK.items()) + ")")
-    p.add_argument("--backend", choices=list(BACKENDS), default="hf_local",
-                   help="hf_local = in-process transformers (default; white-box + paper methods); "
-                        "endpoint = OpenAI-compatible server (black-box); gemini = Google Gen AI "
-                        "API through google-genai (forced for the gemini family)")
+    p.add_argument("--backend", choices=list(BACKENDS), default=None,
+                   help="hf_local = in-process transformers (white-box + paper methods; the default "
+                        "for vlm/alm); endpoint = OpenAI-compatible server at --base-url (black-box; "
+                        "the default for llm); gemini = Google Gen AI API through google-genai "
+                        "(forced for the gemini family)")
     p.add_argument("--concurrency", type=int, default=1,
                    help="Cases generated at once during baseline discovery. Honoured only for "
                         "--backend endpoint (a local backend shares one GPU and is not "
@@ -173,6 +174,7 @@ def main(argv: list[str] | None = None) -> int:
     task = T.get(dataset)
     if task.modality != args.modality:
         raise SystemExit(f"dataset {dataset!r} is a {task.modality} task, not {args.modality}")
+    args.backend = args.backend or default_backend(args.modality)
     resolved = resolve(args.model, args.modality, args.backend)
     from .runner import run
 
