@@ -84,6 +84,24 @@ BUDGET_FLOOR: dict[str, int] = {
 #: A ``--thinking-level`` asked of a budget model: rough token equivalents.
 LEVEL_TO_BUDGET: dict[str, int] = {"minimal": 0, "low": 1024, "medium": 8192, "high": 24576}
 
+#: Thought tokens count against ``max_output_tokens`` (measured 2026-08-25 on
+#: 3.6/3.7-flash: at a 16-token cap with thinking_level=low the answer is
+#: truncated or empty, finish_reason=MAX_TOKENS). Whenever the effective
+#: thinking config is not "off" (level above minimal, or a budget above 0),
+#: the request cap is raised by this headroom so a short-answer task's 64-token
+#: budget measures the answer, not the thoughts. 3.7-flash cannot go below
+#: ``low``, so this is its normal operating mode.
+THINKING_OUTPUT_HEADROOM = 1024
+
+
+def thinking_spends_output_tokens(think: "dict | None") -> bool:
+    """True when *think* lets the model emit thought tokens (they share the cap)."""
+    if not think:
+        return False
+    if think.get("thinking_budget") is not None:
+        return int(think["thinking_budget"]) > 0
+    return str(think.get("thinking_level", "")).lower() != "minimal"
+
 _RETRY_CODES = frozenset({408, 409, 429, 500, 502, 503, 504})
 _RETRY_MARKERS = ("resource_exhausted", "unavailable", "deadline_exceeded", "overloaded", "rate limit")
 
@@ -226,6 +244,7 @@ class _Runtime:
         #: shared, readable through ``fn.state`` on every factory output
         self.state: dict[str, Any] = {
             "model_version": None, "calls": 0, "retries": 0, "thinking_fallback": [],
+            "headroom_for": [],
         }
         self._lock = threading.Lock()
 
@@ -259,6 +278,13 @@ class _Runtime:
         think = self.thinking(model)
         if think:
             kw["thinking_config"] = types.ThinkingConfig(**think)
+            if thinking_spends_output_tokens(think) and kw.get("max_output_tokens"):
+                # thought tokens share max_output_tokens: give them their own room
+                kw["max_output_tokens"] = int(kw["max_output_tokens"]) + THINKING_OUTPUT_HEADROOM
+                if model not in self.state["headroom_for"]:
+                    self.state["headroom_for"].append(model)
+                    logger.info("%s thinks at %s: max_output_tokens raised by %d for the thought tokens",
+                                model, think, THINKING_OUTPUT_HEADROOM)
         if system is not None:
             kw["system_instruction"] = system
         if tools:

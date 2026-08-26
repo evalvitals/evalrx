@@ -252,6 +252,43 @@ def test_generate_sends_the_floor_and_the_sampling_and_reads_only_answer_parts()
     assert rt.generate_fn.state["calls"] == 1
 
 
+def test_thinking_that_spends_output_tokens_gets_headroom_on_the_cap():
+    """Measured: thought tokens count against max_output_tokens (3.6-flash at a
+    16-token cap with level=low truncates; 3.7-flash returns an empty answer).
+    A config that lets the model think therefore raises the request cap; one
+    that turns thinking off (minimal / budget 0) must NOT touch it."""
+    from evalvitals.models.backends.gemini_compat import (
+        THINKING_OUTPUT_HEADROOM,
+        thinking_spends_output_tokens,
+    )
+
+    assert not thinking_spends_output_tokens({"thinking_level": "minimal"})
+    assert not thinking_spends_output_tokens({"thinking_budget": 0})
+    assert not thinking_spends_output_tokens(None)
+    assert thinking_spends_output_tokens({"thinking_level": "low"})
+    assert thinking_spends_output_tokens({"thinking_budget": 128})
+
+    # 3.6-flash floors at minimal -> the 64-token cap goes through untouched
+    client = FakeClient([_reply(Part(text="A"))])
+    _runtime(client, max_output_tokens=64).generate_fn("Q?", model="gemini-3.6-flash")
+    assert client.requests[0]["config"].max_output_tokens == 64
+
+    # 3.7-flash floors at low -> the cap gains the thought headroom (logged once)
+    client = FakeClient([_reply(Part(text="A")), _reply(Part(text="B"))])
+    rt = _runtime(client, max_output_tokens=64)
+    rt.generate_fn("Q?", model="gemini-3.7-flash")
+    assert client.requests[0]["config"].max_output_tokens == 64 + THINKING_OUTPUT_HEADROOM
+    assert rt.generate_fn.state["headroom_for"] == ["gemini-3.7-flash"]
+    # ...including on a per-call L0 override of the cap
+    rt.generate_fn("Q?", model="gemini-3.7-flash", max_tokens=128)
+    assert client.requests[1]["config"].max_output_tokens == 128 + THINKING_OUTPUT_HEADROOM
+
+    # 2.5-pro cannot switch thinking off (budget floor 128) -> headroom too
+    client = FakeClient([_reply(Part(text="A"))])
+    _runtime(client, max_output_tokens=64).generate_fn("Q?", model="gemini-2.5-pro")
+    assert client.requests[0]["config"].max_output_tokens == 64 + THINKING_OUTPUT_HEADROOM
+
+
 def test_per_call_kwargs_override_the_baseline_decoding_under_openai_names():
     """The fix stage's L0 candidates re-issue ``max_tokens`` / ``temperature``."""
     client = FakeClient([_reply(Part(text="x"))])
