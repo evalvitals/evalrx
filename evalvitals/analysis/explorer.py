@@ -1146,17 +1146,16 @@ def _report_from_sandbox(
 
 
 def _parse_result_json(stdout: str) -> tuple[dict[str, Any], str]:
-    marker_line = None
-    for line in stdout.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(_RESULT_MARKER):
-            marker_line = stripped[len(_RESULT_MARKER):]
-    if marker_line is None:
-        return {}, f"no {_RESULT_MARKER} line in output"
-    try:
-        parsed = json.loads(marker_line)
-    except json.JSONDecodeError as exc:
-        return {}, f"unparseable {_RESULT_MARKER} JSON: {exc}"
+    """The explorer's result object: the JSON after the last ``EXPLORATORY_RESULT_JSON=``.
+
+    Multi-line (``json.dumps(..., indent=2)``) payloads are accepted — see
+    :mod:`evalvitals.analysis.result_marker` for the failure that motivated it.
+    """
+    from evalvitals.analysis.result_marker import extract_marker_json
+
+    parsed, error = extract_marker_json(stdout, _RESULT_MARKER)
+    if error:
+        return {}, error
     if not isinstance(parsed, dict):
         return {}, f"{_RESULT_MARKER} payload must be a JSON object"
     return parsed, ""

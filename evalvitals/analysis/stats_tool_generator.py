@@ -352,24 +352,21 @@ def _parse_result(stdout: str, name: str, alpha: float = 0.05) -> StatsToolResul
     sufficient statistic is descriptive only (``reject=False``), mirroring the
     ``single_rate_evalue`` muzzle, so it can never reach M5's headline.
     """
-    marker_line = None
-    for line in stdout.splitlines():
-        s = line.strip()
-        if s.startswith(_RESULT_MARKER):
-            marker_line = s[len(_RESULT_MARKER):]
-    if marker_line is None:
+    from evalvitals.analysis.result_marker import extract_marker_json
+
+    data, error = extract_marker_json(stdout, _RESULT_MARKER)
+    if data is None and error.startswith("no "):
         return StatsToolResult(
             tool=f"generated:{name}", ok=False,
             error="no STATS_RESULT_JSON line in output",
             summary=f"generated:{name} produced no result line",
             details={"stdout_tail": stdout.strip()[-300:]},
         )
-    try:
-        data = json.loads(marker_line)
-    except json.JSONDecodeError as exc:
+    if error or not isinstance(data, dict):
         return StatsToolResult(
             tool=f"generated:{name}", ok=False,
-            error=f"unparseable STATS_RESULT_JSON: {exc}",
+            error=(error.replace(_RESULT_MARKER, "STATS_RESULT_JSON") if error
+                   else "STATS_RESULT_JSON payload must be a JSON object"),
             summary=f"generated:{name} bad result json",
         )
 

@@ -380,7 +380,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         explorer = ExploratoryAnalysisAgent(
             cli_config=coder_cfg,
             sandbox=ExperimentSandbox(workdir=run_dir / "explore" / "sandbox", cleanup=False),
-            timeout_sec=900, max_attempts=2,
+            timeout_sec=900, max_attempts=3,
         )
     loop = VLDiagnoseLoop(
         model=model, protocol=protocol, probe_agent=probe_agent, stats_agent=stats_agent,
