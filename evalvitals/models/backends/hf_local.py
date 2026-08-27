@@ -211,6 +211,35 @@ def _check_audio_duration(audios: list, processor: Any, model_key: str) -> None:
             )
 
 
+def _new_tokens(out: Any, input_ids: Any) -> Any:
+    """The newly generated token ids from a ``generate()`` output sequence.
+
+    ``out`` is normally the prompt concatenated with the continuation, so the
+    new tokens start after ``len(input_ids)``. A model whose own
+    ``generate()`` converts the input to ``inputs_embeds`` internally
+    (Qwen3-Omni and other omni/audio architectures whose thinker merges
+    audio/vision embeddings before the LM) never hands ``input_ids`` back to
+    ``GenerationMixin`` — which then cannot prepend prompt token ids it was
+    never given, so it returns ONLY the new tokens (transformers itself warns
+    about this: "... without input_ids to generate ..."). Slicing at
+    ``len(input_ids)`` in that case cuts past the end of a sequence shorter
+    than the prompt and silently decodes to "" — seen live on
+    Qwen3-Omni-30B-A3B-Instruct/MMAU, every one of 128 cases, 2026-08-27.
+
+    A length check alone (``out.shape[0] > len(input_ids)``) is ambiguous at
+    the edges — a concatenated output with zero new tokens, or an
+    inputs_embeds-only output that happens to be exactly as long as the
+    prompt — so this compares the actual leading token ids: only a real
+    prefix match means ``out`` truly contains the prompt to cut off.
+    """
+    import torch
+
+    input_len = len(input_ids)
+    if out.shape[0] >= input_len and torch.equal(out[:input_len], torch.as_tensor(input_ids)):
+        return out[input_len:]
+    return out
+
+
 def _collect_message_images(messages: list) -> list:
     """Extract images from chat messages in appearance order.
 
@@ -607,7 +636,7 @@ class HFLocalModel(Model):
             kwargs["tokenizer"] = tok
         with torch.no_grad():
             out = model.generate(**enc, max_new_tokens=max_new, **kwargs)
-        new = out[0][enc["input_ids"].shape[1] :]
+        new = _new_tokens(out[0], enc["input_ids"][0])
         return tok.decode(new, skip_special_tokens=True)
 
     def logprobs(
@@ -623,7 +652,6 @@ class HFLocalModel(Model):
         else:
             enc = self._encode(self._as_prompt(inputs))
         enc.pop("token_type_ids", None)
-        n_in = enc["input_ids"].shape[1]
         with torch.no_grad():
             out = model.generate(
                 **enc,
@@ -632,7 +660,7 @@ class HFLocalModel(Model):
                 output_scores=True,
                 return_dict_in_generate=True,
             )
-        gen_ids = out.sequences[0][n_in:].tolist()
+        gen_ids = _new_tokens(out.sequences[0], enc["input_ids"][0]).tolist()
         result: list[TokenLogprob] = []
         for i, score in enumerate(out.scores):
             lp = torch.log_softmax(score[0].float(), dim=-1)
@@ -747,7 +775,7 @@ class HFLocalModel(Model):
                 use_cache=True,
                 logits_processor=processor_list,
             )
-        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
     def generate_aad_baseline(self, inputs: Any) -> str:
         """Greedy-decode the real-audio arm alone -- the paired-comparison
@@ -765,7 +793,7 @@ class HFLocalModel(Model):
             out = model.generate(
                 **enc, max_new_tokens=self.runtime.max_new_tokens, do_sample=False, use_cache=True,
             )
-        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
     def _vcd_next_token_logits(
         self,
@@ -847,7 +875,7 @@ class HFLocalModel(Model):
                 use_cache=True,
                 logits_processor=processor_list,
             )
-        return tok.decode(out[0][clean_enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], clean_enc["input_ids"][0]), skip_special_tokens=True)
 
     def generate_vcd_baseline(self, inputs: Any, *, noise_seed: int = 55) -> str:
         """Sample the clean VCD control with the candidate's per-image RNG.
@@ -888,7 +916,7 @@ class HFLocalModel(Model):
                 use_cache=True,
             )
         tok = getattr(processor, "tokenizer", processor)
-        return tok.decode(out[0][clean_enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], clean_enc["input_ids"][0]), skip_special_tokens=True)
 
     def generate_instruction_cd(
         self,
@@ -1124,7 +1152,7 @@ class HFLocalModel(Model):
                 logits_processor=processor_list,
             )
         tok = getattr(processor, "tokenizer", processor)
-        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
     def generate_tcd(
         self,
@@ -1442,7 +1470,7 @@ class HFLocalModel(Model):
                     logits_processor=LogitsProcessorList([cfg]),
                 )
         tok = getattr(processor, "tokenizer", processor)
-        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
     def chat(self, messages: list, tools=None) -> ChatTurn:
         """Tool-aware turn via the model's chat template.
@@ -1500,8 +1528,9 @@ class HFLocalModel(Model):
         with torch.no_grad():
             out = model.generate(**enc, max_new_tokens=self.runtime.max_new_tokens)
         n_in = enc["input_ids"].shape[1]
-        gen = tok.decode(out[0][n_in:], skip_special_tokens=True)
-        usage = {"prompt_tokens": int(n_in), "completion_tokens": int(out.shape[1] - n_in)}
+        new_ids = _new_tokens(out[0], enc["input_ids"][0])
+        gen = tok.decode(new_ids, skip_special_tokens=True)
+        usage = {"prompt_tokens": int(n_in), "completion_tokens": int(new_ids.shape[0])}
         return ChatTurn(text=gen, raw_tool_calls=None, usage=usage)
 
     def _encode_vlm(self, inputs, model, processor):
