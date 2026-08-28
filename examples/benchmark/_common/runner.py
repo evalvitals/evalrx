@@ -28,6 +28,11 @@ def model_label(resolved: Resolved) -> str:
     return f"{resolved.label}, spec {spec.key} = {spec.hf_repo or ('api:' + spec.key)}"
 
 
+def _pinned_priority_override(pinned: list[str]) -> dict[str, list[str]]:
+    """Apply a benchmark task's pinned M1 list to every probe model kind."""
+    return {k: list(pinned) for k in ("vlm", "avlm", "alm", "agent", "llm")}
+
+
 def generation_settings(task: T.Task, args) -> dict:
     """Stage 0 / analyzer generation kwargs. Short-answer tasks (vlm, alm) are
     greedy; the llm tasks sample at T=0.6 / top_p 0.95 / top_k 20 like
@@ -327,7 +332,10 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     pinned = list(task.pinned_m1)
     if args.m1_selection == "pinned":
         probe_agent = ProbeAgent(
-            probe=StrategyProbe(priority_override={k: pinned for k in ("vlm", "agent", "llm")}),
+            # StrategyProbe dispatches by the model's detected kind.  Keep the
+            # benchmark's pinned list authoritative for every supported kind,
+            # including the audio-language kinds used by ALM/AVLM examples.
+            probe=StrategyProbe(priority_override=_pinned_priority_override(pinned)),
             judge=None, max_analyzers=len(pinned),
             max_cases_per_analyzer=args.analyzer_max_cases,
         )

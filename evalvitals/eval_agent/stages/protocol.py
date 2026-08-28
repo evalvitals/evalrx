@@ -29,6 +29,7 @@ Usage::
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -77,6 +78,16 @@ class ExperimentProtocol:
             "output_contract": self.output_contract,
             "metadata": self.metadata,
         }
+
+    def prompt_text(self) -> str:
+        """Serialize the complete evaluation contract for judge prompts.
+
+        ``description`` alone is not enough for short-answer benchmarks: the
+        success criteria and output contract determine whether a terse answer
+        is valid.  Keeping one formatter prevents M2/M3 prompt handoffs from
+        silently dropping those fields.
+        """
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=2, default=str)
 
 
 @dataclass

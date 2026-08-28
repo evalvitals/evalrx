@@ -371,6 +371,18 @@ class TestStatsAnalysisAgent:
         report = agent.analyze({}, protocol=protocol)
         assert report.protocol is protocol
 
+    def test_llm_prompt_includes_complete_output_contract(self):
+        protocol = ExperimentProtocol(
+            description="Choose the correct audio option.",
+            task_domain="audio multiple choice",
+            success_criteria="Reply with only the option letter.",
+            output_contract={"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
+        )
+        judge = ScriptedModel(["CONCLUSION: No issue.\nEVIDENCE_CHAIN:\n- none\nQUALITATIVE:\n- none"])
+        report = StatsAnalysisAgent(judge=judge).analyze({}, protocol=protocol)
+        assert "Reply with only the option letter" in report.llm_prompt
+        assert '"kind": "multiple_choice_letter"' in report.llm_prompt
+
     def test_protocol_domain_in_conclusion(self):
         protocol = _spatial_protocol()
         agent = StatsAnalysisAgent()

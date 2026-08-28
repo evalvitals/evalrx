@@ -13,6 +13,9 @@ multiple-comparisons correction. The PLAIN_STATEMENT line is written for them.
 Model: {model_name}
 Overall severity (threshold rules): {severity}
 
+Experiment protocol (authoritative task and response contract):
+{protocol_section}
+
 Analysis conclusion (the analyst's interpretation):
 {conclusion}
 {evidence_section}{stats_section}{explore_section}{failure_modes_section}

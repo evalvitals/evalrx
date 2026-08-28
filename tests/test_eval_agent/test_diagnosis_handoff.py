@@ -12,6 +12,7 @@ from evalvitals.analysis.stats_agent import StatsAnalysisReport
 from evalvitals.analysis.stats_tools import StatsToolResult
 from evalvitals.core.capability import Capability
 from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
+from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 
 
@@ -64,6 +65,19 @@ def test_prompt_includes_conclusion_evidence_and_stats():
     assert "REJECT H0" in p                                             # stats verdict
     # The prompt must steer M3 away from trusting threshold severity alone.
     assert "threshold severity" in p.lower()
+
+
+def test_prompt_and_critic_include_complete_protocol_contract():
+    report = _stats_report_with_conclusion()
+    report.protocol = ExperimentProtocol(
+        description="Answer an audio multiple-choice question.",
+        success_criteria="Reply with only one option letter.",
+        output_contract={"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
+    )
+    judge = CapturingJudge()
+    DiagnosisAgent(judge=judge).diagnose(report)
+    assert all("Reply with only one option letter" in p for p in judge.prompts[:2])
+    assert all('"kind": "multiple_choice_letter"' in p for p in judge.prompts[:2])
 
 
 def test_hypothesis_generated_despite_severity_none():

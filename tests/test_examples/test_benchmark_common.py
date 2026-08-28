@@ -41,6 +41,16 @@ def test_every_matrix_cell_resolves_to_a_registered_spec_of_the_right_modality(c
         assert spec.chat_template_kwargs.get("enable_thinking") is not True, spec.key
 
 
+def test_pinned_m1_priority_covers_audio_model_kinds(common):
+    from _common.runner import _pinned_priority_override
+
+    pinned = ["answer_extraction_audit", "termination_audit"]
+    override = _pinned_priority_override(pinned)
+    assert override["alm"] == pinned
+    assert override["avlm"] == pinned
+    assert set(override) == {"vlm", "avlm", "alm", "agent", "llm"}
+
+
 def test_the_matrix_is_the_one_specified(common):
     models, *_ = common
     by_modality = {}

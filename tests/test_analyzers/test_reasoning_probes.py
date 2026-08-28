@@ -174,6 +174,36 @@ def test_extraction_audit_separates_parse_miss_from_real_failure():
     assert f["suspect_rate"] == pytest.approx(1 / 3, abs=1e-3)
 
 
+def test_extraction_audit_respects_multiple_choice_output_contract():
+    contract = {"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]}
+    batch = CaseBatch([
+        # Regression: generic tail matching treated the A in this truncated
+        # heading as a committed answer and called the harness suspect.
+        _case("mc1", "Audio Analysis", "A", Label.FAIL,
+              metadata={"output_contract": contract, "finish_reason": "length"}),
+        _case("mc2", "I considered A first.\nFinal: B", "B", Label.FAIL,
+              metadata={"output_contract": contract}),
+        _case("mc3", "reasoning about option B\n(C)", "C", Label.FAIL,
+              metadata={"output_contract": contract}),
+    ])
+    rows = AnswerExtractionAudit().run(NoCapModel([]), batch).findings["per_case"]
+    assert [r["extraction_suspect"] for r in rows] == [0, 1, 1]
+    assert rows[0]["gold_in_answer_region"] == 0
+    assert [r["extracted_answer"] for r in rows] == ["", "B", "C"]
+
+
+def test_extraction_audit_respects_yes_no_output_contract():
+    contract = {"kind": "yes_no"}
+    batch = CaseBatch([
+        _case("yn1", "No audio analysis was completed", "No", Label.FAIL,
+              metadata={"output_contract": contract}),
+        _case("yn2", "The evidence is mixed.\nAnswer: No", "No", Label.FAIL,
+              metadata={"output_contract": contract}),
+    ])
+    rows = AnswerExtractionAudit().run(NoCapModel([]), batch).findings["per_case"]
+    assert [r["extraction_suspect"] for r in rows] == [0, 1]
+
+
 def test_extraction_audit_reask_needs_generate():
     batch = CaseBatch([_case("q", r"\boxed{12}", "12", Label.FAIL)])
     f = AnswerExtractionAudit(reask=True).run(ScriptModel(["12"]), batch).findings
