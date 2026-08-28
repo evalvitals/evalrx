@@ -76,3 +76,8 @@ def test_writer_blocks_generated_second_model_load_before_execution():
     assert result.total_sandbox_runs == 0
     assert sandbox.called is False
     assert "stored observed output" in judge.prompts[0]
+
+
+def test_json_load_is_not_mistaken_for_model_loading():
+    code = "import json\nwith open('cases.json') as f:\n    cases = json.load(f)\n"
+    assert ExperimentWriter._contains_forbidden_model_load({"experiment.py": code}) is False

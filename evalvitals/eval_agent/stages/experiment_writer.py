@@ -825,8 +825,6 @@ class ExperimentWriter:
     @staticmethod
     def _contains_forbidden_model_load(files: dict[str, str]) -> bool:
         """Detect heavyweight/network model construction in generated M4 code."""
-        forbidden_attrs = {"load", "compose", "from_pretrained", "from_pretrained_model"}
-        forbidden_names = {"GeminiModel", "AutoModel", "AutoModelForCausalLM"}
         for name, code in files.items():
             if not name.endswith(".py"):
                 continue
@@ -834,13 +832,38 @@ class ExperimentWriter:
                 tree = ast.parse(code)
             except SyntaxError:
                 continue
+            evalvitals_aliases = {"evalvitals"}
+            direct_loaders: set[str] = set()
+            model_classes: set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name == "evalvitals":
+                            evalvitals_aliases.add(alias.asname or alias.name)
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    for alias in node.names:
+                        local = alias.asname or alias.name
+                        if module == "evalvitals" and alias.name in {"load", "compose"}:
+                            direct_loaders.add(local)
+                        if module.startswith(("transformers", "evalvitals.models")) and (
+                            alias.name.startswith("AutoModel") or alias.name == "GeminiModel"
+                        ):
+                            model_classes.add(local)
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
                 fn = node.func
-                if isinstance(fn, ast.Attribute) and fn.attr in forbidden_attrs:
-                    return True
-                if isinstance(fn, ast.Name) and fn.id in forbidden_names:
+                if isinstance(fn, ast.Attribute):
+                    if fn.attr.startswith("from_pretrained"):
+                        return True
+                    if (
+                        fn.attr in {"load", "compose"}
+                        and isinstance(fn.value, ast.Name)
+                        and fn.value.id in evalvitals_aliases
+                    ):
+                        return True
+                if isinstance(fn, ast.Name) and fn.id in direct_loaders | model_classes:
                     return True
         return False
 
