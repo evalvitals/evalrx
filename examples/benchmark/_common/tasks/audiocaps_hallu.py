@@ -120,7 +120,12 @@ def protocol(model_label: str):
             "heard, falling back on what the question text alone makes plausible rather "
             "than the audio evidence, will show exactly this asymmetric pattern; a fix "
             "that trades away present-sound (gold=Yes) accuracy to gain absent-sound "
-            "accuracy is a different error, not an improvement"
+            "accuracy is a different error, not an improvement. Equally, errors may be "
+            "balanced across present and absent sounds yet reveal brittle audio grounding: "
+            "a meaning-preserving restatement of the sound-presence question, or an "
+            "irrelevant clause, should not change the Yes/No decision. A robustness fix "
+            "must improve the aggregate paired outcome without trading present-sound "
+            "accuracy for absent-sound accuracy (or vice versa)."
         ),
         target_modalities=frozenset({"text", "audio"}),
     )
