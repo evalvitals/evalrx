@@ -53,6 +53,9 @@ model = {load_expr}
 
 Available capabilities: {capabilities}
 
+## Model access policy
+{model_access_note}
+
 ## Failure cases (JSON)
 ```json
 {cases_json_snippet}
@@ -89,6 +92,9 @@ _GENERATE_FILE_USER = """\
 {dep_summaries}
 
 {dep_code}
+
+## Model access policy
+{model_access_note}
 
 ## EvalVitals API reference
 ```python
@@ -134,6 +140,9 @@ model = {load_expr}
 ```
 
 Available capabilities: {capabilities}
+
+## Model access policy
+{model_access_note}
 
 {blueprint_context}
 
@@ -208,6 +217,7 @@ def build_cli_prompt(
 ) -> str:
     """Build the prompt used by external CLI coding agents."""
     caps = ", ".join(model_context.get("capabilities", [])) or "GENERATE"
+    access_note = model_context.get("access_note", "")
     image_note = (
         f", and image_path (JPEG path for {n_images} case(s)).\n"
         "Load images and build inputs like this:\n"
@@ -233,6 +243,8 @@ def build_cli_prompt(
         f"model = {model_context.get('load_expr', '# model')}\n"
         "```\n\n"
         f"Available capabilities: {caps}\n\n"
+        "## Model access policy\n"
+        f"{access_note}\n\n"
         "## Input data\n"
         "Read `cases.json` from the current directory. "
         "Each record has: prompt, label (PASS/FAIL), id, metadata"

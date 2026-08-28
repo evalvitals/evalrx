@@ -205,7 +205,9 @@ class SolutionNode:
 # ---------------------------------------------------------------------------
 
 
-def build_model_context(model: "Model") -> dict[str, Any]:
+def build_model_context(
+    model: "Model", *, allow_reconstruction: bool = True
+) -> dict[str, Any]:
     """Extract the information needed to reconstruct *model* inside a subprocess.
 
     Returns a dict with:
@@ -214,6 +216,24 @@ def build_model_context(model: "Model") -> dict[str, Any]:
         ``capabilities``  — sorted list of capability name strings
     """
     caps = sorted(str(c.name) for c in getattr(model, "capabilities", frozenset()))
+
+    if not allow_reconstruction:
+        return {
+            "import_expr": (
+                "# The host model is already resident and is intentionally not "
+                "reconstructed in this child process."
+            ),
+            "load_expr": "None",
+            "capabilities": ["STORED_OUTPUTS_ONLY"],
+            "access_mode": "artifacts_only",
+            "access_note": (
+                "The model is unavailable inside the sandbox. Use only each case's "
+                "stored observed output, expected answer, label, and metadata. Do not "
+                "call evalvitals.load, compose, from_pretrained, any model API, or the "
+                "network. If the hypothesis requires a fresh model intervention, print "
+                "inconclusive: 1.0 as the final line and do not print a verdict."
+            ),
+        }
 
     spec = getattr(model, "spec", None)
     if spec is not None and getattr(spec, "key", None):
@@ -291,6 +311,7 @@ class ExperimentWriter:
         self._calls = 0
         self._runs = 0
         self._log: list[str] = []
+        self._forbid_model_load = False
         # Lazily created write workdir for multi-file output
         self._workdir: Path | None = None
 
@@ -319,6 +340,7 @@ class ExperimentWriter:
         self._calls = 0
         self._runs = 0
         self._log = []
+        self._forbid_model_load = model_context.get("access_mode") == "artifacts_only"
         self._log_event("ExperimentWriter.write_and_run() started")
 
         # CLI agent dispatch (unchanged from previous implementation)
@@ -369,6 +391,23 @@ class ExperimentWriter:
         # Phase 3 — hard validation
         if self._cfg.hard_validation and files:
             files = self._phase3_hard_validate(files, hypothesis, model_context, cases_json)
+
+        if self._forbid_model_load and self._contains_forbidden_model_load(files):
+            message = (
+                "generated M4 code attempted to reconstruct or download a second model; "
+                "execution blocked to protect the resident host model and GPU memory"
+            )
+            self._log_event(f"Phase 3: {message}")
+            main_code = files.get("main.py") or (next(iter(files.values())) if files else "")
+            return ExperimentWriterResult(
+                code=main_code,
+                files=files,
+                stderr=message,
+                returncode=-1,
+                validation_log=list(self._log),
+                total_llm_calls=self._calls,
+                total_sandbox_runs=self._runs,
+            )
 
         # Phase 4 — exec-fix loop (tree search or plain)
         last_result: SandboxResult
@@ -436,6 +475,7 @@ class ExperimentWriter:
             import_expr=model_context.get("import_expr", "import evalvitals"),
             load_expr=model_context.get("load_expr", "# model"),
             capabilities=", ".join(model_context.get("capabilities", [])) or "GENERATE",
+            model_access_note=model_context.get("access_note", ""),
             cases_json_snippet=cases_json[:1500],
         )
         raw = self._llm_call(system, user)
@@ -588,6 +628,7 @@ class ExperimentWriter:
                 blueprint=blueprint_yaml[:3000],
                 dep_summaries=dep_summaries,
                 dep_code=dep_code,
+                model_access_note=model_context.get("access_note", ""),
             )
             raw = self._llm_call(system, user)
             code = self._extract_single_file_code(raw, file_name)
@@ -635,6 +676,7 @@ class ExperimentWriter:
             import_expr=model_context.get("import_expr", "import evalvitals"),
             load_expr=model_context.get("load_expr", "# model"),
             capabilities=", ".join(model_context.get("capabilities", [])) or "GENERATE",
+            model_access_note=model_context.get("access_note", ""),
             blueprint_context=blueprint_context,
             cases_json=cases_json,
         )
@@ -770,7 +812,37 @@ class ExperimentWriter:
                                         f"defined in '{target_file}' — will crash"
                                     )
 
+        if self._forbid_model_load and self._contains_forbidden_model_load(files):
+            critical.append(
+                "[project] Model reconstruction is forbidden in this artifact-only M4 "
+                "sandbox. Remove evalvitals.load/compose/from_pretrained/model-client "
+                "construction and analyze the stored case artifacts; if those cannot "
+                "test the hypothesis, emit inconclusive: 1.0 without a verdict."
+            )
+
         return critical, warnings
+
+    @staticmethod
+    def _contains_forbidden_model_load(files: dict[str, str]) -> bool:
+        """Detect heavyweight/network model construction in generated M4 code."""
+        forbidden_attrs = {"load", "compose", "from_pretrained", "from_pretrained_model"}
+        forbidden_names = {"GeminiModel", "AutoModel", "AutoModelForCausalLM"}
+        for name, code in files.items():
+            if not name.endswith(".py"):
+                continue
+            try:
+                tree = ast.parse(code)
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                fn = node.func
+                if isinstance(fn, ast.Attribute) and fn.attr in forbidden_attrs:
+                    return True
+                if isinstance(fn, ast.Name) and fn.id in forbidden_names:
+                    return True
+        return False
 
     def _repair_critical_issues(
         self,
@@ -1242,6 +1314,26 @@ class ExperimentWriter:
 
         code = cli_result.files.get("experiment.py") or next(iter(cli_result.files.values()))
         self._log_event(f"  collected script: {len(code)} chars")
+
+        if self._forbid_model_load and self._contains_forbidden_model_load(
+            {"experiment.py": code}
+        ):
+            message = (
+                "generated M4 code attempted to reconstruct or download a second model; "
+                "execution blocked to protect the resident host model and GPU memory"
+            )
+            self._log_event(message)
+            return ExperimentWriterResult(
+                code=code,
+                files={"experiment.py": code},
+                stderr=message,
+                returncode=-1,
+                validation_log=list(self._log),
+                cli_raw_output=cli_raw_output,
+                cli_usage=cli_usage,
+                provider=cli_cfg.provider,
+                workdir=str(workdir),
+            )
 
         if self._cfg.hard_validation:
             errors = []

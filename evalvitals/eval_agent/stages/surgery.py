@@ -410,7 +410,12 @@ class SurgeryAgent:
             # it's the whole point of giving this experiment its own folder.
             sandbox = ExperimentSandbox(workdir=str(trial.workspace), cleanup=False)
 
-        model_context = build_model_context(model)
+        # The model under test is already resident in the parent process.  A
+        # second evalvitals.load() in M4 can duplicate tens of GB of weights
+        # and OOM (notably Qwen Omni).  Generated diagnostics therefore operate
+        # on frozen case artifacts; fresh interventions remain host-run M5/fix
+        # work and an artifact-insufficient M4 result is INCONCLUSIVE.
+        model_context = build_model_context(model, allow_reconstruction=False)
         # Save images alongside cases.json so codex can load them
         image_dir = getattr(sandbox, "workdir", None)
         cases_json = _serialize_cases(data, image_dir=image_dir)
