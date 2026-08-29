@@ -328,7 +328,9 @@ class _Runtime:
         while True:
             config = self.config(types, model, extra, system=system, tools=tools, logprobs=logprobs)
             try:
-                response = client.models.generate_content(model=model, contents=contents, config=config)
+                response = self._generate_with_deadline(
+                    client, model=model, contents=contents, config=config,
+                )
             except Exception as exc:
                 text = str(exc)
                 if (getattr(exc, "code", None) == 400 and "thinking" in text.lower()
@@ -351,6 +353,37 @@ class _Runtime:
             if version:
                 self.state["model_version"] = version
             return response
+
+    def _generate_with_deadline(self, client: Any, *, model: str, contents: Any, config: Any):
+        """Enforce a wall-clock deadline around a synchronous SDK request.
+
+        ``google-genai``'s HTTP timeout is normally sufficient, but an audio
+        upload can occasionally leave its synchronous call blocked beyond that
+        setting.  Benchmark M1 fans those calls out, so one such request used
+        to keep an entire diagnosis run alive indefinitely.  A daemon helper
+        lets the caller recover at ``self.timeout``; it deliberately cannot
+        join a wedged transport thread, so it never delays process shutdown.
+        """
+        done = threading.Event()
+        result: dict[str, Any] = {}
+
+        def _call() -> None:
+            try:
+                result["response"] = client.models.generate_content(
+                    model=model, contents=contents, config=config,
+                )
+            except BaseException as exc:  # re-raised on the caller thread
+                result["error"] = exc
+            finally:
+                done.set()
+
+        worker = threading.Thread(target=_call, name="gemini-request", daemon=True)
+        worker.start()
+        if not done.wait(self.timeout):
+            raise TimeoutError(f"Gemini request exceeded wall-clock timeout of {self.timeout:.1f}s")
+        if "error" in result:
+            raise result["error"]
+        return result["response"]
 
 
 # ----------------------------------------------------------------------

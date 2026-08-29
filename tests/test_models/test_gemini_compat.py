@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import io
+import threading
 import wave
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -184,6 +185,21 @@ def _fake_sdk(monkeypatch):
         return self._client, FakeTypes
     monkeypatch.setattr(gc._Runtime, "genai", genai)
     monkeypatch.setattr(gc.time, "sleep", lambda s: None)
+
+
+def test_sdk_request_has_a_wall_clock_deadline():
+    """A wedged audio upload must not strand a whole M1 batch forever."""
+    class SlowModels:
+        def generate_content(self, **kwargs):
+            threading.Event().wait(0.2)
+            return _reply(Part(text="late"))
+
+    class SlowClient:
+        models = SlowModels()
+
+    rt = _runtime(SlowClient(), timeout=0.02, retries=0)
+    with pytest.raises(TimeoutError, match="wall-clock timeout"):
+        rt.generate_fn("q", model="gemini-3.7-flash")
 
 
 # ----------------------------------------------------------------------
