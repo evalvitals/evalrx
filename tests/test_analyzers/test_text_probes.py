@@ -304,6 +304,23 @@ def test_calibration_skips_unlabelled():
     assert f["logprob_channel"]["n"] == 0
 
 
+def test_calibration_keeps_other_cases_when_one_request_fails():
+    class FlakyModel(ScriptModel):
+        def generate(self, inputs, **kwargs):
+            if len(self.prompts) == 0:
+                self.prompts.append(str(inputs))
+                raise TimeoutError("temporary backend timeout")
+            return super().generate(inputs, **kwargs)
+
+    batch = CaseBatch([
+        FailureCase(inputs=Inputs(prompt="q1"), label=Label.PASS),
+        FailureCase(inputs=Inputs(prompt="q2"), label=Label.FAIL),
+    ])
+    f = CalibrationAnalyzer().run(FlakyModel(["Confidence: 80"]), batch).findings
+    assert f["verbalized_channel"]["n"] == 1
+    assert "verbalized_error" in f["per_case"][0]
+
+
 def test_ece_helper():
     perfect = [(0.9, True)] * 9 + [(0.9, False)]
     assert expected_calibration_error(perfect, 10) == 0.0

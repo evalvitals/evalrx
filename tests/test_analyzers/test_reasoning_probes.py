@@ -487,6 +487,23 @@ def test_perturbation_battery_flags_invariance_break():
     assert "memorization_suspect" not in entry
 
 
+def test_perturbation_battery_keeps_other_cases_when_one_request_fails():
+    class FlakyModel(ScriptModel):
+        def generate(self, inputs, **kwargs):
+            if "Alice" in str(inputs):
+                raise TimeoutError("temporary backend timeout")
+            return "Answer: 8"
+
+    batch = CaseBatch([
+        _case(_WORD_PROBLEM, None, "8", Label.PASS),
+        _case("How many apples are there?", None, "8", Label.PASS),
+    ])
+    f = PerturbationBattery().run(FlakyModel([]), batch).findings
+    assert f["n_cases"] == 2
+    assert f["n_scored"] == 1
+    assert "baseline request failed" in f["per_case"][0]["skipped"]
+
+
 # ── coverage_verification_gap ─────────────────────────────────────────────────
 def test_pass_at_k_estimator():
     assert pass_at_k(5, 1, 5) == 1.0
