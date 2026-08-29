@@ -762,7 +762,12 @@ class HypothesisTester:
         import inspect
 
         prompt = _CONSISTENCY_PROMPT.format(
-            protocol_text=protocol.description,
+            # M5 decides whether the hypothesis is within the task contract.
+            # ``description`` is only its overview; omission of
+            # ``failure_patterns`` made explicitly declared mechanisms (for
+            # example AudioCaps' paraphrase-stability failure) invisible to
+            # the LLM judge and incorrectly protocol-inconsistent.
+            protocol_text=protocol.prompt_text(),
             statement=hypothesis.statement,
             failure_mode=hypothesis.predicted_failure_mode,
         )
