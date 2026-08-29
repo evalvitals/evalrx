@@ -57,6 +57,10 @@ FROM base AS gemma
 # there; no GPU is used, the image only carries the harness, the judge/coder
 # CLIs and the dataset catalog.
 FROM base AS gemini
+# CHAIR captioning task (tasks/chair_words.py): nltk tokeniser/tagger/WordNet on
+# the default search path, so the in-harness grader is the official chair.py rule.
+RUN pip install --no-cache-dir "nltk>=3.9" \
+    && python -m nltk.downloader -d /usr/share/nltk_data punkt punkt_tab averaged_perceptron_tagger_eng wordnet omw-1.4
 
 FROM python:3.11-slim AS nemotron
 # Not FROM base: the Mamba2 kernels the remote NemotronH code hard-imports exist
