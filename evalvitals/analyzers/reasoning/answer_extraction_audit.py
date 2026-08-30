@@ -24,6 +24,7 @@ References:
 from __future__ import annotations
 
 import dataclasses
+import re
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from evalvitals.analyzers.reasoning._text import (
@@ -50,6 +51,68 @@ if TYPE_CHECKING:
 _REASK_SUFFIX = (
     "Reply with ONLY the final answer, no explanation, no units, no punctuation."
 )
+
+
+def _gold_scalar(expected: Any) -> str:
+    if isinstance(expected, (list, tuple)):
+        return str(expected[0]) if expected else ""
+    return str(expected)
+
+
+def _contract_answer(text: Any, contract: dict[str, Any]) -> str:
+    """Return a committed short answer under a benchmark output contract.
+
+    A single-letter gold must never match the first character of prose such as
+    ``Audio Analysis``.  We accept an explicit Answer/Final marker or a final
+    line containing only the answer, matching the benchmark's response shape.
+    """
+    raw = str(text or "")
+    kind = str(contract.get("kind") or "").lower()
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    final_line = lines[-1] if lines else raw.strip()
+
+    if kind == "multiple_choice_letter":
+        choices = "".join(str(c).strip()[:1].upper() for c in contract.get("choices", [])) or "ABCD"
+        cls = re.escape(choices)
+        marked = re.findall(
+            rf"(?:\banswer|\bfinal(?:\s+answer)?)\s*(?:is\b\s*|[:=\-]\s*)"
+            rf"[\(\[]?([{cls}])[\)\]]?\b",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        boxed = re.findall(rf"\\boxed\s*\{{\s*([{cls}])\s*\}}", raw, flags=re.IGNORECASE)
+        if marked or boxed:
+            return (marked + boxed)[-1].upper()
+        bare = re.fullmatch(rf"\s*[\(\[]?([{cls}])[\)\]]?[\s.!]*", final_line, re.IGNORECASE)
+        return bare.group(1).upper() if bare else ""
+
+    if kind == "yes_no":
+        marked = re.findall(
+            r"(?:\banswer|\bfinal(?:\s+answer)?)\s*(?:is\b\s*|[:=\-]\s*)"
+            r"(yes|no)\b",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if marked:
+            return marked[-1].capitalize()
+        bare = re.fullmatch(r"\s*(yes|no)[\s.!]*", final_line, re.IGNORECASE)
+        return bare.group(1).capitalize() if bare else ""
+
+    return ""
+
+
+def _contract_anywhere(text: Any, expected: Any, contract: dict[str, Any]) -> bool:
+    """Loose upper bound for contracted answers, without substring matching."""
+    raw = str(text or "")
+    gold = _gold_scalar(expected).strip()
+    kind = str(contract.get("kind") or "").lower()
+    if _contract_answer(raw, contract).lower() == gold.lower():
+        return True
+    if kind == "multiple_choice_letter" and len(gold) == 1:
+        return bool(re.search(rf"(?<![A-Za-z]){re.escape(gold)}(?![A-Za-z])", raw, re.IGNORECASE))
+    if kind == "yes_no":
+        return bool(re.search(rf"\b{re.escape(gold)}\b", raw, re.IGNORECASE))
+    return False
 
 
 @register_analyzer("answer_extraction_audit")
@@ -193,18 +256,33 @@ class AnswerExtractionAudit(Analyzer):
             return entry
 
         raw = str(text)
-        extracted = self.answer_fn(text)
-        strict = bool(self.match_fn(extracted, case.expected))
+        metadata = getattr(case, "metadata", {}) or {}
+        contract = metadata.get("output_contract") or {}
+        contract_kind = str(contract.get("kind") or "").lower()
+        contracted = contract_kind in {"multiple_choice_letter", "yes_no"}
+        extracted = _contract_answer(raw, contract) if contracted else self.answer_fn(text)
+        strict = (
+            extracted.lower() == _gold_scalar(case.expected).strip().lower()
+            if contracted else bool(self.match_fn(extracted, case.expected))
+        )
         gold = normalize_answer(case.expected)
         # Anywhere in the output — the loose UPPER bound; a gold that merely
         # appears as an intermediate quantity counts here and should not.
-        anywhere = bool(self.match_fn(raw, case.expected)) or gold in normalize_answer(raw)
+        anywhere = (
+            _contract_anywhere(raw, case.expected, contract)
+            if contracted
+            else bool(self.match_fn(raw, case.expected)) or gold in normalize_answer(raw)
+        )
         # In the answer REGION: the tail of the generation, or any tagged /
         # boxed span. This is the one that means "the model did answer this".
         tail = raw[-self.tail_chars :]
         tagged_spans = " ".join(_BOXED.findall(raw) + _ANSWER_TAG.findall(raw))
-        in_tail = bool(self.match_fn(tail, case.expected)) or bool(
-            tagged_spans and self.match_fn(tagged_spans, case.expected)
+        in_tail = (
+            _contract_answer(tail, contract).lower() == _gold_scalar(case.expected).strip().lower()
+            if contracted
+            else bool(self.match_fn(tail, case.expected)) or bool(
+                tagged_spans and self.match_fn(tagged_spans, case.expected)
+            )
         )
         entry.update(
             {

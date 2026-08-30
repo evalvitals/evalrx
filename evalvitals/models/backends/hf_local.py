@@ -211,6 +211,35 @@ def _check_audio_duration(audios: list, processor: Any, model_key: str) -> None:
             )
 
 
+def _new_tokens(out: Any, input_ids: Any) -> Any:
+    """The newly generated token ids from a ``generate()`` output sequence.
+
+    ``out`` is normally the prompt concatenated with the continuation, so the
+    new tokens start after ``len(input_ids)``. A model whose own
+    ``generate()`` converts the input to ``inputs_embeds`` internally
+    (Qwen3-Omni and other omni/audio architectures whose thinker merges
+    audio/vision embeddings before the LM) never hands ``input_ids`` back to
+    ``GenerationMixin`` — which then cannot prepend prompt token ids it was
+    never given, so it returns ONLY the new tokens (transformers itself warns
+    about this: "... without input_ids to generate ..."). Slicing at
+    ``len(input_ids)`` in that case cuts past the end of a sequence shorter
+    than the prompt and silently decodes to "" — seen live on
+    Qwen3-Omni-30B-A3B-Instruct/MMAU, every one of 128 cases, 2026-08-27.
+
+    A length check alone (``out.shape[0] > len(input_ids)``) is ambiguous at
+    the edges — a concatenated output with zero new tokens, or an
+    inputs_embeds-only output that happens to be exactly as long as the
+    prompt — so this compares the actual leading token ids: only a real
+    prefix match means ``out`` truly contains the prompt to cut off.
+    """
+    import torch
+
+    input_len = len(input_ids)
+    if out.shape[0] >= input_len and torch.equal(out[:input_len], torch.as_tensor(input_ids)):
+        return out[input_len:]
+    return out
+
+
 def _collect_message_images(messages: list) -> list:
     """Extract images from chat messages in appearance order.
 
@@ -380,26 +409,62 @@ class HFLocalModel(Model):
         Applied to the top-level model AND an embedded ``language_model`` (the
         Omni wrapper generates through it). No-op for every other family.
         """
-        if self.spec.family not in self._GENERATE_SHIM_FAMILIES:
-            return
-        import types
+        if self.spec.family in self._GENERATE_SHIM_FAMILIES:
+            import types
 
-        tok = getattr(processor, "tokenizer", processor)
-        tok_eos = getattr(tok, "eos_token_id", None)
-        for target in (model, getattr(model, "language_model", None)):
-            if target is None:
-                continue
-            if hasattr(target, "_supports_default_dynamic_cache"):
-                target._supports_default_dynamic_cache = types.MethodType(lambda _self: False, target)
-            gen_cfg = getattr(target, "generation_config", None)
-            if gen_cfg is None or tok_eos is None:
-                continue
-            current = gen_cfg.eos_token_id
-            ids = list(current) if isinstance(current, (list, tuple)) else ([current] if current is not None else [])
-            if tok_eos not in ids:
-                gen_cfg.eos_token_id = ids + [int(tok_eos)]
-                logger.info("%s: generation stops on tokenizer eos %s as well (was %s)",
-                            self.spec.key, tok_eos, current)
+            tok = getattr(processor, "tokenizer", processor)
+            tok_eos = getattr(tok, "eos_token_id", None)
+            for target in (model, getattr(model, "language_model", None)):
+                if target is None:
+                    continue
+                if hasattr(target, "_supports_default_dynamic_cache"):
+                    target._supports_default_dynamic_cache = types.MethodType(lambda _self: False, target)
+                gen_cfg = getattr(target, "generation_config", None)
+                if gen_cfg is None or tok_eos is None:
+                    continue
+                current = gen_cfg.eos_token_id
+                ids = list(current) if isinstance(current, (list, tuple)) else ([current] if current is not None else [])
+                if tok_eos not in ids:
+                    gen_cfg.eos_token_id = ids + [int(tok_eos)]
+                    logger.info("%s: generation stops on tokenizer eos %s as well (was %s)",
+                                self.spec.key, tok_eos, current)
+        self._suppress_talker_audio(model)
+
+    def _suppress_talker_audio(self, model) -> None:
+        """Never synthesize speech through an omni model's talker for a text benchmark.
+
+        Qwen3-Omni-Instruct (config ``enable_audio_output=True`` on the
+        published checkpoint) sets ``self.has_talker = True`` at load, and its
+        own ``generate()`` defaults ``return_audio`` to ``self.has_talker``
+        when the caller doesn't pass it. Every call then runs the full
+        text-to-speech pipeline and returns ``(thinker_result.sequences,
+        talker_wav)`` -- a 2-tuple whose first element is ``[batch, seq_len]``
+        (batch first, not the single flat token sequence every other
+        ``model.generate()`` call site in this file assumes) -- instead of
+        just the thinker's text. Decoding that shape produced a batch-decode
+        (a Python list containing one string) that downstream code treated as
+        already-final text, so every generation surfaced as its own repr:
+        seen live on Qwen3-Omni-30B-A3B-Instruct/MMAU, every one of 128
+        cases, 2026-08-27 -- ``"['user\\n...\\nassistant\\nA']"``, not ``"A"``.
+
+        Nothing in this codebase's analysis reads a talker's audio output, so
+        request ``return_audio=False`` once here (read live off ``has_talker``
+        rather than a hard-coded family list, matching this module's
+        convention) instead of at all nine ``model.generate()`` call sites.
+        """
+        if not callable(getattr(model, "generate", None)):
+            return
+        original_generate = model.generate
+        if getattr(original_generate, "_evalvitals_talker_suppressed", False):
+            return  # already wrapped (re-entrant load/wrap paths)
+
+        def _generate_without_talker(*args, **kwargs):
+            if getattr(model, "has_talker", False):
+                kwargs.setdefault("return_audio", False)
+            return original_generate(*args, **kwargs)
+
+        _generate_without_talker._evalvitals_talker_suppressed = True
+        model.generate = _generate_without_talker
 
     @staticmethod
     def _ensure_eager_attention(model) -> None:
@@ -607,7 +672,7 @@ class HFLocalModel(Model):
             kwargs["tokenizer"] = tok
         with torch.no_grad():
             out = model.generate(**enc, max_new_tokens=max_new, **kwargs)
-        new = out[0][enc["input_ids"].shape[1] :]
+        new = _new_tokens(out[0], enc["input_ids"][0])
         return tok.decode(new, skip_special_tokens=True)
 
     def logprobs(
@@ -623,7 +688,6 @@ class HFLocalModel(Model):
         else:
             enc = self._encode(self._as_prompt(inputs))
         enc.pop("token_type_ids", None)
-        n_in = enc["input_ids"].shape[1]
         with torch.no_grad():
             out = model.generate(
                 **enc,
@@ -632,7 +696,7 @@ class HFLocalModel(Model):
                 output_scores=True,
                 return_dict_in_generate=True,
             )
-        gen_ids = out.sequences[0][n_in:].tolist()
+        gen_ids = _new_tokens(out.sequences[0], enc["input_ids"][0]).tolist()
         result: list[TokenLogprob] = []
         for i, score in enumerate(out.scores):
             lp = torch.log_softmax(score[0].float(), dim=-1)
@@ -747,7 +811,7 @@ class HFLocalModel(Model):
                 use_cache=True,
                 logits_processor=processor_list,
             )
-        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
     def generate_aad_baseline(self, inputs: Any) -> str:
         """Greedy-decode the real-audio arm alone -- the paired-comparison
@@ -765,7 +829,7 @@ class HFLocalModel(Model):
             out = model.generate(
                 **enc, max_new_tokens=self.runtime.max_new_tokens, do_sample=False, use_cache=True,
             )
-        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
     def _vcd_next_token_logits(
         self,
@@ -847,7 +911,7 @@ class HFLocalModel(Model):
                 use_cache=True,
                 logits_processor=processor_list,
             )
-        return tok.decode(out[0][clean_enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], clean_enc["input_ids"][0]), skip_special_tokens=True)
 
     def generate_vcd_baseline(self, inputs: Any, *, noise_seed: int = 55) -> str:
         """Sample the clean VCD control with the candidate's per-image RNG.
@@ -888,7 +952,7 @@ class HFLocalModel(Model):
                 use_cache=True,
             )
         tok = getattr(processor, "tokenizer", processor)
-        return tok.decode(out[0][clean_enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], clean_enc["input_ids"][0]), skip_special_tokens=True)
 
     def generate_instruction_cd(
         self,
@@ -1124,7 +1188,7 @@ class HFLocalModel(Model):
                 logits_processor=processor_list,
             )
         tok = getattr(processor, "tokenizer", processor)
-        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
     def generate_tcd(
         self,
@@ -1442,7 +1506,7 @@ class HFLocalModel(Model):
                     logits_processor=LogitsProcessorList([cfg]),
                 )
         tok = getattr(processor, "tokenizer", processor)
-        return tok.decode(out[0][enc["input_ids"].shape[1] :], skip_special_tokens=True)
+        return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
     def chat(self, messages: list, tools=None) -> ChatTurn:
         """Tool-aware turn via the model's chat template.
@@ -1500,8 +1564,9 @@ class HFLocalModel(Model):
         with torch.no_grad():
             out = model.generate(**enc, max_new_tokens=self.runtime.max_new_tokens)
         n_in = enc["input_ids"].shape[1]
-        gen = tok.decode(out[0][n_in:], skip_special_tokens=True)
-        usage = {"prompt_tokens": int(n_in), "completion_tokens": int(out.shape[1] - n_in)}
+        new_ids = _new_tokens(out[0], enc["input_ids"][0])
+        gen = tok.decode(new_ids, skip_special_tokens=True)
+        usage = {"prompt_tokens": int(n_in), "completion_tokens": int(new_ids.shape[0])}
         return ChatTurn(text=gen, raw_tool_calls=None, usage=usage)
 
     def _encode_vlm(self, inputs, model, processor):

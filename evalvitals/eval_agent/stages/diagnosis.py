@@ -789,10 +789,17 @@ class DiagnosisAgent:
                 + "\n\n"
             )
 
+        protocol = getattr(analysis, "protocol", None)
+        protocol_section = (
+            protocol.prompt_text() if protocol is not None
+            else "(not supplied; infer cautiously from the stored findings)"
+        )
+
         prompt = _DIAGNOSE_PROMPT.format(
             prior_section=_format_prior_section(prior_cycles or []),
             model_name=analysis.model_name or model_name,
             severity=analysis.severity,
+            protocol_section=protocol_section,
             conclusion=conclusion,
             evidence_section=evidence_section,
             stats_section=stats_section,
@@ -832,6 +839,7 @@ class DiagnosisAgent:
             # plus a label summary the proposer never had either.
             critic_context = "\n".join(part.strip("\n") for part in (
                 f"Analysis conclusion: {conclusion}",
+                f"Experiment protocol:\n{protocol_section}",
                 evidence_section,
                 stats_section,
                 _format_explore_section(explore_context),

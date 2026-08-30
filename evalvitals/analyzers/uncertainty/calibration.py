@@ -106,7 +106,17 @@ class CalibrationAnalyzer(Analyzer):
             correct = case.label == Label.PASS
             entry: dict[str, Any] = {"sample_id": case.id, "correct": int(correct)}
 
-            toks = model.logprobs(case.inputs) if has_logprobs else []
+            # An API timeout is evidence missing for one case, not a reason to
+            # discard an otherwise useful calibration run.  In particular,
+            # Gemini's transport can time out a single multimodal request while
+            # the next clip succeeds.  Keep the failed case visible and carry
+            # on; summary denominators below then honestly reflect only the
+            # successful confidence measurements.
+            try:
+                toks = model.logprobs(case.inputs) if has_logprobs else []
+            except Exception as exc:
+                toks = []
+                entry["logprob_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
             lps = [t.logprob for t in toks]
             conf_lp = math.exp(sum(lps) / len(lps)) if lps else None
             if conf_lp is not None:
@@ -117,7 +127,12 @@ class CalibrationAnalyzer(Analyzer):
             elicited = dataclasses.replace(
                 case.inputs, prompt=(case.inputs.prompt or "") + self.elicit
             )
-            raw = str(model.generate(elicited))
+            try:
+                raw = str(model.generate(elicited))
+            except Exception as exc:
+                entry["verbalized_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+                per_case.append(entry)
+                continue
             conf_vb = _parse_conf(raw)
             if conf_vb is not None:
                 entry["conf_verbal"] = round(conf_vb, 4)

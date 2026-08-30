@@ -1857,6 +1857,22 @@ def _confirm_from_explore(
     """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
     from evalvitals.eval_agent.stages.fix_agent import FixOutcome, plain_description
 
+    def _recommend(reason: str, validations: "list[Any]") -> "dict[str, Any] | None":
+        routed = sorted({v.candidate.tier for v in validations})
+        recommend = getattr(agent, "_recommend", None)
+        if callable(recommend):
+            try:
+                return recommend(
+                    routed,
+                    model=model,
+                    data=confirm,
+                    reason_prefix=reason,
+                )
+            except TypeError:
+                # Backward compatibility for application-specific FixAgents.
+                pass
+        return {"recommend_tier": max_tier.label, "reason": reason}
+
     executed = [
         validation
         for validation in attempted
@@ -1867,12 +1883,20 @@ def _confirm_from_explore(
         for validation in executed
         if validation.n_fixed > validation.n_broken
     ]
+    # A spectacular percentage on two applicable examples is a fragile lead,
+    # not a better selection than a supported improvement on dozens.  Require
+    # up to eight EXPLORE pairs when that support exists anywhere in the
+    # candidate family; small experiments still select from what they have.
+    support_floor = min(8, max((v.n_pairs for v in improving), default=0))
+    supported = [v for v in improving if v.n_pairs >= support_floor]
     selected = max(
-        improving,
+        supported,
         key=lambda validation: (
+            validation.e_value or 0.0,
+            validation.n_fixed - validation.n_broken,
+            validation.n_pairs,
             validation.effect or 0.0,
             -validation.n_broken,
-            validation.n_fixed,
             -int(validation.candidate.tier),
         ),
         default=None,
@@ -1889,6 +1913,8 @@ def _confirm_from_explore(
             "n_fixed": validation.n_fixed,
             "n_broken": validation.n_broken,
             "effect": validation.effect,
+            "e_value": validation.e_value,
+            "coverage": validation.coverage,
             "verdict": validation.verdict,
         }
         for validation in attempted
@@ -1898,13 +1924,10 @@ def _confirm_from_explore(
             max_tier=max_tier,
             repair_rounds=repair_rounds,
             selection_attempted=audit,
-            recommendation={
-                "recommend_tier": max_tier.label,
-                "reason": (
-                    "no EXPLORE candidate had positive net repairs; "
-                    "CONFIRM was left untouched"
-                ),
-            },
+            recommendation=_recommend(
+                "no EXPLORE candidate had positive net repairs; CONFIRM was left untouched",
+                attempted,
+            ),
         )
 
     # ``max_validation_cases`` is an EXPLORE-search budget.  Reusing that cap
@@ -1936,13 +1959,21 @@ def _confirm_from_explore(
         selected_on_explore=selected.candidate.name,
     )
     if not outcome.fixed:
-        outcome.recommendation = {
-            "recommend_tier": max_tier.label,
-            "reason": (
-                "the candidate selected on EXPLORE did not validate "
-                "on untouched CONFIRM"
-            ),
-        }
+        no_fix = getattr(agent, "_no_fix_recommendation", None)
+        if callable(no_fix):
+            outcome.recommendation = no_fix(
+                [validation], [selected.candidate.tier], confirm, model
+            )
+            if outcome.recommendation is not None:
+                outcome.recommendation["reason"] = (
+                    "the candidate selected on EXPLORE did not validate on untouched CONFIRM; "
+                    + outcome.recommendation["reason"]
+                )
+        else:
+            outcome.recommendation = _recommend(
+                "the candidate selected on EXPLORE did not validate on untouched CONFIRM",
+                [validation],
+            )
     outcome.refine_signal = agent._refine_signal([validation], confirm)
     return outcome
 

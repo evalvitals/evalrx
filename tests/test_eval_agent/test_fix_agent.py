@@ -1859,6 +1859,18 @@ def test_unfixable_skips_internals_unavailable_on_black_box_model():
     assert "skipped unsupported tier(s) L3a, L3b" in out.recommendation["reason"]
 
 
+def test_audio_recommendation_skips_incompatible_internals_tiers():
+    class AdaptedOnlyTCD(TCDSensitiveModel):
+        def paper_method_fidelity(self, method):
+            return "adapted_truncated_layer_stability" if method == "tcd" else "unavailable"
+
+    batch = _gold_audio_batch()
+    agent = FixAgent(judge=None, max_tier="L2", allow_codegen=False)
+    rec = agent._recommend([], model=AdaptedOnlyTCD(), data=batch)
+    assert rec["recommend_tier"] == "L4"
+    assert "skipped unsupported tier(s) L3a, L3b" in rec["reason"]
+
+
 def test_at_l4_no_higher_recommendation():
     agent = FixAgent(judge=None, max_tier="L4")
     out = agent.propose_and_validate(

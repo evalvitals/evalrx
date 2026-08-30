@@ -65,6 +65,7 @@ def _spatial_protocol() -> ExperimentProtocol:
             "Attention to spatial regions appears incorrect."
         ),
         task_domain="spatial reasoning",
+        success_criteria="The predicted relation must match the image.",
         failure_patterns="position confusion and wrong spatial attention",
         target_modalities=frozenset({"text", "image"}),
     )
@@ -371,6 +372,18 @@ class TestStatsAnalysisAgent:
         report = agent.analyze({}, protocol=protocol)
         assert report.protocol is protocol
 
+    def test_llm_prompt_includes_complete_output_contract(self):
+        protocol = ExperimentProtocol(
+            description="Choose the correct audio option.",
+            task_domain="audio multiple choice",
+            success_criteria="Reply with only the option letter.",
+            output_contract={"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
+        )
+        judge = ScriptedModel(["CONCLUSION: No issue.\nEVIDENCE_CHAIN:\n- none\nQUALITATIVE:\n- none"])
+        report = StatsAnalysisAgent(judge=judge).analyze({}, protocol=protocol)
+        assert "Reply with only the option letter" in report.llm_prompt
+        assert '"kind": "multiple_choice_letter"' in report.llm_prompt
+
     def test_protocol_domain_in_conclusion(self):
         protocol = _spatial_protocol()
         agent = StatsAnalysisAgent()
@@ -627,12 +640,22 @@ class TestHypothesisTester:
         assert consistent is False
 
     def test_llm_consistency_check_yes(self):
-        judge = ScriptedModel(["YES, because the hypothesis addresses spatial attention."])
+        class RecordingJudge(ScriptedModel):
+            def generate(self, inputs, **kwargs):
+                self.last_prompt = str(inputs)
+                return super().generate(inputs, **kwargs)
+
+        judge = RecordingJudge(["YES, because the hypothesis addresses spatial attention."])
         tester = HypothesisTester(judge=judge)
         protocol = _spatial_protocol()
         h = self._hyp("attention")
         result = tester._llm_consistency_check(h, protocol)
         assert result is True
+        # The consistency gate must judge the complete contract, not merely
+        # its overview: declared failure patterns can admit valid mechanisms
+        # that do not happen to be repeated in ``description``.
+        assert protocol.failure_patterns in judge.last_prompt
+        assert protocol.success_criteria in judge.last_prompt
 
     def test_llm_consistency_check_no(self):
         judge = ScriptedModel(["NO, the hypothesis is unrelated to spatial tasks."])

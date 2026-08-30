@@ -968,6 +968,7 @@ class FixAgent:
             outcome.recommendation = self._recommend(
                 routed_tiers,
                 model=model,
+                data=data,
                 reason_prefix=("no case carries a scoring rubric, so no fix can be validated"),
             )
             self._emit(outcome)
@@ -1200,7 +1201,7 @@ class FixAgent:
                 ),
             }
 
-        rec = self._recommend(routed_tiers, model=model)
+        rec = self._recommend(routed_tiers, model=model, data=data)
         if promising and rec is not None:
             best = max(promising, key=lambda v: (v.n_fixed - v.n_broken, v.effect or 0.0))
             eff = f"{best.effect:+.3f}" if best.effect is not None else "n/a"
@@ -3492,6 +3493,7 @@ class FixAgent:
         routed: "list[FixTier]",
         *,
         model: "Model | None" = None,
+        data: "CaseBatch | None" = None,
         reason_prefix: str = "",
     ) -> "dict[str, Any] | None":
         above = sorted(t for t in routed if t > self.max_tier)
@@ -3517,7 +3519,7 @@ class FixAgent:
                 FixTier.L3A_INTERNALS_READ,
                 FixTier.L3B_INTERNALS_WRITE,
             }
-            and not self._tier_available(target, model)
+            and not self._tier_available(target, model, data=data)
         ):
             skipped.append(target.label)
             if target >= FixTier.L4_PARAMETERS:
@@ -3532,9 +3534,52 @@ class FixAgent:
             reason = f"{reason_prefix}; {reason}"
         return {"recommend_tier": target.label, "reason": reason}
 
-    @staticmethod
-    def _tier_available(tier: FixTier, model: "Model") -> bool:
-        """Whether an invasive tier has a usable executor for this model."""
+    def _tier_available(
+        self,
+        tier: FixTier,
+        model: "Model",
+        *,
+        data: "CaseBatch | None" = None,
+    ) -> bool:
+        """Whether an invasive tier has an executor compatible with this task."""
+        if data is not None and tier in {
+            FixTier.L3A_INTERNALS_READ,
+            FixTier.L3B_INTERNALS_WRITE,
+        }:
+            has_images = any(
+                getattr(c.inputs, "image", None) is not None
+                or getattr(c.inputs, "video", None) is not None
+                for c in data
+            )
+            has_audio = any(getattr(c.inputs, "audio", None) is not None for c in data)
+            tasks = {str((getattr(c, "metadata", {}) or {}).get("task", "")) for c in data}
+            registered = any(
+                method.tier == tier
+                for method in discover_methods(
+                    model,
+                    max_tier=tier,
+                    has_images=has_images,
+                    has_audio=has_audio,
+                    tasks=tasks,
+                    allow_adapted=self._allow_adapted_paper_methods,
+                )
+            )
+            if registered:
+                return True
+            if tier == FixTier.L3A_INTERNALS_READ:
+                from evalvitals.core.capability import Capability
+
+                return bool(
+                    self._allow_codegen
+                    and Capability.ATTENTION in getattr(model, "capabilities", frozenset())
+                )
+            return bool(
+                has_images
+                and any(
+                    primitive.tier == tier and primitive.available(model)
+                    for primitive in INTERNALS_PRIMITIVES.values()
+                )
+            )
         if tier == FixTier.L3A_INTERNALS_READ:
             from evalvitals.core.capability import Capability
 

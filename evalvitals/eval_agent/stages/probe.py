@@ -404,8 +404,11 @@ class StrategyProbe:
         compatible -= self.slot_starved(compatible, data, model)
 
         if self._priority is not None:
-            # Caller supplied a per-kind table: honour it exactly as before.
+            # A caller-supplied table is an allowlist as well as an ordering.
+            # In particular, benchmark ``pinned`` mode must not silently fill
+            # an unsupported pinned slot with an unrelated alphabetical probe.
             priority = self._priority.get(self.detect_kind(model, data), [])
+            ranked = [name for name in priority if name in compatible]
         else:
             slots = self.routed_slots(model, data)
             media = [s for s in ("video", "audio", "image") if s in slots]
@@ -417,9 +420,8 @@ class StrategyProbe:
                 not media and self.is_agent_run(model, data)
             )
             priority = _compose((["agent"] if agent_leads else []) + media + ["text"])
-
-        ranked = [name for name in priority if name in compatible]
-        ranked += sorted(compatible - set(ranked))
+            ranked = [name for name in priority if name in compatible]
+            ranked += sorted(compatible - set(ranked))
 
         if hint_failure_modes:
             # Promote analyzers that map to outstanding failure modes, preserving
@@ -428,7 +430,7 @@ class StrategyProbe:
                 a
                 for mode in hint_failure_modes
                 for a in _FAILURE_MODE_TO_ANALYZERS.get(mode.lower().replace(" ", "_"), [])
-                if a in compatible
+                if a in compatible and (self._priority is None or a in ranked)
             )
             ranked = list(boosted) + [a for a in ranked if a not in boosted]
 

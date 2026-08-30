@@ -208,9 +208,16 @@ class PerturbationBattery(Analyzer):
             entry["skipped"] = "empty prompt"
             return entry
 
-        baseline = normalize_answer(
-            self.answer_fn(model.generate(case.inputs, **self.gen_kwargs))
-        )
+        # Treat a transient backend failure as missing evidence for this case.
+        # Letting it escape aborts the whole battery, which makes the most
+        # relevant M1 evidence disappear after just one timed-out audio clip.
+        try:
+            baseline = normalize_answer(
+                self.answer_fn(model.generate(case.inputs, **self.gen_kwargs))
+            )
+        except Exception as exc:
+            entry["skipped"] = f"baseline request failed: {type(exc).__name__}: {str(exc)[:160]}"
+            return entry
         entry["baseline_answer"] = baseline[:80]
 
         applied: list[str] = []
@@ -224,13 +231,19 @@ class PerturbationBattery(Analyzer):
             if not variant or variant == prompt:
                 continue
             applied.append(name)
-            answer = normalize_answer(
-                self.answer_fn(
-                    model.generate(
-                        dataclasses.replace(case.inputs, prompt=variant), **self.gen_kwargs
+            try:
+                answer = normalize_answer(
+                    self.answer_fn(
+                        model.generate(
+                            dataclasses.replace(case.inputs, prompt=variant), **self.gen_kwargs
+                        )
                     )
                 )
-            )
+            except Exception as exc:
+                entry.setdefault("request_errors", {})[name] = (
+                    f"{type(exc).__name__}: {str(exc)[:160]}"
+                )
+                continue
             flipped = int(answer != baseline)
             entry[f"{name}_flipped"] = flipped
             (preserving_flips if kind == PRESERVING else altering_flips).append(flipped)

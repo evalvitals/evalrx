@@ -135,7 +135,17 @@ def test_priority_override_is_still_looked_up_by_kind():
     # assertion can only pass if the override actually decided the ranking.
     probe = StrategyProbe(priority_override={ModelKind.VLM: ["chair", "pope"]})
     assert StrategyProbe().select(model, data=data)[:2] == ["pope", "chair"]
-    assert probe.select(model, data=data)[:2] == ["chair", "pope"]
+    assert probe.select(model, data=data) == ["chair", "pope"]
+
+
+def test_priority_override_does_not_fill_an_incompatible_pinned_slot():
+    model, data = _model("text", "image"), _batch(image="s.png")
+    probe = StrategyProbe(priority_override={
+        ModelKind.VLM: ["chair", "relative_attention", "pope"],
+    })
+    # This fake model has no ATTENTION. Pinned mode keeps the two compatible
+    # entries and does not substitute an unrelated analyzer to reach three.
+    assert probe.select(model, max_analyzers=3, data=data) == ["chair", "pope"]
 
 
 def test_a_text_only_model_is_not_offered_media_analyzers():

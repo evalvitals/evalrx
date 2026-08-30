@@ -92,7 +92,7 @@ def _select_tools_via_llm(
 
     catalog = "\n".join(f"  - {name}: {desc}" for name, desc in STATS_TOOL_CATALOG.items())
     prompt = _TOOL_SELECT_PROMPT.format(
-        protocol_text=protocol.description,
+        protocol_text=protocol.prompt_text(),
         tool_catalog=catalog,
         data_shape=json.dumps(describe_data(inp), indent=2),
     )
@@ -580,7 +580,7 @@ class StatsAnalysisAgent:
 
         # Tier (b): nothing fit — synthesise a new tool.
         need = (
-            (protocol.description + " " if protocol else "")
+            (protocol.prompt_text() + " " if protocol else "")
             + "No built-in statistical tool fit this data; write a test for "
             "whether the analyzer signals predict case FAIL."
         )
@@ -753,7 +753,7 @@ class StatsAnalysisAgent:
         )
         stats_block = _format_stats_for_prompt(stats_results, corrected)
         prompt = _ANALYSIS_PROMPT.format(
-            protocol_text=protocol.description,
+            protocol_text=protocol.prompt_text(),
             task_domain=protocol.task_domain or "general",
             narrative=base.narrative + stats_block,
             findings_json=findings_json,
