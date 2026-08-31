@@ -224,6 +224,9 @@ runs/
 evalvitals_chat_output/
 examples/**/outputs/
 examples/**/outputs_*/
+# Host-side benchmark manifests, media, and run artifacts are generated locally.
+examples/benchmark/**/host_data/
+examples/benchmark/**/host_outputs/
 # web upload workbench workspaces (`evalvitals web` / run_web.sh)
 evalvitals_web_runs/
 examples/**/web_runs/

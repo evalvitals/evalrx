@@ -30,6 +30,7 @@ from evalvitals.eval_agent.stages.fix_agent import (
     _code_redefines_model_bridge,
     _malformed_choice_predicate,
 )
+from evalvitals.eval_agent.stages.repair_catalog import discover_methods
 
 # ── tiers ─────────────────────────────────────────────────────────────────────
 
@@ -1200,6 +1201,154 @@ def test_l3a_icd_structural_discovery_does_not_read_expected_direction():
 
     candidate_names = {candidate.name for candidate in candidates}
     assert candidate_names == {"icd_instruction_disturbance"}
+
+
+def test_detector_grounded_presence_candidate_freezes_calibration_payload():
+    class DetectorSensitiveModel(HopelessModel):
+        def generate_detector_grounded_presence(self, inputs, **kwargs):
+            return "Yes"
+
+    batch = _gold_yes_batch(n=8, image=_img())
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.observed = "No"
+    candidates = FixAgent(
+        judge=None,
+        max_tier="L2",
+        min_tier="L2",
+        candidate_allowlist={"detector_grounded_presence_calibrated"},
+    )._propose([_hyp("small objects are missed")], batch, DetectorSensitiveModel())
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.tier == FixTier.L2_SCAFFOLD
+    assert candidate.payload["pass_baseline_answer"] is True
+    assert candidate.payload["kwargs"]["detector_threshold"] == 0.25
+    assert "traffic light" in candidate.payload["kwargs"]["objects"]
+
+
+def test_clap_grounded_presence_candidate_freezes_calibration_payload():
+    class ClapSensitiveModel(HopelessModel):
+        modalities = frozenset({"text", "audio"})
+
+        def generate_clap_grounded_presence(self, inputs, **kwargs):
+            return "Yes"
+
+    batch = _gold_audio_batch()
+    for case in batch:
+        case.metadata["task"] = "yes_no"
+        case.observed = "No"
+    candidates = FixAgent(
+        judge=None,
+        max_tier="L2",
+        min_tier="L2",
+        candidate_allowlist={"clap_grounded_audio_presence_calibrated"},
+    )._propose([_hyp("audio evidence is missed")], batch, ClapSensitiveModel())
+
+    assert len(candidates) == 1
+    kwargs = candidates[0].payload["kwargs"]
+    assert kwargs["negative_threshold"] == -0.05
+    assert kwargs["positive_threshold"] == 0.275
+    assert candidates[0].payload["pass_baseline_answer"] is True
+
+
+def test_gemini_audio_specialist_freezes_external_model():
+    class AudioSpecialistModel(HopelessModel):
+        modalities = frozenset({"text", "audio"})
+
+        def generate_audio_api_specialist(self, inputs, **kwargs):
+            return kwargs["baseline_answer"]
+
+    methods = discover_methods(
+        AudioSpecialistModel(),
+        max_tier=FixTier.L2_SCAFFOLD,
+        has_images=False,
+        has_audio=True,
+        tasks={"multiple_choice_letter"},
+        allow_adapted=False,
+    )
+
+    pro = next(m for m in methods if m.name == "gemini_pro_audio_specialist_calibrated")
+    assert pro.payload["model_id"] == "gemini-2.5-pro"
+    assert pro.source == "registered_calibrated"
+    assert pro.pass_baseline_answer is True
+
+    e4b_pro = next(
+        m for m in methods if m.name == "e4b_gemini_pro_disagreement_guard_calibrated"
+    )
+    assert e4b_pro.payload["model_id"] == "gemini-2.5-pro"
+    assert e4b_pro.payload["allowed_disagreements_by_route"] == {
+        "music": ["AC", "AD", "BC", "BD", "CA"],
+        "sound": ["AB", "AD", "BA", "BC", "CA"],
+        "speech": ["BA", "BC", "CA", "CB", "DA", "DB"],
+    }
+
+def test_noncolor_spatial_specialist_freezes_model_and_gate():
+    class SpatialModel:
+        capabilities = frozenset()
+
+        def generate_noncolor_spatial_specialist(self, inputs, **kwargs):
+            return kwargs["baseline_answer"]
+
+    methods = discover_methods(
+        SpatialModel(),
+        max_tier=FixTier.L2_SCAFFOLD,
+        has_images=True,
+        has_audio=False,
+        tasks={"exact_or_numeric"},
+        allow_adapted=False,
+    )
+
+    method = next(
+        m for m in methods if m.name == "noncolor_spatial_vision_specialist_calibrated"
+    )
+    assert method.payload["model_id"] == "qwen2.5-vl-7b-instruct"
+    assert method.source == "registered_calibrated"
+    assert method.pass_baseline_answer is True
+
+
+def test_chart_vision_specialist_freezes_external_model():
+    class ChartModel:
+        capabilities = frozenset()
+
+        def generate_chart_vision_specialist(self, inputs, **kwargs):
+            return kwargs["baseline_answer"]
+
+    methods = discover_methods(
+        ChartModel(),
+        max_tier=FixTier.L2_SCAFFOLD,
+        has_images=True,
+        has_audio=False,
+        tasks={"exact_or_numeric"},
+        allow_adapted=False,
+    )
+
+    method = next(m for m in methods if m.name == "chart_vision_specialist_calibrated")
+    assert method.payload["model_id"] == "qwen2.5-vl-7b-instruct"
+    assert method.source == "registered_calibrated"
+    assert method.pass_baseline_answer is True
+
+
+def test_gemini_vision_specialist_freezes_external_model():
+    class VisionSpecialistModel:
+        capabilities = frozenset()
+
+        def generate_vision_api_specialist(self, inputs, **kwargs):
+            return kwargs["baseline_answer"]
+
+    methods = discover_methods(
+        VisionSpecialistModel(),
+        max_tier=FixTier.L2_SCAFFOLD,
+        has_images=True,
+        has_audio=False,
+        tasks={"exact_or_numeric"},
+        allow_adapted=False,
+    )
+
+    method = next(m for m in methods if m.name == "gemini_vision_specialist_calibrated")
+    assert method.payload["model_id"] == "gemini-3.7-flash"
+    assert method.source == "registered_calibrated"
+    assert method.pass_baseline_answer is True
 
 
 def test_l3a_vcd_is_proposed_when_false_yes_hallucinations_dominate():

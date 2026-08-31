@@ -89,6 +89,109 @@ _AUDIO_MC = frozenset({"multiple_choice", "multiple_choice_letter"})
 
 _METHODS: tuple[RepairMethod, ...] = (
     RepairMethod(
+        "noncolor_spatial_vision_specialist_calibrated",
+        FixTier.L2_SCAFFOLD,
+        "generate_noncolor_spatial_specialist",
+        "Route non-color spatial, size, count, and object-subtype questions to a "
+        "frozen Qwen2.5-VL vision specialist while preserving the Gemma baseline on "
+        "color questions.",
+        source="registered_calibrated",
+        payload={"model_id": "qwen2.5-vl-7b-instruct"},
+        required_inputs=frozenset({"image"}),
+        accepted_tasks=frozenset({"exact_or_numeric"}),
+        pass_baseline_answer=True,
+    ),
+    RepairMethod(
+        "chart_vision_specialist_calibrated",
+        FixTier.L2_SCAFFOLD,
+        "generate_chart_vision_specialist",
+        "Route chart questions, with the original image and prompt unchanged, to a "
+        "frozen Qwen2.5-VL visual reasoning specialist.",
+        source="registered_calibrated",
+        payload={"model_id": "qwen2.5-vl-7b-instruct"},
+        required_inputs=frozenset({"image"}),
+        accepted_tasks=frozenset({"exact_or_numeric"}),
+        pass_baseline_answer=True,
+    ),
+    RepairMethod(
+        "gemini_vision_specialist_calibrated",
+        FixTier.L2_SCAFFOLD,
+        "generate_vision_api_specialist",
+        "Route the original image and question to a frozen Gemini visual reasoning "
+        "specialist with deterministic short-answer and ratio normalization.",
+        source="registered_calibrated",
+        payload={"model_id": "gemini-3.7-flash"},
+        required_inputs=frozenset({"image"}),
+        accepted_tasks=frozenset({"exact_or_numeric"}),
+        pass_baseline_answer=True,
+    ),
+    RepairMethod(
+        "clap_grounded_audio_presence_calibrated",
+        FixTier.L2_SCAFFOLD,
+        "generate_clap_grounded_presence",
+        "Use independent CLAP audio-text evidence to override only strongly contradicted "
+        "binary sound-presence answers.",
+        source="registered_calibrated",
+        payload={
+            "negative_threshold": -0.05,
+            "positive_threshold": 0.275,
+            "model_id": "laion/clap-htsat-unfused",
+        },
+        required_inputs=frozenset({"audio"}),
+        accepted_tasks=_YES_NO,
+        pass_baseline_answer=True,
+    ),
+    RepairMethod(
+        "gemini_pro_audio_specialist_calibrated",
+        FixTier.L2_SCAFFOLD,
+        "generate_audio_api_specialist",
+        "Route the original audio and multiple-choice prompt unchanged to the frozen "
+        "Gemini 2.5 Pro audio specialist.",
+        source="registered_calibrated",
+        payload={"model_id": "gemini-2.5-pro"},
+        required_inputs=frozenset({"audio"}),
+        accepted_tasks=_AUDIO_MC,
+        pass_baseline_answer=True,
+    ),
+    RepairMethod(
+        "e4b_gemini_pro_disagreement_guard_calibrated",
+        FixTier.L2_SCAFFOLD,
+        "generate_audio_api_specialist",
+        "Use the frozen Gemini 2.5 Pro audio specialist only for E4B disagreement "
+        "directions that remained high-purity across two development sets.",
+        source="registered_calibrated",
+        payload={
+            "model_id": "gemini-2.5-pro",
+            "allowed_disagreements_by_route": {
+                "music": ["AC", "AD", "BC", "BD", "CA"],
+                "sound": ["AB", "AD", "BA", "BC", "CA"],
+                "speech": ["BA", "BC", "CA", "CB", "DA", "DB"],
+            },
+        },
+        required_inputs=frozenset({"audio"}),
+        accepted_tasks=_AUDIO_MC,
+        pass_baseline_answer=True,
+    ),
+    RepairMethod(
+        "detector_grounded_presence_calibrated",
+        FixTier.L2_SCAFFOLD,
+        "generate_detector_grounded_presence",
+        "Require independent open-vocabulary detector evidence before overriding calibrated "
+        "object-category false negatives.",
+        source="registered_calibrated",
+        payload={
+            "objects": [
+                "backpack", "banana", "baseball glove", "bird", "book", "chair",
+                "clock", "dog", "mouse", "oven", "pizza", "remote", "snowboard",
+                "spoon", "traffic light", "truck", "tv", "vase",
+            ],
+            "detector_threshold": 0.25,
+        },
+        required_inputs=frozenset({"image"}),
+        accepted_tasks=_YES_NO,
+        pass_baseline_answer=True,
+    ),
+    RepairMethod(
         "vcd_diffusion_noise", FixTier.L3A_INTERNALS_READ, "generate_vcd",
         "Contrast original and corrupted-image decoding when visual claims follow language priors.",
         payload={"alpha": 1.0, "beta": 0.1, "noise_step": 500},

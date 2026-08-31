@@ -260,6 +260,10 @@ def test_cli_no_model_paths(common, capsys):
         "codex", "gpt-5.6-terra", "medium"
     )
     assert defaults.fix_repair_rounds == 2
+    assert defaults.allow_adapted_paper_methods is False
+    assert run.build_parser().parse_args([
+        "--allow-adapted-paper-methods"
+    ]).allow_adapted_paper_methods is True
     assert run.build_parser().parse_args(["--fix-repair-rounds", "4"]).fix_repair_rounds == 4
     assert run.main(["--smoke-test"]) == 0
     assert "Smoke test passed" in capsys.readouterr().out

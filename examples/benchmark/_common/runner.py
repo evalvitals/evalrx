@@ -368,6 +368,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                                    extra_args=coder_extra) if args.allow_codegen else None),
         allow_codegen=args.allow_codegen, run_context=ctx,
         max_validation_cases=args.fix_validation_cases, alpha=0.05,
+        allow_adapted_paper_methods=args.allow_adapted_paper_methods,
         candidate_allowlist=(
             {args.fix_candidate} if args.fix_candidate
             else ({"coded_pipeline"} if args.code_only
