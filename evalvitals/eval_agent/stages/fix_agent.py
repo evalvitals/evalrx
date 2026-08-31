@@ -1588,9 +1588,13 @@ class FixAgent:
         if (
             not code_only
             and not preregistered_only
-            and self.max_tier >= FixTier.L3A_INTERNALS_READ
-            and (self.min_tier is None or self.min_tier <= FixTier.L3A_INTERNALS_READ)
+            and self.max_tier >= FixTier.L2_SCAFFOLD
+            and (self.min_tier is None or self.min_tier <= FixTier.L3B_INTERNALS_WRITE)
         ):
+            # The declarative catalog contains tool-assisted L2 as well as
+            # internals-aware L3 repairs.
+            # Discover it at the current ladder station; the catalog's max-tier
+            # gate and the final min-tier filter keep each method in its tier.
             candidates += self._l3_candidates(
                 hyp_lines,
                 model,
@@ -2574,7 +2578,7 @@ class FixAgent:
         has_audio: bool = False,
         tasks: "set[str] | None" = None,
     ) -> "list[FixCandidate]":
-        """Select from the repair capabilities discovered at runtime.
+        """Select registered repair capabilities and internals primitives.
 
         This layer is intentionally method-agnostic: executor names, fidelity
         gates, task compatibility, defaults, and evidence-facing descriptions

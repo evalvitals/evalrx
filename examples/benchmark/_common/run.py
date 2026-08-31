@@ -104,6 +104,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--registered-repairs-only", action="store_true",
                    help="restrict discovery to structurally compatible registered repair methods; "
                         "the agent still selects the mechanism and no method name is pre-registered")
+    p.add_argument(
+        "--allow-adapted-paper-methods",
+        action="store_true",
+        help=(
+            "admit registered paper-method executors whose runtime fidelity is explicitly "
+            "architecture-adapted; reports retain the adapted fidelity designation"
+        ),
+    )
     p.add_argument("--explore", action=argparse.BooleanOptionalAction, default=True,
                    help="in-cycle free-form EDA between M1 and M2")
     p.add_argument("--max-cycles", type=int, default=1)
