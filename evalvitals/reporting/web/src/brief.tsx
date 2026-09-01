@@ -22,6 +22,7 @@
  * on runs whose emission failed) as enrichment it can do without.
  */
 import ReactECharts from "echarts-for-react";
+import { tc } from "./theme";
 import {
   AlertTriangle, ArrowRight, BarChart3, CheckCircle2, HelpCircle, XCircle,
 } from "lucide-react";
@@ -116,7 +117,7 @@ function BriefChart({ chart }: { chart: Chart }) {
     // leader lines get clipped to "Pas..." there. A legend under the ring
     // carries the same two facts and cannot be cut off by the container.
     legend: {
-      bottom: 0, textStyle: { color: "#b8c9c4", fontSize: 11 },
+      bottom: 0, textStyle: { color: tc("#b8c9c4"), fontSize: 11 },
       formatter: (name: string) =>
         `${name}  ${series.find((item) => item.label === name)?.value ?? ""}`,
     },
@@ -129,22 +130,22 @@ function BriefChart({ chart }: { chart: Chart }) {
     grid: { left: 152, right: 26, top: 10, bottom: 24 },
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: chartValue },
     xAxis: {
-      type: "value", axisLabel: { color: "#8da19b" },
-      splitLine: { lineStyle: { color: "#23332f" } },
+      type: "value", axisLabel: { color: tc("#8da19b") },
+      splitLine: { lineStyle: { color: tc("#23332f") } },
     },
     yAxis: {
       type: "category", data: series.map((item) => item.label),
       // These labels are analyzer questions, not short keys. Truncating them to
       // "Can repeated attempt..." leaves a bar nobody can identify, so they wrap
       // onto two lines and the row height grows to match.
-      axisLabel: { color: "#b8c9c4", width: 138, overflow: "break", lineHeight: 13, fontSize: 11 },
+      axisLabel: { color: tc("#b8c9c4"), width: 138, overflow: "break", lineHeight: 13, fontSize: 11 },
       axisLine: { show: false }, axisTick: { show: false },
     },
     series: [{
       type: "bar", barWidth: 12,
       data: series.map((item) => ({
         value: item.value,
-        itemStyle: { color: item.highlight ? "#6bd8ad" : "#586a65", borderRadius: 4 },
+        itemStyle: { color: item.highlight ? tc("#6bd8ad") : tc("#586a65"), borderRadius: 4 },
       })),
     }],
   };
@@ -526,21 +527,21 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
     grid: { left: 130, right: 26, top: 10, bottom: 26 },
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (v: unknown) => chartValue(v, { signed: true }) },
     xAxis: {
-      type: "value", axisLabel: { color: "#8da19b" },
-      splitLine: { lineStyle: { color: "#23332f" } },
+      type: "value", axisLabel: { color: tc("#8da19b") },
+      splitLine: { lineStyle: { color: tc("#23332f") } },
     },
     yAxis: {
       type: "category",
       data: withEffect.map((_, i) => `H${i + 1}`),
-      axisLabel: { color: "#b8c9c4" }, axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: tc("#b8c9c4") }, axisLine: { show: false }, axisTick: { show: false },
     },
     series: [{
       type: "bar", barWidth: 14,
       data: withEffect.map((r) => ({
         value: r.effect_size,
         itemStyle: {
-          color: String(r.status).toLowerCase() === "supported" ? "#6bd8ad"
-            : String(r.status).toLowerCase() === "refuted" ? "#f06d5f" : "#586a65",
+          color: String(r.status).toLowerCase() === "supported" ? tc("#6bd8ad")
+            : String(r.status).toLowerCase() === "refuted" ? tc("#f06d5f") : tc("#586a65"),
           borderRadius: 4,
         },
       })),
@@ -658,17 +659,17 @@ function briefM4(report: ReportData, detail: Record<string, any>): Brief {
 
   const option = {
     grid: { left: 120, right: 24, top: 26, bottom: 28 },
-    color: ["#6bd8ad", "#f06d5f"],
+    color: [tc("#6bd8ad"), tc("#f06d5f")],
     tooltip: { trigger: "axis", valueFormatter: chartValue },
-    legend: { textStyle: { color: "#9fb2ac", fontSize: 11 }, top: 0 },
+    legend: { textStyle: { color: tc("#9fb2ac"), fontSize: 11 }, top: 0 },
     xAxis: {
-      type: "value", axisLabel: { color: "#8da19b" },
-      splitLine: { lineStyle: { color: "#23332f" } },
+      type: "value", axisLabel: { color: tc("#8da19b") },
+      splitLine: { lineStyle: { color: tc("#23332f") } },
     },
     yAxis: {
       type: "category",
       data: candidates.map((item: any, i: number) => item.ref || `R${i + 1}`),
-      axisLabel: { color: "#b8c9c4" }, axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: tc("#b8c9c4") }, axisLine: { show: false }, axisTick: { show: false },
     },
     series: [
       { name: "errors fixed", type: "bar", barWidth: 11,

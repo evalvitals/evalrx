@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo } from "react";
+import { tc } from "./theme";
 import { defineCatalog } from "@json-render/core";
 import { defineRegistry } from "@json-render/react";
 import { schema } from "@json-render/react/schema";
@@ -59,15 +60,15 @@ function EvidenceChart({ chart }: { chart: Chart }) {
     // compiler emits [Fail, Pass] on one run and [Pass, Fail] on the next, and
     // a positional palette painted the passes red on half the reports.
     color: outcomeColors(chart.series.map((item) => item.label)),
-    series: [{ type: "pie", radius: ["54%", "76%"], center: ["50%", "52%"], label: { color: "#b8c9c4", formatter: "{b}  {c}" }, data: chart.series.map((item) => ({ name: item.label, value: item.value })) }],
+    series: [{ type: "pie", radius: ["54%", "76%"], center: ["50%", "52%"], label: { color: tc("#b8c9c4"), formatter: "{b}  {c}" }, data: chart.series.map((item) => ({ name: item.label, value: item.value })) }],
   } : {
     grid: { left: 168, right: 24, top: 12, bottom: 22 },
-    xAxis: { type: "value", splitLine: { lineStyle: { color: "#23332f" } }, axisLabel: { color: "#8da19b" } },
+    xAxis: { type: "value", splitLine: { lineStyle: { color: tc("#23332f") } }, axisLabel: { color: tc("#8da19b") } },
     // These labels are analyzer questions, not short keys. Truncating eight of
     // them to the same "Did the model g..." left a chart whose bars nobody
     // could tell apart, so they wrap and the chart grows a row at a time.
-    yAxis: { type: "category", data: chart.series.map((item) => item.label), axisLabel: { color: "#b8c9c4", width: 154, overflow: "break", lineHeight: 13, fontSize: 11 }, axisLine: { show: false }, axisTick: { show: false } },
-    series: [{ type: "bar", data: chart.series.map((item) => ({ value: item.value, itemStyle: { color: item.highlight ? "#6bd8ad" : "#586a65", borderRadius: 4 } })), barWidth: 13 }],
+    yAxis: { type: "category", data: chart.series.map((item) => item.label), axisLabel: { color: tc("#b8c9c4"), width: 154, overflow: "break", lineHeight: 13, fontSize: 11 }, axisLine: { show: false }, axisTick: { show: false } },
+    series: [{ type: "bar", data: chart.series.map((item) => ({ value: item.value, itemStyle: { color: item.highlight ? tc("#6bd8ad") : tc("#586a65"), borderRadius: 4 } })), barWidth: 13 }],
   };
   const height = chart.kind === "donut" ? 250 : Math.max(250, chart.series.length * 42 + 40);
   return <article className="chart-card"><h3>{chart.title}</h3>{chart.subtitle && <p>{chart.subtitle}</p>}<ReactECharts option={option} notMerge style={{ height }} />{chart.series.some((item) => item.means || item.raw_label) && <div className="chart-legend">{chart.series.map((item) => <div key={item.raw_label || item.label}><b>{item.label}</b>{item.means ? <span>{item.means}</span> : <em>The analyzer did not document what this measures.</em>}<code>{item.raw_label}</code></div>)}</div>}</article>;
@@ -105,8 +106,8 @@ export const { registry } = defineRegistry(reportCatalog, {
       const data = useReport();
       const navigate = useContext(NavContext);
       const nodes: Node<{ stage: Stage }>[] = data.stages.map((stage, index) => ({ id: stage.id, type: "stage", position: { x: index * 205, y: 20 }, data: { stage } }));
-      const edges: Edge[] = data.stages.slice(1).map((stage, index) => ({ id: `${data.stages[index].id}-${stage.id}`, source: data.stages[index].id, target: stage.id, animated: !["not-run", "skipped"].includes(stage.status), style: { stroke: "#6bd8ad", strokeWidth: 1.5 } }));
-      return <section className="section journey-section"><header><div><span className="section-kicker">THE AGENT'S PATH</span><h2>Find the failure. Test the cause. Repair the model.</h2></div><p>Click any stage to inspect its evidence and the agent events behind it.</p></header><div className="journey-canvas"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.6} maxZoom={1.2} nodesDraggable={false} nodesConnectable={false} panOnScroll={false} onNodeClick={(_, node) => navigate(`evidence:${node.id}`)}><Background color="#24332f" gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow></div></section>;
+      const edges: Edge[] = data.stages.slice(1).map((stage, index) => ({ id: `${data.stages[index].id}-${stage.id}`, source: data.stages[index].id, target: stage.id, animated: !["not-run", "skipped"].includes(stage.status), style: { stroke: tc("#6bd8ad"), strokeWidth: 1.5 } }));
+      return <section className="section journey-section"><header><div><span className="section-kicker">THE AGENT'S PATH</span><h2>Find the failure. Test the cause. Repair the model.</h2></div><p>Click any stage to inspect its evidence and the agent events behind it.</p></header><div className="journey-canvas"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.6} maxZoom={1.2} nodesDraggable={false} nodesConnectable={false} panOnScroll={false} onNodeClick={(_, node) => navigate(`evidence:${node.id}`)}><Background color={tc("#24332f")} gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow></div></section>;
     },
     FindingGrid: ({ props }) => {
       const data = useReport();
