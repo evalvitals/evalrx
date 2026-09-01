@@ -262,3 +262,28 @@ def test_backfill_never_overwrites_what_the_producer_wrote():
 
     assert payload["selection"][0]["ref"] == "R9"
     assert payload["selection"][0]["headline"].startswith("Re-asks the model")
+
+
+def test_stage_figures_embed_everywhere_they_are_cited(tmp_path):
+    # M3 re-cites M2's figure files as its own evidence_figures entries; a
+    # portable export must inline those too, not just stage_detail.m2.figures
+    # (a report/ served over HTTP has /api/artifact, a single file does not).
+    from evalvitals.reporting.static_export import _embed_stage_figures
+
+    figure_file = tmp_path / "explore" / "figures" / "00_class_balance.png"
+    figure_file.parent.mkdir(parents=True)
+    figure_file.write_bytes(b"\x89PNG fake")
+    run_root = tmp_path / "logs"
+    run_root.mkdir()
+    cited = "../explore/figures/00_class_balance.png"
+    data = {
+        "stage_detail": {
+            "m2": {"figures": [{"path": cited, "title": "Class balance"}]},
+            "m3": {"evidence_figures": [{"path": cited, "title": "FAIL/PASS case balance"}]},
+        }
+    }
+    _embed_stage_figures(run_root, data)
+    m2_uri = data["stage_detail"]["m2"]["figures"][0].get("data_uri")
+    m3_uri = data["stage_detail"]["m3"]["evidence_figures"][0].get("data_uri")
+    assert m2_uri and m2_uri.startswith("data:image/png;base64,")
+    assert m3_uri == m2_uri
