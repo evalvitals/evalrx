@@ -231,6 +231,23 @@ def test_mc_and_yes_no_cases_carry_the_output_contract(common, tmp_path):
     assert tasks.score_case(case, "Final: B") and not tasks.score_case(case, "Final: D")
 
 
+def test_mmsu_maps_answer_text_to_letter_and_uses_the_official_taxonomy(common):
+    _, tasks, *_ = common
+    from _common.tasks import mmsu
+
+    choices = ["Philippines", "Ireland", "India", "South Africa"]
+    assert mmsu._letter(choices, "India") == "C"
+    with pytest.raises(ValueError):
+        mmsu._letter(["same", "same", "x", "y"], "same")
+    prompt = mmsu.task_prompt("Which accent?", choices)
+    assert "(C) India" in prompt and prompt.endswith("(A, B, C, or D).")
+    task = tasks.get("mmsu")
+    assert task.modality == "alm" and task.source.startswith("ddwang2000/MMSU")
+    protocol = task.protocol("test-model")
+    assert "47 fine-grained tasks" in protocol.description
+    assert protocol.target_modalities == frozenset({"text", "audio"})
+
+
 def test_llm_task_names_match_the_dataset_selection_catalog(common):
     _, tasks, _, _ = common
     from _common.tasks import llm

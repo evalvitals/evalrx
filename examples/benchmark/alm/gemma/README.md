@@ -20,6 +20,7 @@ arguments, never a rebuild.
 | name | slice | scoring | default rows | source |
 |---|---|---|---|---|
 | `mmau` | MMAU/test-mini | multiple_choice_letter | 256 | gamma-lab-umd/MMAU-test-mini |
+| `mmsu` | MMSU (47 spoken-language tasks) | multiple_choice_letter | 256 | ddwang2000/MMSU |
 | `audiocaps_hallu` | AudioCaps-Hallucination/Random | yes_no | 300 | kuanhuggingface/AudioHallucination_AudioCaps-Random + OpenSound/AudioCaps |
 | `af_reasoning_mcq` | AF-Reasoning-Eval/AQA-MCQ | multiple_choice_letter | 76 | NVIDIA/audio-flamingo (AQA_MCQ) + gijs/clothoaqa (audio) |
 

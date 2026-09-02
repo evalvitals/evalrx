@@ -10,6 +10,7 @@ from . import (
     hotpotqa,
     llm,
     mmau,
+    mmsu,
     pope,
     spatial457,
 )
@@ -24,7 +25,7 @@ from .base import (  # noqa: F401
 )
 
 TASKS: dict[str, Task] = {}
-for _task in (chartqa.TASK, spatial457.TASK, *pope.TASKS, mmau.TASK, audiocaps_hallu.TASK,
+for _task in (chartqa.TASK, spatial457.TASK, *pope.TASKS, mmau.TASK, mmsu.TASK, audiocaps_hallu.TASK,
               af_reasoning_mcq.TASK, *llm.TASKS, hotpotqa.TASK, gsm8k.TASK):
     TASKS[_task.name] = _task
 
