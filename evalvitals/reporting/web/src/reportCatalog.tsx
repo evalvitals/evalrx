@@ -9,7 +9,7 @@ import { ArrowUpRight, Check, CircleDot, Database, Wrench } from "lucide-react";
 import { z } from "zod";
 import type { Chart, ReportData, Stage } from "./types";
 import { ZoomableImage } from "./lightbox";
-import { chartValue, outcomeColors } from "./reportAccess";
+import { chartValue, outcomeColors, stageCode } from "./reportAccess";
 
 const ids = z.array(z.string()).optional();
 export const reportCatalog = defineCatalog(schema, {
@@ -44,7 +44,7 @@ function StageNode({ data }: NodeProps<Node<{ stage: Stage }>>) {
   const stage = data.stage;
   return <div className={`stage-node stage-${stage.status}`}>
     <Handle type="target" position={Position.Left} />
-    <div className="stage-code">{stage.code}</div>
+    <div className="stage-code">{stageCode(stage.code)}</div>
     <strong>{stage.title}</strong>
     <small>{stage.status.replaceAll("-", " ")}</small>
     <Handle type="source" position={Position.Right} />

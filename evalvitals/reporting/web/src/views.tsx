@@ -7,7 +7,7 @@ import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixAttemptWi
   FixOutput, HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
 import { buildBrief, StageBrief } from "./brief";
 import { ZoomableImage } from "./lightbox";
-import { chartPercent, chartValue, findContract } from "./reportAccess";
+import { chartPercent, chartValue, findContract, stageCode } from "./reportAccess";
 
 /**
  * A stage, at whichever of the two depths the reader asked for.
@@ -37,9 +37,9 @@ export function EvidenceView({ data, back, navigate, initialStage }: { data: Rep
     back={back}
     agent={data.setting.diagnosed_by}
   >
-    <div className="evidence-layout"><aside className="stage-list">{data.stages.map((item) => <button className={selected === item.id ? "active" : ""} key={item.id} onClick={() => show(item.id)}><span>{item.code}</span><div><strong>{item.title}</strong><small>{item.status.replaceAll("-", " ")}</small></div><ChevronRight /></button>)}</aside><section className="evidence-detail">
+    <div className="evidence-layout"><aside className="stage-list">{data.stages.map((item) => <button className={selected === item.id ? "active" : ""} key={item.id} onClick={() => show(item.id)}><span>{stageCode(item.code)}</span><div><strong>{item.title}</strong><small>{item.status.replaceAll("-", " ")}</small></div><ChevronRight /></button>)}</aside><section className="evidence-detail">
       <header className="evidence-head">
-        <div><span className="section-kicker">{stage?.code} · {stage?.status?.replaceAll("-", " ")}</span><h2>{stage?.title}</h2><p className="lead-small">{stage?.purpose}</p></div>
+        <div><span className="section-kicker">{stageCode(stage?.code)} · {stage?.status?.replaceAll("-", " ")}</span><h2>{stage?.title}</h2><p className="lead-small">{stage?.purpose}</p></div>
         {brief && <div className="depth-switch" role="tablist" aria-label="Level of detail">
           <button role="tab" aria-selected={!full} className={full ? "" : "active"} onClick={() => setFull(false)}>Summary</button>
           <button role="tab" aria-selected={full} className={full ? "active" : ""} onClick={() => setFull(true)}>Full record</button>
@@ -191,7 +191,7 @@ function M2Detail({ data }: { data: any }) {
   const citedKeys = takeaways.flatMap((item: any) => item.chart_names || []).map(normalizeKey);
   const supporting = figures.filter((figure: any) => !chartCited(figure.id, citedKeys));
   return <>
-    <StageBanner kind="DESCRIPTIVE" title="Exploratory evidence">Patterns here were found in the analysis split. They are leads—not validated mechanisms. Only M5 can issue a held-out verdict.</StageBanner>
+    <StageBanner kind="DESCRIPTIVE" title="Exploratory evidence">Patterns here were found in the analysis split. They are leads—not validated mechanisms. Only M4 can issue a held-out verdict.</StageBanner>
     <StageKpis items={[{ label: "Ranked findings", value: takeaways.length }, { label: "Visual artifacts", value: figures.length }, { label: "Statistical screens", value: data.stats?.length || 0 }]} />
     {data.conclusion && <div className="stage-callout"><b>Agent screening conclusion</b><p>{data.conclusion}</p></div>}
     {data.stats?.length > 0 && <StatEvidenceChart stats={data.stats} title="Which measured behaviors are most connected to errors?" note="Each bar summarizes the difference observed between correct and incorrect cases. It is a pattern, not proof of cause." />}
@@ -348,19 +348,19 @@ function M3Detail({ data, report }: { data: any; report: ReportData }) {
     ? (m3.hypotheses || []).filter((h) => h.test_design?.trim() && !isRoutable(h.test_design))
     : [];
   return <>
-    <StageBanner kind="PROPOSAL ONLY" title="Falsifiable mechanisms">M3 turns M2 leads into explanations that could be proven wrong. These cards are proposals; validation status belongs exclusively to M5.</StageBanner>
+    <StageBanner kind="PROPOSAL ONLY" title="Falsifiable mechanisms">M3 turns M2 leads into explanations that could be proven wrong. These cards are proposals; validation status belongs exclusively to M4.</StageBanner>
     {untestable.length > 0 && <div className="parser-warning"><AlertTriangle /><div>
       <b>{untestable.length === 1 ? "One proposal names no test" : `${untestable.length} proposals name no test`}.</b>
-      <p>A hypothesis with no test design cannot be decided by any amount of evidence — M5 will return “inconclusive” for it on every cycle. Read that verdict as “this claim was never testable”, not as “not enough data yet”.</p>
+      <p>A hypothesis with no test design cannot be decided by any amount of evidence — M4 will return “inconclusive” for it on every cycle. Read that verdict as “this claim was never testable”, not as “not enough data yet”.</p>
     </div></div>}
     {unroutable.length > 0 && <div className="parser-warning"><AlertTriangle /><div>
       <b>{unroutable.length === 1 ? "One proposal names a measurement nobody has taken yet" : `${unroutable.length} proposals name measurements nobody has taken yet`}.</b>
-      <p>These do describe an experiment — they just refer to something this cycle did not measure, so M5 has nothing to resolve them against. That is work for the next round of checks, not a claim without a falsifier.</p>
+      <p>These do describe an experiment — they just refer to something this cycle did not measure, so M4 has nothing to resolve them against. That is work for the next round of checks, not a claim without a falsifier.</p>
     </div></div>}
     <StageKpis items={[{ label: "Accepted proposals", value: accepted.length }, { label: "Recovered from transcript", value: recovered.length }, { label: "Test designs", value: hypotheses.filter((item: any) => item.test_design).length }]} />
-    {!accepted.length && recovered.length > 0 && <div className="parser-warning"><AlertTriangle /><div><b>The AI Doctor proposed hypotheses, but the pipeline parser rejected their format.</b><p>They are shown below for audit only and did not unlock M5 or M4.</p></div></div>}
+    {!accepted.length && recovered.length > 0 && <div className="parser-warning"><AlertTriangle /><div><b>The AI Doctor proposed hypotheses, but the pipeline parser rejected their format.</b><p>They are shown below for audit only and did not unlock M4 or M5.</p></div></div>}
     {data.evidence_figures?.length > 0 && <section className="m3-evidence"><header><span>THE VISUAL EVIDENCE THIS STEP STARTS FROM</span><h3>Patterns the agent is trying to explain</h3><p>These charts come from M2. They are observations that motivate the ideas below, not confirmation that an idea is true.</p></header><div className="analysis-figures">{labelledFigures(data.evidence_figures, data.evidence_stats || []).map((figure: any) => <EvidenceFigure figure={figure} key={figure.id} />)}</div></section>}
-    {data.evidence_stats?.length > 0 && <StatEvidenceChart stats={data.evidence_stats} title="The strongest M2 patterns carried into this step" note="M3 turns these observed patterns into testable ideas. M5 is still needed to decide whether an idea holds up." />}
+    {data.evidence_stats?.length > 0 && <StatEvidenceChart stats={data.evidence_stats} title="The strongest M2 patterns carried into this step" note="M3 turns these observed patterns into testable ideas. M4 is still needed to decide whether an idea holds up." />}
     {hypotheses.length ? <div className="hypothesis-list">{hypotheses.map((hypothesis: any, index: number) => <article className="hypothesis-card" key={index}><header><span>H{index + 1}</span><em>{accepted.length ? "IDEA TO TEST" : "NOT YET USABLE"}</em></header><h3>{hypothesis.plain_statement || hypothesis.statement || hypothesis.hypothesis}</h3>{hypothesis.statement && hypothesis.plain_statement && hypothesis.statement !== hypothesis.plain_statement && <details><summary>Technical wording</summary><p>{hypothesis.statement}</p></details>}<div className="hypothesis-grid"><div><small>WHAT MAY BE GOING WRONG</small><p>{plainFailureMode(hypothesis.failure_mode)}</p></div><div><small>WHY THIS IS PLAUSIBLE</small><p>{hypothesis.basis || "Based on the patterns found in the previous step."}</p></div><div className="test-design"><small>WHAT WOULD PROVE IT WRONG?</small><p>{hypothesis.test_design || (m3 ? "Nothing — the AI Doctor proposed no test for this idea, so no result can decide it." : "No test design was retained.")}</p>{hypothesis.expected_association && <details><summary>Technical test expression</summary><code>{hypothesis.expected_association}</code></details>}</div></div></article>)}</div> : <EmptyStage title="No formal hypotheses" body="The earlier pattern search did not yield an idea the pipeline could test." />}
     {(data.candidate_signals?.length > 0 || data.recommended_tests?.length > 0) && <details className="agent-transcript"><summary>Candidate signals and suggested follow-ups</summary>{data.candidate_signals?.length > 0 && <RecordTable rows={data.candidate_signals} />}{data.recommended_tests?.map((item: any, i: number) => <p key={i}>• {String(item)}</p>)}</details>}
     {data.agent_response && <details className="agent-transcript"><summary>AI Doctor raw response</summary><pre>{data.agent_response}</pre></details>}
@@ -396,7 +396,7 @@ function UndecidableNote({ report }: { report: ReportData }) {
 
 function M5Detail({ data, report }: { data: any; report: ReportData }) {
   const results = data.results || [];
-  if (!data.ran || !results.length) return <><StageBanner kind="CONFIRMATORY" title="Held-out validation">M5 tests frozen hypotheses on evidence not used to propose them.</StageBanner><EmptyStage title="Validation was not reached" body="No accepted M3 hypothesis was available for independent adjudication in this run." /></>;
+  if (!data.ran || !results.length) return <><StageBanner kind="CONFIRMATORY" title="Held-out validation">M4 tests frozen hypotheses on evidence not used to propose them.</StageBanner><EmptyStage title="Validation was not reached" body="No accepted M3 hypothesis was available for independent adjudication in this run." /></>;
   const statuses = (name: string) => results.filter((item: any) => String(item.status || "").toLowerCase() === name).length;
   const consistent = results.filter((item: any) => item.protocol_consistent !== false).length;
   const examples = data.examples || [];
@@ -557,7 +557,7 @@ function CaseLinks({ ids, kind, report, navigate }: {
 
 function M4Detail({ data, report, navigate }: { data: any; report: ReportData; navigate?: (view: string) => void }) {
   const candidates = data.candidates || [];
-  if (!data.ran || !candidates.length) return <><StageBanner kind="INTERVENTION" title="Repair and regression check">M4 compares targeted changes against the same unmodified baseline cases.</StageBanner><SelectionSweep report={report} /><EmptyStage title={data.skipped ? "Repair was deliberately held back" : data.ran ? "No repair candidate was testable" : "Repair was not reached"} body={data.skipped ? (data.skip_detail || "The evidence review did not yet accept a mechanism for repair. The next step is a targeted diagnostic probe, not a failed repair.") : data.ran ? "The stage opened, but no accepted and testable mechanism produced a repair candidate." : "The run stopped before a targeted intervention could be evaluated."} /></>;
+  if (!data.ran || !candidates.length) return <><StageBanner kind="INTERVENTION" title="Repair and regression check">M5 compares targeted changes against the same unmodified baseline cases.</StageBanner><SelectionSweep report={report} /><EmptyStage title={data.skipped ? "Repair was deliberately held back" : data.ran ? "No repair candidate was testable" : "Repair was not reached"} body={data.skipped ? (data.skip_detail || "The evidence review did not yet accept a mechanism for repair. The next step is a targeted diagnostic probe, not a failed repair.") : data.ran ? "The stage opened, but no accepted and testable mechanism produced a repair candidate." : "The run stopped before a targeted intervention could be evaluated."} /></>;
   const fixed = candidates.reduce((sum: number, item: any) => sum + Number(item.n_fixed || 0), 0);
   const broken = candidates.reduce((sum: number, item: any) => sum + Number(item.n_broken || 0), 0);
   const winner = candidates.find((item: any) => item.fixed) || candidates.reduce((best: any, item: any) => Number(item.effect || -Infinity) > Number(best?.effect || -Infinity) ? item : best, null);
@@ -781,7 +781,7 @@ function DetailShell({ title, subtitle, back, agent, children }: { title: string
 }
 
 function EventRow({ event }: { event: DebugEvent }) {
-  return <div className="event-row"><code>{String(event.event_seq || "—").padStart(3, "0")}</code><span className="event-type">{event.event}</span><div><strong>{event.stage || "RUN"}{event.cycle !== undefined && event.cycle !== null ? ` · cycle ${event.cycle}` : ""}</strong><p>{event.summary}</p></div></div>;
+  return <div className="event-row"><code>{String(event.event_seq || "—").padStart(3, "0")}</code><span className="event-type">{event.event}</span><div><strong>{stageCode(event.stage) || "RUN"}{event.cycle !== undefined && event.cycle !== null ? ` · cycle ${event.cycle}` : ""}</strong><p>{event.summary}</p></div></div>;
 }
 
 function DetailBlock({ label, value }: { label: string; value: string }) {

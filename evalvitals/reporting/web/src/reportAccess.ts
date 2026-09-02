@@ -217,3 +217,19 @@ export function chartPercent(value: unknown): string {
   const n = Number(value);
   return Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
 }
+
+/**
+ * Screen numbering for a stage code.
+ *
+ * The stage ids predate the presentation order: m5 (held-out validation) runs
+ * — and is shown — before m4 (repair). Ids, event logs and contract spans keep
+ * their historical names, but on screen the steps are numbered in the order a
+ * reader walks them, so the two display codes trade places: M5→"M4", M4→"M5".
+ * Narrative copy that names these steps must use the same display numbers.
+ */
+export function stageCode(code: unknown): string {
+  const raw = String(code ?? "");
+  if (raw === "M4") return "M5";
+  if (raw === "M5") return "M4";
+  return raw;
+}
