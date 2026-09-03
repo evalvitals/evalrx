@@ -6,6 +6,37 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — the case-study sheet in the served report
+
+A run's evidence was spread across five stage views a reader had to assemble
+themselves, which is the wrong shape for the question people actually arrive
+with: what happened, start to finish. `evalvitals/reporting/case_study.py`
+compiles the run into one sheet — what the probes asked in plain language, the
+funnel from measurements taken to signals forwarded to M2, the forest plot of
+what survived multiplicity correction, the hypotheses, the held-out verdicts,
+the L1–L4 repair ladder with every candidate the search tried, the accepted
+repair as steps, and the paired before/after — and `CaseStudySheet` renders it
+directly under the journey graphic, in the report a dropped `.zip` produces.
+
+It reads the run's own artifacts and nothing else, and accepts either level of a
+zipped run (the run directory or the `logs/` inside it, both of which people
+zip). It is the reporting-side twin of
+`examples/benchmark/tools/extract_figure_data.py`, deliberately sharing its
+block and field names; `tests/test_analysis/test_case_study_sheet.py` runs both
+over one synthetic run and holds their numbers to each other, because two
+readers of the same artifacts drifting apart is how one run acquires two
+plausible descriptions.
+
+The caveats travel with the sheet rather than being left to the reader: a repair
+accepted with no supported hypothesis, a fix that broke previously-correct
+cases, a chart plotting one of several surviving signals, an illustrative case
+drawn from the explore split. A run with no probe or stats artifacts yields no
+sheet at all — the section is dropped rather than rendered as zeroes.
+
+`REPORT_DATA_VERSION` 15 → 17 and the catalog `evalvitals-report@1` → `@2`: a
+cached report composed against the old catalog cannot name the new component,
+and a cached payload from before the sheet has no probe phrases to render.
+
 ### Fixed — `extract_figure_data.py` re-anchors `trial_root` on the run root
 
 The run log records the writer's absolute path — inside a container that is

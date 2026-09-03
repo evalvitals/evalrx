@@ -9,6 +9,7 @@ import { ArrowUpRight, Check, CircleDot, Database, Wrench } from "lucide-react";
 import { z } from "zod";
 import type { Chart, ReportData, Stage } from "./types";
 import { ZoomableImage } from "./lightbox";
+import { CaseStudySheet as CaseStudySection } from "./caseStudy";
 import { chartValue, outcomeColors, stageCode } from "./reportAccess";
 
 const ids = z.array(z.string()).optional();
@@ -22,6 +23,7 @@ export const reportCatalog = defineCatalog(schema, {
     ChartGrid: { props: z.object({ chartIds: ids }), description: "At most two evidence charts" },
     OutcomeCard: { props: z.object({}), description: "What was learned and whether repair worked" },
     CasePreview: { props: z.object({ caseIds: ids }), description: "Representative model I/O" },
+    CaseStudySheet: { props: z.object({}), description: "The whole run as one failure-to-repair sheet" },
     EvidenceIndex: { props: z.object({}), description: "Progressive disclosure navigation" },
   },
   actions: {},
@@ -79,10 +81,19 @@ export const { registry } = defineRegistry(reportCatalog, {
     ReportPage: ({ children }) => <main className="report-page">{children}</main>,
     SettingHero: () => {
       const data = useReport();
-      return <section className="setting-hero">
+      // A run that ships its own cover figure (`evalvitals_main.*` beside its
+      // baseline.json) gets it rendered between the lead and the route bar,
+      // with the whole hero centring around it — the one picture the producer
+      // chose to explain the run, ahead of anything derived. Runs without one
+      // keep the left-set hero and its decorative rings exactly as they were.
+      const hero = data.setting.hero_image;
+      return <section className={`setting-hero${hero ? " has-figure" : ""}`}>
         <div className="eyebrow"><CircleDot size={14} /> Completed diagnostic run</div>
         <h1>From model failure<br /><span>to tested repair.</span></h1>
         <p className="lead">{data.setting.question}</p>
+        {hero && <div className="hero-figure">
+          <ZoomableImage src={hero} alt="The figure this run shipped" caption="evalvitals_main — the figure this run shipped" />
+        </div>}
         <div className="setting-route">
           <div><small>MODEL</small><strong>{data.setting.model}</strong></div>
           <ArrowUpRight size={20} />
@@ -134,6 +145,13 @@ export const { registry } = defineRegistry(reportCatalog, {
       const selected = data.cases.filter((item) => !props.caseIds || props.caseIds.includes(item.id)).slice(0, 4);
       if (!selected.length) return <></>;
       return <section className="section"><header><div><span className="section-kicker">REAL MODEL I/O</span><h2>Representative cases</h2></div><button className="text-button" onClick={() => navigate("cases")}>Open Case Studio <ArrowUpRight size={15} /></button></header><div className="case-preview">{selected.map((item) => <article key={item.id}><span className={`status status-${item.status}`}>{item.status}</span><h3>{item.id}</h3><p>{item.prompt}</p><PreviewMedia item={item} data={data} /></article>)}</div></section>;
+    },
+    // The sheet is the only component that renders nothing at all when its data
+    // is absent: a run that never probed has no story to tell in this shape,
+    // and an empty sheet reads as a run that found nothing.
+    CaseStudySheet: () => {
+      const data = useReport();
+      return data.case_study ? <CaseStudySection sheet={data.case_study} /> : <></>;
     },
     EvidenceIndex: () => {
       const navigate = useContext(NavContext);
