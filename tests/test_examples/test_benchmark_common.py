@@ -266,7 +266,8 @@ def test_default_tasks_and_pinned_sets(common):
         assert tasks.get(name).modality == modality
     for task in tasks.TASKS.values():
         assert task.pinned_m1 and task.kind in {
-            "exact_or_numeric", "multiple_choice_letter", "yes_no", "llm_graded", "short_answer_em"}
+            "exact_or_numeric", "multiple_choice_letter", "yes_no", "llm_graded",
+            "short_answer_em", "chair_caption"}
         assert task.download is not None and callable(task.protocol)
 
 

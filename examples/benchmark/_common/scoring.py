@@ -175,4 +175,8 @@ def score_output(kind: str, output: str, gold: Any, *, numeric_tolerance: float 
         from .tasks import llm as _llm
 
         return _llm.grade(dataset, output, gold)
+    if kind == "chair_caption":
+        from .tasks import chair as _chair
+
+        return _chair.grade(output, gold)
     raise ValueError(f"unknown task kind {kind!r}")

@@ -15,7 +15,12 @@ Propose up to {k} prompt rewrite strategies that could repair these failures
 WITHOUT changing the model or adding pipeline steps.  Each strategy is a
 template applied to every case prompt; it MUST contain the literal placeholder
 {{prompt}}.  Keep the final-answer format the scorer expects recoverable; do
-not ask the model to suppress its reasoning if the task needs it.
+not ask the model to suppress its reasoning if the task needs it.  If your
+template asks the model to write intermediate work (a transcription, a list, a
+check) that may not fit the baseline decode budget, add "generation_kwargs":
+{{"max_tokens": <int>}} to that strategy — it can only RAISE the budget (a
+lower value is raised to the baseline), and no other decoding control is
+allowed at this tier.
 
 
 "what_it_does" is shown to a reader who has never heard of this model, this
@@ -26,9 +31,11 @@ snake_case name in English.
 Good:  "Asks the model to describe what it hears before it answers."
 Bad:   "L1 audio-evidence-first prompt scaffold with deferred answering."
 
-Reply with ONLY a JSON array:
+Reply with ONLY a JSON array (generation_kwargs is optional; omit it unless
+the rewrite needs the extra room):
 [{{"name": "<short_snake_case>", "what_it_does": "<one plain sentence>",
-   "prompt_template": "<template with {{prompt}}>"}}]"""
+   "prompt_template": "<template with {{prompt}}>",
+   "generation_kwargs": {{"max_tokens": <int>}}}}]"""
 
 _L2_PROMPT = """\
 You are designing SCAFFOLD-LEVEL fixes (tier L2: a pipeline around the \

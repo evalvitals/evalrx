@@ -31,6 +31,7 @@ from evalrx.analysis.plain_language import jargon_violation
 from evalrx.eval_agent.hypothesis import Hypothesis
 from evalrx.eval_agent.prompts.diagnosis import (
     _DIAGNOSE_PROMPT,
+    _FORMAT_REPAIR_PROMPT,
     _PLAIN_REPAIR_PROMPT,
     _VALIDATE_PROMPT,
 )
@@ -331,6 +332,12 @@ def _unwrap_value(value: str) -> str:
     return m.group(2).strip() if m else text
 
 
+#: ``predicted_failure_mode`` given to a hypothesis whose ``FAILURE_MODE:`` line the
+#: judge omitted. Downstream stages treat the mode as a tag, so an explicit
+#: placeholder keeps the claim (statement / test design) instead of dropping it.
+MISSING_FAILURE_MODE = "unspecified"
+
+
 def _normalise_label_line(line: str) -> str:
     """``**HYPOTHESIS:** foo`` / ``- FAILURE_MODE: bar`` → ``HYPOTHESIS: foo`` /
     ``FAILURE_MODE: bar``. Lines without a recognised label are returned
@@ -366,39 +373,51 @@ def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
     if json_result is not None:
         return json_result
 
-    # Text-format fallback
+    # Text-format fallback. A hypothesis is opened by ``HYPOTHESIS:`` and closed
+    # by ``FAILURE_MODE:`` — or, when the judge forgot that line, by the next
+    # ``HYPOTHESIS:`` / the end of the text. gemma-4-e2b / gsm8k (2026-08-27):
+    # the judge wrote three complete HYPOTHESIS / PLAIN_STATEMENT / TEST blocks
+    # without FAILURE_MODE and the old parser (append-on-FAILURE_MODE only)
+    # returned zero, so the loop stopped with "no_hypotheses" and the fix stage
+    # never ran. The mode is a tag; a missing tag must not erase the claim.
     hypotheses: list[Hypothesis] = []
-    statement: str | None = None
-    plain_statement: str = ""
+    pending: Hypothesis | None = None
+
+    def _flush() -> None:
+        nonlocal pending
+        if pending is not None and pending.statement:
+            if not pending.predicted_failure_mode:
+                pending.predicted_failure_mode = MISSING_FAILURE_MODE
+            hypotheses.append(pending)
+        pending = None
+
     for line in raw.splitlines():
         line = _normalise_label_line(line)
-        if line.upper().startswith("HYPOTHESIS:"):
-            statement = line[len("HYPOTHESIS:"):].strip()
-            plain_statement = ""
-        elif (line.upper().startswith("PLAIN_STATEMENT:") or line.upper().startswith("PLAIN_LANGUAGE:")):
-            tag = "PLAIN_STATEMENT:" if line.upper().startswith("PLAIN_STATEMENT:") else "PLAIN_LANGUAGE:"
-            plain_statement = line[len(tag):].strip()
-            if hypotheses and not hypotheses[-1].plain_statement:
-                hypotheses[-1].plain_statement = plain_statement
-        elif line.upper().startswith("FAILURE_MODE:") and statement:
-            mode = _unwrap_value(line[len("FAILURE_MODE:"):])
-            hypotheses.append(
-                Hypothesis(
-                    statement=statement,
-                    target_model=model_name,
-                    predicted_failure_mode=mode,
-                    plain_statement=plain_statement,
-                )
+        upper = line.upper()
+        if upper.startswith("HYPOTHESIS:"):
+            _flush()
+            pending = Hypothesis(
+                statement=line[len("HYPOTHESIS:"):].strip(),
+                target_model=model_name,
+                predicted_failure_mode="",
             )
-            statement = None
-            plain_statement = ""
-        elif line.upper().startswith("TEST:") and hypotheses:
-            # Attach the test design to the most recent hypothesis.
-            hypotheses[-1].test_design = line[len("TEST:"):].strip()
-        elif line.upper().startswith("EXPECTED_ASSOCIATION:") and hypotheses:
-            hypotheses[-1].expected_association = _unwrap_value(
+            continue
+        target = pending if pending is not None else (hypotheses[-1] if hypotheses else None)
+        if upper.startswith("PLAIN_STATEMENT:") or upper.startswith("PLAIN_LANGUAGE:"):
+            tag = "PLAIN_STATEMENT:" if upper.startswith("PLAIN_STATEMENT:") else "PLAIN_LANGUAGE:"
+            if target is not None and not target.plain_statement:
+                target.plain_statement = line[len(tag):].strip()
+        elif upper.startswith("FAILURE_MODE:") and pending is not None:
+            pending.predicted_failure_mode = _unwrap_value(line[len("FAILURE_MODE:"):])
+            _flush()
+        elif upper.startswith("TEST:") and target is not None:
+            # Attach the test design to the hypothesis being read (or the last one).
+            target.test_design = line[len("TEST:"):].strip()
+        elif upper.startswith("EXPECTED_ASSOCIATION:") and target is not None:
+            target.expected_association = _unwrap_value(
                 line[len("EXPECTED_ASSOCIATION:"):]
             ).lower()
+    _flush()
     return hypotheses
 
 
@@ -667,6 +686,41 @@ class DiagnosisAgent:
     def judge(self, value: "Model") -> None:
         self._judge = value
 
+    def _reask_for_format(self, raw: str, model_name: str) -> tuple[str, list[Hypothesis]]:
+        """One re-ask when a non-empty, non-NO_ISSUE answer parsed to zero hypotheses.
+
+        gemma-4-e2b / gsm8k (2026-08-27): the judge wrote three hypotheses in prose
+        blocks the label parser could not read and the run ended with
+        ``no_hypotheses`` — no warning, no second chance, no fix stage. The
+        label format is the contract, but a single formatting miss should cost
+        one more judge call, not the diagnosis. Returns the answer that was
+        finally parsed (so ``raw_judge_output`` records what the hypotheses came
+        from) and the hypotheses; on any failure the original answer and the
+        empty list come back and the existing fallbacks apply.
+        """
+        text = raw.strip()
+        if not text or "NO_ISSUE" in text.upper():
+            return raw, []
+        import logging
+
+        log = logging.getLogger(__name__)
+        log.warning(
+            "DiagnosisAgent: the judge wrote %d chars that parsed to zero hypotheses; "
+            "re-asking once for the labelled format: %r", len(text), text[:160],
+        )
+        try:
+            reasked = str(self.judge.generate(_FORMAT_REPAIR_PROMPT.format(raw=raw)))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("DiagnosisAgent: format re-ask failed: %s", exc)
+            return raw, []
+        hypotheses = _parse_hypotheses(reasked, model_name)
+        if hypotheses:
+            return reasked, hypotheses
+        if "NO_ISSUE" in reasked.upper():
+            return reasked, []
+        log.warning("DiagnosisAgent: the re-asked answer also parsed to zero hypotheses")
+        return raw, []
+
     def _repair_plain_language(
         self, raw: str, hypotheses: list[Hypothesis], model_name: str,
     ) -> list[Hypothesis]:
@@ -822,6 +876,10 @@ class DiagnosisAgent:
         else:
             raw = self.judge.generate(prompt)
         proposed_hypotheses = _parse_hypotheses(str(raw), analysis.model_name or model_name)
+        if not proposed_hypotheses:
+            raw, proposed_hypotheses = self._reask_for_format(
+                str(raw), analysis.model_name or model_name,
+            )
         proposed_hypotheses = self._repair_plain_language(
             str(raw), proposed_hypotheses, analysis.model_name or model_name,
         )
