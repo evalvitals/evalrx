@@ -48,7 +48,7 @@ def _evaluator(chair_dir: Path):
     cache = chair_dir / "chair.pkl"
     if str(chair_dir) not in sys.path:
         sys.path.insert(0, str(chair_dir))
-    import chair as official                # noqa: F401  (chair/chair.py; pickle needs the module)
+    import chair as official  # noqa: F401  (chair/chair.py; pickle needs the module)
 
     if cache.is_file():
         return pickle.load(open(cache, "rb"))
