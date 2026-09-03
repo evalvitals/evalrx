@@ -12,10 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
 RUN pip install --no-cache-dir \
     torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
-COPY . /evalvitals
+COPY . /evalrx
 # viz: matplotlib for M2 figures + explore chart rendering; pandas for the
 # explorer's generated analysis.py (both were silently skipped without it).
-RUN pip install --no-cache-dir "/evalvitals[local,data,viz]" pandas
+RUN pip install --no-cache-dir "/evalrx[local,data,viz]" pandas
 
 WORKDIR /app/example
 COPY examples/m1_m4/mmau_qwen2_audio/ .

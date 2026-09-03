@@ -6,13 +6,13 @@ import warnings
 
 import pytest
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import FailureCase, Inputs
-from evalvitals.core.model import Model
-from evalvitals.core.tool import ChatTurn, Tool
-from evalvitals.models import RuntimeConfig, compose
-from evalvitals.models.agent import run_batch
-from evalvitals.models.backends.openai_compat import (
+from evalrx.core.capability import Capability
+from evalrx.core.case import FailureCase, Inputs
+from evalrx.core.model import Model
+from evalrx.core.tool import ChatTurn, Tool
+from evalrx.models import RuntimeConfig, compose
+from evalrx.models.agent import run_batch
+from evalrx.models.backends.openai_compat import (
     openai_chat_fn,
     to_openai_messages,
 )
@@ -243,7 +243,7 @@ def test_a_served_model_can_report_token_logprobs():
     benchmark set. They were dropped because nobody asked the server, not
     because it could not answer.
     """
-    from evalvitals.models.backends.openai_compat import openai_logprobs_fn
+    from evalrx.models.backends.openai_compat import openai_logprobs_fn
 
     client = _FakeLogprobClient()
     fn = openai_logprobs_fn(client=client, temperature=0.0, max_tokens=16)
@@ -261,7 +261,7 @@ def test_wiring_logprobs_is_what_grants_the_capability():
     """And opting out must actually withhold it: claiming LOGPROBS against an
     endpoint that rejects the parameter turns a skipped analyzer into a failing
     one, which is the worse outcome."""
-    from evalvitals.models.backends.openai_compat import openai_runtime
+    from evalrx.models.backends.openai_compat import openai_runtime
 
     with_lp = openai_runtime(client=_FakeLogprobClient(), base_url="http://127.0.0.1:8020/v1")
     without = openai_runtime(
@@ -280,7 +280,7 @@ def test_wiring_logprobs_is_what_grants_the_capability():
 def test_an_endpoint_that_returns_no_logprobs_yields_no_tokens():
     """Not an exception, and not a fabricated zero -- an empty list, which is
     what "this server answered without them" honestly looks like."""
-    from evalvitals.models.backends.openai_compat import openai_logprobs_fn
+    from evalrx.models.backends.openai_compat import openai_logprobs_fn
 
     fn = openai_logprobs_fn(client=_FakeLogprobClient(content=[]))
     assert fn("hi", model="m") == []
@@ -323,7 +323,7 @@ def test_waveform_arrays_are_encoded_as_pcm16_wav():
 
     import numpy as np
 
-    from evalvitals.models.backends.openai_compat import _to_input_audio
+    from evalrx.models.backends.openai_compat import _to_input_audio
 
     enc = _to_input_audio((np.array([0.0, 0.5, -0.5], dtype=np.float32), 8000))
     assert enc["format"] == "wav"
@@ -332,7 +332,7 @@ def test_waveform_arrays_are_encoded_as_pcm16_wav():
 
 
 def test_generate_fn_sends_the_media_slots_as_content_blocks(tmp_path):
-    from evalvitals.models.backends.openai_compat import openai_generate_fn
+    from evalrx.models.backends.openai_compat import openai_generate_fn
 
     wav = tmp_path / "clip.wav"
     wav.write_bytes(_wav_bytes())
@@ -347,7 +347,7 @@ def test_generate_fn_sends_the_media_slots_as_content_blocks(tmp_path):
 
 
 def test_api_model_forwards_only_the_slots_the_spec_declares():
-    from evalvitals.core.spec import AudioSpec, ModelSpec
+    from evalrx.core.spec import AudioSpec, ModelSpec
 
     seen = {}
 

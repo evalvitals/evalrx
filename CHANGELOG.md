@@ -1,16 +1,44 @@
 # Changelog
 
-All notable changes to EvalVitals will be documented here.
+All notable changes to EvalRX will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — project renamed EvalVitals → EvalRX
+
+Breaking. The import/package name, console scripts, and every on-disk/data
+identifier changed together:
+
+- Package: `evalvitals` → `evalrx`; `import evalvitals` no longer works.
+- Console scripts: `evalvitals`/`evalvitals-explore` → `evalrx`/`evalrx-explore`.
+- Env vars: `EVALVITALS_*` → `EVALRX_*` (`EVALRX_HF_CACHE`,
+  `EVALRX_LANGFUSE_MODE`, `EVALRX_DATASET_SELECTION_DIR`,
+  `EVALRX_VALIDATE_LOG`, `EVALRX_GIT_COMMIT`, `EVALRX_REPORT__*`) — update
+  `.env` files and shell profiles.
+- State/cache dirs: `.evalvitals-cache/`, `.evalvitals/langfuse_outbox.sqlite3`,
+  `.evalvitals-langfuse-outbox.sqlite3`, `evalvitals_chat_output/`,
+  `evalvitals_web_runs/` → the `evalrx` equivalents. Existing run trees under
+  the old names are invisible to the new code; move or symlink them if you
+  need the old outputs read back.
+- `run_log.jsonl`: the `evalvitals_version` field on every event is now
+  `evalrx_version`, and `RUN_LOG_SCHEMA_VERSION` bumped **4 → 5** per the
+  documented rule (a renamed field is a breaking schema change). The
+  published schema's `$id` moved to
+  `https://evalrx.dev/schemas/run_log.schema.json`. The schema stays
+  permissive on unknown fields, so old logs still parse; a strict
+  `evalrx_version`-keyed reader needs the version bump to tell old and new
+  logs apart.
+- Repo: `github.com/evalvitals/evalvitals` → `github.com/evalvitals/evalrx`
+  (org unchanged); the PyPI package is republished as `evalrx` (the old
+  `evalvitals` releases on PyPI are not renamed in place).
+
 ### Added — the case-study sheet in the served report
 
 A run's evidence was spread across five stage views a reader had to assemble
 themselves, which is the wrong shape for the question people actually arrive
-with: what happened, start to finish. `evalvitals/reporting/case_study.py`
+with: what happened, start to finish. `evalrx/reporting/case_study.py`
 compiles the run into one sheet — what the probes asked in plain language, the
 funnel from measurements taken to signals forwarded to M2, the forest plot of
 what survived multiplicity correction, the hypotheses, the held-out verdicts,
@@ -33,7 +61,7 @@ cases, a chart plotting one of several surviving signals, an illustrative case
 drawn from the explore split. A run with no probe or stats artifacts yields no
 sheet at all — the section is dropped rather than rendered as zeroes.
 
-`REPORT_DATA_VERSION` 15 → 17 and the catalog `evalvitals-report@1` → `@2`: a
+`REPORT_DATA_VERSION` 15 → 17 and the catalog `evalrx-report@1` → `@2`: a
 cached report composed against the old catalog cannot name the new component,
 and a cached payload from before the sheet has no probe phrases to render.
 
@@ -54,7 +82,7 @@ figure. The new tool takes a run root — the directory `_common/runner.py` writ
 holding `summary.json` and `logs/` — and emits the same numbers in three shapes:
 a sectioned JSON document for reading, a flat JSONL stream for plotting code, and
 a Markdown write-up of the figure with character-bar charts. Standard library
-only; it imports nothing from `evalvitals` and reads only run artifacts.
+only; it imports nothing from `evalrx` and reads only run artifacts.
 
 One record per figure block: the header strip, the M1 analyzer families and the
 signal bar chart, the M2 correction families and per-test rows (explore and
@@ -98,13 +126,13 @@ are still the ones `_common/runner.py` writes.
 
 ### Added — dashboard case-study view for paper-method bench runs (audio + image)
 
-`evalvitals dashboard` now recognises a third run shape: a paper-method bench
+`evalrx dashboard` now recognises a third run shape: a paper-method bench
 run under `examples/` (a report with `baseline` + `auto_fix`, e.g.
 `examples/agent_loop/qwen2_audio_tcd_mmau/outputs/tcd_mmau.json`). Those
 reports record per-case outcomes by id only — the question, options and media
 file live in the benchmark manifest beside them — so a repaired case was
 previously just a bare uuid with nothing to inspect. The new
-`evalvitals/analysis/case_studio.py` (Streamlit-free, like `workbench.py`)
+`evalrx/analysis/case_studio.py` (Streamlit-free, like `workbench.py`)
 joins the two, resolving the manifest from the report's `dataset.manifest`
 pointer or, for older reports, by id-coverage across the conventional sibling
 locations, and normalising MMAU's `instruction`/`choices`/`audio_path` and the
@@ -140,7 +168,7 @@ missing. `dataset_recipe` (free judge-written text) is deliberately never
 interpreted — training data is a fixed default (failing cases as SFT
 targets, passing cases as anti-forgetting ballast) rather than another
 judge call producing executable code. New optional dependency group
-`evalvitals[finetune]` (`peft`). See `fix_internals.py`'s module docstring
+`evalrx[finetune]` (`peft`). See `fix_internals.py`'s module docstring
 and `FixAgent.__init__`'s `finetune_pool` parameter.
 
 ### Added — S-tier paper-method full-arc experiment on V*Bench and HR-Bench 4K
@@ -231,7 +259,7 @@ shipping a prompt tweak as a win.
 counting, 85 four-way MC cases) through the whole agent arc: vLLM-served
 Qwen3-VL with zoom+detect under a ~1MP per-view budget → MC grading (a run
 that never answers IS a failure) → the full M1 probe set → `records.json` →
-`evalvitals explore` with a 0.6/0.4 held-out confirm.
+`evalrx explore` with a 0.6/0.4 held-out confirm.
 
 First recorded run (Qwen3-VL-2B): 81% fail. In-sample, loop-share signals
 looked strong (AUC ≈ 0.75–0.80) — held-out kept only 3 of 7 frozen recipes:
@@ -273,7 +301,7 @@ Second wave of agent-under-test diagnosis: run agents at batch scale on any
 backend, and make M1 emit *interventional* evidence (cost, reliability, tool
 attribution, failure taxonomy) — not just single-run observations.
 
-- Built-in OpenAI-compatible client (`evalvitals.models.backends.openai_compat`):
+- Built-in OpenAI-compatible client (`evalrx.models.backends.openai_compat`):
   `openai_runtime(base_url=...)` wires `compose(key, "api")` to any
   OpenAI-compatible endpoint — a local `vllm serve` (verified end-to-end with
   Qwen3-VL + the hermes tool parser), OpenAI, or a gateway. Content-block
@@ -285,7 +313,7 @@ attribution, failure taxonomy) — not just single-run observations.
 - `GeminiModel.chat()` — native Gemini function calling (deliberately not the
   OpenAI-compat bridge), inline-PNG images, `tool_call_style="native"` routes
   it to the OpenAI codec. `generate()` now actually sends the image.
-- New perception tools (`evalvitals.models.tools`): `image_ocr` (easyocr
+- New perception tools (`evalrx.models.tools`): `image_ocr` (easyocr
   default engine, region support) and `image_detect` (open-vocabulary
   Grounding DINO; detections come back as fractional boxes PLUS an annotated
   image the model can look at). Engines are injectable and lazily built.
@@ -293,10 +321,10 @@ attribution, failure taxonomy) — not just single-run observations.
   `prompt_tokens` / `completion_tokens` on the step span (all three chat
   backends fill usage), totals land in trajectory metrics and as
   `total_*`/`mean_turn_latency_ms` record columns.
-- Trajectory→records bridge (`evalvitals.analysis.trajectory_records`):
+- Trajectory→records bridge (`evalrx.analysis.trajectory_records`):
   flattens trajectories into `records.json` rows (loop volume, per-tool call
   counts, error rates, repeated-call structure, images returned, termination,
-  cost) that `evalvitals explore` and `build_stats_input_from_records`
+  cost) that `evalrx explore` and `build_stats_input_from_records`
   consume unchanged; `Step.from_dict` / `Trajectory.from_dict` reload
   persisted runs.
 - Three new M1 analyzers (AGENT priority list is now seven deep):
@@ -329,7 +357,7 @@ adapted in via `Trajectory.from_records`.
   first user message as a transformers-style content block, and a tool result
   carrying images gets them re-injected as a follow-up user message — the
   model *sees* what its tool produced (the o3 / Qwen3-VL-demo zoom mechanism).
-- New `ToolResult(text, images, meta)` (`evalvitals.core.tool`): model-visible
+- New `ToolResult(text, images, meta)` (`evalrx.core.tool`): model-visible
   text, re-injectable images, host-only meta recorded on the trajectory step.
   Plain return values keep working; errors keep the standard
   `"[tool error in ...]"` envelope (what `ignored_obs` matches).
@@ -340,7 +368,7 @@ adapted in via `Trajectory.from_records`.
 - Trajectories serialize: `Step.to_dict()` / `Trajectory.to_dict()`, and
   `FailureCase.to_dict()` now includes the trajectory. Images degrade to
   `"<image WxH>"` descriptors — trajectories reference media, never embed it.
-- New `evalvitals.models.tools` package (subject-side tools; deterministic,
+- New `evalrx.models.tools` package (subject-side tools; deterministic,
   model-agnostic schemas): `zoom_in_tool` crops a bbox, upscales it (LANCZOS,
   short side → 672, ≤4x) and returns it as a new image. Accepts fractional
   coordinates but auto-detects pixel and Qwen-style 0-1000-grid boxes,
@@ -366,7 +394,7 @@ technical line, so this adds a host-side check, not just a prompt tweak.
   one-sentence headline) alongside the existing `title` (precise technical
   line with the numbers). Each M3 hypothesis carries `plain_statement`
   alongside `statement`.
-- New `evalvitals.analysis.plain_language.jargon_violation()` — flags a
+- New `evalrx.analysis.plain_language.jargon_violation()` — flags a
   missing headline, a verbatim copy of the technical line, banned stats
   jargon/acronyms (AUC, collinear, logistic, p-value, quantile, ...), or
   stray symbols (→, ρ, σ). Shared by both M2 and M3.
@@ -415,17 +443,17 @@ Deduplicates the overlapping style/chart rules the skill audit surfaced:
 ### Added — `run_codebase`: run a user's codebase, then explore the results
 
 New standalone entry point bridging the run infrastructure
-(`evalvitals.agent_runtime`) and the analysis entry (`evalvitals.explore`):
+(`evalrx.agent_runtime`) and the analysis entry (`evalrx.explore`):
 given a path to an existing evaluation/inference codebase, a CLI coding agent
 runs it inside an isolated copy (the original is never modified), harvests
 the per-case results it writes (`records.json`, one row per case with a
 `label` plus input/prediction/target fields — one repair turn if nothing
 usable was produced), and hands them straight to `explore()` (M2 + M3).
 
-- `evalvitals.run_codebase(path, ...)` / `evalvitals.analysis.run_codebase`
+- `evalrx.run_codebase(path, ...)` / `evalrx.analysis.run_codebase`
   (library) — returns a `CodebaseRunResult` (`records`, `ran_ok`, `explore`,
   `error`, ...).
-- `evalvitals run-codebase ./my_repo [--backend ...] [--out ...] [--dashboard]`
+- `evalrx run-codebase ./my_repo [--backend ...] [--out ...] [--dashboard]`
   (CLI) — persists the workspace, harvested records, and explore artifacts
   under `--out`; `--no-explore` skips the M2/M3 step.
 - See [quickstart.md#run-a-codebase-then-explore](docs/quickstart.md).
@@ -436,7 +464,7 @@ Deeper integration of arXiv 2602.12966 ("ProbeLLM"), which already inspired
 `eval_agent`'s failure-mode-clustering design (see the 2026-07-10/11 refactor
 entry below) — two further pieces from that paper, both additive:
 
-- **`evalvitals.analysis.cluster_failures`**: two new opt-in, off-by-default
+- **`evalrx.analysis.cluster_failures`**: two new opt-in, off-by-default
   parameters. `expected_col`/`error_fn` fold a failure-*mechanism* signal into
   each FAIL case's vectorized text (LLM-described when `judge` is given,
   deterministic `"expected=... got=..."` fallback otherwise), so grouping
@@ -446,13 +474,13 @@ entry below) — two further pieces from that paper, both additive:
   (`FailureMode.boundary_pairs`), surfaced to the LLM namer to describe
   *where* the failure boundary sits. Existing callers see byte-identical
   output — neither parameter is used unless explicitly passed.
-- **`evalvitals.analysis.probe_search`** (new, standalone): `ProbeSearch`, a
+- **`evalrx.analysis.probe_search`** (new, standalone): `ProbeSearch`, a
   hierarchical two-level MCTS (Macro = broad topical coverage, Micro = local
   refinement around recurring failures) that adaptively synthesizes and
   evaluates *new* test cases rather than analyzing an already-collected
   dataset, via three injected callables (`generate_macro`/`generate_micro`/
   `verify`) — no model/judge/eval_agent dependency in this module.
-- **`evalvitals.eval_agent.ProbeSearchAgent`** + **`VLMProbeCandidateGenerator`**
+- **`evalrx.eval_agent.ProbeSearchAgent`** + **`VLMProbeCandidateGenerator`**
   (new): wire `ProbeSearch` to a real target model and judge for VLM QA —
   `CaseDiscoveryAgent` as the verifier, paraphrase-based Macro/Micro question
   generation over a fixed (image, expected) seed pool as the generators (v1
@@ -466,7 +494,7 @@ entry below) — two further pieces from that paper, both additive:
 
 ### Added — held-out verification for ANY explore run (`analysis.holdout`, workbench modes)
 
-- **`evalvitals.analysis.holdout`** (new): the deco_hallu pipeline's phase 2,
+- **`evalrx.analysis.holdout`** (new): the deco_hallu pipeline's phase 2,
   generalized to any dataset the explorer can load. `split_records` carves a
   deterministic, outcome-stratified explore/holdout partition BEFORE
   exploration (wraps the fused pipeline's split); `holdout_confirm`
@@ -479,7 +507,7 @@ entry below) — two further pieces from that paper, both additive:
   columns (fail-like value → boolean/0-1 → minority class, with the rule
   recorded in the report); non-binary outcomes degrade honestly to skipped
   verdicts instead of inventing one.
-- **`evalvitals explore --holdout-frac F [--holdout-confirm] [--holdout-seed N]
+- **`evalrx explore --holdout-frac F [--holdout-confirm] [--holdout-seed N]
   [--judge-model M]`**: with a fraction the explorer only ever sees the
   explore share (the held-out rows are persisted to `holdout_records.json`);
   with `--holdout-confirm` the question additionally demands FROZEN,
@@ -495,18 +523,18 @@ entry below) — two further pieces from that paper, both additive:
 ### Changed — one fixed five-tab layout for every explore result; the web workbench as the unified surface
 
 - **Fixed tab set** (`dashboard_app.render_explore_report`): every
-  explore-shaped result — plain `evalvitals explore` run, held-out pipeline
+  explore-shaped result — plain `evalrx explore` run, held-out pipeline
   run, uploaded-zip run — now shows the same five tabs (Problem Setting /
   Exploratory Analysis / Hypotheses / Held-out Verdicts / Fix). Stages a run
   never reached render as greyed **"not available"** placeholders saying what
   the panel would show and which phase produces it (`confirm_report.json` /
   `fix_report.json`), instead of the tabs appearing and disappearing between
   runs. `SKIP_FIX=1` pipeline runs get real verdicts in tab 4 and a greyed
-  tab 5. Applies to `evalvitals dashboard` and the workbench alike (shared
+  tab 5. Applies to `evalrx dashboard` and the workbench alike (shared
   renderer).
-- **`evalvitals web --attach DIR`** (repeatable): existing result directories
+- **`evalrx web --attach DIR`** (repeatable): existing result directories
   (explore outputs or loop runs) are listed read-only (📁) in the workbench
-  sidebar next to uploads, rendered with the same views `evalvitals dashboard`
+  sidebar next to uploads, rendered with the same views `evalrx dashboard`
   would use — one page holds "upload a .zip to start a new analysis" AND the
   results other scripts already produced. `run_web.sh` auto-attaches the
   example's `outputs_attn_full` / `outputs_pipeline/1_explore` / `outputs`
@@ -526,13 +554,13 @@ outcome hues; ordinal blue ramp `#86b6ef → #2a78d6 → #104281` (validated);
 diverging `#2a78d6 ↔ #f0efec ↔ #e34948` — the categorical red, deliberately
 not the FAIL red, so signed heatmaps can't impersonate the outcome.
 
-### Added — `evalvitals web`: upload-a-.zip explore workbench
+### Added — `evalrx web`: upload-a-.zip explore workbench
 
-- **`evalvitals web [WORKSPACE]`** (new CLI subcommand) serves a Streamlit page
+- **`evalrx web [WORKSPACE]`** (new CLI subcommand) serves a Streamlit page
   (`analysis/upload_app.py`) where users upload a **.zip** of results
   (JSON/JSONL/CSV; zipped folders are unwrapped, `__MACOSX`/`.DS_Store` junk
   skipped, zip-slip rejected). Each upload becomes one run directory under the
-  workspace and is analysed by the ordinary `evalvitals explore` CLI (M2
+  workspace and is analysed by the ordinary `evalrx explore` CLI (M2
   exploratory analysis + M3 hypothesis proposal) as a **detached subprocess**
   — closing the browser never kills an analysis; `job.sh`/`job.json`/
   `exit_code` make every run observable and re-runnable by hand. Finished runs
@@ -552,20 +580,20 @@ not the FAIL red, so signed heatmaps can't impersonate the outcome.
 ### Added — agentic orchestrator, standalone data-analysis package, failure-mode clustering
 
 Four related changes make `eval_agent` more flexible/agentic and make
-`evalvitals.analysis` genuinely usable without the diagnosis loop:
+`evalrx.analysis` genuinely usable without the diagnosis loop:
 
-- **`evalvitals.agent_runtime`** (new): the CLI-agent runtime (sandboxing, code
-  generation, providers, judge models, skills) shared by `evalvitals.analysis`
-  and `evalvitals.eval_agent` — imports neither, so either can be used standalone.
-- **`evalvitals.analysis` is now dependency-free of `eval_agent`** — a new AST-based
+- **`evalrx.agent_runtime`** (new): the CLI-agent runtime (sandboxing, code
+  generation, providers, judge models, skills) shared by `evalrx.analysis`
+  and `evalrx.eval_agent` — imports neither, so either can be used standalone.
+- **`evalrx.analysis` is now dependency-free of `eval_agent`** — a new AST-based
   guard test locks this in permanently. The M2 stats stack (`StatsAnalysisAgent`,
   `stats_tools`, `stats_tool_agent`, `stats_tool_generator`, `AnalysisModule`) and
   the explorer's prompt templates moved here from `eval_agent`.
-- **`evalvitals.explore(...)`** (new): a one-call library entry point — path or
+- **`evalrx.explore(...)`** (new): a one-call library entry point — path or
   in-memory records in, `ExploreRunResult` out; `out=None` keeps everything in
-  memory. `evalvitals-explore` CLI behavior is unchanged (thin wrapper over the
+  memory. `evalrx-explore` CLI behavior is unchanged (thin wrapper over the
   same function).
-- **`AgenticDiagnoseLoop`** (new, `evalvitals.eval_agent.agentic`): a judge-decided
+- **`AgenticDiagnoseLoop`** (new, `evalrx.eval_agent.agentic`): a judge-decided
   alternative to `VLDiagnoseLoop`'s fixed M1→M2→M3→M5 cycle — a CLI judge picks the
   next tool each turn (`run_probe` / `run_stats` / `explore_data` /
   `cluster_failures` / `propose_hypotheses` / `test_hypothesis` / `run_surgery` /
@@ -575,7 +603,7 @@ Four related changes make `eval_agent` more flexible/agentic and make
   `stop(resolved=true)` is rejected and fed back to the judge). `VLDiagnoseLoop`
   itself is unchanged. `run_log.jsonl` gains two event types, `agent_decision` and
   `agent_tool` (schema version 2 → 3).
-- **`evalvitals.analysis.cluster_failures(...)`** (new): groups FAIL cases into
+- **`evalrx.analysis.cluster_failures(...)`** (new): groups FAIL cases into
   interpretable failure-mode clusters — pattern discovery over the raw failing
   cases, complementing M2's per-signal EDA. No required dependency (a pure-numpy
   fallback always works); install the new `[cluster]` extra
@@ -586,38 +614,38 @@ Four related changes make `eval_agent` more flexible/agentic and make
 ### Breaking — module reorganization (no compatibility shims)
 
 Several modules moved as part of the above. Two facades are kept
-(`evalvitals.eval_agent.cli_agent` and `.cli_skills`) — everything else below
+(`evalrx.eval_agent.cli_agent` and `.cli_skills`) — everything else below
 requires updating the import path:
 
 | Old path | New path |
 |---|---|
-| `evalvitals.eval_agent.cli_types` | `evalvitals.agent_runtime.cli_types` |
-| `evalvitals.eval_agent.cli_runtime` | `evalvitals.agent_runtime.cli_runtime` |
-| `evalvitals.eval_agent.cli_transcript` | `evalvitals.agent_runtime.cli_transcript` |
-| `evalvitals.eval_agent.sandbox` | `evalvitals.agent_runtime.sandbox` |
-| `evalvitals.eval_agent.factory` | `evalvitals.agent_runtime.factory` |
-| `evalvitals.eval_agent.experiment_harness` | `evalvitals.agent_runtime.experiment_harness` |
-| `evalvitals.eval_agent.codegen` | `evalvitals.agent_runtime.codegen` |
-| `evalvitals.eval_agent.providers.*` | `evalvitals.agent_runtime.providers.*` |
-| `evalvitals.eval_agent.models.*` (`AgyModel`, `ClaudeModel`) | `evalvitals.agent_runtime.judges.*` |
-| `evalvitals.eval_agent.skills.*` | `evalvitals.agent_runtime.skills.*` |
-| `evalvitals.eval_agent.stages.stats_tools` | `evalvitals.analysis.stats_tools` |
-| `evalvitals.eval_agent.stages.stats_agent` | `evalvitals.analysis.stats_agent` |
-| `evalvitals.eval_agent.stages.stats_tool_agent` | `evalvitals.analysis.stats_tool_agent` |
-| `evalvitals.eval_agent.stages.stats_tool_generator` | `evalvitals.analysis.stats_tool_generator` |
-| `evalvitals.eval_agent.stages.analysis` (`AnalysisModule`) | `evalvitals.analysis.analysis_module` |
-| `evalvitals.eval_agent.prompts.explorer` | `evalvitals.analysis.prompts.explorer` |
-| `evalvitals.eval_agent.prompts.{stats_agent,stats_tool_generator}` | `evalvitals.analysis.prompts.*` |
-| `evalvitals.eval_agent.loop.AutoDiagnoseLoop` | `evalvitals.eval_agent.legacy.AutoDiagnoseLoop` |
-| `evalvitals.eval_agent.loop.SelfEvolveLoop` | `evalvitals.eval_agent.legacy.SelfEvolveLoop` |
-| `evalvitals.eval_agent.loop.AutoDiagnoseReport` | `evalvitals.eval_agent.loop_reports.AutoDiagnoseReport` |
-| `evalvitals.eval_agent.loop.VLDiagnoseReport` | `evalvitals.eval_agent.loop_reports.VLDiagnoseReport` |
+| `evalrx.eval_agent.cli_types` | `evalrx.agent_runtime.cli_types` |
+| `evalrx.eval_agent.cli_runtime` | `evalrx.agent_runtime.cli_runtime` |
+| `evalrx.eval_agent.cli_transcript` | `evalrx.agent_runtime.cli_transcript` |
+| `evalrx.eval_agent.sandbox` | `evalrx.agent_runtime.sandbox` |
+| `evalrx.eval_agent.factory` | `evalrx.agent_runtime.factory` |
+| `evalrx.eval_agent.experiment_harness` | `evalrx.agent_runtime.experiment_harness` |
+| `evalrx.eval_agent.codegen` | `evalrx.agent_runtime.codegen` |
+| `evalrx.eval_agent.providers.*` | `evalrx.agent_runtime.providers.*` |
+| `evalrx.eval_agent.models.*` (`AgyModel`, `ClaudeModel`) | `evalrx.agent_runtime.judges.*` |
+| `evalrx.eval_agent.skills.*` | `evalrx.agent_runtime.skills.*` |
+| `evalrx.eval_agent.stages.stats_tools` | `evalrx.analysis.stats_tools` |
+| `evalrx.eval_agent.stages.stats_agent` | `evalrx.analysis.stats_agent` |
+| `evalrx.eval_agent.stages.stats_tool_agent` | `evalrx.analysis.stats_tool_agent` |
+| `evalrx.eval_agent.stages.stats_tool_generator` | `evalrx.analysis.stats_tool_generator` |
+| `evalrx.eval_agent.stages.analysis` (`AnalysisModule`) | `evalrx.analysis.analysis_module` |
+| `evalrx.eval_agent.prompts.explorer` | `evalrx.analysis.prompts.explorer` |
+| `evalrx.eval_agent.prompts.{stats_agent,stats_tool_generator}` | `evalrx.analysis.prompts.*` |
+| `evalrx.eval_agent.loop.AutoDiagnoseLoop` | `evalrx.eval_agent.legacy.AutoDiagnoseLoop` |
+| `evalrx.eval_agent.loop.SelfEvolveLoop` | `evalrx.eval_agent.legacy.SelfEvolveLoop` |
+| `evalrx.eval_agent.loop.AutoDiagnoseReport` | `evalrx.eval_agent.loop_reports.AutoDiagnoseReport` |
+| `evalrx.eval_agent.loop.VLDiagnoseReport` | `evalrx.eval_agent.loop_reports.VLDiagnoseReport` |
 
-`from evalvitals.eval_agent import X` (the top-level package) is **unaffected**
+`from evalrx.eval_agent import X` (the top-level package) is **unaffected**
 for every name above except the ones that moved to `legacy`/`loop_reports` —
-those still import the same way from `evalvitals.eval_agent`, just backed by a
-different implementation module. `evalvitals.eval_agent.loop` now contains only
-`VLDiagnoseLoop`. `pip install evalvitals[cluster]` (or `[all]`) adds
+those still import the same way from `evalrx.eval_agent`, just backed by a
+different implementation module. `evalrx.eval_agent.loop` now contains only
+`VLDiagnoseLoop`. `pip install evalrx[cluster]` (or `[all]`) adds
 `cluster_failures`'s optional sklearn/hdbscan backends.
 
 ### Added — held-out hypothesis pipeline for the explore path (deco_hallu_explore)
@@ -625,7 +653,7 @@ different implementation module. `evalvitals.eval_agent.loop` now contains only
 - **Four-phase pipeline** (`run_attn_pipeline.sh`): the standalone explore
   path gains the loop's propose→confirm→fix arc with a REAL held-out design.
   Phase 0 `prepare_splits.py` carves the enriched data by its `split` column
-  (explore=365 / validate=241). Phase 1 runs `evalvitals explore` on the
+  (explore=365 / validate=241). Phase 1 runs `evalrx explore` on the
   explore half only (the prompt tells the agent a validate half exists and
   demands frozen, threshold-explicit recipes). Phase 2 `test_hypotheses.py`
   re-evaluates each candidate recipe VERBATIM on the validate half
@@ -741,7 +769,7 @@ different implementation module. `evalvitals.eval_agent.loop` now contains only
   an `outcome_col` override so callers with an arbitrarily-named target (e.g.
   `revenue`, `yield_pct`) can point at it explicitly instead of relying on the
   English name-heuristic list. `explore_records` / `explore_path` / `run_explore`
-  / the `evalvitals explore` and `evalvitals-explore` CLIs all take a new
+  / the `evalrx explore` and `evalrx-explore` CLIs all take a new
   `outcome_col` / `--outcome-col`. M1's diagnosis loop is unaffected — its
   records already carry a `label` column the heuristic finds automatically, so
   it still gets the same binary FAIL/PASS framing as before.
@@ -876,7 +904,7 @@ different implementation module. `evalvitals.eval_agent.loop` now contains only
 - **`run_log.jsonl` schema_version**: every event now carries a `schema_version`
   (int), bumped only when an existing event's fields are renamed, removed, or
   change meaning, so downstream parsers can detect breaking changes without
-  guessing from `evalvitals_version`.
+  guessing from `evalrx_version`.
 
 - **`run_log.jsonl` schema_version 2 — M2 stats payloads externalized above
   4 KB**: `analysis`'s `stats_tool_results`/`stats_results`/`stats_plan`/
@@ -892,10 +920,10 @@ different implementation module. `evalvitals.eval_agent.loop` now contains only
   order-independent SHA-1 over the case batch, so two runs can be confirmed to
   use the same data) and `label_distribution` (the base PASS/FAIL/UNKNOWN
   counts the whole diagnosis is conditioned on) alongside the existing
-  `n_cases`. `git_commit` now falls back to the `EVALVITALS_GIT_COMMIT` env var
+  `n_cases`. `git_commit` now falls back to the `EVALRX_GIT_COMMIT` env var
   when the `git` CLI is unavailable, so the code-version provenance is no longer
   silently dropped inside the example Docker images (which ship no git). The
-  `eval_agent` compose file forwards `EVALVITALS_GIT_COMMIT`.
+  `eval_agent` compose file forwards `EVALRX_GIT_COMMIT`.
 
 - **Published JSON Schema for `run_log.jsonl`** (`eval_agent/log_schema.py` +
   shipped `run_log.schema.json`): the log event format is now a machine-readable
@@ -906,7 +934,7 @@ different implementation module. `evalvitals.eval_agent.loop` now contains only
   The schema is permissive (pins the envelope, per-event required fields and
   core types; allows additive fields). A contract test drives every `RunLogger`
   event type and asserts the real output conforms, so the schema can't silently
-  drift from the producer. Opt-in `EVALVITALS_VALIDATE_LOG=1` makes `RunLogger`
+  drift from the producer. Opt-in `EVALRX_VALIDATE_LOG=1` makes `RunLogger`
   self-check each event and warn (never raise) on a violation.
 
 - **`self_consistency` records its sampling config**: the analyzer's findings
@@ -1030,7 +1058,7 @@ different implementation module. `evalvitals.eval_agent.loop` now contains only
 - Capability enum extended: `LOGPROBS`, `TOOL_CALLS` (split from `LOGITS`).
 - `Agent` — backend-agnostic tool-calling loop over any model with `GENERATE + TOOL_CALLS`.
 - `ToolCallCodec` — OpenAI native and Qwen/Hermes text codecs.
-- `evalvitals.wrap()` — captum-style on-ramp for any already-loaded HF model.
+- `evalrx.wrap()` — captum-style on-ramp for any already-loaded HF model.
 - Attention analyzers: `AttentionAnalyzer`, `AttentionRolloutAnalyzer`, `AttentionSinkAnalyzer`, `RelativeAttentionAnalyzer` (arXiv:2502.17422).
 - Perturbation analyzers: `RISEAnalyzer`, `MMSHAPAnalyzer` (arXiv:2212.08158), `VLSHAPAnalyzer`.
 - Uncertainty analyzers: `TokenEntropyAnalyzer`, `LogprobEntropyAnalyzer`, `SelfConsistencyAnalyzer`, `VerbalizedConfidenceAnalyzer`.

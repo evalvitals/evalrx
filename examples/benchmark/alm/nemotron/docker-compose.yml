@@ -8,7 +8,7 @@ x-nemotron: &nemotron
   extends:
     file: ../../_common/compose/base.yml
     service: bench
-  image: evalvitals-bench-nemotron
+  image: evalrx-bench-nemotron
   build:
     context: ../../../..
     dockerfile: examples/benchmark/docker/Dockerfile

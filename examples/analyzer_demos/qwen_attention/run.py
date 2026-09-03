@@ -9,7 +9,7 @@ Usage:
 import argparse
 from pathlib import Path
 
-import evalvitals
+import evalrx
 
 DEFAULT_PROMPT = "The Eiffel Tower is located in the city of"
 CONFIG = Path(__file__).parent / "config.yaml"
@@ -21,8 +21,8 @@ def main() -> None:
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     args = parser.parse_args()
 
-    config = evalvitals.load_config(args.config)
-    result = evalvitals.run(config, args.prompt)
+    config = evalrx.load_config(args.config)
+    result = evalrx.run(config, args.prompt)
 
     print(result.summary())
 

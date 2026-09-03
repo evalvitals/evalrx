@@ -10,7 +10,7 @@ OUT_DIR="${OUT_DIR:-outputs}"
 python3 generate_data.py
 
 cmd=(
-  evalvitals
+  evalrx
   explore
   data/batches.json
   --backend "$CODER_PROVIDER"

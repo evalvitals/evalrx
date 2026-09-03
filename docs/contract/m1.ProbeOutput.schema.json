@@ -490,7 +490,7 @@
   ],
   "title": "ProbeOutput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m1.ProbeOutput.json",
+  "$id": "https://evalrx.dev/contract/m1.ProbeOutput.json",
   "x-stage": "m1",
   "x-role": "output",
   "x-schema-version": 4,

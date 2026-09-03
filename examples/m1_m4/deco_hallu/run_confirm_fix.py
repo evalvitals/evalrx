@@ -16,7 +16,7 @@ verdicts), so each proposed hypothesis gains its downstream verdict.
 
     python run_analysis.py     --backend claude ...     # PHASE 1 (no GPU) — writes the artifacts
     python run_confirm_fix.py  --model qwen3-vl-2b-instruct --device cuda   # this step
-    python -m evalvitals.cli dashboard outputs
+    python -m evalrx.cli dashboard outputs
 
 The VLM IS loaded here: the fix module (and M4 surgery) call it to validate
 candidate repairs against the unmodified baseline (paired McNemar / e-BH guard).
@@ -67,7 +67,7 @@ def main() -> None:
     with open(ANALYSIS_STATE, "rb") as fh:
         analysis_state = pickle.load(fh)
 
-    from evalvitals.eval_agent.hypothesis import hypothesis_from_dict
+    from evalrx.eval_agent.hypothesis import hypothesis_from_dict
 
     hypotheses = [hypothesis_from_dict(d) for d in analysis_state.get("hypotheses", [])]
     stats_report = analysis_state.get("stats_report")  # may be None → regenerate
@@ -80,9 +80,9 @@ def main() -> None:
               "(this is an honest outcome, not an error).")
         return
 
-    from evalvitals import compose
-    from evalvitals.core.capability import Capability
-    from evalvitals.eval_agent import (
+    from evalrx import compose
+    from evalrx.core.capability import Capability
+    from evalrx.eval_agent import (
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
@@ -90,8 +90,8 @@ def main() -> None:
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.models.backends.base import RuntimeConfig
 
     judge = run.build_judge(args.judge_model, args.judge_effort)
     model = compose(args.model, "hf_local",
@@ -134,10 +134,10 @@ def main() -> None:
 
     print(f"\nconfirm + fix logs -> {run_logger.run_dir}")
     print("\nView the full dashboard (analysis + verdicts now merged):")
-    print("  python -m evalvitals.cli dashboard outputs")
+    print("  python -m evalrx.cli dashboard outputs")
 
     if args.dashboard:
-        from evalvitals.analysis.dashboard import launch_dashboard
+        from evalrx.analysis.dashboard import launch_dashboard
 
         raise SystemExit(launch_dashboard(OUT))
 

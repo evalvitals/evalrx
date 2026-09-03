@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from evalvitals.core.case import (
+from evalrx.core.case import (
     FailureCase,
     Inputs,
     Label,

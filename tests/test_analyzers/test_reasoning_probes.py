@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.analyzers.perturbation.perturbation_battery import (
+from evalrx.analyzers.perturbation.perturbation_battery import (
     PerturbationBattery,
     append_noop_clause,
     perturb_numbers,
     rename_entities,
 )
-from evalvitals.analyzers.reasoning._text import (
+from evalrx.analyzers.reasoning._text import (
     answer_equal,
     extract_answer,
     find_equations,
@@ -27,25 +27,25 @@ from evalvitals.analyzers.reasoning._text import (
     repetition_score,
     safe_eval_arithmetic,
 )
-from evalvitals.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
-from evalvitals.analyzers.reasoning.arith_audit import ArithmeticAudit
-from evalvitals.analyzers.reasoning.contamination import ContaminationProbe, overlap_score
-from evalvitals.analyzers.reasoning.knowledge_split import KnowledgeReasoningSplit
-from evalvitals.analyzers.reasoning.self_repair import SelfRepairAnalyzer, _parse_verdict
-from evalvitals.analyzers.reasoning.step_rollout_value import (
+from evalrx.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
+from evalrx.analyzers.reasoning.arith_audit import ArithmeticAudit
+from evalrx.analyzers.reasoning.contamination import ContaminationProbe, overlap_score
+from evalrx.analyzers.reasoning.knowledge_split import KnowledgeReasoningSplit
+from evalrx.analyzers.reasoning.self_repair import SelfRepairAnalyzer, _parse_verdict
+from evalrx.analyzers.reasoning.step_rollout_value import (
     StepRolloutValueAnalyzer,
     split_steps,
 )
-from evalvitals.analyzers.reasoning.termination_audit import TerminationAudit
-from evalvitals.analyzers.uncertainty.coverage_gap import CoverageVerificationGap, pass_at_k
-from evalvitals.analyzers.uncertainty.self_consistency import (
+from evalrx.analyzers.reasoning.termination_audit import TerminationAudit
+from evalrx.analyzers.uncertainty.coverage_gap import CoverageVerificationGap, pass_at_k
+from evalrx.analyzers.uncertainty.self_consistency import (
     SelfConsistencyAnalyzer,
     cluster_by_equivalence,
     lexical_equivalent,
 )
-from evalvitals.core.capability import Capability, CapabilityError
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
+from evalrx.core.capability import Capability, CapabilityError
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
 
 
 class ScriptModel(Model):

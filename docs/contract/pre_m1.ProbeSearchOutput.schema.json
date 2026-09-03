@@ -251,7 +251,7 @@
   ],
   "title": "ProbeSearchOutput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/pre_m1.ProbeSearchOutput.json",
+  "$id": "https://evalrx.dev/contract/pre_m1.ProbeSearchOutput.json",
   "x-stage": "pre_m1",
   "x-role": "output",
   "x-schema-version": 4,

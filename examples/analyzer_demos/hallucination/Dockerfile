@@ -2,8 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY . /evalvitals
-RUN pip install --no-cache-dir "/evalvitals[api]" Pillow
+COPY . /evalrx
+RUN pip install --no-cache-dir "/evalrx[api]" Pillow
 
 WORKDIR /app/example
 COPY examples/analyzer_demos/hallucination/ .

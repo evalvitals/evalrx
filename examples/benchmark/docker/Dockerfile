@@ -1,7 +1,7 @@
 # examples/benchmark images — ONE multi-stage file, one stage per model family.
 #
 #   base      python:3.11-slim + torch 2.13 / torchvision 0.28 (cu129) + ffmpeg +
-#             gcc/libc6-dev (Triton JIT) + evalvitals[data,viz] + transformers 5.15
+#             gcc/libc6-dev (Triton JIT) + evalrx[data,viz] + transformers 5.15
 #             + the benchmark code. Everything every family needs.
 #   qwen      = base (Qwen3.5 text/VL and Qwen3-Omni load with the base stack)
 #   gemma     = base (Gemma 4 / 4-Unified are native in transformers 5.15)
@@ -29,13 +29,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg gcc libc
 RUN pip install --no-cache-dir "torch==2.13.0" "torchvision==0.28.0" \
     --index-url https://download.pytorch.org/whl/cu129
 
-COPY . /evalvitals
+COPY . /evalrx
 # transformers 5.15 explicitly: the package's [local] extra pins < 5, but
 # Qwen3.5 / Gemma 4 / nemotron_h only exist in 5.x. openai: the endpoint
 # backend. requests: the LLM datasets come through the HF datasets-server.
 # scipy/soundfile: remote audio processors resample/read through them.
 # gemini extra (google-genai): the Gemini API family (--backend gemini).
-RUN pip install --no-cache-dir "/evalvitals[data,viz,gemini]" pandas requests openai scipy soundfile \
+RUN pip install --no-cache-dir "/evalrx[data,viz,gemini]" pandas requests openai scipy soundfile \
     "transformers==5.15.0" "accelerate>=0.26.0"
 
 # The benchmark code + the LLM dataset catalog it imports, at the SAME relative
@@ -66,10 +66,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg gcc libc
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir "torch==2.10.0" "torchvision==0.25.0" \
     --index-url https://download.pytorch.org/whl/cu126
-COPY . /evalvitals
+COPY . /evalrx
 # [local] pins transformers < 5 -> 4.57.x, the 4.x line the repo code targets
 # (the model card tests 4.48.3). einops/packaging: the Omni remote code.
-RUN pip install --no-cache-dir "/evalvitals[local,data,viz]" pandas requests openai scipy soundfile \
+RUN pip install --no-cache-dir "/evalrx[local,data,viz]" pandas requests openai scipy soundfile \
     einops packaging "transformers==4.57.6"
 # Prebuilt kernels matching torch 2.10 / cu12 / cp311 / cxx11abi=TRUE (Dao-AILab +
 # state-spaces release assets): causal_conv1d for the fast path, mamba_ssm for the

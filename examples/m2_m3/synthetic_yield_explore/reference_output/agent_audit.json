@@ -6,13 +6,13 @@
       "provider": "claude_code",
       "skills_requested": [
         "eval-chart-style",
-        "evalvitals-report-ui",
+        "evalrx-report-ui",
         "nature-figure",
         "outcome-driver-analysis"
       ],
       "skills_installed": [
         "eval-chart-style",
-        "evalvitals-report-ui",
+        "evalrx-report-ui",
         "nature-figure",
         "outcome-driver-analysis"
       ],
@@ -20,7 +20,7 @@
         "outcome-driver-analysis",
         "eval-chart-style",
         "nature-figure",
-        "evalvitals-report-ui"
+        "evalrx-report-ui"
       ],
       "skill_observability": "native_skill_events",
       "evidence": [
@@ -40,7 +40,7 @@
           "detail": "Claude Code Skill tool invocation"
         },
         {
-          "skill": "evalvitals-report-ui",
+          "skill": "evalrx-report-ui",
           "kind": "native_skill_invocation",
           "detail": "Claude Code Skill tool invocation"
         }

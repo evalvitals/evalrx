@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs
-from evalvitals.eval_agent.stages.probe_search_agent import ProbeSearchAgent
+from evalrx.core.case import CaseBatch, FailureCase, Inputs
+from evalrx.eval_agent.stages.probe_search_agent import ProbeSearchAgent
 
 
 def _seed_pool() -> CaseBatch:

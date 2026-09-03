@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 
 def _make_hypothesis(statement="model confuses left/right", status=None):
-    from evalvitals.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+    from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
 
     return Hypothesis(
         statement=statement,
@@ -30,8 +30,8 @@ def _make_hypothesis(statement="model confuses left/right", status=None):
 
 
 def _make_test_result(hypothesis=None):
-    from evalvitals.eval_agent.hypothesis import HypothesisStatus
-    from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+    from evalrx.eval_agent.hypothesis import HypothesisStatus
+    from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
     return HypothesisTestResult(
         hypothesis=hypothesis or _make_hypothesis(),
@@ -51,7 +51,7 @@ def _make_test_result(hypothesis=None):
 
 
 def test_root_created_on_init(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     root = tmp_path / "run1"
     assert not root.exists()
@@ -67,7 +67,7 @@ def test_root_resolved_to_absolute_for_relative_input(tmp_path, monkeypatch):
     that same (relative) workdir — a relative root makes the child process
     resolve the script path a second time relative to its new cwd, doubling
     it and raising FileNotFoundError on every coded fix/M4 attempt."""
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     monkeypatch.chdir(tmp_path)
     ctx = RunContext(Path("outputs/run1"))
@@ -76,7 +76,7 @@ def test_root_resolved_to_absolute_for_relative_input(tmp_path, monkeypatch):
 
 
 def test_subdirectories_lazily_created(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     # Nothing but the root should exist before first access.
@@ -99,7 +99,7 @@ def test_subdirectories_lazily_created(tmp_path):
 
 
 def test_log_path_and_manifest_path(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     assert ctx.log_path == ctx.root / "run_log.jsonl"
@@ -107,14 +107,14 @@ def test_log_path_and_manifest_path(tmp_path):
 
 
 def test_run_id_defaults_to_root_name(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "spatial")
     assert ctx.run_id == "spatial"
 
 
 def test_run_id_override(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "spatial", run_id="custom_id")
     assert ctx.run_id == "custom_id"
@@ -126,8 +126,8 @@ def test_run_id_override(tmp_path):
 
 
 def test_logger_property_builds_run_logger_bound_to_context(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_logger import RunLogger
 
     ctx = RunContext(tmp_path / "run1")
     logger = ctx.logger
@@ -139,7 +139,7 @@ def test_logger_property_builds_run_logger_bound_to_context(tmp_path):
 
 
 def test_logger_property_is_cached(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     first = ctx.logger
@@ -154,7 +154,7 @@ def test_logger_property_is_cached(tmp_path):
 
 
 def test_new_workdir_unique_under_workspace(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     d1 = ctx.new_workdir("m4 surgery")
@@ -169,14 +169,14 @@ def test_new_workdir_unique_under_workspace(tmp_path):
 
 
 def test_figure_path_appends_png_by_default(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     assert ctx.figure_path("m2_effects") == ctx.figures_dir / "m2_effects.png"
 
 
 def test_figure_path_preserves_known_extension(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     assert ctx.figure_path("heatmap.svg") == ctx.figures_dir / "heatmap.svg"
@@ -188,7 +188,7 @@ def test_figure_path_preserves_known_extension(tmp_path):
 
 
 def test_new_trial_root_not_created_until_first_write(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     trial = ctx.new_trial("fixes", "L1 attend carefully")
@@ -200,7 +200,7 @@ def test_new_trial_root_not_created_until_first_write(tmp_path):
 
 
 def test_new_trial_numbering_is_monotonic_per_category(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     f1 = ctx.new_trial("fixes", "a")
@@ -216,7 +216,7 @@ def test_new_trial_numbering_is_monotonic_per_category(tmp_path):
 def test_new_trial_rejects_unknown_category(tmp_path):
     import pytest
 
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     with pytest.raises(ValueError, match="fixes.*experiments"):
@@ -224,7 +224,7 @@ def test_new_trial_rejects_unknown_category(tmp_path):
 
 
 def test_trial_write_creates_root_lazily(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     trial = ctx.new_trial("fixes", "coded_pipeline")
@@ -235,7 +235,7 @@ def test_trial_write_creates_root_lazily(tmp_path):
 
 
 def test_trial_workspace_created_lazily(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     trial = ctx.new_trial("fixes", "coded_pipeline")
@@ -248,7 +248,7 @@ def test_trial_workspace_created_lazily(tmp_path):
 
 
 def test_trial_write_record_and_result(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     trial = ctx.new_trial("fixes", "attend_carefully")
@@ -262,7 +262,7 @@ def test_trial_write_record_and_result(tmp_path):
 def test_two_trials_in_same_category_have_independent_workspaces(tmp_path):
     """The bug this whole feature exists to fix: two coded fix attempts must
     not share (and overwrite) one sandbox."""
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     t1 = ctx.new_trial("fixes", "coded_pipeline")
@@ -280,7 +280,7 @@ def test_two_trials_in_same_category_have_independent_workspaces(tmp_path):
 
 
 def test_write_report_file_text(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     path = ctx.write_report_file("notes.txt", "hello world")
@@ -290,8 +290,8 @@ def test_write_report_file_text(tmp_path):
 
 def test_write_diagnose_report_vl_style(tmp_path):
     """VLDiagnoseReport shape: all_hypotheses / all_test_results / stopped_by."""
-    from evalvitals.eval_agent.loop_reports import VLDiagnoseReport
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.loop_reports import VLDiagnoseReport
+    from evalrx.eval_agent.run_context import RunContext
 
     hyp = _make_hypothesis()
     test_result = _make_test_result(hyp)
@@ -338,8 +338,8 @@ def test_write_diagnose_report_vl_style(tmp_path):
 
 
 def test_write_diagnose_report_without_discovery_omits_file(tmp_path):
-    from evalvitals.eval_agent.loop_reports import VLDiagnoseReport
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.loop_reports import VLDiagnoseReport
+    from evalrx.eval_agent.run_context import RunContext
 
     report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles")
     ctx = RunContext(tmp_path / "run1")
@@ -350,7 +350,7 @@ def test_write_diagnose_report_without_discovery_omits_file(tmp_path):
 
 def test_write_diagnose_report_duck_typed_auto_diagnose_style(tmp_path):
     """AutoDiagnoseReport shape: final_hypotheses / resolved, no all_test_results."""
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     hyp = _make_hypothesis()
     report = SimpleNamespace(
@@ -386,7 +386,7 @@ def test_write_diagnose_report_duck_typed_auto_diagnose_style(tmp_path):
 
 
 def test_finalize_writes_manifest_matching_disk(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1", config={"model": "qwen3-vl-4b-instruct"})
     ctx.write_report_file("summary.md", "# hi\n")
@@ -414,7 +414,7 @@ def test_finalize_writes_manifest_matching_disk(tmp_path):
 
 
 def test_finalize_writes_readme_without_stale_logs_prefix(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     ctx.write_report_file("summary.md", "# hi\n")
@@ -428,7 +428,7 @@ def test_finalize_writes_readme_without_stale_logs_prefix(tmp_path):
 
 
 def test_finalize_closes_logger(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     logger = ctx.logger
@@ -439,7 +439,7 @@ def test_finalize_closes_logger(tmp_path):
 
 
 def test_finalize_idempotent_without_logger_access(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     # Never touched ctx.logger — finalize() must not require one.
@@ -449,7 +449,7 @@ def test_finalize_idempotent_without_logger_access(tmp_path):
 
 
 def test_context_manager_calls_finalize_on_exit(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     root = tmp_path / "run1"
     with RunContext(root) as ctx:

@@ -11,7 +11,7 @@ The script:
   3. Downloads those images from the public COCO mirror
      (http://images.cocodataset.org/val2014/).
 
-Data is written to /data/rjin02/evalvitals/pope_coco/:
+Data is written to /data/rjin02/evalrx/pope_coco/:
     coco_pope_adversarial.json   POPE annotations
     images/                      COCO val2014 JPEGs
 """
@@ -22,7 +22,7 @@ import json
 import urllib.request
 from pathlib import Path
 
-DATA_ROOT = Path("/data/rjin02/evalvitals/pope_coco")
+DATA_ROOT = Path("/data/rjin02/evalrx/pope_coco")
 IMAGE_DIR = DATA_ROOT / "images"
 
 POPE_URL = (

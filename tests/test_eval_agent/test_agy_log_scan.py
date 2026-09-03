@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from evalvitals.eval_agent.cli_agent import _scan_agy_log
+from evalrx.eval_agent.cli_agent import _scan_agy_log
 
 
 def test_scan_extracts_resource_exhausted(tmp_path):

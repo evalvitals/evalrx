@@ -196,7 +196,7 @@ def test_missing_logprobs_field_raises_rather_than_returning_empty(pipe, monkeyp
 
 
 def test_model_declares_logprobs(pipe):
-    from evalvitals.core.capability import Capability
+    from evalrx.core.capability import Capability
 
     caps = _model(pipe).capabilities
     assert Capability.LOGPROBS in caps and Capability.GENERATE in caps
@@ -216,8 +216,8 @@ def test_endpoint_model_satisfies_the_registry(pipe):
     asked the registry what could run and got an AttributeError — after Stage 0
     had already spent four hours on the GPU.
     """
-    from evalvitals.core.model import Model as _Model
-    from evalvitals.core.registry import registry
+    from evalrx.core.model import Model as _Model
+    from evalrx.core.registry import registry
 
     model = _model(pipe)
     assert isinstance(model, _Model)
@@ -231,7 +231,7 @@ def test_cap_only_lowers_never_raises(pipe):
     """A cap must not turn a cheap analyzer into an expensive one."""
     import inspect
 
-    from evalvitals.core.registry import registry
+    from evalrx.core.registry import registry
 
     overrides = pipe.build_analyzer_overrides(32, model=_model(pipe), verbose=False)
     for name, instance in overrides.items():
@@ -277,7 +277,7 @@ def test_generation_detection_is_read_from_source_not_assumed(pipe):
     It re-asks the model, so it belongs under the cap. Assuming otherwise would
     have left a 200-case straggler in place.
     """
-    from evalvitals.core.registry import registry
+    from evalrx.core.registry import registry
 
     assert pipe._spends_gpu(registry.analyzers.get("arith_audit"))
     assert pipe._spends_gpu(registry.analyzers.get("termination_audit"))
@@ -346,7 +346,7 @@ def test_missing_layer_types_falls_back_to_depth(wb):
 
 
 def test_forward_refuses_past_the_budget_with_an_actionable_message(wb):
-    from evalvitals.core.capability import Capability
+    from evalrx.core.capability import Capability
 
     m = wb.BoundedWhitebox(_FakeInner(_HYBRID * 8), budget_bytes=1024)
     with pytest.raises(MemoryError) as exc:
@@ -358,7 +358,7 @@ def test_forward_refuses_past_the_budget_with_an_actionable_message(wb):
 
 def test_budget_only_guards_attention(wb):
     """Hidden states are O(seq x dim), not O(seq^2) — the guard must not block them."""
-    from evalvitals.core.capability import Capability
+    from evalrx.core.capability import Capability
 
     inner = _FakeInner(_HYBRID * 8)
     m = wb.BoundedWhitebox(inner, budget_bytes=1)
@@ -368,7 +368,7 @@ def test_budget_only_guards_attention(wb):
 
 def test_forward_injects_a_default_capture_spec(wb):
     """Analyzers call forward() with no spec; without this every capture is unbounded."""
-    from evalvitals.core.capability import Capability
+    from evalrx.core.capability import Capability
 
     inner = _FakeInner(_HYBRID * 8)
     m = wb.BoundedWhitebox(inner, layers=[0, 7], to_cpu=True)
@@ -378,8 +378,8 @@ def test_forward_injects_a_default_capture_spec(wb):
 
 
 def test_caller_supplied_spec_wins(wb):
-    from evalvitals.core.capability import Capability
-    from evalvitals.core.model import CaptureSpec
+    from evalrx.core.capability import Capability
+    from evalrx.core.model import CaptureSpec
 
     inner = _FakeInner(_HYBRID * 8)
     m = wb.BoundedWhitebox(inner, layers=[0])
@@ -455,8 +455,8 @@ def test_booleans_are_not_averaged_as_numbers(runner):
 
 # ── the spec ─────────────────────────────────────────────────────────────────
 def test_qwen35_specs_declare_the_hybrid_stack():
-    from evalvitals.core.spec import AttnSemantics
-    from evalvitals.specs import get_spec
+    from evalrx.core.spec import AttnSemantics
+    from evalrx.specs import get_spec
 
     for key in ("qwen3.5-2b", "qwen3.5-4b", "qwen3.5-9b"):
         spec = get_spec(key)
@@ -467,7 +467,7 @@ def test_qwen35_specs_declare_the_hybrid_stack():
 
 def test_hybrid_sparse_still_grants_the_attention_capability():
     """It is not NONE: the 8 tensors are real, dense and worth reading."""
-    from evalvitals.core.spec import AttnSemantics
+    from evalrx.core.spec import AttnSemantics
 
     assert AttnSemantics.HYBRID_SPARSE is not AttnSemantics.NONE
 
@@ -535,7 +535,7 @@ def test_apply_writes_labels_accuracy_and_the_fingerprint(rg):
 
 def test_fingerprint_tracks_the_grading_source_not_a_version_constant(rg):
     """Hand-bumped versions record only the changes someone remembered to."""
-    from evalvitals.analyzers.reasoning import _text
+    from evalrx.analyzers.reasoning import _text
 
     digest = rg.grader_fingerprint()
     assert digest == rg.grader_fingerprint(), "must be deterministic"
@@ -634,7 +634,7 @@ def test_build_explorer_honours_the_config_switch(pipe, tmp_path, monkeypatch):
 
 
 def test_build_explorer_uses_the_m2_coder_and_a_durable_sandbox_under_the_run(pipe, tmp_path, monkeypatch):
-    from evalvitals.analysis import ExploratoryAnalysisAgent
+    from evalrx.analysis import ExploratoryAnalysisAgent
 
     codegen = pipe.build_codegen("claude")
     monkeypatch.setitem(pipe.CFG, "explore", True)
@@ -707,8 +707,8 @@ def test_fix_score_fn_is_the_batch_grader_not_a_substring_check(pipe):
     """run5 (2026-08-18) scored every format-changing candidate as 'regressed':
     a correct comma-separated `ANSWER: a, b, c` does not contain the gold `a b c`
     verbatim. The fix gate must grade like Stage 0 did."""
-    from evalvitals.analyzers.perturbation.prompt_contrast import _default_score
-    from evalvitals.core.case import FailureCase, Inputs, Label
+    from evalrx.analyzers.perturbation.prompt_contrast import _default_score
+    from evalrx.core.case import FailureCase, Inputs, Label
 
     score = pipe.make_score_fn("bbh_word_sorting")
     gold = "cheddar edt from oblivion pang poignant yuh"

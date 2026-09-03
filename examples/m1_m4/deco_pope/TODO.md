@@ -1,13 +1,13 @@
 # TODO — deco_pope 施工清单（在有 GPU 的机器上由 coding agent 执行）
 
 > 设计依据全部在 [`DESIGN.md`](DESIGN.md)，本清单只列"做什么、怎么验收"。
-> 原则：**不修改 `evalvitals/` 包内任何代码**；所有新逻辑留在本目录。
+> 原则：**不修改 `evalrx/` 包内任何代码**；所有新逻辑留在本目录。
 > 建议先用 `qwen3-vl-2b-instruct` 走通全流程（失败多、显存小），再跑 4b/8b。
 
 ## Step 0 — 环境自检
 
 - [ ] GPU 可见（`nvidia-smi`），bf16 显存：2B ≈ 5GB / 4B ≈ 9GB / 8B ≈ 17GB
-- [ ] `pip install -e "/path/to/evalvitals[local,data]"`，transformers ≥ 4.57
+- [ ] `pip install -e "/path/to/evalrx[local,data]"`，transformers ≥ 4.57
 - [ ] `pytest`（包自带 fast tests）通过，确认环境没坏
 - [x] 判别模型（M2/M3/M5 的 judge）可用：默认 `ClaudeModel(model="claude-fable-5",
       effort="low")`（agy 配额已耗尽，2026-06-12 切换；测试可

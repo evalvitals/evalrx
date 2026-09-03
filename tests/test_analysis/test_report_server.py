@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def test_serve_existing_report_without_recompiling(tmp_path, monkeypatch, capsys):
-    from evalvitals.analysis import dashboard
+    from evalrx.analysis import dashboard
 
     (tmp_path / "report.html").write_text("<!doctype html>", encoding="utf-8")
     observed = {}

@@ -37,7 +37,7 @@ jobs:
         # pytest.importorskip() for one of them silently never runs in CI at
         # all -- which is how 16+ failures and a 4-more-hidden-behind-them
         # matplotlib gap went unnoticed.
-        # The dynamic report server (evalvitals.reporting.dynamic) is FastAPI-
+        # The dynamic report server (evalrx.reporting.dynamic) is FastAPI-
         # backed since the Streamlit dashboard's removal (`ui` extra, not the
         # stale `dashboard` extra pyproject.toml no longer defines) -- without
         # it, tests/test_analysis/test_dynamic_report.py fails at import with
@@ -45,12 +45,12 @@ jobs:
         run: pip install -e ".[dev,local,api,data,finetune,viz,ui,contract]"
       - name: Check the generated contract artifacts are current
         # docs/contract/*.schema.json and contract.d.ts are generated from
-        # evalvitals/contract/. A field added in Python and not regenerated here
+        # evalrx/contract/. A field added in Python and not regenerated here
         # is a field the frontend cannot see, which is the drift the contract
         # exists to catch -- so catch it on the commit that causes it.
-        run: python -m evalvitals.contract.export --out docs/contract --check
+        run: python -m evalrx.contract.export --out docs/contract --check
       - name: Run fast unit tests
-        run: pytest -m "not gpu and not network" --cov=evalvitals --cov-report=xml -q
+        run: pytest -m "not gpu and not network" --cov=evalrx --cov-report=xml -q
       - name: Upload coverage
         if: matrix.python-version == '3.11'
         uses: codecov/codecov-action@v4

@@ -12,9 +12,9 @@ from types import SimpleNamespace
 
 from torch import nn
 
-from evalvitals.core.spec import ModelSpec
-from evalvitals.models.backends.base import RuntimeConfig
-from evalvitals.models.backends.hf_local import HFLocalModel
+from evalrx.core.spec import ModelSpec
+from evalrx.models.backends.base import RuntimeConfig
+from evalrx.models.backends.hf_local import HFLocalModel
 
 
 class _Tok:

@@ -10,7 +10,7 @@ marginal screening -> justified GLM -> fit diagnostics).
 Figure styling follows eval-chart-style (chart-type policy + semantic palette,
 which takes precedence over other skills' chart suggestions) and nature-figure
 (publication polish, Python backend, exclusive).
-Reporting shape follows evalvitals-report-ui.
+Reporting shape follows evalrx-report-ui.
 
 PURE EXPLORATORY / DESCRIPTIVE. No causal claims, no confirmation verdicts.
 """
@@ -54,7 +54,7 @@ CMAP_DIV = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34
 CMAP_SEQ = LinearSegmentedColormap.from_list("seq", ["#f7fafd", "#2a78d6"])
 
 try:  # host theme when available; inline the same intent otherwise
-    from evalvitals.analysis.eval_viz_theme import matplotlib_rcparams
+    from evalrx.analysis.eval_viz_theme import matplotlib_rcparams
     plt.rcParams.update(matplotlib_rcparams())
 except Exception:
     plt.rcParams.update({

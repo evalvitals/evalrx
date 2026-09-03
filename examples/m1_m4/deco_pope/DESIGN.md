@@ -139,7 +139,7 @@ ExperimentProtocol(
 同一段 description 也可直接走 README **Mode 2**（agent 写容器）：
 
 ```bash
-python -m evalvitals.eval_agent.nl_runner \
+python -m evalrx.eval_agent.nl_runner \
     --description "<上面的 description>" \
     --model qwen3-vl-8b-instruct \
     --out ./my_deco_experiment \

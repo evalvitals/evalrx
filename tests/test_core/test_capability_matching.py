@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-import evalvitals.analyzers  # noqa: F401  (populate analyzer registry)
-from evalvitals.core import Capability, CapabilityError, registry
+import evalrx.analyzers  # noqa: F401  (populate analyzer registry)
+from evalrx.core import Capability, CapabilityError, registry
 from tests.conftest import FakeModel
 
 
@@ -34,7 +34,7 @@ def test_registry_compatible_with_excludes_gradient_analyzer():
 
 
 def test_capability_error_on_missing():
-    from evalvitals.analyzers.attribution.gradcam import GradCAMAnalyzer
+    from evalrx.analyzers.attribution.gradcam import GradCAMAnalyzer
 
     model = FakeModel(capabilities={Capability.GENERATE})
     with pytest.raises(CapabilityError) as exc:
@@ -43,7 +43,7 @@ def test_capability_error_on_missing():
 
 
 def test_capability_error_message_is_actionable():
-    from evalvitals.analyzers.geometry.linear_probe import LinearProbeAnalyzer
+    from evalrx.analyzers.geometry.linear_probe import LinearProbeAnalyzer
 
     model = FakeModel(capabilities={Capability.GENERATE})
     with pytest.raises(CapabilityError, match="hidden_states"):

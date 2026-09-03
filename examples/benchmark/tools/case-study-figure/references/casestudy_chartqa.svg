@@ -1,6 +1,6 @@
 <svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="1760" height="1010" viewBox="0 0 1760 1010" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
-<title>EvalVitals ChartQA case study</title>
-<desc>EvalVitals applied to Gemma-4-E2B on ChartQA: probing, statistical screening, hypotheses, held-out verification, and a validated L2 repair.</desc>
+<title>EvalRX ChartQA case study</title>
+<desc>EvalRX applied to Gemma-4-E2B on ChartQA: probing, statistical screening, hypotheses, held-out verification, and a validated L2 repair.</desc>
 <rect x="0" y="0" width="1760" height="1010" rx="0" fill="#FFFFFF"/>
 <rect x="440" y="16" width="880" height="50" rx="3" fill="#111111"/>
 <text x="880" y="48" font-size="16.5" fill="#FFFFFF" font-weight="700" text-anchor="middle">256 ChartVQA cases &#183; Gemma-4-E2B &#183; baseline 49.2%</text>

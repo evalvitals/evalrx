@@ -8,14 +8,14 @@ import math
 
 import pytest
 
-from evalvitals.analysis.probe_search import (
+from evalrx.analysis.probe_search import (
     ProbeNode,
     ProbeSearch,
     _choose_regime,
     _select_expandable,
     _ucb,
 )
-from evalvitals.core.case import FailureCase, Inputs, Label
+from evalrx.core.case import FailureCase, Inputs, Label
 
 
 def _case(prompt: str, label: "Label | None" = None) -> FailureCase:

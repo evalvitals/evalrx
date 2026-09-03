@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m1_m4/qwen_loop_claude/Dockerfile
-    image: evalvitals-qwen-loop-claude
+    image: evalrx-qwen-loop-claude
     # Required before first run (mount the NATIVE claude binary, not the wrapper):
     #   export CLAUDE_PATH=$(ls -d ~/.vscode-server/extensions/anthropic.claude-code-*/resources/native-binary/claude | sort -V | tail -1)
     # Optional (agy as secondary provider): export AGY_PATH=$(which agy)

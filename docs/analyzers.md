@@ -1,7 +1,7 @@
 # Analyzer Zoo & Model Registry
 
 Reference tables for what's implemented. Discover the same information at
-runtime via `evalvitals.list_specs()` and `evalvitals.registry.analyzers`
+runtime via `evalrx.list_specs()` and `evalrx.registry.analyzers`
 (see [Discovery](quickstart.md#discovery)).
 
 ## Analyzers

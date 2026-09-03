@@ -83,8 +83,8 @@ missing per key {'batch_id': 0, 'yield_pct': 0, 'temperature': 0, 'pressure': 0,
 ]
 3.0.5 2.4.6 1.17.1 3.11.1 0.14.6
 [#6 result] Launching skill: nature-figure
-[#7 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/.claude/skills/nature-figure && cat manifest.yaml && echo "=====CONTRACT" && cat static/core/contract.md && echo "=====STANCE" && cat static/core/stance.md && echo "=====PY" && cat static/fragments/backend/python.md
-[#8 Skill] {"skill": "evalvitals-report-ui"}
+[#7 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/.claude/skills/nature-figure && cat manifest.yaml && echo "=====CONTRACT" && cat static/core/contract.md && echo "=====STANCE" && cat static/core/stance.md && echo "=====PY" && cat static/fragments/backend/python.md
+[#8 Skill] {"skill": "evalrx-report-ui"}
 [#7 result] name: nature-figure
 version: 2.0.0
 description: >
@@ -128,8 +128,8 @@ references:
       path: references/r-template-index.md
     - condition: before final delivery, revision package, micros
 ... [truncated 9598 chars]
-[#8 result] Launching skill: evalvitals-report-ui
-[#9 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn && python3 -c "
+[#8 result] Launching skill: evalrx-report-ui
+[#9 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn && python3 -c "
 import json,pandas as pd,numpy as np,statsmodels.formula.api as smf
 from scipy import stats
 df=pd.DataFrame(json.load(open('raw_input/batches.json')))
@@ -187,8 +187,8 @@ inter R2 0.867 {'Intercept': 0.3306, 'C(catalyst)[T.B]': 0.4066, 'C(catalyst)[T.
 -0.03435489204285147
 quad R2 0.866 {'Intercept': 0.7705, 'C(catalyst)[T.B]': 0.6466, 'C(catalyst)[T.C]': 0.0902, 'temperature': 0.1386, 'I(temperature ** 2)': 0.38, 'pressure': 0.3119}
 [assistant] Data is clear: 30 rows, flat JSON list, continuous outcome `yield_pct`, predictors temperature/pressure (numeric) + catalyst (3 levels). The scan shows temperature dominates (r=0.90), pressure is flat, and catalyst B's lower yield tracks its lower run temperatures — a confounding story worth charting. Writing the script.
-[#10 Write] write /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py (69276 chars)
-[#10 result] File created successfully at: /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py (file state is current in your context — no need to Read it back)
+[#10 Write] write /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py (69276 chars)
+[#10 result] File created successfully at: /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py (file state is current in your context — no need to Read it back)
 [#11 Bash] $ python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo "EXIT=$?"; tail -20 /tmp/err.txt; echo "---"; tail -c 400 /tmp/out.txt
 [#11 result] EXIT=0
 ---
@@ -272,14 +272,14 @@ marginal_screening.csv
 mean_yield_by_
 ... [truncated 259 chars]
 [assistant] Two fixes: one jargon word in a plain-language headline, and an observation that claimed checks the script didn't actually run.
-[#13 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
-[#13 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#14 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
-[#14 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#15 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
-[#15 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#16 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
-[#16 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#13 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py
+[#13 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#14 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py
+[#14 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#15 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py
+[#15 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#16 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py
+[#16 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
 [#17 Bash] $ python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo EXIT=$?; tail -5 /tmp/err.txt; python3 - <<'EOF'
 import json,os,csv
 r=json.loads([l for l in open('/tmp/out.txt') if l.startswith('EXPLORATORY_RESULT_JSON=')][-1].split('=',1)[1])
@@ -315,25 +315,25 @@ additive model (reported),0.8618,0.0,
 
 n charts 10 n plots 7 n takeaways 7
 [assistant] Contract clean. Let me eyeball the two figures that carry the main story.
-[#18 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/figures/yield_by_catalyst_raw_vs_adjusted.png
+[#18 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/figures/yield_by_catalyst_raw_vs_adjusted.png
 [#18 result] 
-[#19 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/figures/adjusted_effect_forest.png
+[#19 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/figures/adjusted_effect_forest.png
 [#19 result] 
 [assistant] The forest plot leaks raw formula syntax into labels and its legend collides with an annotation. Fixing.
-[#20 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
-[#20 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#21 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
-[#21 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#22 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py
-[#22 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#20 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py
+[#20 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#21 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py
+[#21 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#22 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py
+[#22 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
 [#23 Bash] $ python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo EXIT=$?; tail -5 /tmp/err.txt; head -3 tables/model_coefficients.csv
 [#23 result] EXIT=0
 term,raw_term,coef,ci_low,ci_high,std_err,t,p_value
 Intercept,Intercept,35.6191,25.3637,45.8746,4.9795,7.153,0.0
 catalyst = B,C(Q('catalyst'))[T.B],-0.9272,-3.7494,1.895,1.3703,-0.677,0.5048
-[#24 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/figures/adjusted_effect_forest.png
+[#24 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/figures/adjusted_effect_forest.png
 [#24 result] 
-[#25 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_kvby2kdn/figures/yield_vs_temperature_by_catalyst.png
+[#25 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_kvby2kdn/figures/yield_vs_temperature_by_catalyst.png
 [#25 result] 
 [assistant] Done. `analysis.py` runs clean and the full contract validates.
 

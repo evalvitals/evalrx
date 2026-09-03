@@ -31,13 +31,13 @@ sys.path.insert(0, HERE)
 
 from run_m1 import SYSTEM, load_cases, mc_grader  # noqa: E402
 
-from evalvitals import compose  # noqa: E402
-from evalvitals.models.agent import run_batch  # noqa: E402
-from evalvitals.models.backends.openai_compat import openai_runtime  # noqa: E402
-from evalvitals.models.tools import detect_tool, zoom_in_tool  # noqa: E402
-from evalvitals.models.tools.perception import default_detect_engine  # noqa: E402
-from evalvitals.stats import compare  # noqa: E402
-from evalvitals.stats.ebh import ebh  # noqa: E402
+from evalrx import compose  # noqa: E402
+from evalrx.models.agent import run_batch  # noqa: E402
+from evalrx.models.backends.openai_compat import openai_runtime  # noqa: E402
+from evalrx.models.tools import detect_tool, zoom_in_tool  # noqa: E402
+from evalrx.models.tools.perception import default_detect_engine  # noqa: E402
+from evalrx.stats import compare  # noqa: E402
+from evalrx.stats.ebh import ebh  # noqa: E402
 
 NO_REPEAT_WARNING = (
     " Calling this tool again with the SAME arguments returns the exact same "

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from evalvitals.analysis import CandidateSignal, ExploratoryAnalysisReport
-from evalvitals.analysis.fused_pipeline import (
+from evalrx.analysis import CandidateSignal, ExploratoryAnalysisReport
+from evalrx.analysis.fused_pipeline import (
     FusedReport,
     _split_records,
     run_fused_analysis,
@@ -245,7 +245,7 @@ def test_label_restatements_are_dropped_from_the_plan():
     crowd out the real signals — which is what M5 then draws on to "verify" a
     hypothesis.
     """
-    from evalvitals.analysis.planner import label_restating_signals, plan_stats_input
+    from evalrx.analysis.planner import label_restating_signals, plan_stats_input
 
     inp = _observed_shape()
     assert set(label_restating_signals(inp)) == {
@@ -266,7 +266,7 @@ def test_sparse_gold_derived_extraction_flag_is_descriptive_only():
     ``P(FAIL | signal)=1`` is guaranteed by construction. Keep the finding in
     the analyzer report, but never put it in the confirmatory family.
     """
-    from evalvitals.analysis.planner import plan_stats_input, restates_label
+    from evalrx.analysis.planner import plan_stats_input, restates_label
 
     inp = _observed_shape()
     sig = "answer_extraction_audit.extraction_suspect"
@@ -278,7 +278,7 @@ def test_sparse_gold_derived_extraction_flag_is_descriptive_only():
 
 def test_sparse_independent_flag_with_perfect_conditional_rate_is_kept():
     """An independently measured sparse signal must not be removed by rate alone."""
-    from evalvitals.analysis.planner import plan_stats_input, restates_label
+    from evalrx.analysis.planner import plan_stats_input, restates_label
 
     inp = _observed_shape()
     sig = "vision.small_object_flag"
@@ -297,7 +297,7 @@ def test_direction_marginals_are_testable_but_pope_conjunctions_are_not():
     false_positive / false_negative are gold x pred conjunctions (a subset of
     FAIL by construction): sparse enough to pass label_leak_score, named nothing
     like 'correct', they sat in the VLM family as guaranteed survivors."""
-    from evalvitals.analysis.planner import plan_stats_input, restates_label
+    from evalrx.analysis.planner import plan_stats_input, restates_label
 
     inp = _observed_shape()
     ids = list(inp.labels)
@@ -317,7 +317,7 @@ def test_direction_marginals_are_testable_but_pope_conjunctions_are_not():
 
 
 def test_continuous_signals_are_never_judged_as_restatements():
-    from evalvitals.analysis.planner import restates_label
+    from evalrx.analysis.planner import restates_label
 
     inp = _observed_shape()
     assert not restates_label(inp, "arith_audit.first_error_idx")
@@ -325,7 +325,7 @@ def test_continuous_signals_are_never_judged_as_restatements():
 
 def test_too_few_shared_cases_to_judge():
     """Perfect agreement over a handful of cases is cheap and means nothing."""
-    from evalvitals.analysis.planner import restates_label
+    from evalrx.analysis.planner import restates_label
 
     inp = _observed_shape()
     ids = list(inp.labels)
@@ -334,7 +334,7 @@ def test_too_few_shared_cases_to_judge():
 
 
 def test_dropping_is_off_when_there_is_no_label_to_restate():
-    from evalvitals.analysis.planner import restates_label
+    from evalrx.analysis.planner import restates_label
 
     inp = _observed_shape()
     inp.labels = {}
@@ -350,7 +350,7 @@ def test_a_perfect_separator_from_independent_measurements_is_kept():
     agreement-only rule suppresses exactly the finding worth having. Only the
     provenance differs, which is why the name has to agree too.
     """
-    from evalvitals.analysis.planner import restates_label
+    from evalrx.analysis.planner import restates_label
 
     inp = _observed_shape()
     ids = list(inp.labels)
@@ -364,7 +364,7 @@ def test_a_perfect_separator_from_independent_measurements_is_kept():
 
 def test_a_correctness_name_that_does_not_track_the_label_is_kept():
     """Name alone must not be enough either."""
-    from evalvitals.analysis.planner import restates_label
+    from evalrx.analysis.planner import restates_label
 
     inp = _observed_shape()
     ids = list(inp.labels)

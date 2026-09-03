@@ -8,11 +8,11 @@ hypotheses.
 
 from __future__ import annotations
 
-from evalvitals.analysis.stats_agent import StatsAnalysisReport
-from evalvitals.analysis.stats_tools import StatsToolResult
-from evalvitals.core.capability import Capability
-from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.analysis.stats_agent import StatsAnalysisReport
+from evalrx.analysis.stats_tools import StatsToolResult
+from evalrx.core.capability import Capability
+from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 
 
@@ -96,7 +96,7 @@ def test_failure_modes_none_by_default_adds_nothing_to_the_prompt():
 
 
 def test_failure_modes_report_enters_the_prompt_when_supplied():
-    from evalvitals.analysis.failure_modes import FailureMode, FailureModeReport
+    from evalrx.analysis.failure_modes import FailureMode, FailureModeReport
 
     fm_report = FailureModeReport(
         clusters=[FailureMode(name="small_object_miss", description="objects too small to detect", size=7)],
@@ -114,7 +114,7 @@ def test_failure_modes_report_enters_the_prompt_when_supplied():
 
 
 def test_failure_modes_with_zero_clusters_adds_nothing():
-    from evalvitals.analysis.failure_modes import FailureModeReport
+    from evalrx.analysis.failure_modes import FailureModeReport
 
     judge = CapturingJudge()
     diag = DiagnosisAgent(judge=judge).diagnose(
@@ -129,7 +129,7 @@ def test_critic_reviews_against_the_proposers_context_and_a_label_summary():
     of the audio' lead for 'no ground-truth present/absent field' -- it saw only
     the findings JSON while the proposer had M2's conclusion and the explore
     breakdown. Both calls now read the same context, plus a label summary."""
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 
     judge = CapturingJudge()
     cases = CaseBatch(
@@ -210,7 +210,7 @@ def test_plain_language_repair_failure_keeps_the_original_hypotheses():
 
 
 def test_loop_hands_the_case_batch_to_agents_that_accept_it_only():
-    from evalvitals.eval_agent.loop import _diagnose_with_optional_context
+    from evalrx.eval_agent.loop import _diagnose_with_optional_context
 
     class Modern:
         def diagnose(self, stats_report, prior_cycles=None, explore_context=None,

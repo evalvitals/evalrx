@@ -5,7 +5,7 @@ Pipeline:
     ExperimentProtocol  ← user's NL description of what to investigate
          │
     M1  ProbeAgent           protocol-guided analyzer selection + execute
-    M2  StatsAnalysisAgent   select stats tools (evalvitals.stats) + run +
+    M2  StatsAnalysisAgent   select stats tools (evalrx.stats) + run +
                              e-BH FDR-correct + LLM-written evidence chain
     M3  DiagnosisAgent       Qwen as judge ("AI scientist" hypothesis gen)
     M5  HypothesisTester     statistical test + protocol consistency check
@@ -62,7 +62,7 @@ def _get_image(*, download: bool = False):
         # so send a descriptive UA as their policy requires.
         req = urllib.request.Request(
             _SAMPLE_URL,
-            headers={"User-Agent": "evalvitals-example/1.0 (https://example.com; contact@example.com)"},
+            headers={"User-Agent": "evalrx-example/1.0 (https://example.com; contact@example.com)"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = resp.read()
@@ -116,7 +116,7 @@ def _contains(term: str, text: str) -> bool:
 
 def _score_case(case, observed):
     """Word-boundary-aware scorer for the dict/str ``expected`` rubrics."""
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     text = re.sub(r"\s+", " ", str(observed).lower())
     expected = case.expected
@@ -139,7 +139,7 @@ def _build_candidate_cases(image):
 
     Labels are assigned after model execution by :func:`_score_case`.
     """
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs
 
     return CaseBatch([
         # ── Easy: salient features a VLM reliably gets right → PASS (control) ──
@@ -208,7 +208,7 @@ class _SmokeVLM:
     """Tiny deterministic VLM stand-in for testing this example's wiring."""
 
     def __init__(self) -> None:
-        from evalvitals.core.capability import Capability
+        from evalrx.core.capability import Capability
 
         self.capabilities = frozenset({Capability.GENERATE, Capability.ATTENTION})
         self.modalities = frozenset({"text", "image"})
@@ -245,9 +245,9 @@ class _SmokeProbe:
     last_schema = None
 
     def probe(self, model, data, **kwargs):
-        from evalvitals.core.case import Label
-        from evalvitals.core.result import Result
-        from evalvitals.eval_agent import ProbingSchema
+        from evalrx.core.case import Label
+        from evalrx.core.result import Result
+        from evalrx.eval_agent import ProbingSchema
 
         fail_ids = [case.id for case in data if case.label == Label.FAIL]
         self.last_schema = ProbingSchema(
@@ -276,7 +276,7 @@ class _SmokeDiagnosisAgent:
     """M3 diagnosis stand-in with one protocol-consistent hypothesis."""
 
     def diagnose(self, analysis, prior_cycles=None):
-        from evalvitals.eval_agent import DiagnosisResult, Hypothesis
+        from evalrx.eval_agent import DiagnosisResult, Hypothesis
 
         h = Hypothesis(
             statement=(
@@ -298,7 +298,7 @@ class _SmokeDiagnosisAgent:
 
 
 def _build_protocol():
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -339,7 +339,7 @@ def _pick_agy_model() -> str:
     """
     import warnings as _w
 
-    from evalvitals.eval_agent import AgyModel
+    from evalrx.eval_agent import AgyModel
 
     for name in _JUDGE_CANDIDATES:
         try:
@@ -360,7 +360,7 @@ def _pick_agy_model() -> str:
 
 
 def _build_protocol_med():
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -392,7 +392,7 @@ def _build_protocol_med():
 
 def _build_medical_cases(args):
     """Load the VQA-RAD diagnosis mix (easy control + presence yes/no)."""
-    from evalvitals.datasets import VQARADDataset
+    from evalrx.datasets import VQARADDataset
 
     ds = VQARADDataset(
         split="train",
@@ -408,7 +408,7 @@ def _build_medical_cases(args):
 
 
 def _run_smoke_test(args) -> None:
-    from evalvitals.eval_agent import (
+    from evalrx.eval_agent import (
         CaseDiscoveryAgent,
         HypothesisTester,
         RunContext,
@@ -536,8 +536,8 @@ def main() -> None:
         _run_smoke_test(args)
         return
 
-    import evalvitals
-    from evalvitals.eval_agent import (
+    import evalrx
+    from evalrx.eval_agent import (
         AgyModel,
         CaseDiscoveryAgent,
         CliAgentConfig,
@@ -553,7 +553,7 @@ def main() -> None:
 
     # ── Load model ────────────────────────────────────────────────────────────
     print(f"\nLoading {args.model!r} on {args.device} ({args.dtype}) …")
-    model = evalvitals.load(
+    model = evalrx.load(
         args.model,
         backend="hf_local",
         device=args.device,
@@ -652,7 +652,7 @@ def main() -> None:
     _m1_codegen = args.allow_codegen and not args.analysis_only
     if args.analyzers.strip():
         # Pinned analyzer list — deterministic M1 for reproducible experiments.
-        from evalvitals.eval_agent import StrategyProbe
+        from evalrx.eval_agent import StrategyProbe
 
         pinned = [a.strip() for a in args.analyzers.split(",") if a.strip()]
         print(f"  M1 pinned analyzers: {pinned}")

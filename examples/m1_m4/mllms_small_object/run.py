@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any
 
 _OUTPUTS_DIR = Path(__file__).parent / "outputs"
-_TEXTVQA_ROOT = Path("/data/rjin02/evalvitals/textvqa_mllms_know")
+_TEXTVQA_ROOT = Path("/data/rjin02/evalrx/textvqa_mllms_know")
 _DEFAULT_TEXTVQA_ANNOTATIONS = _TEXTVQA_ROOT / "textvqa_gt_bbox_small.jsonl"
 _DEFAULT_TEXTVQA_IMAGE_DIR = _TEXTVQA_ROOT / "images"
 
@@ -126,7 +126,7 @@ def _matches_answer(gold: str, candidate: str) -> bool:
 
 
 def _score_case(case, observed):
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     candidates = _answer_candidates(str(observed))
     expected = case.expected
@@ -150,7 +150,7 @@ def _score_case(case, observed):
 
 def _build_textvqa_cases(args):
     """Load paper-style TextVQA answer-bbox cases from a local annotation file."""
-    from evalvitals.datasets import TextVQASizeDataset
+    from evalrx.datasets import TextVQASizeDataset
 
     annotations = Path(args.textvqa_annotations)
     image_dir = Path(args.textvqa_image_dir)
@@ -186,7 +186,7 @@ def _build_textvqa_cases(args):
 # ---------------------------------------------------------------------------
 
 def _build_protocol():
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -269,8 +269,8 @@ def main() -> None:
     parser.add_argument("--run-dir", default=str(_OUTPUTS_DIR))
     args = parser.parse_args()
 
-    import evalvitals
-    from evalvitals.eval_agent import (
+    import evalrx
+    from evalrx.eval_agent import (
         AgyModel,
         CaseDiscoveryAgent,
         CliAgentConfig,
@@ -286,7 +286,7 @@ def main() -> None:
     )
 
     print(f"\nLoading {args.model!r} ...")
-    model = evalvitals.load(
+    model = evalrx.load(
         args.model,
         backend="hf_local",
         device=args.device,

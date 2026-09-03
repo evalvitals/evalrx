@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from evalvitals.agent_runtime.judges.agy import AgyModel
-from evalvitals.agent_runtime.providers.base import CliAgentBase
+from evalrx.agent_runtime.judges.agy import AgyModel
+from evalrx.agent_runtime.providers.base import CliAgentBase
 
 
 def _echo_argv_script(tmp_path: Path) -> str:
@@ -66,7 +66,7 @@ class TestAgyModelLargePrompt:
             captured["dir"] = str(d)
             return str(d)
 
-        monkeypatch.setattr("evalvitals.agent_runtime.judges.agy.tempfile.mkdtemp", fake_mkdtemp)
+        monkeypatch.setattr("evalrx.agent_runtime.judges.agy.tempfile.mkdtemp", fake_mkdtemp)
         model = AgyModel(binary_path=_echo_argv_script(tmp_path), timeout_sec=10)
         model.generate("F" * (model._LARGE_PROMPT_BYTES + 1))
         assert not os.path.exists(captured["dir"]), "temp workspace was not cleaned up"
@@ -99,12 +99,12 @@ class TestCliAgentBaseLargePrompt:
 @pytest.mark.parametrize(
     "provider_module,class_name",
     [
-        ("evalvitals.agent_runtime.providers.claude_code", "ClaudeCodeAgent"),
-        ("evalvitals.agent_runtime.providers.antigravity", "AntigravityAgent"),
-        ("evalvitals.agent_runtime.providers.codex", "CodexAgent"),
-        ("evalvitals.agent_runtime.providers.gemini_cli", "GeminiCliAgent"),
-        ("evalvitals.agent_runtime.providers.kimi_cli", "KimiCliAgent"),
-        ("evalvitals.agent_runtime.providers.opencode", "OpenCodeAgent"),
+        ("evalrx.agent_runtime.providers.claude_code", "ClaudeCodeAgent"),
+        ("evalrx.agent_runtime.providers.antigravity", "AntigravityAgent"),
+        ("evalrx.agent_runtime.providers.codex", "CodexAgent"),
+        ("evalrx.agent_runtime.providers.gemini_cli", "GeminiCliAgent"),
+        ("evalrx.agent_runtime.providers.kimi_cli", "KimiCliAgent"),
+        ("evalrx.agent_runtime.providers.opencode", "OpenCodeAgent"),
     ],
 )
 def test_every_real_provider_gets_the_spill_for_free(tmp_path, provider_module, class_name):

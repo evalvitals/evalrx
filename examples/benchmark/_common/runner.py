@@ -22,7 +22,7 @@ from .models import Resolved
 
 
 def model_label(resolved: Resolved) -> str:
-    from evalvitals.specs import get_spec
+    from evalrx.specs import get_spec
 
     spec = get_spec(resolved.spec_key)
     return f"{resolved.label}, spec {spec.key} = {spec.hf_repo or ('api:' + spec.key)}"
@@ -51,9 +51,9 @@ def generation_settings(task: T.Task, args) -> dict:
 def load_model(resolved: Resolved, args, task: T.Task):
     """``(model, generation_kwargs, spec)`` for the chosen backend. Thinking stays OFF
     unless ``--enable-thinking`` (the specs send enable_thinking=False)."""
-    from evalvitals.core.capability import Capability
-    from evalvitals.models.compose import compose
-    from evalvitals.specs import get_spec
+    from evalrx.core.capability import Capability
+    from evalrx.models.compose import compose
+    from evalrx.specs import get_spec
 
     spec = get_spec(resolved.spec_key)
     if getattr(args, "model_path", None):
@@ -66,7 +66,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
     gen = generation_settings(task, args)
     max_new = gen["max_new_tokens"]
     if resolved.backend == "endpoint":
-        from evalvitals.models.backends.openai_compat import openai_runtime
+        from evalrx.models.backends.openai_compat import openai_runtime
 
         sampling = {"temperature": gen.get("temperature", 0.0), "max_tokens": max_new}
         # vLLM reads non-OpenAI params from the JSON body: top_k (dropped from the
@@ -83,7 +83,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
         # the endpoint's generate_fn carries the sampling itself; per-call kwargs are not forwarded
         return compose(spec, "api", runtime, set()), {}, spec
     if resolved.backend == "gemini":
-        from evalvitals.models.backends.gemini_compat import ThinkingPolicy, gemini_runtime
+        from evalrx.models.backends.gemini_compat import ThinkingPolicy, gemini_runtime
 
         sampling = {"temperature": gen.get("temperature", 0.0), "max_output_tokens": max_new}
         if gen.get("do_sample"):
@@ -100,7 +100,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
                                  retries=args.request_retries, thinking=policy,
                                  with_logprobs=False, **sampling)
         return compose(spec, "api", runtime, set()), {}, spec
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx.models.backends.base import RuntimeConfig
 
     device = args.device or (resolved.size.default_device if resolved.size is not None else "cuda")
     attn_choice = args.attn_impl or (resolved.size.attn_impl if resolved.size is not None else "sdpa")
@@ -139,17 +139,17 @@ def build_judge(args):
     providers as the m1_m4 examples; the benchmark CLI and compose files pin
     Codex / gpt-5.6-terra / medium."""
     if args.judge_provider == "agy":
-        from evalvitals.agent_runtime.judges import AgyModel
+        from evalrx.agent_runtime.judges import AgyModel
 
         judge = AgyModel(model=args.judge_model, timeout_sec=300)
         coder = ("antigravity", args.judge_model, ())
     elif args.judge_provider == "claude":
-        from evalvitals.eval_agent import ClaudeModel
+        from evalrx.eval_agent import ClaudeModel
 
         judge = ClaudeModel(model=args.judge_model or "sonnet", effort=args.judge_effort, timeout_sec=300)
         coder = ("claude_code", args.judge_model, (("--effort", args.judge_effort) if args.judge_effort else ()))
     else:
-        from evalvitals.agent_runtime.judges import CodexModel
+        from evalrx.agent_runtime.judges import CodexModel
 
         name = args.judge_model or "gpt-5.6-terra"
         judge = CodexModel(model=name, effort=args.judge_effort, timeout_sec=600)
@@ -194,7 +194,7 @@ API_FIX_CEILING = "L2"
 def effective_fix_tier(backend: str, requested: str) -> str:
     """``--fix-tier`` as the run can honour it: unchanged on hf_local, clamped to
     :data:`API_FIX_CEILING` on the endpoint / gemini backends."""
-    from evalvitals.eval_agent.stages.fix_tiers import parse_tier
+    from evalrx.eval_agent.stages.fix_tiers import parse_tier
 
     if backend == "hf_local" or parse_tier(requested) <= parse_tier(API_FIX_CEILING):
         return requested
@@ -212,7 +212,7 @@ def _api_model_version(model) -> str | None:
 
 def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
     """``loop.run_fix`` with every file the run has written so far held in
-    memory and off disk (``evalvitals.eval_agent.label_quarantine``).
+    memory and off disk (``evalrx.eval_agent.label_quarantine``).
 
     By the time the fix stage starts, ``baseline.json``, ``logs/report/
     discovery_cases.json``, the ``case_record`` events, the M1 signal tables
@@ -226,7 +226,7 @@ def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
     Not covered: the dataset manifest on the ``data/`` bind mount (``gold``
     column) -- a root process in the same container can always read it.
     """
-    from evalvitals.eval_agent.label_quarantine import quarantine_run_dir
+    from evalrx.eval_agent.label_quarantine import quarantine_run_dir
 
     with quarantine_run_dir(run_dir, append_logs=[ctx.log_path]) as q:
         print(f"[fix] label quarantine: {len(q.hidden)} run-dir file(s) held in memory "
@@ -258,7 +258,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         print(f"[model] weights loaded in {time.monotonic() - t0:.0f}s "
               f"(attn_impl={getattr(model.runtime, 'attn_impl', None)}); generation={gen_kwargs}")
 
-    from evalvitals.eval_agent import CaseDiscoveryAgent
+    from evalrx.eval_agent import CaseDiscoveryAgent
 
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
@@ -301,7 +301,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     if not discovery.has_m5_groups:
         raise SystemExit("M5 needs both PASS and FAIL cases; adjust --limit / --seed")
 
-    from evalvitals.eval_agent import (
+    from evalrx.eval_agent import (
         CliAgentConfig,
         DiagnosisAgent,
         FixAgent,
@@ -313,8 +313,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
-    from evalvitals.eval_agent.stages.repair_catalog import method_names
+    from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+    from evalrx.eval_agent.stages.repair_catalog import method_names
 
     ctx = RunContext(run_dir / "logs", verbose=True, config={
         "benchmark": task.title, "dataset": task.name, "modality": task.modality,
@@ -383,8 +383,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     )
     explorer = None
     if args.explore:
-        from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-        from evalvitals.analysis import ExploratoryAnalysisAgent
+        from evalrx.agent_runtime.sandbox import ExperimentSandbox
+        from evalrx.analysis import ExploratoryAnalysisAgent
 
         explorer = ExploratoryAnalysisAgent(
             cli_config=coder_cfg,

@@ -53,8 +53,8 @@ step "1/2  run_confirm_fix.py  — M5 confirm → M4 + tiered Fix [GPU + claude]
 step "2/2  dashboard  (full story — analysis + verdicts merged)"
 if [[ "$DASHBOARD" == "1" ]]; then
   echo "serving on http://localhost:$PORT  (Ctrl-C to stop)"
-  exec "$PY" -m evalvitals.cli dashboard outputs --port "$PORT"
+  exec "$PY" -m evalrx.cli dashboard outputs --port "$PORT"
 else
   echo "skipped (DASHBOARD=0). Launch it with:"
-  echo "  $PY -m evalvitals.cli dashboard outputs --port $PORT"
+  echo "  $PY -m evalrx.cli dashboard outputs --port $PORT"
 fi

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from evalvitals.core.spec import VisionSpec
-from evalvitals.core.tokentype import TokenTypeMap, build_token_type_map
+from evalrx.core.spec import VisionSpec
+from evalrx.core.tokentype import TokenTypeMap, build_token_type_map
 
 
 class _Cfg:

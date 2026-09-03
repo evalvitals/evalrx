@@ -4,7 +4,7 @@ checkpoints over ALL their cases (no max_cases cap).
 For each model file in ../../diagnosis_loops/deco_hallu/data/cases/, runs the
 RelativeAttentionAnalyzer (2 attention-captured forwards per case) and writes
 the 7 per-case attention-geometry scalars back into an enriched copy of the
-cases JSON under data_attn_full/, ready to hand to `evalvitals explore`.
+cases JSON under data_attn_full/, ready to hand to `evalrx explore`.
 Per-case spatial maps are kept as float16 .npz alongside for future
 tensor-level analyses.
 
@@ -72,10 +72,10 @@ def main() -> None:
 
     loop_run.IMAGES = ensure_images(args.models)
 
-    from evalvitals import compose
-    from evalvitals.analyzers.attention.relative_attn import RelativeAttentionAnalyzer
-    from evalvitals.core.capability import Capability
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx import compose
+    from evalrx.analyzers.attention.relative_attn import RelativeAttentionAnalyzer
+    from evalrx.core.capability import Capability
+    from evalrx.models.backends.base import RuntimeConfig
 
     OUT_DATA.mkdir(exist_ok=True)
     OUT_MAPS.mkdir(exist_ok=True)

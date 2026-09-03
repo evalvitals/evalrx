@@ -12,7 +12,7 @@ never drift apart.
 .. warning::
 
    **Every ``accuracy_9b`` below was measured with a BROKEN answer extractor**
-   (fixed 2026-08-16 in ``evalvitals.analyzers.reasoning._text``).  Two defects,
+   (fixed 2026-08-16 in ``evalrx.analyzers.reasoning._text``).  Two defects,
    both of which could only ever push a number DOWN:
 
    * a bare ``(A)`` was discarded as a format placeholder, so multiple-choice

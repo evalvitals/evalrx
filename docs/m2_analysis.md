@@ -1,6 +1,6 @@
 # M2 → M3: Exploratory Analysis & Hypothesis Generation
 
-`evalvitals explore` runs two stages over a results directory, no code required:
+`evalrx explore` runs two stages over a results directory, no code required:
 
 - **M2 — `ExploratoryAnalysisAgent`**: a local coding agent profiles your data
   and writes/runs one analysis script, producing takeaways, charts, and
@@ -25,14 +25,14 @@ pip install -e .                  # core
 ## Quickstart
 
 ```bash
-evalvitals explore /path/to/results \
+evalrx explore /path/to/results \
   -q "Which features distinguish incorrect cases from correct cases?" \
-  --out evalvitals_explore_output \
+  --out evalrx_explore_output \
   --serve-report
 ```
 
 `/path/to/results` is a single `.json`/`.jsonl` file or a directory tree;
-EvalVitals recursively samples records across files. M3 hypotheses are
+EvalRX recursively samples records across files. M3 hypotheses are
 generated automatically after a successful M2 pass — pass `--no-hypotheses`
 to skip that.
 
@@ -60,7 +60,7 @@ Pass `--outcome-col <name>` to point the agent at an explicit target column
 ## Output layout
 
 ```text
-evalvitals_explore_output/
+evalrx_explore_output/
   exploratory_report.json   # takeaways, observations, candidate signals,
                              # charts, tables, and M3 hypotheses
   analysis.py                # the generated code that was actually run,
@@ -87,7 +87,7 @@ one bounded rewrite before the report is returned.
 ## Report
 
 ```bash
-evalvitals serve evalvitals_explore_output --port 8501
+evalrx serve evalrx_explore_output --port 8501
 ```
 
 Reads the saved artifacts (no re-run) in a portable static HTML report across **Problem Setting**,
@@ -100,27 +100,27 @@ The one-call entry point runs M2 + host adjudication + M3 in a single step,
 over a path or in-memory records:
 
 ```python
-import evalvitals
+import evalrx
 
-result = evalvitals.explore(
+result = evalrx.explore(
     "/path/to/results",                 # or a list[dict] of in-memory records
     question="What predicts failure?",
     provider="claude_code",             # or antigravity/codex/...
-    out="evalvitals_explore_output",    # omit to skip persisting artifacts
+    out="evalrx_explore_output",    # omit to skip persisting artifacts
 )
 print(result.ok, result.hypotheses)
 ```
 
-`evalvitals.explore` is a lazy re-export of `evalvitals.analysis.explore`;
+`evalrx.explore` is a lazy re-export of `evalrx.analysis.explore`;
 `out=None` (the default) keeps everything in memory — pass a directory to also
 persist `exploratory_report.json`, rendered figures, and tables (the same
-artifacts the `evalvitals explore` CLI writes).
+artifacts the `evalrx explore` CLI writes).
 
 For direct control over each stage:
 
 ```python
-from evalvitals.analysis import ExploratoryAnalysisAgent, HypothesisAgent
-from evalvitals.agent_runtime import CliAgentConfig
+from evalrx.analysis import ExploratoryAnalysisAgent, HypothesisAgent
+from evalrx.agent_runtime import CliAgentConfig
 
 cli_config = CliAgentConfig(provider="claude_code")  # or antigravity/codex/...
 
@@ -135,7 +135,7 @@ for h in hypotheses:
 
 ## Failure-Mode Clustering
 
-`evalvitals.analysis.cluster_failures` groups FAIL cases into interpretable
+`evalrx.analysis.cluster_failures` groups FAIL cases into interpretable
 clusters — pattern discovery over the raw failing cases themselves, rather
 than the per-signal EDA above. No required dependency: a pure-numpy fallback
 (hashing vectorizer + cosine-greedy grouping) always works; install the
@@ -143,7 +143,7 @@ than the per-signal EDA above. No required dependency: a pure-numpy fallback
 clustering.
 
 ```python
-from evalvitals.analysis import cluster_failures
+from evalrx.analysis import cluster_failures
 
 report = cluster_failures(records, min_cluster_size=3, max_clusters=8)
 for cluster in report.clusters:
@@ -187,16 +187,16 @@ report = cluster_failures(
 
 ## Probe Search — Hierarchical MCTS Failure Discovery (VLM)
 
-`ProbeSearchAgent` (`evalvitals.eval_agent`) implements ProbeLLM's other core
+`ProbeSearchAgent` (`evalrx.eval_agent`) implements ProbeLLM's other core
 idea: instead of clustering failures the model *already* showed you, it
 actively synthesizes and evaluates **new** test cases, adaptively balancing
 broad topical coverage (**Macro**) against local refinement around cases that
 keep failing (**Micro**) via a hierarchical UCB-guided tree search
-(`evalvitals.analysis.probe_search.ProbeSearch` — standalone, generic over
+(`evalrx.analysis.probe_search.ProbeSearch` — standalone, generic over
 injected generator/verifier callables).
 
 ```python
-from evalvitals.eval_agent import ClaudeModel, ProbeSearchAgent
+from evalrx.eval_agent import ClaudeModel, ProbeSearchAgent
 
 agent = ProbeSearchAgent(judge=ClaudeModel(), budget=20)
 result = agent.run(model, seed_pool)  # seed_pool: a VLM CaseBatch (image+question+expected)
@@ -207,7 +207,7 @@ for case in result.failure_cases:
 ```
 
 **Scope (v1, VLM-only):** the bundled generator
-(`evalvitals.eval_agent.VLMProbeCandidateGenerator`) only *paraphrases*
+(`evalrx.eval_agent.VLMProbeCandidateGenerator`) only *paraphrases*
 existing seed questions over the same image — Macro picks the seed least
 similar to what's been explored so far, Micro rewords the current search
 node's own case — so the seed's `expected` answer always stays valid without
@@ -231,4 +231,4 @@ the bundled `nature-figure` Agent Skill styles agent-drawn figures
 automatically (`--no-skills` to disable). `tool_calls_*.json` files are
 skipped by default (`--include-tool-calls` to include them).
 
-Run `evalvitals explore --help` for the full flag list.
+Run `evalrx explore --help` for the full flag list.

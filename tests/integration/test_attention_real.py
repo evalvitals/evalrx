@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from evalvitals.analyzers.attention.summary import AttentionAnalyzer, AttentionResult
+from evalrx.analyzers.attention.summary import AttentionAnalyzer, AttentionResult
 
 pytestmark = pytest.mark.gpu
 

@@ -6,7 +6,7 @@ fast and deterministically.
 
 from __future__ import annotations
 
-from evalvitals.eval_agent.agentic.actions import (
+from evalrx.eval_agent.agentic.actions import (
     Action,
     ActionParseError,
     _fallback_action,
@@ -14,8 +14,8 @@ from evalvitals.eval_agent.agentic.actions import (
     parse_action,
     validate_json_shape,
 )
-from evalvitals.eval_agent.agentic.board import EvidenceBoard
-from evalvitals.eval_agent.agentic.tools import ToolOutcome, ToolRegistry, ToolSpec
+from evalrx.eval_agent.agentic.board import EvidenceBoard
+from evalrx.eval_agent.agentic.tools import ToolOutcome, ToolRegistry, ToolSpec
 
 
 def _registry() -> ToolRegistry:

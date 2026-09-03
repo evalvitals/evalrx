@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.analysis.operationalize import (
+from evalrx.analysis.operationalize import (
     RecipeError,
     SignalRecipe,
     compile_recipe,
     compile_recipes,
     per_case_finding,
 )
-from evalvitals.analysis.stats_tools import build_stats_input
+from evalrx.analysis.stats_tools import build_stats_input
 
 
 def _records() -> list[dict]:

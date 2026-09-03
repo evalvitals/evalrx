@@ -11,16 +11,16 @@ Covers:
 
 from __future__ import annotations
 
-import evalvitals.analysis as public_analysis
-from evalvitals.analysis.stats_tools import (
+import evalrx.analysis as public_analysis
+from evalrx.analysis.stats_tools import (
     StatsInput,
     StatsToolResult,
     default_plan,
     run_stats_tool,
 )
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
-from evalvitals.eval_agent import StatsAnalysisAgent, build_stats_input, fdr_correct
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
+from evalrx.eval_agent import StatsAnalysisAgent, build_stats_input, fdr_correct
 
 # ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -227,8 +227,8 @@ def test_llm_narrowing_never_drops_paired_tools():
     """Judge narrowing by tool name must retain mcnemar/friedman — they exist
     only when an intervention produced strategy groups and carry the causal
     verdicts (regression: narrowing silently dropped the paired contrasts)."""
-    from evalvitals.eval_agent import StatsAnalysisAgent
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent import StatsAnalysisAgent
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     class NarrowJudge:
         def generate(self, prompt, **kw):
@@ -262,8 +262,8 @@ def test_llm_guided_conclusion_survives_an_unparseable_judge_response():
     signal 'perturbation_battery.noop_clause_flipped' ... effect +0.83" with
     "Model: <object repr>" -- M3 then saw the latter and found zero
     hypotheses from real, significant evidence."""
-    from evalvitals.eval_agent import StatsAnalysisAgent
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent import StatsAnalysisAgent
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     class QuotaExhaustedJudge:
         def generate(self, prompt, **kw):

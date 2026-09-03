@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core.capability import Capability
-from evalvitals.models.whitebox import qwen as qmod
-from evalvitals.models.whitebox import qwen_omni as qomnimod
-from evalvitals.models.whitebox import qwen_vl as qvlmod
-from evalvitals.specs import list_specs
+from evalrx.core.capability import Capability
+from evalrx.models.whitebox import qwen as qmod
+from evalrx.models.whitebox import qwen_omni as qomnimod
+from evalrx.models.whitebox import qwen_vl as qvlmod
+from evalrx.specs import list_specs
 
 
 def test_new_qwen_specs_registered():

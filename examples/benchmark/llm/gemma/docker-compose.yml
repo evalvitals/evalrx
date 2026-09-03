@@ -10,7 +10,7 @@ x-gemma: &gemma
   extends:
     file: ../../_common/compose/base.yml
     service: bench
-  image: evalvitals-bench-gemma
+  image: evalrx-bench-gemma
   build:
     context: ../../../..
     dockerfile: examples/benchmark/docker/Dockerfile

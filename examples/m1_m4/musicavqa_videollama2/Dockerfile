@@ -8,13 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ffmpeg \
 RUN pip install --no-cache-dir \
     torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
-COPY . /evalvitals
-RUN pip install --no-cache-dir "/evalvitals[local,data]" PyYAML
+COPY . /evalrx
+RUN pip install --no-cache-dir "/evalrx[local,data]" PyYAML
 
 # VideoLLaMA2's `audio_visual` branch ships the trust_remote_code model class
 # + mm_infer() this example needs; it is NOT on PyPI (see videollama2_model.py
 # docstring). `--no-deps` avoids its pinned transformers==4.42.3 (which would
-# downgrade below evalvitals' >=4.51 requirement) — only the lightweight
+# downgrade below evalrx' >=4.51 requirement) — only the lightweight
 # extras it actually imports at inference time are installed explicitly
 # (skips gradio/wandb/tensorboard/deepspeed/bitsandbytes/peft — training +
 # serving-UI deps from upstream's requirements.txt this example never

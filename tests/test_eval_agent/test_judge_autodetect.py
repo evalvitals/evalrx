@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.agent_runtime.judges import autodetect
-from evalvitals.agent_runtime.judges.autodetect import (
+from evalrx.agent_runtime.judges import autodetect
+from evalrx.agent_runtime.judges.autodetect import (
     ResolvedJudge,
     pick_live_model,
     resolve_cli_judge,

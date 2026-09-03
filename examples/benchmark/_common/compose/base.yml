@@ -28,7 +28,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/examples/benchmark
     volumes:
-      - ${EVALVITALS_HF_CACHE:-~/.cache/huggingface}:/hf_cache
+      - ${EVALRX_HF_CACHE:-~/.cache/huggingface}:/hf_cache
       # Judge + coder CLI (ClaudeModel / claude_code): the NATIVE claude binary.
       - ${CLAUDE_PATH:-~/.local/bin/claude}:/usr/local/bin/claude:ro
       - ${CLAUDE_HOME:-~/.claude}:/home/user/.claude
@@ -40,7 +40,7 @@ services:
       - ${CODEX_HOME:-~/.codex}:/home/user/.codex
       # Optional alternate judge/coder: --judge-provider agy (Antigravity CLI,
       # no OpenAI/Anthropic API key needed — see
-      # evalvitals/agent_runtime/judges/agy.py). Harmless to mount when unused.
+      # evalrx/agent_runtime/judges/agy.py). Harmless to mount when unused.
       - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
       - ${AGY_GEMINI_HOME:-~/.gemini}:/home/user/.gemini
       - ${AGY_CACHE_HOME:-~/.cache/antigravity}:/home/user/.cache/antigravity

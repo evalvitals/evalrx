@@ -3,7 +3,7 @@
 One leaf of [`examples/benchmark`](../../README.md): the Gemma 4 sizes that
 take 16 kHz WAV clips as input, run on every alm dataset through the shared
 [`_common/run.py`](../../_common/run.py). The image is the family's
-(`evalvitals-bench-gemma`, stage `gemma` of
+(`evalrx-bench-gemma`, stage `gemma` of
 [`docker/Dockerfile`](../../docker/Dockerfile)); size and dataset are runtime
 arguments, never a rebuild.
 

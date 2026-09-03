@@ -23,16 +23,16 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
 
 pytest.importorskip("pydantic")
 
-from evalvitals.contract import (  # noqa: E402
+from evalrx.contract import (  # noqa: E402
     SCHEMA_VERSION,
     DiagnosisOutput,
     HypothesisTestOutput,
@@ -215,7 +215,7 @@ def test_declared_tool_calling_does_not_make_it_an_agent_run(tmp_path):
 
 def test_a_batch_that_does_carry_trajectories_is_an_agent_run(tmp_path):
     """The control: is_agent follows the DATA, so real trajectories set it."""
-    from evalvitals.core.case import Step, StepRole, Trajectory
+    from evalrx.core.case import Step, StepRole, Trajectory
 
     cases = _batch()
     for i, case in enumerate(cases):
@@ -264,9 +264,9 @@ def test_m2_serializes_the_typed_verdicts_not_the_legacy_summaries():
     and "nothing was tested" is a legitimate state, so nothing downstream could
     tell the empty payload was a field mix-up.
     """
-    from evalvitals.analysis.stats_agent import StatsAnalysisReport
-    from evalvitals.analysis.stats_tools import StatsToolResult
-    from evalvitals.contract.emit import from_stats_report
+    from evalrx.analysis.stats_agent import StatsAnalysisReport
+    from evalrx.analysis.stats_tools import StatsToolResult
+    from evalrx.contract.emit import from_stats_report
 
     report = StatsAnalysisReport(
         model_name="m",
@@ -292,8 +292,8 @@ def test_m2_reports_partial_when_tested_results_do_not_reach_the_payload():
     a plumbing fault -- and it has to be visible as one rather than as a stage
     that succeeded with nothing to say.
     """
-    from evalvitals.analysis.stats_agent import StatsAnalysisReport
-    from evalvitals.contract.emit import from_stats_report
+    from evalrx.analysis.stats_agent import StatsAnalysisReport
+    from evalrx.contract.emit import from_stats_report
 
     wire = from_stats_report(
         StatsAnalysisReport(
@@ -322,8 +322,8 @@ def test_a_model_is_named_not_repred():
     Unreadable, and worse: the address changes every run, so two runs of the
     same model record two different identities and nothing compares across them.
     """
-    from evalvitals.contract import ModelRef
-    from evalvitals.contract.emit import model_name
+    from evalrx.contract import ModelRef
+    from evalrx.contract.emit import model_name
 
     class MockAVModel:
         pass
@@ -362,9 +362,9 @@ def test_every_statistical_result_carries_a_distinct_human_label():
     ['signal']` is the subject but is a machine name, and paired tools carry
     none at all.
     """
-    from evalvitals.analysis.stats_agent import StatsAnalysisReport
-    from evalvitals.analysis.stats_tools import StatsToolResult
-    from evalvitals.contract.emit import from_stats_report, measured_label
+    from evalrx.analysis.stats_agent import StatsAnalysisReport
+    from evalrx.analysis.stats_tools import StatsToolResult
+    from evalrx.contract.emit import from_stats_report, measured_label
 
     class _R:
         def __init__(self, tool, cfg): self.tool, self.config = tool, cfg
@@ -404,8 +404,8 @@ def test_a_fix_tier_enum_serialises_to_its_wire_spelling():
     through and the whole M4 payload was rejected -- the repair results were
     lost to a spelling. `.label` is exactly the wire form and was already there.
     """
-    from evalvitals.contract.emit import _tier
-    from evalvitals.eval_agent.stages.fix_tiers import FixTier
+    from evalrx.contract.emit import _tier
+    from evalrx.eval_agent.stages.fix_tiers import FixTier
 
     assert _tier(FixTier.L3A_INTERNALS_READ) == "L3a"
     assert _tier(FixTier.L0_RUNTIME_CONFIG) == "L0"
@@ -417,9 +417,9 @@ def test_a_fix_tier_enum_serialises_to_its_wire_spelling():
 def test_every_tier_the_pipeline_has_is_representable():
     """L0 was missing from the contract, so a runtime-config repair -- the least
     invasive kind, and one FixTier defines -- could not be reported at all."""
-    from evalvitals.contract import FixOutput
-    from evalvitals.contract.emit import _tier
-    from evalvitals.eval_agent.stages.fix_tiers import FixTier
+    from evalrx.contract import FixOutput
+    from evalrx.contract.emit import _tier
+    from evalrx.eval_agent.stages.fix_tiers import FixTier
 
     for tier in FixTier:
         FixOutput(
@@ -438,7 +438,7 @@ def test_a_paired_contrast_is_named_by_its_arms():
     indistinguishable from each other on a chart. These are the INTERVENTION
     grade evidence; they are the last rows that should be unreadable.
     """
-    from evalvitals.contract.emit import measured_label
+    from evalrx.contract.emit import measured_label
 
     class _R:
         tool = "mcnemar_evalue"
@@ -468,7 +468,7 @@ def test_the_selection_sweep_reaches_the_wire():
     """
     from types import SimpleNamespace
 
-    from evalvitals.contract.emit import from_fix_outcome
+    from evalrx.contract.emit import from_fix_outcome
 
     outcome = SimpleNamespace(
         max_tier="L3a", routed=[], attempted=[], best=None, fixed=False,
@@ -510,7 +510,7 @@ def test_the_same_repair_carries_one_number_in_both_lists():
     """
     from types import SimpleNamespace
 
-    from evalvitals.contract.emit import from_fix_outcome
+    from evalrx.contract.emit import from_fix_outcome
 
     confirmed = SimpleNamespace(
         candidate=SimpleNamespace(
@@ -559,7 +559,7 @@ def test_an_undescribed_repair_stays_blank_rather_than_title_cased():
     """
     from types import SimpleNamespace
 
-    from evalvitals.contract.emit import from_fix_outcome
+    from evalrx.contract.emit import from_fix_outcome
 
     outcome = SimpleNamespace(
         max_tier="L1", routed=[], attempted=[], best=None, fixed=False,
@@ -593,7 +593,7 @@ def test_the_hosts_own_repairs_describe_themselves():
     """
     from types import SimpleNamespace
 
-    from evalvitals.contract.emit import from_fix_outcome
+    from evalrx.contract.emit import from_fix_outcome
 
     attempt = SimpleNamespace(
         candidate=SimpleNamespace(

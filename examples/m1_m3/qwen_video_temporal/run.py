@@ -16,7 +16,7 @@ Pipeline (same as qwen_loop_agy):
 
 Key difference vs qwen_loop_agy:
   Inputs carry a *video* field (list of 3 PIL frames) instead of a single
-  image.  The evalvitals backend maps each frame to a separate image-token
+  image.  The evalrx backend maps each frame to a separate image-token
   block in the VLM prompt, so the model sees a temporal sequence.
   Cases probe temporal understanding:
     - easy  (→ PASS): static properties visible in any single frame
@@ -96,7 +96,7 @@ def _contains(term: str, text: str) -> bool:
 
 
 def _score_case(case, observed):
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     text = re.sub(r"\s+", " ", str(observed).lower())
     expected = case.expected
@@ -125,7 +125,7 @@ def _build_candidate_cases(frames: list):
     All prompts reference the frame sequence explicitly so the model
     knows it is looking at a temporal clip, not unrelated images.
     """
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs
 
     prefix = (
         f"You are shown {_N_FRAMES} consecutive frames from a short video clip "
@@ -202,7 +202,7 @@ class _SmokeVLM:
     """Deterministic VLM stand-in — exercises the wiring without GPU/weights."""
 
     def __init__(self) -> None:
-        from evalvitals.core.capability import Capability
+        from evalrx.core.capability import Capability
 
         self.capabilities = frozenset({Capability.GENERATE, Capability.ATTENTION})
         self.modalities = frozenset({"text", "image", "video"})
@@ -234,9 +234,9 @@ class _SmokeProbe:
     last_schema = None
 
     def probe(self, model, data, **kwargs):
-        from evalvitals.core.case import Label
-        from evalvitals.core.result import Result
-        from evalvitals.eval_agent import ProbingSchema
+        from evalrx.core.case import Label
+        from evalrx.core.result import Result
+        from evalrx.eval_agent import ProbingSchema
 
         fail_ids = [case.id for case in data if case.label == Label.FAIL]
         self.last_schema = ProbingSchema(
@@ -263,7 +263,7 @@ class _SmokeProbe:
 
 class _SmokeDiagnosisAgent:
     def diagnose(self, analysis, prior_cycles=None):
-        from evalvitals.eval_agent import DiagnosisResult, Hypothesis
+        from evalrx.eval_agent import DiagnosisResult, Hypothesis
 
         h = Hypothesis(
             statement=(
@@ -289,7 +289,7 @@ class _SmokeDiagnosisAgent:
 # ---------------------------------------------------------------------------
 
 def _build_protocol():
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -320,7 +320,7 @@ def _build_protocol():
 # ---------------------------------------------------------------------------
 
 def _run_smoke_test(args) -> None:
-    from evalvitals.eval_agent import (
+    from evalrx.eval_agent import (
         CaseDiscoveryAgent,
         HypothesisTester,
         RunContext,
@@ -409,8 +409,8 @@ def main() -> None:
         _run_smoke_test(args)
         return
 
-    import evalvitals
-    from evalvitals.eval_agent import (
+    import evalrx
+    from evalrx.eval_agent import (
         AgyModel,
         CaseDiscoveryAgent,
         CliAgentConfig,
@@ -426,7 +426,7 @@ def main() -> None:
 
     # ── Load model ────────────────────────────────────────────────────────
     print(f"\nLoading {args.model!r} on {args.device} ({args.dtype}) …")
-    model = evalvitals.load(
+    model = evalrx.load(
         args.model,
         backend="hf_local",
         device=args.device,

@@ -7,8 +7,8 @@ applies one e-BH family, never trusts a self-declared verdict).
 
 from __future__ import annotations
 
-from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-from evalvitals.analysis import (
+from evalrx.agent_runtime.sandbox import ExperimentSandbox
+from evalrx.analysis import (
     CandidateSignal,
     ExploratoryAnalysisAgent,
     ExploratoryAnalysisReport,

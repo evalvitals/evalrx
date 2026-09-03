@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from evalvitals.analysis.analysis_module import AnalysisFinding
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label, Step, StepRole, Trajectory
-from evalvitals.core.registry import registry
-from evalvitals.eval_agent import (
+from evalrx.analysis.analysis_module import AnalysisFinding
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label, Step, StepRole, Trajectory
+from evalrx.core.registry import registry
+from evalrx.eval_agent import (
     AnalysisModule,
     AnalysisReport,
     AutoDiagnoseLoop,
@@ -25,7 +25,7 @@ from evalvitals.eval_agent import (
     ProbeAgent,
     SurgeryAgent,
 )
-from evalvitals.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.hypothesis import Hypothesis
 from tests.conftest import FakeModel
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ def test_single_turn_batch_is_not_offered_trajectory_analyzers():
     """The bug this gate exists for: analyzers/agent/ declares no capability, so
     every one of them matched a plain QA batch. `first_error_judge` was selected,
     ran, and reported n_trajectories=0 -- which M2 listed as a healthy metric."""
-    from evalvitals.eval_agent.stages.probe_agent import (
+    from evalrx.eval_agent.stages.probe_agent import (
         _analyzer_data_preconditions_met,
     )
 
@@ -161,7 +161,7 @@ def test_single_turn_batch_is_not_offered_trajectory_analyzers():
 
 
 def test_trajectory_batch_still_admits_them():
-    from evalvitals.eval_agent.stages.probe_agent import (
+    from evalrx.eval_agent.stages.probe_agent import (
         _analyzer_data_preconditions_met,
     )
 
@@ -171,7 +171,7 @@ def test_trajectory_batch_still_admits_them():
 
 
 def test_non_agent_analyzers_are_unaffected_by_the_gate():
-    from evalvitals.eval_agent.stages.probe_agent import (
+    from evalrx.eval_agent.stages.probe_agent import (
         _analyzer_data_preconditions_met,
     )
 
@@ -181,7 +181,7 @@ def test_non_agent_analyzers_are_unaffected_by_the_gate():
 
 
 def test_probe_agent_uses_override():
-    from evalvitals.analyzers.agent.counterfactual import CounterfactualReplay
+    from evalrx.analyzers.agent.counterfactual import CounterfactualReplay
 
     model = FakeModel(capabilities={Capability.GENERATE, Capability.TOOL_CALLS})
     data = _traj_batch(n_fail=1, n_pass=0)
@@ -214,7 +214,7 @@ def test_probe_agent_priority_ordering():
 
 def _fake_results_with_sink() -> dict:
     """AttentionSink result with mean_sink_mass above threshold (0.6)."""
-    from evalvitals.core.result import Result
+    from evalrx.core.result import Result
 
     return {
         "attention_sink": Result(
@@ -227,7 +227,7 @@ def _fake_results_with_sink() -> dict:
 
 
 def _fake_results_healthy() -> dict:
-    from evalvitals.core.result import Result
+    from evalrx.core.result import Result
 
     return {
         "attention_sink": Result(
@@ -270,8 +270,8 @@ def test_analysis_module_to_dict():
 
 
 def test_analysis_module_extra_rules():
-    from evalvitals.analysis.analysis_module import _Rule
-    from evalvitals.core.result import Result
+    from evalrx.analysis.analysis_module import _Rule
+    from evalrx.core.result import Result
 
     results = {
         "my_analyzer": Result(
@@ -286,8 +286,8 @@ def test_analysis_module_extra_rules():
 
 
 def test_analysis_module_sorts_high_severity_first():
-    from evalvitals.analysis.analysis_module import _Rule
-    from evalvitals.core.result import Result
+    from evalrx.analysis.analysis_module import _Rule
+    from evalrx.core.result import Result
 
     results = {
         "a1": Result(analyzer="a1", model="m", findings={"m1": 10.0}),
@@ -328,7 +328,7 @@ def test_unparsed_judge_text_falls_back_loudly_but_no_issue_quietly(caplog):
     but a parse miss must be visible; a genuine NO_ISSUE verdict stays quiet."""
     import logging
 
-    with caplog.at_level(logging.WARNING, logger="evalvitals.eval_agent.stages.diagnosis"):
+    with caplog.at_level(logging.WARNING, logger="evalrx.eval_agent.stages.diagnosis"):
         judge = ScriptedModel(answers=["Three rich paragraphs of diagnosis without any label lines."],
                               capabilities={Capability.GENERATE})
         diag = DiagnosisAgent(judge=judge).diagnose(_make_report())
@@ -336,7 +336,7 @@ def test_unparsed_judge_text_falls_back_loudly_but_no_issue_quietly(caplog):
     assert any("parsed to zero hypotheses" in r.message for r in caplog.records)
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="evalvitals.eval_agent.stages.diagnosis"):
+    with caplog.at_level(logging.WARNING, logger="evalrx.eval_agent.stages.diagnosis"):
         judge = ScriptedModel(answers=["NO_ISSUE"], capabilities={Capability.GENERATE})
         diag = DiagnosisAgent(judge=judge).diagnose(_make_report())
     assert len(diag.hypotheses) == 1                     # the NO_ISSUE fallback is by design
@@ -364,7 +364,7 @@ def test_diagnosis_no_issue_returns_empty():
 
 def test_diagnosis_backward_compat_accepts_results_dict():
     """Passing a raw results dict (old API) still works via AnalysisModule wrapping."""
-    from evalvitals.analyzers.attention.summary import AttentionAnalyzer
+    from evalrx.analyzers.attention.summary import AttentionAnalyzer
     model = FakeModel()
     results = {"attention": AttentionAnalyzer().run(model, "probe")}
     judge = ScriptedModel(answers=["NO_ISSUE"], capabilities={Capability.GENERATE})
@@ -409,7 +409,7 @@ def test_surgery_verify_fn_override():
 
 
 def test_surgery_correlate_supported(recwarn):
-    from evalvitals.analyzers.agent.loop_detect import LoopDetector
+    from evalrx.analyzers.agent.loop_detect import LoopDetector
 
     model = _agent_model()
     data = _traj_batch(n_fail=2, n_pass=2)
@@ -420,7 +420,7 @@ def test_surgery_correlate_supported(recwarn):
 
 
 def test_surgery_inconclusive_no_labels():
-    from evalvitals.analyzers.agent.loop_detect import LoopDetector
+    from evalrx.analyzers.agent.loop_detect import LoopDetector
 
     model = _agent_model()
     unlabeled = _traj_batch(n_fail=1, n_pass=1)
@@ -453,7 +453,7 @@ class _FakeExperimentWriter:
         self.calls = 0
 
     def write_and_run(self, *, hypothesis, model_context, cases_json, sandbox):
-        from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterResult
+        from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterResult
 
         self.calls += 1
         sandbox.run(f"print('verdict: 1.0')  # call {self.calls}")
@@ -468,7 +468,7 @@ def test_m4_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
     """The bug this feature exists to fix: M4 experiments used to share (and
     overwrite) one sandbox, and ExperimentSandbox deleted it on success —
     so a *successful* experiment left no runnable code behind at all."""
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     agent = SurgeryAgent(judge=FakeModel(), run_context=ctx)
@@ -620,7 +620,7 @@ def test_loop_docker_mode_falls_back_gracefully(recwarn):
 
 # ── the per-analyzer case ceiling ────────────────────────────────────────────
 def _labelled_batch(n_pass, n_fail):
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
     cases = [FailureCase(inputs=Inputs(prompt=f"p{i}"), observed="o",
                          expected="e", label=Label.PASS) for i in range(n_pass)]
     cases += [FailureCase(inputs=Inputs(prompt=f"f{i}"), observed="o",
@@ -640,7 +640,7 @@ class _OwnKnob:
 
 
 def _agent(cap):
-    from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+    from evalrx.eval_agent.stages.probe_agent import ProbeAgent
     return ProbeAgent(max_cases_per_analyzer=cap)
 
 
@@ -655,7 +655,7 @@ def test_cap_bounds_an_analyzer_that_has_no_max_cases_argument():
 def test_cap_keeps_both_label_classes_in_proportion():
     """M1 contrasts PASS against FAIL — a subset with one class is not a probe,
     it is a null result that looks like a measurement."""
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     out = _agent(32)._cap_cases("no_knob", _NoKnob(), _labelled_batch(114, 158))
     seen = [c.label for c in out]
@@ -664,7 +664,7 @@ def test_cap_keeps_both_label_classes_in_proportion():
 
 def test_cap_survives_a_batch_that_opens_with_one_label():
     """Head truncation would hand this analyzer 32 PASS and zero FAIL."""
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     out = _agent(32)._cap_cases("no_knob", _NoKnob(), _labelled_batch(100, 8))
     assert len(out) == 32
@@ -680,7 +680,7 @@ def test_cap_does_not_override_a_tighter_knob_the_analyzer_set_itself():
 
 
 def test_cap_is_off_by_default_and_a_noop_below_the_ceiling():
-    from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+    from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 
     batch = _labelled_batch(114, 158)
     assert len(ProbeAgent()._cap_cases("no_knob", _NoKnob(), batch)) == len(batch)

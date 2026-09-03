@@ -8,7 +8,7 @@ through the vLLM-served Qwen3-VL agent with {image_zoom_in, image_detect}:
   stage 3  reliability_probe  k=3 @ t=0.7 (stratified subset — interventional)
   stage 4  tool_shap 2^2 subsets, exact   (same subset — interventional)
   stage 5  trajectory_rubric              (same subset; served model as judge)
-  stage 6  merge everything into outputs/records.json for `evalvitals explore`
+  stage 6  merge everything into outputs/records.json for `evalrx explore`
 
 Usage:
     .venv/bin/python examples/m2_m3/vtcbench_diagnosis/run_m1.py \
@@ -26,18 +26,18 @@ from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 
-from evalvitals import compose
-from evalvitals.analysis.trajectory_records import trajectories_to_records
-from evalvitals.analyzers.agent.ignored_obs import IgnoredObservationDetector
-from evalvitals.analyzers.agent.loop_detect import LoopDetector
-from evalvitals.analyzers.agent.reliability import ReliabilityProbe
-from evalvitals.analyzers.agent.tool_shap import ToolShap
-from evalvitals.analyzers.agent.trajectory_rubric import TrajectoryRubricJudge
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.models.agent import Agent, run_batch
-from evalvitals.models.backends.openai_compat import openai_runtime
-from evalvitals.models.tools import detect_tool, zoom_in_tool
-from evalvitals.models.tools.perception import default_detect_engine
+from evalrx import compose
+from evalrx.analysis.trajectory_records import trajectories_to_records
+from evalrx.analyzers.agent.ignored_obs import IgnoredObservationDetector
+from evalrx.analyzers.agent.loop_detect import LoopDetector
+from evalrx.analyzers.agent.reliability import ReliabilityProbe
+from evalrx.analyzers.agent.tool_shap import ToolShap
+from evalrx.analyzers.agent.trajectory_rubric import TrajectoryRubricJudge
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.models.agent import Agent, run_batch
+from evalrx.models.backends.openai_compat import openai_runtime
+from evalrx.models.tools import detect_tool, zoom_in_tool
+from evalrx.models.tools.perception import default_detect_engine
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT = "/tealab-data/jiaqiliu/datasets"
@@ -202,7 +202,7 @@ def main() -> None:
             return Agent(vlm, tools_for(case, names), system=SYSTEM,
                          max_turns=args.max_turns, **agent_kwargs).run(case)
         except Exception as exc:  # e.g. context overflow — a failed run, not a dead batch
-            from evalvitals.core.case import Step, StepRole, Trajectory
+            from evalrx.core.case import Step, StepRole, Trajectory
             return Trajectory(
                 sample_id=case.id, goal=case.inputs.prompt,
                 steps=[Step(idx=0, role=StepRole.USER, content=case.inputs.prompt)],

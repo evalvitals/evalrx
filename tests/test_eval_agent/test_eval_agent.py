@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from evalvitals.core.case import FailureCase, Label
-from evalvitals.eval_agent import (
+from evalrx.core.case import FailureCase, Label
+from evalrx.eval_agent import (
     ABRunner,
     DataSplit,
     DiagnosticReport,

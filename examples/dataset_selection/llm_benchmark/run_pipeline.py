@@ -2,9 +2,9 @@
 
     python run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
     python run_pipeline.py --analysis-only        # M1->M2->M3, stop before M5/M4
-    python -m evalvitals.cli dashboard outputs/qwen3.5-9b/supergpqa_law
+    python -m evalrx.cli dashboard outputs/qwen3.5-9b/supergpqa_law
 
-Stages (evalvitals.eval_agent.loop.VLDiagnoseLoop -- the class name says VL, but
+Stages (evalrx.eval_agent.loop.VLDiagnoseLoop -- the class name says VL, but
 it takes a plain Model plus an ExperimentProtocol whose target_modalities is
 {"text"} here, and nothing in it is vision-specific):
 
@@ -52,7 +52,7 @@ sys.path.insert(0, str(PKG_ROOT))
 
 import band_locate as B  # noqa: E402
 import datasets as CATALOG  # noqa: E402
-from evalvitals.core.model import Model  # noqa: E402
+from evalrx.core.model import Model  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
 
@@ -108,7 +108,7 @@ class EndpointModel(Model):
     def __init__(self, model_id: str, base_url: str, max_tokens: int, sampling: dict,
                  logprobs_mode: str = "answer", logprobs_max_tokens: int = 64,
                  logprobs_top_k: int = 5):
-        from evalvitals.core.capability import Capability
+        from evalrx.core.capability import Capability
 
         self.capabilities = frozenset({Capability.GENERATE, Capability.LOGPROBS})
         self.modalities = frozenset({"text"})
@@ -189,7 +189,7 @@ class EndpointModel(Model):
         """
         import requests
 
-        from evalvitals.core.model import TokenLogprob
+        from evalrx.core.model import TokenLogprob
 
         mode = (mode or self.logprobs_mode).lower()
         if mode not in self.LOGPROBS_MODES:
@@ -262,7 +262,7 @@ def load_batch(model_id: str, dataset: str, out_dir: "Path | None" = None):
     read first so a smoke run is self-contained; it falls back to the untagged
     ``outputs/<model>/<dataset>/cases.json`` and copies that file into *out_dir*
     for provenance — the frozen batch itself is never rewritten."""
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 
     base = HERE / "outputs" / model_id / dataset / "cases.json"
     path = base
@@ -379,7 +379,7 @@ def subsample_batch(batch, report: dict, n: int, seed: int = 0):
     printed ``[batch]`` line and summary.json describe what actually ran."""
     import random
 
-    from evalvitals.core.case import CaseBatch, Label
+    from evalrx.core.case import CaseBatch, Label
 
     cases = list(batch)
     if n <= 0 or n >= len(cases):
@@ -411,7 +411,7 @@ def build_protocol(dataset: str):
     suspected mechanism -- proposing the mechanism is M3's job, and supplying one
     here leaks the answer into the loop that is meant to find it.
     """
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     entry = CATALOG.get(dataset)
     return ExperimentProtocol(
@@ -440,7 +440,7 @@ def build_judge(model_name: str, effort: str, timeout_sec: int = 240):
     240 s default (bbh_causal_judgement 2026-08-18: M2 fell back to the
     threshold narrative on a 240 s timeout), so config ``judge_timeout_sec``
     raises it."""
-    from evalvitals.eval_agent import ClaudeModel
+    from evalrx.eval_agent import ClaudeModel
 
     judge = ClaudeModel(model=model_name, effort=effort, timeout_sec=int(timeout_sec))
     if not judge.generate("Reply with exactly the word OK").strip():
@@ -467,7 +467,7 @@ def graded_answer(text) -> str:
     labelled in. Anything coarser counts wording as disagreement, which on a
     model that varies its phrasing every sample is most of the signal.
     """
-    from evalvitals.analyzers.reasoning._text import normalize_answer
+    from evalrx.analyzers.reasoning._text import normalize_answer
 
     return normalize_answer(_ANSWER_LEAD.sub("", str(B.extract_answer(text)), count=1))
 
@@ -509,7 +509,7 @@ def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -
     """
     import inspect
 
-    from evalvitals.core.registry import registry
+    from evalrx.core.registry import registry
 
     # 0 means "library defaults" everywhere else in the config, and without this
     # it would instead cap every analyzer to ZERO cases -- analyzers that run,
@@ -584,10 +584,10 @@ def load_prior_run(logs_dir: Path):
     them). Raises SystemExit with the missing piece named when the logs do
     not hold a completed M2->M3.
     """
-    from evalvitals.analysis.stats_agent import StatsAnalysisReport
-    from evalvitals.analysis.stats_tools import StatsToolResult
-    from evalvitals.core.result import Result
-    from evalvitals.eval_agent.hypothesis import hypothesis_from_dict
+    from evalrx.analysis.stats_agent import StatsAnalysisReport
+    from evalrx.analysis.stats_tools import StatsToolResult
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.hypothesis import hypothesis_from_dict
 
     log_path = logs_dir / "run_log.jsonl"
     if not log_path.exists():
@@ -685,7 +685,7 @@ def make_scoring_note(dataset: str, cases: list) -> str:
 
 
 def build_codegen(backend: str):
-    from evalvitals.eval_agent import CliAgentConfig
+    from evalrx.eval_agent import CliAgentConfig
 
     provider = {"claude": "claude_code", "codex": "codex", "agy": "antigravity"}.get(
         backend, backend)
@@ -710,8 +710,8 @@ def build_explorer(codegen, out: Path):
     """
     if not bool(CFG.get("explore", True)):
         return None
-    from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-    from evalvitals.analysis import ExploratoryAnalysisAgent
+    from evalrx.agent_runtime.sandbox import ExperimentSandbox
+    from evalrx.analysis import ExploratoryAnalysisAgent
 
     return ExploratoryAnalysisAgent(
         cli_config=codegen,
@@ -780,17 +780,17 @@ def main() -> None:
     if args.analysis_only and args.confirm_only:
         ap.error("--analysis-only and --confirm-only are the two halves of one run")
 
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-    from evalvitals.eval_agent import (
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.eval_agent import (
         ExperimentWriterConfig,
         FixAgent,
         RunLogger,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
-    from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTester
-    from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
+    from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester
+    from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 
     out = HERE / "outputs" / args.model / (
         f"{args.dataset}.{args.out_tag}" if args.out_tag else args.dataset)
@@ -1014,7 +1014,7 @@ def main() -> None:
     summary_name = "summary_confirm.json" if args.confirm_only else "summary.json"
     (out / summary_name).write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     print(f"\nwrote {out/summary_name}")
-    print(f"dashboard: python -m evalvitals.cli dashboard {out}")
+    print(f"dashboard: python -m evalrx.cli dashboard {out}")
 
 
 if __name__ == "__main__":

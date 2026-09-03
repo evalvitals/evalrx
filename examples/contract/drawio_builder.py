@@ -1,6 +1,6 @@
 """Optional authoring helper: build a draw.io diagram from a step graph.
 
-Not part of the contract. :class:`~evalvitals.contract.methodology.MethodologyWire`
+Not part of the contract. :class:`~evalrx.contract.methodology.MethodologyWire`
 takes ``drawio_xml`` and nothing else, so a producer may author that XML any way
 it likes. This module is one such way, for producers that would rather describe
 steps than place boxes: it computes a layered layout and emits the XML, which
@@ -25,7 +25,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from evalvitals.contract.common import WireModel
+from evalrx.contract.common import WireModel
 
 NodeKind = Literal[
     "input",       # the case as it arrives
@@ -223,7 +223,7 @@ class MethodGraph(WireModel):
         body = "\n".join(cells)
         height = PAD * 2 + (max(rows) + 1) * (H + GAP_Y)
         xml = (
-            f'<mxfile host="evalvitals" agent="evalvitals.contract.methodology" version="21.6.5">\n'
+            f'<mxfile host="evalrx" agent="evalrx.contract.methodology" version="21.6.5">\n'
             f'  <diagram id="methodology" name="{html.escape(self.title, quote=True)}">\n'
             f'    <mxGraphModel dx="{canvas + PAD * 2}" dy="{height:.0f}" grid="1" gridSize="10" '
             f'guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" '

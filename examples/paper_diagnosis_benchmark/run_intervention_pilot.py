@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate paper-style and EvalVitals auto-fixes on frozen benchmark slices.
+"""Evaluate paper-style and EvalRX auto-fixes on frozen benchmark slices.
 
 This deliberately runs a *small transfer pilot*, not a full-scale reproduction.
 It separates diagnosis, candidate selection, and untouched confirmation rows.
@@ -19,11 +19,11 @@ from typing import Any, Callable
 
 from openai import OpenAI
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model, Trace
-from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.stages.fix_agent import FixAgent
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model, Trace
+from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.stages.fix_agent import FixAgent
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data" / "intervention_pilot"
@@ -33,7 +33,7 @@ BASE_URL = "http://127.0.0.1:8010/v1"
 
 
 class EndpointModel(Model):
-    """Minimal EvalVitals ``Model`` adapter for the local OpenAI-compatible server."""
+    """Minimal EvalRX ``Model`` adapter for the local OpenAI-compatible server."""
 
     capabilities = frozenset({Capability.GENERATE})
     modalities = frozenset({"text"})
@@ -229,7 +229,7 @@ def runtime_hypothesis(baseline: dict[str, Any]) -> Hypothesis | None:
 def as_cases(
     rows: list[dict[str, str]], baseline: dict[str, Any], *, repair_max_tokens: int | None = None
 ) -> CaseBatch:
-    """Adapt one frozen split plus its baseline telemetry to EvalVitals cases."""
+    """Adapt one frozen split plus its baseline telemetry to EvalRX cases."""
     baseline_by_id = {item["id"]: item for item in baseline["cases"]}
     return CaseBatch(
         FailureCase(

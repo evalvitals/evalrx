@@ -2,7 +2,7 @@
 name: case-study-figure
 version: 0.1.0
 description: >
-  Draw the one-page case-study figure for a finished EvalVitals benchmark run —
+  Draw the one-page case-study figure for a finished EvalRX benchmark run —
   the M1→M2→M3→M5→M4 story as a single SVG. Use whenever someone asks for a case
   study figure, a qualitative figure, or "the figure" for a run directory under
   examples/benchmark/*/outputs/. Runs extract_figure_data.py first and draws only

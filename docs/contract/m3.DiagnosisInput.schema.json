@@ -84,7 +84,7 @@
   ],
   "title": "DiagnosisInput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m3.DiagnosisInput.json",
+  "$id": "https://evalrx.dev/contract/m3.DiagnosisInput.json",
   "x-stage": "m3",
   "x-role": "input",
   "x-schema-version": 4,

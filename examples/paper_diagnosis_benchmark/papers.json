@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "benchmark": "five-paper-diagnosis",
-  "description": "A deliberately diverse paper corpus for stress-testing EvalVitals diagnosis and repair recommendations.",
+  "description": "A deliberately diverse paper corpus for stress-testing EvalRX diagnosis and repair recommendations.",
   "papers": [
     {
       "id": "truthfulqa",

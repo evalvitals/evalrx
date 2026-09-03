@@ -1,6 +1,6 @@
 # Reference output — attention-enriched hallucination analysis
 
-**A committed, unmodified EvalVitals run.** Nothing here was hand-edited. Read
+**A committed, unmodified EvalRX run.** Nothing here was hand-edited. Read
 it without installing anything; re-create it with `bash run_attn.sh`.
 
 Input: `data_attn_full/` — 606 cases across three Qwen3-VL checkpoints

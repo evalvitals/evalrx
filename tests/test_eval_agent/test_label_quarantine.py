@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from evalvitals.eval_agent.label_quarantine import MANIFEST_NAME, quarantine_run_dir
+from evalrx.eval_agent.label_quarantine import MANIFEST_NAME, quarantine_run_dir
 
 
 def _seed(root):

@@ -19,14 +19,14 @@ from typing import Any
 
 import pytest
 
-from evalvitals.analysis.explorer import ExploratoryAnalysisReport
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
-from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.loop import VLDiagnoseLoop
-from evalvitals.eval_agent.run_logger import RunLogger
-from evalvitals.eval_agent.stages.diagnosis import DiagnosisResult, ExploreContext
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.analysis.explorer import ExploratoryAnalysisReport
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
+from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.loop import VLDiagnoseLoop
+from evalrx.eval_agent.run_logger import RunLogger
+from evalrx.eval_agent.stages.diagnosis import DiagnosisResult, ExploreContext
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 
 # ── stubs ─────────────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ class _Stats:
         self.run_logger = None
 
     def analyze(self, results, model_name="", protocol=None, data=None, **kw):
-        from evalvitals.analysis.stats_agent import StatsAnalysisReport
+        from evalrx.analysis.stats_agent import StatsAnalysisReport
 
         self.calls.append("m2")
         return StatsAnalysisReport(model_name=model_name, findings=[], severity="low",
@@ -289,7 +289,7 @@ def test_run_analysis_explores_and_run_confirm_does_not(tmp_path):
 
 
 def test_default_question_is_built_from_the_protocol():
-    from evalvitals.eval_agent.prompts.explore_step import default_explore_question
+    from evalrx.eval_agent.prompts.explore_step import default_explore_question
 
     q = default_explore_question(ExperimentProtocol(
         description="A text LLM sorts words.", task_domain="sorting",
@@ -307,7 +307,7 @@ class _ImageJudge(FakeModel):
     """M3 judge that declares images= and records what it was shown."""
 
     def __init__(self) -> None:
-        from evalvitals.core.capability import Capability
+        from evalrx.core.capability import Capability
 
         super().__init__(capabilities={Capability.GENERATE})
         self.calls: list[dict] = []
@@ -321,7 +321,7 @@ class _ImageJudge(FakeModel):
 
 def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):
     pytest.importorskip("matplotlib")
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
 
     calls: list[str] = []
     workdir = tmp_path / "sandbox"
@@ -353,7 +353,7 @@ def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):
 
 
 def test_default_explore_dir_with_a_run_context_is_under_its_root(tmp_path):
-    from evalvitals.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.run_context import RunContext
 
     calls: list[str] = []
     workdir = tmp_path / "sandbox"

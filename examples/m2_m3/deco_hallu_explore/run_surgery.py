@@ -79,7 +79,7 @@ def _fix_event_from_logs(run_dir: Path) -> dict | None:
 
 def _to_loop_hypotheses(verdicts: list[dict], *, model_key: str,
                         include_refuted: bool = False) -> list:
-    from evalvitals.eval_agent.hypothesis import hypothesis_from_dict
+    from evalrx.eval_agent.hypothesis import hypothesis_from_dict
 
     out = []
     for v in verdicts:
@@ -156,9 +156,9 @@ def main() -> None:
         raise SystemExit("no hypothesis survived phase 2 with surgery eligibility — "
                          "nothing to repair (honest outcome).")
 
-    from evalvitals import compose
-    from evalvitals.core.capability import Capability
-    from evalvitals.eval_agent import (
+    from evalrx import compose
+    from evalrx.core.capability import Capability
+    from evalrx.eval_agent import (
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
@@ -166,8 +166,8 @@ def main() -> None:
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.models.backends.base import RuntimeConfig
 
     judge = loop_run.build_judge(loop_run.CFG.get("judge_model", "claude-opus-4-8"),
                                  loop_run.CFG.get("judge_effort", "low"))

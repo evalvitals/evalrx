@@ -10,9 +10,9 @@ import pytest
 PIL = pytest.importorskip("PIL")
 from PIL import Image  # noqa: E402
 
-from evalvitals.core.tool import ToolCall, ToolResult  # noqa: E402
-from evalvitals.models.agent import ToolExecutor  # noqa: E402
-from evalvitals.models.tools import zoom_in_tool  # noqa: E402
+from evalrx.core.tool import ToolCall, ToolResult  # noqa: E402
+from evalrx.models.agent import ToolExecutor  # noqa: E402
+from evalrx.models.tools import zoom_in_tool  # noqa: E402
 
 
 def _img(w=640, h=480):

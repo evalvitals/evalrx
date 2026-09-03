@@ -22,7 +22,7 @@ def common():
 
 
 def test_every_matrix_cell_resolves_to_a_registered_spec_of_the_right_modality(common):
-    from evalvitals.specs import get_spec
+    from evalrx.specs import get_spec
 
     models, *_ = common
     cells = list(models.cells())
@@ -85,7 +85,7 @@ def test_the_matrix_is_the_one_specified(common):
 
 
 def test_nemotron_hf_local_is_bf16_and_endpoint_is_the_fp8_export(common):
-    from evalvitals.specs import get_spec
+    from evalrx.specs import get_spec
 
     models, *_ = common
     for size_key, modality in (("nemotron-3-nano-4b", "llm"), ("nemotron-3-nano-omni-30b-a3b", "alm")):
@@ -130,11 +130,11 @@ def test_endpoint_backend_sends_thinking_off_and_top_k_in_extra_body(common, mon
     lacks) in extra_body."""
     _, _, _, run = common
     captured = {}
-    import evalvitals.models.backends.openai_compat as oc
+    import evalrx.models.backends.openai_compat as oc
 
     def fake_runtime(**kw):
         captured.update(kw)
-        from evalvitals.models.backends.base import RuntimeConfig
+        from evalrx.models.backends.base import RuntimeConfig
         return RuntimeConfig(generate_fn=lambda prompt, model="", **k: "ok")
 
     monkeypatch.setattr(oc, "openai_runtime", fake_runtime)
@@ -471,7 +471,7 @@ def test_llm_download_freezes_from_the_hub_when_the_datasets_server_is_down(comm
 # ----------------------------------------------------------------------
 def test_gemini_sizes_run_only_on_the_gemini_backend(common):
     models, *_ = common
-    from evalvitals.specs import get_spec
+    from evalrx.specs import get_spec
 
     resolved = models.resolve("gemini-3.6-flash", "alm")          # the default --backend is overridden
     assert resolved.backend == "gemini" and resolved.spec_key == "gemini-3.6-flash"
@@ -513,8 +513,8 @@ def test_cli_gemini_flags_parse_and_default_to_the_floor(common):
 
 
 def test_load_model_gemini_branch_sends_the_floor_and_claims_generate_only(common, monkeypatch):
-    from evalvitals.core.capability import Capability
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx.core.capability import Capability
+    from evalrx.models.backends.base import RuntimeConfig
 
     models, tasks, _, run = common
     from _common import runner
@@ -526,7 +526,7 @@ def test_load_model_gemini_branch_sends_the_floor_and_claims_generate_only(commo
         captured.update(kw)
         return RuntimeConfig(generate_fn=lambda prompt, model="", **k: "Answer: Yes")
 
-    monkeypatch.setattr("evalvitals.models.backends.gemini_compat.gemini_runtime", fake_runtime)
+    monkeypatch.setattr("evalrx.models.backends.gemini_compat.gemini_runtime", fake_runtime)
 
     # llm task: sampled decoding at the task cap, thinking at the floor, no logprobs
     args = run.build_parser().parse_args(["--modality", "llm", "--model", "gemini-3.6-flash"])

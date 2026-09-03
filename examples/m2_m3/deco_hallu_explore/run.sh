@@ -21,7 +21,7 @@ if [[ -z "${DATA_DIR:-}" ]]; then
 fi
 
 cmd=(
-  evalvitals
+  evalrx
   explore
   "$DATA_DIR"
   --backend "$CODER_PROVIDER"

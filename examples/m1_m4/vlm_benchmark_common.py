@@ -86,7 +86,7 @@ def answer_matches(observed: str, expected: Any, *, numeric_tolerance: float) ->
 
 
 def load_cases(manifest_path: Path, limit: int):
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Provenance, Source
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Provenance, Source
 
     rows = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(rows, list) or not rows:
@@ -122,7 +122,7 @@ def score_bool(case, observed: str) -> bool:
 
 
 def score_label(case, observed: str):
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
     return Label.PASS if score_bool(case, observed) else Label.FAIL
 
 
@@ -138,7 +138,7 @@ def _self_test(config: BenchmarkConfig, manifest: Path, limit: int) -> None:
 
 
 def main(config: BenchmarkConfig) -> None:
-    parser = argparse.ArgumentParser(description=f"EvalVitals M1-M5+Fix on {config.name}")
+    parser = argparse.ArgumentParser(description=f"EvalRX M1-M5+Fix on {config.name}")
     parser.add_argument("--model", default=config.model)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", default="bfloat16")
@@ -178,8 +178,8 @@ def main(config: BenchmarkConfig) -> None:
         _self_test(config, manifest, args.limit)
         return
 
-    import evalvitals
-    from evalvitals.eval_agent import (
+    import evalrx
+    from evalrx.eval_agent import (
         CaseDiscoveryAgent,
         CliAgentConfig,
         DiagnosisAgent,
@@ -201,7 +201,7 @@ def main(config: BenchmarkConfig) -> None:
     )
     candidates, rows = load_cases(manifest, args.limit)
     print(f"Loading {args.model} on {args.device}; benchmark={config.name}, n={len(candidates)}")
-    model = evalvitals.load(
+    model = evalrx.load(
         args.model,
         backend="hf_local",
         device=args.device,
@@ -210,13 +210,13 @@ def main(config: BenchmarkConfig) -> None:
         want=["attention"],
     )
     if args.judge_provider == "agy":
-        from evalvitals.agent_runtime.judges import AgyModel
+        from evalrx.agent_runtime.judges import AgyModel
 
         judge = AgyModel(model=args.judge_model, timeout_sec=300)
         coder_provider = "antigravity"
         coder_extra_args = ()
     elif args.judge_provider == "claude":
-        from evalvitals.eval_agent import ClaudeModel
+        from evalrx.eval_agent import ClaudeModel
 
         judge = ClaudeModel(
             model=args.judge_model or "sonnet",
@@ -226,7 +226,7 @@ def main(config: BenchmarkConfig) -> None:
         coder_provider = "claude_code"
         coder_extra_args = (("--effort", args.judge_effort) if args.judge_effort else ())
     else:
-        from evalvitals.agent_runtime.judges import CodexModel
+        from evalrx.agent_runtime.judges import CodexModel
 
         # Terra is the default for this agentic benchmark path.  The same
         # explicitly named model is also handed to the exploratory and repair
@@ -326,8 +326,8 @@ def main(config: BenchmarkConfig) -> None:
         # rather than inheriting the text-agent default.
         exec_timeout_sec=2400,
     )
-    from evalvitals.eval_agent import SurgeryAgent
-    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+    from evalrx.eval_agent import SurgeryAgent
+    from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
 
     coder_cfg = CliAgentConfig(
         provider=coder_provider,
@@ -337,8 +337,8 @@ def main(config: BenchmarkConfig) -> None:
     )
     explorer = None
     if args.explore:
-        from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-        from evalvitals.analysis import ExploratoryAnalysisAgent
+        from evalrx.agent_runtime.sandbox import ExperimentSandbox
+        from evalrx.analysis import ExploratoryAnalysisAgent
 
         explorer = ExploratoryAnalysisAgent(
             cli_config=coder_cfg,

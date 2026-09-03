@@ -10,10 +10,10 @@ from __future__ import annotations
 import pytest
 import torch
 
-from evalvitals.analyzers.attention.relative_attn import RelativeAttentionAnalyzer
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model, Trace
+from evalrx.analyzers.attention.relative_attn import RelativeAttentionAnalyzer
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model, Trace
 
 _SEQ = 8
 _IMG_SLICE = slice(2, 6)  # 4 image tokens → spatial (2, 2)
@@ -214,7 +214,7 @@ def test_image_overlays_is_empty_and_does_not_raise_without_real_images():
 
 
 def test_stats_layer_picks_up_attention_signals():
-    from evalvitals.analysis.stats_tools import build_stats_input, describe_data
+    from evalrx.analysis.stats_tools import build_stats_input, describe_data
 
     batch = _labeled_batch()
     res = RelativeAttentionAnalyzer().run(AttnVLM(), batch)
@@ -254,7 +254,7 @@ def test_per_case_map_stack_artifact():
 
 
 def test_richer_features_are_continuous_signals_not_leaks():
-    from evalvitals.analysis.stats_tools import build_stats_input
+    from evalrx.analysis.stats_tools import build_stats_input
 
     batch = _labeled_batch()
     res = RelativeAttentionAnalyzer().run(AttnVLM(), batch)

@@ -6,13 +6,13 @@ failure hypotheses, flowing into the paired McNemar/Friedman stats machinery.
 
 from __future__ import annotations
 
-from evalvitals.analyzers.perturbation.prompt_contrast import (
+from evalrx.analyzers.perturbation.prompt_contrast import (
     PromptContrastAnalyzer,
     _default_score,
 )
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
 
 
 class InterventionModel(Model):
@@ -99,7 +99,7 @@ def test_default_score_word_boundary():
 
 
 def test_stats_layer_runs_paired_contrasts():
-    from evalvitals.analysis.stats_tools import (
+    from evalrx.analysis.stats_tools import (
         build_stats_input,
         default_plan,
         run_stats_tool,
@@ -181,7 +181,7 @@ def test_prompt_robust_model_has_zero_sensitivity():
 
 
 def test_prompt_sensitivity_is_a_clean_stats_signal():
-    from evalvitals.analysis.stats_tools import build_stats_input
+    from evalrx.analysis.stats_tools import build_stats_input
 
     batch = _batch()
     res = PromptContrastAnalyzer().run(InterventionModel(), batch)

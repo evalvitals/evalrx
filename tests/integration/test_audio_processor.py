@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from evalvitals.models.backends.hf_local import (
+from evalrx.models.backends.hf_local import (
     AUDIO_SAMPLE_RATE,
     _check_audio_duration,
     _resolve_audio,

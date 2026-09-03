@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from evalvitals.analyzers.attention.summary import AttentionAnalyzer, AttentionResult
-from evalvitals.core import Experiment, ExperimentRunner, Pipeline
+from evalrx.analyzers.attention.summary import AttentionAnalyzer, AttentionResult
+from evalrx.core import Experiment, ExperimentRunner, Pipeline
 from tests.conftest import FakeModel
 
 
@@ -25,24 +25,24 @@ def test_experiment_runner_caches():
 
 
 def test_run_entrypoint_with_config(tmp_path, monkeypatch):
-    import evalvitals
+    import evalrx
 
     cfg_file = tmp_path / "c.yaml"
     cfg_file.write_text("model: qwen\nanalysis: attention\n")
-    config = evalvitals.load_config(cfg_file)
+    config = evalrx.load_config(cfg_file)
 
     # Swap the real Qwen for a FakeModel so no weights are loaded.
-    monkeypatch.setattr(evalvitals, "load_model", lambda cfg: FakeModel())
-    result = evalvitals.run(config, "the capital of france is")
+    monkeypatch.setattr(evalrx, "load_model", lambda cfg: FakeModel())
+    result = evalrx.run(config, "the capital of france is")
     assert isinstance(result, AttentionResult)
 
 
 def test_run_strips_legacy_call_prefix(tmp_path, monkeypatch):
-    import evalvitals
+    import evalrx
 
     cfg_file = tmp_path / "c.yaml"
     cfg_file.write_text("model: qwen\nanalysis: call_attention\n")  # old style
-    config = evalvitals.load_config(cfg_file)
-    monkeypatch.setattr(evalvitals, "load_model", lambda cfg: FakeModel())
-    result = evalvitals.run(config, "x")
+    config = evalrx.load_config(cfg_file)
+    monkeypatch.setattr(evalrx, "load_model", lambda cfg: FakeModel())
+    result = evalrx.run(config, "x")
     assert isinstance(result, AttentionResult)

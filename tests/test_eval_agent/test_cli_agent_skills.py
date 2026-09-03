@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from evalvitals.analysis.explorer import _skills_hint
-from evalvitals.eval_agent.cli_agent import (
+from evalrx.analysis.explorer import _skills_hint
+from evalrx.eval_agent.cli_agent import (
     AntigravityAgent,
     ClaudeCodeAgent,
     CliAgentConfig,
@@ -173,7 +173,7 @@ def test_skills_hint_without_analysis_skill_has_no_analysis_stage():
 # ---------------------------------------------------------------------------
 
 def test_codex_install_skills_writes_agents_md(tmp_path):
-    from evalvitals.eval_agent.cli_agent import CodexAgent
+    from evalrx.eval_agent.cli_agent import CodexAgent
 
     skill = _make_skill(tmp_path, "eval-chart-style")
     workdir = tmp_path / "wd"
@@ -188,7 +188,7 @@ def test_codex_install_skills_writes_agents_md(tmp_path):
 
 
 def test_codex_install_skills_appends_to_existing_agents_md(tmp_path):
-    from evalvitals.eval_agent.cli_agent import CodexAgent
+    from evalrx.eval_agent.cli_agent import CodexAgent
 
     skill = _make_skill(tmp_path, "nature-figure")
     workdir = tmp_path / "wd"
@@ -202,7 +202,7 @@ def test_codex_install_skills_appends_to_existing_agents_md(tmp_path):
 
 
 def test_codex_install_skills_noop_without_skills(tmp_path):
-    from evalvitals.eval_agent.cli_agent import CodexAgent
+    from evalrx.eval_agent.cli_agent import CodexAgent
 
     workdir = tmp_path / "wd"
     CodexAgent(binary_path="codex")._install_skills(workdir)

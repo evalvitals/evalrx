@@ -14,7 +14,7 @@ def _observation(seq: int, event: dict[str, object]):
 
 
 def test_langfuse_source_paginates_and_orders_events(tmp_path):
-    from evalvitals.reporting.langfuse_source import LangfuseRunSource
+    from evalrx.reporting.langfuse_source import LangfuseRunSource
 
     calls = []
 
@@ -44,8 +44,8 @@ def test_langfuse_source_paginates_and_orders_events(tmp_path):
     ]
 
 
-def test_langfuse_source_ignores_non_evalvitals_observations():
-    from evalvitals.reporting.langfuse_source import LangfuseRunSource
+def test_langfuse_source_ignores_non_evalrx_observations():
+    from evalrx.reporting.langfuse_source import LangfuseRunSource
 
     class Observations:
         def get_many(self, **_kwargs):
@@ -56,7 +56,7 @@ def test_langfuse_source_ignores_non_evalvitals_observations():
 
 
 def test_langfuse_source_materializes_media_only_inside_cache(tmp_path):
-    from evalvitals.reporting.langfuse_source import LangfuseRunSource
+    from evalrx.reporting.langfuse_source import LangfuseRunSource
 
     attachment = {"artifact_id": "sha256:abc", "content": "@@@langfuseMedia:type=audio/wav|id=x@@@"}
     observation = SimpleNamespace(
@@ -79,8 +79,8 @@ def test_langfuse_source_materializes_media_only_inside_cache(tmp_path):
 
 
 def test_materialized_langfuse_run_builds_the_existing_html_report(tmp_path):
-    from evalvitals.reporting.html_report import build_html_report
-    from evalvitals.reporting.langfuse_source import LangfuseRunSource
+    from evalrx.reporting.html_report import build_html_report
+    from evalrx.reporting.langfuse_source import LangfuseRunSource
 
     observation = SimpleNamespace(
         input={"event": {"event": "run_start", "trace_id": "trace", "event_seq": 1, "protocol": {}}},

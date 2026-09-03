@@ -36,12 +36,12 @@ PINNED_M1 = (
     "perturbation_battery",       # invariance under paraphrase/no-op edits
 )
 
-_MODULE_NAME = "evalvitals_llm_benchmark_datasets"
+_MODULE_NAME = "evalrx_llm_benchmark_datasets"
 
 
 def dataset_selection_dir() -> Path:
     """``examples/dataset_selection`` — same relative place in the repo and in the images."""
-    env = os.environ.get("EVALVITALS_DATASET_SELECTION_DIR")
+    env = os.environ.get("EVALRX_DATASET_SELECTION_DIR")
     candidates = [Path(env)] if env else []
     candidates.append(Path(__file__).resolve().parents[3] / "dataset_selection")
     for cand in candidates:
@@ -49,7 +49,7 @@ def dataset_selection_dir() -> Path:
             return cand
     raise FileNotFoundError(
         "examples/dataset_selection (llm_benchmark/datasets.py + llm_band_probe/band_locate.py) "
-        "not found; set EVALVITALS_DATASET_SELECTION_DIR"
+        "not found; set EVALRX_DATASET_SELECTION_DIR"
     )
 
 

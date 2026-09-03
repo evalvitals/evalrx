@@ -24,9 +24,9 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("transformers")
 from torch import nn  # noqa: E402
 
-from evalvitals.core.spec import ModelSpec  # noqa: E402
-from evalvitals.models.backends.base import RuntimeConfig  # noqa: E402
-from evalvitals.models.backends.hf_local import HFLocalModel  # noqa: E402
+from evalrx.core.spec import ModelSpec  # noqa: E402
+from evalrx.models.backends.base import RuntimeConfig  # noqa: E402
+from evalrx.models.backends.hf_local import HFLocalModel  # noqa: E402
 
 
 class _Tok:
@@ -106,8 +106,8 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from transformers import BatchFeature  # noqa: E402
 
-from evalvitals.core.case import Inputs  # noqa: E402
-from evalvitals.core.spec import AudioSpec, VisionSpec  # noqa: E402
+from evalrx.core.case import Inputs  # noqa: E402
+from evalrx.core.spec import AudioSpec, VisionSpec  # noqa: E402
 
 _THINK_OFF = {"enable_thinking": False}
 

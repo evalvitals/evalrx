@@ -34,7 +34,7 @@ hand-supplied hypothesis and lets the loop discover its own:
                                    candidate (fix_agent.py's admission gate:
                                    has_audio + task=="multiple_choice" +
                                    paper_method_fidelity — see
-                                   ``evalvitals/eval_agent/stages/fix_agent.py``,
+                                   ``evalrx/eval_agent/stages/fix_agent.py``,
                                    search ``_l3_candidates``) — validated on a
                                    held-out CONFIRM split the loop's own M1–M5
                                    discovery never saw (``--confirm-split``).
@@ -104,7 +104,7 @@ def score_case(case: "Any", output: str) -> bool:
 
 
 def row_inputs(row: dict[str, Any]) -> "Any":
-    from evalvitals.core.case import Inputs
+    from evalrx.core.case import Inputs
 
     return Inputs(prompt=task_prompt(row), audio=str(DATA / row["audio_path"]))
 
@@ -120,7 +120,7 @@ def evaluate(rows: list[dict[str, Any]], strategy: Callable[[dict[str, Any]], st
 
 
 def make_cases(rows: list[dict[str, Any]], baseline: dict[str, Any]) -> "Any":
-    from evalvitals.core.case import CaseBatch, FailureCase, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Label
 
     baseline_by_id = {case["id"]: case for case in baseline["cases"]}
     return CaseBatch([
@@ -160,7 +160,7 @@ def make_cases(rows: list[dict[str, Any]], baseline: dict[str, Any]) -> "Any":
 #     reading each analyzer's _run: dataclasses.replace(case.inputs, ...) or
 #     case.inputs unmodified — never a bare Inputs(prompt=..., image=...)
 #     that would silently drop .audio; prompt_contrast needed a fix for this,
-#     see evalvitals/analyzers/perturbation/prompt_contrast.py)
+#     see evalrx/analyzers/perturbation/prompt_contrast.py)
 #   - none depend on vision-specific internals (attention/logit_lens/cka/
 #     mm_shap and friends are excluded — untested against an audio tower)
 #   - format_sensitivity is *built* for exactly this task shape (4-way MC
@@ -186,7 +186,7 @@ PINNED_M1_ANALYZERS = [
 
 
 def build_protocol() -> "Any":
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -208,20 +208,20 @@ def build_protocol() -> "Any":
 
 def build_judge(provider: str, model_name: str, effort: str) -> "Any":
     if provider == "agy":
-        from evalvitals.agent_runtime.judges import AgyModel
+        from evalrx.agent_runtime.judges import AgyModel
 
         judge = AgyModel(model=model_name, timeout_sec=300)
         label = f"agy model={model_name or 'session default'}"
         empty_hint = "agy is likely rate-limited/quota-exhausted -- try --judge-model with a different agy model"
     elif provider == "claude":
-        from evalvitals.eval_agent import ClaudeModel
+        from evalrx.eval_agent import ClaudeModel
 
         model_name = model_name or "claude-fable-5"
         judge = ClaudeModel(model=model_name, effort=effort)
         label = f"claude model={model_name} effort={effort or 'default'}"
         empty_hint = f"claude --model {model_name} returned empty (rate-limited?) -- try --judge-model sonnet or haiku"
     else:
-        from evalvitals.agent_runtime.judges import CodexModel
+        from evalrx.agent_runtime.judges import CodexModel
 
         model_name = model_name or "gpt-5.6-terra"
         judge = CodexModel(model=model_name, timeout_sec=600)
@@ -238,10 +238,10 @@ def build_judge(provider: str, model_name: str, effort: str) -> "Any":
 # ---------------------------------------------------------------------------
 
 def _run_smoke_test(args: argparse.Namespace) -> None:
-    from evalvitals.core.capability import Capability
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-    from evalvitals.core.result import Result
-    from evalvitals.eval_agent import (
+    from evalrx.core.capability import Capability
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.result import Result
+    from evalrx.eval_agent import (
         DiagnosisResult,
         ExperimentProtocol,
         FixAgent,
@@ -407,9 +407,9 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
         raise SystemExit("--pilot-size must be >= 0 and smaller than --limit")
     rows = all_rows[args.pilot_size:args.limit]
 
-    from evalvitals.models.backends.base import RuntimeConfig
-    from evalvitals.models.backends.hf_local import HFLocalModel
-    from evalvitals.specs import get_spec
+    from evalrx.models.backends.base import RuntimeConfig
+    from evalrx.models.backends.hf_local import HFLocalModel
+    from evalrx.specs import get_spec
 
     model = HFLocalModel(
         get_spec(args.model),
@@ -436,7 +436,7 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
     )
     cases = make_cases(rows, baseline)
 
-    from evalvitals.eval_agent import (
+    from evalrx.eval_agent import (
         FixAgent,
         FixCandidate,
         FixOutcome,
@@ -539,7 +539,7 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
             + [False] * validation.n_broken
             + [False] * both_wrong
         )
-        from evalvitals.stats import compare
+        from evalrx.stats import compare
 
         stat = compare(base_vec, cand_vec, paired=True)
         validation.effect = stat.effect
@@ -569,7 +569,7 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
     ctx.logger.log_fix(outcome)
     ctx.publish_report(example_dir=HERE)
     ctx.finalize()
-    from evalvitals.reporting.static_export import export_static_report
+    from evalrx.reporting.static_export import export_static_report
 
     report_html_path = Path(args.run_dir).resolve() / "report.html"
     export_static_report(
@@ -701,9 +701,9 @@ def main() -> int:
         raise SystemExit(f"only {len(rows)} rows available, fewer than --limit {args.limit}")
     rows = rows[: args.limit]
 
-    from evalvitals.models.backends.base import RuntimeConfig
-    from evalvitals.models.backends.hf_local import HFLocalModel
-    from evalvitals.specs import get_spec
+    from evalrx.models.backends.base import RuntimeConfig
+    from evalrx.models.backends.hf_local import HFLocalModel
+    from evalrx.specs import get_spec
 
     model = HFLocalModel(
         get_spec(args.model),
@@ -732,7 +732,7 @@ def main() -> int:
 
     judge = build_judge(args.judge_provider, args.judge_model, args.judge_effort)
 
-    from evalvitals.eval_agent import (
+    from evalrx.eval_agent import (
         DiagnosisAgent,
         FixAgent,
         HypothesisTester,
@@ -804,8 +804,8 @@ def main() -> int:
     print(f"  explore/confirm split: {len(cases) - n_confirm} explore "
           f"(M1-M5 discovery) / {n_confirm} confirm (held out for run_fix)")
 
-    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
-    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+    from evalrx.eval_agent import CliAgentConfig, SurgeryAgent
+    from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
 
     coder_cfg = CliAgentConfig(
         provider={"agy": "antigravity", "claude": "claude_code", "codex": "codex"}[args.judge_provider],
@@ -818,8 +818,8 @@ def main() -> int:
     )
     explorer = None
     if args.explore and not args.analysis_only:
-        from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-        from evalvitals.analysis import ExploratoryAnalysisAgent
+        from evalrx.agent_runtime.sandbox import ExperimentSandbox
+        from evalrx.analysis import ExploratoryAnalysisAgent
 
         explorer = ExploratoryAnalysisAgent(
             cli_config=coder_cfg,
@@ -895,7 +895,7 @@ def main() -> int:
 
     loop.publish_report(example_dir=HERE)
     ctx.finalize()
-    from evalvitals.reporting.static_export import export_static_report
+    from evalrx.reporting.static_export import export_static_report
 
     report_html_path = Path(args.run_dir).resolve() / "report.html"
     export_static_report(

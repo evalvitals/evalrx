@@ -27,7 +27,7 @@ vLLM 会钉死一批版本,和评测侧的依赖冲突,所以**分开装**:
 
 ```bash
 git clone <你的远端地址> evalsmith
-cd evalsmith/evalvitals          # 有 pyproject.toml 的那一层
+cd evalsmith/evalrx          # 有 pyproject.toml 的那一层
 
 # (a) 评测环境 —— 跑本目录的脚本
 python3 -m venv .venv            # 需要 python >= 3.10
@@ -42,11 +42,11 @@ python3 -m venv .venv-vllm
 ```
 
 `run_all.sh` 会**自动找到** `.venv/bin/python` 和 `.venv-vllm/bin/vllm`
-(在 `evalvitals/` 或其上一层),不需要你导出任何变量。
+(在 `evalrx/` 或其上一层),不需要你导出任何变量。
 装在别处就用环境变量覆盖:
 
 ```bash
-export EVALVITALS_PYTHON=/your/python
+export EVALRX_PYTHON=/your/python
 export VLLM_BIN=/your/vllm
 ```
 
@@ -92,7 +92,7 @@ export HF_HOME=/data/hf-cache
 ### 4. 上机前自检 —— **先跑这个**
 
 ```bash
-cd evalsmith/evalvitals/examples/dataset_selection/llm_benchmark
+cd evalsmith/evalrx/examples/dataset_selection/llm_benchmark
 ../../.venv/bin/python preflight.py --model qwen3.5-9b --dataset supergpqa_law
 ```
 
@@ -121,7 +121,7 @@ GPU 空闲显存够不够这个尺寸、磁盘够不够放权重、datasets-serv
 **如果你是自动化执行者,只读这一节就够了。** 下面的手动分步说明是给人看的。
 
 ```bash
-cd <repo>/evalvitals/examples/dataset_selection/llm_benchmark
+cd <repo>/evalrx/examples/dataset_selection/llm_benchmark
 ./run_all.sh qwen3.5-9b supergpqa_law
 ```
 
@@ -176,7 +176,7 @@ M2 的工具目录与 e-BH,也不进 M5 / fix 门 —— 证据仍然只来自 M
 | 2 | 模型名不认识 | 只能是 `qwen3.5-2b` / `-4b` / `-9b`,**不是** HF repo id |
 | 3 | 没有空闲 GPU | 等,或 `GPU=<idx>` 指定 |
 | 4 / 5 | vLLM 启动失败 / 超时 | 看 `outputs/<model>/<dataset>/vllm.log` |
-| 6 | 找不到 python 或 vllm | 环境没装好。见「从零搭建」,或 `export EVALVITALS_PYTHON=` / `VLLM_BIN=` |
+| 6 | 找不到 python 或 vllm | 环境没装好。见「从零搭建」,或 `export EVALRX_PYTHON=` / `VLLM_BIN=` |
 | 7 | **preflight 未通过** | 照它每条 FAIL 后面给的命令装。`SKIP_PREFLIGHT=1` 可强行跳过(不建议) |
 
 ### 准确率落到带外时怎么换数据集
@@ -211,10 +211,10 @@ supergpqa_medicine_hard  0.360   ← 9B 上就已经偏难,小模型大概率地
 
 它覆盖:python 版本、必需模块、claude CLI、vllm、GPU 显存、磁盘、网络、数据集解析。
 
-按上面「从零搭建」装好后,`evalvitals` 是 **`pip install -e` 进 venv 的**,
+按上面「从零搭建」装好后,`evalrx` 是 **`pip install -e` 进 venv 的**,
 任何 cwd 都能 import。若你跳过了安装、直接用系统 python 跑,
-本目录的脚本仍能工作(它们自己插 `sys.path`),但 `python -m evalvitals.cli dashboard`
-必须先 `cd` 到 `evalvitals/`。
+本目录的脚本仍能工作(它们自己插 `sys.path`),但 `python -m evalrx.cli dashboard`
+必须先 `cd` 到 `evalrx/`。
 
 ---
 
@@ -472,8 +472,8 @@ Law 的 hard 占比不到全集的一半,准确率却更低。**`difficulty` 只
 ## 2. 手动分步(不用 run_all.sh 时)
 
 `run_all.sh` 已经把下面这些串起来了。只有需要单独调试某一步时才手动跑。
-以下用 `$PY` 代表你的评测解释器(`<repo>/evalvitals/.venv/bin/python`),
-`$VLLM` 代表 `<repo>/evalvitals/.venv-vllm/bin/vllm`
+以下用 `$PY` 代表你的评测解释器(`<repo>/evalrx/.venv/bin/python`),
+`$VLLM` 代表 `<repo>/evalrx/.venv-vllm/bin/vllm`
 —— **每次新开 shell 都要重新设**,否则会静默变成空串。
 
 ### 起 vLLM 服务
@@ -521,7 +521,7 @@ $VLLM serve Qwen/Qwen3.5-9B \
 ### Stage 0 — 冻结带标签的 CaseBatch(唯一的 GPU 生成步骤)
 
 ```bash
-cd <repo>/evalvitals/examples/dataset_selection/llm_benchmark
+cd <repo>/evalrx/examples/dataset_selection/llm_benchmark
 
 $PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law
 ```
@@ -550,9 +550,9 @@ $PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law
 ```bash
 $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law --analysis-only
 
-# dashboard 要在 evalvitals/ 下跑(`evalvitals` 包才在 import path 上)
-cd <repo>/evalvitals
-$PY -m evalvitals.cli dashboard examples/dataset_selection/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
+# dashboard 要在 evalrx/ 下跑(`evalrx` 包才在 import path 上)
+cd <repo>/evalrx
+$PY -m evalrx.cli dashboard examples/dataset_selection/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
 ```
 
 产出提出的假设,但**不做 M5 确认、不做修复**。先把分析故事看明白再决定要不要往下走。
@@ -613,7 +613,7 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 `run_all.sh` 每次都自己起停 vLLM,所以串行跑三个尺寸不会撞车:
 
 ```bash
-cd <repo>/evalvitals/examples/dataset_selection/llm_benchmark
+cd <repo>/evalrx/examples/dataset_selection/llm_benchmark
 for M in qwen3.5-2b qwen3.5-4b qwen3.5-9b; do
   ./run_all.sh "$M" supergpqa_law
 done

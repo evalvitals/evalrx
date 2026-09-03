@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from evalvitals.core.capability import Capability
-from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.stages.experiment_writer import (
+from evalrx.core.capability import Capability
+from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.stages.experiment_writer import (
     ExperimentWriter,
     ExperimentWriterConfig,
     build_model_context,
@@ -48,14 +48,14 @@ def test_artifact_only_model_context_exposes_no_loader():
     context = build_model_context(FakeModel(), allow_reconstruction=False)
     assert context["load_expr"] == "None"
     assert context["access_mode"] == "artifacts_only"
-    assert "evalvitals.load" in context["access_note"]
+    assert "evalrx.load" in context["access_note"]
 
 
 def test_writer_blocks_generated_second_model_load_before_execution():
     judge = _Judge(
-        "import evalvitals\n"
+        "import evalrx\n"
         "def main():\n"
-        "    model = evalvitals.load('qwen3-8b')\n"
+        "    model = evalrx.load('qwen3-8b')\n"
         "    print('verdict: 1.0')\n"
         "if __name__ == '__main__':\n"
         "    main()"

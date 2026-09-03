@@ -210,7 +210,7 @@ Gemini family `--thinking-level low`, `--thinking-budget 1024`, `--concurrency 8
 Outputs: `<modality>/<family>/outputs/<model>/<dataset>[.<tag>]/` with
 `baseline.json` (every Stage 0 output + label), `logs/` (run log, artifacts,
 README.txt guide), `explore/`, `summary.json`. The dashboard reads the run dir:
-`python -m evalvitals.cli dashboard examples/benchmark/vlm/qwen/outputs/qwen3.5-2b/chartqa`.
+`python -m evalrx.cli dashboard examples/benchmark/vlm/qwen/outputs/qwen3.5-2b/chartqa`.
 For a figure rather than a dashboard, [`tools/extract_figure_data.py`](tools/README.md)
 turns the same run dir into the numbers a case-study figure prints (JSON, JSONL
 or a Markdown write-up), each carrying the artifact it was read from.

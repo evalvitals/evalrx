@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.analysis.dashboard import load_run
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
-from evalvitals.eval_agent import (
+from evalrx.analysis.dashboard import load_run
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
+from evalrx.eval_agent import (
     DiagnosisAgent,
     HypothesisTester,
     ProbeAgent,
     RunContext,
     VLDiagnoseLoop,
 )
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 
 

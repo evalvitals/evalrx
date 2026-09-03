@@ -51,7 +51,7 @@ def load_manifest(model_key: str, max_correct: int = 0, seed: int = 42):
 
     from PIL import Image
 
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 
     path = DATA / "cases" / f"{model_key}.json"
     if not path.exists():
@@ -90,7 +90,7 @@ def load_manifest(model_key: str, max_correct: int = 0, seed: int = 42):
 
 
 def drift_check(model, cases, n: int = 10) -> None:
-    from evalvitals.analyzers.hallucination.pope import parse_yes_no
+    from evalrx.analyzers.hallucination.pope import parse_yes_no
     stale = 0
     for case in list(cases)[:n]:
         if parse_yes_no(model.generate(case.inputs)) != parse_yes_no(case.observed):
@@ -105,7 +105,7 @@ def drift_check(model, cases, n: int = 10) -> None:
 # ---------------------------------------------------------------------------
 
 def build_judge(model_name: str, effort: str):
-    from evalvitals.eval_agent import ClaudeModel
+    from evalrx.eval_agent import ClaudeModel
 
     judge = ClaudeModel(model=model_name, effort=effort)
     if not judge.generate("Reply with exactly the word OK").strip():
@@ -116,7 +116,7 @@ def build_judge(model_name: str, effort: str):
 
 
 def build_protocol():
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     # OBSERVATION ONLY: state the wrong-answer pattern and the input conditions.
     # Do NOT name a suspected mechanism (layers, suppression, priors, DeCo) —
@@ -166,9 +166,9 @@ def main() -> None:
         print("smoke ok" if exists else "smoke: no manifest yet (run build_cases.py)")
         return
 
-    from evalvitals import compose
-    from evalvitals.core.capability import Capability
-    from evalvitals.eval_agent import (
+    from evalrx import compose
+    from evalrx.core.capability import Capability
+    from evalrx.eval_agent import (
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
@@ -176,10 +176,10 @@ def main() -> None:
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
-    from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
+    from evalrx.eval_agent.stages.probe_agent import ProbeAgent
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.models.backends.base import RuntimeConfig
 
     judge = build_judge(args.judge_model, args.judge_effort)
 

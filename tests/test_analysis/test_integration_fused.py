@@ -6,12 +6,12 @@ emerge across phases (real sandbox explorer, in-loop verdict, no e-value merging
 
 from __future__ import annotations
 
-from evalvitals.analysis import ExploratoryAnalysisAgent, run_fused_analysis
-from evalvitals.analysis.adjudicate import adjudicate_signals
-from evalvitals.analysis.explorer import CandidateSignal
-from evalvitals.analysis.operationalize import SignalRecipe, bridge_recipes_to_result
-from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-from evalvitals.analysis.stats_tools import build_stats_input
+from evalrx.analysis import ExploratoryAnalysisAgent, run_fused_analysis
+from evalrx.analysis.adjudicate import adjudicate_signals
+from evalrx.analysis.explorer import CandidateSignal
+from evalrx.analysis.operationalize import SignalRecipe, bridge_recipes_to_result
+from evalrx.analysis.stats_agent import StatsAnalysisAgent
+from evalrx.analysis.stats_tools import build_stats_input
 
 # A real explorer script: reads records.json, proposes a candidate that carries a
 # deterministic recipe over the existing column. The fused pipeline runs this in a
@@ -51,7 +51,7 @@ def _dataset(n_each: int = 15) -> list[dict]:
 
 
 def test_real_explorer_recipe_is_bridged_and_confirmed_on_held_out(tmp_path):
-    from evalvitals.agent_runtime.sandbox import ExperimentSandbox
+    from evalrx.agent_runtime.sandbox import ExperimentSandbox
 
     explorer = ExploratoryAnalysisAgent(
         judge=_ScriptedJudge(_RECIPE_SCRIPT),

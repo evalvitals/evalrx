@@ -4,7 +4,7 @@ One leaf of [`examples/benchmark`](../../README.md): the closed-weight Gemini
 models, called through Google's official `google-genai` SDK (`--backend
 gemini`, forced for the family) on every llm dataset through the shared
 [`_common/run.py`](../../_common/run.py). The image is the family's
-(`evalvitals-bench-gemini`, stage `gemini` of
+(`evalrx-bench-gemini`, stage `gemini` of
 [`docker/Dockerfile`](../../docker/Dockerfile): the base stack plus
 `google-genai`); **no GPU is reserved** — the service extends `bench-core`, not
 `bench`. The API key is `GEMINI_API_KEY` in `examples/benchmark/.env` (this

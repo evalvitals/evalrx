@@ -1,10 +1,10 @@
-"""Compatibility adapters behind the unified EvalVitals web shell."""
+"""Compatibility adapters behind the unified EvalRX web shell."""
 
 from __future__ import annotations
 
 import json
 
-from evalvitals.analysis.run_view import StageId, StageState, from_session
+from evalrx.analysis.run_view import StageId, StageState, from_session
 
 
 def test_explore_adapter_keeps_validation_and_repair_distinct(tmp_path):

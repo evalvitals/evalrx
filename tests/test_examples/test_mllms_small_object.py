@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from evalvitals.core.case import FailureCase, Inputs, Label
+from evalrx.core.case import FailureCase, Inputs, Label
 
 
 def _load_example():

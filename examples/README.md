@@ -9,7 +9,7 @@ against each `run.py`'s own imports, not assumed from the folder name:
   as a complete deliverable today.)*
 - `m1_m3/` — `VLDiagnoseLoop` through M1→M2→M3(→M5): diagnose a failure and
   hold out a verified hypothesis, but attempt no repair.
-- `m2_m3/` — standalone M2 (stats) + M3 (hypothesis) via `evalvitals.explore()`,
+- `m2_m3/` — standalone M2 (stats) + M3 (hypothesis) via `evalrx.explore()`,
   outside any loop object. M1 case-selection may be a separate script that
   runs first (see each example's own README), never baked into the same call.
 - `m4/` — `FixAgent` direct: propose → validate a repair against a
@@ -96,7 +96,7 @@ For the general standalone exploratory analysis workflow, see
 Two different programs produce "M2" in this repo, and they are not the same
 thing:
 
-| | loop M2 — `StatsAnalysisAgent` | standalone `evalvitals explore` — `ExploratoryAnalysisAgent` |
+| | loop M2 — `StatsAnalysisAgent` | standalone `evalrx explore` — `ExploratoryAnalysisAgent` |
 |---|---|---|
 | input | M1 analyzer per-case findings (`StatsInput`) | a flat per-case records table (any source) |
 | method | **confirmatory**: judge-picked tools from a fixed statistical catalog, e-BH/BH multiplicity, optional codegen tools | **exploratory**: a coder agent writes free-form pandas EDA in a sandbox; the host recomputes candidate verdicts (`adjudicate`) and renders its chart specs |
@@ -112,9 +112,9 @@ It never enters M2's confirmatory family, M5, or the fix gate. Wiring, for a
 `RunContext`-style example:
 
 ```python
-from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-from evalvitals.analysis import ExploratoryAnalysisAgent, StatsAnalysisAgent
-from evalvitals.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
+from evalrx.agent_runtime.sandbox import ExperimentSandbox
+from evalrx.analysis import ExploratoryAnalysisAgent, StatsAnalysisAgent
+from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
 
 with RunContext("examples/foo/outputs", verbose=True) as ctx:
     explorer = ExploratoryAnalysisAgent(

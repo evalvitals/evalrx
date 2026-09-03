@@ -1,7 +1,7 @@
 """RunLogger core event contract: every run_log.jsonl line carries schema_version.
 
 Downstream parsers of run_log.jsonl need a way to detect breaking changes to
-event shapes without guessing from evalvitals_version (which tracks the
+event shapes without guessing from evalrx_version (which tracks the
 package, not the log format). See RUN_LOG_SCHEMA_VERSION in run_logger.py.
 """
 
@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 
 def test_log_run_start_carries_schema_version(tmp_path):
-    from evalvitals.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION, RunLogger
+    from evalrx.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION, RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     logger.log_run_start({"model": "fake-model"})
@@ -28,7 +28,7 @@ def test_log_run_start_carries_schema_version(tmp_path):
 
 def test_every_log_method_stamps_schema_version(tmp_path):
     """Spot-check a few distinct log_* methods, not just log_run_start."""
-    from evalvitals.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION, RunLogger
+    from evalrx.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION, RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     logger.log_run_start()
@@ -46,7 +46,7 @@ def test_every_log_method_stamps_schema_version(tmp_path):
 
 def test_codegen_persists_complete_raw_cli_stream(tmp_path):
     """The report audit trail must retain more than the summarized CLI output."""
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     logger.log_tool_codegen(
@@ -61,7 +61,7 @@ def test_codegen_persists_complete_raw_cli_stream(tmp_path):
 
 def test_log_fix_accepts_serialized_best_candidate_name(tmp_path):
     """FixOutcome.to_dict() stores ``best`` as a candidate name, not a mapping."""
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     outcome = SimpleNamespace(
@@ -81,7 +81,7 @@ def test_log_fix_accepts_serialized_best_candidate_name(tmp_path):
 
 def test_close_ends_live_langfuse_root_observation(tmp_path):
     """A live root span must be finalized when the diagnostic run closes."""
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     class Root:
         def __init__(self):
@@ -104,7 +104,7 @@ def test_close_ends_live_langfuse_root_observation(tmp_path):
 
 
 def _stats_report(stats_plan):
-    from evalvitals.analysis.stats_agent import StatsAnalysisReport
+    from evalrx.analysis.stats_agent import StatsAnalysisReport
 
     return StatsAnalysisReport(
         model_name="vlm",
@@ -118,7 +118,7 @@ def _stats_report(stats_plan):
 
 def test_small_stats_payload_stays_inline(tmp_path):
     """A typical small analysis cycle keeps stats_plan inline, not externalized."""
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     small_plan = [{"tool": "signal_label_assoc", "rationale": "correlates with FAIL"}]
@@ -135,7 +135,7 @@ def test_small_stats_payload_stays_inline(tmp_path):
 
 def test_large_stats_payload_externalized(tmp_path):
     """A stats_plan over the inline threshold is written to artifacts/ instead."""
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     big_plan = [
@@ -158,7 +158,7 @@ def test_large_stats_payload_externalized(tmp_path):
 
 def test_codegen_seq_increments_are_thread_safe(tmp_path):
     """Concurrent log_tool_codegen() calls must never collide on filename."""
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     n_threads = 20
@@ -190,7 +190,7 @@ def test_git_commit_falls_back_to_env(tmp_path, monkeypatch):
     """
     import subprocess
 
-    from evalvitals.eval_agent import run_logger as rl
+    from evalrx.eval_agent import run_logger as rl
 
     # Simulate "git unavailable" (raises like FileNotFoundError would). The
     # method imports subprocess locally, so patch the real module function.
@@ -198,7 +198,7 @@ def test_git_commit_falls_back_to_env(tmp_path, monkeypatch):
         raise FileNotFoundError("git not found")
 
     monkeypatch.setattr(subprocess, "run", _boom)
-    monkeypatch.setenv("EVALVITALS_GIT_COMMIT", "deadbee")
+    monkeypatch.setenv("EVALRX_GIT_COMMIT", "deadbee")
 
     logger = rl.RunLogger(run_dir=tmp_path / "run1")
     logger.log_run_start({"model": "fake-model"})
@@ -210,8 +210,8 @@ def test_git_commit_falls_back_to_env(tmp_path, monkeypatch):
 
 def test_run_config_records_data_fingerprint_and_labels():
     """run_start must capture *which* cases ran + their label balance, not just count."""
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-    from evalvitals.eval_agent.run_metadata import _data_provenance
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.eval_agent.run_metadata import _data_provenance
 
     cases = [
         FailureCase(id="a", inputs=Inputs(prompt="p1"), label=Label.FAIL),
@@ -232,8 +232,8 @@ def test_run_config_records_data_fingerprint_and_labels():
 
 def test_run_logger_creates_langfuse_trace_and_spans(tmp_path):
     """RunLogger must automatically record Langfuse spans, generations, and export bundle."""
-    from evalvitals.core.result import Result
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.run_logger import RunLogger
 
     run_dir = tmp_path / "langfuse_run"
     logger = RunLogger(run_dir=run_dir)

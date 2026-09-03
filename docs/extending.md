@@ -1,6 +1,6 @@
-# Extending EvalVitals
+# Extending EvalRX
 
-EvalVitals is designed to grow through small extension points: analyzers, model
+EvalRX is designed to grow through small extension points: analyzers, model
 specs, backends, datasets, and statistical routines.
 
 ## Add an Analyzer
@@ -15,7 +15,7 @@ An analyzer should behave like an sklearn estimator:
 Skeleton:
 
 ```python
-from evalvitals.core import Analyzer, Capability, Result, register_analyzer
+from evalrx.core import Analyzer, Capability, Result, register_analyzer
 
 
 @register_analyzer("my_analysis")
@@ -58,23 +58,23 @@ Guidelines:
 ## Use a Custom or Fine-Tuned Model
 
 If you have a model that is already loaded in memory — a fine-tuned checkpoint,
-a research model, or anything `from_pretrained` returns — use `evalvitals.wrap`
+a research model, or anything `from_pretrained` returns — use `evalrx.wrap`
 instead of registering a spec:
 
 ```python
-import evalvitals
+import evalrx
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 model = AutoModelForCausalLM.from_pretrained("my-org/my-llama")
 tokenizer = AutoTokenizer.from_pretrained("my-org/my-llama")
 
-wrapped = evalvitals.wrap(model, tokenizer)
+wrapped = evalrx.wrap(model, tokenizer)
 
 # Discover which analyzers are compatible
-print(evalvitals.registry.analyzers.names_compatible_with(wrapped))
+print(evalrx.registry.analyzers.names_compatible_with(wrapped))
 
 # Run any compatible analyzer
-from evalvitals.analyzers.lens.logit_lens import LogitLensAnalyzer
+from evalrx.analyzers.lens.logit_lens import LogitLensAnalyzer
 result = LogitLensAnalyzer().run(wrapped, "The capital of France is")
 ```
 
@@ -84,14 +84,14 @@ eager attention — `wrap` enables it automatically when the model supports it; 
 not, reload with `attn_implementation="eager"`.
 
 `wrap()` currently supports text decoder-only (causal LM) models. For VLMs, use
-the curated spec path (`evalvitals.load` or `compose`) — VLM forward capture with
+the curated spec path (`evalrx.load` or `compose`) — VLM forward capture with
 image-token mask and spatial layout is handled automatically for models in the spec
 registry. If your model has an unusual architecture not supported by automatic
-inference, add a `ModelSpec` (see below) and use `evalvitals.load`.
+inference, add a `ModelSpec` (see below) and use `evalrx.load`.
 
 ## Add a Model Spec
 
-Add model identity to `evalvitals/specs.py`:
+Add model identity to `evalrx/specs.py`:
 
 ```python
 # Text-only LLM
@@ -141,8 +141,8 @@ provide.
 Skeleton:
 
 ```python
-from evalvitals.core import Capability
-from evalvitals.models.backends.base import Backend
+from evalrx.core import Capability
+from evalrx.models.backends.base import Backend
 
 
 class MyBackend(Backend):
@@ -153,7 +153,7 @@ class MyBackend(Backend):
         return MyModel(spec=spec, runtime=runtime)
 ```
 
-Then register it in `evalvitals/models/backends/__init__.py`:
+Then register it in `evalrx/models/backends/__init__.py`:
 
 ```python
 BACKENDS["my_backend"] = MyBackend
@@ -171,7 +171,7 @@ Dataset loaders should produce `FailureCase` or `CaseBatch`. This keeps raw
 benchmarks, hand-authored cases, and agent-generated cases interoperable.
 
 ```python
-from evalvitals.core import FailureCase, CaseBatch
+from evalrx.core import FailureCase, CaseBatch
 
 
 def load_cases(path) -> CaseBatch:
@@ -191,9 +191,9 @@ def load_cases(path) -> CaseBatch:
 The simplest swap is an API model:
 
 ```python
-from evalvitals.eval_agent import DiagnosisAgent, AutoDiagnoseLoop
-from evalvitals.models import compose
-from evalvitals.models.backends.base import RuntimeConfig
+from evalrx.eval_agent import DiagnosisAgent, AutoDiagnoseLoop
+from evalrx.models import compose
+from evalrx.models.backends.base import RuntimeConfig
 
 judge = compose("qwen3-8b", "api", RuntimeConfig(generate_fn=my_generate))
 loop  = AutoDiagnoseLoop(model=my_model, diagnosis_agent=DiagnosisAgent(judge=judge))
@@ -201,11 +201,11 @@ loop  = AutoDiagnoseLoop(model=my_model, diagnosis_agent=DiagnosisAgent(judge=ju
 
 The judge receives a JSON dump of all analyzer findings and must reply with lines
 of the form `HYPOTHESIS: ...` / `FAILURE_MODE: ...` (one pair per hypothesis) or
-`NO_ISSUE`.  You can use `evalvitals.eval_agent.diagnosis._DIAGNOSE_PROMPT` as a
+`NO_ISSUE`.  You can use `evalrx.eval_agent.diagnosis._DIAGNOSE_PROMPT` as a
 starting point and override it by subclassing `DiagnosisAgent`:
 
 ```python
-from evalvitals.eval_agent.diagnosis import DiagnosisAgent, _parse_hypotheses, DiagnosisResult
+from evalrx.eval_agent.diagnosis import DiagnosisAgent, _parse_hypotheses, DiagnosisResult
 import json
 
 class MyDiagnosisAgent(DiagnosisAgent):
@@ -232,7 +232,7 @@ class MyDiagnosisAgent(DiagnosisAgent):
 For domain-specific verification, pass `verify_fn` to `SurgeryAgent`:
 
 ```python
-from evalvitals.eval_agent import SurgeryAgent, InterventionResult, HypothesisStatus
+from evalrx.eval_agent import SurgeryAgent, InterventionResult, HypothesisStatus
 
 def domain_verify(hypothesis, model, results, data):
     # e.g. re-evaluate after patching the prompt template
@@ -244,7 +244,7 @@ def domain_verify(hypothesis, model, results, data):
         evidence={"ablation_result": improved},
     )
 
-from evalvitals.eval_agent import AutoDiagnoseLoop, DiagnosisAgent
+from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent
 loop = AutoDiagnoseLoop(
     model=my_model,
     diagnosis_agent=DiagnosisAgent(judge=judge),
@@ -258,7 +258,7 @@ If you add a new capability type (e.g. `Capability.AUDIO`), you can teach
 `StrategyProbe` about it by passing a `priority_override`:
 
 ```python
-from evalvitals.eval_agent import StrategyProbe, ModelKind
+from evalrx.eval_agent import StrategyProbe, ModelKind
 
 probe = StrategyProbe(priority_override={
     ModelKind.LLM:   ["attention", "logit_lens", "token_entropy"],
@@ -295,7 +295,7 @@ including a bound `RunLogger`. See the "RunContext" section in
 `fixes/` / `experiments/` folders.
 
 ```python
-from evalvitals.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunContext
+from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunContext
 
 with RunContext("runs/exp_01") as ctx:
     loop = AutoDiagnoseLoop(
@@ -311,7 +311,7 @@ If you only want the JSONL event log and artifact sink — without `RunContext`'
 `report/`/`figures/`/manifest layout — construct `RunLogger` standalone:
 
 ```python
-from evalvitals.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLogger
+from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLogger
 
 loop = AutoDiagnoseLoop(
     model=model,
@@ -336,7 +336,7 @@ runs/exp_01/
 Each line in `run_log.jsonl` contains `event` (one of `probe`, `explore`,
 `analysis`, `diagnosis`, `surgery`, `loop_end`, …), `cycle`, `ts` (ISO-8601), a
 `schema_version` (int — bumps only on a breaking field rename/removal, so a
-parser doesn't need to guess from `evalvitals_version`), and stage-specific
+parser doesn't need to guess from `evalrx_version`), and stage-specific
 fields:
 
 | `event` | Key fields |
@@ -349,8 +349,8 @@ fields:
 | `loop_end` | `cycles`, `resolved`, `final_hypotheses` |
 
 The full, authoritative field contract is the published JSON Schema
-(`evalvitals/eval_agent/run_log.schema.json`, from `log_schema.py`); validate a
-log with `from evalvitals.eval_agent import iter_log_errors` (needs the optional
+(`evalrx/eval_agent/run_log.schema.json`, from `log_schema.py`); validate a
+log with `from evalrx.eval_agent import iter_log_errors` (needs the optional
 `jsonschema` dep). See `docs/architecture.md` for details.
 
 Standard shell tools work directly on the log:

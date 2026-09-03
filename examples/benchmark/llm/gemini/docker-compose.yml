@@ -11,7 +11,7 @@ x-gemini: &gemini
   extends:
     file: ../../_common/compose/base.yml
     service: bench-core                  # no GPU reservation
-  image: evalvitals-bench-gemini
+  image: evalrx-bench-gemini
   build:
     context: ../../../..
     dockerfile: examples/benchmark/docker/Dockerfile

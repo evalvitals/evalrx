@@ -11,7 +11,7 @@ is exactly what a viewer has to render — [what to put on screen for it](#ui-re
 Building a new UI on this pipeline? Read the stage you're rendering below,
 then [UI Reference](#ui-reference-building-a-viewer-on-this-pipeline) at the
 bottom for the static report's page layout, tab-to-stage mapping, and
-rendering conventions (source: `evalvitals/reporting/html_report.py`).
+rendering conventions (source: `evalrx/reporting/html_report.py`).
 For an implementation hand-off, start with
 [Frontend implementation contract](#frontend-implementation-contract): it
 defines the files to load, event fields, joins, state derivation, null/error
@@ -206,8 +206,8 @@ succeeded).
 
 ### Standalone `ExploratoryAnalysisAgent` (M2, no-code CLI path)
 
-A different, purely-descriptive tool for the `evalvitals explore` CLI /
-`evalvitals.explore()` — not loop-internal. See
+A different, purely-descriptive tool for the `evalrx explore` CLI /
+`evalrx.explore()` — not loop-internal. See
 [m2_analysis.md](m2_analysis.md) for full detail.
 
 **Input:** `path: str | Path` (a `.json`/`.jsonl` file or directory tree of
@@ -418,7 +418,7 @@ for the structured event each stage emits per cycle.
 ## Frontend implementation contract
 
 **Read `<run>/contract/` first.** Every stage validates its output against
-`evalvitals/contract/` on the way out and writes one JSON per stage —
+`evalrx/contract/` on the way out and writes one JSON per stage —
 `c0.m1.json`, `c0.m2.json`, `c0.m3.json`, `c0.m5.json`, `m4_surgery.json`,
 `m4_fix.json`. That directory is the typed source of truth, and TypeScript
 declarations for all of it are generated into `docs/contract/contract.d.ts`:
@@ -431,7 +431,7 @@ m1.selection.routed_on;      // ["audio", "text"] — what the run was actually 
 m1.results["mm_shap"];       // keyed by analyzer name
 ```
 
-Regenerate with `python -m evalvitals.contract.export --out docs/contract`;
+Regenerate with `python -m evalrx.contract.export --out docs/contract`;
 CI runs the same command with `--check` so the artifacts cannot go stale.
 A stage that failed validation writes `<stage>.invalid.json` carrying the error
 instead — visibly broken rather than quietly missing.
@@ -923,9 +923,9 @@ following against both a live and a persisted run:
 
 ## UI reference — building a viewer on this pipeline
 
-There is already a working viewer for this exact data: `evalvitals report`
-generates `report.html`, and `evalvitals serve <run-dir>` opens it locally.
-The source of truth is `evalvitals/reporting/html_report.py`. Read this
+There is already a working viewer for this exact data: `evalrx report`
+generates `report.html`, and `evalrx serve <run-dir>` opens it locally.
+The source of truth is `evalrx/reporting/html_report.py`. Read this
 section as the contract the static report must preserve.
 
 ### Requirements for the new UI

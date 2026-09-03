@@ -9,11 +9,11 @@ mirroring the primary path's e-BH, instead of each hypothesis self-promoting.
 
 from __future__ import annotations
 
-from evalvitals.analysis.stats_agent import StatsAnalysisReport
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
-from evalvitals.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTester
+from evalrx.analysis.stats_agent import StatsAnalysisReport
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
+from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester
 
 
 def _hyp(s: str) -> Hypothesis:

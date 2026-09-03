@@ -1,6 +1,6 @@
 # Spatial457 × Qwen2.5-VL
 
-Full EvalVitals M1→M5 diagnosis and held-out Fix validation on 512
+Full EvalRX M1→M5 diagnosis and held-out Fix validation on 512
 deterministically sampled `L5_6d_spatial` questions from Spatial457.  The
 explore/confirm split is fixed at 256/256. An agy/Antigravity coding agent sees
 only EXPLORE data, runs a controlled subtype-discovery candidate followed by

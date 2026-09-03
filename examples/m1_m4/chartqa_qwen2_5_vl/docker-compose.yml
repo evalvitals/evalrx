@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m1_m4/chartqa_qwen2_5_vl/Dockerfile
-    image: evalvitals-chartqa-qwen2-5-vl
+    image: evalrx-chartqa-qwen2-5-vl
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}

@@ -37,11 +37,11 @@ def main() -> None:
     args = ap.parse_args()
     OUT.mkdir(exist_ok=True)
 
-    from evalvitals import compose
-    from evalvitals.core.capability import Capability
-    from evalvitals.eval_agent import CliAgentConfig, RunLogger
-    from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx import compose
+    from evalrx.core.capability import Capability
+    from evalrx.eval_agent import CliAgentConfig, RunLogger
+    from evalrx.eval_agent.stages.probe_agent import ProbeAgent
+    from evalrx.models.backends.base import RuntimeConfig
 
     judge = run.build_judge(args.judge_model, args.judge_effort)
     model = compose(args.model, "hf_local",

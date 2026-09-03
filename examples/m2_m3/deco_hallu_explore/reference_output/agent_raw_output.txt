@@ -146,9 +146,9 @@ Counter({'image_id': 201, 'file_name': 201, 'object': 201, 'pope_label': 201, 'p
 [#4 result] Launching skill: outcome-driver-analysis
 [#5 Skill] {"skill": "eval-chart-style"}
 [#5 result] Launching skill: eval-chart-style
-[#6 Skill] {"skill": "evalvitals-report-ui"}
-[#6 result] Launching skill: evalvitals-report-ui
-[#7 Skill] {"skill": "nature-figure", "args": "Python backend; matplotlib PNGs for EvalVitals figures/"}
+[#6 Skill] {"skill": "evalrx-report-ui"}
+[#6 result] Launching skill: evalrx-report-ui
+[#7 Skill] {"skill": "nature-figure", "args": "Python backend; matplotlib PNGs for EvalRX figures/"}
 [#7 result] Launching skill: nature-figure
 [assistant] Backend is Python (given). Loading the required fragments.
 [#8 Bash] $ B=".claude/skills/nature-figure"; cat $B/manifest.yaml; echo "=== CONTRACT ==="; cat $B/static/core/contract.md; echo "=== STANCE ==="; cat $B/static/core/stance.md
@@ -195,7 +195,7 @@ references:
       path: references/r-template-index.md
     - condition: before final delivery, revision package, micros
 ... [truncated 7670 chars]
-[#9 Bash] $ cat ".claude/skills/nature-figure/static/fragments/backend/python.md"; python3 -c "import evalvitals" 2>&1 | tail -1; python3 -c "import pandas,numpy,matplotlib,scipy,statsmodels; print('libs ok', pandas.__version__, scipy.__version__, statsmodels.__version__)"
+[#9 Bash] $ cat ".claude/skills/nature-figure/static/fragments/backend/python.md"; python3 -c "import evalrx" 2>&1 | tail -1; python3 -c "import pandas,numpy,matplotlib,scipy,statsmodels; print('libs ok', pandas.__version__, scipy.__version__, statsmodels.__version__)"
 [#9 result] # Backend: Python (matplotlib / seaborn)
 
 **Python-only execution rule.** When the user has selected Python, do all figure drawing, previewing, exporting, and visual QA in Python. Do not call R/ggplot2, ComplexHeatmap, patchwork, or any R graphics device to create a temporary preview, fallback export, or layout approximation. If Python or required Python plotting packages are missing, stop before rendering and report the missing dependency. You may still write the Python script, provide `pip`/environment install commands, or ask permission to install dependencies, but do not cross-render the figure in R.
@@ -282,8 +282,8 @@ mean_relative_weight  606.0    5.263889  ...    6.696050    33.0722
 [7 rows x 8 columns]
 dup image+obj+model 0
 [assistant] Data profiled. Key structural fact: `probe_type` has only `adversarial` (absent) and `present` rows, and **all 126 FAILs are adversarial** by slice construction — so the honest FAIL/PASS contrast is *within* adversarial. Writing the script now.
-[#11 Write] write /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py (88083 chars)
-[#11 result] File created successfully at: /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py (file state is current in your context — no need to Read it back)
+[#11 Write] write /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py (88083 chars)
+[#11 result] File created successfully at: /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py (file state is current in your context — no need to Read it back)
 [#12 Bash] $ python3 analysis.py > /tmp/out.txt 2> /tmp/err.txt; echo "exit=$?"; tail -25 /tmp/err.txt; echo "--- stdout head ---"; head -c 400 /tmp/out.txt
 [#12 result] exit=0
 --- stdout head ---
@@ -324,7 +324,7 @@ mean_relative_weight  Mean relative attention     Mean rel.wt  adversarial_only 
 center_offset         Center offset               Center off.  adversarial_only  126     240     0.221        0.1452       0.672  0.611   0.732   0.34
 edge_mass             Edge mass                   Edge mass    adversarial_only  126     240     0.1617       0.2102       0.354  0.293   0.417   0.29
 [assistant] Separation is stronger than my draft text assumed (focus_share AUC 0.82, not a weak signal) and two primary visuals are uncited. Checking the real numbers before fixing the narrative.
-[#14 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g
+[#14 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g
 echo "=== per-checkpoint separation ==="; column -s, -t tables/separation_by_checkpoint.csv | awk 'NR==1||1' | cut -c1-135
 echo "=== conditioning ==="; column -s, -t tables/conditioning_check.csv
 echo "=== checkpoint shift ==="; column -s, -t tables/checkpoint_distribution_shift.csv
@@ -350,7 +350,7 @@ mean_relative_weight  Mean relative attention     Mean rel.wt  4B     35      80
 center_offset         Center offset               Center off.  4B     35      80      0.2111       0.1492       0.608  0.483   0.724   
 edge_mass             Edge mass                   Edge mass   
 ... [truncated 7087 chars]
-[#15 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g; head -2 tables/scatter_top_pair.csv; python3 -c "
+[#15 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g; head -2 tables/scatter_top_pair.csv; python3 -c "
 import json,pandas as pd
 d=pd.read_json('records.json')
 a=d[d.probe_type=='adversarial']
@@ -371,25 +371,25 @@ center_offset                0.48  ...           1.00
 peaked rule check
 flagged 76 rate 0.724 else 0.245 share of fails captured 0.437
 [assistant] Real story is stronger and different from my draft (direction is consistent across all checkpoints; object identity dominates). Rewriting the narrative to match the actual numbers.
-[#16 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#16 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#16 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#16 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
 [assistant] Now replacing the narrative block with one that matches the observed numbers.
-[#17 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#17 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#18 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#18 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#19 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#19 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#17 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#17 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#18 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#18 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#19 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#19 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
 [assistant] Now the takeaways themselves — replacing the whole block with numbers-accurate findings.
-[#20 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#20 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#21 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g; grep -n '"_takeaways_unused"\|"chart_readings"\|deterministic .peaked attention. split\|A deterministic peaked-attention split' analysis.py
+[#20 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#20 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#21 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g; grep -n '"_takeaways_unused"\|"chart_readings"\|deterministic .peaked attention. split\|A deterministic peaked-attention split' analysis.py
 [#21 result] 1064:     "title": f"A deterministic peaked-attention split (top1_share > {thr_top1:.3f} and attention_entropy < {thr_ent:.3f}) flags {len(grp_b)}/{len(ADV)} adversarial cases at a {peak_rate:.0%} hallucination rate vs {flat_rate:.0%}, capturing {peak_capture:.0%} of all hallucinations.",
 1082:  "_takeaways_unused": [
 1114:     "title": f"A deterministic 'peaked attention' split (top1_share > {thr_top1:.3f} and attention_entropy < {thr_ent:.3f}) marks {len(grp_b)}/{len(ADV)} adversarial cases with a {peak_rate:.0%} hallucination rate vs {flat_rate:.0%} in the rest.",
 1132:  "chart_readings": [
 1174:    {"id": "C5", "text": f"A deterministic peaked-attention split marks {len(grp_b)} adversarial cases with a {peak_rate:.0%} hallucination rate vs {flat_rate:.0%} elsewhere.",
-[#22 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g; python3 - <<'EOF'
+[#22 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g; python3 - <<'EOF'
 lines = open('analysis.py').read().split('\n')
 # delete the stale block: from '  "_takeaways_unused": [' (0-idx 1081) up to the line before '  "chart_readings": [' (0-idx 1131)
 assert lines[1081].strip().startswith('"_takeaways_unused"'), lines[1081]
@@ -409,7 +409,7 @@ python3 -c "import ast;ast.parse(open('analysis.py').read());print('syntax ok')"
 NameError: name 'l' is not defined
 syntax ok
 17
-[#23 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g; cat > /tmp/fix.py <<'EOF'
+[#23 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g; cat > /tmp/fix.py <<'EOF'
 lines = open('analysis.py').read().split('\n')
 def find(sub, frm=0):
     for i in range(frm, len(lines)):
@@ -429,7 +429,7 @@ python3 /tmp/fix.py; python3 -c "import ast;ast.parse(open('analysis.py').read()
 [#23 result] deleted stale 1081 1131 and takeaway 1062 1067
 syntax ok
 8
-[#24 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g; grep -n 'compressed below it\|C4\|Effect sizes are modest\|apparent direction flips\|separation is not stable\|change sign' analysis.py | head
+[#24 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g; grep -n 'compressed below it\|C4\|Effect sizes are modest\|apparent direction flips\|separation is not stable\|change sign' analysis.py | head
 [#24 result] 533:# --- C4 separation per checkpoint ------------------------------------------
 1040:     "title": f"Direction is stable across checkpoints ({n_flip}/{len(SIGNALS)} signals change sign), but strength is not monotone in size: {FULLNAME[s1.signal]} AUC {s1_ck[s1_ck_best]:.2f} at {s1_ck_best}, {s1_ck.min():.2f} at {s1_ck_worst}, {s1_ck[SIZE_ORD[-1]]:.2f} at {SIZE_ORD[-1]}.",
 1079:    {"chart": "separation_ranked", "reading": f"{FULLNAME[s1.signal]} leads at AUC {s1.auc:.2f}, with the remaining signals compressed below it; nothing approaches a clean split.", "do_not_infer": "The bars are not independent contributions - the signals are heavily correlated, so their separations cannot be added."},
@@ -437,17 +437,17 @@ syntax ok
 1114:    {"id": "C4", "text": f"FAIL/PASS separation is not stable across checkpoints: {int(simpson_df.sign_flip_across_checkpoints.sum())}/{len(SIGNALS)} signals change direction in at least one checkpoint.",
 1185:    f"Per-checkpoint strata hold only {int(sep_by_ck.n_fail.min())}-{int(sep_by_ck.n_fail.max())} FAILs, so per-checkpoint AUCs and any apparent direction flips carry wide intervals.",
 1197:    "Effect sizes are modest throughout (leading AUC around {:.2f}); readers primed to expect a clean attention signature should note the distributions overlap heavily and no chart here supports per-case detection.".format(float(s1.auc)),
-[#25 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#25 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#26 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#26 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#27 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#27 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#28 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#28 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#29 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#29 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#30 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g; python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo exit=$?; tail -5 /tmp/err.txt
+[#25 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#25 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#26 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#26 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#27 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#27 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#28 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#28 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#29 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#29 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#30 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g; python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo exit=$?; tail -5 /tmp/err.txt
 python3 - <<'PY'
 import json,os,re
 r=json.loads(open('/tmp/out.txt').read().strip().splitlines()[-1][len('EXPLORATORY_RESULT_JSON='):])
@@ -481,7 +481,7 @@ plain_question: We are looking at whether the way a vision-language model spread
  - All seven attention numbers together get the ordering right about 84% of the time and its risk estimates track the observed rates closely - real but partial, and mea
  - Because a wrong answer only counts when the object is genuinely absent, the comparison has to stay inside those trick questions - including the ordinary questions wo
 [assistant] Contract checks pass. Fixing three wording nits, then a visual check of the figures.
-[#31 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g; cat > /tmp/w.py <<'PY'
+[#31 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g; cat > /tmp/w.py <<'PY'
 s=open('analysis.py').read()
 s=s.replace('''the model claims to see a {big_obj.object} that is not there {big_obj.hallucination_rate:.0%} of the time, but a {small_obj.object} only {small_obj.hallucination_rate:.0%} of the time.''',
  '''when a {big_obj.object} is absent the model claims to see one {big_obj.hallucination_rate:.0%} of the time, while for {small_obj.object} it does so only {small_obj.hallucination_rate:.0%} of the time.''')
@@ -500,14 +500,14 @@ for t in r['takeaways'][1:2]+r['takeaways'][5:7]: print('-',t['plain_title'])"
 - Which object is asked about matters far more than which model size is used: when a potted plant is absent the model claims to see one 82% of the time, while for skis it does so only 9% of the time.
 - The largest model version is not the safest on these trick questions: it wrongly answers yes 38% of the time against 30% for the best of the three, a gap small enough to be chance.
 - Using all seven attention numbers at once, a wrong answer is ranked as riskier than a right one about 84% of the time, and the predicted risk matches what actually happened - a real but partial signal, measured on the same cases it was built from.
-[#32 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/figures/attention_geometry_fail_vs_pass.png
+[#32 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/figures/attention_geometry_fail_vs_pass.png
 [#32 result] 
 [assistant] Row-1 tick labels collide with row-2 titles in the two 2×4 grids. Fixing spacing.
-[#33 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#33 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#34 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py
-[#34 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
-[#35 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g; python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo exit=$?; tail -3 /tmp/err.txt; ls figures
+[#33 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#33 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#34 Edit] edit /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py
+[#34 result] The file /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/analysis.py has been updated successfully. (file state is current in your context — no need to Read it back)
+[#35 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g; python3 analysis.py > /tmp/out.txt 2>/tmp/err.txt; echo exit=$?; tail -3 /tmp/err.txt; ls figures
 [#35 result] exit=0
 adjusted_odds_forest.png
 attention_geometry_fail_vs_pass.png
@@ -519,9 +519,9 @@ object_checkpoint_heatmap.png
 separation_by_checkpoint_heatmap.png
 signal_correlation_heatmap.png
 top_pair_scatter_by_checkpoint.png
-[#36 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g/figures/checkpoint_distribution_shift.png
+[#36 Read] read /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g/figures/checkpoint_distribution_shift.png
 [#36 result] 
-[#37 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalvitals_sandbox_x0tdm23g; ls; echo "records rows:"; python3 -c "import json;print(len(json.load(open('records.json'))))"; echo "last stdout line prefix:"; tail -c 80 /tmp/out.txt | head -c 0; head -c 30 /tmp/out.txt
+[#37 Bash] $ cd /private/var/folders/g7/fk77fxr52l31_n2wy6ndsn0m0000gq/T/evalrx_sandbox_x0tdm23g; ls; echo "records rows:"; python3 -c "import json;print(len(json.load(open('records.json'))))"; echo "last stdout line prefix:"; tail -c 80 /tmp/out.txt | head -c 0; head -c 30 /tmp/out.txt
 [#37 result] analysis.py
 figures
 raw_input

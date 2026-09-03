@@ -10,10 +10,10 @@ import json
 import time
 from pathlib import Path
 
-from evalvitals.core.case import Inputs
-from evalvitals.models.backends.base import RuntimeConfig
-from evalvitals.models.backends.hf_local import HFLocalModel
-from evalvitals.specs import get_spec
+from evalrx.core.case import Inputs
+from evalrx.models.backends.base import RuntimeConfig
+from evalrx.models.backends.hf_local import HFLocalModel
+from evalrx.specs import get_spec
 
 DATA = Path(__file__).parent / "data"
 

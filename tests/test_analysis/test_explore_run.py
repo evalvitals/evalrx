@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.analysis import api as explore_api
-from evalvitals.analysis.explore_run import _verdict_suffix, run_explore, write_report_artifacts
-from evalvitals.analysis.explorer import CandidateSignal, ExploratoryAnalysisReport
-from evalvitals.analysis.hypothesis_agent import Hypothesis
-from evalvitals.viz import renderer as charts_mod
+from evalrx.analysis import api as explore_api
+from evalrx.analysis.explore_run import _verdict_suffix, run_explore, write_report_artifacts
+from evalrx.analysis.explorer import CandidateSignal, ExploratoryAnalysisReport
+from evalrx.analysis.hypothesis_agent import Hypothesis
+from evalrx.viz import renderer as charts_mod
 
 _HAVE_MPL = charts_mod._import_matplotlib() is not None
 

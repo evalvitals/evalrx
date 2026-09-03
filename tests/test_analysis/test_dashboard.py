@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.analysis.dashboard import load_loop_story, load_run
+from evalrx.analysis.dashboard import load_loop_story, load_run
 
 
 def test_load_run_reads_single_explore_report(tmp_path):

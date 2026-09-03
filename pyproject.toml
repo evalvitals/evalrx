@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "evalvitals"
+name = "evalrx"
 dynamic = ["version"]
 description = "Failure case analysis in the era of LLM."
 readme = "README.md"
@@ -63,7 +63,7 @@ data = [
     "datasets>=2.0",
     "pillow>=9.0",
 ]
-# Machine-readable M1-M5 stage contract (evalvitals.contract): runtime validation
+# Machine-readable M1-M5 stage contract (evalrx.contract): runtime validation
 # of what crosses each stage boundary + JSON Schema / TypeScript generation.
 contract = ["pydantic>=2.7"]
 viz = ["matplotlib>=3.7"]
@@ -83,7 +83,7 @@ stats = [
     "statsmodels>=0.14",
     "scikit-learn>=1.3",
 ]
-# Failure-mode clustering (evalvitals.analysis.failure_modes). scikit-learn
+# Failure-mode clustering (evalrx.analysis.failure_modes). scikit-learn
 # alone gets TF-IDF + Agglomerative clustering; hdbscan adds density-based
 # clustering (no fixed cluster count). Neither is required — a pure-numpy
 # fallback (hashing vectorizer + cosine-greedy grouping) always works.
@@ -118,31 +118,31 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/evalvitals/evalvitals"
-Documentation = "https://evalvitals.github.io/evalvitals/"
-Repository = "https://github.com/evalvitals/evalvitals"
-Issues = "https://github.com/evalvitals/evalvitals/issues"
-Changelog = "https://github.com/evalvitals/evalvitals/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/evalvitals/evalrx"
+Documentation = "https://evalvitals.github.io/evalrx/"
+Repository = "https://github.com/evalvitals/evalrx"
+Issues = "https://github.com/evalvitals/evalrx/issues"
+Changelog = "https://github.com/evalvitals/evalrx/blob/main/CHANGELOG.md"
 
 [project.scripts]
-evalvitals = "evalvitals.cli:main"
-evalvitals-explore = "evalvitals.analysis.cli:main"
+evalrx = "evalrx.cli:main"
+evalrx-explore = "evalrx.analysis.cli:main"
 
 [tool.setuptools.dynamic]
-version = {attr = "evalvitals.__version__"}
+version = {attr = "evalrx.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["evalvitals*"]
+include = ["evalrx*"]
 
 [tool.setuptools.package-data]
 # Ship the published run_log.jsonl JSON Schema so non-Python consumers can
-# validate the log without installing evalvitals.
-"evalvitals.eval_agent" = ["run_log.schema.json"]
+# validate the log without installing evalrx.
+"evalrx.eval_agent" = ["run_log.schema.json"]
 # Ship bundled Agent Skills (e.g. nature-figure) so `pip install` carries them
 # too, not just `git clone`. explore auto-applies them on claude/agy backends.
-"evalvitals.agent_assets" = ["skills/**/*"]
-"evalvitals.reporting" = ["web_dist/**/*"]
+"evalrx.agent_assets" = ["skills/**/*"]
+"evalrx.reporting" = ["web_dist/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

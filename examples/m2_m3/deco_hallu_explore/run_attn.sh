@@ -14,7 +14,7 @@ OUT_DIR="${OUT_DIR:-outputs_attn_full}"
 # continuous signals make possible: FAIL/PASS distribution views and
 # cross-checkpoint comparisons.
 cmd=(
-  evalvitals
+  evalrx
   explore
   data_attn_full
   --backend "$CODER_PROVIDER"

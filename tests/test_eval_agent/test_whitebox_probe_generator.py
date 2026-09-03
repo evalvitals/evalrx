@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import torch
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model, Trace
-from evalvitals.eval_agent import WhiteboxProbeGenerator
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model, Trace
+from evalrx.eval_agent import WhiteboxProbeGenerator
 
 _SEQ = 6
 _IMG = slice(2, 5)  # 3 image tokens; position 0 is a structural token
@@ -114,7 +114,7 @@ def test_capture_compute_produces_per_case_signal():
 
 
 def test_signal_feeds_stats_layer_and_separates_groups():
-    from evalvitals.analysis.stats_tools import build_stats_input, run_stats_tool
+    from evalrx.analysis.stats_tools import build_stats_input, run_stats_tool
 
     batch = _batch()
     result, _ = WhiteboxProbeGenerator(judge=ScriptedJudge(_STRUCT_SINK_PROBE)).generate(
@@ -153,7 +153,7 @@ def test_unavailable_without_backend():
 
 def test_probe_agent_routes_internal_need_to_whitebox():
     """ProbeAgent dispatches an internals-flavoured need to the white-box generator."""
-    from evalvitals.eval_agent import ProbeAgent
+    from evalrx.eval_agent import ProbeAgent
 
     gen = WhiteboxProbeGenerator(judge=ScriptedJudge(_STRUCT_SINK_PROBE))
     agent = ProbeAgent(max_analyzers=0, allow_codegen=True, whitebox_generator=gen)

@@ -35,7 +35,7 @@ priors override audio evidence" on its own and reaches for AAD.
                                    candidates (fix_agent.py's admission gate:
                                    tasks=={"yes_no"} + generate_aad +
                                    paper_method_fidelity('aad')=='native_silence_contrast'
-                                   -- see evalvitals/eval_agent/stages/fix_agent.py,
+                                   -- see evalrx/eval_agent/stages/fix_agent.py,
                                    search "aad_silence_contrast"), validated
                                    on a held-out CONFIRM split the loop's own
                                    M1-M5 discovery never saw (--confirm-split).
@@ -100,7 +100,7 @@ def score_case(case: "Any", output: str) -> bool:
 
 
 def row_inputs(row: dict[str, Any]) -> "Any":
-    from evalvitals.core.case import Inputs
+    from evalrx.core.case import Inputs
 
     return Inputs(prompt=task_prompt(row), audio=str(DATA / row["audio_path"]))
 
@@ -116,7 +116,7 @@ def evaluate(rows: list[dict[str, Any]], strategy: Callable[[dict[str, Any]], st
 
 
 def make_cases(rows: list[dict[str, Any]], baseline: dict[str, Any]) -> "Any":
-    from evalvitals.core.case import CaseBatch, FailureCase, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Label
 
     baseline_by_id = {case["id"]: case for case in baseline["cases"]}
     return CaseBatch([
@@ -153,7 +153,7 @@ PINNED_M1_ANALYZERS = [
 
 
 def build_protocol() -> "Any":
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -186,13 +186,13 @@ def build_protocol() -> "Any":
 
 def build_judge(provider: str, model_name: str, effort: str) -> "Any":
     if provider == "agy":
-        from evalvitals.agent_runtime.judges import AgyModel
+        from evalrx.agent_runtime.judges import AgyModel
 
         judge = AgyModel(model=model_name, timeout_sec=300)
         label = f"agy model={model_name or 'session default'}"
         empty_hint = "agy is likely rate-limited/quota-exhausted -- try --judge-model with a different agy model"
     else:
-        from evalvitals.eval_agent import ClaudeModel
+        from evalrx.eval_agent import ClaudeModel
 
         model_name = model_name or "sonnet"
         judge = ClaudeModel(model=model_name, effort=effort)
@@ -209,10 +209,10 @@ def build_judge(provider: str, model_name: str, effort: str) -> "Any":
 # ---------------------------------------------------------------------------
 
 def _run_smoke_test(args: argparse.Namespace) -> None:
-    from evalvitals.core.capability import Capability
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-    from evalvitals.core.result import Result
-    from evalvitals.eval_agent import (
+    from evalrx.core.capability import Capability
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.result import Result
+    from evalrx.eval_agent import (
         DiagnosisResult,
         ExperimentProtocol,
         FixAgent,
@@ -391,7 +391,7 @@ def main() -> int:
     parser.add_argument(
         "--judge-provider", choices=["claude", "agy"], default="agy",
         help="'agy' (default, Antigravity CLI, no Anthropic API key -- see "
-             "evalvitals/agent_runtime/judges/agy.py) or 'claude' (native "
+             "evalrx/agent_runtime/judges/agy.py) or 'claude' (native "
              "claude CLI). Matches vlm_benchmark_common.py's default.",
     )
     parser.add_argument(
@@ -437,9 +437,9 @@ def main() -> int:
         raise SystemExit(f"only {len(rows)} rows available, fewer than --limit {args.limit}")
     rows = rows[: args.limit]
 
-    from evalvitals.models.backends.base import RuntimeConfig
-    from evalvitals.models.backends.hf_local import HFLocalModel
-    from evalvitals.specs import get_spec
+    from evalrx.models.backends.base import RuntimeConfig
+    from evalrx.models.backends.hf_local import HFLocalModel
+    from evalrx.specs import get_spec
 
     model = HFLocalModel(
         get_spec(args.model),
@@ -468,7 +468,7 @@ def main() -> int:
 
     judge = build_judge(args.judge_provider, args.judge_model, args.judge_effort)
 
-    from evalvitals.eval_agent import (
+    from evalrx.eval_agent import (
         DiagnosisAgent,
         FixAgent,
         HypothesisTester,
@@ -514,8 +514,8 @@ def main() -> int:
     diagnosis_agent = None if args.analysis_only else DiagnosisAgent(judge=judge)
     hypothesis_tester = None if args.analysis_only else HypothesisTester(judge=judge, min_effect=0.05)
 
-    from evalvitals.eval_agent import CliAgentConfig, SurgeryAgent
-    from evalvitals.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+    from evalrx.eval_agent import CliAgentConfig, SurgeryAgent
+    from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
 
     coder_cfg = CliAgentConfig(
         provider="antigravity" if args.judge_provider == "agy" else "claude_code",
@@ -551,8 +551,8 @@ def main() -> int:
 
     explorer = None
     if args.explore and not args.analysis_only:
-        from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-        from evalvitals.analysis import ExploratoryAnalysisAgent
+        from evalrx.agent_runtime.sandbox import ExperimentSandbox
+        from evalrx.analysis import ExploratoryAnalysisAgent
 
         explorer = ExploratoryAnalysisAgent(
             cli_config=coder_cfg,

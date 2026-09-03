@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 # Held-out hypothesis pipeline over the attention-enriched data:
 #   phase 0  prepare_splits.py     split==explore (365) / split==validate (241)
-#   phase 1  evalvitals explore    M2+M3 on the explore half -> hypotheses + dashboard
+#   phase 1  evalrx explore    M2+M3 on the explore half -> hypotheses + dashboard
 #   phase 2  test_hypotheses.py    frozen-recipe re-eval + e-BH on the validate half
 #                                  + LLM judge grades each hypothesis
 #   phase 3  run_surgery.py        M5 confirm -> M4 -> tiered fix (L1..L3b) on GPU
@@ -28,7 +28,7 @@ echo "=== phase 0: split preparation ==="
 
 echo "=== phase 1: explore (M2+M3) on the explore half ==="
 cmd=(
-  evalvitals explore data_attn_explore
+  evalrx explore data_attn_explore
   --backend "$CODER_PROVIDER"
   --outcome-col label
   --out "$OUT_ROOT/1_explore"
@@ -51,4 +51,4 @@ fi
 
 echo
 echo "View the combined report (proposal + held-out verdicts + fix):"
-echo "  evalvitals dashboard $OUT_ROOT/1_explore"
+echo "  evalrx dashboard $OUT_ROOT/1_explore"

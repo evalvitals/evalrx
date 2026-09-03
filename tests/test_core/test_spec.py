@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core.spec import AttnSemantics, AudioSpec, ModelSpec, VisionSpec
-from evalvitals.specs import REGISTRY, get_spec, list_specs
+from evalrx.core.spec import AttnSemantics, AudioSpec, ModelSpec, VisionSpec
+from evalrx.specs import REGISTRY, get_spec, list_specs
 
 
 def test_llm_spec_has_no_vision():
