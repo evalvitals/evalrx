@@ -4,9 +4,9 @@ import json
 
 
 def test_publish_report_contract_and_case_records(tmp_path):
-    from evalvitals.core import CaseBatch, FailureCase, Label
-    from evalvitals.eval_agent.run_logger import RunLogger
-    from evalvitals.reporting.dynamic import load_published_report, publish_report
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.dynamic import load_published_report, publish_report
 
     logger = RunLogger(tmp_path)
     logger.log_run_start({
@@ -28,12 +28,12 @@ def test_publish_report_contract_and_case_records(tmp_path):
     assert envelope["format"] == "json-render"
     # bumped to @2 when CaseStudySheet joined the catalog: a cached layout
     # composed against the older catalog cannot name the new component.
-    assert envelope["catalog_version"] == "evalvitals-report@2"
+    assert envelope["catalog_version"] == "evalrx-report@2"
     assert envelope["spec"]["elements"]["journey"]["type"] == "Journey"
 
 
 def test_report_agent_repairs_once_then_validates():
-    from evalvitals.reporting.dynamic import ReportAgent
+    from evalrx.reporting.dynamic import ReportAgent
 
     valid = {
         "root": "page",
@@ -60,8 +60,8 @@ def test_report_agent_repairs_once_then_validates():
 
 
 def test_invalid_agent_output_falls_back(tmp_path):
-    from evalvitals.eval_agent.run_logger import RunLogger
-    from evalvitals.reporting.dynamic import load_published_report, publish_report
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.dynamic import load_published_report, publish_report
 
     logger = RunLogger(tmp_path)
     logger.log_run_start({"model": "demo", "n_cases": 0})
@@ -81,10 +81,10 @@ def test_invalid_agent_output_falls_back(tmp_path):
 def test_dynamic_api_filters_and_serves_spa(tmp_path):
     from fastapi.testclient import TestClient
 
-    from evalvitals.core import CaseBatch, FailureCase, Label
-    from evalvitals.eval_agent.run_logger import RunLogger
-    from evalvitals.reporting.dynamic import publish_report
-    from evalvitals.reporting.server import create_app
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.dynamic import publish_report
+    from evalrx.reporting.server import create_app
 
     logger = RunLogger(tmp_path)
     logger.log_run_start({"model": "demo", "n_cases": 2})
@@ -104,8 +104,8 @@ def test_dynamic_api_filters_and_serves_spa(tmp_path):
 
 
 def test_external_case_media_is_copied_into_durable_run(tmp_path):
-    from evalvitals.core import CaseBatch, FailureCase, Inputs
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.core import CaseBatch, FailureCase, Inputs
+    from evalrx.eval_agent.run_logger import RunLogger
 
     media = tmp_path / "source.wav"
     media.write_bytes(b"RIFF-fake-audio")
@@ -123,7 +123,7 @@ def test_external_case_media_is_copied_into_durable_run(tmp_path):
 
 
 def test_unparsed_m3_response_is_recovered_for_audit_only():
-    from evalvitals.reporting.dynamic import _recover_unparsed_hypotheses
+    from evalrx.reporting.dynamic import _recover_unparsed_hypotheses
 
     response = """HYPOTHESIS: Formatting causes the failure.
 PLAIN_STATEMENT: The answer changes when formatting changes.
@@ -136,9 +136,9 @@ EXPECTED_ASSOCIATION: higher_on_failures"""
 
 
 def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
-    from evalvitals.core import CaseBatch, FailureCase, Label, Result
-    from evalvitals.eval_agent.run_logger import RunLogger
-    from evalvitals.reporting.dynamic import build_report_data
+    from evalrx.core import CaseBatch, FailureCase, Label, Result
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.dynamic import build_report_data
 
     case = FailureCase.from_prompt(
         "Choose the animal", id="case-1", expected="cat", observed="dog", label=Label.FAIL,
@@ -160,7 +160,7 @@ def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
 
 
 def test_legacy_m5_example_is_labeled_as_an_aggregate_validation_test():
-    from evalvitals.reporting.dynamic import _m5_examples
+    from evalrx.reporting.dynamic import _m5_examples
 
     example = _m5_examples([{
         "hypothesis": "Formatting causes the failure.", "status": "refuted",
@@ -172,7 +172,7 @@ def test_legacy_m5_example_is_labeled_as_an_aggregate_validation_test():
 
 
 def test_report_uses_plain_language_for_internal_signal_names():
-    from evalvitals.reporting.dynamic import _plain_signal
+    from evalrx.reporting.dynamic import _plain_signal
 
     label = _plain_signal("format_sensitivity.format_flip_rate")
     assert "answer order" in label.lower()
@@ -180,7 +180,7 @@ def test_report_uses_plain_language_for_internal_signal_names():
 
 
 def test_indexed_media_can_be_served_from_the_adjacent_example_data_dir(tmp_path):
-    from evalvitals.reporting.server import _resolve_indexed_media
+    from evalrx.reporting.server import _resolve_indexed_media
 
     root = tmp_path / "example" / "outputs" / "logs"
     root.mkdir(parents=True)
@@ -192,7 +192,7 @@ def test_indexed_media_can_be_served_from_the_adjacent_example_data_dir(tmp_path
 
 
 def test_explicit_run_log_wins_over_a_nested_logs_subrun(tmp_path):
-    from evalvitals.reporting.server import _resolve_report_root
+    from evalrx.reporting.server import _resolve_report_root
 
     (tmp_path / "run_log.jsonl").write_text("{}\n")
     (tmp_path / "logs").mkdir()
@@ -203,15 +203,15 @@ def test_explicit_run_log_wins_over_a_nested_logs_subrun(tmp_path):
 def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
-    from evalvitals.eval_agent.run_logger import RunLogger
-    from evalvitals.reporting.server import create_app
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.server import create_app
 
     logger = RunLogger(tmp_path)
     logger.log_run_start({"model": "read-only-demo", "n_cases": 0})
     logger.close()
-    monkeypatch.setattr("evalvitals.reporting.server.report_is_current", lambda _root: False)
+    monkeypatch.setattr("evalrx.reporting.server.report_is_current", lambda _root: False)
     monkeypatch.setattr(
-        "evalvitals.reporting.server.publish_report",
+        "evalrx.reporting.server.publish_report",
         lambda _root: (_ for _ in ()).throw(PermissionError("read only")),
     )
     with TestClient(create_app(tmp_path)) as client:
@@ -227,7 +227,7 @@ def test_a_pre_ref_run_still_numbers_its_repairs_the_emitters_way():
     candidate is #1 on its card and whatever position it happened to occupy in
     the sweep — two numbers, one repair, nothing on screen connecting them.
     """
-    from evalvitals.reporting.dynamic import _backfill_repair_identity
+    from evalrx.reporting.dynamic import _backfill_repair_identity
 
     payload = {
         "selection": [
@@ -251,7 +251,7 @@ def test_a_pre_ref_run_still_numbers_its_repairs_the_emitters_way():
 
 
 def test_backfill_never_overwrites_what_the_producer_wrote():
-    from evalvitals.reporting.dynamic import _backfill_repair_identity
+    from evalrx.reporting.dynamic import _backfill_repair_identity
 
     payload = {
         "selection": [
@@ -270,7 +270,7 @@ def test_stage_figures_embed_everywhere_they_are_cited(tmp_path):
     # M3 re-cites M2's figure files as its own evidence_figures entries; a
     # portable export must inline those too, not just stage_detail.m2.figures
     # (a report/ served over HTTP has /api/artifact, a single file does not).
-    from evalvitals.reporting.static_export import _embed_stage_figures
+    from evalrx.reporting.static_export import _embed_stage_figures
 
     figure_file = tmp_path / "explore" / "figures" / "00_class_balance.png"
     figure_file.parent.mkdir(parents=True)

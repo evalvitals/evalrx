@@ -118,7 +118,7 @@ stage to a decision:
   representation* (conf 1.0). Loop converged in **1 cycle** (`criteria_met`).
 - **M4 surgery RAN and produced a real verdict** (was None / then a 240s
   timeout): with a verified hypothesis, `run_m4` invoked the SurgeryAgent, whose
-  CLI agent wrote an 80-line `import evalvitals` experiment — `m.final_norm()` +
+  CLI agent wrote an 80-line `import evalrx` experiment — `m.final_norm()` +
   per-layer `forward` readout, splitting cases into late-decided (layer ≥26,
   late_drop>0.15) vs early-decided. `returncode=0, sandbox_runs=1, verdict=0.0`
   → it **REFUTED** the over-specific quantitative form (only 6 cases were

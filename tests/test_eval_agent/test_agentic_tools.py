@@ -6,10 +6,10 @@ prompt-enforced.
 
 from __future__ import annotations
 
-from evalvitals.core.result import Result
-from evalvitals.eval_agent.agentic.actions import Action
-from evalvitals.eval_agent.agentic.board import EvidenceBoard
-from evalvitals.eval_agent.agentic.tools import (
+from evalrx.core.result import Result
+from evalrx.eval_agent.agentic.actions import Action
+from evalrx.eval_agent.agentic.board import EvidenceBoard
+from evalrx.eval_agent.agentic.tools import (
     ToolOutcome,
     ToolRegistry,
     ToolSpec,
@@ -153,7 +153,7 @@ def test_summarize_probe_extracts_scalars_and_per_case_count():
 
 
 def test_summarize_stats_extracts_tool_verdicts():
-    from evalvitals.analysis.stats_tools import StatsToolResult
+    from evalrx.analysis.stats_tools import StatsToolResult
 
     report = type("R", (), {"stats_results": [
         StatsToolResult(tool="mcnemar_evalue", ok=True, summary="s", effect=0.2, reject=True, e_value=12.0),

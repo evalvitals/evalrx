@@ -6,8 +6,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
-COPY . /evalvitals
-RUN pip install --no-cache-dir "/evalvitals[local]"
+COPY . /evalrx
+RUN pip install --no-cache-dir "/evalrx[local]"
 
 WORKDIR /app/example
 COPY examples/m2_m3/vtcbench_diagnosis/ .

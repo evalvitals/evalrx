@@ -1,4 +1,4 @@
-"""Unit tests for TCD's pure math (evalvitals.models.paper_methods.tcd).
+"""Unit tests for TCD's pure math (evalrx.models.paper_methods.tcd).
 
 No GPU/model weights needed here -- these exercise the Eq. 1-9 formulas
 directly against hand-built tensors. End-to-end wiring (encoder hooking,
@@ -13,10 +13,10 @@ import numpy as np
 import pytest
 import torch
 
-from evalvitals.core.spec import AudioSpec, ModelSpec
-from evalvitals.models.backends.base import RuntimeConfig
-from evalvitals.models.backends.hf_local import HFLocalModel
-from evalvitals.models.paper_methods import tcd
+from evalrx.core.spec import AudioSpec, ModelSpec
+from evalrx.models.backends.base import RuntimeConfig
+from evalrx.models.backends.hf_local import HFLocalModel
+from evalrx.models.paper_methods import tcd
 
 
 def test_paper_method_fidelity_tcd():

@@ -97,7 +97,7 @@
   ],
   "title": "FixInput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m4_fix.FixInput.json",
+  "$id": "https://evalrx.dev/contract/m4_fix.FixInput.json",
   "x-stage": "m4_fix",
   "x-role": "input",
   "x-schema-version": 4,

@@ -29,19 +29,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import band_locate as B  # noqa: E402
 
-from evalvitals.analyzers.perturbation.cot_faithfulness import CoTFaithfulnessAnalyzer  # noqa: E402
-from evalvitals.analyzers.perturbation.perturbation_battery import PerturbationBattery  # noqa: E402
-from evalvitals.analyzers.reasoning.answer_extraction_audit import (
+from evalrx.analyzers.perturbation.cot_faithfulness import CoTFaithfulnessAnalyzer  # noqa: E402
+from evalrx.analyzers.perturbation.perturbation_battery import PerturbationBattery  # noqa: E402
+from evalrx.analyzers.reasoning.answer_extraction_audit import (
     AnswerExtractionAudit,  # noqa: E402
 )
-from evalvitals.analyzers.reasoning.arith_audit import ArithmeticAudit  # noqa: E402
-from evalvitals.analyzers.reasoning.self_repair import SelfRepairAnalyzer  # noqa: E402
-from evalvitals.analyzers.reasoning.termination_audit import TerminationAudit  # noqa: E402
-from evalvitals.analyzers.uncertainty.coverage_gap import CoverageVerificationGap  # noqa: E402
-from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer  # noqa: E402
-from evalvitals.core.capability import Capability  # noqa: E402
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label  # noqa: E402
-from evalvitals.core.model import Model  # noqa: E402
+from evalrx.analyzers.reasoning.arith_audit import ArithmeticAudit  # noqa: E402
+from evalrx.analyzers.reasoning.self_repair import SelfRepairAnalyzer  # noqa: E402
+from evalrx.analyzers.reasoning.termination_audit import TerminationAudit  # noqa: E402
+from evalrx.analyzers.uncertainty.coverage_gap import CoverageVerificationGap  # noqa: E402
+from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer  # noqa: E402
+from evalrx.core.capability import Capability  # noqa: E402
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label  # noqa: E402
+from evalrx.core.model import Model  # noqa: E402
 
 
 class EndpointModel(Model):

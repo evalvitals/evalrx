@@ -12,9 +12,9 @@ def test_discovery_fans_out_only_for_an_api_handle():
     """
     import threading
 
-    from evalvitals.core.case import FailureCase, Inputs
-    from evalvitals.eval_agent.stages.case_discovery import CaseDiscoveryAgent
-    from evalvitals.models import RuntimeConfig, compose
+    from evalrx.core.case import FailureCase, Inputs
+    from evalrx.eval_agent.stages.case_discovery import CaseDiscoveryAgent
+    from evalrx.models import RuntimeConfig, compose
 
     peak = {"n": 0}
     live = {"n": 0}
@@ -49,7 +49,7 @@ def test_discovery_fans_out_only_for_an_api_handle():
 
 
 def test_a_local_backend_is_forced_back_to_one():
-    from evalvitals.eval_agent.stages.case_discovery import CaseDiscoveryAgent
+    from evalrx.eval_agent.stages.case_discovery import CaseDiscoveryAgent
 
     class _Local:
         def generate(self, inputs, **kw):
@@ -62,9 +62,9 @@ def test_a_local_backend_is_forced_back_to_one():
 def test_a_case_whose_generation_raises_still_lands_as_unknown():
     """The fan-out carries the exception instead of raising it, so the batch
     survives — the same guarantee the sequential loop always gave."""
-    from evalvitals.core.case import FailureCase, Inputs, Label
-    from evalvitals.eval_agent.stages.case_discovery import CaseDiscoveryAgent
-    from evalvitals.models import RuntimeConfig, compose
+    from evalrx.core.case import FailureCase, Inputs, Label
+    from evalrx.eval_agent.stages.case_discovery import CaseDiscoveryAgent
+    from evalrx.models import RuntimeConfig, compose
 
     def _generate(prompt, model="", **kw):
         if prompt == "q1":

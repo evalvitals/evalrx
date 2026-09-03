@@ -10,7 +10,7 @@ Music-AVQA (https://gewu-lab.github.io/MUSIC-AVQA/) question records look like::
 ``type`` and ``templ_values`` are JSON *strings* (double-encoded) in the
 released files, and the answer key is spelled ``anser`` (dataset's own typo,
 kept as-is on read). This module is local to this example — it does not touch
-``evalvitals/`` — matching the "no architecture changes" constraint: it only
+``evalrx/`` — matching the "no architecture changes" constraint: it only
 builds ``FailureCase``/``CaseBatch`` (public core types) from raw JSON.
 """
 
@@ -120,7 +120,7 @@ def make_avqa_score_fn():
 # ---------------------------------------------------------------------------
 
 def load_manifest(manifest_path: "str | Path"):
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 
     path = Path(manifest_path)
     if not path.exists():
@@ -174,7 +174,7 @@ def load_manifest(manifest_path: "str | Path"):
 # ---------------------------------------------------------------------------
 
 def build_protocol():
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(

@@ -8,7 +8,7 @@ import zipfile
 
 import pytest
 
-from evalvitals.analysis.workbench import (
+from evalrx.analysis.workbench import (
     EventSink,
     ThreadStore,
     UploadLimits,

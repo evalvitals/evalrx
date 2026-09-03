@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from evalvitals.core.case import CaseBatch
-from evalvitals.datasets import (
+from evalrx.core.case import CaseBatch
+from evalrx.datasets import (
     GUIOSDataset,
     LLMQADataset,
     PureQADataset,
@@ -226,7 +226,7 @@ def _rad_records():
 
 
 def test_vqa_rad_categorize():
-    from evalvitals.datasets.vlm_qa import _categorize_vqa_rad
+    from evalrx.datasets.vlm_qa import _categorize_vqa_rad
     assert _categorize_vqa_rad("what imaging modality was used?", "ct") == "easy"
     assert _categorize_vqa_rad("which plane is this?", "axial") == "easy"
     assert _categorize_vqa_rad("is there a pneumothorax?", "no") == "presence"
@@ -235,7 +235,7 @@ def test_vqa_rad_categorize():
 
 
 def test_vqa_rad_balanced_mix_and_pope_labels():
-    from evalvitals.datasets import VQARADDataset
+    from evalrx.datasets import VQARADDataset
 
     cb = VQARADDataset.from_records(_rad_records(), n_easy=2, n_presence=4, seed=0).load()
     easy = [c for c in cb if c.metadata["category"] == "easy"]
@@ -260,7 +260,7 @@ def test_vqa_rad_balanced_mix_and_pope_labels():
 
 
 def test_vqa_rad_easy_rubric_tokenizes_messy_gold():
-    from evalvitals.datasets.vlm_qa import _easy_answer_rubric
+    from evalrx.datasets.vlm_qa import _easy_answer_rubric
     assert _easy_answer_rubric("xray - plain film") == {"any_of": ["xray", "plain", "film"]}
     # tab-separated organ lists + plural tolerance
     r = _easy_answer_rubric("respiratory \tcardia c\tmusculoskeletal")
@@ -270,7 +270,7 @@ def test_vqa_rad_easy_rubric_tokenizes_messy_gold():
 
 
 def test_vqa_rad_deterministic_sampling():
-    from evalvitals.datasets import VQARADDataset
+    from evalrx.datasets import VQARADDataset
 
     a = VQARADDataset.from_records(_rad_records(), n_easy=2, n_presence=4, seed=0).load()
     b = VQARADDataset.from_records(_rad_records(), n_easy=2, n_presence=4, seed=0).load()
@@ -278,7 +278,7 @@ def test_vqa_rad_deterministic_sampling():
 
 
 def test_vqa_rad_sample_offline():
-    from evalvitals.datasets import VQARADDataset
+    from evalrx.datasets import VQARADDataset
     cb = VQARADDataset.sample().load()
     assert len(cb) >= 2
     assert all(c.metadata["dataset"] == "vqa_rad" for c in cb)

@@ -13,10 +13,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
-from evalvitals.eval_agent import (
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
+from evalrx.eval_agent import (
     AnalysisModule,
     CaseDiscoveryAgent,
     DiagnosisAgent,
@@ -29,8 +29,8 @@ from evalvitals.eval_agent import (
     VLDiagnoseLoop,
     VLDiagnoseReport,
 )
-from evalvitals.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol, ProbingSchema
+from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol, ProbingSchema
 from tests.conftest import FakeModel
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -65,6 +65,7 @@ def _spatial_protocol() -> ExperimentProtocol:
             "Attention to spatial regions appears incorrect."
         ),
         task_domain="spatial reasoning",
+        success_criteria="The predicted relation must match the image.",
         failure_patterns="position confusion and wrong spatial attention",
         target_modalities=frozenset({"text", "image"}),
     )
@@ -327,7 +328,7 @@ class TestStatsAnalysisAgent:
 
     def test_stats_report_is_analysis_report(self):
         # Backward compat: StatsAnalysisReport IS-A AnalysisReport
-        from evalvitals.analysis.analysis_module import AnalysisReport
+        from evalrx.analysis.analysis_module import AnalysisReport
         agent = StatsAnalysisAgent()
         report = agent.analyze({}, "m")
         assert isinstance(report, AnalysisReport)
@@ -370,6 +371,18 @@ class TestStatsAnalysisAgent:
         agent = StatsAnalysisAgent()
         report = agent.analyze({}, protocol=protocol)
         assert report.protocol is protocol
+
+    def test_llm_prompt_includes_complete_output_contract(self):
+        protocol = ExperimentProtocol(
+            description="Choose the correct audio option.",
+            task_domain="audio multiple choice",
+            success_criteria="Reply with only the option letter.",
+            output_contract={"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
+        )
+        judge = ScriptedModel(["CONCLUSION: No issue.\nEVIDENCE_CHAIN:\n- none\nQUALITATIVE:\n- none"])
+        report = StatsAnalysisAgent(judge=judge).analyze({}, protocol=protocol)
+        assert "Reply with only the option letter" in report.llm_prompt
+        assert '"kind": "multiple_choice_letter"' in report.llm_prompt
 
     def test_protocol_domain_in_conclusion(self):
         protocol = _spatial_protocol()
@@ -627,12 +640,22 @@ class TestHypothesisTester:
         assert consistent is False
 
     def test_llm_consistency_check_yes(self):
-        judge = ScriptedModel(["YES, because the hypothesis addresses spatial attention."])
+        class RecordingJudge(ScriptedModel):
+            def generate(self, inputs, **kwargs):
+                self.last_prompt = str(inputs)
+                return super().generate(inputs, **kwargs)
+
+        judge = RecordingJudge(["YES, because the hypothesis addresses spatial attention."])
         tester = HypothesisTester(judge=judge)
         protocol = _spatial_protocol()
         h = self._hyp("attention")
         result = tester._llm_consistency_check(h, protocol)
         assert result is True
+        # The consistency gate must judge the complete contract, not merely
+        # its overview: declared failure patterns can admit valid mechanisms
+        # that do not happen to be repeated in ``description``.
+        assert protocol.failure_patterns in judge.last_prompt
+        assert protocol.success_criteria in judge.last_prompt
 
     def test_llm_consistency_check_no(self):
         judge = ScriptedModel(["NO, the hypothesis is unrelated to spatial tasks."])
@@ -750,7 +773,7 @@ class TestVLDiagnoseLoop:
             max_cycles=1,
         )
         report = loop.run(_labeled_batch())
-        from evalvitals.analysis.stats_agent import StatsAnalysisReport
+        from evalrx.analysis.stats_agent import StatsAnalysisReport
         assert isinstance(report.final_stats_report, StatsAnalysisReport)
 
     def test_stopped_by_max_cycles(self):
@@ -777,8 +800,8 @@ class TestVLDiagnoseLoop:
         data = CaseBatch(cases)
 
         # Make the attention analyzer return per-case signals on the failing cases
-        from evalvitals.core.result import Result as R
-        from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+        from evalrx.core.result import Result as R
+        from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 
         fail_ids = [cases[0].id, cases[1].id]
 
@@ -815,8 +838,8 @@ class TestVLDiagnoseLoop:
         assert result is None
 
     def test_run_m4_operates_on_best_hypothesis(self):
-        from evalvitals.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-        from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+        from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+        from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
         h = Hypothesis(
             statement="Model attends wrong.",
@@ -908,8 +931,8 @@ class TestVLDiagnoseTwoPhase:
     def _signal_setup(self, **loop_kw):
         """A loop whose probe fires a per-case signal exactly on the FAIL cases,
         so M5 can confirm. Returns (loop, data)."""
-        from evalvitals.core.result import Result as R
-        from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+        from evalrx.core.result import Result as R
+        from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 
         cases = [
             FailureCase(inputs=Inputs(prompt="q1"), label=Label.FAIL),
@@ -964,7 +987,7 @@ class TestVLDiagnoseTwoPhase:
     def test_run_confirm_with_reloaded_hypotheses_and_stats(self):
         # Phase 1 → serialize/reload the proposed hypotheses → Phase 2 confirms
         # against the EXACT stats report the analysis dashboard showed.
-        from evalvitals.eval_agent.hypothesis import (
+        from evalrx.eval_agent.hypothesis import (
             hypothesis_from_dict,
             hypothesis_to_dict,
         )
@@ -983,7 +1006,7 @@ class TestVLDiagnoseTwoPhase:
         assert len(confirmed.verified_hypotheses) >= 1
 
     def test_run_confirm_regenerates_stats_when_omitted(self):
-        from evalvitals.eval_agent.hypothesis import (
+        from evalrx.eval_agent.hypothesis import (
             hypothesis_from_dict,
             hypothesis_to_dict,
         )
@@ -998,7 +1021,7 @@ class TestVLDiagnoseTwoPhase:
         assert confirmed.final_stats_report is not None
 
     def test_confirm_then_run_m4(self):
-        from evalvitals.eval_agent.hypothesis import (
+        from evalrx.eval_agent.hypothesis import (
             hypothesis_from_dict,
             hypothesis_to_dict,
         )
@@ -1068,7 +1091,7 @@ class TestDescriptivePhaseCompiler:
     }
 
     def test_descriptive_mode_demotes_claims(self):
-        from evalvitals.reporting.compiler import compile_diagnostic_report
+        from evalrx.reporting.compiler import compile_diagnostic_report
 
         story = {"analyses": [{"cycle": 0, "descriptive_only": True}], "surgeries": []}
         rep = compile_diagnostic_report(story, self._EXPLORE).to_dict()
@@ -1077,7 +1100,7 @@ class TestDescriptivePhaseCompiler:
         assert any("ANALYSIS PHASE" in c for c in rep["caveats"])
 
     def test_confirmatory_mode_shows_validity(self):
-        from evalvitals.reporting.compiler import compile_diagnostic_report
+        from evalrx.reporting.compiler import compile_diagnostic_report
 
         # A confirmatory M2 (descriptive_only False) restores the supported verdict.
         story = {"analyses": [{"cycle": 0, "descriptive_only": False}], "surgeries": []}
@@ -1085,7 +1108,7 @@ class TestDescriptivePhaseCompiler:
         assert any(c["status"] == "supported" for c in rep["claims"])
 
     def test_surgery_presence_restores_validity(self):
-        from evalvitals.reporting.compiler import compile_diagnostic_report
+        from evalrx.reporting.compiler import compile_diagnostic_report
 
         # Even a descriptive analysis flips to validity once a confirm-phase
         # surgery (M5) is recorded in the merged story.
@@ -1140,7 +1163,7 @@ class _RecordingSignalProbe(ProbeAgent):
         self.calls = []  # (case_ids, analyzers_kw)
 
     def probe(self, model, data, **kw):
-        from evalvitals.core.result import Result as R
+        from evalrx.core.result import Result as R
 
         ids = [c.id for c in data]
         self.calls.append((ids, kw.get("analyzers")))

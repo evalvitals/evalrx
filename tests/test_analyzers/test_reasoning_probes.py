@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.analyzers.perturbation.perturbation_battery import (
+from evalrx.analyzers.perturbation.perturbation_battery import (
     PerturbationBattery,
     append_noop_clause,
     perturb_numbers,
     rename_entities,
 )
-from evalvitals.analyzers.reasoning._text import (
+from evalrx.analyzers.reasoning._text import (
     answer_equal,
     extract_answer,
     find_equations,
@@ -27,25 +27,25 @@ from evalvitals.analyzers.reasoning._text import (
     repetition_score,
     safe_eval_arithmetic,
 )
-from evalvitals.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
-from evalvitals.analyzers.reasoning.arith_audit import ArithmeticAudit
-from evalvitals.analyzers.reasoning.contamination import ContaminationProbe, overlap_score
-from evalvitals.analyzers.reasoning.knowledge_split import KnowledgeReasoningSplit
-from evalvitals.analyzers.reasoning.self_repair import SelfRepairAnalyzer, _parse_verdict
-from evalvitals.analyzers.reasoning.step_rollout_value import (
+from evalrx.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
+from evalrx.analyzers.reasoning.arith_audit import ArithmeticAudit
+from evalrx.analyzers.reasoning.contamination import ContaminationProbe, overlap_score
+from evalrx.analyzers.reasoning.knowledge_split import KnowledgeReasoningSplit
+from evalrx.analyzers.reasoning.self_repair import SelfRepairAnalyzer, _parse_verdict
+from evalrx.analyzers.reasoning.step_rollout_value import (
     StepRolloutValueAnalyzer,
     split_steps,
 )
-from evalvitals.analyzers.reasoning.termination_audit import TerminationAudit
-from evalvitals.analyzers.uncertainty.coverage_gap import CoverageVerificationGap, pass_at_k
-from evalvitals.analyzers.uncertainty.self_consistency import (
+from evalrx.analyzers.reasoning.termination_audit import TerminationAudit
+from evalrx.analyzers.uncertainty.coverage_gap import CoverageVerificationGap, pass_at_k
+from evalrx.analyzers.uncertainty.self_consistency import (
     SelfConsistencyAnalyzer,
     cluster_by_equivalence,
     lexical_equivalent,
 )
-from evalvitals.core.capability import Capability, CapabilityError
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
+from evalrx.core.capability import Capability, CapabilityError
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
 
 
 class ScriptModel(Model):
@@ -172,6 +172,36 @@ def test_extraction_audit_separates_parse_miss_from_real_failure():
     assert suspects == [1, 0, 0]
     assert f["per_case"][2]["gold_in_output"] == 1  # the loose bound over-counts
     assert f["suspect_rate"] == pytest.approx(1 / 3, abs=1e-3)
+
+
+def test_extraction_audit_respects_multiple_choice_output_contract():
+    contract = {"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]}
+    batch = CaseBatch([
+        # Regression: generic tail matching treated the A in this truncated
+        # heading as a committed answer and called the harness suspect.
+        _case("mc1", "Audio Analysis", "A", Label.FAIL,
+              metadata={"output_contract": contract, "finish_reason": "length"}),
+        _case("mc2", "I considered A first.\nFinal: B", "B", Label.FAIL,
+              metadata={"output_contract": contract}),
+        _case("mc3", "reasoning about option B\n(C)", "C", Label.FAIL,
+              metadata={"output_contract": contract}),
+    ])
+    rows = AnswerExtractionAudit().run(NoCapModel([]), batch).findings["per_case"]
+    assert [r["extraction_suspect"] for r in rows] == [0, 1, 1]
+    assert rows[0]["gold_in_answer_region"] == 0
+    assert [r["extracted_answer"] for r in rows] == ["", "B", "C"]
+
+
+def test_extraction_audit_respects_yes_no_output_contract():
+    contract = {"kind": "yes_no"}
+    batch = CaseBatch([
+        _case("yn1", "No audio analysis was completed", "No", Label.FAIL,
+              metadata={"output_contract": contract}),
+        _case("yn2", "The evidence is mixed.\nAnswer: No", "No", Label.FAIL,
+              metadata={"output_contract": contract}),
+    ])
+    rows = AnswerExtractionAudit().run(NoCapModel([]), batch).findings["per_case"]
+    assert [r["extraction_suspect"] for r in rows] == [0, 1]
 
 
 def test_extraction_audit_reask_needs_generate():
@@ -455,6 +485,23 @@ def test_perturbation_battery_flags_invariance_break():
     assert entry["noop_clause_flipped"] == 1
     assert entry["sensitivity_rate"] == 1.0        # correct behaviour on the altering arm
     assert "memorization_suspect" not in entry
+
+
+def test_perturbation_battery_keeps_other_cases_when_one_request_fails():
+    class FlakyModel(ScriptModel):
+        def generate(self, inputs, **kwargs):
+            if "Alice" in str(inputs):
+                raise TimeoutError("temporary backend timeout")
+            return "Answer: 8"
+
+    batch = CaseBatch([
+        _case(_WORD_PROBLEM, None, "8", Label.PASS),
+        _case("How many apples are there?", None, "8", Label.PASS),
+    ])
+    f = PerturbationBattery().run(FlakyModel([]), batch).findings
+    assert f["n_cases"] == 2
+    assert f["n_scored"] == 1
+    assert "baseline request failed" in f["per_case"][0]["skipped"]
 
 
 # ── coverage_verification_gap ─────────────────────────────────────────────────

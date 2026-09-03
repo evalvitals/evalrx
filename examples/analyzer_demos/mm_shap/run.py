@@ -36,9 +36,9 @@ from pathlib import Path
 import yaml
 from PIL import Image
 
-from evalvitals.analyzers.perturbation.mm_shap import MMShapAnalyzer
-from evalvitals.analyzers.perturbation.vl_shap import VLShapAnalyzer
-from evalvitals.core.case import CaseBatch, FailureCase as Case, Inputs
+from evalrx.analyzers.perturbation.mm_shap import MMShapAnalyzer
+from evalrx.analyzers.perturbation.vl_shap import VLShapAnalyzer
+from evalrx.core.case import CaseBatch, FailureCase as Case, Inputs
 
 CONFIG = Path(__file__).parent / "config.yaml"
 
@@ -47,9 +47,9 @@ def _build_api_model(model_name: str):
     """API model with logprobs support (requires GEMINI_API_KEY)."""
     import openai
 
-    from evalvitals.models.backends.api import APIModel, parse_openai_logprobs
-    from evalvitals.models.backends.base import RuntimeConfig
-    from evalvitals.core.spec import ModelSpec
+    from evalrx.models.backends.api import APIModel, parse_openai_logprobs
+    from evalrx.models.backends.base import RuntimeConfig
+    from evalrx.core.spec import ModelSpec
 
     client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 

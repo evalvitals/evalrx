@@ -6,28 +6,28 @@ columns expose it — the structural half lives in test_analyzer_contract.py.
 
 from __future__ import annotations
 
-from evalvitals.analyzers.hallucination.selfcheck import (
+from evalrx.analyzers.hallucination.selfcheck import (
     SelfCheckConsistencyAnalyzer,
     containment,
     split_sentences,
 )
-from evalvitals.analyzers.perturbation.context_shap import ContextShapAnalyzer
-from evalvitals.analyzers.perturbation.cot_faithfulness import (
+from evalrx.analyzers.perturbation.context_shap import ContextShapAnalyzer
+from evalrx.analyzers.perturbation.cot_faithfulness import (
     CoTFaithfulnessAnalyzer,
     default_answer_fn,
 )
-from evalvitals.analyzers.perturbation.format_sensitivity import (
+from evalrx.analyzers.perturbation.format_sensitivity import (
     FormatSensitivityAnalyzer,
     extract_options,
     parse_choice,
 )
-from evalvitals.analyzers.uncertainty.calibration import (
+from evalrx.analyzers.uncertainty.calibration import (
     CalibrationAnalyzer,
     expected_calibration_error,
 )
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model, TokenLogprob
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model, TokenLogprob
 
 
 class ScriptModel(Model):
@@ -148,7 +148,7 @@ def test_parse_choice_review_regressions():
 
 
 def test_extract_option_block_ignores_fewshot_blocks():
-    from evalvitals.analyzers.perturbation.format_sensitivity import extract_option_block
+    from evalrx.analyzers.perturbation.format_sensitivity import extract_option_block
     prompt = (
         "Example:\nA. cat\nB. dog\n\nNow the real question:\n"
         "Which city?\nA. Paris\nB. London\nReply with the letter."
@@ -304,6 +304,23 @@ def test_calibration_skips_unlabelled():
     assert f["logprob_channel"]["n"] == 0
 
 
+def test_calibration_keeps_other_cases_when_one_request_fails():
+    class FlakyModel(ScriptModel):
+        def generate(self, inputs, **kwargs):
+            if len(self.prompts) == 0:
+                self.prompts.append(str(inputs))
+                raise TimeoutError("temporary backend timeout")
+            return super().generate(inputs, **kwargs)
+
+    batch = CaseBatch([
+        FailureCase(inputs=Inputs(prompt="q1"), label=Label.PASS),
+        FailureCase(inputs=Inputs(prompt="q2"), label=Label.FAIL),
+    ])
+    f = CalibrationAnalyzer().run(FlakyModel(["Confidence: 80"]), batch).findings
+    assert f["verbalized_channel"]["n"] == 1
+    assert "verbalized_error" in f["per_case"][0]
+
+
 def test_ece_helper():
     perfect = [(0.9, True)] * 9 + [(0.9, False)]
     assert expected_calibration_error(perfect, 10) == 0.0
@@ -323,7 +340,7 @@ _BBH_PROMPT = (
 
 
 def test_extract_option_block_reads_parenthesised_letters():
-    from evalvitals.analyzers.perturbation.format_sensitivity import extract_option_block
+    from evalrx.analyzers.perturbation.format_sensitivity import extract_option_block
 
     options, block = extract_option_block(_BBH_PROMPT)
     assert options == ["blue ball", "orange ball", "black ball"]
@@ -331,7 +348,7 @@ def test_extract_option_block_reads_parenthesised_letters():
 
 
 def test_plain_and_parenthesised_styles_both_parse():
-    from evalvitals.analyzers.perturbation.format_sensitivity import extract_option_block
+    from evalrx.analyzers.perturbation.format_sensitivity import extract_option_block
 
     for text in ("Q?\nA. one\nB. two\n", "Q?\nA) one\nB) two\n", "Q?\n(A) one\n(B) two\n"):
         assert extract_option_block(text)[0] == ["one", "two"], text
@@ -340,7 +357,7 @@ def test_plain_and_parenthesised_styles_both_parse():
 def test_rotation_preserves_the_prompts_own_letter_style():
     """Re-rendering "(A)" as "A." would change the delimiter and the position at
     once, so a measured flip could be either cause."""
-    from evalvitals.analyzers.perturbation.format_sensitivity import (
+    from evalrx.analyzers.perturbation.format_sensitivity import (
         FormatSensitivityAnalyzer,
         extract_option_block,
     )
@@ -359,7 +376,7 @@ def test_rotation_preserves_the_prompts_own_letter_style():
 
 
 def test_parse_choice_accepts_the_answer_in_paren_style():
-    from evalvitals.analyzers.perturbation.format_sensitivity import parse_choice
+    from evalrx.analyzers.perturbation.format_sensitivity import parse_choice
 
     assert parse_choice("Answer: (C)", 7) == "C"
     assert parse_choice("Answer: C", 7) == "C"
@@ -369,8 +386,8 @@ def test_parse_choice_accepts_the_answer_in_paren_style():
 # ── self_consistency on a reasoning model ────────────────────────────────────
 def _chain_model(answers):
     """A model whose chains all differ but whose ANSWERS are given."""
-    from evalvitals.core.capability import Capability
-    from evalvitals.core.model import Model
+    from evalrx.core.capability import Capability
+    from evalrx.core.model import Model
 
     class _M(Model):
         capabilities = frozenset({Capability.GENERATE})
@@ -391,7 +408,7 @@ def _chain_model(answers):
 
 
 def _one_case():
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 
     return CaseBatch([FailureCase(inputs=Inputs(prompt="q"), observed="",
                                   expected="(C)", label=Label.FAIL)])
@@ -399,7 +416,7 @@ def _one_case():
 
 def test_raw_text_consistency_is_a_constant_on_a_reasoning_model():
     """Five identical ANSWERS still read 1/n when whole chains are compared."""
-    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
+    from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 
     f = SelfConsistencyAnalyzer(n=5, semantic=False).run(
         _chain_model(["(C)"] * 5), _one_case()).findings
@@ -408,8 +425,8 @@ def test_raw_text_consistency_is_a_constant_on_a_reasoning_model():
 
 
 def test_answer_fn_makes_consistency_measure_answers():
-    from evalvitals.analyzers.reasoning._text import extract_answer
-    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
+    from evalrx.analyzers.reasoning._text import extract_answer
+    from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 
     f = SelfConsistencyAnalyzer(n=5, semantic=False, answer_fn=extract_answer).run(
         _chain_model(["(C)"] * 5), _one_case()).findings
@@ -420,8 +437,8 @@ def test_answer_fn_makes_consistency_measure_answers():
 
 
 def test_answer_fn_still_detects_genuine_disagreement():
-    from evalvitals.analyzers.reasoning._text import extract_answer
-    from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
+    from evalrx.analyzers.reasoning._text import extract_answer
+    from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 
     f = SelfConsistencyAnalyzer(n=4, semantic=False, answer_fn=extract_answer).run(
         _chain_model(["(A)", "(B)", "(A)", "(C)"]), _one_case()).findings

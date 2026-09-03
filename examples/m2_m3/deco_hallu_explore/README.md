@@ -1,6 +1,6 @@
 # deco_hallu Explore — M2/M3 on real M1 output
 
-Demonstrates `evalvitals explore` (M2 exploratory analysis + M3 hypothesis
+Demonstrates `evalrx explore` (M2 exploratory analysis + M3 hypothesis
 proposal) on **real M1 data**, not a synthetic demo: the per-case VLM
 object-presence probe results already committed at
 [`examples/m1_m4/deco_hallu/data/cases/`](../../diagnosis_loops/deco_hallu/data/cases)
@@ -55,7 +55,7 @@ M3 hypotheses proposed from these findings (not validated):
 Open the dashboard to see the charts and hypothesis cards:
 
 ```bash
-evalvitals serve outputs
+evalrx serve outputs
 ```
 
 ## Attention-enriched variant (continuous per-case signals)
@@ -126,7 +126,7 @@ Env overrides: `CODER_MODEL` / `JUDGE_MODEL` (e.g. `claude-opus-4-8`),
 **Phases**
 
 1. `prepare_splits.py` — explore half (365) / validate half (241);
-2. `evalvitals explore` on the explore half only — hypotheses + frozen,
+2. `evalrx explore` on the explore half only — hypotheses + frozen,
    threshold-explicit recipes;
 3. `test_hypotheses.py` — each recipe re-evaluated VERBATIM on the validate
    half (`adjudicate_signals(split_label="held_out")`: a REJECT here is a real
@@ -143,7 +143,7 @@ Verdicts** and **5 Fix** fill in from those artifacts — and grey out as
 greyed until phase 3 runs):
 
 ```bash
-evalvitals serve outputs_pipeline/1_explore
+evalrx serve outputs_pipeline/1_explore
 ```
 
 **What a real pipeline run found** (opus-4.8 end to end): all 6 frozen
@@ -163,7 +163,7 @@ mechanism died under intervention; the cheapest repair won.
 The variants above analyse the directories committed with this example. The
 workbench flips the direction: it serves a page where anyone **uploads a
 .zip** of results (JSON / JSONL / CSV — a zipped folder works too) and each
-upload becomes one `evalvitals explore` run:
+upload becomes one `evalrx explore` run:
 
 ```bash
 bash run_web.sh                 # serves http://localhost:8500
@@ -175,7 +175,7 @@ Pick the analysis mode — **Explore only** (M2+M3; split 1 : 0 by default) or
 the verdict share is held out BEFORE exploration, then the frozen recipes and
 hypotheses are re-tested on it (e-BH + LLM judge), filling the report's
 *Held-out Verdicts* section. Every completed output directory receives a
-portable `report.html`; open it locally with `evalvitals serve <output-dir>`.
+portable `report.html`; open it locally with `evalrx serve <output-dir>`.
 
 See [`docs/m2_analysis.md`](../../../docs/m2_analysis.md) for the general
 standalone M2/M3 workflow, and

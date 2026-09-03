@@ -2,14 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install torch with CUDA 12.4 wheels first (must precede evalvitals install
+# Install torch with CUDA 12.4 wheels first (must precede evalrx install
 # so the [local] extra doesn't pull a CPU-only torch from PyPI)
 RUN pip install --no-cache-dir \
     torch torchvision --index-url https://download.pytorch.org/whl/cu124
 
-# Install evalvitals — torch is already present so [local] won't reinstall it
-COPY . /evalvitals
-RUN pip install --no-cache-dir "/evalvitals[local,gemini,data,viz]"
+# Install evalrx — torch is already present so [local] won't reinstall it
+COPY . /evalrx
+RUN pip install --no-cache-dir "/evalrx[local,gemini,data,viz]"
 
 # DejaVu fonts for crisp, standard large-text rendering (tiny text uses PIL built-in)
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core \

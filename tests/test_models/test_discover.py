@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 import torch.nn as nn
 
-from evalvitals.models._discover import find_decoder_layers, get_unembed, resolve
+from evalrx.models._discover import find_decoder_layers, get_unembed, resolve
 
 
 class _Layer(nn.Module):

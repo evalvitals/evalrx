@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m1_m3/qwen_video_temporal/Dockerfile
-    image: evalvitals-qwen-video-temporal
+    image: evalrx-qwen-video-temporal
     environment:
       # Use PCI-bus device ordering so CUDA_VISIBLE_DEVICES matches nvidia-smi.
       # Pick a GPU with free memory: export CUDA_VISIBLE_DEVICES=2

@@ -118,8 +118,8 @@ def main() -> None:
     if min(n_lab.values()) == 0:
         raise SystemExit("one label is empty after filtering — nothing to contrast")
 
-    from evalvitals.core.case import CaseBatch
-    from evalvitals.core.registry import registry
+    from evalrx.core.case import CaseBatch
+    from evalrx.core.registry import registry
 
     names = (list(DEFAULT_ANALYZERS) if args.analyzers == "auto"
              else [s.strip() for s in args.analyzers.split(",") if s.strip()])

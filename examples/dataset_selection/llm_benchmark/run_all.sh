@@ -50,7 +50,7 @@ resolve() {  # resolve <override> <candidate>...
   for c in "$@"; do [ -x "$c" ] && { echo "$c"; return; }; done
   echo ""
 }
-EVAL_PY="$(resolve "${EVALVITALS_PYTHON:-}" \
+EVAL_PY="$(resolve "${EVALRX_PYTHON:-}" \
   "$PKG_ROOT/.venv/bin/python" "$PKG_ROOT/../.venv/bin/python" \
   "$(command -v python3 || true)")"
 VLLM_BIN="$(resolve "${VLLM_BIN:-}" \
@@ -58,7 +58,7 @@ VLLM_BIN="$(resolve "${VLLM_BIN:-}" \
   "$(command -v vllm || true)")"
 
 if [ -z "$EVAL_PY" ]; then
-  echo "no python found. Set EVALVITALS_PYTHON=/path/to/python" >&2; exit 6
+  echo "no python found. Set EVALRX_PYTHON=/path/to/python" >&2; exit 6
 fi
 if [ -z "$VLLM_BIN" ]; then
   echo "no vllm found. Set VLLM_BIN=/path/to/vllm (see README section 2)" >&2; exit 6
@@ -97,7 +97,7 @@ stamp "model=$MODEL ($HF_REPO)  dataset=$DATASET  n=$N_LABEL  gpu=$GPU  port=$PO
 
 # export so the preflight child sees the SAME interpreters this script resolved,
 # otherwise it reports vllm missing while run_all is about to use it
-export VLLM_BIN EVALVITALS_PYTHON="$EVAL_PY"
+export VLLM_BIN EVALRX_PYTHON="$EVAL_PY"
 
 if [ "${SKIP_PREFLIGHT:-0}" != "1" ]; then
   stamp "preflight"
@@ -215,7 +215,7 @@ rc=$?
 
 # ---- Stage W (optional): internals for a small subset -----------------------
 # Skipped unless WHITEBOX_PYTHON points at an interpreter whose transformers
-# knows the architecture (5.15.0 for Qwen3.5; the evalvitals venv's 4.57.6 does
+# knows the architecture (5.15.0 for Qwen3.5; the evalrx venv's 4.57.6 does
 # not). It runs AFTER vllm is stopped on purpose: the server holds 92% of the
 # card, and loading the same weights again in transformers needs that back.
 if [ -n "${WHITEBOX_PYTHON:-}" ] && [ $rc -eq 0 ]; then
@@ -240,5 +240,5 @@ stamp "done (rc=$rc). Results in $LOG_DIR"
 echo
 echo "  dashboard:"
 echo "    cd $PKG_ROOT"
-echo "    $EVAL_PY -m evalvitals.cli dashboard examples/dataset_selection/llm_benchmark/outputs/$MODEL/$DATASET"
+echo "    $EVAL_PY -m evalrx.cli dashboard examples/dataset_selection/llm_benchmark/outputs/$MODEL/$DATASET"
 exit $rc

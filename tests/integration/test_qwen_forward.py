@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from evalvitals.core.capability import Capability
+from evalrx.core.capability import Capability
 
 pytestmark = pytest.mark.gpu
 

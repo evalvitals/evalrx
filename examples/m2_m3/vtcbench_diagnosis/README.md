@@ -3,7 +3,7 @@
 The complete agent-under-test arc on real data: a vLLM-served Qwen3-VL drives
 the tool loop (`image_zoom_in`, `image_detect`) over one
 [VTC-Bench](https://huggingface.co/datasets/zzzhu/VTC-Bench) task at a time,
-M1 probes turn the runs into `records.json`, `evalvitals explore` finds and
+M1 probes turn the runs into `records.json`, `evalrx explore` finds and
 held-out-tests the failure structure, and paired fix experiments close the
 loop.
 
@@ -62,7 +62,7 @@ python run_m4.py --task chart --arms L2_loop_policy --out outputs_2b_chart
 `run_explore.sh` honors `RECORDS` / `OUT` / `MODEL_DESC` / `BACKEND` /
 `TIMEOUT_SEC` (default 3600 — the CLI's 120s default truncates real analyses).
 Every stage writes under `outputs*/` (gitignored); view any explore result
-with `evalvitals serve <out>/explore`.
+with `evalrx serve <out>/explore`.
 
 Only the six four-way multiple-choice tasks are graded (last standalone A-D
 letter; a run that never answers counts as FAIL). The free-text tasks

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 extract_figure_data.py — pull everything the case-study figure needs out of an
-EvalVitals run directory, in three shapes: a readable JSON document, a flat
+EvalRX run directory, in three shapes: a readable JSON document, a flat
 JSONL stream for plotting code, and a Markdown write-up of the figure.
 
 Usage
@@ -108,7 +108,7 @@ def warn(msg: str) -> None:
 
 
 class Run:
-    """Lazily-loaded view over one EvalVitals run directory."""
+    """Lazily-loaded view over one EvalRX run directory."""
 
     def __init__(self, root: str):
         self.root = os.path.abspath(root)
@@ -1385,7 +1385,7 @@ def to_markdown(doc: dict, title: Optional[str] = None) -> str:
     probe = doc.get("m1_probe", {})
     curve = probe.get("signal_curve", {})
 
-    L.append(f"# {title or 'EvalVitals case study'} — "
+    L.append(f"# {title or 'EvalRX case study'} — "
              f"{h.get('model', '?')} on {h.get('dataset', '?')}")
     L.append("")
     if val:

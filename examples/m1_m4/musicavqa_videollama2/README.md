@@ -16,23 +16,23 @@ Visual-only accuracy is a different error, not an improvement.
 | File | Role |
 |---|---|
 | `avqa_data.py` | Music-AVQA record parsing, answer scoring, `FailureCase`/`CaseBatch` builder, `ExperimentProtocol` |
-| `videollama2_model.py` | `VideoLLaMA2AVModel` (real, GENERATE-only `evalvitals.core.model.Model`) + `MockAVModel` (zero-weight stand-in) |
+| `videollama2_model.py` | `VideoLLaMA2AVModel` (real, GENERATE-only `evalrx.core.model.Model`) + `MockAVModel` (zero-weight stand-in) |
 | `mine_cases.py` | Offline miner: runs the model once over a sampled question pool, labels PASS/FAIL, freezes `data/cases/{model}.json` |
 | `run.py` | Loads the frozen manifest, wires `VLDiagnoseLoop` (M1→M2→M3→M5, M4 post-loop), runs the fix module |
 | `config.yaml` | Model path, judge/codegen model, fix tier ceiling |
 | `docker-compose.yml`, `Dockerfile` | GPU container build (see below) |
 
-No architecture code under `evalvitals/` is modified — `VideoLLaMA2AVModel`
+No architecture code under `evalrx/` is modified — `VideoLLaMA2AVModel`
 implements the public `Model` ABC directly (the same extension point
 `hf_local`/`api` backends use); the Music-AVQA adapter only builds public
 `FailureCase`/`CaseBatch`/`Inputs` objects.
 
 ## Why a custom Model class
 
-VideoLLaMA2 is not a registered EvalVitals `ModelSpec` and is not a stock
+VideoLLaMA2 is not a registered EvalRX `ModelSpec` and is not a stock
 `transformers` causal LM (`trust_remote_code`-style custom class + its own
 `mm_infer()` generation helper, not `model.generate(**tokenizer(...))`), so
-neither `evalvitals.load(key)` nor `evalvitals.wrap(model, tokenizer)`
+neither `evalrx.load(key)` nor `evalrx.wrap(model, tokenizer)`
 (text-only VLM bring-your-own-model path, as of this writing) fit. It also
 needs the **`audio_visual`** branch of `DAMO-NLP-SG/VideoLLaMA2` (not
 `main`, which has no audio path) — not on PyPI, installed from source (see
@@ -42,7 +42,7 @@ a diff against upstream, not a rewrite — so the same class runs on `cuda` or
 `cpu`.
 
 The resulting handle is **GENERATE-only** (no attention/hidden-state
-capture, since `mm_infer`'s custom path bypasses evalvitals' HF-flag-based
+capture, since `mm_infer`'s custom path bypasses evalrx' HF-flag-based
 `Trace` capture) — M1 analyzer selection and the fix tier ceiling
 (`fix_max_tier: L2` in `config.yaml`) are set accordingly.
 

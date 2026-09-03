@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from evalvitals.analysis import StatsAnalysisAgent, profile_records
-from evalvitals.analysis.stats_tools import StatsInput, default_plan
+from evalrx.analysis import StatsAnalysisAgent, profile_records
+from evalrx.analysis.stats_tools import StatsInput, default_plan
 
 
 def test_profile_records_infers_roles_and_grain():
@@ -59,7 +59,7 @@ def test_stats_analysis_agent_tests_more_than_four_signals_by_default():
 
 # ── the M2 section parser must survive how judges actually write ─────────────
 def _base_report():
-    from evalvitals.analysis.analysis_module import AnalysisReport
+    from evalrx.analysis.analysis_module import AnalysisReport
     return AnalysisReport(model_name="m",
                           narrative="Model: EndpointModel(qwen3.5-2b)\nrest")
 
@@ -72,7 +72,7 @@ def test_markdown_headings_are_parsed_not_dropped():
     The run then reported stopped_by=no_hypotheses as though that were a
     finding. Earlier runs parsed only because the judge happened to use a colon.
     """
-    from evalvitals.analysis.stats_agent import _parse_llm_analysis
+    from evalrx.analysis.stats_agent import _parse_llm_analysis
 
     raw = (
         "## CONCLUSION\n\n"
@@ -90,7 +90,7 @@ def test_markdown_headings_are_parsed_not_dropped():
 
 
 def test_the_original_colon_contract_still_parses():
-    from evalvitals.analysis.stats_agent import _parse_llm_analysis
+    from evalrx.analysis.stats_agent import _parse_llm_analysis
 
     raw = ("CONCLUSION: it broke\n"
            "EVIDENCE_CHAIN:\n- step one\n- step two\n"
@@ -102,7 +102,7 @@ def test_the_original_colon_contract_still_parses():
 
 
 def test_bold_headings_parse_too():
-    from evalvitals.analysis.stats_agent import _parse_llm_analysis
+    from evalrx.analysis.stats_agent import _parse_llm_analysis
 
     raw = "**CONCLUSION**\nthe thing happened\n**EVIDENCE_CHAIN**\n- because\n"
     conclusion, evidence, _ = _parse_llm_analysis(raw, _base_report())
@@ -115,7 +115,7 @@ def test_prose_without_sections_yields_no_conclusion_not_a_synthesized_one():
     already built. Returning base.narrative's first line here ("Model: <repr>")
     was how a quota message from the CLI silently replaced a real M2 verdict.
     """
-    from evalvitals.analysis.stats_agent import _parse_llm_analysis
+    from evalrx.analysis.stats_agent import _parse_llm_analysis
 
     conclusion, _, _ = _parse_llm_analysis("just prose", _base_report())
     assert conclusion == ""
@@ -129,7 +129,7 @@ def _bh_pair():
     and ``reject`` stays raw for the BH family on purpose — so the rendered
     block is the only place the difference can appear.
     """
-    from evalvitals.analysis.stats_tools import StatsToolResult, fdr_correct
+    from evalrx.analysis.stats_tools import StatsToolResult, fdr_correct
 
     strong = StatsToolResult(
         tool="signal_label_assoc", ok=True, effect=0.46, reject=True, p_value=3e-7,
@@ -153,7 +153,7 @@ def test_uncorrected_reject_is_marked_as_not_surviving():
     ``summary`` is frozen at tool-run time, so correcting ``reject`` alone would
     not have changed one character of what the judge reads.
     """
-    from evalvitals.analysis.stats_agent import _format_stats_for_prompt
+    from evalrx.analysis.stats_agent import _format_stats_for_prompt
 
     results, corrected = _bh_pair()
     block = _format_stats_for_prompt(results, corrected)
@@ -165,7 +165,7 @@ def test_uncorrected_reject_is_marked_as_not_surviving():
 
 def test_survivors_are_listed_per_signal_not_per_tool():
     """The old footer printed tool NAMES, so 42 signals collapsed to one word."""
-    from evalvitals.analysis.stats_agent import _format_stats_for_prompt
+    from evalrx.analysis.stats_agent import _format_stats_for_prompt
 
     results, corrected = _bh_pair()
     block = _format_stats_for_prompt(results, corrected)
@@ -185,9 +185,9 @@ def test_a_judge_that_never_answered_says_so_in_the_report():
     logger.warning that reached neither the console nor run_log.jsonl, so the
     run was indistinguishable from a clean "nothing found".
     """
-    from evalvitals.analysis import StatsAnalysisAgent
-    from evalvitals.core.result import Result
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.analysis import StatsAnalysisAgent
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     class DeadJudge:
         def generate(self, prompt, **kwargs):
@@ -203,9 +203,9 @@ def test_a_judge_that_never_answered_says_so_in_the_report():
 
 def test_a_judge_that_answered_leaves_no_fallback_reason():
     """"" must never have to be read as "it failed but we don't know why"."""
-    from evalvitals.analysis import StatsAnalysisAgent
-    from evalvitals.core.result import Result
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.analysis import StatsAnalysisAgent
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     class LiveJudge:
         def generate(self, prompt, **kwargs):
@@ -222,8 +222,8 @@ def test_a_judge_that_answered_leaves_no_fallback_reason():
 
 def test_descriptive_results_are_not_labelled_as_failing_correction():
     """``rank_corr`` never enters a family; absence of a verdict is not a No."""
-    from evalvitals.analysis.stats_agent import _format_stats_for_prompt
-    from evalvitals.analysis.stats_tools import StatsToolResult
+    from evalrx.analysis.stats_agent import _format_stats_for_prompt
+    from evalrx.analysis.stats_tools import StatsToolResult
 
     descriptive = StatsToolResult(
         tool="rank_corr", ok=True, effect=0.24, reject=None,

@@ -11,14 +11,14 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
-from evalvitals.eval_agent import AgenticDiagnoseLoop, DiagnosisAgent, HypothesisTester
-from evalvitals.eval_agent.log_schema import iter_log_errors
-from evalvitals.eval_agent.run_context import RunContext
-from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
+from evalrx.eval_agent import AgenticDiagnoseLoop, DiagnosisAgent, HypothesisTester
+from evalrx.eval_agent.log_schema import iter_log_errors
+from evalrx.eval_agent.run_context import RunContext
+from evalrx.eval_agent.stages.probe_agent import ProbeAgent
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 
 

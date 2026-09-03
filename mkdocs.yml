@@ -1,8 +1,8 @@
-site_name: EvalVitals
+site_name: EvalRX
 site_description: Failure case analysis for LLMs and VLMs
-site_url: https://evalvitals.github.io/evalvitals
-repo_url: https://github.com/evalvitals/evalvitals
-repo_name: evalvitals/evalvitals
+site_url: https://evalvitals.github.io/evalrx
+repo_url: https://github.com/evalvitals/evalrx
+repo_name: evalvitals/evalrx
 
 theme:
   name: material

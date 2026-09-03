@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from evalvitals.analyzers.agent.counterfactual import CounterfactualReplay
-from evalvitals.analyzers.hallucination.chair import CHAIRAnalyzer, chair_score, extract_objects
-from evalvitals.analyzers.hallucination.pope import POPEAnalyzer, parse_yes_no
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import FailureCase, Inputs, Label, Step, StepRole, Trajectory
-from evalvitals.core.model import Model
-from evalvitals.datasets import cases_from_records
+from evalrx.analyzers.agent.counterfactual import CounterfactualReplay
+from evalrx.analyzers.hallucination.chair import CHAIRAnalyzer, chair_score, extract_objects
+from evalrx.analyzers.hallucination.pope import POPEAnalyzer, parse_yes_no
+from evalrx.core.capability import Capability
+from evalrx.core.case import FailureCase, Inputs, Label, Step, StepRole, Trajectory
+from evalrx.core.model import Model
+from evalrx.datasets import cases_from_records
 
 
 class ScriptModel(Model):

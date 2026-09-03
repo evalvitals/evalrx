@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from evalvitals.core.capability import Capability
-from evalvitals.eval_agent import ClaudeModel
+from evalrx.core.capability import Capability
+from evalrx.eval_agent import ClaudeModel
 
 
 def _fake_claude(tmp_path: Path, body: str) -> str:

@@ -52,18 +52,18 @@ class Size:
 
 
 FAMILIES: dict[str, Family] = {
-    "qwen": Family("qwen", "Qwen", "qwen", "evalvitals-bench-qwen"),
-    "gemma": Family("gemma", "Gemma 4", "gemma", "evalvitals-bench-gemma"),
-    "nemotron": Family("nemotron", "Nemotron 3 Nano", "nemotron", "evalvitals-bench-nemotron"),
+    "qwen": Family("qwen", "Qwen", "qwen", "evalrx-bench-qwen"),
+    "gemma": Family("gemma", "Gemma 4", "gemma", "evalrx-bench-gemma"),
+    "nemotron": Family("nemotron", "Nemotron 3 Nano", "nemotron", "evalrx-bench-nemotron"),
     # Google Gen AI API (closed weights): no GPU, no internals, no logprobs; the
     # image is the base stack + google-genai and only carries the harness.
-    "gemini": Family("gemini", "Gemini", "gemini", "evalvitals-bench-gemini", backend="gemini"),
+    "gemini": Family("gemini", "Gemini", "gemini", "evalrx-bench-gemini", backend="gemini"),
 }
 
 BACKENDS = ("hf_local", "endpoint", "gemini")
 
 _GEMMA = ("e2b", "e4b", "12b")
-#: Gemini API model ids = spec keys (evalvitals/specs.py). Every one takes text,
+#: Gemini API model ids = spec keys (evalrx/specs.py). Every one takes text,
 #: image, video and audio, so each size fills all three modality cells.
 _GEMINI = (
     "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite",
@@ -168,7 +168,7 @@ def resolve(model: str, modality: str, backend: str | None = None) -> Resolved:
         raise ValueError(f"unknown backend {backend!r}; one of {BACKENDS}")
     size = SIZES.get(model)
     if size is None:
-        from evalvitals.specs import REGISTRY
+        from evalrx.specs import REGISTRY
 
         if model in REGISTRY:
             spec = REGISTRY[model]

@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/analyzer_demos/qwen_attention/Dockerfile
-    image: evalvitals-qwen-attention
+    image: evalrx-qwen-attention
     deploy:
       resources:
         reservations:

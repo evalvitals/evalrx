@@ -4,9 +4,9 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-EVAL_AGENT = ROOT / "evalvitals" / "eval_agent"
-AGENT_RUNTIME = ROOT / "evalvitals" / "agent_runtime"
-ANALYSIS = ROOT / "evalvitals" / "analysis"
+EVAL_AGENT = ROOT / "evalrx" / "eval_agent"
+AGENT_RUNTIME = ROOT / "evalrx" / "agent_runtime"
+ANALYSIS = ROOT / "evalrx" / "analysis"
 
 
 def _tree(path: Path) -> ast.Module:
@@ -46,7 +46,7 @@ def test_provider_and_model_implementations_live_in_their_packages():
 
 def test_codegen_runner_is_the_stage_cli_invocation_boundary():
     production_paths = [
-        *(ROOT / "evalvitals" / "analysis").glob("*.py"),
+        *(ROOT / "evalrx" / "analysis").glob("*.py"),
         *(EVAL_AGENT / "stages").glob("*.py"),
         *(EVAL_AGENT / "agentic").glob("*.py"),
         EVAL_AGENT / "nl_runner.py",
@@ -63,7 +63,7 @@ def test_codegen_runner_is_the_stage_cli_invocation_boundary():
 
 
 def test_skill_policy_is_not_embedded_in_explorer_or_provider_adapters():
-    explorer = (ROOT / "evalvitals" / "analysis" / "explorer.py").read_text(
+    explorer = (ROOT / "evalrx" / "analysis" / "explorer.py").read_text(
         encoding="utf-8"
     )
     prompt_module = (ANALYSIS / "prompts" / "explorer.py").read_text(encoding="utf-8")
@@ -105,16 +105,16 @@ def _runtime_imports(path: Path) -> list[str]:
 
 
 def test_analysis_and_agent_runtime_never_import_eval_agent():
-    """Locks the Phase 1 dependency inversion in place: evalvitals.analysis and
-    evalvitals.agent_runtime must be usable standalone, so neither may depend
-    on evalvitals.eval_agent at runtime (TYPE_CHECKING-only imports are fine —
+    """Locks the Phase 1 dependency inversion in place: evalrx.analysis and
+    evalrx.agent_runtime must be usable standalone, so neither may depend
+    on evalrx.eval_agent at runtime (TYPE_CHECKING-only imports are fine —
     see _runtime_imports)."""
     offenders: list[str] = []
     for pkg in (ANALYSIS, AGENT_RUNTIME):
         for path in pkg.rglob("*.py"):
             for module in _runtime_imports(path):
-                if module == "evalvitals.eval_agent" or module.startswith(
-                    "evalvitals.eval_agent."
+                if module == "evalrx.eval_agent" or module.startswith(
+                    "evalrx.eval_agent."
                 ):
                     offenders.append(f"{path.relative_to(ROOT)}: {module}")
 
@@ -136,7 +136,7 @@ def test_stage_prompt_templates_live_in_prompt_modules():
     }
     assert eval_agent_prompt_modules <= {p.name for p in (EVAL_AGENT / "prompts").glob("*.py")}
 
-    # M2 stats prompts + the explorer prompt live in evalvitals.analysis (standalone).
+    # M2 stats prompts + the explorer prompt live in evalrx.analysis (standalone).
     analysis_prompt_modules = {
         "stats_agent.py",
         "stats_tool_generator.py",

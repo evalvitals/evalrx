@@ -7,9 +7,9 @@ deterministically (no network, no real coding agent).
 
 from __future__ import annotations
 
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
-from evalvitals.eval_agent import (
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
+from evalrx.eval_agent import (
     StatsAnalysisAgent,
     StatsToolGenerator,
     build_stats_input,
@@ -38,15 +38,15 @@ print('STATS_RESULT_JSON=' + json.dumps({
 
 _NO_MARKER_SCRIPT = 'print("I forgot the contract line")'
 
-_USES_EVALVITALS = '''
+_USES_EVALRX = '''
 import json
-from evalvitals.stats import compare
+from evalrx.stats import compare
 data = json.load(open("m2_stats_input.json"))
 labels = data["labels"]
 sig = next(iter(data["per_case"].values()), {})
 s = [int(labels[c]) for c in labels if sig.get(c, 0)]
 ctl = [int(labels[c]) for c in labels if not sig.get(c, 0)]
-r = compare(ctl, s, paired=False)   # generated code may use evalvitals.stats
+r = compare(ctl, s, paired=False)   # generated code may use evalrx.stats
 print('STATS_RESULT_JSON=' + json.dumps({
     "summary": r.summary(), "effect": r.effect, "ci": list(r.ci),
     "underpowered": r.underpowered, "details": {},
@@ -101,8 +101,8 @@ def test_generate_runs_and_parses_contract():
     assert tool is not None and tool.code
 
 
-def test_generated_tool_can_import_evalvitals_stats():
-    gen = StatsToolGenerator(judge=ScriptedJudge(_USES_EVALVITALS))
+def test_generated_tool_can_import_evalrx_stats():
+    gen = StatsToolGenerator(judge=ScriptedJudge(_USES_EVALRX))
     result, tool = gen.generate("rigorous compare", _inp(), name="cmp")
     assert result.ok, result.error
     assert result.effect == 1.0 and result.ci == (1.0, 1.0)

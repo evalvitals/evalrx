@@ -14,16 +14,16 @@ from pathlib import Path
 
 import pytest
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
 
 pytest.importorskip("pydantic")
 
-from evalvitals.contract import (  # noqa: E402
+from evalrx.contract import (  # noqa: E402
     SCHEMA_VERSION,
     DiagnosisOutput,
     HypothesisTestOutput,
@@ -163,7 +163,7 @@ def test_index_describes_the_finished_directory(tmp_path):
 # ── the emitter is an observer: it must never take a run down ─────────────────
 
 def test_a_broken_payload_is_recorded_not_raised(tmp_path):
-    from evalvitals.contract.emit import ContractEmitter
+    from evalrx.contract.emit import ContractEmitter
 
     emitter = ContractEmitter(tmp_path, "trace")
 
@@ -177,7 +177,7 @@ def test_a_broken_payload_is_recorded_not_raised(tmp_path):
 
 
 def test_strict_mode_raises_for_ci(tmp_path):
-    from evalvitals.contract.emit import ContractEmitter
+    from evalrx.contract.emit import ContractEmitter
 
     emitter = ContractEmitter(tmp_path, "trace", strict=True)
     with pytest.raises(ValueError):
@@ -193,7 +193,7 @@ def test_generated_artifacts_are_current(tmp_path):
     frontend, and the failure surfaces as a runtime `undefined` in a browser
     rather than a red build.
     """
-    from evalvitals.contract.export import _frontend_targets, export
+    from evalrx.contract.export import _frontend_targets, export
 
     fresh = export(tmp_path, frontend=False)
     committed = Path("docs/contract")
@@ -204,17 +204,17 @@ def test_generated_artifacts_are_current(tmp_path):
         for target in targets:
             assert target.exists(), (
                 f"{target} is missing; run "
-                f"`python -m evalvitals.contract.export --out docs/contract`"
+                f"`python -m evalrx.contract.export --out docs/contract`"
             )
             assert target.read_text() == produced.read_text(), (
                 f"{target} is stale; run "
-                f"`python -m evalvitals.contract.export --out docs/contract`"
+                f"`python -m evalrx.contract.export --out docs/contract`"
             )
 
 
 def test_report_data_carries_the_contract_payloads(tmp_path):
     """The dashboard's data model exposes what the pipeline emitted."""
-    from evalvitals.reporting.dynamic import build_report_data
+    from evalrx.reporting.dynamic import build_report_data
 
     model = FakeModel(capabilities={Capability.GENERATE, Capability.LOGPROBS},
                       modalities={"text", "audio"})
@@ -239,7 +239,7 @@ def test_m3_and_m5_name_the_same_hypothesis_the_same_way(tmp_path):
     from M5 for one object on the first real run — a join that silently matches
     nothing, which downstream is indistinguishable from "no verdict yet".
     """
-    from evalvitals.contract.emit import hypothesis_id
+    from evalrx.contract.emit import hypothesis_id
 
     class _H:
         id = ""
@@ -262,7 +262,7 @@ def test_m3_and_m5_name_the_same_hypothesis_the_same_way(tmp_path):
 
 def test_an_untestable_hypothesis_is_representable_not_disguised():
     """A judge that proposed no TEST line is a real, reportable outcome."""
-    from evalvitals.contract import DiagnosisOutput, HypothesisWire
+    from evalrx.contract import DiagnosisOutput, HypothesisWire
 
     h = HypothesisWire(
         id="h1", statement="The model is unstable across resamples.",

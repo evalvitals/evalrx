@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "benchmark": "five-paper-intervention-pilot",
-  "protocol": "This is a small, frozen transfer evaluation. It compares an original paper-style prompt/scaffold with EvalVitals-generated L1/L2 candidates on the same target model; it is not a claim of exact reproduction of the paper's reported scale or model.",
+  "protocol": "This is a small, frozen transfer evaluation. It compares an original paper-style prompt/scaffold with EvalRX-generated L1/L2 candidates on the same target model; it is not a claim of exact reproduction of the paper's reported scale or model.",
   "papers": [
     {
       "id": "zero_shot_cot",

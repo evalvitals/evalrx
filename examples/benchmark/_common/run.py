@@ -22,7 +22,7 @@ from .models import BACKENDS, MODALITIES, SIZES, default_backend, matrix_text, r
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="EvalVitals benchmark cell: Stage 0 -> M1..M5 -> M4 -> fix")
+    p = argparse.ArgumentParser(description="EvalRX benchmark cell: Stage 0 -> M1..M5 -> M4 -> fix")
     p.add_argument("--modality", choices=MODALITIES, help="which dataset family / input slot the cell uses")
     p.add_argument("--model", help=f"size key ({', '.join(SIZES)}) or a registered spec key")
     p.add_argument("--dataset", default=None, help="task name (default per modality: "
@@ -104,6 +104,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--registered-repairs-only", action="store_true",
                    help="restrict discovery to structurally compatible registered repair methods; "
                         "the agent still selects the mechanism and no method name is pre-registered")
+    p.add_argument(
+        "--allow-adapted-paper-methods",
+        action="store_true",
+        help=(
+            "admit registered paper-method executors whose runtime fidelity is explicitly "
+            "architecture-adapted; reports retain the adapted fidelity designation"
+        ),
+    )
     p.add_argument("--explore", action=argparse.BooleanOptionalAction, default=True,
                    help="in-cycle free-form EDA between M1 and M2")
     p.add_argument("--max-cycles", type=int, default=1)
@@ -141,7 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _smoke_test() -> None:
-    from evalvitals.specs import get_spec
+    from evalrx.specs import get_spec
 
     from .models import cells
     from .scoring import score_output

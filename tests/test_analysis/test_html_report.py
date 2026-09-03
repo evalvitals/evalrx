@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-from evalvitals.reporting.html_report import build_html_report, extract_run_data
-from evalvitals.reporting.langfuse_exporter import export_to_langfuse_bundle
+from evalrx.reporting.html_report import build_html_report, extract_run_data
+from evalrx.reporting.langfuse_exporter import export_to_langfuse_bundle
 
 
 def test_html_report_generation(tmp_path: Path):
@@ -28,7 +28,7 @@ def test_html_report_generation(tmp_path: Path):
         )
         assert res_path.exists()
         content = res_path.read_text(encoding="utf-8")
-        assert "EvalVitals" in content
+        assert "EvalRX" in content
         assert "What this report says" in content
         assert "What we checked" in content
         assert "What patterns we found" in content
@@ -49,7 +49,7 @@ def test_langfuse_bundle_export(tmp_path: Path):
         assert "scores" in bundle
         assert out_json.exists()
         loaded = json.loads(out_json.read_text(encoding="utf-8"))
-        assert loaded["trace"]["name"].startswith("EvalVitals:")
+        assert loaded["trace"]["name"].startswith("EvalRX:")
 
 
 def test_report_uses_latest_trace_and_m5_status(tmp_path: Path):
@@ -93,7 +93,7 @@ def test_report_uses_latest_trace_and_m5_status(tmp_path: Path):
 
 def test_report_escapes_script_terminators_in_case_data(tmp_path: Path):
     """Manifest/model text must not be able to escape the CASES script block."""
-    from evalvitals.reporting.html_report import generate_html_report
+    from evalrx.reporting.html_report import generate_html_report
 
     (tmp_path / "run_log.jsonl").write_text(
         json.dumps({"event": "run_start", "trace_id": "t", "protocol": {}}), encoding="utf-8"

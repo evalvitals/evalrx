@@ -64,7 +64,7 @@ def check_python() -> None:
         ok(f"python {v.major}.{v.minor}.{v.micro} (>=3.10)")
     else:
         bad(f"python {v.major}.{v.minor} is too old",
-            "evalvitals requires >=3.10; make a new venv")
+            "evalrx requires >=3.10; make a new venv")
 
 
 def check_imports() -> None:
@@ -73,7 +73,7 @@ def check_imports() -> None:
         ("yaml", "config parsing", "pyyaml"),
         ("numpy", "everything", "numpy"),
         ("requests", "dataset fetch + endpoint calls", "requests"),
-        ("evalvitals", "the pipeline itself", 'pip install -e ".[stats,viz]"'),
+        ("evalrx", "the pipeline itself", 'pip install -e ".[stats,viz]"'),
         ("statsmodels", "M2 statistics", 'pip install -e ".[stats]"'),
         ("sklearn", "M2 statistics", 'pip install -e ".[stats]"'),
     ]

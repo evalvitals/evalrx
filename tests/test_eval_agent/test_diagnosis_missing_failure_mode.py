@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import logging
 
-from evalvitals.core.model import Capability
-from evalvitals.eval_agent.stages.diagnosis import (
+from evalrx.core.model import Capability
+from evalrx.eval_agent.stages.diagnosis import (
     MISSING_FAILURE_MODE,
     DiagnosisAgent,
     _parse_hypotheses,
@@ -90,7 +90,7 @@ def test_diagnose_reasks_once_when_a_non_empty_answer_parses_to_zero(caplog):
         ],
         capabilities={Capability.GENERATE},
     )
-    with caplog.at_level(logging.WARNING, logger="evalvitals.eval_agent.stages.diagnosis"):
+    with caplog.at_level(logging.WARNING, logger="evalrx.eval_agent.stages.diagnosis"):
         diag = DiagnosisAgent(judge=judge).diagnose(_make_report())
     assert [h.predicted_failure_mode for h in diag.hypotheses] == ["attention_sink"]
     assert diag.hypotheses[0].statement == "The model over-attends to the first token."

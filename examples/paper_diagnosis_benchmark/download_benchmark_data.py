@@ -94,7 +94,7 @@ def main() -> int:
         from datasets import load_dataset
     except ImportError as exc:
         raise SystemExit(
-            "datasets is required; install it with: pip install 'evalvitals[data]'"
+            "datasets is required; install it with: pip install 'evalrx[data]'"
         ) from exc
 
     args.data_dir.mkdir(parents=True, exist_ok=True)

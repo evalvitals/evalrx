@@ -16,11 +16,11 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from evalvitals.analyzers.lens.layer_contrast import LayerContrastAnalyzer  # noqa: E402
-from evalvitals.analyzers.lens.logit_lens import LogitLensAnalyzer  # noqa: E402
-from evalvitals.core.capability import Capability  # noqa: E402
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label  # noqa: E402
-from evalvitals.core.model import Model, Trace  # noqa: E402
+from evalrx.analyzers.lens.layer_contrast import LayerContrastAnalyzer  # noqa: E402
+from evalrx.analyzers.lens.logit_lens import LogitLensAnalyzer  # noqa: E402
+from evalrx.core.capability import Capability  # noqa: E402
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label  # noqa: E402
+from evalrx.core.model import Model, Trace  # noqa: E402
 
 _GAIN = 2.0
 _DIM = 4

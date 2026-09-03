@@ -1,6 +1,6 @@
 # Five-paper diagnosis benchmark
 
-This example stress-tests EvalVitals with five deliberately different research
+This example stress-tests EvalRX with five deliberately different research
 papers. It is a **framework diagnosis benchmark**, not a claim that five papers
 prove a repair works for a target model. Its purpose is to expose where the
 framework overstates evidence, confuses benchmark artefacts with model health,
@@ -23,7 +23,7 @@ From this directory:
 
 ```bash
 # PDF extraction is the only extra requirement for this example.
-pip install evalvitals pypdf
+pip install evalrx pypdf
 
 # 1. Fetch five PDFs into ignored data/papers/.
 python download_papers.py
@@ -31,7 +31,7 @@ python download_papers.py
 # 2. Produce ignored, page-level evidence records.
 python build_records.py
 
-# 3. Use the public EvalVitals interface to analyze the corpus.
+# 3. Use the public EvalRX interface to analyze the corpus.
 #    The selected coding-agent CLI must already be installed and authenticated.
 python run_benchmark.py --backend codex
 ```
@@ -39,7 +39,7 @@ python run_benchmark.py --backend codex
 The final command is intentionally just an adapter over the public interface:
 
 ```bash
-python -m evalvitals.cli explore data/paper_records.jsonl --backend codex ...
+python -m evalrx.cli explore data/paper_records.jsonl --backend codex ...
 ```
 
 Its output goes to `outputs/five_paper_diagnosis/`, including the exploratory
@@ -97,7 +97,7 @@ The candidate is selected only on the selection split and is then re-run once
 on the untouched confirmation split. A confirmation report calls a repair
 validated only when that pre-selected candidate clears the paired gate there.
 The runner records OpenAI-compatible `finish_reason`. When failed responses
-explicitly end with `length`, EvalVitals may test the least invasive L0 runtime
+explicitly end with `length`, EvalRX may test the least invasive L0 runtime
 repair: a bounded increase of `max_tokens`. It never infers truncation merely
 because an answer looks short. Use `--baseline-max-tokens` to reproduce the
 deployment configuration being audited.

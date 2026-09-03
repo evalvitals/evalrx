@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from evalvitals.analyzers.perturbation._shapley import shapley_values
-from evalvitals.analyzers.perturbation.mm_shap import MMShapAnalyzer
-from evalvitals.analyzers.perturbation.vl_shap import VLShapAnalyzer
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import FailureCase, Inputs
+from evalrx.analyzers.perturbation._shapley import shapley_values
+from evalrx.analyzers.perturbation.mm_shap import MMShapAnalyzer
+from evalrx.analyzers.perturbation.vl_shap import VLShapAnalyzer
+from evalrx.core.capability import Capability
+from evalrx.core.case import FailureCase, Inputs
 from tests.conftest import FakeModel
 
 
@@ -52,7 +52,7 @@ def test_vl_shap_region_attribution():
 def test_shap_requires_logprobs():
     import pytest
 
-    from evalvitals.core.capability import CapabilityError
+    from evalrx.core.capability import CapabilityError
     model = FakeModel(capabilities={Capability.GENERATE})  # no LOGPROBS
     with pytest.raises(CapabilityError):
         MMShapAnalyzer(score_fn=lambda i: 0.0).run(model, FailureCase(inputs=Inputs(prompt="x")))

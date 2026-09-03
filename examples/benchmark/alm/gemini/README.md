@@ -4,7 +4,7 @@ One leaf of [`examples/benchmark`](../../README.md): the closed-weight Gemini
 models, called through Google's official `google-genai` SDK (`--backend
 gemini`, forced for the family) on every alm dataset through the shared
 [`_common/run.py`](../../_common/run.py). The image is the family's
-(`evalvitals-bench-gemini`, stage `gemini` of
+(`evalrx-bench-gemini`, stage `gemini` of
 [`docker/Dockerfile`](../../docker/Dockerfile): the base stack plus
 `google-genai`); **no GPU is reserved** — the service extends `bench-core`, not
 `bench`. The API key is `GEMINI_API_KEY` in `examples/benchmark/.env` (this
@@ -39,7 +39,9 @@ claims `GENERATE` only — `calibration` runs on its verbalized channel,
 | name | slice | scoring | default rows | source |
 |---|---|---|---|---|
 | `mmau` | MMAU/test-mini | multiple_choice_letter | 256 | gamma-lab-umd/MMAU-test-mini |
+| `mmsu` | MMSU (47 spoken-language tasks) | multiple_choice_letter | 256 | ddwang2000/MMSU |
 | `audiocaps_hallu` | AudioCaps-Hallucination/Random | yes_no | 300 | kuanhuggingface/AudioHallucination_AudioCaps-Random + OpenSound/AudioCaps |
+| `af_reasoning_mcq` | AF-Reasoning-Eval/AQA-MCQ | multiple_choice_letter | 76 | NVIDIA/audio-flamingo (AQA_MCQ) + gijs/clothoaqa (audio) |
 
 Data is frozen once per modality under [`../_data/`](../_data) (`<dataset>/manifest.json`
 + media), shared by all families of this modality; outputs go to

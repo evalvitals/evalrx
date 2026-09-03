@@ -12,11 +12,11 @@ RUN pip install --no-cache-dir "torch==2.13.0" "torchvision==0.28.0" --index-url
 # whose JIT compiles a small C driver module on first use (needs gcc AND the libc
 # headers: without them the first generate() dies in the Triton driver build).
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
-COPY . /evalvitals
+COPY . /evalrx
 # viz: matplotlib for M2 figures + explore chart rendering; pandas for the
 # explorer's generated analysis.py. transformers/accelerate installed explicitly
 # (see above) instead of via [local].
-RUN pip install --no-cache-dir "/evalvitals[data,viz]" pandas "transformers==5.15.0" "accelerate>=0.26.0"
+RUN pip install --no-cache-dir "/evalrx[data,viz]" pandas "transformers==5.15.0" "accelerate>=0.26.0"
 
 WORKDIR /app/example
 COPY examples/m1_m4/vlm_benchmark_common.py /app/vlm_benchmark_common.py

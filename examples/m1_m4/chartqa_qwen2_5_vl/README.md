@@ -1,6 +1,6 @@
 # ChartQA × Qwen2.5-VL
 
-Full EvalVitals M1→M5 diagnosis and held-out Fix validation on 512
+Full EvalRX M1→M5 diagnosis and held-out Fix validation on 512
 deterministically sampled human-authored ChartQA test questions. The scorer
 implements normalized exact match and the benchmark's relaxed 5% numeric
 tolerance. The fixed explore/confirm split is 256/256.

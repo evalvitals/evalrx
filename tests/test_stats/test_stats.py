@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.stats import (
+from evalrx.stats import (
     StatResult,
     clustered_bootstrap_diff,
     compare,
@@ -101,7 +101,7 @@ def test_unpaired_bootstrap_unequal_groups():
     Before the fix, clustered_bootstrap_diff resampled one shared index set,
     crashing when len(a) > len(b) and silently mis-sampling when len(a) < len(b).
     """
-    from evalvitals.stats import compare
+    from evalrx.stats import compare
 
     # control: 15 cases, 20% fail; signal: 3 cases, 100% fail (the VQA-RAD shape)
     control = [1, 0, 0, 0, 0] * 3
@@ -118,7 +118,7 @@ def test_unpaired_bootstrap_unequal_groups():
 
 
 def test_paired_bootstrap_rejects_unequal_lengths():
-    from evalvitals.stats.bootstrap import clustered_bootstrap_diff
+    from evalrx.stats.bootstrap import clustered_bootstrap_diff
 
     with pytest.raises(ValueError):
         clustered_bootstrap_diff([1, 0, 1], [1, 0], paired=True)

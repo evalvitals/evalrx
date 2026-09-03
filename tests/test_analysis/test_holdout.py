@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.analysis.holdout import (
+from evalrx.analysis.holdout import (
     failure_indicator,
     holdout_confirm,
     split_records,
@@ -154,9 +154,9 @@ def test_holdout_confirm_non_binary_outcome_degrades_honestly():
 
 
 def test_run_explore_holdout_splits_and_writes_confirm(monkeypatch, tmp_path):
-    import evalvitals.analysis.api as explore_api
-    import evalvitals.analysis.explore_run as er
-    from evalvitals.analysis.explorer import CandidateSignal, ExploratoryAnalysisReport
+    import evalrx.analysis.api as explore_api
+    import evalrx.analysis.explore_run as er
+    from evalrx.analysis.explorer import CandidateSignal, ExploratoryAnalysisReport
 
     captured: dict = {}
 
@@ -210,9 +210,9 @@ def test_run_explore_holdout_splits_and_writes_confirm(monkeypatch, tmp_path):
 
 
 def test_run_explore_holdout_without_confirm_reserves_rows(monkeypatch, tmp_path):
-    import evalvitals.analysis.api as explore_api
-    import evalvitals.analysis.explore_run as er
-    from evalvitals.analysis.explorer import ExploratoryAnalysisReport
+    import evalrx.analysis.api as explore_api
+    import evalrx.analysis.explore_run as er
+    from evalrx.analysis.explorer import ExploratoryAnalysisReport
 
     class _FakeAgent:
         def __init__(self, **kw):

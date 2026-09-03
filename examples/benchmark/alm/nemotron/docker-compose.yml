@@ -1,6 +1,6 @@
 # ALM (audio + text) x Nemotron 3 Nano: one service per size, dataset/limit via env.
 #   DATASET=mmau LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name alm-nemotron-3-nano-omni-30b-a3b-mmau nemotron-3-nano-omni-30b-a3b
-# Datasets for this modality: mmau, audiocaps_hallu.
+# Datasets for this modality: mmau, mmsu, audiocaps_hallu, af_reasoning_mcq.
 # EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
 # Judge/coder are pinned to Codex gpt-5.6-terra at medium effort.
 name: bench-alm-nemotron
@@ -8,7 +8,7 @@ x-nemotron: &nemotron
   extends:
     file: ../../_common/compose/base.yml
     service: bench
-  image: evalvitals-bench-nemotron
+  image: evalrx-bench-nemotron
   build:
     context: ../../../..
     dockerfile: examples/benchmark/docker/Dockerfile

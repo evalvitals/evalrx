@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
-from evalvitals.eval_agent import FixAgent, FixTier
-from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.stages.fix_agent import FixCandidate
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
+from evalrx.eval_agent import FixAgent, FixTier
+from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.stages.fix_agent import FixCandidate
 
 
 class ScriptedJudge(Model):

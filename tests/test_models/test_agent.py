@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core.capability import Capability, CapabilityError
-from evalvitals.core.case import Label, StepRole
-from evalvitals.core.model import Model
-from evalvitals.core.tool import ChatTurn, Tool, ToolCall
-from evalvitals.models import RuntimeConfig, compose
-from evalvitals.models.agent import Agent, ToolExecutor
-from evalvitals.models.toolcodec import OpenAIToolCodec, QwenToolCodec, codec_for
+from evalrx.core.capability import Capability, CapabilityError
+from evalrx.core.case import Label, StepRole
+from evalrx.core.model import Model
+from evalrx.core.tool import ChatTurn, Tool, ToolCall
+from evalrx.models import RuntimeConfig, compose
+from evalrx.models.agent import Agent, ToolExecutor
+from evalrx.models.toolcodec import OpenAIToolCodec, QwenToolCodec, codec_for
 
 
 def _add_tool() -> Tool:
@@ -168,7 +168,7 @@ def _image_blocks(message):
 
 
 def test_case_image_goes_into_user_content_blocks():
-    from evalvitals.core.case import FailureCase, Inputs
+    from evalrx.core.case import FailureCase, Inputs
 
     sentinel = object()
     handle = FakeChatHandle([ChatTurn(text="an answer")])
@@ -190,7 +190,7 @@ def test_text_only_case_keeps_plain_string_content():
 
 
 def _crop_tool(sentinel):
-    from evalvitals.core.tool import ToolResult
+    from evalrx.core.tool import ToolResult
 
     return Tool(
         name="crop",
@@ -237,7 +237,7 @@ def _counting_tool(counter):
 
 
 def test_block_repeat_calls_skips_executor_and_nudges():
-    from evalvitals.core.case import StepRole as SR
+    from evalrx.core.case import StepRole as SR
 
     executed: list = []
     handle = FakeChatHandle([ChatTurn(text=_CALL), ChatTurn(text=_CALL), ChatTurn(text="done")])
@@ -284,7 +284,7 @@ def test_forced_final_not_triggered_when_answer_exists():
 
 
 def test_collect_message_images_orders_across_messages():
-    from evalvitals.models.backends.hf_local import _collect_message_images
+    from evalrx.models.backends.hf_local import _collect_message_images
 
     class FakeImg:
         size, mode = (2, 2), "RGB"  # PIL-like so it passes through unopened

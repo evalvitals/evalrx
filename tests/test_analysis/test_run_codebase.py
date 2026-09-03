@@ -1,4 +1,4 @@
-"""evalvitals.analysis.run_codebase: run a user's codebase, harvest per-case
+"""evalrx.analysis.run_codebase: run a user's codebase, harvest per-case
 records, and feed them to explore(). No real CLI provider/GPU is exercised —
 CodegenRunner and explore() are monkeypatched with fakes.
 """
@@ -9,14 +9,14 @@ import importlib
 import json
 from pathlib import Path
 
-from evalvitals.analysis.api import ExploreRunResult
-from evalvitals.analysis.explorer import ExploratoryAnalysisReport
-from evalvitals.analysis.run_codebase import CodebaseRunResult, run_codebase
+from evalrx.analysis.api import ExploreRunResult
+from evalrx.analysis.explorer import ExploratoryAnalysisReport
+from evalrx.analysis.run_codebase import CodebaseRunResult, run_codebase
 
-# `evalvitals.analysis`'s __init__ does `from .run_codebase import run_codebase`,
+# `evalrx.analysis`'s __init__ does `from .run_codebase import run_codebase`,
 # which shadows the `run_codebase` *submodule* attribute with the function of
 # the same name — `importlib.import_module` (sys.modules lookup) sidesteps that.
-run_codebase_mod = importlib.import_module("evalvitals.analysis.run_codebase")
+run_codebase_mod = importlib.import_module("evalrx.analysis.run_codebase")
 
 _RECORDS = [
     {"case_id": "c0", "label": "PASS", "input": "x", "prediction": "x"},
@@ -152,14 +152,14 @@ def test_run_codebase_missing_path_returns_error_without_side_effects(tmp_path):
     assert "does not exist" in result.error
 
 
-def test_top_level_evalvitals_run_codebase_is_the_same_function():
-    import evalvitals
+def test_top_level_evalrx_run_codebase_is_the_same_function():
+    import evalrx
 
-    assert evalvitals.run_codebase is run_codebase
+    assert evalrx.run_codebase is run_codebase
 
 
 def test_analysis_package_exports_run_codebase():
-    from evalvitals import analysis
+    from evalrx import analysis
 
     assert analysis.run_codebase is run_codebase
     assert analysis.CodebaseRunResult is CodebaseRunResult

@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from evalvitals.analysis.failure_modes import (
+from evalrx.analysis.failure_modes import (
     FailureMode,
     FailureModeReport,
     _boundary_contrast_pairs,

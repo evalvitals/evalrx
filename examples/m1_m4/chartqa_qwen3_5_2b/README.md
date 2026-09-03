@@ -72,7 +72,7 @@ pass all three with `-f`):
 services:
   chartqa_qwen3_5_2b:
     volumes:
-      - /path/to/evalvitals/evalvitals:/usr/local/lib/python3.11/site-packages/evalvitals:ro
+      - /path/to/evalrx/evalrx:/usr/local/lib/python3.11/site-packages/evalrx:ro
 ```
 
 | stage | result |

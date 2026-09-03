@@ -1,0 +1,1046 @@
+{
+  "pipeline": [
+    {
+      "module": "M1",
+      "name": "Suspicious Behavior Detection",
+      "subtitle": "Run the analyzer probing library, find per-case suspicious behaviors"
+    },
+    {
+      "module": "M2",
+      "name": "Statistical Screening",
+      "subtitle": "Using plots to explain, statistical tests to decide"
+    },
+    {
+      "module": "M3",
+      "name": "Hypothesis Formation",
+      "subtitle": "Explore the reason behind the signals"
+    },
+    {
+      "module": "M5",
+      "name": "Held-out Verification",
+      "subtitle": "Confirm whether the hypothesis is verified over the held-out cases"
+    },
+    {
+      "module": "M4",
+      "name": "Validated Repair",
+      "subtitle": "Fix the failure with the validated repair ladder"
+    }
+  ],
+  "headline": {
+    "model": "gemma-4-e2b-it",
+    "dataset": "AudioCaps-Hallucination/Random",
+    "n_cases": 300,
+    "split": "300 explore / 0 held-out",
+    "baseline_accuracy": 0.5167,
+    "confirmed_signal": "answer_extraction_audit.gold_yes",
+    "hypotheses": {
+      "proposed": 1,
+      "supported": 1,
+      "inconclusive": 0
+    },
+    "accepted_repair": "clap_grounded_audio_presence_calibrated",
+    "accepted_tier": "L2",
+    "heldout_accuracy": "0.52 -> 0.72",
+    "cases_fixed": 32,
+    "cases_broken": 2
+  },
+  "run": {
+    "dataset": "audiocaps_hallu",
+    "benchmark": "AudioCaps-Hallucination/Random",
+    "model": "gemma-4-e2b",
+    "model_spec": "gemma-4-e2b-it",
+    "hf_repo": "google/gemma-4-E2B-it",
+    "modality": "alm",
+    "backend": "hf_local",
+    "n_cases": 300,
+    "n_explore": 300,
+    "n_heldout": 0,
+    "confirm_split": 0.5,
+    "manifest_seed": 20260902,
+    "baseline_accuracy": 0.5167,
+    "explore_label_distribution": {
+      "FAIL": 73,
+      "PASS": 77
+    },
+    "data_fingerprint": "0510aef25719",
+    "generation_kwargs": {
+      "max_new_tokens": 16,
+      "do_sample": false
+    },
+    "fix_tier_cap": "L2",
+    "auto_escalate": true,
+    "allow_codegen": false,
+    "m1_selection": "pinned",
+    "judge": "AgyModel(binary='/fast/rjin02/.local/bin/agy')",
+    "coder": "antigravity",
+    "protocol": "We evaluate an audio-language model (Gemma 4 E2B-it, spec gemma-4-e2b-it = google/gemma-4-E2B-it) on a discriminative object-hallucination benchmark: for a short AudioCaps clip, the model is asked a binary yes/no question about whether a specific sound is present ('Is there a sound of X in the audio?'). Half the questions name a sound that IS present, half name one that is absent (random/popular/adversarial negative sampling). We want to know what distinguishes the questions it gets right from the ones it gets wrong.",
+    "manifest_run_id": "logs",
+    "cycles": 1,
+    "stopped_by": "criteria_met",
+    "timings_sec": {
+      "m1": 69.385,
+      "m2": 29.582,
+      "m3": 27.531,
+      "m5": 5.616
+    },
+    "total_duration_sec": 132.1
+  },
+  "m1_probe": {
+    "module": "M1 · Suspicious Behavior Detection",
+    "analyzers": {
+      "selection_mode": "pinned",
+      "selection_rationale": "Selected 7 analyzer(s) (answer_extraction_audit, termination_audit, selfcheck_consistency, self_consistency, calibration, logprob_entropy, perturbation_battery) by capability matching.",
+      "selected_analyzers": [
+        "answer_extraction_audit",
+        "termination_audit",
+        "selfcheck_consistency",
+        "self_consistency",
+        "calibration",
+        "logprob_entropy",
+        "perturbation_battery"
+      ],
+      "families": [
+        {
+          "family": "black_box_behavior",
+          "label": "BLACK-BOX BEHAVIOR",
+          "selected": true,
+          "analyzers": [
+            "answer_extraction_audit",
+            "termination_audit",
+            "selfcheck_consistency",
+            "self_consistency",
+            "calibration",
+            "perturbation_battery"
+          ]
+        },
+        {
+          "family": "internal_white_box",
+          "label": "INTERNAL / WHITE-BOX",
+          "selected": true,
+          "analyzers": [
+            "logprob_entropy"
+          ]
+        },
+        {
+          "family": "multimodal",
+          "label": "MULTIMODAL",
+          "selected": false
+        },
+        {
+          "family": "other",
+          "label": "OTHER",
+          "selected": false
+        }
+      ],
+      "n_probe_passes": 1,
+      "probe_cycles": [
+        0
+      ],
+      "headline_metrics": {
+        "selfcheck_consistency": {
+          "n_cases": 16,
+          "n_samples": 4,
+          "degenerate_sampling": false
+        },
+        "answer_extraction_audit": {
+          "n_cases": 16,
+          "n_gradable": 16,
+          "n_labelled_fail": 8,
+          "n_extraction_suspect": 0,
+          "suspect_rate": 0.0,
+          "n_reasked": 0,
+          "n_extraction_point_miss": 0,
+          "missing_tag_rate": 1.0
+        },
+        "logprob_entropy": {
+          "n_tokens": 2,
+          "mean_logprob": -0.0011,
+          "perplexity": 1.0011,
+          "min_token_logprob": -0.0022,
+          "mean_top_entropy": 0.0078
+        },
+        "self_consistency": {
+          "n_samples": 5,
+          "consistency": 1.0,
+          "n_unique": 1,
+          "compared_on": "raw_text",
+          "raw_text_consistency": 1.0,
+          "modal_answer": "No",
+          "n_semantic_clusters": 1,
+          "semantic_entropy": -0.0,
+          "normalized_semantic_entropy": -0.0,
+          "semantic_consistency": 1.0,
+          "entailment": "lexical_proxy"
+        },
+        "termination_audit": {
+          "n_cases": 16,
+          "clean_rate": 0.0,
+          "non_clean_rate": 1.0,
+          "truncation_rate": 0.0,
+          "degenerate_rate": 0.0,
+          "giveup_rate": 0.0,
+          "recovered_rate": 0.0625
+        },
+        "calibration": {
+          "n_cases": 16,
+          "n_unlabelled_skipped": 0,
+          "n_bins": 10,
+          "logprob_channel_available": true
+        },
+        "perturbation_battery": {
+          "n_cases": 16,
+          "n_scored": 16,
+          "mean_invariance_break_rate": 0.0208,
+          "noop_break_rate": 0.0,
+          "n_memorization_suspect": 0
+        }
+      }
+    },
+    "probe_questions": {
+      "n_analyzers": 7,
+      "n_measured": 35,
+      "n_forwarded": 6,
+      "questions": [
+        {
+          "question": "Did it produce anything at all?",
+          "analyzers": [
+            "answer_extraction_audit"
+          ],
+          "n_measurements": 1,
+          "n_candidates": 0
+        },
+        {
+          "question": "Did it answer in the form we asked for?",
+          "analyzers": [
+            "answer_extraction_audit",
+            "termination_audit"
+          ],
+          "n_measurements": 3,
+          "n_candidates": 0
+        },
+        {
+          "question": "Did it give up answering?",
+          "analyzers": [
+            "answer_extraction_audit",
+            "termination_audit"
+          ],
+          "n_measurements": 2,
+          "n_candidates": 0
+        },
+        {
+          "question": "Did it stop, or keep talking?",
+          "analyzers": [
+            "answer_extraction_audit",
+            "termination_audit"
+          ],
+          "n_measurements": 7,
+          "n_candidates": 1
+        },
+        {
+          "question": "Asked to check itself, does it change?",
+          "analyzers": [
+            "selfcheck_consistency"
+          ],
+          "n_measurements": 1,
+          "n_candidates": 0
+        },
+        {
+          "question": "Was it as sure as it sounded?",
+          "analyzers": [
+            "calibration"
+          ],
+          "n_measurements": 2,
+          "n_candidates": 2
+        },
+        {
+          "question": "Does it lean to one answer regardless?",
+          "analyzers": [
+            "answer_extraction_audit"
+          ],
+          "n_measurements": 2,
+          "n_candidates": 1
+        },
+        {
+          "question": "What does perturbation_battery show?",
+          "analyzers": [
+            "perturbation_battery"
+          ],
+          "n_measurements": 6,
+          "n_candidates": 2
+        }
+      ],
+      "dropped": {
+        "saw_the_answer_key": 11,
+        "never_varied": 18,
+        "partial_coverage": 0
+      },
+      "note": "each case is answered five times; the probes never see the answer key"
+    },
+    "measurement_inventory": [
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "answered_yes",
+        "signal": "answer_extraction_audit.answered_yes",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Does it lean to one answer regardless?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "extraction_point_miss",
+        "signal": "answer_extraction_audit.extraction_point_miss",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "extraction_suspect",
+        "signal": "answer_extraction_audit.extraction_suspect",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gave_up",
+        "signal": "answer_extraction_audit.gave_up",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it give up answering?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gold_in_answer_region",
+        "signal": "answer_extraction_audit.gold_in_answer_region",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gold_in_output",
+        "signal": "answer_extraction_audit.gold_in_output",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "gold_yes",
+        "signal": "answer_extraction_audit.gold_yes",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "Does it lean to one answer regardless?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "has_answer_tag",
+        "signal": "answer_extraction_audit.has_answer_tag",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it answer in the form we asked for?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "has_output",
+        "signal": "answer_extraction_audit.has_output",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it produce anything at all?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "label_disagrees",
+        "signal": "answer_extraction_audit.label_disagrees",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "labelled_fail",
+        "signal": "answer_extraction_audit.labelled_fail",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "output_chars",
+        "signal": "answer_extraction_audit.output_chars",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "output_truncated",
+        "signal": "answer_extraction_audit.output_truncated",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "answer_extraction_audit",
+        "field": "strict_match",
+        "signal": "answer_extraction_audit.strict_match",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did the answer come out readable?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "continuation_chars",
+        "signal": "termination_audit.continuation_chars",
+        "n_values": 16,
+        "n_distinct": 3,
+        "status": "candidate",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "continuation_correct",
+        "signal": "termination_audit.continuation_correct",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "continuation_has_answer",
+        "signal": "termination_audit.continuation_has_answer",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "gave_up",
+        "signal": "termination_audit.gave_up",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it give up answering?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "has_answer_tag",
+        "signal": "termination_audit.has_answer_tag",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it answer in the form we asked for?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "looks_truncated",
+        "signal": "termination_audit.looks_truncated",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "matches_output_contract",
+        "signal": "termination_audit.matches_output_contract",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it answer in the form we asked for?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "output_chars",
+        "signal": "termination_audit.output_chars",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "output_words",
+        "signal": "termination_audit.output_words",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "recovered_by_continuation",
+        "signal": "termination_audit.recovered_by_continuation",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "termination_audit",
+        "field": "repetition_score",
+        "signal": "termination_audit.repetition_score",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Did it stop, or keep talking?"
+      },
+      {
+        "analyzer": "selfcheck_consistency",
+        "field": "n_sentences",
+        "signal": "selfcheck_consistency.n_sentences",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "Asked to check itself, does it change?"
+      },
+      {
+        "analyzer": "calibration",
+        "field": "conf_logprob",
+        "signal": "calibration.conf_logprob",
+        "n_values": 16,
+        "n_distinct": 9,
+        "status": "candidate",
+        "question": "Was it as sure as it sounded?"
+      },
+      {
+        "analyzer": "calibration",
+        "field": "conf_verbal",
+        "signal": "calibration.conf_verbal",
+        "n_values": 16,
+        "n_distinct": 4,
+        "status": "candidate",
+        "question": "Was it as sure as it sounded?"
+      },
+      {
+        "analyzer": "calibration",
+        "field": "correct",
+        "signal": "calibration.correct",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "dropped_sees_answer_key",
+        "question": "Was it as sure as it sounded?"
+      },
+      {
+        "analyzer": "perturbation_battery",
+        "field": "invariance_break_rate",
+        "signal": "perturbation_battery.invariance_break_rate",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "What does perturbation_battery show?"
+      },
+      {
+        "analyzer": "perturbation_battery",
+        "field": "n_altering",
+        "signal": "perturbation_battery.n_altering",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "What does perturbation_battery show?"
+      },
+      {
+        "analyzer": "perturbation_battery",
+        "field": "n_preserving",
+        "signal": "perturbation_battery.n_preserving",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "What does perturbation_battery show?"
+      },
+      {
+        "analyzer": "perturbation_battery",
+        "field": "noop_clause_flipped",
+        "signal": "perturbation_battery.noop_clause_flipped",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "What does perturbation_battery show?"
+      },
+      {
+        "analyzer": "perturbation_battery",
+        "field": "rename_entities_flipped",
+        "signal": "perturbation_battery.rename_entities_flipped",
+        "n_values": 16,
+        "n_distinct": 1,
+        "status": "dropped_never_varies",
+        "question": "What does perturbation_battery show?"
+      },
+      {
+        "analyzer": "perturbation_battery",
+        "field": "restate_question_flipped",
+        "signal": "perturbation_battery.restate_question_flipped",
+        "n_values": 16,
+        "n_distinct": 2,
+        "status": "candidate",
+        "question": "What does perturbation_battery show?"
+      }
+    ],
+    "signal_curve": {
+      "phase": "explore",
+      "signal": "answer_extraction_audit.gold_yes",
+      "analyzer": "answer_extraction_audit",
+      "field": "gold_yes",
+      "all_surviving_signals": [
+        "answer_extraction_audit.gold_yes"
+      ],
+      "n_surviving_signals": 1,
+      "binning": "levels",
+      "n_distinct_values": 2,
+      "n_cases": 16,
+      "bins": [
+        {
+          "value": 0,
+          "n_cases": 8,
+          "n_fail": 0,
+          "failure_rate": 0.0
+        },
+        {
+          "value": 1,
+          "n_cases": 8,
+          "n_fail": 8,
+          "failure_rate": 1.0
+        }
+      ]
+    }
+  },
+  "m2_statistics": {
+    "module": "M2 · Statistical Screening",
+    "explore": {
+      "family": {
+        "n_results_total": 11,
+        "n_signal_label_assoc": 8,
+        "n_degenerate": 2,
+        "n_in_correction_family": 6,
+        "correction_method": "BH",
+        "survivors": [
+          "answer_extraction_audit.gold_yes"
+        ]
+      },
+      "tests": [
+        {
+          "tool": "signal_label_assoc",
+          "signal": "answer_extraction_audit.gold_yes",
+          "effect": 0.5423,
+          "ci": [
+            0.4648,
+            0.6199
+          ],
+          "p_value": 0.0025568928091492314,
+          "reject_raw": true,
+          "survives_correction": true,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 8,
+          "n_control": 142,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.4577
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "perturbation_battery.invariance_break_rate",
+          "effect": 0.5333,
+          "ci": [
+            0.2667,
+            0.8
+          ],
+          "p_value": 1.0,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 1,
+          "n_control": 15,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.4667
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "perturbation_battery.restate_question_flipped",
+          "effect": 0.5168,
+          "ci": [
+            0.4362,
+            0.5973
+          ],
+          "p_value": 0.4866666666666667,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 1,
+          "n_control": 149,
+          "fail_rate_signal": 1.0,
+          "fail_rate_control": 0.4832
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.continuation_has_answer",
+          "effect": 0.2705,
+          "ci": [
+            -0.2363,
+            0.5755
+          ],
+          "p_value": 0.35689530374094136,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 4,
+          "n_control": 146,
+          "fail_rate_signal": 0.75,
+          "fail_rate_control": 0.4795
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "calibration.conf_logprob",
+          "effect": 0.25,
+          "ci": [
+            -0.25,
+            0.75
+          ],
+          "p_value": 0.6192696192696191,
+          "reject_raw": false,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 8,
+          "n_control": 8,
+          "fail_rate_signal": 0.625,
+          "fail_rate_control": 0.375
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "calibration.conf_verbal",
+          "effect": 0.1083,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "calibration.conf_logprob",
+          "effect": 0.1,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "rank_corr",
+          "signal": "termination_audit.continuation_chars",
+          "effect": -0.1167,
+          "survives_correction": false,
+          "in_correction_family": false,
+          "degenerate": false
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.recovered_by_continuation",
+          "effect": -0.4899,
+          "ci": [
+            -0.5705,
+            -0.4094
+          ],
+          "p_value": 1.0,
+          "reject_raw": true,
+          "survives_correction": false,
+          "correction_method": "BH",
+          "correction_family": "bh",
+          "in_correction_family": true,
+          "degenerate": false,
+          "n_signal": 1,
+          "n_control": 149,
+          "fail_rate_signal": 0.0,
+          "fail_rate_control": 0.4899
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "termination_audit.continuation_chars",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 16
+        },
+        {
+          "tool": "signal_label_assoc",
+          "signal": "calibration.conf_verbal",
+          "survives_correction": false,
+          "correction_family": "auto",
+          "in_correction_family": false,
+          "degenerate": true,
+          "n_signal": 0,
+          "n_control": 16
+        }
+      ]
+    }
+  },
+  "m3_hypotheses": {
+    "module": "M3 · Hypothesis Formation",
+    "proposed": [
+      {
+        "hypothesis_id": "H1",
+        "failure_mode": "ignored_obs",
+        "statement": "The audio-language model fails to condition its predictions on the audio modality, collapsing to an unconditional negative response that fails exclusively when the target sound is present in the audio clip.",
+        "test_design": "answer_extraction_audit.gold_yes HIGHER on failing cases",
+        "expected_direction": "higher_in_fail",
+        "status_at_proposal": "proposed"
+      }
+    ],
+    "adversarial_critic": {
+      "n_proposed": 1,
+      "n_critic_kept": 0,
+      "n_critic_rejected": 1,
+      "review": {
+        "n_kept": 0,
+        "n_rejected": 1,
+        "decisions": [
+          {
+            "statement": "The audio-language model fails to condition its predictions on the audio modality, collapsing to an unconditional negative response that fails exclusively when the target sound is present in the audio clip.",
+            "decision": "reject",
+            "reason": "Unsupported claim and confounded alternative: claiming the model ignores the audio modality is unproven and confounded by prompt or decoding bias toward negative answers, while claiming an \"unconditional\" negative collapse is directly contradicted by the 150-case label summary showing the model answered \"Yes\" in 8 instances."
+          }
+        ]
+      },
+      "note": "critic objections are recorded, not vetoes; adjudication is statistical"
+    }
+  },
+  "m5_verdicts": {
+    "module": "M5 · Held-out Verification",
+    "verdicts": [
+      {
+        "hypothesis_id": "H1",
+        "failure_mode": "ignored_obs",
+        "status": "supported",
+        "statement": "The audio-language model fails to condition its predictions on the audio modality, collapsing to an unconditional negative response that fails exclusively when the target sound is present in the audio clip.",
+        "test_name": "signal_label_assoc",
+        "expected_direction": "higher_in_fail",
+        "effect": 0.5423,
+        "ci": [
+          0.4648,
+          0.6199
+        ],
+        "reject": true,
+        "underpowered": false,
+        "evidence_grade": "observational",
+        "protocol_consistent": true,
+        "confidence_score": 0.778,
+        "fdr": {
+          "method": "BH",
+          "alpha": 0.05,
+          "n_tested": 6,
+          "rejected_tools": [
+            "signal_label_assoc"
+          ],
+          "rejected_result_keys": [
+            "signal_label_assoc:answer_extraction_audit.gold_yes"
+          ],
+          "families": {
+            "bh": {
+              "method": "BH",
+              "n_tested": 6,
+              "rejected_result_keys": [
+                "signal_label_assoc:answer_extraction_audit.gold_yes"
+              ]
+            }
+          }
+        },
+        "verdict_text": "signal_label_assoc: signal 'answer_extraction_audit.gold_yes' vs FAIL: [clustered bootstrap (unpaired)] effect=+0.5423 (B>A) CI=+0.4648..+0.6199 -> REJECT H0 [BH: survived, p=0.00256, n_signal=8] [hypothesis predicts the signal HIGHER on failures; observed effect +0.542 -> consistent]",
+        "split": "heldout"
+      }
+    ]
+  },
+  "m4_repair_search": {
+    "module": "M4 · Validated Repair",
+    "ladder": [
+      {
+        "tier": "L1",
+        "label": "Prompt / instructions",
+        "n_candidates": 0,
+        "status": "untouched",
+        "within_cap": true,
+        "tier_cap": "L2"
+      },
+      {
+        "tier": "L2",
+        "label": "Scaffold / tools / multi-call",
+        "n_candidates": 1,
+        "best_effect": 0.2,
+        "best_candidate": "clap_grounded_audio_presence_calibrated",
+        "status": "accepted",
+        "within_cap": true,
+        "tier_cap": "L2"
+      },
+      {
+        "tier": "L3",
+        "label": "Internals / read & write",
+        "n_candidates": 0,
+        "status": "untouched",
+        "within_cap": false,
+        "tier_cap": "L2"
+      },
+      {
+        "tier": "L4",
+        "label": "Re-training",
+        "n_candidates": 0,
+        "status": "untouched",
+        "within_cap": false,
+        "tier_cap": "L2"
+      }
+    ],
+    "candidates_selected_on_explore": [
+      {
+        "tier": "L2",
+        "name": "clap_grounded_audio_presence_calibrated",
+        "n_pairs": 150,
+        "n_fixed": 32,
+        "n_broken": 2,
+        "effect": 0.2,
+        "verdict": "fixed",
+        "selected": true
+      }
+    ],
+    "candidates_confirmed_on_heldout": [
+      {
+        "tier": "L2",
+        "name": "clap_grounded_audio_presence_calibrated",
+        "n_pairs": 150,
+        "n_fixed": 32,
+        "n_broken": 2,
+        "effect": 0.2,
+        "ci": [
+          0.1333,
+          0.2733
+        ],
+        "e_value": 874961.51,
+        "verdict": "fixed",
+        "coverage": 1.0,
+        "selected": true
+      }
+    ]
+  },
+  "accepted_repair": {
+    "name": "clap_grounded_audio_presence_calibrated",
+    "tier": "L2",
+    "modifies_parameters": false,
+    "trial_root": "logs/fixes/01_L2_clap_grounded_audio_presence_calibrated"
+  },
+  "heldout_validation": {
+    "phase": "heldout",
+    "candidate": "clap_grounded_audio_presence_calibrated",
+    "tier": "L2",
+    "n_pairs": 150,
+    "n_baseline_correct": 78,
+    "n_candidate_correct": 108,
+    "baseline_rate": 0.52,
+    "candidate_rate": 0.72,
+    "n_fixed": 32,
+    "n_broken": 2,
+    "both_correct": 76,
+    "both_wrong": 40,
+    "effect": 0.2,
+    "ci": [
+      0.1333,
+      0.2733
+    ],
+    "e_value": 874961.51,
+    "noise_model": "mcnemar",
+    "reject": true,
+    "coverage": 1.0,
+    "n_applicable": 150,
+    "n_unstable_dropped": 0,
+    "n_model_independent_excluded": 0,
+    "verdict": "fixed",
+    "ebh_survivors": [
+      "clap_grounded_audio_presence_calibrated"
+    ],
+    "summary": "[mcnemar + e-value (paired binary)] effect=+0.2000 (B>A) CI=+0.1333..+0.2733, e=874961.51 -> REJECT H0 [fixed, coverage=100%]"
+  },
+  "example_case": {
+    "case_id": "13969",
+    "split": "explore",
+    "question": "Can you hear the sound of pigeon in the audio? Answer with only the single word Yes or No.",
+    "gold": "Yes",
+    "baseline_output": "No",
+    "label": "fail",
+    "signal": "answer_extraction_audit.gold_yes",
+    "signal_values": {
+      "sample_id": "13969",
+      "has_output": 1,
+      "has_answer_tag": 0,
+      "output_truncated": 0,
+      "gave_up": 0,
+      "output_chars": 2,
+      "labelled_fail": 1,
+      "strict_match": 0,
+      "gold_in_output": 0,
+      "gold_in_answer_region": 0,
+      "extracted_answer": "No",
+      "extraction_suspect": 0,
+      "extraction_point_miss": 0,
+      "label_disagrees": 0,
+      "gold_yes": 1,
+      "answered_yes": 0
+    },
+    "media_paths": [
+      "logs/artifacts/case_media/5712c889bb8801fa_MjSegUnQXr4.wav"
+    ],
+    "note": "illustrative case drawn from the explore split; held-out cases have no stored media in this run"
+  },
+  "qa_flags": [
+    {
+      "level": "note",
+      "code": "example_case_from_explore",
+      "detail": "the illustrative case comes from the explore split; do not present its treated output as a measured held-out result"
+    },
+    {
+      "level": "note",
+      "code": "accepted_fix_breaks_cases",
+      "detail": "the accepted fix broke 2 previously-correct cases; report it alongside the gain"
+    }
+  ],
+  "_sources": {
+    "example_case": "logs/report/discovery_cases.json + run_log case_record",
+    "m1_analyzers": "logs/run_log.jsonl:probe",
+    "m1_probe_questions": "logs/artifacts/c0_<analyzer>.result.json per-case fields",
+    "m1_signal_curve": "logs/artifacts/c0_answer_extraction_audit.result.json + run_log case_record labels",
+    "m2_family": "logs/artifacts/c0_m2_stats_results.json",
+    "m2_test": "logs/artifacts/c0_m2_stats_results.json",
+    "m3_critic": "logs/run_log.jsonl:diagnosis",
+    "m3_hypothesis": "logs/run_log.jsonl:diagnosis",
+    "m4_candidate": "logs/run_log.jsonl:fix.selection_attempted",
+    "m4_ladder": "logs/run_log.jsonl:fix",
+    "m5_verdict": "logs/run_log.jsonl:surgery[module=m5] + logs/report/m5_results.json",
+    "qa_flags": "derived from the blocks above",
+    "repair": "logs/run_log.jsonl:fix.best.payload",
+    "run": "summary.json + logs/manifest.json + logs/run_log.jsonl",
+    "validation": "logs/run_log.jsonl:fix.best"
+  }
+}

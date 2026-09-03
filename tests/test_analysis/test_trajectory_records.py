@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from evalvitals.analysis.stats_tools import build_stats_input_from_records
-from evalvitals.analysis.trajectory_records import (
+from evalrx.analysis.stats_tools import build_stats_input_from_records
+from evalrx.analysis.trajectory_records import (
     trajectories_to_records,
     trajectory_features,
 )
-from evalvitals.core.case import (
+from evalrx.core.case import (
     FailureCase,
     Inputs,
     Label,
@@ -126,7 +126,7 @@ def test_cost_columns_default_to_zero_without_usage():
 
 
 def test_agent_question_template_names_real_column_families():
-    from evalvitals.analysis.trajectory_records import AGENT_QUESTION_TEMPLATE
+    from evalrx.analysis.trajectory_records import AGENT_QUESTION_TEMPLATE
 
     feature_cols = set(trajectory_features(_traj()))
     for named in ("n_tool_calls", "max_consecutive_repeat", "repeated_call_frac",

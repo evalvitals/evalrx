@@ -10,11 +10,11 @@ a well-powered winner are unaffected.
 
 from __future__ import annotations
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
-from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.stages.fix_agent import FixAgent
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
+from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.stages.fix_agent import FixAgent
 
 
 def _hyp(s: str) -> Hypothesis:

@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m2_m3/vtcbench_diagnosis/Dockerfile
-    image: evalvitals-vtcbench-diagnosis
+    image: evalrx-vtcbench-diagnosis
     # Prerequisite: serve the checkpoint before `docker compose up` (see this
     # example's README) --
     #   vllm serve Qwen/Qwen3-VL-2B-Instruct --port 8901 \

@@ -3,7 +3,7 @@ services:
     build:
       context: ../..
       dockerfile: examples/paper_diagnosis_benchmark/Dockerfile
-    image: evalvitals-paper-diagnosis-benchmark
+    image: evalrx-paper-diagnosis-benchmark
     # Required before first run (mount the NATIVE claude binary, not the wrapper):
     #   export CLAUDE_PATH=$(ls -d ~/.vscode-server/extensions/anthropic.claude-code-*/resources/native-binary/claude | sort -V | tail -1)
     environment:

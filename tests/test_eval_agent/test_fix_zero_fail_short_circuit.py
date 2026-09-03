@@ -9,11 +9,11 @@ paired test uses, not the stale case labels.
 
 from __future__ import annotations
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
-from evalvitals.eval_agent import FixAgent
-from evalvitals.eval_agent.hypothesis import Hypothesis
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
+from evalrx.eval_agent import FixAgent
+from evalrx.eval_agent.hypothesis import Hypothesis
 
 
 class ScriptedJudge(Model):

@@ -67,9 +67,9 @@ def main() -> None:
     print(f"loaded frozen M1: analyzers={list(probe_results)} cases={len(list(cases))} "
           f"failed={state.get('failed_analyzers') or '{}'}")
 
-    from evalvitals import compose
-    from evalvitals.core.capability import Capability
-    from evalvitals.eval_agent import (
+    from evalrx import compose
+    from evalrx.core.capability import Capability
+    from evalrx.eval_agent import (
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
@@ -77,9 +77,9 @@ def main() -> None:
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.models.backends.base import RuntimeConfig
 
     judge = run.build_judge(args.judge_model, args.judge_effort)
     model = compose(args.model, "hf_local",
@@ -94,7 +94,7 @@ def main() -> None:
     # enter M2/M3/M5 via the standard findings["per_case"] contract.
     signal_recipes = []
     if args.recipes:
-        from evalvitals.analysis.operationalize import SignalRecipe
+        from evalrx.analysis.operationalize import SignalRecipe
 
         raw = json.loads(Path(args.recipes).read_text())
         signal_recipes = [SignalRecipe.from_dict(r) for r in raw]

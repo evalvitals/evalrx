@@ -221,18 +221,21 @@ __marimo__/
 
 # Local evaluation outputs and run artifacts
 runs/
-evalvitals_chat_output/
+evalrx_chat_output/
 examples/**/outputs/
 examples/**/outputs_*/
-# web upload workbench workspaces (`evalvitals web` / run_web.sh)
-evalvitals_web_runs/
+# Host-side benchmark manifests, media, and run artifacts are generated locally.
+examples/benchmark/**/host_data/
+examples/benchmark/**/host_outputs/
+# web upload workbench workspaces (`evalrx web` / run_web.sh)
+evalrx_web_runs/
 examples/**/web_runs/
 .antigravitycli/examples/qwen_loop/outputs/
 examples/qwen_loop_agy/*
 .docker/
 .geimini/
 runs/
-evalvitals_chat_output/
+evalrx_chat_output/
 
 # deco examples: frozen manifests (data/cases) ARE committed; bulky caches are not
 examples/deco_*/data/images/
@@ -247,5 +250,5 @@ examples/diagnosis_loops/deco_hallu/outputs/m1_state.pkl
 .media_cache/
 
 # Dynamic report UI: source and lockfile are versioned; these are local/build outputs.
-evalvitals/reporting/web/node_modules/
-evalvitals/reporting/web_dist/
+evalrx/reporting/web/node_modules/
+evalrx/reporting/web_dist/

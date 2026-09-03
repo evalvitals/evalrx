@@ -32,7 +32,7 @@ from typing import Any, Callable, Optional
 import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-from evalvitals.analyzers.reasoning._text import (  # noqa: E402
+from evalrx.analyzers.reasoning._text import (  # noqa: E402
     answer_equal,
     extract_answer,
     normalize_answer,
@@ -1396,7 +1396,7 @@ def run_spec(spec: Spec, n: int, concurrency: int, temperature: float,
         predicted = extract_answer(output)
         grade = spec.grader or answer_equal
         graded_text = output if spec.grades_raw_output else predicted
-        from evalvitals.analyzers.reasoning._text import has_answer_tag
+        from evalrx.analyzers.reasoning._text import has_answer_tag
 
         return {
             "correct": int(bool(grade(graded_text, gold))),

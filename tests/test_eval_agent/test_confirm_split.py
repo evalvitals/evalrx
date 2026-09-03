@@ -11,15 +11,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
-from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.loop import VLDiagnoseLoop
-from evalvitals.eval_agent.loop_reports import VLDiagnoseReport
-from evalvitals.eval_agent.stages.fix_agent import FixCandidate, FixOutcome, FixValidation
-from evalvitals.eval_agent.stages.fix_tiers import FixTier
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
+from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.loop import VLDiagnoseLoop
+from evalrx.eval_agent.loop_reports import VLDiagnoseReport
+from evalrx.eval_agent.stages.fix_agent import FixCandidate, FixOutcome, FixValidation
+from evalrx.eval_agent.stages.fix_tiers import FixTier
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
 
 class _M(Model):
@@ -219,3 +219,36 @@ def test_run_fix_escalates_on_explore_then_confirms_once():
     assert stub.seen_ids == {id(case) for case in explore}
     assert stub.confirm_ids == {id(case) for case in confirm}
     assert stub.seen_ids.isdisjoint(stub.confirm_ids)
+
+
+def test_explore_selection_rejects_tiny_high_effect_candidate():
+    """A 2/5 swing must not outrank a supported improvement on 64 pairs."""
+    class SelectionAgent(_RecordingFixAgent):
+        def propose_and_validate(self, model, data, hypotheses, proposal_data=None):
+            tiny = FixValidation(
+                candidate=FixCandidate(FixTier.L2_SCAFFOLD, "tiny", payload={}),
+                n_pairs=5, n_fixed=2, n_broken=0, effect=0.4, e_value=2.0,
+            )
+            supported = FixValidation(
+                candidate=FixCandidate(FixTier.L2_SCAFFOLD, "supported", payload={}),
+                n_pairs=64, n_fixed=15, n_broken=6, effect=0.140625, e_value=1.76,
+            )
+            return FixOutcome(
+                max_tier=self.max_tier,
+                attempted=[tiny, supported],
+                repair_rounds=1,
+            )
+
+        def validate_candidate(self, model, data, candidate):
+            self.confirm_ids = {id(c) for c in data}
+            return FixValidation(
+                candidate=candidate, n_pairs=len(data), n_fixed=1, n_broken=0,
+                effect=0.1, e_value=1.0,
+            )
+
+    outcome = _loop(fix_agent=SelectionAgent(), confirm_split=0.5).run_fix(
+        _report(), _batch(128), allow_unverified=True
+    )
+    assert outcome.selected_on_explore == "supported"
+    assert outcome.selection_attempted[0]["e_value"] == 2.0
+    assert "coverage" in outcome.selection_attempted[0]

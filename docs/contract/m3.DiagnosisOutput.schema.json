@@ -272,7 +272,7 @@
   ],
   "title": "DiagnosisOutput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m3.DiagnosisOutput.json",
+  "$id": "https://evalrx.dev/contract/m3.DiagnosisOutput.json",
   "x-stage": "m3",
   "x-role": "output",
   "x-schema-version": 4,

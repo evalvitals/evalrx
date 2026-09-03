@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/dataset_selection/llm_band_probe/Dockerfile
-    image: evalvitals-llm-band-probe
+    image: evalrx-llm-band-probe
     # No local model load -- band_locate.py/probe_validate.py are HTTP clients
     # against an already-served OpenAI-compatible endpoint (e.g. `vllm serve`
     # on the host). host.docker.internal resolves to the host from inside the

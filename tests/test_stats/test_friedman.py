@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.stats import (
+from evalrx.stats import (
     chi2_sf,
     compare_multiple,
     friedman_test,

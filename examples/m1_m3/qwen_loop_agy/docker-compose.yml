@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m1_m3/qwen_loop_agy/Dockerfile
-    image: evalvitals-qwen-loop-agy
+    image: evalrx-qwen-loop-agy
     # Run as the host user so volume-mounted outputs/ is not root-owned.
     # Required before first run:
     #   export UID=$(id -u) GID=$(id -g)

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.model import Model, Trace
+from evalrx.core.capability import Capability
+from evalrx.core.model import Model, Trace
 
 try:
     import torch
@@ -68,7 +68,7 @@ class FakeModel(Model):
         return _torch().rand(self._vocab, self._hidden_dim)
 
     def logprobs(self, inputs, **kwargs):
-        from evalvitals.core.model import TokenLogprob
+        from evalrx.core.model import TokenLogprob
 
         return [
             TokenLogprob(token=f"w{i}", logprob=-0.1 * (i + 1),

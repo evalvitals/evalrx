@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.analysis.explorer import _parse_result_json
-from evalvitals.analysis.result_marker import extract_marker_json
-from evalvitals.analysis.stats_tool_generator import _parse_result
+from evalrx.analysis.explorer import _parse_result_json
+from evalrx.analysis.result_marker import extract_marker_json
+from evalrx.analysis.stats_tool_generator import _parse_result
 
 MARK = "EXPLORATORY_RESULT_JSON="
 PAYLOAD = {"plain_question": "q", "observations": ["o1", "o2"], "charts": [{"name": "c"}]}

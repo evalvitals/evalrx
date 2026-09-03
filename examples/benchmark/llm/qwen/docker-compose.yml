@@ -10,7 +10,7 @@ x-qwen: &qwen
   extends:
     file: ../../_common/compose/base.yml
     service: bench
-  image: evalvitals-bench-qwen
+  image: evalrx-bench-qwen
   build:
     context: ../../../..
     dockerfile: examples/benchmark/docker/Dockerfile

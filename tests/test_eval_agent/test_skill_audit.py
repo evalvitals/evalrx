@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.agent_runtime.skill_audit import build_agent_audit
+from evalrx.agent_runtime.skill_audit import build_agent_audit
 
 
 def _workdir(tmp_path, *skills: str):

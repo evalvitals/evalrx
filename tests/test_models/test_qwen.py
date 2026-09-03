@@ -1,6 +1,6 @@
 """Back-compat tests for the deprecated ``QwenLLM`` shim.
 
-The concrete Qwen class is gone — identity lives in ``evalvitals.specs`` and
+The concrete Qwen class is gone — identity lives in ``evalrx.specs`` and
 construction goes through ``compose``.  ``QwenLLM(...)`` is kept only as a
 deprecated alias that builds an ``hf_local`` model.  (HF-local forward/capture
 mechanics are covered by ``test_models/test_discover.py`` and the analyzer tests;
@@ -15,17 +15,17 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from evalvitals.core import Capability
-from evalvitals.core.case import Inputs
-from evalvitals.core.model import Trace
-from evalvitals.core.spec import ModelSpec, VisionSpec
-from evalvitals.models.backends.base import RuntimeConfig
-from evalvitals.models.backends.hf_local import HFLocalModel
-from evalvitals.models.whitebox.qwen import QwenLLM
+from evalrx.core import Capability
+from evalrx.core.case import Inputs
+from evalrx.core.model import Trace
+from evalrx.core.spec import AudioSpec, ModelSpec, VisionSpec
+from evalrx.models.backends.base import RuntimeConfig
+from evalrx.models.backends.hf_local import HFLocalModel
+from evalrx.models.whitebox.qwen import QwenLLM
 
 
 def test_qwenllm_warns_deprecation():
-    with pytest.warns(DeprecationWarning, match="evalvitals.load"):
+    with pytest.warns(DeprecationWarning, match="evalrx.load"):
         QwenLLM()
 
 
@@ -61,7 +61,7 @@ def test_hf_vcd_processor_contrasts_clean_and_noisy_scores_each_step():
 
     from types import SimpleNamespace
 
-    from evalvitals.models.paper_methods.vcd import VCDLogitsProcessor
+    from evalrx.models.paper_methods.vcd import VCDLogitsProcessor
 
     class NoisyPath:
         def __init__(self):
@@ -120,6 +120,182 @@ def test_hf_instruction_cd_contrasts_disturbed_first_token(monkeypatch):
     assert model.generate_instruction_cd(
         Inputs("Is the object present?", image), disturbance="DISTURB\n"
     ) == "Yes"
+
+
+def test_hf_detector_grounded_presence_requires_allowlist_and_score():
+    pytest.importorskip("PIL")
+    spec = ModelSpec(
+        key="fake-vlm", family="fake", model_type="fake_vlm", hf_repo="",
+        auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+        vision=VisionSpec(image_token_id_attr="image_token_id"),
+    )
+    model = HFLocalModel(spec, RuntimeConfig())
+    from PIL import Image
+
+    image = Image.new("RGB", (8, 8), color="white")
+    calls = []
+
+    def detector(_image, query):
+        calls.append(query)
+        return [{"label": query, "score": 0.26, "box_px": [0, 0, 4, 4]}]
+
+    kwargs = {
+        "baseline_answer": "No",
+        "objects": ["traffic light"],
+        "detector_threshold": 0.25,
+        "detector_engine": detector,
+    }
+    assert model.generate_detector_grounded_presence(
+        Inputs("Is there a traffic light in the image?", image), **kwargs
+    ) == "Yes"
+    assert model.generate_detector_grounded_presence(
+        Inputs("Is there a dog in the image?", image), **kwargs
+    ) == "No"
+    assert model.generate_detector_grounded_presence(
+        Inputs("Is there a traffic light in the image?", image),
+        **{**kwargs, "baseline_answer": "Yes"},
+    ) == "Yes"
+    assert calls == ["traffic light"]
+
+
+def test_hf_clap_grounded_presence_uses_two_sided_gate():
+    spec = ModelSpec(
+        key="fake-audio", family="fake", model_type="fake_audio", hf_repo="",
+        auto_class="AutoModelForAudioTextToText", processor_class="AutoProcessor",
+        audio=AudioSpec(audio_token_id_attr="audio_token_id"),
+    )
+    model = HFLocalModel(spec, RuntimeConfig())
+    waveform = torch.zeros(16000).numpy()
+    prompt = "Can you detect the sound of a train in the audio?"
+
+    assert model.generate_clap_grounded_presence(
+        Inputs(prompt, audio=waveform), baseline_answer="No",
+        similarity_engine=lambda _audio, query: 0.28,
+    ) == "Yes"
+    assert model.generate_clap_grounded_presence(
+        Inputs(prompt, audio=waveform), baseline_answer="Yes",
+        similarity_engine=lambda _audio, query: -0.06,
+    ) == "No"
+    assert model.generate_clap_grounded_presence(
+        Inputs(prompt, audio=waveform), baseline_answer="No",
+        similarity_engine=lambda _audio, query: 0.20,
+    ) == "No"
+
+
+def test_hf_audio_api_specialist_preserves_prompt_and_audio():
+    spec = ModelSpec(
+        key="fake-audio", family="fake", model_type="fake_audio", hf_repo="",
+        auto_class="AutoModelForAudioTextToText", processor_class="AutoProcessor",
+        audio=AudioSpec(audio_token_id_attr="audio_token_id"),
+    )
+    model = HFLocalModel(spec, RuntimeConfig())
+    waveform = torch.zeros(16000).numpy()
+    calls = []
+
+    result = model.generate_audio_api_specialist(
+        Inputs("Which option matches the audio?", audio=waveform),
+        baseline_answer="B",
+        specialist_engine=lambda inputs: calls.append(inputs) or "C",
+    )
+
+    assert result == "C" and len(calls) == 1
+    assert calls[0].prompt == "Which option matches the audio?"
+    assert torch.equal(torch.from_numpy(calls[0].audio), torch.from_numpy(waveform))
+
+    accepted = model.generate_audio_api_specialist(
+        Inputs("Which option matches the audio?", audio=waveform),
+        baseline_answer="A",
+        allowed_disagreements=["AC"],
+        specialist_engine=lambda _inputs: "C",
+    )
+    rejected = model.generate_audio_api_specialist(
+        Inputs("Which option matches the audio?", audio=waveform),
+        baseline_answer="B",
+        allowed_disagreements=["AC"],
+        specialist_engine=lambda _inputs: "C",
+    )
+    assert accepted == "C" and rejected == "B"
+
+    routed = model.generate_audio_api_specialist(
+        Inputs("What words did the speaker say?", audio=waveform),
+        baseline_answer="D",
+        allowed_disagreements_by_route={"speech": ["DB"], "sound": ["AC"]},
+        specialist_engine=lambda _inputs: "B",
+    )
+    music_texture = model.generate_audio_api_specialist(
+        Inputs("How would you describe the texture of the sound?", audio=waveform),
+        baseline_answer="C",
+        allowed_disagreements_by_route={"sound": ["CD"]},
+        specialist_engine=lambda _inputs: "D",
+    )
+    assert (routed, music_texture) == ("B", "C")
+
+
+def test_hf_noncolor_spatial_specialist_preserves_color_baseline():
+    spec = ModelSpec(
+        key="fake-vlm", family="fake", model_type="fake_vlm", hf_repo="",
+        auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+        vision=VisionSpec(),
+    )
+    model = HFLocalModel(spec, RuntimeConfig())
+    calls = []
+    engine = lambda inputs: calls.append(inputs) or "suv"
+
+    shape = model.generate_noncolor_spatial_specialist(
+        Inputs(prompt="What shape is left of the gray bus?", image="scene.png"),
+        baseline_answer="rectangle",
+        specialist_engine=engine,
+    )
+    color = model.generate_noncolor_spatial_specialist(
+        Inputs(prompt="What color is the bus?", image="scene.png"),
+        baseline_answer="red",
+        specialist_engine=lambda _inputs: (_ for _ in ()).throw(
+            AssertionError("must not run")
+        ),
+    )
+
+    assert shape == "suv" and color == "red"
+    assert len(calls) == 1 and calls[0].image == "scene.png"
+
+
+def test_hf_chart_vision_specialist_preserves_prompt_and_image():
+    spec = ModelSpec(
+        key="fake-vlm", family="fake", model_type="fake_vlm", hf_repo="",
+        auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+        vision=VisionSpec(),
+    )
+    model = HFLocalModel(spec, RuntimeConfig())
+    calls = []
+
+    result = model.generate_chart_vision_specialist(
+        Inputs(prompt="What is the total?", image="chart.png"),
+        baseline_answer="10",
+        specialist_engine=lambda inputs: calls.append(inputs) or "42",
+    )
+
+    assert result == "42"
+    assert len(calls) == 1
+    assert calls[0].prompt == "What is the total?" and calls[0].image == "chart.png"
+
+
+def test_hf_vision_api_specialist_preserves_prompt_and_image():
+    spec = ModelSpec(
+        key="fake-vlm", family="fake", model_type="fake_vlm", hf_repo="",
+        auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+        vision=VisionSpec(),
+    )
+    model = HFLocalModel(spec, RuntimeConfig())
+    calls = []
+
+    result = model.generate_vision_api_specialist(
+        Inputs(prompt="What is the average?", image="chart.png"),
+        baseline_answer="10",
+        specialist_engine=lambda inputs: calls.append(inputs) or "153:97",
+    )
+
+    assert float(result) == pytest.approx(153 / 97) and len(calls) == 1
+    assert calls[0].prompt.startswith("What is the average?")
+    assert "no explanation" in calls[0].prompt and calls[0].image == "chart.png"
 
 
 def test_hf_instructblip_icd_disturbs_only_qformer(monkeypatch):

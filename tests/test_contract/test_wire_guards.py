@@ -7,7 +7,7 @@ comment.
 import pytest
 from pydantic import ValidationError
 
-from evalvitals.contract import (
+from evalrx.contract import (
     CaseBatchRef,
     FailureCaseWire,
     HypothesisStatus,
@@ -18,11 +18,11 @@ from evalvitals.contract import (
     StageState,
     StageStatus,
 )
-from evalvitals.contract.m2 import CorrectedRejections, StatsToolResultWire
-from evalvitals.contract.m3 import HypothesisWire
-from evalvitals.contract.m4 import FixAttemptWire, FixOutput
-from evalvitals.contract.m5 import HypothesisTestOutput, HypothesisTestResultWire
-from evalvitals.contract.methodology import MethodologyWire
+from evalrx.contract.m2 import CorrectedRejections, StatsToolResultWire
+from evalrx.contract.m3 import HypothesisWire
+from evalrx.contract.m4 import FixAttemptWire, FixOutput
+from evalrx.contract.m5 import HypothesisTestOutput, HypothesisTestResultWire
+from evalrx.contract.methodology import MethodologyWire
 
 
 def _status(stage, state=StageState.SUCCEEDED, cycle=0):
@@ -135,7 +135,7 @@ def test_corrected_rejection_is_decisive():
 
 
 def test_descriptive_report_may_not_ship_a_verdict():
-    from evalvitals.contract import StatsReportWire
+    from evalrx.contract import StatsReportWire
     with pytest.raises(ValidationError, match="must not ship a validity verdict"):
         StatsReportWire(
             **_envelope("m2"), descriptive_only=True,
@@ -269,7 +269,7 @@ def test_fixed_requires_ebh_survivor():
 
 
 def test_intervention_flag_is_derived_from_strategy():
-    from evalvitals.contract import InterventionOutput
+    from evalrx.contract import InterventionOutput
 
     def _op(strategy):
         return InterventionOutput(
@@ -284,7 +284,7 @@ def test_intervention_flag_is_derived_from_strategy():
 # --- pre-M1 -----------------------------------------------------------------
 
 def test_probe_search_counts_must_be_consistent():
-    from evalvitals.contract import ProbeSearchOutput
+    from evalrx.contract import ProbeSearchOutput
     with pytest.raises(ValidationError, match="cannot exceed"):
         ProbeSearchOutput(
             **_envelope("pre_m1"), n_simulations=20, n_macro=12, n_micro=8,
@@ -294,7 +294,7 @@ def test_probe_search_counts_must_be_consistent():
 
 
 def test_probe_search_error_rate_is_derived():
-    from evalvitals.contract import ProbeSearchOutput
+    from evalrx.contract import ProbeSearchOutput
     out = ProbeSearchOutput(
         **_envelope("pre_m1"), n_simulations=20, n_macro=12, n_micro=8,
         all_cases=CaseBatchRef(path="all.json", n_cases=20),
@@ -342,7 +342,7 @@ def test_a_validated_fix_is_accepted():
 
 def test_imputation_share_surfaces_unmeasured_control_cases():
     """Real result from bbh_tracking7: step_rollout_value.recoverable."""
-    from evalvitals.contract.m2 import StatsToolResultWire
+    from evalrx.contract.m2 import StatsToolResultWire
     r = StatsToolResultWire(
         tool="signal_label_assoc", ok=True,
         config={"signal": "step_rollout_value.recoverable"},
@@ -356,7 +356,7 @@ def test_imputation_share_surfaces_unmeasured_control_cases():
 
 
 def test_fully_measured_result_is_not_flagged():
-    from evalvitals.contract.m2 import StatsToolResultWire
+    from evalrx.contract.m2 import StatsToolResultWire
     r = StatsToolResultWire(
         tool="signal_label_assoc", ok=True, n_signal=2, n_control=6,
         n_measured=8, n_imputed_absent=0,

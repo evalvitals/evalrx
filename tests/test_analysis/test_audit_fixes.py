@@ -10,10 +10,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from evalvitals.analysis import CandidateSignal, ExploratoryAnalysisReport
-from evalvitals.analysis.adjudicate import adjudicate_signals
-from evalvitals.analysis.fused_pipeline import run_fused_analysis
-from evalvitals.analysis.operationalize import (
+from evalrx.analysis import CandidateSignal, ExploratoryAnalysisReport
+from evalrx.analysis.adjudicate import adjudicate_signals
+from evalrx.analysis.fused_pipeline import run_fused_analysis
+from evalrx.analysis.operationalize import (
     RecipeError,
     SignalRecipe,
     bridge_recipes_to_result,
@@ -21,7 +21,7 @@ from evalvitals.analysis.operationalize import (
     compile_recipes,
     per_case_to_records,
 )
-from evalvitals.eval_agent.loop import VLDiagnoseLoop
+from evalrx.eval_agent.loop import VLDiagnoseLoop
 
 
 class _FakeResult:

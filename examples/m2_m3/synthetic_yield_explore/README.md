@@ -1,6 +1,6 @@
 # Synthetic Yield — M2/M3 on a continuous outcome
 
-Demonstrates `evalvitals explore` (M2 exploratory analysis + M3 hypothesis
+Demonstrates `evalrx explore` (M2 exploratory analysis + M3 hypothesis
 proposal) on a **continuous** outcome, not just pass/fail logs. The data is
 generated locally (`generate_data.py`, no model or API key needed): 30
 synthetic chemical batches with `temperature`, `pressure`, `catalyst`, and a
@@ -50,7 +50,7 @@ From an actual run (temperature r=0.86 with yield, the strongest association):
 Open the dashboard to see the charts and hypothesis cards:
 
 ```bash
-evalvitals serve outputs
+evalrx serve outputs
 ```
 
 See [`docs/m2_analysis.md`](../../../docs/m2_analysis.md) for the general

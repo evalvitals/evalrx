@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from evalvitals.analysis.plain_language import jargon_violation
+from evalrx.analysis.plain_language import jargon_violation
 
 
 def test_jargon_violation_flags_missing_text():

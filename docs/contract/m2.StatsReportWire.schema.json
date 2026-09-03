@@ -735,7 +735,7 @@
   ],
   "title": "StatsReportWire",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m2.StatsReportWire.json",
+  "$id": "https://evalrx.dev/contract/m2.StatsReportWire.json",
   "x-stage": "m2",
   "x-role": "output",
   "x-schema-version": 4,

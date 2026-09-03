@@ -504,7 +504,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
 try:  # host theme when available, otherwise the same rcParams inline
-    from evalvitals.analysis.eval_viz_theme import matplotlib_rcparams
+    from evalrx.analysis.eval_viz_theme import matplotlib_rcparams
     plt.rcParams.update(matplotlib_rcparams())
 except Exception:
     plt.rcParams.update({

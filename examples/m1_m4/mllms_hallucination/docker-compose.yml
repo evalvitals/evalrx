@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m1_m4/mllms_hallucination/Dockerfile
-    image: evalvitals-mllms-hallucination
+    image: evalrx-mllms-hallucination
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
@@ -16,7 +16,7 @@ services:
       - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
       - ~/.gemini:/home/user/.gemini
       - ~/.cache/antigravity:/home/user/.cache/antigravity
-      - /data/rjin02/evalvitals/pope_coco:/data/rjin02/evalvitals/pope_coco:ro
+      - /data/rjin02/evalrx/pope_coco:/data/rjin02/evalrx/pope_coco:ro
     deploy:
       resources:
         reservations:

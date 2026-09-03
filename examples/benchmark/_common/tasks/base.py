@@ -65,7 +65,7 @@ def _resolve_media(base: Path, rel: str | None) -> str | None:
 
 def build_cases(task: Task, manifest: Path, limit: int = 0):
     """``(CaseBatch, rows)`` — unlabeled candidates for the discovery pass."""
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Provenance, Source
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Provenance, Source
 
     manifest = Path(manifest)
     rows = load_rows(manifest, limit)
@@ -111,12 +111,12 @@ def score_case(case: Any, output: str) -> bool:
 
 
 def label_case(case: Any, output: str):
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     return Label.PASS if score_case(case, output) else Label.FAIL
 
 
 def _protocol(**kwargs):
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(**kwargs)

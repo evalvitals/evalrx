@@ -35,7 +35,7 @@ def test_examples_choose_their_model_through_the_config():
     import re
     from pathlib import Path
 
-    from evalvitals.models import resolve_spec_key
+    from evalrx.models import resolve_spec_key
 
     common = _module()
     assert common.BenchmarkConfig.model == "qwen2.5-vl-7b-instruct"  # the default

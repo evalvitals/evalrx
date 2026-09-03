@@ -12,8 +12,8 @@ import json
 
 
 def test_log_probe_persists_full_results_and_failed_analyzers(tmp_path):
-    from evalvitals.core.result import Result
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run")
     res = Result(
@@ -48,8 +48,8 @@ def test_log_probe_persists_full_results_and_failed_analyzers(tmp_path):
 
 def test_log_probe_without_failures_omits_failed_analyzers(tmp_path):
     """No failures -> no failed_analyzers key (kept optional/additive)."""
-    from evalvitals.core.result import Result
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run")
     logger.log_probe(0, {"pope": Result(analyzer="pope", model="m", findings={"acc": 0.9})})

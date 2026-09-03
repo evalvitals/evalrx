@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m1_m4/mmau_qwen2_audio/Dockerfile
-    image: evalvitals-mmau-qwen2-audio
+    image: evalrx-mmau-qwen2-audio
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
@@ -24,7 +24,7 @@ services:
       - ~/.claude:/home/user/.claude
       - ~/.claude.json:/home/user/.claude.json
       # Optional alternate judge/coder: --judge-provider agy (Antigravity CLI,
-      # no Anthropic API key needed — see evalvitals/agent_runtime/judges/agy.py).
+      # no Anthropic API key needed — see evalrx/agent_runtime/judges/agy.py).
       # Only exercised when run.py is invoked with --judge-provider agy; harmless
       # to mount otherwise. Set AGY_PATH if `agy` isn't at ~/.local/bin/agy.
       - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
