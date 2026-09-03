@@ -96,6 +96,7 @@ from evalvitals.eval_agent.stages.fix_pipeline import (
 from evalvitals.eval_agent.stages.fix_tiers import FixTier, parse_tier, route_min_tier
 from evalvitals.eval_agent.stages.fix_tools import (
     PipelineSpec,
+    _safe_generation_kwargs,
     catalog_text,
     run_pipeline,
     safe_format,
@@ -973,6 +974,43 @@ class FixAgent:
             self._emit(outcome)
             return outcome
 
+        # With zero repairable failure mass in the fresh baseline no candidate
+        # can ever validate (n_fixed stays 0, the e-value ceiling is 1 <
+        # 1/alpha), yet the search would still spend its whole judge/model
+        # budget — a saturated live cell burned an hour on 15 candidates this
+        # way. The paired test uses the FRESH baseline, not the stale case
+        # labels, so the gate must too. Tiers above L2 are exempt: an L3a
+        # candidate pairs against its own matched sampling control
+        # (``baseline_executor``), so a clean greedy baseline does not bound
+        # its e-value.
+        repairable = True
+        if self.max_tier <= FixTier.L2_SCAFFOLD:
+            if self._baseline_repeats > 1 or self._candidate_repeats > 1:
+                repairable = any(
+                    r is not None and r < 1.0 for r in self._baseline_rates.values()
+                )
+            else:
+                repairable = any(v is False for v in baseline.values())
+        if not repairable:
+            n_scorable = sum(1 for v in baseline.values() if v is not None)
+            logger.warning(
+                "FixAgent: all %d scorable case(s) pass the fresh baseline — no candidate "
+                "can be validated here; skipping candidate proposal",
+                n_scorable,
+            )
+            outcome.recommendation = {
+                "recommend_tier": None,
+                "action": "gather_more_failures",
+                "reason": (
+                    f"nothing to repair: all {n_scorable} scorable validation case(s) pass "
+                    f"the fresh baseline, so even a perfect candidate tops out at e=1.0 "
+                    f"(< {1.0 / self._alpha:.0f} needed) — collect failing cases instead of "
+                    "spending the candidate budget."
+                ),
+            }
+            self._emit(outcome)
+            return outcome
+
         # Feedback-driven repair rounds: propose -> validate; if nothing
         # validates, summarise the failures (this call's own attempts, PLUS
         # any prior_attempts carried over from an earlier escalation tier) and
@@ -1707,14 +1745,15 @@ class FixAgent:
         never appears, which the scorer reads as a wrong answer — a decoding
         artefact that says nothing about the candidate's idea. The judge's
         proposal is kept in ``payload["generation_kwargs_proposed"]`` for the
-        record; the applied value is what ``PipelineSpec.from_dict`` reads.
+        record; the applied value is what ``PipelineSpec.from_dict`` (spec) or
+        the template runner (template) reads.
         """
         floor = self._max_tokens_floor
         if not floor:
             return
         for candidate in candidates:
             payload = candidate.payload
-            if not isinstance(payload, dict) or candidate.kind != "spec":
+            if not isinstance(payload, dict) or candidate.kind not in ("spec", "template"):
                 continue
             gk = payload.get("generation_kwargs")
             if not isinstance(gk, dict):
@@ -1886,7 +1925,7 @@ class FixAgent:
         # Some permissive judges return an L2 pipeline for the L1 request
         # because both prompts include the same examples. Do not silently turn
         # that into an identity L1 candidate (and an unnecessary e-BH test).
-        structural_keys = {"image_ops", "generation_kwargs", "n_samples", "strategy"}
+        structural_keys = {"image_ops", "n_samples", "strategy"}
         has_structural_proposal = False
         for p in proposals:
             template = str(p.get("prompt_template", ""))
@@ -1895,13 +1934,22 @@ class FixAgent:
                 has_structural_proposal = True
                 continue
             if name and "{prompt}" in template:
+                payload: "dict[str, Any]" = {"prompt_template": template}
+                # L1 stays prompt-only except for decode ROOM: a template that
+                # asks for intermediate work must be able to finish (at a 64-
+                # token vlm budget every such rewrite truncated and scored as a
+                # regression). max_tokens is floor-enforced later; sampler
+                # controls (temperature/top_p) remain L2-only and are dropped.
+                max_tokens = _safe_generation_kwargs(p.get("generation_kwargs")).get("max_tokens")
+                if max_tokens:
+                    payload["generation_kwargs"] = {"max_tokens": max_tokens}
                 out.append(
                     FixCandidate(
                         tier=FixTier.L1_PROMPT,
                         name=name,
                         kind="template",
                         description=_judge_description(p),
-                        payload={"prompt_template": template},
+                        payload=payload,
                     )
                 )
         # Image tasks always receive one conservative, declarative grounding
@@ -2989,6 +3037,7 @@ class FixAgent:
             return detector_visual_search
         if candidate.kind == "template":
             template = candidate.payload["prompt_template"]
+            gen_kwargs = _safe_generation_kwargs(candidate.payload.get("generation_kwargs"))
 
             def l1(model: "Model", case: "FailureCase") -> "Optional[bool]":
                 inp = case.inputs
@@ -3008,7 +3057,7 @@ class FixAgent:
                     new_inputs = dataclasses.replace(
                         inp, prompt=safe_format(template, template_context)
                     )
-                    output = str(model.generate(new_inputs))
+                    output = str(model.generate(new_inputs, **gen_kwargs))
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, output))
                 except Exception:
