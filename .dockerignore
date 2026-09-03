@@ -8,3 +8,4 @@ examples/**/data
 examples/**/outputs
 examples/**/outputs.*
 examples/**/*.zip
+**/.env
