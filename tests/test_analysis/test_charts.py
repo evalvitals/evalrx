@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.viz import renderer as charts_mod
-from evalvitals.viz import style as style_mod
-from evalvitals.viz.renderer import render_chart_specs
+from evalrx.viz import renderer as charts_mod
+from evalrx.viz import style as style_mod
+from evalrx.viz.renderer import render_chart_specs
 
 _HAVE_MPL = charts_mod._import_matplotlib() is not None
 
@@ -249,7 +249,7 @@ def test_wilson_interval_matches_reference_values():
 
 def test_semantic_palette_stays_in_sync_with_eval_viz_theme():
     pytest.importorskip("plotly")
-    from evalvitals.analysis import eval_viz_theme as viz
+    from evalrx.analysis import eval_viz_theme as viz
     for key in ("FAIL", "PASS", "INCONCLUSIVE", "ACCENT", "LEAKY", "AXIS", "GRID", "TEXT"):
         assert style_mod.SEMANTIC_PALETTE[key] == viz._LIGHT[key], key
     assert style_mod.outcome_color("fail") == viz.OUTCOME_COLORS["FAIL"]

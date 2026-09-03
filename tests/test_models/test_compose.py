@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core.capability import Capability, CapabilityError
-from evalvitals.models import RuntimeConfig, compose
-from evalvitals.models.backends import BACKENDS
-from evalvitals.models.backends.api import APIModel, call_vision_api_generate_fn
+from evalrx.core.capability import Capability, CapabilityError
+from evalrx.models import RuntimeConfig, compose
+from evalrx.models.backends import BACKENDS
+from evalrx.models.backends.api import APIModel, call_vision_api_generate_fn
 
 
 def test_backends_registered():

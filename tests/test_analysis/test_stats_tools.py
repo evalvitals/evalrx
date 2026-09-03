@@ -5,7 +5,7 @@ def test_outcome_regrades_go_to_the_sanity_lane():
     outcome) agree with the label at ~84% — under the leak threshold, but they
     were every BH survivor on qwen3.5-2b/minervamath and then M5's tautological
     'evidence'. They are isolated by NAME; derived mechanism flags stay."""
-    from evalvitals.analysis.stats_tools import (
+    from evalrx.analysis.stats_tools import (
         OUTCOME_REGRADE_METRICS,
         StatsInput,
         isolate_label_leaks,
@@ -42,7 +42,7 @@ def test_count_of_correct_samples_is_an_outcome_regrade_too():
     binary-only leak score, and with degenerate sampling it is {0, k}, i.e.
     the label; spatial457/qwen2.5-vl (2026-08-20) had it as the sole BH
     survivor. n_unique (sample diversity) is a mechanism signal and stays."""
-    from evalvitals.analysis.stats_tools import StatsInput, isolate_label_leaks
+    from evalrx.analysis.stats_tools import StatsInput, isolate_label_leaks
 
     labels = {f"c{i}": i < 10 for i in range(20)}
     inp = StatsInput(

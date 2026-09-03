@@ -9,7 +9,7 @@ The label is the contract, not its decoration.
 
 from __future__ import annotations
 
-from evalvitals.eval_agent.stages.diagnosis import (
+from evalrx.eval_agent.stages.diagnosis import (
     _normalise_label_line,
     _parse_hypotheses,
     _validate_hypotheses,
@@ -177,8 +177,8 @@ def test_critic_context_is_optional_and_lands_in_its_prompt():
 
 
 def test_label_context_tabulates_gold_by_answer_on_binary_batches():
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-    from evalvitals.eval_agent.stages.diagnosis import _format_label_context
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.eval_agent.stages.diagnosis import _format_label_context
 
     assert _format_label_context(None) == ""
 
@@ -275,7 +275,7 @@ def test_a_wrapped_failure_mode_unwraps_but_prose_keeps_its_code_spans():
     silently falls back to the generic ranking. Seen live on the Music-AVQA run,
     where all three hypotheses came out with a leading backtick.
     """
-    from evalvitals.eval_agent.stages.diagnosis import _unwrap_value
+    from evalrx.eval_agent.stages.diagnosis import _unwrap_value
 
     assert _unwrap_value("`ignored_obs`") == "ignored_obs"
     assert _unwrap_value("**language_prior_bias**") == "language_prior_bias"
@@ -298,8 +298,8 @@ def test_a_wrapped_failure_mode_unwraps_but_prose_keeps_its_code_spans():
 
 def test_the_failure_mode_keys_the_next_cycle_actually_routes_on():
     """The unwrapped mode must hit the routing table, or the fix is cosmetic."""
-    from evalvitals.eval_agent.stages.diagnosis import _unwrap_value
-    from evalvitals.eval_agent.stages.probe import _FAILURE_MODE_TO_ANALYZERS
+    from evalrx.eval_agent.stages.diagnosis import _unwrap_value
+    from evalrx.eval_agent.stages.probe import _FAILURE_MODE_TO_ANALYZERS
 
     for wrapped in ("`ignored_obs`", "`language_prior_bias`"):
         assert _unwrap_value(wrapped) in _FAILURE_MODE_TO_ANALYZERS

@@ -60,10 +60,10 @@ def main() -> None:
     probe_results = state["probe_results"]
     cases = state["cases"]
 
-    from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-    from evalvitals.analysis import ExploratoryAnalysisAgent, run_fused_analysis
-    from evalvitals.analysis.operationalize import per_case_to_records
-    from evalvitals.analysis.stats_tools import build_stats_input
+    from evalrx.agent_runtime.sandbox import ExperimentSandbox
+    from evalrx.analysis import ExploratoryAnalysisAgent, run_fused_analysis
+    from evalrx.analysis.operationalize import per_case_to_records
+    from evalrx.analysis.stats_tools import build_stats_input
 
     # 1) frozen analyzer signals + labels -> records the explorer/catalog can use.
     inp = build_stats_input(probe_results, cases)
@@ -111,7 +111,7 @@ def main() -> None:
 
     # ── render the explorer's chart specs (host-side, spec + CSV -> PNG) so the
     #    fused_report.json carries figure_path for Step 2's M3 and the dashboard ──
-    from evalvitals.viz.renderer import render_chart_specs
+    from evalrx.viz.renderer import render_chart_specs
 
     try:
         report.charts = render_chart_specs(report.charts, FUSED_DIR / "sandbox", FUSED_DIR)
@@ -141,7 +141,7 @@ def main() -> None:
               "run_m2-5.py --explore-report outputs/fused/fused_report.json)")
 
     if args.dashboard:
-        from evalvitals.analysis.dashboard import launch_dashboard
+        from evalrx.analysis.dashboard import launch_dashboard
 
         raise SystemExit(launch_dashboard(FUSED_DIR))
 

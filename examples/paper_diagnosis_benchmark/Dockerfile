@@ -2,8 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY . /evalvitals
-RUN pip install --no-cache-dir "/evalvitals[dashboard,data]"
+COPY . /evalrx
+RUN pip install --no-cache-dir "/evalrx[dashboard,data]"
 
 WORKDIR /app/example
 COPY examples/paper_diagnosis_benchmark/ .

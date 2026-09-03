@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from evalvitals.agent_runtime.cli_types import CliAgentConfig, CliAgentResult
-from evalvitals.agent_runtime.codegen import CodegenRunner
+from evalrx.agent_runtime.cli_types import CliAgentConfig, CliAgentResult
+from evalrx.agent_runtime.codegen import CodegenRunner
 
 
 class _FakeCliAgent:
@@ -20,7 +20,7 @@ def test_codegen_runner_prefers_named_file(monkeypatch, tmp_path):
         raw_output="trajectory",
     )
     monkeypatch.setattr(
-        "evalvitals.agent_runtime.providers.registry.create_cli_agent",
+        "evalrx.agent_runtime.providers.registry.create_cli_agent",
         lambda config: _FakeCliAgent(result),
     )
 
@@ -43,7 +43,7 @@ def test_codegen_runner_falls_back_to_largest_py(monkeypatch, tmp_path):
         elapsed_sec=0.1,
     )
     monkeypatch.setattr(
-        "evalvitals.agent_runtime.providers.registry.create_cli_agent",
+        "evalrx.agent_runtime.providers.registry.create_cli_agent",
         lambda config: _FakeCliAgent(result),
     )
 
@@ -65,7 +65,7 @@ def test_codegen_runner_can_surface_error_as_raw(monkeypatch, tmp_path):
         error="boom",
     )
     monkeypatch.setattr(
-        "evalvitals.agent_runtime.providers.registry.create_cli_agent",
+        "evalrx.agent_runtime.providers.registry.create_cli_agent",
         lambda config: _FakeCliAgent(result),
     )
 
@@ -89,7 +89,7 @@ def test_codegen_runner_run_returns_cli_result(monkeypatch, tmp_path):
         usage={"input_tokens": 1},
     )
     monkeypatch.setattr(
-        "evalvitals.agent_runtime.providers.registry.create_cli_agent",
+        "evalrx.agent_runtime.providers.registry.create_cli_agent",
         lambda config: _FakeCliAgent(result),
     )
 

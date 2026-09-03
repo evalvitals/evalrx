@@ -1,22 +1,22 @@
 # Quickstart
 
-This page shows the common ways to run EvalVitals.
+This page shows the common ways to run EvalRX.
 
 ## Bring Your Own Model
 
 If you already have a loaded Hugging Face causal LM, wrap it — no registry key
-needed. The wrapped model is the same object `evalvitals.load(...)` returns, so
+needed. The wrapped model is the same object `evalrx.load(...)` returns, so
 every capability-compatible analyzer works on it.
 
 ```python
-import evalvitals
+import evalrx
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from evalvitals.analyzers.lens.logit_lens import LogitLensAnalyzer
+from evalrx.analyzers.lens.logit_lens import LogitLensAnalyzer
 
 model = AutoModelForCausalLM.from_pretrained("my-org/my-llama")
 tokenizer = AutoTokenizer.from_pretrained("my-org/my-llama")
 
-wrapped = evalvitals.wrap(model, tokenizer)
+wrapped = evalrx.wrap(model, tokenizer)
 result = LogitLensAnalyzer().run(wrapped, "The capital of France is")
 print(result.summary())
 ```
@@ -29,10 +29,10 @@ currently supports text decoder-only models (VLM capture is Stage 2).
 ## One-Liner Model Load
 
 ```python
-import evalvitals
-from evalvitals.analyzers.attention.summary import AttentionAnalyzer
+import evalrx
+from evalrx.analyzers.attention.summary import AttentionAnalyzer
 
-model = evalvitals.load("qwen2.5-7b-instruct")
+model = evalrx.load("qwen2.5-7b-instruct")
 result = AttentionAnalyzer(layer=-1, top_k=5).run(
     model,
     "The Eiffel Tower is in",
@@ -42,7 +42,7 @@ print(result.summary())
 print(result.findings)
 ```
 
-By default, `evalvitals.load` uses the `hf_local` backend unless the spec is
+By default, `evalrx.load` uses the `hf_local` backend unless the spec is
 API-only.
 
 ## Config-Driven Run
@@ -56,7 +56,7 @@ analysis_kwargs:
 ```
 
 ```python
-from evalvitals import load_config, run
+from evalrx import load_config, run
 
 config = load_config("configs/qwen_attention.yaml")
 result = run(config, "The Eiffel Tower is in")
@@ -68,8 +68,8 @@ Use `compose` when you want to control the runtime and negotiate capabilities
 before model weights load.
 
 ```python
-from evalvitals import Capability
-from evalvitals.models import compose
+from evalrx import Capability
+from evalrx.models import compose
 
 model = compose(
     "qwen2.5-7b-instruct",
@@ -78,17 +78,17 @@ model = compose(
 )
 ```
 
-If the selected backend cannot provide the requested capability, EvalVitals
+If the selected backend cannot provide the requested capability, EvalRX
 raises a `CapabilityError` before constructing the model.
 
 ## Discovery
 
 ```python
-import evalvitals
+import evalrx
 
-print(evalvitals.list_specs())
-print(evalvitals.registry.analyzers.list())
-print(evalvitals.registry.analyzers.names_compatible_with(model))
+print(evalrx.list_specs())
+print(evalrx.registry.analyzers.list())
+print(evalrx.registry.analyzers.names_compatible_with(model))
 ```
 
 This is the same discovery surface intended for an automated evaluation agent.
@@ -104,8 +104,8 @@ Tool execution goes through a pluggable `ToolExecutor` (swap in your
 `APIToolHandler`).
 
 ```python
-from evalvitals import Agent, Tool, compose, RuntimeConfig
-from evalvitals.models.backends import call_vision_api_chat_fn
+from evalrx import Agent, Tool, compose, RuntimeConfig
+from evalrx.models.backends import call_vision_api_chat_fn
 
 search = Tool(name="search", description="web search",
               parameters={"type": "object", "properties": {"q": {"type": "string"}}},
@@ -128,14 +128,14 @@ So `compose(non_tool_model, "hf_local", want={TOOL_CALLS})` fails up front.
 **Multimodal agents.** The same loop runs vision cases end-to-end: give the
 case an image and it enters the first user message; a tool that returns a
 `ToolResult` with `images` gets them re-injected as a new message, so the
-model can *look at* what its tool produced. `evalvitals.models.tools` ships
+model can *look at* what its tool produced. `evalrx.models.tools` ships
 subject-side visual tools (deterministic, model-agnostic schemas):
 
 ```python
-from evalvitals import Capability, compose, RuntimeConfig
-from evalvitals.core.case import FailureCase, Inputs
-from evalvitals.models.agent import Agent
-from evalvitals.models.tools import zoom_in_tool
+from evalrx import Capability, compose, RuntimeConfig
+from evalrx.core.case import FailureCase, Inputs
+from evalrx.models.agent import Agent
+from evalrx.models.tools import zoom_in_tool
 
 vlm = compose("qwen3-vl-2b-instruct", "hf_local",
               runtime=RuntimeConfig(device="cuda:0"),
@@ -157,8 +157,8 @@ vllm serve Qwen/Qwen3-VL-2B-Instruct --port 8901 \
 ```
 
 ```python
-from evalvitals.models.agent import run_batch
-from evalvitals.models.backends import openai_runtime
+from evalrx.models.agent import run_batch
+from evalrx.models.backends import openai_runtime
 
 vlm = compose("qwen3-vl-2b-instruct", "api",
               runtime=openai_runtime(base_url="http://localhost:8901/v1"))
@@ -167,8 +167,8 @@ trajs = run_batch(vlm, cases, tools_factory=lambda c: [zoom_in_tool(c.inputs.ima
 ```
 
 Every turn records latency and token usage on the step's ``span``; the
-trajectory flattener (`evalvitals.analysis.trajectory_records`) turns finished
-runs into `records.json` rows that `evalvitals explore` consumes directly.
+trajectory flattener (`evalrx.analysis.trajectory_records`) turns finished
+runs into `records.json` rows that `evalrx explore` consumes directly.
 Closed models: the same `openai_runtime` against an OpenAI endpoint, or
 `GeminiModel` (native function calling) for Gemini.
 
@@ -178,16 +178,16 @@ If you already have result logs and want M2 to analyze them without writing
 analysis code, run a single-shot exploration:
 
 ```bash
-evalvitals explore /path/to/results \
+evalrx explore /path/to/results \
   --backend antigravity \
   -q "Which failure patterns distinguish wrong answers from correct ones?" \
-  --out evalvitals_explore_output \
+  --out evalrx_explore_output \
   --serve-report       # optional local browser server
 ```
 
 The run writes the generated code, stdout/stderr, a structured exploratory
 report (`exploratory_report.json`), and rendered charts under
-`evalvitals_explore_output/figures/` + `tables/`.
+`evalrx_explore_output/figures/` + `tables/`.
 
 Add `--holdout-frac 0.4 --holdout-confirm` for a held-out design: the split
 is carved off BEFORE exploration (outcome-stratified, deterministic), the
@@ -197,7 +197,7 @@ while an LLM judge grades each hypothesis — `confirm_report.json` lands next
 to the report and fills the *Held-out Verdicts* section.
 
 **Agent-trajectory records.** Rows produced by
-`evalvitals.analysis.trajectory_records` flow through explore unchanged; use
+`evalrx.analysis.trajectory_records` flow through explore unchanged; use
 `trajectory_records.AGENT_QUESTION_TEMPLATE` as the question (it declares the
 column-family semantics — causal `shap_outcome_*`, stability `success_rate`,
 judge-assigned `failure_mode`, cost columns — and steers hypotheses toward
@@ -210,7 +210,7 @@ confirmation of these columns costs the same per case as exploration did.
 Open the saved output as a local static report:
 
 ```bash
-evalvitals serve evalvitals_explore_output
+evalrx serve evalrx_explore_output
 ```
 
 See [Exploratory Analysis (M2/M3)](m2_analysis.md) for the full standalone
@@ -223,7 +223,7 @@ Point the same command at an `examples/` bench run — a directory holding
 dashboard opens a **case book** instead of the explore layout:
 
 ```bash
-evalvitals serve examples/agent_loop/qwen2_audio_tcd_mmau
+evalrx serve examples/agent_loop/qwen2_audio_tcd_mmau
 ```
 
 Three tabs: *Run Overview* (splits, hypothesis, where the baseline fails),
@@ -252,19 +252,19 @@ modified), harvests the per-case results it produces, and hands them
 straight to the same M2/M3 explore pipeline above.
 
 ```bash
-evalvitals run-codebase ./my_eval_repo \
+evalrx run-codebase ./my_eval_repo \
   --backend claude_code \
   -q "Where does the model fail and why?" \
-  --out evalvitals_run_codebase_output \
+  --out evalrx_run_codebase_output \
   --dashboard          # optional
 ```
 
 Or from Python:
 
 ```python
-import evalvitals
+import evalrx
 
-result = evalvitals.run_codebase("./my_eval_repo", out="run_output")
+result = evalrx.run_codebase("./my_eval_repo", out="run_output")
 print(result.ran_ok, len(result.records))
 print(result.explore.report.observations)
 ```
@@ -299,7 +299,7 @@ result = model.call_attention(
 This is convenience syntax for:
 
 ```python
-from evalvitals.analyzers.attention.summary import AttentionAnalyzer
+from evalrx.analyzers.attention.summary import AttentionAnalyzer
 
 result = AttentionAnalyzer(layer=-1, top_k=5).run(model, data)
 ```
@@ -321,8 +321,8 @@ Each case needs `metadata["pope_label"]` = `"yes"` or `"no"`.
 > Code: <https://github.com/AoiDragon/POPE>
 
 ```python
-from evalvitals.analyzers.hallucination.pope import POPEAnalyzer
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs
+from evalrx.analyzers.hallucination.pope import POPEAnalyzer
+from evalrx.core.case import CaseBatch, FailureCase, Inputs
 
 cases = CaseBatch([
     FailureCase(inputs=Inputs(prompt="Is there a cat? Answer yes or no.", image=img),
@@ -341,7 +341,7 @@ Each case needs `metadata["gt_objects"]` = list of gold object strings.
 > Paper: Rohrbach et al., EMNLP 2018 — <https://arxiv.org/abs/1809.02156>
 
 ```python
-from evalvitals.analyzers.hallucination.chair import CHAIRAnalyzer
+from evalrx.analyzers.hallucination.chair import CHAIRAnalyzer
 
 COCO_VOCAB = ["cat", "dog", "car", "chair", ...]  # 80 COCO categories
 cases = CaseBatch([
@@ -369,8 +369,8 @@ not correctness.
 > Code: <https://github.com/coastalcph/mm-shap>
 
 ```python
-from evalvitals.analyzers.perturbation.mm_shap import MMShapAnalyzer
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs
+from evalrx.analyzers.perturbation.mm_shap import MMShapAnalyzer
+from evalrx.core.case import CaseBatch, FailureCase, Inputs
 
 case = FailureCase(inputs=Inputs(prompt="What color is the car?", image=img))
 result = MMShapAnalyzer(n_samples=64, top_k=5).run(model, CaseBatch([case]))
@@ -389,7 +389,7 @@ Ranks which regions most influenced the model's output logprob.
 > Applied via MM-SHAP framework (Parcalabescu & Frank, ACL 2022)
 
 ```python
-from evalvitals.analyzers.perturbation.vl_shap import VLShapAnalyzer
+from evalrx.analyzers.perturbation.vl_shap import VLShapAnalyzer
 
 result = VLShapAnalyzer(n_regions=16, n_samples=64, top_k=3).run(model, CaseBatch([case]))
 # result.findings → {
@@ -413,8 +413,8 @@ entropy from output-token logprobs — works on any API model that returns
 > LLM self-knowledge: Kadavath et al. 2022 — <https://arxiv.org/abs/2207.05221>
 
 ```python
-from evalvitals.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs
+from evalrx.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
+from evalrx.core.case import CaseBatch, FailureCase, Inputs
 
 case = FailureCase(inputs=Inputs(prompt="The capital of France is"))
 result = LogprobEntropyAnalyzer().run(model, CaseBatch([case]))
@@ -430,8 +430,8 @@ result = LogprobEntropyAnalyzer().run(model, CaseBatch([case]))
 Wire an OpenAI endpoint as the `logprobs_fn`:
 
 ```python
-from evalvitals.models.backends.api import parse_openai_logprobs
-from evalvitals.models.backends.base import RuntimeConfig
+from evalrx.models.backends.api import parse_openai_logprobs
+from evalrx.models.backends.base import RuntimeConfig
 
 def logprobs_fn(prompt, *, model="gpt-4o-mini", max_new_tokens=40, top_k=5, **_):
     resp = client.chat.completions.create(
@@ -458,7 +458,7 @@ anytime-valid e-value + corrected reject decision.
 > e-BH FDR: Wang & Ramdas (2022) <https://arxiv.org/abs/2009.02824>
 
 ```python
-from evalvitals.stats import compare
+from evalrx.stats import compare
 
 # success_a / success_b: list of bool (one per example, same order)
 r = compare(success_a, success_b, paired=True, alpha=0.05,
@@ -479,7 +479,7 @@ For **3+ strategies** use `compare_multiple` (Friedman omnibus + Nemenyi post-ho
 > Friedman + Nemenyi: Demšar (2006) <https://jmlr.org/papers/v7/demsarar06a.html>
 
 ```python
-from evalvitals.stats import compare_multiple
+from evalrx.stats import compare_multiple
 
 mr = compare_multiple({"A": success_a, "B": success_b, "C": success_c}, alpha=0.05)
 print(mr.reject_global)      # bool: at least one strategy differs
@@ -510,13 +510,13 @@ See [Architecture](architecture.md#eval_agent-automated-diagnosis-pipeline)
 for the stage contracts, M1's two-tier analyzer selection, and what M2/M5 ask.
 
 ```python
-from evalvitals import compose
-from evalvitals.core.capability import Capability
-from evalvitals.eval_agent import VLDiagnoseLoop, AgyModel, RunLogger
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
-from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
-from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
+from evalrx import compose
+from evalrx.core.capability import Capability
+from evalrx.eval_agent import VLDiagnoseLoop, AgyModel, RunLogger
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.eval_agent.stages.probe_agent import ProbeAgent
+from evalrx.analysis.stats_agent import StatsAnalysisAgent
+from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
 
 protocol = ExperimentProtocol(
     description="The VLM gives wrong left/right positions in spatial questions.",
@@ -555,7 +555,7 @@ to select analyzers relevant to the task; M5 uses it to reject hypotheses that
 drift from what the user was investigating:
 
 ```python
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
 protocol = ExperimentProtocol(
     description="free text — what the experiment tests and what failure looks like",
@@ -580,7 +580,7 @@ actually been tested and is statistically supported and protocol-consistent;
 an early attempt is rejected and fed back to the judge.
 
 ```python
-from evalvitals.eval_agent import AgenticDiagnoseLoop, ClaudeModel
+from evalrx.eval_agent import AgenticDiagnoseLoop, ClaudeModel
 
 loop = AgenticDiagnoseLoop(
     model=model,
@@ -598,7 +598,7 @@ responses, even after a repair prompt). Two new `run_log.jsonl` event types —
 `agent_decision` (the chosen tool + rationale) and `agent_tool` (the dispatch
 layer's accept/reject outcome) — sit alongside the reused
 `probe`/`analysis`/`diagnosis`/`surgery` events from the wrapped stages; see
-`evalvitals.eval_agent.log_schema` (schema version 3).
+`evalrx.eval_agent.log_schema` (schema version 3).
 
 ## Input Modes — Submitting a Diagnosis Run
 
@@ -636,7 +636,7 @@ write a fully customised `run.py`; otherwise a template is used as a
 starting point.
 
 ```python
-from evalvitals.eval_agent import scaffold_from_description
+from evalrx.eval_agent import scaffold_from_description
 
 out = scaffold_from_description(
     description="My VLM frequently confuses left and right when answering "
@@ -652,7 +652,7 @@ out = scaffold_from_description(
 Or via CLI:
 
 ```bash
-python -m evalvitals.eval_agent.nl_runner \
+python -m evalrx.eval_agent.nl_runner \
     --description "My VLM confuses left and right in spatial questions" \
     --model qwen2.5-vl-7b-instruct \
     --out ./my_experiment \
@@ -674,10 +674,10 @@ It needs a **judge model** (any instruction-following model with `GENERATE`) and
 the model under evaluation.
 
 ```python
-from evalvitals import Capability
-from evalvitals.eval_agent import AutoDiagnoseLoop, DiagnosisAgent
-from evalvitals.models import compose
-from evalvitals.models.backends.base import RuntimeConfig
+from evalrx import Capability
+from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent
+from evalrx.models import compose
+from evalrx.models.backends.base import RuntimeConfig
 
 # 1. The model under evaluation (local VLM with white-box access)
 model = compose("qwen3-vl-8b-instruct", "hf_local", want={Capability.ATTENTION})
@@ -724,7 +724,7 @@ for name, result in report.final_results.items():
 — the model's declared modalities intersected with the slots the batch fills:
 
 ```python
-from evalvitals.eval_agent import StrategyProbe, ModelKind
+from evalrx.eval_agent import StrategyProbe, ModelKind
 
 probe = StrategyProbe()
 probe.routed_slots(model, cases)             # {"text", "audio"} for an ALM run
@@ -741,7 +741,7 @@ it declares image.
 Override the default label-correlation verification with your own logic:
 
 ```python
-from evalvitals.eval_agent import SurgeryAgent, InterventionResult, HypothesisStatus
+from evalrx.eval_agent import SurgeryAgent, InterventionResult, HypothesisStatus
 
 def my_verify(hypothesis, model, results, data):
     # domain-specific logic — return True when fixed
@@ -780,7 +780,7 @@ pre-register a falsifiable hypothesis (hash + timestamp) **before** unblinding,
 test once on `validate`, lock `confirm` for the final report.
 
 ```python
-from evalvitals.eval_agent import EvalOrchestrator, PreregisteredHypothesis, DataSplit
+from evalrx.eval_agent import EvalOrchestrator, PreregisteredHypothesis, DataSplit
 
 hyp = PreregisteredHypothesis(
     predicate="cluttered scenes",
@@ -806,7 +806,7 @@ print(report["effect"])        # float
 > Applied to NLP: Vig et al. 2020 — <https://arxiv.org/abs/2004.12265>
 
 ```python
-from evalvitals.analyzers.agent.counterfactual import CounterfactualReplay
+from evalrx.analyzers.agent.counterfactual import CounterfactualReplay
 
 def rerun_fn(trajectory, step_idx, seed):
     # wrap your live agent + verifier here; return True/False (success)

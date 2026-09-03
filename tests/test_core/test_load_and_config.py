@@ -1,4 +1,4 @@
-"""Unified model construction: evalvitals.load(), load_model(), config routing.
+"""Unified model construction: evalrx.load(), load_model(), config routing.
 
 All of these funnel through ``compose(spec, backend)``.  Construction is
 weight-free (HFLocalModel computes capabilities in __init__; APIModel needs no
@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.config import ModelConfig, load_config
-from evalvitals.core import Capability, CapabilityError
-from evalvitals.models import load, load_model, resolve_spec_key
-from evalvitals.models.backends.api import APIModel
-from evalvitals.models.backends.hf_local import HFLocalModel
+from evalrx.config import ModelConfig, load_config
+from evalrx.core import Capability, CapabilityError
+from evalrx.models import load, load_model, resolve_spec_key
+from evalrx.models.backends.api import APIModel
+from evalrx.models.backends.hf_local import HFLocalModel
 
-# -- evalvitals.load() -------------------------------------------------
+# -- evalrx.load() -------------------------------------------------
 
 def test_load_spec_key_returns_hf_local():
     model = load("qwen2.5-7b-instruct")

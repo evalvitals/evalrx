@@ -132,10 +132,10 @@ def main() -> None:
     import transformers
     from PIL import Image
 
-    from evalvitals import compose
-    from evalvitals.analyzers.hallucination.pope import parse_yes_no
-    from evalvitals.core.capability import Capability
-    from evalvitals.core.case import Inputs
+    from evalrx import compose
+    from evalrx.analyzers.hallucination.pope import parse_yes_no
+    from evalrx.core.capability import Capability
+    from evalrx.core.case import Inputs
 
     probes = fetch_pope_probes(args.n_images)
     download_images(probes)

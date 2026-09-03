@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 # Upload-and-explore web workbench — the ONE page for this example's results:
 # anyone can drop a .zip of results (JSON/JSONL/CSV — e.g. a zipped copy of
-# data_attn_full/) and each upload becomes one `evalvitals explore` run (M2+M3)
+# data_attn_full/) and each upload becomes one `evalrx explore` run (M2+M3)
 # rendering in place; results already produced by the sibling scripts
 # (run_attn.sh -> outputs_attn_full, run_attn_pipeline.sh ->
 # outputs_pipeline/1_explore, run.sh -> outputs) are attached read-only in the
@@ -24,7 +24,7 @@ CODER_MODEL="${CODER_MODEL:-}"
 ATTACH_DIRS="${ATTACH_DIRS:-outputs_attn_full outputs_pipeline/1_explore outputs}"
 
 cmd=(
-  evalvitals web "$WORKSPACE"
+  evalrx web "$WORKSPACE"
   --port "$PORT"
   --backend "$CODER_PROVIDER"
   --timeout-sec "${TIMEOUT_SEC:-1200}"

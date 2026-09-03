@@ -10,7 +10,7 @@ numbers in three shapes: a readable JSON document, a flat JSONL stream for
 plotting code, and a Markdown write-up of the figure.
 
 Standard library only, Python 3.8+. Nothing to install, nothing imported from
-`evalvitals` — it reads the run artifacts and only them.
+`evalrx` — it reads the run artifacts and only them.
 
 ---
 
@@ -73,7 +73,7 @@ Three ways to reach it:
 cp -r examples/benchmark/tools/case-study-figure ~/.claude/skills/
 
 # 3. hand it to an explore run's coding agent
-evalvitals explore … --skill examples/benchmark/tools/case-study-figure
+evalrx explore … --skill examples/benchmark/tools/case-study-figure
 ```
 
 `SKILL.md` carries the workflow and the honesty rules — every number has to come from

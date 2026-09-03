@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from evalvitals.analysis.stats_tools import (
+from evalrx.analysis.stats_tools import (
     StatsInput,
     build_stats_input,
     default_plan,
     run_stats_tool,
 )
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
 
 
 def _maps(n_fail=15, n_pass=15, *, structured: bool, seed=0, g=6):

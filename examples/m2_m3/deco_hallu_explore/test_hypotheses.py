@@ -115,7 +115,7 @@ def main() -> None:
     explore_dir = root / "1_explore"
     report_path = explore_dir / "exploratory_report.json"
     if not report_path.exists():
-        raise SystemExit(f"{report_path} missing — run phase 1 (evalvitals explore) first")
+        raise SystemExit(f"{report_path} missing — run phase 1 (evalrx explore) first")
     report = json.loads(report_path.read_text())
     candidates_raw = [c for c in report.get("candidate_signals") or [] if isinstance(c, dict)]
     hypotheses = [h for h in report.get("hypotheses") or [] if isinstance(h, dict)]
@@ -126,9 +126,9 @@ def main() -> None:
     n_fail = sum(int(r["is_fail"]) for r in rows)
     print(f"held-out validate rows: {len(rows)} ({n_fail} FAIL)")
 
-    from evalvitals.analysis.adjudicate import adjudicate_signals
-    from evalvitals.analysis.explorer import CandidateSignal
-    from evalvitals.analysis.operationalize import RecipeError, SignalRecipe, compile_recipe
+    from evalrx.analysis.adjudicate import adjudicate_signals
+    from evalrx.analysis.explorer import CandidateSignal
+    from evalrx.analysis.operationalize import RecipeError, SignalRecipe, compile_recipe
 
     # ── 1. frozen-recipe re-evaluation on the held-out rows ────────────────
     signal_verdicts: list[dict] = []
@@ -197,7 +197,7 @@ def main() -> None:
 
     hypothesis_verdicts: list[dict] = []
     if hypotheses and not args.no_judge:
-        from evalvitals.eval_agent import ClaudeModel
+        from evalrx.eval_agent import ClaudeModel
 
         judge = ClaudeModel(model=args.judge_model, effort=args.judge_effort)
         for h in hypotheses:

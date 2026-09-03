@@ -11,23 +11,23 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.analysis.stats_agent import StatsAnalysisReport
-from evalvitals.analysis.stats_tools import StatsToolResult
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.eval_agent import HypothesisTester, ProbeAgent
-from evalvitals.eval_agent.hypothesis import (
+from evalrx.analysis.stats_agent import StatsAnalysisReport
+from evalrx.analysis.stats_tools import StatsToolResult
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.eval_agent import HypothesisTester, ProbeAgent
+from evalrx.eval_agent.hypothesis import (
     Hypothesis,
     HypothesisStatus,
     hypothesis_from_dict,
     hypothesis_to_dict,
 )
-from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
-from evalvitals.eval_agent.stages.hypothesis_tester import (
+from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
+from evalrx.eval_agent.stages.hypothesis_tester import (
     HypothesisTestResult,
     _evidence_grade,
 )
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -351,7 +351,7 @@ def _bh_family_report() -> StatsAnalysisReport:
     because signal_label_assoc rejects on a bootstrap CI, and a CI over three
     cases cannot straddle zero — that is the arm M5 must not be allowed to read.
     """
-    from evalvitals.analysis.stats_tools import fdr_correct
+    from evalrx.analysis.stats_tools import fdr_correct
 
     def _r(signal, effect, p, n, ci):
         return StatsToolResult(
@@ -468,7 +468,7 @@ def test_design_naming_unmeasured_evidence_stays_inconclusive_not_refuted():
 
 
 def test_identifier_helpers():
-    from evalvitals.eval_agent.stages.hypothesis_tester import (
+    from evalrx.eval_agent.stages.hypothesis_tester import (
         _identifiers,
         _signal_keywords,
         _tool_ids,
@@ -538,7 +538,7 @@ def test_without_a_direction_cue_the_classic_reading_stands():
 
 
 def test_expected_sign_parser_cases():
-    from evalvitals.eval_agent.stages.hypothesis_tester import _expected_sign
+    from evalrx.eval_agent.stages.hypothesis_tester import _expected_sign
 
     def sign(design: str, signal: str, statement: str = "x"):
         return _expected_sign(_hyp(statement, design=design), signal)
@@ -560,7 +560,7 @@ def test_expected_sign_parser_cases():
 
 
 def test_diagnosis_prompt_asks_for_the_direction():
-    from evalvitals.eval_agent.prompts.diagnosis import _DIAGNOSE_PROMPT
+    from evalrx.eval_agent.prompts.diagnosis import _DIAGNOSE_PROMPT
     assert "HIGHER or LOWER on failing cases" in _DIAGNOSE_PROMPT
     # binary tasks: TEST lines go to the direction marginals, not to text/label fields
     assert "answer_extraction_audit.answered_yes" in _DIAGNOSE_PROMPT

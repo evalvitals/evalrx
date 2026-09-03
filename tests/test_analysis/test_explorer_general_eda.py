@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-from evalvitals.analysis.explorer import ExploratoryAnalysisAgent, _framing_block, _profile_rows
-from evalvitals.analysis.profile import describe_outcome, profile_records
+from evalrx.agent_runtime.sandbox import ExperimentSandbox
+from evalrx.analysis.explorer import ExploratoryAnalysisAgent, _framing_block, _profile_rows
+from evalrx.analysis.profile import describe_outcome, profile_records
 
 _MINIMAL_PAYLOAD = {
     "observations": ["ok"],

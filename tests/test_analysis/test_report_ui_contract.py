@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from evalvitals.analysis.prompts.explorer import _ANALYSIS_CONTRACT
-from evalvitals.reporting.stages import STAGE_SPECS, stage_specs_as_dicts
-from evalvitals.viz.prompts import DASHBOARD_STORYBOARD_SYSTEM_PROMPT
+from evalrx.analysis.prompts.explorer import _ANALYSIS_CONTRACT
+from evalrx.reporting.stages import STAGE_SPECS, stage_specs_as_dicts
+from evalrx.viz.prompts import DASHBOARD_STORYBOARD_SYSTEM_PROMPT
 
 
 def test_stage_specs_define_m1_to_m5_dashboard_roles():

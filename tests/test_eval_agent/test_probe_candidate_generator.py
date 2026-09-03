@@ -4,9 +4,9 @@ fake text-only judge (no model, no GPU, no vision)."""
 
 from __future__ import annotations
 
-from evalvitals.analysis.probe_search import ProbeNode
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs
-from evalvitals.eval_agent.stages.probe_candidate_generator import (
+from evalrx.analysis.probe_search import ProbeNode
+from evalrx.core.case import CaseBatch, FailureCase, Inputs
+from evalrx.eval_agent.stages.probe_candidate_generator import (
     VLMProbeCandidateGenerator,
     _jaccard_distance,
 )

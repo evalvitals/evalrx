@@ -1,6 +1,6 @@
 # Roadmap
 
-EvalVitals is currently in alpha. The repository contains both implemented
+EvalRX is currently in alpha. The repository contains both implemented
 surfaces and planned interfaces.
 
 ## Implemented
@@ -8,7 +8,7 @@ surfaces and planned interfaces.
 | Area | Status |
 |---|---|
 | Core contracts | `Model`, `Analyzer`, `Result`, `FailureCase`, registry, pipeline, experiment. |
-| Model specs | Torch-free registry in `evalvitals.specs` (16 specs: Qwen3/VL/Omni, DeepSeek, GLM, Kimi, Llama, Gemma, Step). |
+| Model specs | Torch-free registry in `evalrx.specs` (16 specs: Qwen3/VL/Omni, DeepSeek, GLM, Kimi, Llama, Gemma, Step). |
 | Backend composition | `compose(spec, backend, want=...)` with early capability negotiation. |
 | Public `wrap()` on-ramp | Wrap any loaded HF causal LM + tokenizer; capabilities auto-inferred; attention fix-up applied. |
 | Capability matching | Analyzer discovery and early backend negotiation. |

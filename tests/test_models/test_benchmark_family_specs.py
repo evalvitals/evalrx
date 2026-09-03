@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core.spec import AttnSemantics
-from evalvitals.specs import get_spec
+from evalrx.core.spec import AttnSemantics
+from evalrx.specs import get_spec
 
 GEMMA = ("gemma-4-e2b-it", "gemma-4-e4b-it", "gemma-4-12b-it")
 

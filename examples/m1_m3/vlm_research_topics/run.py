@@ -2,7 +2,7 @@
 
 Each scenario reproduces a known failure mode from the vision-language model
 literature.  Running each scenario through VLDiagnoseLoop (M1 → M2 → M3 → M5)
-shows which evalvitals analyzers best characterise the failure.
+shows which evalrx analyzers best characterise the failure.
 
 Scenarios (select with --scenario):
 
@@ -37,7 +37,7 @@ Pipeline (identical to qwen_loop_agy):
 
     ExperimentProtocol  ← paper-grounded NL description of the failure mode
          │
-    M1  ProbeAgent           selects analyzers from the evalvitals catalog
+    M1  ProbeAgent           selects analyzers from the evalrx catalog
     M2  StatsAnalysisAgent   stats tools + e-BH FDR-correction + evidence chain
     M3  DiagnosisAgent       LLM judge proposes hypotheses
     M5  HypothesisTester     statistical test + protocol consistency check
@@ -93,7 +93,7 @@ def _contains(term: str, text: str) -> bool:
 
 
 def _score_case(case, observed) -> "Label":
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     text = re.sub(r"\s+", " ", str(observed).lower())
     expected = case.expected
@@ -190,7 +190,7 @@ def _spatial_cases(image):
       blue triangle → top-right     (centre ≈ 170, 68)
       green square  → centre        (centre ≈ 117, 109)
     """
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs
 
     return CaseBatch([
         # ── Easy ──────────────────────────────────────────────────────────────
@@ -269,7 +269,7 @@ def _counting_cases(image):
 
     Ground truth: 7 circles total — 3 red, 2 blue, 2 yellow.
     """
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs
 
     return CaseBatch([
         # ── Easy ──────────────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ def _binding_cases(image):
 
     Ground truth: small blue circle (top-left), large red rectangle (bottom-right).
     """
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs
 
     return CaseBatch([
         # ── Easy ──────────────────────────────────────────────────────────────
@@ -406,7 +406,7 @@ def _binding_cases(image):
 # ---------------------------------------------------------------------------
 
 def _spatial_protocol():
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -438,7 +438,7 @@ def _spatial_protocol():
 
 
 def _counting_protocol():
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -468,7 +468,7 @@ def _counting_protocol():
 
 
 def _binding_protocol():
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -507,7 +507,7 @@ class _SmokeVLM:
     """Deterministic VLM stand-in for wiring tests.  No GPU / weights required."""
 
     def __init__(self) -> None:
-        from evalvitals.core.capability import Capability
+        from evalrx.core.capability import Capability
 
         self.capabilities = frozenset({Capability.GENERATE, Capability.ATTENTION})
         self.modalities = frozenset({"text", "image"})
@@ -568,9 +568,9 @@ class _SmokeProbe:
     last_schema = None
 
     def probe(self, model, data, **kwargs):
-        from evalvitals.core.case import Label
-        from evalvitals.core.result import Result
-        from evalvitals.eval_agent import ProbingSchema
+        from evalrx.core.case import Label
+        from evalrx.core.result import Result
+        from evalrx.eval_agent import ProbingSchema
 
         fail_ids = [case.id for case in data if case.label == Label.FAIL]
         self.last_schema = ProbingSchema(
@@ -622,7 +622,7 @@ class _SmokeDiagnosis:
         self._scenario = scenario
 
     def diagnose(self, analysis, prior_cycles=None):
-        from evalvitals.eval_agent import DiagnosisResult, Hypothesis
+        from evalrx.eval_agent import DiagnosisResult, Hypothesis
 
         stmt, mode = _SMOKE_HYPOTHESES[self._scenario]
         h = Hypothesis(
@@ -639,7 +639,7 @@ class _SmokeDiagnosis:
 
 
 def _run_smoke_test(args, scenario: str) -> None:
-    from evalvitals.eval_agent import (
+    from evalrx.eval_agent import (
         CaseDiscoveryAgent,
         HypothesisTester,
         RunContext,
@@ -752,8 +752,8 @@ def main() -> None:
         _run_smoke_test(args, scenario)
         return
 
-    import evalvitals
-    from evalvitals.eval_agent import (
+    import evalrx
+    from evalrx.eval_agent import (
         AgyModel,
         CaseDiscoveryAgent,
         CliAgentConfig,
@@ -786,7 +786,7 @@ def main() -> None:
 
     # ── Load model ────────────────────────────────────────────────────────────
     print(f"\nLoading {args.model!r} on {args.device} ({args.dtype}) …  [scenario={scenario}]")
-    model = evalvitals.load(
+    model = evalrx.load(
         args.model,
         backend="hf_local",
         device=args.device,

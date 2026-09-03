@@ -7,15 +7,15 @@ the classes is legitimate discovery and must never be misfiled.
 
 from __future__ import annotations
 
-from evalvitals.analysis.stats_tools import (
+from evalrx.analysis.stats_tools import (
     StatsInput,
     build_stats_input,
     describe_data,
     isolate_label_leaks,
     label_leak_score,
 )
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
 
 
 def _labels(n_fail: int, n_pass: int) -> dict[str, bool]:

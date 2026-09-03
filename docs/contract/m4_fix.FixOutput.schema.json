@@ -553,7 +553,7 @@
   ],
   "title": "FixOutput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m4_fix.FixOutput.json",
+  "$id": "https://evalrx.dev/contract/m4_fix.FixOutput.json",
   "x-stage": "m4_fix",
   "x-role": "output",
   "x-schema-version": 4,

@@ -31,8 +31,8 @@ from pathlib import Path
 
 import yaml
 
-from evalvitals.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
-from evalvitals.core.case import CaseBatch, FailureCase as Case, Inputs
+from evalrx.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
+from evalrx.core.case import CaseBatch, FailureCase as Case, Inputs
 
 CONFIG = Path(__file__).parent / "config.yaml"
 
@@ -46,9 +46,9 @@ DEMO_PROMPTS = [
 def _build_api_model(model_name: str, max_new_tokens: int, top_k: int):
     import openai
 
-    from evalvitals.core.spec import ModelSpec
-    from evalvitals.models.backends.api import APIModel, parse_openai_logprobs
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx.core.spec import ModelSpec
+    from evalrx.models.backends.api import APIModel, parse_openai_logprobs
+    from evalrx.models.backends.base import RuntimeConfig
 
     client = openai.OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 

@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m2_m3/synthetic_yield_explore/Dockerfile
-    image: evalvitals-m2-synthetic-yield
+    image: evalrx-m2-synthetic-yield
     # Required before first run (mount the NATIVE claude binary, not the wrapper):
     #   export CLAUDE_PATH=$(ls -d ~/.vscode-server/extensions/anthropic.claude-code-*/resources/native-binary/claude | sort -V | tail -1)
     environment:

@@ -1,4 +1,4 @@
-"""Standalone library entry point: evalvitals.analysis.api.explore().
+"""Standalone library entry point: evalrx.analysis.api.explore().
 
 Same underlying pipeline as explore_run.run_explore (CLI-facing), but library
 style: takes a path OR in-memory records, returns a structured result instead
@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.analysis import api as explore_api
-from evalvitals.analysis.api import ExploreRunResult, explore
-from evalvitals.analysis.explorer import ExploratoryAnalysisReport
-from evalvitals.analysis.hypothesis_agent import Hypothesis
+from evalrx.analysis import api as explore_api
+from evalrx.analysis.api import ExploreRunResult, explore
+from evalrx.analysis.explorer import ExploratoryAnalysisReport
+from evalrx.analysis.hypothesis_agent import Hypothesis
 
 
 class _FakeExploreAgent:
@@ -123,7 +123,7 @@ def test_explore_skips_m3_when_disabled(monkeypatch):
     assert result.hypotheses == []
 
 
-def test_top_level_evalvitals_explore_is_the_same_function():
-    import evalvitals
+def test_top_level_evalrx_explore_is_the_same_function():
+    import evalrx
 
-    assert evalvitals.explore is explore
+    assert evalrx.explore is explore

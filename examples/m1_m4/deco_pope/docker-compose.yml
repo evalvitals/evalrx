@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m1_m4/deco_pope/Dockerfile
-    image: evalvitals-deco-pope
+    image: evalrx-deco-pope
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}

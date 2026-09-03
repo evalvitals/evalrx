@@ -67,7 +67,7 @@
   ],
   "title": "SurgeryInput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m4_surgery.SurgeryInput.json",
+  "$id": "https://evalrx.dev/contract/m4_surgery.SurgeryInput.json",
   "x-stage": "m4_surgery",
   "x-role": "input",
   "x-schema-version": 4,

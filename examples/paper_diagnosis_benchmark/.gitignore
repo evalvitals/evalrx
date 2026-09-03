@@ -2,6 +2,6 @@
 # redistribution terms, so users fetch them locally from the canonical URLs.
 data/
 
-# Derived text records and all EvalVitals analysis artifacts.
+# Derived text records and all EvalRX analysis artifacts.
 outputs/
 __pycache__/

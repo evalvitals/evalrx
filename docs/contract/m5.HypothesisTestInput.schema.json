@@ -125,7 +125,7 @@
   ],
   "title": "HypothesisTestInput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m5.HypothesisTestInput.json",
+  "$id": "https://evalrx.dev/contract/m5.HypothesisTestInput.json",
   "x-stage": "m5",
   "x-role": "input",
   "x-schema-version": 4,

@@ -175,7 +175,7 @@
   ],
   "title": "ProbeSearchInput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/pre_m1.ProbeSearchInput.json",
+  "$id": "https://evalrx.dev/contract/pre_m1.ProbeSearchInput.json",
   "x-stage": "pre_m1",
   "x-role": "input",
   "x-schema-version": 4,

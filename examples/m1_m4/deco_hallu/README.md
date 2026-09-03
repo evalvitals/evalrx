@@ -14,7 +14,7 @@ build_cases.py     data/cases/<model>.json        balanced FAIL/PASS batch (offl
 run_m1.py          outputs/m1_state.pkl           M1 analyzers (GPU)
 run_fused.py       outputs/fused/...              Step 1: explore + held-out confirm (claude)
 run_m2-5.py        outputs/logs_m2_5/run_log.jsonl Step 2: M2→M3→M5→Fix (GPU + claude)
-evalvitals serve outputs                           the report
+evalrx serve outputs                           the report
 ```
 
 ## Prerequisites
@@ -81,7 +81,7 @@ all-in-one path.
 ```bash
 # Use the repo's venv python; run from THIS directory (scripts `import run`).
 PY=<repo-root>/.venv/bin/python
-NF=<repo-root>/evalvitals/agent_assets/skills/nature-figure   # bundled figure-styling skill
+NF=<repo-root>/evalrx/agent_assets/skills/nature-figure   # bundled figure-styling skill
 cd <repo-root>/examples/m1_m4/deco_hallu
 
 # 0) one-time, offline: build the balanced FAIL/PASS case batch
@@ -105,7 +105,7 @@ $PY run_m2-5.py \
 #    -> outputs/logs_m2_5/run_log.jsonl        (M2 stats, M3 hypotheses, M5 tests, Fix)
 
 # 4) View the report
-$PY -m evalvitals.cli serve outputs             # or: evalvitals serve outputs
+$PY -m evalrx.cli serve outputs             # or: evalrx serve outputs
 ```
 
 Remote server → open it locally over an SSH tunnel:

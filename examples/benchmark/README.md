@@ -14,7 +14,7 @@ examples/benchmark/
 ├── .env.example        host mount sources (copy to .env; every leaf links to it)
 ├── vlm/ _data/ {qwen,gemma,nemotron}/     image + text   : chartqa, spatial457, pope_{random,popular,adversarial}
 ├── llm/ _data/ {qwen,gemma,nemotron}/     text only      : the nine band-located slices of dataset_selection
-└── alm/ _data/ {qwen,gemma,nemotron}/     audio + text   : mmau, audiocaps_hallu, af_reasoning_mcq
+└── alm/ _data/ {qwen,gemma,nemotron}/     audio + text   : mmau, mmsu, audiocaps_hallu, af_reasoning_mcq
 ```
 
 ## The matrix
@@ -70,6 +70,7 @@ for the 3.x models), so `calibration` runs on its verbalized channel only,
 | llm | `hotpotqa_gepa` | the 300-question GEPA test split of HotpotQA (fullwiki/train, seed-1 sample, arXiv:2507.19457) with the dataset's own 10 candidate paragraphs in-prompt | SQuAD-normalised exact match | 300 |
 | llm | `gsm8k` | a seeded 500-of-1,319 sample of the GSM8K test split (grade-school multi-step word problems) | numeric exact match on the `Answer:` line | 500 |
 | alm | `mmau` (default) | MMAU test-mini, 4-way MC | option letter | 256 |
+| alm | `mmsu` | MMSU: 47 spoken-language perception/reasoning tasks (official 5,000-row `train`-named evaluation split; deterministic sample by default) | option letter | 256 |
 | alm | `audiocaps_hallu` | AudioCaps object hallucination (Random) | Yes/No | 300 |
 | alm | `af_reasoning_mcq` | NVIDIA Audio Flamingo's AF-Reasoning-Eval (AQA-MCQ): 4-way MC requiring discrimination among closely related choices; audio via the `gijs/clothoaqa` mirror of Clotho-AQA | option letter | 76 (fixed eval set; census) |
 
@@ -209,7 +210,7 @@ Gemini family `--thinking-level low`, `--thinking-budget 1024`, `--concurrency 8
 Outputs: `<modality>/<family>/outputs/<model>/<dataset>[.<tag>]/` with
 `baseline.json` (every Stage 0 output + label), `logs/` (run log, artifacts,
 README.txt guide), `explore/`, `summary.json`. The dashboard reads the run dir:
-`python -m evalvitals.cli dashboard examples/benchmark/vlm/qwen/outputs/qwen3.5-2b/chartqa`.
+`python -m evalrx.cli dashboard examples/benchmark/vlm/qwen/outputs/qwen3.5-2b/chartqa`.
 For a figure rather than a dashboard, [`tools/extract_figure_data.py`](tools/README.md)
 turns the same run dir into the numbers a case-study figure prints (JSON, JSONL
 or a Markdown write-up), each carrying the artifact it was read from.

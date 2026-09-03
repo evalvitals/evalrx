@@ -19,19 +19,19 @@ jsonschema = pytest.importorskip("jsonschema")
 
 def test_committed_schema_matches_builder():
     """The shipped JSON file must equal build_schema() — re-render after edits."""
-    from evalvitals.eval_agent.log_schema import SCHEMA_PATH, build_schema
+    from evalrx.eval_agent.log_schema import SCHEMA_PATH, build_schema
 
     committed = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     assert committed == build_schema(), (
         "run_log.schema.json is stale. Re-render it:\n"
-        "  python -c \"import json; from evalvitals.eval_agent.log_schema import "
+        "  python -c \"import json; from evalrx.eval_agent.log_schema import "
         "build_schema, SCHEMA_PATH; SCHEMA_PATH.write_text(json.dumps(build_schema(), "
         "indent=2)+chr(10))\""
     )
 
 
 def test_schema_is_valid_draft_2020_12():
-    from evalvitals.eval_agent.log_schema import build_schema
+    from evalrx.eval_agent.log_schema import build_schema
 
     schema = build_schema()
     cls = jsonschema.validators.validator_for(schema)
@@ -46,18 +46,18 @@ def _emit_every_event_type(run_dir) -> list[dict]:
     classes (not bespoke fakes) wherever cheap, so the lines are exactly what a
     real run produces — the whole point of the conformance check.
     """
-    from evalvitals.analysis.stats_agent import StatsAnalysisReport
-    from evalvitals.core.result import Result
-    from evalvitals.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-    from evalvitals.eval_agent.run_logger import RunLogger
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisResult
-    from evalvitals.eval_agent.stages.surgery import InterventionResult
+    from evalrx.analysis.stats_agent import StatsAnalysisReport
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
+    from evalrx.eval_agent.stages.surgery import InterventionResult
 
     logger = RunLogger(run_dir=run_dir)
     logger.current_cycle = 0
 
     logger.log_run_start({"model": "fake", "n_cases": 3})
-    from evalvitals.core import CaseBatch, FailureCase
+    from evalrx.core import CaseBatch, FailureCase
     logger.log_cases(CaseBatch([FailureCase.from_prompt("example", id="case-1")]))
 
     res = Result(
@@ -68,7 +68,7 @@ def _emit_every_event_type(run_dir) -> list[dict]:
 
     # In-cycle explore step: the real ExploratoryAnalysisReport shape (charts
     # carry figure_path once rendered; adjudication is the host's in-sample dict).
-    from evalvitals.analysis.explorer import ExploratoryAnalysisReport
+    from evalrx.analysis.explorer import ExploratoryAnalysisReport
 
     logger.log_explore(
         0,
@@ -127,7 +127,7 @@ def _emit_every_event_type(run_dir) -> list[dict]:
     )
     logger.log_report_published({
         "schema_version": 1,
-        "catalog_version": "evalvitals-report@1",
+        "catalog_version": "evalrx-report@1",
         "json_render_version": "0.19.0",
         "source_event_seq": 1,
         "sha256": "abc",
@@ -140,7 +140,7 @@ def _emit_every_event_type(run_dir) -> list[dict]:
 
 def test_real_log_output_conforms_to_schema(tmp_path):
     """Every event RunLogger emits must validate — and every type must be covered."""
-    from evalvitals.eval_agent.log_schema import EVENT_TYPES, iter_log_errors
+    from evalrx.eval_agent.log_schema import EVENT_TYPES, iter_log_errors
 
     run_dir = tmp_path / "run1"
     events = _emit_every_event_type(run_dir)
@@ -153,7 +153,7 @@ def test_real_log_output_conforms_to_schema(tmp_path):
 
 
 def test_fix_outcome_markdown_includes_explore_selection_audit(tmp_path):
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path)
     logger.log_fix(SimpleNamespace(to_dict=lambda: {
@@ -179,8 +179,8 @@ def test_fix_outcome_markdown_includes_explore_selection_audit(tmp_path):
 
 def test_validation_rejects_malformed_events():
     """The schema must actually reject the breakage it claims to catch."""
-    from evalvitals.eval_agent.log_schema import validate_event
-    from evalvitals.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION
+    from evalrx.eval_agent.log_schema import validate_event
+    from evalrx.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION
 
     base = {
         "event": "probe", "schema_version": RUN_LOG_SCHEMA_VERSION,
@@ -205,10 +205,10 @@ def test_validation_rejects_malformed_events():
 
 
 def test_optin_runtime_validation_warns_not_raises(tmp_path, monkeypatch):
-    """EVALVITALS_VALIDATE_LOG warns on a bad event but never breaks the run."""
-    from evalvitals.eval_agent.run_logger import RunLogger
+    """EVALRX_VALIDATE_LOG warns on a bad event but never breaks the run."""
+    from evalrx.eval_agent.run_logger import RunLogger
 
-    monkeypatch.setenv("EVALVITALS_VALIDATE_LOG", "1")
+    monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
     logger = RunLogger(run_dir=tmp_path / "run1")
     # Inject a structurally invalid event straight through _log; logging must
     # still succeed (warn-only), and the line must still be written.

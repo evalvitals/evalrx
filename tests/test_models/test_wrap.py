@@ -1,4 +1,4 @@
-"""evalvitals.wrap(model, tokenizer) — the public on-ramp for user-supplied models.
+"""evalrx.wrap(model, tokenizer) — the public on-ramp for user-supplied models.
 
 These run on CPU with NO downloads: a tiny ``nn.Module`` + fake tokenizer stand in
 for a real HF causal LM, exercising the same ``HFLocalModel`` capture path that the
@@ -13,14 +13,14 @@ import pytest
 import torch
 import torch.nn as nn
 
-import evalvitals
-from evalvitals.analyzers.lens.logit_lens import LogitLensAnalyzer
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import Inputs
-from evalvitals.core.spec import ModelSpec, VisionSpec
-from evalvitals.models.backends.base import RuntimeConfig
-from evalvitals.models.backends.hf_local import HFLocalModel
-from evalvitals.models.inference import infer_spec
+import evalrx
+from evalrx.analyzers.lens.logit_lens import LogitLensAnalyzer
+from evalrx.core.capability import Capability
+from evalrx.core.case import Inputs
+from evalrx.core.spec import ModelSpec, VisionSpec
+from evalrx.models.backends.base import RuntimeConfig
+from evalrx.models.backends.hf_local import HFLocalModel
+from evalrx.models.inference import infer_spec
 
 
 # ----------------------------------------------------------------------
@@ -113,32 +113,32 @@ def test_infer_spec_rejects_vlm():
 # wrap() construction + capabilities
 # ----------------------------------------------------------------------
 def test_wrap_returns_hflocal_model():
-    m = evalvitals.wrap(FakeCausalLM(), FakeTokenizer())
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
     assert isinstance(m, HFLocalModel)
 
 
 def test_wrap_infers_internals_capabilities():
-    m = evalvitals.wrap(FakeCausalLM(), FakeTokenizer())
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
     for cap in (Capability.GENERATE, Capability.LOGITS, Capability.HIDDEN_STATES, Capability.ATTENTION):
         assert cap in m.capabilities
     assert Capability.TOOL_CALLS not in m.capabilities  # no tools in template
 
 
 def test_wrap_grants_tool_calls_when_template_supports_it():
-    m = evalvitals.wrap(FakeCausalLM(), FakeTokenizer(chat_template="{{ tools }}"))
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer(chat_template="{{ tools }}"))
     assert Capability.TOOL_CALLS in m.capabilities
 
 
 def test_wrap_want_negotiation_passes_for_available_cap():
-    m = evalvitals.wrap(FakeCausalLM(), FakeTokenizer(), want={Capability.ATTENTION})
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer(), want={Capability.ATTENTION})
     assert Capability.ATTENTION in m.capabilities
 
 
 def test_wrap_want_negotiation_rejects_missing_cap():
-    from evalvitals.core.capability import CapabilityError
+    from evalrx.core.capability import CapabilityError
 
     with pytest.raises(CapabilityError):
-        evalvitals.wrap(FakeCausalLM(), FakeTokenizer(), want={Capability.GRADIENTS})
+        evalrx.wrap(FakeCausalLM(), FakeTokenizer(), want={Capability.GRADIENTS})
 
 
 # ----------------------------------------------------------------------
@@ -147,7 +147,7 @@ def test_wrap_want_negotiation_rejects_missing_cap():
 def test_wrap_flips_non_eager_attention_and_warns():
     model = FakeCausalLM(attn_impl="sdpa")
     with pytest.warns(UserWarning, match="eager"):
-        evalvitals.wrap(model, FakeTokenizer())
+        evalrx.wrap(model, FakeTokenizer())
     assert model.config._attn_implementation == "eager"
 
 
@@ -155,12 +155,12 @@ def test_wrap_leaves_eager_attention_untouched():
     model = FakeCausalLM(attn_impl="eager")
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # no warning expected
-        evalvitals.wrap(model, FakeTokenizer())
+        evalrx.wrap(model, FakeTokenizer())
 
 
 def test_forward_raises_actionable_error_when_attentions_missing():
     # Model never emits attentions (e.g. sdpa that didn't actually switch) -> clear error.
-    m = evalvitals.wrap(FakeCausalLM(emit_attn=False), FakeTokenizer())
+    m = evalrx.wrap(FakeCausalLM(emit_attn=False), FakeTokenizer())
     with pytest.raises(RuntimeError, match="eager"):
         m.forward("hello world", capture={Capability.ATTENTION})
 
@@ -169,14 +169,14 @@ def test_forward_raises_actionable_error_when_attentions_missing():
 # end-to-end: wrap -> analyze, no weights
 # ----------------------------------------------------------------------
 def test_wrap_then_logit_lens_runs():
-    m = evalvitals.wrap(FakeCausalLM(n_layers=3, dim=8, vocab=16), FakeTokenizer())
+    m = evalrx.wrap(FakeCausalLM(n_layers=3, dim=8, vocab=16), FakeTokenizer())
     result = LogitLensAnalyzer(top_k=3).run(m, "the capital of france is")
     assert result.findings["n_layers"] == 4  # n_layers + 1 hidden states
     assert all(len(layer["top"]) == 3 for layer in result.findings["per_layer_top"])
 
 
 def test_wrap_then_forward_captures_attention():
-    m = evalvitals.wrap(FakeCausalLM(n_layers=2, n_heads=4), FakeTokenizer())
+    m = evalrx.wrap(FakeCausalLM(n_layers=2, n_heads=4), FakeTokenizer())
     trace = m.forward("hello world", capture={Capability.ATTENTION})
     assert Capability.ATTENTION in trace.provided
     assert len(trace.attentions) == 2                 # one per layer
@@ -184,7 +184,7 @@ def test_wrap_then_forward_captures_attention():
 
 
 def test_wrap_unembed_weight_exposed():
-    m = evalvitals.wrap(FakeCausalLM(dim=8, vocab=16), FakeTokenizer())
+    m = evalrx.wrap(FakeCausalLM(dim=8, vocab=16), FakeTokenizer())
     W = m.unembed_weight()
     assert tuple(W.shape) == (16, 8)  # (vocab, dim)
 
@@ -243,7 +243,7 @@ def test_hf_local_generate_treats_max_tokens_as_max_new_tokens_alias():
     recognise, rather than ignoring it — so every judge-proposed L2 pipeline
     silently produced zero output on the HF-local backend. This is a
     regression test for aliasing max_tokens -> max_new_tokens."""
-    m = evalvitals.wrap(FakeCausalLM(), FakeTokenizer())
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
 
     class RecordingModel(nn.Module):
         def __init__(self):

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from evalvitals.agent_runtime.cli_types import CliAgentConfig
-from evalvitals.agent_runtime.skills.prompt_policy import fences_hint, skills_hint
-from evalvitals.agent_runtime.skills.resolver import resolve_skill_paths
-from evalvitals.eval_agent.cli_skills import CodexSkillInstaller, SkillInstaller
+from evalrx.agent_runtime.cli_types import CliAgentConfig
+from evalrx.agent_runtime.skills.prompt_policy import fences_hint, skills_hint
+from evalrx.agent_runtime.skills.resolver import resolve_skill_paths
+from evalrx.eval_agent.cli_skills import CodexSkillInstaller, SkillInstaller
 
 
 def _make_skill(tmp_path: Path, name: str) -> str:
@@ -16,10 +16,10 @@ def _make_skill(tmp_path: Path, name: str) -> str:
 
 
 def test_cli_skills_facade_reexports_installers():
-    from evalvitals.agent_runtime.skills.installer import (
+    from evalrx.agent_runtime.skills.installer import (
         CodexSkillInstaller as RealCodexSkillInstaller,
     )
-    from evalvitals.agent_runtime.skills.installer import (
+    from evalrx.agent_runtime.skills.installer import (
         SkillInstaller as RealSkillInstaller,
     )
 

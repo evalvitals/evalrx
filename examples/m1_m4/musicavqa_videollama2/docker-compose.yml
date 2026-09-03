@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m1_m4/musicavqa_videollama2/Dockerfile
-    image: evalvitals-musicavqa-videollama2
+    image: evalrx-musicavqa-videollama2
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}

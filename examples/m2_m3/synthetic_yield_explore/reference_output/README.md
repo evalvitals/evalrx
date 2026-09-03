@@ -1,6 +1,6 @@
 # Reference output — the confound catch
 
-**A committed, unmodified EvalVitals run.** Nothing here was hand-edited. Read
+**A committed, unmodified EvalRX run.** Nothing here was hand-edited. Read
 it without installing anything; re-create it with `bash run.sh`.
 
 Input: 30 synthetic chemical batches (`generate_data.py`, seeded, no model or

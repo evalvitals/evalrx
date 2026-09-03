@@ -112,7 +112,7 @@ def build_synonyms() -> dict[str, list[str]]:
 def chair_match(caption: str, gt: list[str], synonyms: dict[str, list[str]]) -> list[dict]:
     """Return mentions: {surface, coco_category, mention_kind, char_start}.
 
-    Matching reuses the convention of evalvitals.analyzers.hallucination.chair.
+    Matching reuses the convention of evalrx.analyzers.hallucination.chair.
     extract_objects (space-padded word, optional plural 's') on a PUNCTUATION-
     NORMALIZED copy of the caption (punct -> space, length-preserving) — the
     package matcher alone misses every mention followed by ',' or '.', which
@@ -162,9 +162,9 @@ def main() -> None:
     import transformers
     from PIL import Image
 
-    from evalvitals import compose
-    from evalvitals.core.capability import Capability
-    from evalvitals.core.case import Inputs
+    from evalrx import compose
+    from evalrx.core.capability import Capability
+    from evalrx.core.case import Inputs
 
     inst = _instances()
     images = select_images(args.n_images, inst)

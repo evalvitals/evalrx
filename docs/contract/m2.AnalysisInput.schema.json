@@ -113,7 +113,7 @@
   ],
   "title": "AnalysisInput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m2.AnalysisInput.json",
+  "$id": "https://evalrx.dev/contract/m2.AnalysisInput.json",
   "x-stage": "m2",
   "x-role": "input",
   "x-schema-version": 4,

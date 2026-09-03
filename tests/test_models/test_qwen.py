@@ -1,6 +1,6 @@
 """Back-compat tests for the deprecated ``QwenLLM`` shim.
 
-The concrete Qwen class is gone — identity lives in ``evalvitals.specs`` and
+The concrete Qwen class is gone — identity lives in ``evalrx.specs`` and
 construction goes through ``compose``.  ``QwenLLM(...)`` is kept only as a
 deprecated alias that builds an ``hf_local`` model.  (HF-local forward/capture
 mechanics are covered by ``test_models/test_discover.py`` and the analyzer tests;
@@ -15,17 +15,17 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from evalvitals.core import Capability
-from evalvitals.core.case import Inputs
-from evalvitals.core.model import Trace
-from evalvitals.core.spec import AudioSpec, ModelSpec, VisionSpec
-from evalvitals.models.backends.base import RuntimeConfig
-from evalvitals.models.backends.hf_local import HFLocalModel
-from evalvitals.models.whitebox.qwen import QwenLLM
+from evalrx.core import Capability
+from evalrx.core.case import Inputs
+from evalrx.core.model import Trace
+from evalrx.core.spec import AudioSpec, ModelSpec, VisionSpec
+from evalrx.models.backends.base import RuntimeConfig
+from evalrx.models.backends.hf_local import HFLocalModel
+from evalrx.models.whitebox.qwen import QwenLLM
 
 
 def test_qwenllm_warns_deprecation():
-    with pytest.warns(DeprecationWarning, match="evalvitals.load"):
+    with pytest.warns(DeprecationWarning, match="evalrx.load"):
         QwenLLM()
 
 
@@ -61,7 +61,7 @@ def test_hf_vcd_processor_contrasts_clean_and_noisy_scores_each_step():
 
     from types import SimpleNamespace
 
-    from evalvitals.models.paper_methods.vcd import VCDLogitsProcessor
+    from evalrx.models.paper_methods.vcd import VCDLogitsProcessor
 
     class NoisyPath:
         def __init__(self):

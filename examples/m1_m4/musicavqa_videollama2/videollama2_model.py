@@ -1,12 +1,12 @@
-"""VideoLLaMA2.1-7B-AV as an evalvitals ``Model`` — example-local, no framework changes.
+"""VideoLLaMA2.1-7B-AV as an evalrx ``Model`` — example-local, no framework changes.
 
 VideoLLaMA2 (``DAMO-NLP-SG/VideoLLaMA2``, ``audio_visual`` branch) is not a
-stock ``transformers`` causal LM and is not a registered EvalVitals
+stock ``transformers`` causal LM and is not a registered EvalRX
 ``ModelSpec``; its own ``mm_infer()`` helper also hardcodes ``.cuda()`` in
 three places, so it cannot run on CPU as shipped.  Rather than editing the
-third-party package or `evalvitals/`, this module:
+third-party package or `evalrx/`, this module:
 
-  1. implements ``Model`` (the public ABC in ``evalvitals.core.model`` —
+  1. implements ``Model`` (the public ABC in ``evalrx.core.model`` —
      ``generate()`` + ``forward()``) directly, the same extension point the
      framework uses for ``api``/``hf_local`` backends themselves;
   2. keeps a device-parameterized COPY of ``mm_infer`` (``_mm_infer_on``
@@ -20,7 +20,7 @@ upstream source (``videollama2/model/videollama2_qwen2.py``) —
 ``output_hidden_states``/``output_attentions`` through to the underlying
 Qwen2 stack after multimodal fusion, and ``from_pretrained`` accepts
 ``attn_implementation="eager"`` like any standard HF model (attention
-capture needs eager; sdpa/flash return ``None``, same rule evalvitals
+capture needs eager; sdpa/flash return ``None``, same rule evalrx
 applies to registered models). One real gap, left unfixed on purpose:
 video/audio produce a *variable*, input-length-dependent number of fused
 embedding slots (``prepare_inputs_labels_for_multimodal`` in
@@ -45,9 +45,9 @@ import random
 from pathlib import Path
 from typing import Any
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import Inputs
-from evalvitals.core.model import Model, Trace
+from evalrx.core.capability import Capability
+from evalrx.core.case import Inputs
+from evalrx.core.model import Model, Trace
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@ def _forward_on(image_or_video, instruct, model, tokenizer, device, dtype,
 class VideoLLaMA2AVModel(Model):
     """GENERATE + HIDDEN_STATES + ATTENTION (when constructed with
     ``want_attention=True``, which forces eager attention at load time — the
-    same eager-required-for-capture rule evalvitals applies to registered
+    same eager-required-for-capture rule evalrx applies to registered
     models). See the module docstring for the one real gap: no
     ``token_type_map`` (video/audio token span localization) yet."""
 
@@ -215,7 +215,7 @@ class VideoLLaMA2AVModel(Model):
             load_kwargs["load_4bit"] = True
         if want_attention:
             # sdpa/flash silently return None for attentions — same rule
-            # evalvitals' own HFLocalModel applies to registered models.
+            # evalrx' own HFLocalModel applies to registered models.
             load_kwargs["attn_implementation"] = "eager"
         model, processor, tokenizer = model_init(model_path, **load_kwargs)
         if device != "cuda":

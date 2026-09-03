@@ -22,7 +22,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from evalvitals.models.backends.hf_local import _new_tokens  # noqa: E402
+from evalrx.models.backends.hf_local import _new_tokens  # noqa: E402
 
 
 def test_concatenated_output_slices_off_the_prompt():

@@ -51,7 +51,7 @@ def grader_fingerprint() -> str:
     """
     import hashlib
 
-    from evalvitals.analyzers.reasoning import _text
+    from evalrx.analyzers.reasoning import _text
 
     src = Path(_text.__file__).read_bytes()
     return hashlib.sha256(src).hexdigest()[:16]

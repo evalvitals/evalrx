@@ -13,10 +13,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.result import Result
-from evalvitals.eval_agent import (
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.result import Result
+from evalrx.eval_agent import (
     AnalysisModule,
     CaseDiscoveryAgent,
     DiagnosisAgent,
@@ -29,8 +29,8 @@ from evalvitals.eval_agent import (
     VLDiagnoseLoop,
     VLDiagnoseReport,
 )
-from evalvitals.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol, ProbingSchema
+from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol, ProbingSchema
 from tests.conftest import FakeModel
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -328,7 +328,7 @@ class TestStatsAnalysisAgent:
 
     def test_stats_report_is_analysis_report(self):
         # Backward compat: StatsAnalysisReport IS-A AnalysisReport
-        from evalvitals.analysis.analysis_module import AnalysisReport
+        from evalrx.analysis.analysis_module import AnalysisReport
         agent = StatsAnalysisAgent()
         report = agent.analyze({}, "m")
         assert isinstance(report, AnalysisReport)
@@ -773,7 +773,7 @@ class TestVLDiagnoseLoop:
             max_cycles=1,
         )
         report = loop.run(_labeled_batch())
-        from evalvitals.analysis.stats_agent import StatsAnalysisReport
+        from evalrx.analysis.stats_agent import StatsAnalysisReport
         assert isinstance(report.final_stats_report, StatsAnalysisReport)
 
     def test_stopped_by_max_cycles(self):
@@ -800,8 +800,8 @@ class TestVLDiagnoseLoop:
         data = CaseBatch(cases)
 
         # Make the attention analyzer return per-case signals on the failing cases
-        from evalvitals.core.result import Result as R
-        from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+        from evalrx.core.result import Result as R
+        from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 
         fail_ids = [cases[0].id, cases[1].id]
 
@@ -838,8 +838,8 @@ class TestVLDiagnoseLoop:
         assert result is None
 
     def test_run_m4_operates_on_best_hypothesis(self):
-        from evalvitals.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-        from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+        from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+        from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
         h = Hypothesis(
             statement="Model attends wrong.",
@@ -931,8 +931,8 @@ class TestVLDiagnoseTwoPhase:
     def _signal_setup(self, **loop_kw):
         """A loop whose probe fires a per-case signal exactly on the FAIL cases,
         so M5 can confirm. Returns (loop, data)."""
-        from evalvitals.core.result import Result as R
-        from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
+        from evalrx.core.result import Result as R
+        from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 
         cases = [
             FailureCase(inputs=Inputs(prompt="q1"), label=Label.FAIL),
@@ -987,7 +987,7 @@ class TestVLDiagnoseTwoPhase:
     def test_run_confirm_with_reloaded_hypotheses_and_stats(self):
         # Phase 1 → serialize/reload the proposed hypotheses → Phase 2 confirms
         # against the EXACT stats report the analysis dashboard showed.
-        from evalvitals.eval_agent.hypothesis import (
+        from evalrx.eval_agent.hypothesis import (
             hypothesis_from_dict,
             hypothesis_to_dict,
         )
@@ -1006,7 +1006,7 @@ class TestVLDiagnoseTwoPhase:
         assert len(confirmed.verified_hypotheses) >= 1
 
     def test_run_confirm_regenerates_stats_when_omitted(self):
-        from evalvitals.eval_agent.hypothesis import (
+        from evalrx.eval_agent.hypothesis import (
             hypothesis_from_dict,
             hypothesis_to_dict,
         )
@@ -1021,7 +1021,7 @@ class TestVLDiagnoseTwoPhase:
         assert confirmed.final_stats_report is not None
 
     def test_confirm_then_run_m4(self):
-        from evalvitals.eval_agent.hypothesis import (
+        from evalrx.eval_agent.hypothesis import (
             hypothesis_from_dict,
             hypothesis_to_dict,
         )
@@ -1091,7 +1091,7 @@ class TestDescriptivePhaseCompiler:
     }
 
     def test_descriptive_mode_demotes_claims(self):
-        from evalvitals.reporting.compiler import compile_diagnostic_report
+        from evalrx.reporting.compiler import compile_diagnostic_report
 
         story = {"analyses": [{"cycle": 0, "descriptive_only": True}], "surgeries": []}
         rep = compile_diagnostic_report(story, self._EXPLORE).to_dict()
@@ -1100,7 +1100,7 @@ class TestDescriptivePhaseCompiler:
         assert any("ANALYSIS PHASE" in c for c in rep["caveats"])
 
     def test_confirmatory_mode_shows_validity(self):
-        from evalvitals.reporting.compiler import compile_diagnostic_report
+        from evalrx.reporting.compiler import compile_diagnostic_report
 
         # A confirmatory M2 (descriptive_only False) restores the supported verdict.
         story = {"analyses": [{"cycle": 0, "descriptive_only": False}], "surgeries": []}
@@ -1108,7 +1108,7 @@ class TestDescriptivePhaseCompiler:
         assert any(c["status"] == "supported" for c in rep["claims"])
 
     def test_surgery_presence_restores_validity(self):
-        from evalvitals.reporting.compiler import compile_diagnostic_report
+        from evalrx.reporting.compiler import compile_diagnostic_report
 
         # Even a descriptive analysis flips to validity once a confirm-phase
         # surgery (M5) is recorded in the merged story.
@@ -1163,7 +1163,7 @@ class _RecordingSignalProbe(ProbeAgent):
         self.calls = []  # (case_ids, analyzers_kw)
 
     def probe(self, model, data, **kw):
-        from evalvitals.core.result import Result as R
+        from evalrx.core.result import Result as R
 
         ids = [c.id for c in data]
         self.calls.append((ids, kw.get("analyzers")))

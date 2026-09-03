@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from evalvitals.analysis.operationalize import (
+from evalrx.analysis.operationalize import (
     SignalRecipe,
     bridge_recipes_to_result,
     per_case_to_records,
     safe_ident,
 )
-from evalvitals.analysis.stats_tools import build_stats_input
-from evalvitals.eval_agent.loop import VLDiagnoseLoop
+from evalrx.analysis.stats_tools import build_stats_input
+from evalrx.eval_agent.loop import VLDiagnoseLoop
 
 
 class _FakeResult:
@@ -146,7 +146,7 @@ def test_loop_bridge_signals_is_noop_without_recipes():
 def test_loop_bridge_raises_stats_signal_cap_so_bridged_signals_are_tested():
     """Regression: a low max_signal_tools must not silently cap the bridged signals
     (they are appended last to per_case). The bridge raises the cap to cover them."""
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
 
     probe_results = _probe_results()  # saliency.obj_size + saliency.attention
     recipe = SignalRecipe(name="small", kind="expr", expr="saliency_obj_size < 40")

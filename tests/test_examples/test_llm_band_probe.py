@@ -376,7 +376,7 @@ def test_default_sampling_is_not_greedy(band):
 def test_probe_validate_unpacks_the_generate_tuple(monkeypatch):
     """generate() returns (text, finish_reason); a caller that forgets to unpack
     hands every probe a tuple and every grader scores 0."""
-    pytest.importorskip("evalvitals")
+    pytest.importorskip("evalrx")
     band = _load("band_locate")
     pv = _load("probe_validate")
     monkeypatch.setattr(band, "generate", lambda *a, **k: ("the text", "length"))

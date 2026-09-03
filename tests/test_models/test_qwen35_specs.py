@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.specs import get_spec
+from evalrx.specs import get_spec
 
 TEXT_KEYS = ("qwen3.5-2b", "qwen3.5-4b", "qwen3.5-9b")
 

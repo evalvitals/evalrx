@@ -14,7 +14,7 @@ it as evidence.
 
 from __future__ import annotations
 
-from evalvitals.analysis.analysis_module import _build_narrative, _zero_counts
+from evalrx.analysis.analysis_module import _build_narrative, _zero_counts
 
 
 class _R:

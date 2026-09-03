@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import pytest
 
-import evalvitals.analyzers  # noqa: F401  (populate the registry)
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Step, StepRole, Trajectory
-from evalvitals.core.model import Model
-from evalvitals.eval_agent.stages.probe import ModelKind, StrategyProbe
+import evalrx.analyzers  # noqa: F401  (populate the registry)
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Step, StepRole, Trajectory
+from evalrx.core.model import Model
+from evalrx.eval_agent.stages.probe import ModelKind, StrategyProbe
 
 
 def _model(*modalities: str, tools: bool = False) -> Model:

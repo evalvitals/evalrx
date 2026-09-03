@@ -20,53 +20,53 @@ from typing import Any
 
 import pytest
 
-import evalvitals  # noqa: F401 — side-effect: registers all analyzers
-from evalvitals.analyzers.agent.counterfactual import CounterfactualReplay
-from evalvitals.analyzers.agent.first_error_judge import FirstErrorJudge
-from evalvitals.analyzers.agent.ignored_obs import IgnoredObservationDetector
-from evalvitals.analyzers.agent.loop_detect import LoopDetector
-from evalvitals.analyzers.agent.reliability import ReliabilityProbe
-from evalvitals.analyzers.agent.tool_shap import ToolShap
-from evalvitals.analyzers.agent.trajectory_rubric import TrajectoryRubricJudge
-from evalvitals.analyzers.attention.rollout import AttentionRolloutAnalyzer
-from evalvitals.analyzers.attention.sink import AttentionSinkAnalyzer
-from evalvitals.analyzers.attention.summary import AttentionAnalyzer
-from evalvitals.analyzers.geometry.cka import CKAAnalyzer
-from evalvitals.analyzers.geometry.linear_probe import LinearProbeAnalyzer
-from evalvitals.analyzers.hallucination.chair import CHAIRAnalyzer
-from evalvitals.analyzers.hallucination.opera import OPERAAnalyzer
-from evalvitals.analyzers.hallucination.pope import POPEAnalyzer
-from evalvitals.analyzers.hallucination.selfcheck import SelfCheckConsistencyAnalyzer
-from evalvitals.analyzers.hallucination.vcd import VCDAnalyzer
-from evalvitals.analyzers.lens.layer_contrast import LayerContrastAnalyzer
-from evalvitals.analyzers.lens.logit_lens import LogitLensAnalyzer
-from evalvitals.analyzers.lens.tuned_lens import TunedLensAnalyzer
-from evalvitals.analyzers.patching.causal_trace import CausalTraceAnalyzer
-from evalvitals.analyzers.perturbation.context_shap import ContextShapAnalyzer
-from evalvitals.analyzers.perturbation.cot_faithfulness import CoTFaithfulnessAnalyzer
-from evalvitals.analyzers.perturbation.format_sensitivity import FormatSensitivityAnalyzer
-from evalvitals.analyzers.perturbation.mm_shap import MMShapAnalyzer
-from evalvitals.analyzers.perturbation.modality_ablation import ModalityAblationAnalyzer
-from evalvitals.analyzers.perturbation.perturbation_battery import PerturbationBattery
-from evalvitals.analyzers.perturbation.prompt_contrast import PromptContrastAnalyzer
-from evalvitals.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
-from evalvitals.analyzers.reasoning.arith_audit import ArithmeticAudit
-from evalvitals.analyzers.reasoning.contamination import ContaminationProbe
-from evalvitals.analyzers.reasoning.knowledge_split import KnowledgeReasoningSplit
-from evalvitals.analyzers.reasoning.self_repair import SelfRepairAnalyzer
-from evalvitals.analyzers.reasoning.step_rollout_value import StepRolloutValueAnalyzer
-from evalvitals.analyzers.reasoning.termination_audit import TerminationAudit
-from evalvitals.analyzers.uncertainty.calibration import CalibrationAnalyzer
-from evalvitals.analyzers.uncertainty.coverage_gap import CoverageVerificationGap
-from evalvitals.analyzers.uncertainty.entropy import TokenEntropyAnalyzer
-from evalvitals.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
-from evalvitals.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
-from evalvitals.analyzers.uncertainty.verbalized_conf import VerbalizedConfidenceAnalyzer
-from evalvitals.core.capability import Capability, CapabilityError
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label, Step, StepRole, Trajectory
-from evalvitals.core.registry import registry
-from evalvitals.core.result import Result
-from evalvitals.datasets import cases_from_records
+import evalrx  # noqa: F401 — side-effect: registers all analyzers
+from evalrx.analyzers.agent.counterfactual import CounterfactualReplay
+from evalrx.analyzers.agent.first_error_judge import FirstErrorJudge
+from evalrx.analyzers.agent.ignored_obs import IgnoredObservationDetector
+from evalrx.analyzers.agent.loop_detect import LoopDetector
+from evalrx.analyzers.agent.reliability import ReliabilityProbe
+from evalrx.analyzers.agent.tool_shap import ToolShap
+from evalrx.analyzers.agent.trajectory_rubric import TrajectoryRubricJudge
+from evalrx.analyzers.attention.rollout import AttentionRolloutAnalyzer
+from evalrx.analyzers.attention.sink import AttentionSinkAnalyzer
+from evalrx.analyzers.attention.summary import AttentionAnalyzer
+from evalrx.analyzers.geometry.cka import CKAAnalyzer
+from evalrx.analyzers.geometry.linear_probe import LinearProbeAnalyzer
+from evalrx.analyzers.hallucination.chair import CHAIRAnalyzer
+from evalrx.analyzers.hallucination.opera import OPERAAnalyzer
+from evalrx.analyzers.hallucination.pope import POPEAnalyzer
+from evalrx.analyzers.hallucination.selfcheck import SelfCheckConsistencyAnalyzer
+from evalrx.analyzers.hallucination.vcd import VCDAnalyzer
+from evalrx.analyzers.lens.layer_contrast import LayerContrastAnalyzer
+from evalrx.analyzers.lens.logit_lens import LogitLensAnalyzer
+from evalrx.analyzers.lens.tuned_lens import TunedLensAnalyzer
+from evalrx.analyzers.patching.causal_trace import CausalTraceAnalyzer
+from evalrx.analyzers.perturbation.context_shap import ContextShapAnalyzer
+from evalrx.analyzers.perturbation.cot_faithfulness import CoTFaithfulnessAnalyzer
+from evalrx.analyzers.perturbation.format_sensitivity import FormatSensitivityAnalyzer
+from evalrx.analyzers.perturbation.mm_shap import MMShapAnalyzer
+from evalrx.analyzers.perturbation.modality_ablation import ModalityAblationAnalyzer
+from evalrx.analyzers.perturbation.perturbation_battery import PerturbationBattery
+from evalrx.analyzers.perturbation.prompt_contrast import PromptContrastAnalyzer
+from evalrx.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
+from evalrx.analyzers.reasoning.arith_audit import ArithmeticAudit
+from evalrx.analyzers.reasoning.contamination import ContaminationProbe
+from evalrx.analyzers.reasoning.knowledge_split import KnowledgeReasoningSplit
+from evalrx.analyzers.reasoning.self_repair import SelfRepairAnalyzer
+from evalrx.analyzers.reasoning.step_rollout_value import StepRolloutValueAnalyzer
+from evalrx.analyzers.reasoning.termination_audit import TerminationAudit
+from evalrx.analyzers.uncertainty.calibration import CalibrationAnalyzer
+from evalrx.analyzers.uncertainty.coverage_gap import CoverageVerificationGap
+from evalrx.analyzers.uncertainty.entropy import TokenEntropyAnalyzer
+from evalrx.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
+from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
+from evalrx.analyzers.uncertainty.verbalized_conf import VerbalizedConfidenceAnalyzer
+from evalrx.core.capability import Capability, CapabilityError
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label, Step, StepRole, Trajectory
+from evalrx.core.registry import registry
+from evalrx.core.result import Result
+from evalrx.datasets import cases_from_records
 from tests.conftest import FakeModel
 
 # ── shared fixtures ────────────────────────────────────────────────────────────

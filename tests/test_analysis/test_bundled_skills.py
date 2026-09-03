@@ -10,16 +10,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from evalvitals.agent_assets.skills import SKILL_BACKENDS, bundled_skill_paths
-from evalvitals.analysis import api as explore_api
-from evalvitals.analysis import explore_run
+from evalrx.agent_assets.skills import SKILL_BACKENDS, bundled_skill_paths
+from evalrx.analysis import api as explore_api
+from evalrx.analysis import explore_run
 
 
 def test_bundled_skill_set():
     paths = bundled_skill_paths()
     names = {Path(p).name for p in paths}
     assert "nature-figure" in names
-    assert "evalvitals-report-ui" in names
+    assert "evalrx-report-ui" in names
     # The eval_viz_theme chart-type policy, codified as a skill for agents.
     assert "eval-chart-style" in names
     # The statistical-method protocol consulted BEFORE analysis code is written.
@@ -76,7 +76,7 @@ def test_explore_applies_bundled_skills_on_claude_by_default(monkeypatch, tmp_pa
             captured["cli_config"] = cli_config
 
         def explore_path(self, *a, **k):
-            from evalvitals.analysis.explorer import ExploratoryAnalysisReport
+            from evalrx.analysis.explorer import ExploratoryAnalysisReport
             return ExploratoryAnalysisReport(question="q", ok=True, workdir=str(tmp_path))
 
     monkeypatch.setattr(explore_api, "ExploratoryAnalysisAgent", _FakeAgent)
@@ -96,7 +96,7 @@ def test_explore_applies_bundled_skills_on_codex_by_default(monkeypatch, tmp_pat
             captured["cli_config"] = cli_config
 
         def explore_path(self, *a, **k):
-            from evalvitals.analysis.explorer import ExploratoryAnalysisReport
+            from evalrx.analysis.explorer import ExploratoryAnalysisReport
             return ExploratoryAnalysisReport(question="q", ok=True, workdir=str(tmp_path))
 
     monkeypatch.setattr(explore_api, "ExploratoryAnalysisAgent", _FakeAgent)
@@ -114,7 +114,7 @@ def test_no_skills_flag_disables_bundled(monkeypatch, tmp_path):
             captured["cli_config"] = cli_config
 
         def explore_path(self, *a, **k):
-            from evalvitals.analysis.explorer import ExploratoryAnalysisReport
+            from evalrx.analysis.explorer import ExploratoryAnalysisReport
             return ExploratoryAnalysisReport(question="q", ok=True, workdir=str(tmp_path))
 
     monkeypatch.setattr(explore_api, "ExploratoryAnalysisAgent", _FakeAgent)
@@ -132,7 +132,7 @@ def test_non_skill_backend_does_not_vendor_skills(monkeypatch, tmp_path):
             captured["cli_config"] = cli_config
 
         def explore_path(self, *a, **k):
-            from evalvitals.analysis.explorer import ExploratoryAnalysisReport
+            from evalrx.analysis.explorer import ExploratoryAnalysisReport
             return ExploratoryAnalysisReport(question="q", ok=True, workdir=str(tmp_path))
 
     monkeypatch.setattr(explore_api, "ExploratoryAnalysisAgent", _FakeAgent)
@@ -145,8 +145,8 @@ def test_explorer_agent_defaults_bundled_skills():
     """Any flow that hands the explorer a bare CliAgentConfig (e.g. the fused
     pipeline via an example's build_codegen) gets the bundled skills without
     caller wiring; opt out via use_bundled_skills=False."""
-    from evalvitals.analysis.explorer import ExploratoryAnalysisAgent
-    from evalvitals.eval_agent.cli_agent import CliAgentConfig
+    from evalrx.analysis.explorer import ExploratoryAnalysisAgent
+    from evalrx.eval_agent.cli_agent import CliAgentConfig
 
     agent = ExploratoryAnalysisAgent(cli_config=CliAgentConfig(provider="claude_code"))
     names = {Path(s).name for s in agent._cli_config.skills}

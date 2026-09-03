@@ -19,7 +19,7 @@ the two artifacts above so the SAME hypotheses/stats are what gets confirmed.
     python run_m1.py        --model qwen3-vl-2b-instruct --device cuda   # once (GPU)
     python run_fused.py     --backend claude                            # Step 1 (no GPU)
     python run_analysis.py  --backend claude --recipes outputs/fused/confirmed_recipes.json --explore-report outputs/fused/fused_report.json   # PHASE 1 (no GPU)
-    python -m evalvitals.cli dashboard outputs                         # the analysis report
+    python -m evalrx.cli dashboard outputs                         # the analysis report
     python run_confirm_fix.py --device cuda                            # PHASE 2 (GPU + claude)
 
 No GPU here: M1 is replayed from the pickle, and M2/M3 only call the judge/coder
@@ -68,14 +68,14 @@ def main() -> None:
     print(f"loaded frozen M1: analyzers={list(probe_results)} cases={len(list(cases))} "
           f"failed={state.get('failed_analyzers') or '{}'}")
 
-    from evalvitals.eval_agent import (
+    from evalrx.eval_agent import (
         CliAgentConfig,
         RunLogger,
         VLDiagnoseLoop,
     )
-    from evalvitals.eval_agent.hypothesis import hypothesis_to_dict
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.eval_agent.hypothesis import hypothesis_to_dict
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
 
     judge = run.build_judge(args.judge_model, args.judge_effort)
     codegen: CliAgentConfig = run.build_codegen(args.backend)
@@ -86,7 +86,7 @@ def main() -> None:
     # Optional: bridge Step-1's confirmed recipes into M2's family (same as run_m2-5).
     signal_recipes = []
     if args.recipes:
-        from evalvitals.analysis.operationalize import SignalRecipe
+        from evalrx.analysis.operationalize import SignalRecipe
 
         raw = json.loads(Path(args.recipes).read_text())
         signal_recipes = [SignalRecipe.from_dict(r) for r in raw]
@@ -146,12 +146,12 @@ def main() -> None:
     print(f"wrote {ANALYSIS_DIR / 'analysis_state.pkl'}  (hypotheses + stats for PHASE 2)")
     print(f"analysis logs -> {run_logger.run_dir}")
     print("\nView the analysis dashboard (proposed hypotheses, no verdicts yet):")
-    print("  python -m evalvitals.cli dashboard outputs")
+    print("  python -m evalrx.cli dashboard outputs")
     print("\nPHASE 2 (confirm + fix, reuses the artifacts above):")
     print("  python run_confirm_fix.py --device cuda")
 
     if args.dashboard:
-        from evalvitals.analysis.dashboard import launch_dashboard
+        from evalrx.analysis.dashboard import launch_dashboard
 
         raise SystemExit(launch_dashboard(OUT))
 

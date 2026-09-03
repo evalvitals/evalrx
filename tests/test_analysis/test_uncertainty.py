@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.analyzers.uncertainty.entropy import TokenEntropyAnalyzer, UncertaintyResult
-from evalvitals.core.capability import Capability, CapabilityError
+from evalrx.analyzers.uncertainty.entropy import TokenEntropyAnalyzer, UncertaintyResult
+from evalrx.core.capability import Capability, CapabilityError
 from tests.conftest import FakeModel
 
 
@@ -29,7 +29,7 @@ def test_refused_without_logits_capability():
 
 
 def test_registered_and_capability_matched():
-    from evalvitals.core.registry import registry
+    from evalrx.core.registry import registry
 
     assert registry.analyzers.has("token_entropy")
     logits_model = FakeModel(capabilities={Capability.GENERATE, Capability.LOGITS})

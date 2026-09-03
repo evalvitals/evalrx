@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
-from evalvitals.core.capability import Capability, CapabilityError
-from evalvitals.core.model import TokenLogprob
-from evalvitals.core.registry import registry
-from evalvitals.core.spec import ModelSpec
-from evalvitals.models import RuntimeConfig, compose
-from evalvitals.models.backends.api import parse_openai_logprobs
+from evalrx.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
+from evalrx.core.capability import Capability, CapabilityError
+from evalrx.core.model import TokenLogprob
+from evalrx.core.registry import registry
+from evalrx.core.spec import ModelSpec
+from evalrx.models import RuntimeConfig, compose
+from evalrx.models.backends.api import parse_openai_logprobs
 from tests.conftest import FakeModel
 
 _SPEC = ModelSpec(key="gpt-x", family="openai", model_type="gpt-x")

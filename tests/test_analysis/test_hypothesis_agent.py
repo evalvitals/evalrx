@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from evalvitals.analysis.hypothesis_agent import Hypothesis, HypothesisAgent, _parse_hypotheses
+from evalrx.analysis.hypothesis_agent import Hypothesis, HypothesisAgent, _parse_hypotheses
 
 
 class ScriptedJudge:
@@ -191,7 +191,7 @@ _AGENT_REPORT = {
 
 
 def test_agent_report_appends_intervenable_cause_hint():
-    from evalvitals.analysis.hypothesis_agent import _is_agent_report
+    from evalrx.analysis.hypothesis_agent import _is_agent_report
 
     judge = ScriptedJudge("NO_HYPOTHESIS")
     HypothesisAgent(judge=judge).propose(_AGENT_REPORT)
@@ -202,7 +202,7 @@ def test_agent_report_appends_intervenable_cause_hint():
 
 
 def test_non_agent_report_gets_no_hint():
-    from evalvitals.analysis.hypothesis_agent import _is_agent_report
+    from evalrx.analysis.hypothesis_agent import _is_agent_report
 
     judge = ScriptedJudge("NO_HYPOTHESIS")
     HypothesisAgent(judge=judge).propose(_REPORT)

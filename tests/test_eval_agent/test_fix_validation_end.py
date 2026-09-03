@@ -27,18 +27,18 @@ import json
 
 import pytest
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
-from evalvitals.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-from evalvitals.eval_agent.stages.fix_agent import (
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
+from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+from evalrx.eval_agent.stages.fix_agent import (
     FixAgent,
     FixCandidate,
     FixContext,
     _format_examples,
 )
-from evalvitals.eval_agent.stages.fix_tiers import FixTier
-from evalvitals.eval_agent.stages.fix_tools import (
+from evalrx.eval_agent.stages.fix_tiers import FixTier
+from evalrx.eval_agent.stages.fix_tools import (
     MAX_TOKENS_CAP,
     PipelineSpec,
     answer_key,
@@ -228,7 +228,7 @@ def test_floor_is_inferred_from_the_model_when_not_given():
 
 
 def test_bridge_enforces_floor_and_passes_generation_kwargs(tmp_path):
-    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
 
     code = '''
 import json
@@ -253,7 +253,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     class Truncating(CountingModel):
         def generate(self, inputs, **kwargs):
@@ -374,10 +374,10 @@ def test_floor_skipped_for_image_yes_no_batches():
 
 
 def test_run_fix_drops_m4_refuted_hypothesis_and_tells_the_proposer():
-    from evalvitals.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
-    from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTestResult
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
-    from evalvitals.eval_agent.stages.surgery import InterventionResult
+    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent.stages.surgery import InterventionResult
 
     h_bad = _hyp("labels come from a grading mismatch")
     h_bad.id = "h-bad"
@@ -428,8 +428,8 @@ def test_run_fix_drops_m4_refuted_hypothesis_and_tells_the_proposer():
 
 def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
     """Even a legacy minimal proposer cannot bypass the M5 evidence gate."""
-    from evalvitals.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     class Minimal:
         run_logger = None
@@ -452,7 +452,7 @@ def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
 
 
 def test_recommendation_surfaces_inconclusive_positive_candidate():
-    from evalvitals.eval_agent.stages.fix_agent import FixValidation
+    from evalrx.eval_agent.stages.fix_agent import FixValidation
 
     agent = FixAgent(judge=None, max_tier="L2", allow_codegen=False, floor_candidates=())
     good = FixValidation(candidate=FixCandidate(tier=FixTier.L2_SCAFFOLD, name="good",
@@ -470,7 +470,7 @@ def test_recommendation_surfaces_inconclusive_positive_candidate():
 
 
 def test_bounded_mean_evalue_is_valid_and_directional():
-    from evalvitals.stats import compare_paired_rates, evalue_bounded_mean
+    from evalrx.stats import compare_paired_rates, evalue_bounded_mean
 
     assert evalue_bounded_mean([]) == 1.0
     assert evalue_bounded_mean([0.0] * 50) == 1.0
@@ -580,8 +580,8 @@ def test_candidate_repeats_apply_to_declarative_candidates_only(tmp_path):
                             'print("FIX_PIPELINE_RESULT_JSON="+json.dumps({"per_case":out}))\n')})
     agent._sandbox = None
     agent._run_context = None
-    import evalvitals.eval_agent.stages.fix_agent as fa
-    from evalvitals.agent_runtime.sandbox import ExperimentSandbox
+    import evalrx.eval_agent.stages.fix_agent as fa
+    from evalrx.agent_runtime.sandbox import ExperimentSandbox
 
     agent._sandbox = ExperimentSandbox(workdir=tmp_path / "sb", cleanup=False)
     v2 = agent._validate(code, model, batch, baseline, unstable)
@@ -590,7 +590,7 @@ def test_candidate_repeats_apply_to_declarative_candidates_only(tmp_path):
 
 
 def test_rates_mode_power_ceiling_uses_baseline_rates():
-    from evalvitals.eval_agent.stages.fix_agent import FixValidation
+    from evalrx.eval_agent.stages.fix_agent import FixValidation
 
     agent = FixAgent(judge=None, max_tier="L2", baseline_repeats=5, allow_codegen=False,
                      floor_candidates=())
@@ -649,8 +649,8 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
 
 
 def _inconclusive_report():
-    from evalvitals.eval_agent import VLDiagnoseReport
-    from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+    from evalrx.eval_agent import VLDiagnoseReport
+    from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
     hs = [_hyp("lead A (weak)"), _hyp("lead B (best)"), _hyp("lead C (refuted)")]
     for i, h in enumerate(hs):
@@ -671,8 +671,8 @@ def _inconclusive_report():
 
 
 def test_run_m4_default_still_requires_verified_but_allow_unverified_uses_best_lead():
-    from evalvitals.eval_agent import VLDiagnoseLoop
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent import VLDiagnoseLoop
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     report, hs = _inconclusive_report()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"))
@@ -684,8 +684,8 @@ def test_run_m4_default_still_requires_verified_but_allow_unverified_uses_best_l
 
 
 def test_run_fix_without_verified_skips_repair_authoring():
-    from evalvitals.eval_agent import VLDiagnoseLoop
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent import VLDiagnoseLoop
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     report, hs = _inconclusive_report()
 
@@ -759,7 +759,7 @@ def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
     and with concurrency>1 the host really services calls in parallel."""
     import time as _t
 
-    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
 
     model = EchoPromptModel(delay=0.15)
     batch = _mc_batch(n_fail=6, n_pass=6)
@@ -782,7 +782,7 @@ def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
 def test_bridge_reply_carries_rid_and_errors_route_to_the_caller(tmp_path):
     """An unknown case id errors in the calling thread only; the other
     thread's call still succeeds (replies are routed by id, not by order)."""
-    from evalvitals.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
 
     code = """
 import json
@@ -812,8 +812,8 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": [
 
 
 def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
-    from evalvitals.eval_agent.stages import fix_agent as fa
-    from evalvitals.eval_agent.stages.fix_pipeline import CodedPipelineResult
+    from evalrx.eval_agent.stages import fix_agent as fa
+    from evalrx.eval_agent.stages.fix_pipeline import CodedPipelineResult
 
     seen = {}
 
@@ -838,8 +838,8 @@ def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
 def test_run_fix_allow_unverified_keeps_a_minimal_fix_agent_working():
     """A stub that only accepts (model, data, hypotheses) keeps working and
     receives the final proposals when nothing was verified."""
-    from evalvitals.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     class Minimal:
         run_logger = None
@@ -858,8 +858,8 @@ def test_run_fix_allow_unverified_keeps_a_minimal_fix_agent_working():
 
 
 def test_run_fix_allow_unverified_uses_unverified_leads_and_says_so():
-    from evalvitals.eval_agent import VLDiagnoseLoop
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent import VLDiagnoseLoop
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     report, hs = _inconclusive_report()
 
@@ -888,9 +888,9 @@ def test_run_fix_allow_unverified_uses_unverified_leads_and_says_so():
 
 
 def test_run_fix_allow_unverified_keeps_leads_beside_verified_symptom():
-    from evalvitals.eval_agent import VLDiagnoseLoop
-    from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTestResult
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent import VLDiagnoseLoop
+    from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     report, hs = _inconclusive_report()
     symptom = _hyp("secondary malformed-output symptom")

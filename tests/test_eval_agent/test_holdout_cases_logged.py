@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
 

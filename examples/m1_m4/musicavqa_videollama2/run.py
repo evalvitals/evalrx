@@ -70,7 +70,7 @@ PINNED_M1_ANALYZERS = [
 
 def drift_check(model, cases, n: int = 3) -> None:
     """Re-answer a few questions; warn if the pass/fail verdict flips."""
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     stale = 0
     for case in list(cases)[:n]:
@@ -84,7 +84,7 @@ def drift_check(model, cases, n: int = 3) -> None:
 
 
 def build_judge(model_name: str, effort: str):
-    from evalvitals.eval_agent import ClaudeModel
+    from evalrx.eval_agent import ClaudeModel
 
     judge = ClaudeModel(model=model_name, effort=effort)
     if not judge.generate("Reply with exactly the word OK").strip():
@@ -147,7 +147,7 @@ def main() -> None:
               else f"smoke: no manifest yet at {manifest_path} (run mine_cases.py)")
         return
 
-    from evalvitals.eval_agent import (
+    from evalrx.eval_agent import (
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
@@ -155,10 +155,10 @@ def main() -> None:
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
-    from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
-    from evalvitals.eval_agent.stages.probe import StrategyProbe
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
+    from evalrx.eval_agent.stages.probe_agent import ProbeAgent
+    from evalrx.eval_agent.stages.probe import StrategyProbe
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
 
     judge = build_judge(args.judge_model, args.judge_effort)  # probe BEFORE weights load
     model = build_model(args)

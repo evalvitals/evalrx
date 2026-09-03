@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert downloaded PDFs into page-level records consumable by EvalVitals.
+"""Convert downloaded PDFs into page-level records consumable by EvalRX.
 
 This is the benchmark's data interface: each record preserves paper identity,
 page number, diagnosis axis, and the verbatim extracted page text. Keeping the

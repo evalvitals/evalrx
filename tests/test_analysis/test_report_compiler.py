@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.analysis.dashboard import load_run
-from evalvitals.reporting.compiler import compile_diagnostic_report
+from evalrx.analysis.dashboard import load_run
+from evalrx.reporting.compiler import compile_diagnostic_report
 
 
 def test_reader_report_is_generic_and_keeps_observation_distinct_from_proof():
-    from evalvitals.reporting.compiler import compile_reader_report
+    from evalrx.reporting.compiler import compile_reader_report
 
     report = compile_reader_report({
         "run": {"model": "demo", "benchmark_name": "audio questions", "n_cases": 10, "protocol": "Why errors?"},

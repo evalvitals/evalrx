@@ -7,7 +7,7 @@ batches were built). This writes two derived input dirs:
   data_attn_validate/  split == "validate"  -> phase 2 (held-out hypothesis testing)
 
 The wrapper metadata (model, seed, prompt_template, ...) is preserved per file so
-`evalvitals explore` sees the same shape as the full dataset. Derived dirs are
+`evalrx explore` sees the same shape as the full dataset. Derived dirs are
 gitignored — rerun this script to regenerate.
 """
 

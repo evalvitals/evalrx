@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-import evalvitals.analyzers  # noqa: F401  (populate registries)
-import evalvitals.models  # noqa: F401
-from evalvitals.core import Result, registry
+import evalrx.analyzers  # noqa: F401  (populate registries)
+import evalrx.models  # noqa: F401
+from evalrx.core import Result, registry
 from tests.conftest import FakeModel
 
 # -- registry ----------------------------------------------------------
 
 def test_models_live_in_specs():
     # specs.REGISTRY is the single source of truth for model identity now.
-    from evalvitals.specs import list_specs
+    from evalrx.specs import list_specs
 
     assert "qwen2.5-7b-instruct" in list_specs()
 
@@ -45,7 +45,7 @@ def test_duplicate_registration_raises():
 # -- sklearn-style introspection --------------------------------------
 
 def test_get_set_params():
-    from evalvitals.analyzers.attention.summary import AttentionAnalyzer
+    from evalrx.analyzers.attention.summary import AttentionAnalyzer
 
     a = AttentionAnalyzer(layer=-1, top_k=5)
     assert a.get_params() == {"layer": -1, "head": "mean", "top_k": 5}
@@ -57,7 +57,7 @@ def test_get_set_params():
 # -- call_x shim -------------------------------------------------------
 
 def test_call_attention_shim_dispatches():
-    from evalvitals.analyzers.attention.summary import AttentionResult
+    from evalrx.analyzers.attention.summary import AttentionResult
 
     model = FakeModel()
     result = model.call_attention("the capital of france is")

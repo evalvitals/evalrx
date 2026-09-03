@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 _OUTPUTS_DIR = Path(__file__).parent / "outputs"
-_POPE_ROOT = Path("/data/rjin02/evalvitals/pope_coco")
+_POPE_ROOT = Path("/data/rjin02/evalrx/pope_coco")
 _DEFAULT_POPE_JSONL = _POPE_ROOT / "coco_pope_adversarial.json"
 _DEFAULT_IMAGE_DIR = _POPE_ROOT / "images"
 
@@ -46,7 +46,7 @@ def _parse_yes_no(text: str) -> str | None:
 
 
 def _score_case(case: Any, observed: Any) -> Any:
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     pred = _parse_yes_no(str(observed))
     gold = str(case.expected).strip().lower()
@@ -63,7 +63,7 @@ def _build_pope_cases(args: Any) -> list:
     """Load POPE adversarial cases from local JSONL + images."""
     from PIL import Image
 
-    from evalvitals.core.case import FailureCase, Inputs
+    from evalrx.core.case import FailureCase, Inputs
 
     jsonl_path = Path(args.pope_jsonl)
     image_dir = Path(args.image_dir)
@@ -144,7 +144,7 @@ def _build_pope_cases(args: Any) -> list:
 # ---------------------------------------------------------------------------
 
 def _build_protocol():
-    from evalvitals.eval_agent import ExperimentProtocol
+    from evalrx.eval_agent import ExperimentProtocol
 
     return ExperimentProtocol(
         description=(
@@ -217,8 +217,8 @@ def main() -> None:
     parser.add_argument("--run-dir", default=str(_OUTPUTS_DIR))
     args = parser.parse_args()
 
-    import evalvitals
-    from evalvitals.eval_agent import (
+    import evalrx
+    from evalrx.eval_agent import (
         AgyModel,
         CaseDiscoveryAgent,
         CliAgentConfig,
@@ -234,7 +234,7 @@ def main() -> None:
     )
 
     print(f"\nLoading {args.model!r} ...")
-    model = evalvitals.load(
+    model = evalrx.load(
         args.model,
         backend="hf_local",
         device=args.device,

@@ -41,7 +41,7 @@ def download_paper(paper: dict[str, Any], destination: Path, *, force: bool = Fa
 
     request = Request(
         str(paper["pdf_url"]),
-        headers={"User-Agent": "EvalVitals-paper-diagnosis-example/1.0"},
+        headers={"User-Agent": "EvalRX-paper-diagnosis-example/1.0"},
     )
     with urlopen(request, timeout=60) as response:
         content_type = response.headers.get_content_type()

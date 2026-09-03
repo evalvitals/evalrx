@@ -101,7 +101,7 @@ def make_chair_score_fn(syn: "dict[str, list[str]]"):
 def load_manifest(model_key: str):
     from PIL import Image
 
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 
     path = DATA / "cases" / f"{model_key}.json"
     if not path.exists():
@@ -149,7 +149,7 @@ def force_greedy(model) -> None:
 def drift_check(model, cases, syn, n: int = 3) -> None:
     """Re-caption a few images; warn if the hallucinated-vs-clean verdict flips
     (long generations drift — compare the boolean, not the text)."""
-    from evalvitals.core.case import Label
+    from evalrx.core.case import Label
 
     stale = 0
     for case in list(cases)[:n]:
@@ -167,7 +167,7 @@ def drift_check(model, cases, syn, n: int = 3) -> None:
 # ---------------------------------------------------------------------------
 
 def build_judge(model_name: str, effort: str):
-    from evalvitals.eval_agent import ClaudeModel
+    from evalrx.eval_agent import ClaudeModel
 
     judge = ClaudeModel(model=model_name, effort=effort)
     if not judge.generate("Reply with exactly the word OK").strip():
@@ -178,7 +178,7 @@ def build_judge(model_name: str, effort: str):
 
 
 def build_protocol():
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     # OBSERVATION ONLY: describe the wrong-output pattern and the recall guard.
     # Do NOT name a suspected mechanism (layers, suppression, language/co-occurrence
@@ -235,9 +235,9 @@ def main() -> None:
         print("smoke ok" if exists else "smoke: no manifest yet (run mine_cases.py)")
         return
 
-    from evalvitals import compose
-    from evalvitals.core.capability import Capability
-    from evalvitals.eval_agent import (
+    from evalrx import compose
+    from evalrx.core.capability import Capability
+    from evalrx.eval_agent import (
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
@@ -245,10 +245,10 @@ def main() -> None:
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
-    from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
+    from evalrx.eval_agent.stages.probe_agent import ProbeAgent
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.models.backends.base import RuntimeConfig
 
     judge = build_judge(args.judge_model, args.judge_effort)  # probe BEFORE weights load
 
@@ -281,7 +281,7 @@ def main() -> None:
     # The `chair` analyzer needs an object vocabulary, so it can't auto-instantiate
     # with default args — give M1 a ready instance (COCO category names) via the
     # override map, so tier-(a) selection of `chair` actually runs.
-    from evalvitals.analyzers.hallucination.chair import CHAIRAnalyzer
+    from evalrx.analyzers.hallucination.chair import CHAIRAnalyzer
     chair_analyzer = CHAIRAnalyzer(object_vocab=list(syn))
     loop = VLDiagnoseLoop(
         model=model,

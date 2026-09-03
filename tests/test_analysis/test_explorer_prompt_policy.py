@@ -4,9 +4,9 @@ CSV shape; bars only for counts or many categories)."""
 
 from __future__ import annotations
 
-from evalvitals.agent_assets.skills import BUNDLED_SKILLS_DIR
-from evalvitals.analysis.explorer import _framing_block
-from evalvitals.analysis.prompts.explorer import _ANALYSIS_CONTRACT, _GENERIC_FRAMING
+from evalrx.agent_assets.skills import BUNDLED_SKILLS_DIR
+from evalrx.analysis.explorer import _framing_block
+from evalrx.analysis.prompts.explorer import _ANALYSIS_CONTRACT, _GENERIC_FRAMING
 
 
 def test_prompt_asks_for_n_and_numerators_and_forbids_two_group_mean_specs():
@@ -27,7 +27,7 @@ def test_binary_battery_routes_numeric_signals_to_the_binned_line():
 
 def test_skill_scope_note_applies_the_policy_to_host_specs_too():
     skill = (BUNDLED_SKILLS_DIR / "eval-chart-style" / "SKILL.md").read_text(encoding="utf-8")
-    scope = skill.split("## Scope note for EvalVitals sandboxes", 1)[1]
+    scope = skill.split("## Scope note for EvalRX sandboxes", 1)[1]
     assert "§0 applies to them too" in scope
     assert "dot + 95% CI" in scope and "composition strip" in scope
     assert "never gets an invented interval" in scope

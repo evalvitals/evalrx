@@ -1,20 +1,20 @@
 <div align="center">
 
-# EvalVitals
+# EvalRX
 
-### Your eval tells you *what* failed. EvalVitals investigates *why*—and tests what fixes it.
+### Your eval tells you *what* failed. EvalRX investigates *why*—and tests what fixes it.
 
-[![PyPI version](https://img.shields.io/pypi/v/evalvitals?color=0A7BBC)](https://pypi.org/project/evalvitals/)
-[![Python versions](https://img.shields.io/pypi/pyversions/evalvitals)](https://pypi.org/project/evalvitals/)
-[![CI](https://github.com/evalvitals/evalvitals/actions/workflows/ci.yml/badge.svg)](https://github.com/evalvitals/evalvitals/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-live-6C63FF)](https://evalvitals.github.io/evalvitals/)
+[![PyPI version](https://img.shields.io/pypi/v/evalrx?color=0A7BBC)](https://pypi.org/project/evalrx/)
+[![Python versions](https://img.shields.io/pypi/pyversions/evalrx)](https://pypi.org/project/evalrx/)
+[![CI](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml/badge.svg)](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-live-6C63FF)](https://evalvitals.github.io/evalrx/)
 [![License: CC0-1.0](https://img.shields.io/badge/license-CC0--1.0-green)](LICENSE)
 
-[Get started](#quickstart-analyze-your-eval-logs) · [Documentation](https://evalvitals.github.io/evalvitals/) · [Examples](examples/README.md) · [PyPI](https://pypi.org/project/evalvitals/)
+[Get started](#quickstart-analyze-your-eval-logs) · [Documentation](https://evalvitals.github.io/evalrx/) · [Examples](examples/README.md) · [PyPI](https://pypi.org/project/evalrx/)
 
 </div>
 
-Every eval stack ends at a score. EvalVitals starts there and closes the loop:
+Every eval stack ends at a score. EvalRX starts there and closes the loop:
 probe the model for failures, find the structure behind them, propose a
 mechanism, **test it on cases the analysis never saw**, then build a repair and
 prove it beats the unmodified baseline. When a repair fails, the loop escalates
@@ -57,8 +57,8 @@ complete fine-tune recipe; it *executes* the one shape v1 supports —
 LoRA on the language model, trained on a diagnosis-only pool you pass as
 `FixAgent(finetune_pool=...)`, and validated through the same paired McNemar
 + e-value machinery as every other tier — see
-[`fix_internals.py`](evalvitals/eval_agent/stages/fix_internals.py) and
-[`fix_tiers.py`](evalvitals/eval_agent/stages/fix_tiers.py).
+[`fix_internals.py`](evalrx/eval_agent/stages/fix_internals.py) and
+[`fix_tiers.py`](evalrx/eval_agent/stages/fix_tiers.py).
 
 **L3b and L4 only exist for open weights.** You cannot modify a forward pass or
 fine-tune through somebody's API — which is why this is built on open models.
@@ -66,9 +66,9 @@ fine-tune through somebody's API — which is why this is built on open models.
 ### One typed shape per stage
 
 Every stage validates what it writes against a machine-readable contract
-(`evalvitals/contract/`) and drops it in `<run>/contract/`. TypeScript for the
+(`evalrx/contract/`) and drops it in `<run>/contract/`. TypeScript for the
 whole pipeline is generated from the same Python — `python -m
-evalvitals.contract.export --out docs/contract` — so a UI decodes a stage
+evalrx.contract.export --out docs/contract` — so a UI decodes a stage
 instead of re-deriving its shape from the event log.
 
 Modality lives in that contract as *slots*, never as a model-kind enum: LLM,
@@ -83,7 +83,7 @@ A self-improving system is only as good as its willingness to reject its own
 hypotheses. One that cannot will confidently ship repairs for problems it
 invented.
 
-We pointed EvalVitals at three Qwen3-VL checkpoints and asked what predicts
+We pointed EvalRX at three Qwen3-VL checkpoints and asked what predicts
 object hallucination. It found that attention focus share separates
 hallucinations from correct rejections at **AUC 0.82** — then, unprompted,
 argued that its *second* strongest signal was an artifact of how attention was
@@ -113,16 +113,16 @@ No install required — these are real runs, committed unmodified.
 
 ## Quickstart: Analyze Your Eval Logs
 
-Install EvalVitals:
+Install EvalRX:
 
 ```bash
-pip install evalvitals
+pip install evalrx
 ```
 
 Then point it at a file or directory of JSON/JSONL results:
 
 ```bash
-evalvitals explore ./results \
+evalrx explore ./results \
   --backend codex \
   -q "What distinguishes failed cases from successful ones?" \
   --serve-report
@@ -135,16 +135,16 @@ and authenticated separately.
 Open a finished run in the browser without a UI framework:
 
 ```bash
-evalvitals serve evalvitals_explore_output
+evalrx serve evalrx_explore_output
 ```
 
 The report is a self-contained HTML file (`report.html`), suitable for local
 viewing and sharing.  It is the only supported report UI.
 
-EvalVitals writes an auditable analysis bundle instead of returning only prose:
+EvalRX writes an auditable analysis bundle instead of returning only prose:
 
 ```text
-evalvitals_explore_output/
+evalrx_explore_output/
 ├── exploratory_report.json   # observations, candidate signals, hypotheses
 ├── records.json              # normalized records used by the analysis
 ├── figures/                  # rendered charts
@@ -160,12 +160,12 @@ temperature imbalance between groups. Zero of four candidate signals cleared
 adjudication. [Read the committed bundle →](examples/m2_m3/synthetic_yield_explore/reference_output/)
 
 Already have your own analysis code? Use the analyzer toolkit directly, or
-feed the resulting cases into the full diagnosis loop. EvalVitals does not
+feed the resulting cases into the full diagnosis loop. EvalRX does not
 require you to replace your existing eval or observability stack.
 
 ## What Makes It Different
 
-| Typical eval workflow | EvalVitals |
+| Typical eval workflow | EvalRX |
 |---|---|
 | Aggregate a metric | Investigate the cases behind the metric |
 | Browse failures manually | Search for recurring, structured failure modes |
@@ -176,13 +176,13 @@ require you to replace your existing eval or observability stack.
 
 Statistical gates use paired tests and e-values, including multiplicity control
 when several hypotheses or fixes are tried. A run may end **inconclusive**;
-EvalVitals does not turn weak evidence into a success verdict.
+EvalRX does not turn weak evidence into a success verdict.
 
-## Three Ways to Use EvalVitals
+## Three Ways to Use EvalRX
 
 ### 1. Explore — raw results to testable hypotheses
 
-`evalvitals explore` recursively samples arbitrary JSON/JSONL shapes. The
+`evalrx explore` recursively samples arbitrary JSON/JSONL shapes. The
 coding agent performs exploratory data analysis; the host records generated
 code, adjudicates host-checkable statistics, renders figures, and proposes
 1–3 falsifiable hypotheses.
@@ -213,8 +213,8 @@ baseline; automatic escalation happens only when explicitly enabled.
 Every registered analyzer follows the same call shape:
 
 ```python
-from evalvitals import Capability, compose
-from evalvitals.analyzers.attention.summary import AttentionAnalyzer
+from evalrx import Capability, compose
+from evalrx.analyzers.attention.summary import AttentionAnalyzer
 
 model = compose(
     "qwen2.5-7b-instruct",
@@ -239,24 +239,24 @@ logit-lens, representation-geometry, and agent-trajectory analysis.
 The core install stays lightweight—no Torch required:
 
 ```bash
-pip install evalvitals
+pip install evalrx
 ```
 
 Add only the capabilities you need:
 
 ```bash
-pip install "evalvitals[api]"        # OpenAI-compatible API models
-pip install "evalvitals[local]"      # local Hugging Face models + Torch
-pip install "evalvitals[interp]"     # interpretability toolchains
-pip install "evalvitals[viz]"        # plots
-pip install "evalvitals[stats]"      # inferential statistics
+pip install "evalrx[api]"        # OpenAI-compatible API models
+pip install "evalrx[local]"      # local Hugging Face models + Torch
+pip install "evalrx[interp]"     # interpretability toolchains
+pip install "evalrx[viz]"        # plots
+pip install "evalrx[stats]"      # inferential statistics
 ```
 
 For development:
 
 ```bash
-git clone https://github.com/evalvitals/evalvitals.git
-cd evalvitals
+git clone https://github.com/evalvitals/evalrx.git
+cd evalrx
 pip install -e ".[dev]"
 pytest -m "not gpu"
 ```
@@ -300,16 +300,16 @@ installing anything, marked 📦 below.
 - [Intervention & Verification](docs/intervention.md)
 - [Analyzer Zoo](docs/analyzers.md)
 - [Architecture](docs/architecture.md)
-- [Extending EvalVitals](docs/extending.md)
+- [Extending EvalRX](docs/extending.md)
 - [Roadmap](docs/roadmap.md)
 
 ## Project Status
 
-EvalVitals is an early-stage research toolkit. Interfaces may evolve, and some
+EvalRX is an early-stage research toolkit. Interfaces may evolve, and some
 full-loop examples require model weights, a GPU, or an external coding-agent
 CLI. Bug reports, reproducible failure cases, analyzer contributions, and
 evaluation integrations are welcome.
 
-If EvalVitals helps you understand a model failure, consider starring the repo
+If EvalRX helps you understand a model failure, consider starring the repo
 and sharing the smallest reproducible case—it makes the toolkit better for the
 next investigation.

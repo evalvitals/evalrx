@@ -11,15 +11,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
-from evalvitals.eval_agent.hypothesis import Hypothesis
-from evalvitals.eval_agent.loop import VLDiagnoseLoop
-from evalvitals.eval_agent.loop_reports import VLDiagnoseReport
-from evalvitals.eval_agent.stages.fix_agent import FixCandidate, FixOutcome, FixValidation
-from evalvitals.eval_agent.stages.fix_tiers import FixTier
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
+from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.loop import VLDiagnoseLoop
+from evalrx.eval_agent.loop_reports import VLDiagnoseReport
+from evalrx.eval_agent.stages.fix_agent import FixCandidate, FixOutcome, FixValidation
+from evalrx.eval_agent.stages.fix_tiers import FixTier
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
 
 class _M(Model):

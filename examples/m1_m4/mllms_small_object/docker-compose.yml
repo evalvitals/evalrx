@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: examples/m1_m4/mllms_small_object/Dockerfile
-    image: evalvitals-mllms-small-object
+    image: evalrx-mllms-small-object
     environment:
       # Use PCI-bus device ordering so CUDA_VISIBLE_DEVICES matches nvidia-smi.
       # Pick a GPU with free memory: export CUDA_VISIBLE_DEVICES=2
@@ -18,7 +18,7 @@ services:
       - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
       - ~/.gemini:/home/user/.gemini
       - ~/.cache/antigravity:/home/user/.cache/antigravity
-      - /data/rjin02/evalvitals/textvqa_mllms_know:/data/rjin02/evalvitals/textvqa_mllms_know:ro
+      - /data/rjin02/evalrx/textvqa_mllms_know:/data/rjin02/evalrx/textvqa_mllms_know:ro
     deploy:
       resources:
         reservations:

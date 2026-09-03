@@ -1,6 +1,6 @@
 # Architecture
 
-EvalVitals is structured as a small framework substrate plus extension points.
+EvalRX is structured as a small framework substrate plus extension points.
 The goal is to make LLM/VLM evaluation feel like using sklearn estimators:
 objects are composable, parameters are explicit, capabilities are discoverable,
 and outputs follow a common shape.
@@ -8,7 +8,7 @@ and outputs follow a common shape.
 ## Package Layout
 
 ```text
-evalvitals/
+evalrx/
 +-- core/              # stable contracts and shared substrate
 +-- specs.py           # model identity registry
 +-- models/            # model composition, runtime backends, compatibility shims
@@ -24,10 +24,10 @@ evalvitals/
 
 ```text
 # Public on-ramp — user brings their own already-loaded HF causal LM
-evalvitals.wrap(model, tokenizer)  ->  HFLocalModel
+evalrx.wrap(model, tokenizer)  ->  HFLocalModel
 
 # Curated path — load a registered checkpoint by key
-evalvitals.load("qwen2.5-7b-instruct")  ->  HFLocalModel
+evalrx.load("qwen2.5-7b-instruct")  ->  HFLocalModel
 ```
 
 Both paths return the same `HFLocalModel`: capabilities are inferred from the
@@ -41,9 +41,9 @@ capture attention weights; sdpa/flash return `None`).
 architecture facts such as model family, Hugging Face repo, decoder-layer paths,
 vision-token handling, MoE flags, reasoning flags, and attention semantics.
 
-Specs live in `evalvitals.specs` and are intentionally torch-free.  When
+Specs live in `evalrx.specs` and are intentionally torch-free.  When
 `wrap()` is used, a minimal spec is inferred at runtime from `model.config` via
-`evalvitals.models.inference.infer_spec` — no registry entry is required.
+`evalrx.models.inference.infer_spec` — no registry entry is required.
 
 **Modality is a set, not a class fork.** A spec declares modalities by the
 components it carries — `vision` adds `"image"`, `audio` adds `"audio"`,
@@ -78,11 +78,11 @@ different information under different runtimes — `compose()` negotiates them
 up front, before any weights load:
 
 ```python
-from evalvitals import compose, RuntimeConfig
-from evalvitals.core import Capability
+from evalrx import compose, RuntimeConfig
+from evalrx.core import Capability
 
 # 1) API / black-box (also covers a `vllm serve` endpoint). Reuse your own engine:
-from evalvitals.models.backends import call_vision_api_generate_fn
+from evalrx.models.backends import call_vision_api_generate_fn
 rt = RuntimeConfig(generate_fn=call_vision_api_generate_fn(my_call_vision_api))
 api_model = compose("qwen3-vl-8b-instruct", "api", rt)         # caps: GENERATE, TOOL_CALLS
 
@@ -113,7 +113,7 @@ extras.
 
 ### `Analyzer`
 
-`Analyzer` is the EvalVitals analogue of an sklearn estimator. It has explicit
+`Analyzer` is the EvalRX analogue of an sklearn estimator. It has explicit
 constructor parameters, declares required capabilities, and returns a `Result`.
 
 ```python
@@ -239,7 +239,7 @@ eval_agent/
 ├── preregister.py        DataSplit, PreregisteredHypothesis
 ├── git_manager.py        ExperimentGitManager
 ├── report.py             DiagnosticReport
-└── stages/               ← M1, M3, M4, M5 stage implementations (M2 lives in evalvitals.analysis)
+└── stages/               ← M1, M3, M4, M5 stage implementations (M2 lives in evalrx.analysis)
     ├── probe.py          M1  StrategyProbe
     ├── probe_agent.py    M1  ProbeAgent
     ├── protocol.py       M1  ExperimentProtocol, ProbingSchema
@@ -258,11 +258,11 @@ eval_agent/
                            a real model + judge via CaseDiscoveryAgent +
                            VLMProbeCandidateGenerator
 
-evalvitals.agent_runtime/  shared CLI-agent runtime (sandbox, codegen, providers,
+evalrx.agent_runtime/  shared CLI-agent runtime (sandbox, codegen, providers,
                             judges, skills) — used by both eval_agent and analysis;
                             imports neither. See "Package Layout" above.
 
-evalvitals.analysis/       M2 lives here now (StatsAnalysisAgent, AnalysisModule,
+evalrx.analysis/       M2 lives here now (StatsAnalysisAgent, AnalysisModule,
                             stats tool catalog) — usable standalone, not just from
                             the loop. Also: ExploratoryAnalysisAgent, HypothesisAgent,
                             cluster_failures (failure-mode clustering, with
@@ -282,14 +282,14 @@ evalvitals.analysis/       M2 lives here now (StatsAnalysisAgent, AnalysisModule
 | M1 | `stages/probe.py` | `StrategyProbe` | `routed_slots(model, data) → set[str]` (what ranking composes over); `select(model, hints, data) → list[str]`; `detect_kind(model) → ModelKind` (display label) |
 | M1 | `stages/probe_agent.py` | `ProbeAgent` | `probe(model, data, hint_failure_modes) → dict[str, Result]` |
 | M1 | `stages/protocol.py` | `ExperimentProtocol` | `probe_hints() → list[str]` — maps NL description to failure-mode tags |
-| M2 | `evalvitals.analysis.analysis_module` | `AnalysisModule` | `analyze(results, model_name) → AnalysisReport` |
-| M2 | `evalvitals.analysis.stats_agent` | `StatsAnalysisAgent` | `analyze(results, model_name, protocol) → StatsAnalysisReport` |
+| M2 | `evalrx.analysis.analysis_module` | `AnalysisModule` | `analyze(results, model_name) → AnalysisReport` |
+| M2 | `evalrx.analysis.stats_agent` | `StatsAnalysisAgent` | `analyze(results, model_name, protocol) → StatsAnalysisReport` |
 | M3 | `stages/diagnosis.py` | `DiagnosisAgent` | `diagnose(report, prior_cycles) → DiagnosisResult` |
 | M4 | `stages/surgery.py` | `SurgeryAgent` | `operate(hypothesis, model, results, data) → InterventionResult` |
 | M5 | `stages/hypothesis_tester.py` | `HypothesisTester` | `test(hypotheses, report, data, protocol) → list[HypothesisTestResult]`; `stopping_criteria_met(results) → bool` |
 
 **Pre-M1 (optional): `ProbeSearchAgent.run(model, seed_pool) → ProbeSearchResult`**
-— a hierarchical Macro/Micro MCTS (`evalvitals.analysis.probe_search.ProbeSearch`)
+— a hierarchical Macro/Micro MCTS (`evalrx.analysis.probe_search.ProbeSearch`)
 that synthesizes and evaluates new test cases (VLM QA in v1) rather than
 analyzing an already-collected dataset; `result.failure_cases` is a `CaseBatch`
 that can seed or extend the data M1 then probes. See
@@ -317,7 +317,7 @@ FDR correction, and produces a `StatsAnalysisReport` with a structured
 evidence chain for M3. It can also be used standalone, outside the loop:
 
 ```python
-from evalvitals.analysis import StatsAnalysisAgent
+from evalrx.analysis import StatsAnalysisAgent
 
 rows = [
     {"case_id": "c0", "label": "fail", "low_img_attn": 1},
@@ -569,10 +569,10 @@ Each line in `run_log.jsonl` carries `event`, `cycle`, `ts` (ISO-8601), a
 `schema_version` (int, bumped only when an existing event's fields are
 renamed/removed/change meaning — additive fields don't bump it, so a
 downstream parser can detect breaking changes without guessing from
-`evalvitals_version`), and stage-specific fields (findings, narrative, raw LLM
+`evalrx_version`), and stage-specific fields (findings, narrative, raw LLM
 output, intervention status …). The first `run_start` event records run
 provenance — `model`, `judge`, `git_commit` (falls back to the
-`EVALVITALS_GIT_COMMIT` env var when the `git` CLI is unavailable, e.g. inside
+`EVALRX_GIT_COMMIT` env var when the `git` CLI is unavailable, e.g. inside
 the example Docker images), `data_fingerprint` (an order-independent hash of
 the case batch, so two runs can be confirmed to use the same data) and
 `label_distribution` (the base PASS/FAIL/UNKNOWN counts the diagnosis is
@@ -591,27 +591,27 @@ jq 'select(.event=="surgery") | .evidence' run_log.jsonl
 ```
 
 The event format is a **published JSON Schema** (Draft 2020-12), shipped as
-package data at `evalvitals/eval_agent/run_log.schema.json` and built from
-`evalvitals/eval_agent/log_schema.py` — so downstream parsers (in any language)
+package data at `evalrx/eval_agent/run_log.schema.json` and built from
+`evalrx/eval_agent/log_schema.py` — so downstream parsers (in any language)
 can validate `run_log.jsonl` instead of guessing field shapes. It's permissive
 by design: it pins the common envelope (`event`, `schema_version`, `ts`,
 `trace_id`), the per-event required fields and core types, but allows additive
 fields (matching the `schema_version` rule above).
 
 ```python
-from evalvitals.eval_agent import iter_log_errors, validate_event
+from evalrx.eval_agent import iter_log_errors, validate_event
 
 for line_no, msg in iter_log_errors("run_dir/run_log.jsonl"):  # empty == conforms
     print(line_no, msg)
 ```
 
-Set `EVALVITALS_VALIDATE_LOG=1` to have `RunLogger` self-check every event it
+Set `EVALRX_VALIDATE_LOG=1` to have `RunLogger` self-check every event it
 writes against the schema and warn (never raise) on a violation — a CI/dev aid
 to catch a producer drifting from the contract. Both paths need the optional
-`jsonschema` dependency (`pip install evalvitals[dev]`).
+`jsonschema` dependency (`pip install evalrx[dev]`).
 
 ```python
-from evalvitals.eval_agent import RunContext, VLDiagnoseLoop
+from evalrx.eval_agent import RunContext, VLDiagnoseLoop
 
 with RunContext("examples/foo/outputs", verbose=True) as ctx:
     stats_agent = StatsAnalysisAgent(judge=judge, figure_dir=str(ctx.figures_dir))
@@ -687,34 +687,34 @@ The intended stable public entry points are:
 
 ```python
 # Model construction — two paths, same result object
-evalvitals.wrap(model, tokenizer, *, want=(), **runtime)  # bring your own model
-evalvitals.load(key, *, backend, want, checkpoint, **runtime)  # curated checkpoints
+evalrx.wrap(model, tokenizer, *, want=(), **runtime)  # bring your own model
+evalrx.load(key, *, backend, want, checkpoint, **runtime)  # curated checkpoints
 
 # Config-driven run
-evalvitals.run(config, data)
-evalvitals.load_config(path)
+evalrx.run(config, data)
+evalrx.load_config(path)
 
 # Registry / discovery
-evalvitals.list_specs()
-evalvitals.get_spec(key)
-evalvitals.registry
+evalrx.list_specs()
+evalrx.get_spec(key)
+evalrx.registry
 
 # Core types
-evalvitals.Capability
-evalvitals.FailureCase
-evalvitals.Result
+evalrx.Capability
+evalrx.FailureCase
+evalrx.Result
 
 # Automated diagnosis — AutoDiagnoseLoop (legacy M1→M4 sweep)
-from evalvitals.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLogger, StrategyProbe, SurgeryAgent
+from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLogger, StrategyProbe, SurgeryAgent
 
 # Protocol-guided diagnosis — VLDiagnoseLoop (M1→M2→M3→M5, M4 post-loop)
-from evalvitals.eval_agent import (
+from evalrx.eval_agent import (
     VLDiagnoseLoop, ExperimentProtocol,
     StatsAnalysisAgent, HypothesisTester,
 )
 
 # Run output ownership + post-loop tiered repair
-from evalvitals.eval_agent import RunContext, FixAgent, FixTier
+from evalrx.eval_agent import RunContext, FixAgent, FixTier
 ```
 
 Lower-level implementation details (`compose`, `HFLocalModel`, `infer_spec`,

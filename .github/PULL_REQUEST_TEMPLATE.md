@@ -13,7 +13,7 @@
 ## Checklist
 
 - [ ] `ruff check .` passes
-- [ ] `mypy evalvitals` passes
+- [ ] `mypy evalrx` passes
 - [ ] `pytest -m "not gpu"` passes (all fast unit tests green)
 - [ ] New analyzer / model has a unit test using `FakeModel`
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`

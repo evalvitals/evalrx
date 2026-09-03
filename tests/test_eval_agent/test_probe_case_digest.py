@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.eval_agent import ProbeAgent
-from evalvitals.eval_agent.stages.probe_agent import _summarize_cases
-from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.eval_agent import ProbeAgent
+from evalrx.eval_agent.stages.probe_agent import _summarize_cases
+from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
 
 

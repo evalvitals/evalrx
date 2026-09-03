@@ -29,9 +29,9 @@ from pathlib import Path
 import yaml
 from PIL import Image
 
-from evalvitals.analyzers.hallucination.chair import CHAIRAnalyzer
-from evalvitals.analyzers.hallucination.pope import POPEAnalyzer
-from evalvitals.core.case import CaseBatch, FailureCase as Case, Inputs
+from evalrx.analyzers.hallucination.chair import CHAIRAnalyzer
+from evalrx.analyzers.hallucination.pope import POPEAnalyzer
+from evalrx.core.case import CaseBatch, FailureCase as Case, Inputs
 
 CONFIG = Path(__file__).parent / "config.yaml"
 
@@ -46,8 +46,8 @@ def _build_api_model(model_name: str):
     """Construct an API model backed by Gemini (requires GEMINI_API_KEY)."""
     import openai
 
-    from evalvitals.models.backends.api import APIModel
-    from evalvitals.models.backends.base import RuntimeConfig
+    from evalrx.models.backends.api import APIModel
+    from evalrx.models.backends.base import RuntimeConfig
 
     client = openai.OpenAI(
         api_key=os.environ["GEMINI_API_KEY"],
@@ -71,7 +71,7 @@ def _build_api_model(model_name: str):
         return resp.choices[0].message.content or ""
 
     rt = RuntimeConfig(generate_fn=generate_fn)
-    from evalvitals.core.spec import ModelSpec
+    from evalrx.core.spec import ModelSpec
     spec = ModelSpec(key=model_name, family="gemini", model_type="api")
     return APIModel(spec, rt)
 

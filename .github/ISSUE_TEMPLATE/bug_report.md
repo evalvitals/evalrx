@@ -9,7 +9,7 @@ A clear description of the bug.
 
 **Minimal reproducer**
 ```python
-import evalvitals
+import evalrx
 # smallest snippet that triggers the issue
 ```
 
@@ -21,7 +21,7 @@ paste traceback here
 ```
 
 **Environment**
-- evalvitals version:
+- evalrx version:
 - Python version:
 - torch version (if applicable):
 - OS:

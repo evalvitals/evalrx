@@ -370,7 +370,7 @@
   ],
   "title": "InterventionOutput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m4_surgery.InterventionOutput.json",
+  "$id": "https://evalrx.dev/contract/m4_surgery.InterventionOutput.json",
   "x-stage": "m4_surgery",
   "x-role": "output",
   "x-schema-version": 4,

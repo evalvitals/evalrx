@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from evalvitals.analyzers.agent.reliability import ReliabilityProbe, default_grader
-from evalvitals.analyzers.agent.tool_shap import ToolShap, _sampled_shapley
-from evalvitals.analyzers.agent.trajectory_rubric import TrajectoryRubricJudge
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label, Step, StepRole, Trajectory
+from evalrx.analyzers.agent.reliability import ReliabilityProbe, default_grader
+from evalrx.analyzers.agent.tool_shap import ToolShap, _sampled_shapley
+from evalrx.analyzers.agent.trajectory_rubric import TrajectoryRubricJudge
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label, Step, StepRole, Trajectory
 
 
 def _traj(answer, sample_id="s"):

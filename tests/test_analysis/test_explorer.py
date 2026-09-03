@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-from evalvitals.analysis import ExploratoryAnalysisAgent, load_records_from_path, scan_folder
+from evalrx.agent_runtime.sandbox import ExperimentSandbox
+from evalrx.analysis import ExploratoryAnalysisAgent, load_records_from_path, scan_folder
 
 _GOOD_CODE = """
 import json
@@ -434,7 +434,7 @@ def test_load_records_from_path_unpacks_dict_wrapped_case_list(tmp_path):
     """A common M1-output shape: one file per model/run, scalar run metadata
     plus a list of per-case dicts under a conventional key (e.g. "cases").
     This must load as one flat row per case — carrying the run metadata —
-    with no bespoke pre-processing script, so `evalvitals explore` can point
+    with no bespoke pre-processing script, so `evalrx explore` can point
     directly at a raw M1 case directory."""
     run_dir = tmp_path / "cases"
     run_dir.mkdir()
@@ -595,17 +595,17 @@ print("EXPLORATORY_RESULT_JSON=" + json.dumps(result))
 
     class _FakeCliAgent:
         def run(self, prompt, *, workdir, timeout_sec):
-            from evalvitals.eval_agent.cli_agent import CliAgentResult
+            from evalrx.eval_agent.cli_agent import CliAgentResult
             return CliAgentResult(
                 files={"analysis.py": agent_written_code},
                 provider_name="fake", elapsed_sec=0.1, raw_output="fake trajectory",
             )
 
     monkeypatch.setattr(
-        "evalvitals.agent_runtime.providers.registry.create_cli_agent", lambda config: _FakeCliAgent()
+        "evalrx.agent_runtime.providers.registry.create_cli_agent", lambda config: _FakeCliAgent()
     )
 
-    from evalvitals.eval_agent.cli_agent import CliAgentConfig
+    from evalrx.eval_agent.cli_agent import CliAgentConfig
 
     sandbox = ExperimentSandbox(workdir=tmp_path / "wd", cleanup=False)
     agent = ExploratoryAnalysisAgent(cli_config=CliAgentConfig(provider="claude_code"), sandbox=sandbox)

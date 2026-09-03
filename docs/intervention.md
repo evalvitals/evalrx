@@ -24,10 +24,10 @@ For stage contracts and full data flow, see
 ## Quickstart — verify, then fix
 
 ```python
-from evalvitals.eval_agent import VLDiagnoseLoop, RunLogger
-from evalvitals.eval_agent.stages.probe_agent import ProbeAgent
-from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-from evalvitals.eval_agent.stages.diagnosis import DiagnosisAgent
+from evalrx.eval_agent import VLDiagnoseLoop, RunLogger
+from evalrx.eval_agent.stages.probe_agent import ProbeAgent
+from evalrx.analysis.stats_agent import StatsAnalysisAgent
+from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
 
 loop = VLDiagnoseLoop(
     model=model,
@@ -82,7 +82,7 @@ correction across the tested family (`outcome.ebh_survivors`).
 Swap in domain-specific logic instead of the default label-correlation check:
 
 ```python
-from evalvitals.eval_agent import SurgeryAgent, InterventionResult, HypothesisStatus
+from evalrx.eval_agent import SurgeryAgent, InterventionResult, HypothesisStatus
 
 def my_verify(hypothesis, model, results, data):
     fixed = run_my_intervention(model, data)

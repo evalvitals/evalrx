@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core.capability import Capability
-from evalvitals.models import load
+from evalrx.core.capability import Capability
+from evalrx.models import load
 
 
 @pytest.fixture(scope="session")

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from evalvitals.core import CaseBatch, FailureCase, Inputs, Label, as_casebatch
-from evalvitals.core.case import Provenance, Source
+from evalrx.core import CaseBatch, FailureCase, Inputs, Label, as_casebatch
+from evalrx.core.case import Provenance, Source
 
 
 def test_failurecase_from_prompt():

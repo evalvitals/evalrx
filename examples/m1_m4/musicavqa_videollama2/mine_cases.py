@@ -69,7 +69,7 @@ def main() -> None:
         )
         print(f"model: VideoLLaMA2AVModel path={args.model_path} device={args.device}")
 
-    from evalvitals.core.case import Inputs
+    from evalrx.core.case import Inputs
 
     # generate_with_meta (real weights) also records finish_reason/
     # generation_config per case -- FixAgent's L0 telemetry gate

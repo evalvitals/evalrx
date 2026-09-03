@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the five-paper corpus through the public ``evalvitals explore`` interface."""
+"""Run the five-paper corpus through the public ``evalrx explore`` interface."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DEFAULT_RECORDS = ROOT / "data" / "paper_records.jsonl"
 DEFAULT_OUTPUT = ROOT / "outputs" / "five_paper_diagnosis"
-QUESTION = """You are auditing EvalVitals itself using five research papers as evidence.
+QUESTION = """You are auditing EvalRX itself using five research papers as evidence.
 For each paper, identify the reported model-health or evaluation failure, the
 evidence supporting it, plausible confounders, and the narrowest repair that
 the evidence warrants. Treat `expected_stress_test` as a review rubric, not as
@@ -29,7 +29,7 @@ def main() -> int:
         "--backend",
         default="codex",
         choices=["codex", "claude_code", "opencode", "gemini_cli", "kimi_cli", "antigravity"],
-        help="Authenticated coding-agent backend used by evalvitals explore.",
+        help="Authenticated coding-agent backend used by evalrx explore.",
     )
     parser.add_argument("--model", default="", help="Optional backend model override.")
     # 300s cuts off a real run mid-analysis: a claude_code run against all
@@ -47,7 +47,7 @@ def main() -> int:
     command = [
         sys.executable,
         "-m",
-        "evalvitals.cli",
+        "evalrx.cli",
         "explore",
         str(args.records),
         "--backend",

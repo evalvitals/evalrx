@@ -54,7 +54,7 @@ class _FakeResultNoOverlays:
 
 
 def test_log_probe_returns_overlay_png_from_result_hook(tmp_path):
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     pngs = logger.log_probe(0, {"fake_analyzer": _FakeResultWithOverlays()})
@@ -65,7 +65,7 @@ def test_log_probe_returns_overlay_png_from_result_hook(tmp_path):
 
 
 def test_log_probe_survives_image_overlays_raising(tmp_path):
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     pngs = logger.log_probe(0, {"broken_analyzer": _FakeResultOverlaysRaise()})
@@ -74,7 +74,7 @@ def test_log_probe_survives_image_overlays_raising(tmp_path):
 
 
 def test_log_probe_without_image_overlays_hook_is_unaffected(tmp_path):
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     pngs = logger.log_probe(0, {"plain_analyzer": _FakeResultNoOverlays()})
@@ -88,7 +88,7 @@ def test_log_probe_combines_overlay_and_npy_heatmap_pngs(tmp_path):
     pytest.importorskip("matplotlib")
     import numpy as np
 
-    from evalvitals.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger import RunLogger
 
     @dataclass
     class _Mixed:

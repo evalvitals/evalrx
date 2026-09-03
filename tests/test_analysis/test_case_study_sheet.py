@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from evalvitals.reporting.case_study import build_case_study
+from evalrx.reporting.case_study import build_case_study
 
 SIGNAL = "coverage_verification_gap.n_unique"
 # four explore cases, two of them failing, and the signal is aligned with the
@@ -211,7 +211,7 @@ def test_a_repair_with_no_supported_hypothesis_is_flagged(tmp_path):
 
 def test_the_report_payload_carries_the_sheet(tmp_path):
     """build_report_data is where the served UI picks the sheet up."""
-    from evalvitals.reporting.dynamic import build_report_data, fallback_spec, validate_spec
+    from evalrx.reporting.dynamic import build_report_data, fallback_spec, validate_spec
 
     root = make_run(tmp_path / "payload")
     data = build_report_data(root / "logs")

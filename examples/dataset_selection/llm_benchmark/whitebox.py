@@ -12,7 +12,7 @@ Two hard constraints shape it, and both are the reason this is a separate stage
 rather than a flag on the main one:
 
 1. **A different interpreter.** ``qwen3_5`` is unknown to transformers 4.57.6
-   (the version in the evalvitals venv) and known to 5.15.0 (the version in the
+   (the version in the evalrx venv) and known to 5.15.0 (the version in the
    vLLM venv). Stage W therefore runs under ``WHITEBOX_PYTHON``, exactly as
    serving already runs under ``VLLM_BIN``. :func:`require_transformers` checks
    this at import rather than letting ``from_pretrained`` fail 20 GB later.
@@ -127,8 +127,8 @@ class BoundedWhitebox:
         return len(self.attention_layers()), int(getattr(text, "num_attention_heads", 0))
 
     def forward(self, inputs, capture, spec=None):
-        from evalvitals.core.capability import Capability
-        from evalvitals.core.model import CaptureSpec
+        from evalrx.core.capability import Capability
+        from evalrx.core.model import CaptureSpec
 
         if Capability.ATTENTION in set(capture):
             n_layers, n_heads = self._shape()
@@ -174,9 +174,9 @@ def build(model_id: str, *, device: str = "cuda", dtype: str = "bfloat16",
     whole pipeline already serves on one. Pass ``device="auto"`` explicitly if
     you have accelerate and a model that needs sharding.
     """
-    from evalvitals.core.capability import Capability
-    from evalvitals.models.backends.base import RuntimeConfig
-    from evalvitals.models.compose import compose
+    from evalrx.core.capability import Capability
+    from evalrx.models.backends.base import RuntimeConfig
+    from evalrx.models.compose import compose
 
     require_transformers()
     model = compose(
@@ -212,7 +212,7 @@ def select_cases(report: dict, n: int, seed: int = 0,
 
 
 def to_batch(cases: list):
-    from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 
     return CaseBatch([
         FailureCase(
@@ -235,7 +235,7 @@ if __name__ == "__main__":
 
     version = require_transformers()
     print(f"transformers {version}: qwen3_5 supported")
-    from evalvitals.specs import get_spec
+    from evalrx.specs import get_spec
 
     spec = get_spec(args.model)
     print(f"spec {spec.key}: {spec.hf_repo} via {spec.auto_class}")

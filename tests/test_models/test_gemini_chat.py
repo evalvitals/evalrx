@@ -12,9 +12,9 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from evalvitals.core.capability import Capability
-from evalvitals.models.blackbox.gemini import GeminiModel, _to_genai_contents, _to_genai_tools
-from evalvitals.models.toolcodec import OpenAIToolCodec, codec_for
+from evalrx.core.capability import Capability
+from evalrx.models.blackbox.gemini import GeminiModel, _to_genai_contents, _to_genai_tools
+from evalrx.models.toolcodec import OpenAIToolCodec, codec_for
 
 
 # -- a minimal fake of google.genai.types ------------------------------

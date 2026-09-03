@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from evalvitals.analyzers.attention.summary import AttentionAnalyzer
-from evalvitals.core import Experiment, ExperimentRunner
+from evalrx.analyzers.attention.summary import AttentionAnalyzer
+from evalrx.core import Experiment, ExperimentRunner
 from tests.conftest import FakeModel
 
 

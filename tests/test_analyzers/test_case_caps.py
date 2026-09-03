@@ -14,10 +14,10 @@ import inspect
 import json
 from pathlib import Path
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.core.model import Model
-from evalvitals.core.registry import registry
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.core.model import Model
+from evalrx.core.registry import registry
 
 
 def _batch(n_fail: int, n_pass: int) -> CaseBatch:
@@ -74,7 +74,7 @@ def test_stratified_head_zero_is_every_case_in_document_order():
 
 
 def test_answer_extraction_audit_measures_a_batch_larger_than_the_old_cap():
-    from evalvitals.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
+    from evalrx.analyzers.reasoning.answer_extraction_audit import AnswerExtractionAudit
 
     batch = _batch(50, 200)  # 250 > the old default of 200
     result = AnswerExtractionAudit().run(_Echo(), batch)
@@ -85,8 +85,8 @@ def test_answer_extraction_audit_measures_a_batch_larger_than_the_old_cap():
 
 
 def test_probe_generator_collects_every_case_unless_capped(tmp_path):
-    from evalvitals.agent_runtime.sandbox import ExperimentSandbox
-    from evalvitals.eval_agent.stages.probe_generator import _INPUT_FILENAME, ProbeGenerator
+    from evalrx.agent_runtime.sandbox import ExperimentSandbox
+    from evalrx.eval_agent.stages.probe_generator import _INPUT_FILENAME, ProbeGenerator
 
     batch = _batch(3, 4)
 

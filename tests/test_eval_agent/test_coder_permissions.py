@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from evalvitals.agent_runtime.providers.claude_code import ClaudeCodeAgent
+from evalrx.agent_runtime.providers.claude_code import ClaudeCodeAgent
 
 
 def _cmd(**kw) -> list[str]:

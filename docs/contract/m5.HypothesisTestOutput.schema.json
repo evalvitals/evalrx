@@ -442,7 +442,7 @@
   ],
   "title": "HypothesisTestOutput",
   "type": "object",
-  "$id": "https://evalvitals.dev/contract/m5.HypothesisTestOutput.json",
+  "$id": "https://evalrx.dev/contract/m5.HypothesisTestOutput.json",
   "x-stage": "m5",
   "x-role": "output",
   "x-schema-version": 4,

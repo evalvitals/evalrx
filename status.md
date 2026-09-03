@@ -1,4 +1,4 @@
-# EvalVitals Gemma ALM/VLM repair status
+# EvalRX Gemma ALM/VLM repair status
 
 Updated: 2026-08-30 America/Vancouver
 Branch: `ruinan`

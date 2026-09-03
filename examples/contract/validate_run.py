@@ -16,8 +16,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from evalvitals.contract.m1 import FindingsWire, ResultWire
-from evalvitals.contract.m2 import StatsToolResultWire
+from evalrx.contract.m1 import FindingsWire, ResultWire
+from evalrx.contract.m2 import StatsToolResultWire
 
 
 def _load(path: Path):

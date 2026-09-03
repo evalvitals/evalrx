@@ -5,9 +5,9 @@ full AgenticDiagnoseLoop machinery) and a fake model/judge — no GPU."""
 
 from __future__ import annotations
 
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs
-from evalvitals.eval_agent.agentic.board import EvidenceBoard
-from evalvitals.eval_agent.agentic.tools import _RunState, build_default_registry
+from evalrx.core.case import CaseBatch, FailureCase, Inputs
+from evalrx.eval_agent.agentic.board import EvidenceBoard
+from evalrx.eval_agent.agentic.tools import _RunState, build_default_registry
 
 
 class _ScriptedJudge:
@@ -85,7 +85,7 @@ def test_search_probes_empty_seed_pool_returns_failure_without_crashing():
 
 
 def test_search_probes_respects_call_cap_via_registry_dispatch():
-    from evalvitals.eval_agent.agentic.actions import Action
+    from evalrx.eval_agent.agentic.actions import Action
 
     loop = _FakeLoop(_ScriptedJudge(), _AlwaysWrongModel())
     state = _RunState(original_data=_seed_pool(), data=_seed_pool())

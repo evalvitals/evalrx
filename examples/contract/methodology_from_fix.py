@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from evalvitals.contract.methodology import MethodologyWire
+from evalrx.contract.methodology import MethodologyWire
 from examples.contract.drawio_builder import Edge, MethodGraph, Node
 
 GRAPH = MethodGraph(

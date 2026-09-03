@@ -7,7 +7,7 @@ validates a repair — including the paper-registered `tcd_temporal_blur`
 candidate for Temporal Contrastive Decoding (TCD, Li et al. 2026,
 arXiv:2604.15383) on the paper's own hyperparameter anchor model
 (`paper_method_fidelity("tcd") == "native_layer_matched_stability"` for this
-pair — see `evalvitals/models/backends/hf_local.py`).
+pair — see `evalrx/models/backends/hf_local.py`).
 
 This was `examples/m4/qwen2_audio_tcd_mmau`, a `FixAgent`-only run against a
 hand-supplied hypothesis. TCD's own framing ("temporal smoothing bias") is no
@@ -110,7 +110,7 @@ priority_override=...))` — bypasses LLM-guided selection entirely):
 - all eight are read-verified to preserve non-image `Inputs` fields
   (`dataclasses.replace(case.inputs, ...)` or `case.inputs` unmodified) —
   `prompt_contrast` needed exactly this fix
-  (`evalvitals/analyzers/perturbation/prompt_contrast.py`) before it could be
+  (`evalrx/analyzers/perturbation/prompt_contrast.py`) before it could be
   trusted on an audio case: it used to rebuild a bare `Inputs(prompt=...,
   image=...)` for every re-ask, silently dropping `.audio`, so the "prompt
   repairable?" re-ask would have answered the question **without hearing the
@@ -231,9 +231,9 @@ included and hoped-for.
 ## Case study: listen to the clips, answer them yourself
 
 ```bash
-evalvitals report examples/m1_m4/mmau_qwen2_audio/outputs \
+evalrx report examples/m1_m4/mmau_qwen2_audio/outputs \
   --example-dir examples/m1_m4/mmau_qwen2_audio
-evalvitals serve examples/m1_m4/mmau_qwen2_audio/outputs
+evalrx serve examples/m1_m4/mmau_qwen2_audio/outputs
 ```
 
 The report re-joins case ids to
@@ -244,7 +244,7 @@ populated — playback needs the audio files `download_mmau.py` fetched.
 ## Demo page: the whole loop as one shareable HTML file
 
 ```bash
-evalvitals report outputs \
+evalrx report outputs \
   --example-dir . \
   --out demo_page/index.html
 ```

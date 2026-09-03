@@ -33,7 +33,7 @@ if [[ -z "${PY:-}" ]]; then
   if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then PY="$REPO_ROOT/.venv/bin/python"; else PY="python"; fi
 fi
 
-NF="$REPO_ROOT/evalvitals/agent_assets/skills/nature-figure"
+NF="$REPO_ROOT/evalrx/agent_assets/skills/nature-figure"
 SKILL_ARGS=()
 [[ -d "$NF" ]] && SKILL_ARGS=(--skill "$NF")
 
@@ -63,8 +63,8 @@ step "3/3  dashboard  (analysis story — proposed hypotheses, no verdicts yet)"
 echo "next, when ready to confirm + repair:  ./run_confirm_fix.sh"
 if [[ "$DASHBOARD" == "1" ]]; then
   echo "serving on http://localhost:$PORT  (Ctrl-C to stop)"
-  exec "$PY" -m evalvitals.cli dashboard outputs --port "$PORT"
+  exec "$PY" -m evalrx.cli dashboard outputs --port "$PORT"
 else
   echo "skipped (DASHBOARD=0). Launch it with:"
-  echo "  $PY -m evalvitals.cli dashboard outputs --port $PORT"
+  echo "  $PY -m evalrx.cli dashboard outputs --port $PORT"
 fi

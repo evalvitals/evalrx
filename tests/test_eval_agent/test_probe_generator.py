@@ -7,9 +7,9 @@ exercised deterministically (no network, no real coding agent).
 
 from __future__ import annotations
 
-from evalvitals.core.capability import Capability
-from evalvitals.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalvitals.eval_agent import ProbeAgent, ProbeGenerator
+from evalrx.core.capability import Capability
+from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+from evalrx.eval_agent import ProbeAgent, ProbeGenerator
 from tests.conftest import FakeModel
 
 # A valid probe: flags cases whose output contains "sorry" (a refusal probe).
@@ -160,8 +160,8 @@ def test_whitebox_analyzers_run_serially_not_in_thread_pool():
     (defect 7). Black-box analyzers may still parallelise."""
     import threading
 
-    from evalvitals.core.analyzer import Analyzer
-    from evalvitals.core.result import Result
+    from evalrx.core.analyzer import Analyzer
+    from evalrx.core.result import Result
 
     main_thread = threading.current_thread().ident
     ran_on: dict[str, int] = {}
@@ -198,7 +198,7 @@ def test_whitebox_analyzers_run_serially_not_in_thread_pool():
 def test_failed_analyzers_surface_in_next_selection_prompt():
     """The accumulated runtime failures appear in the LLM selection prompt so
     the judge stops re-selecting a broken tool every cycle."""
-    from evalvitals.eval_agent.stages.protocol import ExperimentProtocol
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     captured = {}
 

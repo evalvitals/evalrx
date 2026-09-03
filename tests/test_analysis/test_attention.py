@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import torch
 
-from evalvitals.analyzers.attention.summary import AttentionAnalyzer, AttentionResult
-from evalvitals.core import Capability, CaseBatch
+from evalrx.analyzers.attention.summary import AttentionAnalyzer, AttentionResult
+from evalrx.core import Capability, CaseBatch
 from tests.conftest import FakeModel
 
 # ------------------------------------------------------------------

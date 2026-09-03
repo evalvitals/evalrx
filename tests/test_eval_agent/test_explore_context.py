@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import inspect
 
-from evalvitals.analysis.stats_agent import StatsAnalysisReport
-from evalvitals.core.capability import Capability
-from evalvitals.eval_agent.stages.diagnosis import (
+from evalrx.analysis.stats_agent import StatsAnalysisReport
+from evalrx.core.capability import Capability
+from evalrx.eval_agent.stages.diagnosis import (
     DiagnosisAgent,
     ExploreContext,
     _extract_referenced,
@@ -137,9 +137,9 @@ def test_extract_referenced_only_matches_mentioned_titles():
 # ---------------------------------------------------------------------------
 
 def test_only_m3_diagnose_accepts_explore_context():
-    from evalvitals.analysis.stats_agent import StatsAnalysisAgent
-    from evalvitals.eval_agent.stages.fix_agent import FixAgent
-    from evalvitals.eval_agent.stages.hypothesis_tester import HypothesisTester
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.eval_agent.stages.fix_agent import FixAgent
+    from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester
 
     assert "explore_context" in inspect.signature(DiagnosisAgent.diagnose).parameters
 
@@ -155,7 +155,7 @@ def test_only_m3_diagnose_accepts_explore_context():
 # ---------------------------------------------------------------------------
 
 def test_coerce_explore_context_accepts_dict_ctx_and_none():
-    from evalvitals.eval_agent.run_metadata import _coerce_explore_context
+    from evalrx.eval_agent.run_metadata import _coerce_explore_context
 
     ctx = _coerce_explore_context({"observations": ["a"]})
     assert isinstance(ctx, ExploreContext)
@@ -167,7 +167,7 @@ def test_coerce_explore_context_accepts_dict_ctx_and_none():
 
 
 def test_dispatch_passes_context_only_to_agents_that_accept_it():
-    from evalvitals.eval_agent.loop import _diagnose_with_optional_context
+    from evalrx.eval_agent.loop import _diagnose_with_optional_context
 
     ctx = ExploreContext(observations=["x"])
 
@@ -191,11 +191,11 @@ def test_dispatch_passes_context_only_to_agents_that_accept_it():
 
 
 def test_loop_init_stores_coerced_explore_context():
-    from evalvitals.eval_agent.loop import VLDiagnoseLoop
+    from evalrx.eval_agent.loop import VLDiagnoseLoop
 
     loop = VLDiagnoseLoop.__new__(VLDiagnoseLoop)  # avoid heavy __init__ deps
     # exercise the coercion path used by __init__
-    from evalvitals.eval_agent.run_metadata import _coerce_explore_context
+    from evalrx.eval_agent.run_metadata import _coerce_explore_context
     loop._explore_context = _coerce_explore_context({"charts": [{"title": "C", "figure_path": "/p.png"}]})
     assert isinstance(loop._explore_context, ExploreContext)
     assert loop._explore_context.figure_paths == ["/p.png"]
@@ -208,8 +208,8 @@ def test_loop_init_stores_coerced_explore_context():
 def test_log_diagnosis_records_explore_provenance(tmp_path):
     import json
 
-    from evalvitals.eval_agent.run_logger import RunLogger
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisResult
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
     logger = RunLogger(run_dir=tmp_path / "run1")
     diag = DiagnosisResult(
@@ -233,9 +233,9 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     a reviewer must be able to read what it was shown, not only what it said."""
     import json
 
-    from evalvitals.eval_agent.hypothesis import Hypothesis
-    from evalvitals.eval_agent.run_logger import RunLogger
-    from evalvitals.eval_agent.stages.diagnosis import DiagnosisResult
+    from evalrx.eval_agent.hypothesis import Hypothesis
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
     logger = RunLogger(run_dir=tmp_path / "run2")
     h1 = Hypothesis(statement="h1", target_model="vlm", predicted_failure_mode="x")
