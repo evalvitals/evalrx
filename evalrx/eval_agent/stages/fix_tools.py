@@ -890,7 +890,13 @@ def run_pipeline(
     # contains braces (LaTeX, sets like "{1,2,3}", JSON) — str.format raised
     # KeyError OUTSIDE the per-case try and took down a whole fix stage
     # (qwen3.5-2b/bbh_tracking7 run8: template with "{1,2,3,4,5,6,7}").
-    base_prompt = safe_format(spec.prompt_template, {"prompt": prompt})
+    # {original_prompt} lets an EDIT candidate (recursive rounds) REPLACE the
+    # previously deployed template instead of wrapping its rendered output.
+    template_context = {"prompt": prompt}
+    original = (getattr(case, "metadata", {}) or {}).get("original_prompt")
+    if original:
+        template_context["original_prompt"] = str(original)
+    base_prompt = safe_format(spec.prompt_template, template_context)
     n_calls = 0
 
     def generate(text: str) -> str:
