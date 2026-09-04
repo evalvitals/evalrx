@@ -1388,6 +1388,11 @@ class FixAgent:
         context_block = self._context_block(
             context, data, model, floor_names=floor_names
         )
+        # Recursive rounds only (see _edit_note): the L1/L2 proposers may also
+        # EDIT the previously deployed template instead of wrapping it. The
+        # coded-pipeline path is left out — its cases_file carries rendered
+        # prompts only, so {original_prompt} means nothing to written code.
+        proposal_context = context_block + self._edit_note(data)
 
         candidates: "list[FixCandidate]" = []
         # Pre-registered conditional repair for audio/other A-D tasks whose
@@ -1580,7 +1585,7 @@ class FixAgent:
                 prior_names,
                 has_images=has_images,
                 tasks=tasks,
-                context_block=context_block,
+                context_block=proposal_context,
             )
         if (
             not code_only
@@ -1596,7 +1601,7 @@ class FixAgent:
                 has_images=has_images,
                 model=model,
                 tasks=tasks,
-                context_block=context_block,
+                context_block=proposal_context,
                 catalog=catalog,
             )
             # The floor: always-tested defaults, on top of the judge's ideas.
@@ -1832,6 +1837,59 @@ class FixAgent:
         if not lines:
             return ""
         return "\n" + "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _deployed_template(data: "CaseBatch") -> "str | None":
+        """The template a previous repair round already deployed, if coherent.
+
+        Recursive-round manifests record the winning template in every row's
+        ``metadata.recursive_stack[-1]["template"]`` alongside the pristine
+        ``metadata.original_prompt`` (the round-0 text).  Returns the template
+        only when EVERY case carries the same one plus its original prompt —
+        anything less means there is no single deployed template to edit.
+        """
+        tpl: "str | None" = None
+        for case in data:
+            md = getattr(case, "metadata", {}) or {}
+            stack = md.get("recursive_stack")
+            entry = stack[-1] if isinstance(stack, list) and stack else None
+            text = entry.get("template") if isinstance(entry, dict) else None
+            if not text or not md.get("original_prompt"):
+                return None
+            if tpl is None:
+                tpl = str(text)
+            elif str(text) != tpl:
+                return None
+        return tpl
+
+    def _edit_note(self, data: "CaseBatch") -> str:
+        """Proposer context inviting EDIT candidates on recursive rounds.
+
+        Only rendered when the batch carries a coherent deployed template (see
+        :meth:`_deployed_template`); default runs get "" and are unchanged.
+        An edit candidate is an ordinary template/spec proposal whose template
+        is written against ``{original_prompt}`` — the L1 closure and the spec
+        runner both fill that placeholder from case metadata, so it REPLACES
+        the deployed template instead of wrapping it.
+        """
+        deployed = self._deployed_template(data)
+        if not deployed:
+            return ""
+        return (
+            "\nDEPLOYED TEMPLATE (a previous repair round already rewrote every case "
+            "prompt: each case's {prompt} value IS the rendered output of the template "
+            "below, and the pristine pre-rewrite text is available as the placeholder "
+            "{original_prompt}):\n"
+            "<<<\n" + deployed.rstrip() + "\n>>>\n"
+            "In addition to your other strategies, propose 1-2 EDIT candidates: a "
+            "minimal revision of the deployed template — change, tighten, or remove "
+            "the ONE clause the failure evidence indicts, and keep what already "
+            "works.  Write an edit against {original_prompt} (and do NOT also "
+            "include {prompt}): it REPLACES the deployed template instead of "
+            "wrapping it, so the model sees one coherent instruction rather than "
+            "an override fighting the text above it.\n"
+        )
+
     def _runtime_candidates(
         self,
         data: "CaseBatch",
@@ -1938,7 +1996,10 @@ class FixAgent:
             if structural_keys.intersection(p):
                 has_structural_proposal = True
                 continue
-            if name and "{prompt}" in template:
+            # An EDIT candidate (recursive rounds, see _edit_note) replaces the
+            # deployed template by rendering against {original_prompt} instead
+            # of wrapping the already-rewritten {prompt}.
+            if name and ("{prompt}" in template or "{original_prompt}" in template):
                 payload: "dict[str, Any]" = {"prompt_template": template}
                 # L1 stays prompt-only except for decode ROOM: a template that
                 # asks for intermediate work must be able to finish (at a 64-
