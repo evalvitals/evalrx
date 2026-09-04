@@ -164,6 +164,9 @@ class CaseDiscoveryAgent:
             return 1
         from evalrx.models.backends.api import APIModel
 
+        # A deployed-pipeline wrapper (fix_tools.SpecPipelineModel) is exactly
+        # as reentrant as the handle it drives — judge it by its inner model.
+        model = getattr(model, "inner_model", model)
         if not isinstance(model, APIModel):
             return 1
         return min(self.concurrency, max(1, n_cases))

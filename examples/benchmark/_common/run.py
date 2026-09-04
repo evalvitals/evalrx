@@ -101,6 +101,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="frozen Python pipeline to validate with --code-only (skip code generation)")
     p.add_argument("--fix-candidate", default="",
                    help="pre-register and validate only this named fix candidate")
+    p.add_argument("--baseline-spec", default="",
+                   help="deploy a previous round's winning pipeline spec as THE baseline "
+                        "(path to its result.json or a bare spec dict): Stage-0 and the fix "
+                        "baseline arm run this pipeline; candidates run on the raw model and "
+                        "replace it (winner-as-new-baseline for recursive rounds)")
     p.add_argument("--registered-repairs-only", action="store_true",
                    help="restrict discovery to structurally compatible registered repair methods; "
                         "the agent still selects the mechanism and no method name is pre-registered")

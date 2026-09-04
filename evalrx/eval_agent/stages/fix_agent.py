@@ -862,6 +862,8 @@ class FixAgent:
         scoring_note: str = "",
         floor_candidates: "Iterable[str] | None" = ("self_consistency_5",),
         prewritten_code: str = "",
+        candidate_model: "Model | None" = None,
+        deployed_spec: "dict[str, Any] | None" = None,
     ) -> None:
         if verbose:
             # Surfaces this module's own logger.info()/.warning() calls (tier
@@ -913,6 +915,17 @@ class FixAgent:
             tuple(str(n) for n in floor_candidates) if floor_candidates else ()
         )
         self._prewritten_code = str(prewritten_code or "")
+        # Winner-as-new-baseline (spec deploys, recursive rounds): when the
+        # caller runs the whole loop against a DEPLOYED pipeline handle
+        # (fix_tools.SpecPipelineModel), `candidate_model` is the raw model —
+        # baseline arms keep measuring the deployed pipeline while proposals
+        # and candidate arms run on the raw handle, so every candidate is a
+        # full REPLACEMENT pipeline paired against the deployed one.
+        # `deployed_spec` (the deployed PipelineSpec as a dict) is shown to
+        # the proposer so its candidates are edits of a known incumbent
+        # rather than blind wraps.
+        self._candidate_model = candidate_model
+        self._deployed_spec = dict(deployed_spec) if deployed_spec else None
         # Per-candidate scratch: case id -> the final output that was scored.
         # Filled by the strategy closures / run_pipeline capture while a
         # candidate runs; _validate moves it onto the FixValidation.
@@ -948,6 +961,13 @@ class FixAgent:
         remains untouched confirmation data and permits only one round.
         """
         outcome = FixOutcome(max_tier=self.max_tier)
+        # Winner-as-new-baseline: `model` as handed in is what the baseline
+        # arm must measure (the deployed pipeline, when one is configured);
+        # proposals and candidate arms run on the raw handle so a candidate
+        # REPLACES the deployed pipeline instead of nesting inside it.
+        baseline_model = model
+        if self._candidate_model is not None:
+            model = self._candidate_model
         self._max_tokens_floor = self._resolve_max_tokens_floor(model, data)
         routed_tiers: "list[FixTier]" = []
         for h in hypotheses:
@@ -963,7 +983,7 @@ class FixAgent:
 
         data = self._validation_subset(data)
         authoring_data = proposal_data if proposal_data is not None else data
-        baseline, unstable = self._baseline(model, data)
+        baseline, unstable = self._baseline(baseline_model, data)
         if not any(v is not None for v in baseline.values()):
             logger.warning("FixAgent: no scorable case (no rubrics); nothing to validate")
             outcome.recommendation = self._recommend(
@@ -1137,9 +1157,14 @@ class FixAgent:
         selection correction is needed on the confirmation split.
         """
         data = self._validation_subset(data)
+        # Same handle split as propose_and_validate: baseline arm = deployed
+        # pipeline (when configured), candidate arm = raw model.
+        baseline_model = model
+        if self._candidate_model is not None:
+            model = self._candidate_model
         self._max_tokens_floor = self._resolve_max_tokens_floor(model, data)
         self._enforce_generation_floor([candidate])
-        baseline, unstable = self._baseline(model, data)
+        baseline, unstable = self._baseline(baseline_model, data)
         return self._validate(candidate, model, data, baseline, unstable)
 
     def _ebh_survivors(self, tested: "list[FixValidation]") -> "set[int]":
@@ -1871,7 +1896,28 @@ class FixAgent:
         is written against ``{original_prompt}`` — the L1 closure and the spec
         runner both fill that placeholder from case metadata, so it REPLACES
         the deployed template instead of wrapping it.
+
+        A SPEC deploy (``deployed_spec`` + ``candidate_model``: the baseline
+        handle runs the previous winner's whole pipeline) is different: rows
+        stay pristine, so templates use ``{prompt}`` as usual, and EVERY
+        candidate is validated as a full pipeline paired against the deployed
+        one — the note shows the incumbent spec and asks for revisions of it.
         """
+        if self._deployed_spec is not None:
+            spec_json = json.dumps(self._deployed_spec, indent=2, default=str)
+            return (
+                "\nDEPLOYED PIPELINE (the baseline your candidates are paired "
+                "against is NOT the raw model: it is the already-deployed pipeline "
+                "below — a previous repair round's validated winner. Every case's "
+                "recorded baseline output came from running it):\n"
+                "<<<\n" + spec_json + "\n>>>\n"
+                "Your candidates run as full pipelines that REPLACE this one, so "
+                "beating the baseline means beating this pipeline, not the plain "
+                "model.  Prefer minimal revisions of it — keep what its validation "
+                "proved, change the ONE part the failure evidence indicts (its "
+                "template wording, its sampling, its scaffold) — over unrelated "
+                "fresh ideas that discard its confirmed gains.\n"
+            )
         deployed = self._deployed_template(data)
         if not deployed:
             return ""
