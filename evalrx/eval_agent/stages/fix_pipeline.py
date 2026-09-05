@@ -206,6 +206,7 @@ def run_coded_pipeline(
     concurrency: int = 1,
     consensus_min_support: int = 0,
     max_calls_per_case: int = 0,
+    call_logger: "Callable[[dict[str, Any]], None] | None" = None,
 ) -> CodedPipelineResult:
     """Execute agent-written pipeline *code* with bridged model access.
 
@@ -320,8 +321,10 @@ def run_coded_pipeline(
                 return False
 
     def _serve(raw: str, request: "dict[str, Any]", case_id: str) -> bool:
+        call_started = time.perf_counter()
         case = case_by_id.get(case_id)
-        if reply_fn is None and _replayable_direct(request, case):
+        replayed = reply_fn is None and _replayable_direct(request, case)
+        if replayed:
             # The direct baseline is already on record: answer from it. Under
             # greedy decoding a fresh call would return the same text; under
             # sampling the record is the frozen baseline arm the paired test
@@ -334,6 +337,17 @@ def run_coded_pipeline(
             reply = _service_call(raw, case_by_id, model, Inputs, enable_attend,
                                   reply_fn, max_tokens_floor=max_tokens_floor)
         reply["rid"] = _rid_of(raw)
+        if call_logger is not None:
+            try:
+                call_logger({
+                    "case_id": case_id,
+                    "request": request,
+                    "response": {k: v for k, v in reply.items() if k != "rid"},
+                    "replayed_from_recorded_baseline": replayed,
+                    "duration_sec": time.perf_counter() - call_started,
+                })
+            except Exception as exc:  # logging must never break the bridge
+                logger.debug("fix_pipeline: call logger failed: %s", exc)
         # Record the call for the gold-free consensus guard: was it the direct
         # baseline (untouched prompt, no ops), and what did it answer?
         try:

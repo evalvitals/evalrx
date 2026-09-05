@@ -38,6 +38,12 @@ def test_discovery_fans_out_only_for_an_api_handle():
         for i in range(4)
     ]
     served = compose("qwen3.5-2b", "api", RuntimeConfig(generate_fn=_generate), set())
+    from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+
+    wrapped = InstrumentedModel(
+        served, object(), cycle=-1, analyzer="case_discovery",
+    )
+    assert CaseDiscoveryAgent(concurrency=4)._workers(wrapped, len(cases)) == 4
     report = CaseDiscoveryAgent(
         scorer=lambda case, observed: observed == case.expected, concurrency=4,
     ).discover(served, cases)

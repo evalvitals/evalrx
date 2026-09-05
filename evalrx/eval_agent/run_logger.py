@@ -718,6 +718,35 @@ class RunLogger:
             self._console_handler.setFormatter(_VerboseFormatter())
             self.logger.addHandler(self._console_handler)
 
+        # Dedicated sink for `log_model_call` — every generate/forward/logprobs/
+        # chat call an analyzer makes to the TARGET model (see
+        # model_instrumentation.InstrumentedModel), as opposed to the judge/coder
+        # LLM calls above, which already had verbatim coverage via
+        # `_save_judge_io`. Kept in its own file rather than inline in
+        # run_log.jsonl: an analyzer like self_consistency or coverage_gap can
+        # make dozens of model calls per case, which would drown out the
+        # cycle-level narrative in the main log. A standard FileHandler is used
+        # for the same reason as `self.logger` above: it is already thread-safe,
+        # so concurrent analyzers (ProbeAgent's ThreadPoolExecutor) can log
+        # through it without a bespoke lock around file I/O.
+        self.model_calls_path = self.run_dir / "model_calls.jsonl"
+        self._model_call_logger = logging.getLogger(f"evalrx.model_calls.{self.run_dir.name}")
+        self._model_call_logger.setLevel(logging.DEBUG)
+        self._model_call_logger.propagate = False
+        model_call_handler = logging.FileHandler(self.model_calls_path, encoding="utf-8")
+        model_call_handler.setFormatter(_JsonFormatter())
+        self._model_call_logger.addHandler(model_call_handler)
+        self._model_call_seq = 0
+        # Buffered per cycle so `log_probe` can replay each analyzer's calls as
+        # properly-nested Langfuse generations once the per-analyzer span
+        # exists — that span is only created in `log_probe`, which runs AFTER
+        # ProbeAgent.probe() (and therefore every model call in it) completes.
+        # The JSONL write above is NOT gated on this: it happens immediately,
+        # so the durable record survives even if `log_probe` is never reached
+        # (e.g. the process dies mid-cycle).
+        self._pending_model_calls: "dict[int, list[dict[str, Any]]]" = {}
+        self._pending_lock = threading.Lock()
+
         # Primary Langfuse & OpenTelemetry Tracing Engine
         from evalrx.observability.tracer import DiagnosticTracer
         self.tracer = DiagnosticTracer(
@@ -884,6 +913,83 @@ class RunLogger:
                 info["raw_chars"] = len(str(raw))
         return info or None
 
+    def log_model_call(
+        self,
+        *,
+        cycle: int,
+        analyzer: str,
+        call_index: int,
+        method: str,
+        inputs: Any,
+        kwargs: "dict[str, Any]",
+        output: Any,
+        duration_sec: float,
+        error: "str | None",
+        case_id: "str | None" = None,
+        batch_case_ids: "list[str] | None" = None,
+        n_batch_cases: "int | None" = None,
+    ) -> None:
+        """Record one TARGET-model call made by an analyzer during M1 probing.
+
+        Called by :class:`~evalrx.eval_agent.model_instrumentation.InstrumentedModel`
+        for every ``generate``/``forward``/``logprobs``/``chat`` call — including
+        the ones an analyzer makes several times per case (resampling,
+        counterfactual regeneration, rollouts) and then reduces to a single
+        derived score, which previously left no trace of what the model was
+        actually asked or what it actually said. ``case_id`` is a best-effort
+        exact-prompt match against the analyzer's batch (``None`` when the
+        analyzer rewrote the prompt); ``batch_case_ids`` names the (possibly
+        truncated — see ``n_batch_cases`` for the true count) bounded set of
+        cases this call could belong to, so an unmatched call is scoped rather
+        than untraceable. Capped by the caller (not here) because, unlike
+        every other field on this record, it is IDENTICAL across every call
+        one analyzer makes in a cycle — inlining it uncapped would repeat a
+        whole batch's uuids per call rather than per analyzer.
+
+        Writes immediately to ``model_calls.jsonl`` (durable regardless of
+        whether the cycle finishes) and separately buffers the record so
+        :meth:`log_probe` can replay it into Langfuse nested under that
+        analyzer's probe span — the span doesn't exist yet at call time,
+        since ``ProbeAgent.probe()`` (where every model call happens) runs
+        to completion before the loop calls ``log_probe``.
+
+        The buffer is keyed by ``cycle`` but ``log_probe`` drains the WHOLE
+        buffer regardless of that key (see the drain there) — callers that
+        stamp ``current_cycle`` after ``probe()`` has already run (or skip
+        ``log_probe`` for a round entirely, e.g. ``VLDiagnoseLoop.run_confirm``
+        with ``log=False``) would otherwise leak that round's records forever
+        under a cycle number ``log_probe`` never pops.
+        """
+        record: dict[str, Any] = {
+            "event": "model_call",
+            "ts": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+            "trace_id": self.trace_id,
+            "cycle": cycle,
+            "analyzer": analyzer,
+            "call_index": call_index,
+            "method": method,
+            "case_id": case_id,
+            "batch_case_ids": batch_case_ids or [],
+            "n_batch_cases": n_batch_cases if n_batch_cases is not None else len(batch_case_ids or []),
+            "inputs": inputs,
+            "kwargs": kwargs,
+            "output": output,
+            "duration_sec": round(duration_sec, 4),
+        }
+        if error is not None:
+            record["error"] = error
+        # seq must be assigned under the same lock as the buffer append: this
+        # method runs from multiple ThreadPoolExecutor workers at once for the
+        # exact high-fan-out analyzers (self_consistency, selfcheck,
+        # coverage_gap) this instrumentation targets, and an unlocked
+        # read-increment-write of a shared counter drops or duplicates seq
+        # numbers under concurrent calls.
+        with self._pending_lock:
+            self._model_call_seq += 1
+            record["seq"] = self._model_call_seq
+            self._pending_model_calls.setdefault(cycle, []).append(record)
+        self._model_call_logger.info("model_call", extra={"_payload": record})
+
     # ------------------------------------------------------------------
     # Event hooks — called by AutoDiagnoseLoop at each stage
     # ------------------------------------------------------------------
@@ -916,6 +1022,36 @@ class RunLogger:
         """
         artifact_paths, overlay_pngs = self._save_probe_artifacts(cycle, results)
         result_paths = self._save_probe_results(cycle, results)
+        # Every generate/forward/logprobs/chat call an analyzer made against the
+        # target model this cycle (see model_instrumentation.InstrumentedModel).
+        # Already durable in model_calls.jsonl by the time this runs; drained
+        # here (not just read) so replaying it into Langfuse below happens
+        # exactly once and the buffer doesn't grow across cycles.
+        #
+        # Drains EVERY buffered cycle, not just `cycle` — deliberately, not an
+        # oversight. `InstrumentedModel` tags each call with whatever
+        # `current_cycle` was live on the RunLogger at call time; a caller that
+        # stamps `current_cycle` AFTER `probe()` already ran would leave calls
+        # sitting under a cycle key this call's `pop(cycle, [])` would never
+        # match, silently dropping them from Langfuse. (`_m4_holdout_pass` used
+        # to do exactly this before calling this method with cycle=-1; fixed
+        # to stamp -1 before its `probe()` call instead — see loop.py.) Taking
+        # everything here is the backstop for that class of bug, current or
+        # future, not just insurance against one already-fixed instance.
+        #
+        # It is NOT airtight against every caller: `VLDiagnoseLoop.run_confirm`
+        # calls `_do_m1(..., log=False)`, i.e. probes WITHOUT ever calling
+        # `log_probe` to drain that round. Those calls stay correctly durable
+        # in model_calls.jsonl (written synchronously in log_model_call,
+        # unconditionally) but sit in this buffer until the NEXT `log_probe`
+        # call — which then reports them under that later cycle's span and
+        # `n_model_calls`, inflating it. Accepted trade-off: a call attributed
+        # to the wrong cycle's Langfuse span beats one silently discarded, and
+        # cycles are never concurrent, so at most one such round's worth ever
+        # accumulates before the next drain absorbs it.
+        with self._pending_lock:
+            pending_calls = [c for bucket in self._pending_model_calls.values() for c in bucket]
+            self._pending_model_calls.clear()
         entry: dict[str, Any] = {
             "event": "probe",
             "cycle": cycle,
@@ -923,7 +1059,10 @@ class RunLogger:
             "findings": {name: r.findings for name, r in results.items()},
             "result_paths": result_paths,
             "artifact_paths": artifact_paths,
+            "n_model_calls": len(pending_calls),
         }
+        if pending_calls:
+            entry["model_calls_path"] = str(self.model_calls_path.relative_to(self.run_dir))
         examples = _probe_examples(results, cases)
         if examples:
             entry["examples"] = examples
@@ -991,7 +1130,67 @@ class RunLogger:
                     "artifacts": {"result_path": result_paths.get(name)},
                 },
             )
-            self.tracer.end_span(probe_span, output_data={"findings": findings})
+            # Every target-model call THIS analyzer made, nested under its own
+            # probe span so the trace tree shows exactly what the model was
+            # asked and what it said at each step — not just the aggregate
+            # finding the analyzer reduced those calls to. Langfuse mirroring
+            # is capped (see _MAX_MIRRORED_CALLS_PER_ANALYZER below): live mode
+            # makes one synchronous HTTP call per generation, and a high-fan-out
+            # analyzer (self_consistency n=20, coverage_gap k=10, ×N cases) can
+            # make thousands of calls in one cycle. model_calls.jsonl always
+            # has the full, uncapped record regardless of this cap.
+            calls_for_analyzer = [c for c in pending_calls if c.get("analyzer") == name]
+            for call in calls_for_analyzer[: self._MAX_MIRRORED_CALLS_PER_ANALYZER]:
+                self.tracer.log_generation(
+                    name=f"{name} · {call.get('method')} #{call.get('call_index')}",
+                    model="target_model",
+                    prompt=call.get("inputs"),
+                    completion=call.get("error") or call.get("output"),
+                    span_id=probe_span,
+                    metadata={"duration_sec": call.get("duration_sec"), "error": call.get("error")},
+                )
+            self.tracer.end_span(
+                probe_span,
+                output_data={
+                    "findings": findings,
+                    "n_model_calls": len(calls_for_analyzer),
+                    "n_model_calls_mirrored": min(
+                        len(calls_for_analyzer), self._MAX_MIRRORED_CALLS_PER_ANALYZER
+                    ),
+                },
+            )
+        # An analyzer that raised mid-run has no Result and so no iteration
+        # above — but it may well have made model calls before crashing, and
+        # those are exactly the most diagnostically interesting ones (what did
+        # the model say right before the failure?). Emit them directly under
+        # the M1 span rather than silently excluding them from Langfuse. (Both
+        # sides are still subject to _MAX_MIRRORED_CALLS_PER_ANALYZER below —
+        # model_calls.jsonl is the only place all of them are guaranteed to be.)
+        orphaned = {c["analyzer"] for c in pending_calls} - set(results)
+        for name in orphaned:
+            failed_span = self.tracer.start_span(
+                name=f"Probe: {name} (failed)",
+                stage=f"M1_{name}",
+                input_data={"probe": name},
+                parent_id=m1_span,
+                metadata={"note": "analyzer raised before producing a Result"},
+            )
+            calls_for_analyzer = [c for c in pending_calls if c.get("analyzer") == name]
+            for call in calls_for_analyzer[: self._MAX_MIRRORED_CALLS_PER_ANALYZER]:
+                self.tracer.log_generation(
+                    name=f"{name} · {call.get('method')} #{call.get('call_index')}",
+                    model="target_model",
+                    prompt=call.get("inputs"),
+                    completion=call.get("error") or call.get("output"),
+                    span_id=failed_span,
+                    metadata={"duration_sec": call.get("duration_sec"), "error": call.get("error")},
+                )
+            self.tracer.end_span(failed_span, status="failed", output_data={
+                "n_model_calls": len(calls_for_analyzer),
+                "n_model_calls_mirrored": min(
+                    len(calls_for_analyzer), self._MAX_MIRRORED_CALLS_PER_ANALYZER
+                ),
+            })
         self.tracer.end_span(m1_span, output_data={"n_probes": len(results)})
         return png_figures
 
@@ -1477,6 +1676,26 @@ class RunLogger:
             entry["duration_sec"] = round(duration_sec, 3)
         self._log(entry, span_id=f"s{step}.decision")
 
+        # Native Langfuse Audit — this was the one stage-level judge call with
+        # verbatim prompts/*.txt coverage but no Langfuse span/generation, so
+        # the most layered path (AgenticDiagnoseLoop's own dispatch judge) was
+        # invisible in the trace tree everywhere else was visible.
+        decision_span = self.tracer.start_span(
+            name=f"Agent Decision: step {step}",
+            stage="AGENT_DECISION",
+            input_data={"action": action, "params": params or {}},
+            metadata={"valid": valid, "repair_attempts": repair_attempts, "fallback_used": fallback_used},
+        )
+        if judge_prompt or judge_raw:
+            self.tracer.log_generation(
+                name="Agent Decision Judge",
+                model="judge",
+                prompt=judge_prompt or "",
+                completion=judge_raw or "",
+                span_id=decision_span,
+            )
+        self.tracer.end_span(decision_span, output_data={"action": action, "rationale": rationale})
+
     def log_agent_tool(
         self,
         step: int,
@@ -1957,6 +2176,40 @@ class RunLogger:
             entry["record"] = record
         self._log(entry, span_id=f"{prefix}.{module}")
 
+        # Native Langfuse Audit — this stage wrote the coder agent's full
+        # trajectory to disk (cli_raw_output → agent_thinking.txt) but never
+        # created a span, so the M4 coder run was on disk yet absent from the
+        # trace tree (unlike explore's coder agent, logged just below via
+        # log_explore's raw_outputs).
+        exp_span = self.tracer.start_span(
+            name=f"{module.upper()}: Experiment — {hypothesis.statement[:60]}",
+            stage=f"{module.upper()}_EXPERIMENT",
+            input_data={"hypothesis": hypothesis.statement, "failure_mode": hypothesis.predicted_failure_mode},
+            metadata={"provider": exp.get("provider"), "returncode": exp.get("returncode")},
+        )
+        cli_raw = exp.get("cli_raw_output")
+        if cli_raw:
+            self.tracer.log_generation(
+                name=f"{module.upper()} Coder Agent",
+                model=str(exp.get("provider") or "coder_agent"),
+                prompt=None,
+                completion=str(cli_raw),
+                span_id=exp_span,
+            )
+        vlog = exp.get("validation_log")
+        if vlog:
+            self.tracer.log_generation(
+                name=f"{module.upper()} Validation Log",
+                model=str(exp.get("provider") or "coder_agent"),
+                prompt=None,
+                completion="\n".join(str(x) for x in vlog),
+                span_id=exp_span,
+            )
+        self.tracer.end_span(
+            exp_span,
+            output_data={"status": entry.get("status"), "fixed": entry.get("fixed"), "verdict": entry.get("verdict")},
+        )
+
     def _write_experiment_record(
         self, entry: "dict[str, Any]", dest_dir: Path, name_prefix: str
     ) -> "str | None":
@@ -2154,6 +2407,10 @@ class RunLogger:
                 handler.flush()
                 handler.close()
                 self.logger.removeHandler(handler)
+        for handler in list(self._model_call_logger.handlers):
+            handler.flush()
+            handler.close()
+            self._model_call_logger.removeHandler(handler)
 
     def __enter__(self) -> "RunLogger":
         return self
@@ -2237,6 +2494,15 @@ class RunLogger:
     # line — typical runs stay well under this, so the common case is
     # unaffected and still jq/tail -f friendly.
     _INLINE_MAX_BYTES = 4096
+
+    # Caps how many of one analyzer's model_call records get mirrored into
+    # Langfuse per log_probe() (see log_probe). model_calls.jsonl always keeps
+    # every call regardless — this only bounds the live-mode Langfuse client,
+    # which makes one synchronous HTTP request per generation and would
+    # otherwise turn a high-fan-out analyzer's cycle (self_consistency n=20,
+    # coverage_gap k=10, × every case in the batch) into thousands of
+    # sequential network calls.
+    _MAX_MIRRORED_CALLS_PER_ANALYZER = 50
 
     def _externalize_if_large(
         self, cycle: int, key: str, value: Any, *, threshold_bytes: int = _INLINE_MAX_BYTES,

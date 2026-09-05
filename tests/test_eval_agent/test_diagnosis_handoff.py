@@ -186,6 +186,12 @@ def test_plain_language_repair_runs_once_when_the_plain_line_is_jargon():
     assert diag.hypotheses[0].plain_statement == (
         "The model answers Yes whatever the picture shows."
     )
+    assert [call["role"] for call in diag.model_calls] == [
+        "diagnosis_judge", "diagnosis_plain_language_repair", "hypothesis_critic",
+    ]
+    assert diag.model_calls[0]["inputs"]["prompt"] == judge.prompts[0]
+    assert [call["inputs"] for call in diag.model_calls[1:]] == judge.prompts[1:]
+    assert all(call["duration_sec"] >= 0 for call in diag.model_calls)
 
 
 def test_plain_language_repair_failure_keeps_the_original_hypotheses():

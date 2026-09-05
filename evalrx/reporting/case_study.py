@@ -300,7 +300,8 @@ class _Run:
 
     def __init__(self, root: Path, events: Sequence[Mapping[str, Any]]):
         root = Path(root)
-        if (root / "run_log.jsonl").exists() or (root / "artifacts").is_dir():
+        if ((root / "run_log.jsonl").exists() or (root / "run.json").exists()
+                or (root / "artifacts").is_dir()):
             self.logs, self.run_dir = root, root.parent
         else:
             self.logs = next((p for p in sorted(root.glob("logs*")) if p.is_dir()), root)
@@ -308,6 +309,8 @@ class _Run:
         self.events = list(events)
         self.summary = _load(self.run_dir / "summary.json", {}) or {}
         self.manifest = _load(self.logs / "manifest.json", {}) or {}
+        if not self.manifest and (self.logs / "run.json").is_file():
+            self.manifest = (_load(self.logs / "run.json", {}) or {}).get("manifest") or {}
         self.config = self.manifest.get("config") or {}
         self.case_records = {
             event["case_id"]: event

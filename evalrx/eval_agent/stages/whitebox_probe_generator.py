@@ -198,6 +198,16 @@ class WhiteboxProbeGenerator:
         selected = list(cases)
         if self._max_cases > 0:  # 0 = every case
             selected = selected[: self._max_cases]
+        if getattr(self.run_logger, "preserve_full_model_io", False):
+            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+
+            model = InstrumentedModel(
+                model, self.run_logger,
+                cycle=int(getattr(self.run_logger, "current_cycle", -1)),
+                analyzer="generated_whitebox_probe_capture",
+                case_prompts={c.inputs.prompt: c.id for c in selected},
+                batch_case_ids=[c.id for c in selected],
+            )
         for case in selected:
             try:
                 trace = model.forward(case.inputs, capture={Capability.ATTENTION})

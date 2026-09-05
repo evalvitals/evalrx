@@ -49,6 +49,7 @@ class DiagnosticTracer:
         run_dir: str | Path | None = None,
         auto_sync: bool = False,
         mode: str | None = None,
+        outbox_path: str | Path | None = None,
     ):
         self.run_dir = Path(run_dir).resolve() if run_dir else None
         self.auto_sync = auto_sync
@@ -70,11 +71,12 @@ class DiagnosticTracer:
         # Every structured run-log event enters this durable queue before live
         # delivery.  It is intentionally kept separate from the human-readable
         # JSONL log so delivery retries never mutate the run record.
-        self.outbox = ObservabilityOutbox(
+        default_outbox = (
             (self.run_dir / ".evalrx" / "langfuse_outbox.sqlite3")
             if self.run_dir is not None
             else Path(".evalrx-langfuse-outbox.sqlite3")
         )
+        self.outbox = ObservabilityOutbox(outbox_path or default_outbox)
 
         has_credentials = bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
         if requested_mode == "live" and not has_credentials:
@@ -479,6 +481,17 @@ def _resolve_trace_id(run_dir: Path, fingerprint: str) -> str:
             except Exception:
                 pass
             break
+    try:
+        from evalrx.reporting.run_events import read_v2_events
+
+        start = next(
+            (event for event in read_v2_events(run_dir) if event.get("event") == "run_start"),
+            {},
+        )
+        if start.get("trace_id"):
+            return str(start["trace_id"])
+    except Exception:
+        pass
     return hashlib.md5((fingerprint or "evalrx").encode("utf-8")).hexdigest()
 
 
@@ -742,13 +755,19 @@ def backfill_run_to_langfuse(run_dir: str | Path, *, dry_run: bool = False) -> d
     if not log_path.exists() and (root / "logs" / "run_log.jsonl").exists():
         root = root / "logs"
         log_path = root / "run_log.jsonl"
-    if not log_path.exists():
-        raise FileNotFoundError(f"No run_log.jsonl found under {run_dir}")
-
     records: list[dict[str, Any]] = []
-    for line in log_path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            records.append(json.loads(line))
+    if log_path.exists():
+        for line in log_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                records.append(json.loads(line))
+    else:
+        from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
+
+        v2_root = resolve_v2_root(root)
+        if v2_root is None:
+            raise FileNotFoundError(f"No run_log.jsonl or RunLoggerV2 bundle found under {run_dir}")
+        root = v2_root
+        records = read_v2_events(root)
     if not records:
         return {"trace_id": "", "events": 0, "pending": 0, "published": 0}
 

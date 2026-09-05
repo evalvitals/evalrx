@@ -103,6 +103,7 @@ def quarantine_run_dir(
     run_dir: "str | os.PathLike[str]",
     *,
     append_logs: Iterable["str | os.PathLike[str]"] = (),
+    rewrite_logs: Iterable["str | os.PathLike[str]"] = (),
     keep: Iterable[str] = (),
     write_manifest: bool = True,
 ) -> Iterator[QuarantineReport]:
@@ -129,6 +130,13 @@ def quarantine_run_dir(
             append_rel.add(_rel(p, root))
         except ValueError:
             logger.warning("label quarantine: append log %s is outside %s; ignored", p, root)
+    rewrite_rel = set()
+    for p in rewrite_logs:
+        p = Path(p).resolve()
+        try:
+            rewrite_rel.add(_rel(p, root))
+        except ValueError:
+            logger.warning("label quarantine: rewrite log %s is outside %s; ignored", p, root)
 
     report = QuarantineReport(root=root)
     stash: dict[str, bytes] = {}
@@ -169,6 +177,11 @@ def quarantine_run_dir(
             if rel in append_rel:
                 new = path.read_bytes() if path.exists() else b""
                 path.write_bytes(old + new)
+                report.merged.append(rel)
+            elif rel in rewrite_rel and path.exists() and path.stat().st_size > 0:
+                # Atomic JSON loggers rewrite a complete in-memory document;
+                # that new document already includes everything in `old`.
+                # Keeping it avoids a redundant, non-JSON `.pre_fix` sibling.
                 report.merged.append(rel)
             elif path.exists() and path.stat().st_size > 0:
                 # Appended AFTER the extension so a `*.json` scan (the contract

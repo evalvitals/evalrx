@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -135,20 +136,53 @@ def decide(
 
     evidence = board.to_prompt(registry)
     prompt = DECISION_PROMPT.format(evidence=evidence)
-    raw = judge.generate(prompt)
-
-    action: Action | None = None
+    judge_calls: list[dict[str, Any]] = []
+    started = time.perf_counter()
     try:
-        action = parse_action(raw, registry)
-    except ActionParseError as exc:
-        last_raw, last_exc = raw, exc
+        raw = judge.generate(prompt)
+    except Exception as exc:  # noqa: BLE001
+        judge_calls.append({
+            "role": "agent_decision", "operation": "generate", "inputs": prompt,
+            "output": None, "error": str(exc),
+            "duration_sec": time.perf_counter() - started,
+        })
+        raw = ""
+        action: Action | None = _fallback_action(board)
+    else:
+        judge_calls.append({
+            "role": "agent_decision", "operation": "generate", "inputs": prompt,
+            "output": str(raw), "error": None,
+            "duration_sec": time.perf_counter() - started,
+        })
+        try:
+            action = parse_action(raw, registry)
+        except ActionParseError as exc:
+            action = None
+            last_raw, last_exc = raw, exc
+    if action is None:
         for attempt in range(1, max_repairs + 1):
             repair_prompt = ACTION_REPAIR_PROMPT.format(
                 raw=last_raw,
                 errors="\n".join(last_exc.errors) or str(last_exc),
                 evidence=evidence,
             )
-            last_raw = judge.generate(repair_prompt)
+            started = time.perf_counter()
+            try:
+                last_raw = judge.generate(repair_prompt)
+            except Exception as exc:  # noqa: BLE001
+                judge_calls.append({
+                    "role": "agent_decision_repair", "operation": "generate",
+                    "inputs": repair_prompt, "output": None, "error": str(exc),
+                    "duration_sec": time.perf_counter() - started,
+                    "metadata": {"attempt": attempt},
+                })
+                break
+            judge_calls.append({
+                "role": "agent_decision_repair", "operation": "generate",
+                "inputs": repair_prompt, "output": str(last_raw), "error": None,
+                "duration_sec": time.perf_counter() - started,
+                "metadata": {"attempt": attempt},
+            })
             try:
                 action = parse_action(last_raw, registry)
                 action.repair_attempts = attempt
@@ -156,14 +190,14 @@ def decide(
             except ActionParseError as exc2:
                 last_exc = exc2
                 action = None
-        if action is None:
-            action = _fallback_action(board)
-            action.raw = raw
+    if action is None:
+        action = _fallback_action(board)
+        action.raw = raw
 
     if run_logger is not None:
         try:
-            run_logger.log_agent_decision(
-                step,
+            log_kwargs = dict(
+                step=step,
                 action=action.tool,
                 params=action.params,
                 rationale=action.rationale,
@@ -173,6 +207,9 @@ def decide(
                 judge_prompt=prompt,
                 judge_raw=raw,
             )
+            if getattr(run_logger, "preserve_full_model_io", False):
+                log_kwargs["judge_calls"] = judge_calls
+            run_logger.log_agent_decision(**log_kwargs)
         except Exception:  # noqa: BLE001 — logging must never break the loop
             logger.warning("decide: log_agent_decision failed", exc_info=True)
 

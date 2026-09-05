@@ -455,6 +455,7 @@ class SurgeryAgent:
             "cli_usage": writer_result.cli_usage,
             "llm_calls": writer_result.total_llm_calls,
             "sandbox_runs": writer_result.total_sandbox_runs,
+            "model_calls": writer_result.model_calls,
             "workdir": writer_result.workdir,
             # Self-contained trial folder (see RunContext.new_trial) — None
             # when no RunContext is in play (legacy flat layout).

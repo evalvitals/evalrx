@@ -1564,7 +1564,9 @@ def _read_events(root: Path) -> list[dict[str, Any]]:
     candidates = [root / "run_log.jsonl", *sorted(root.glob("logs*/run_log.jsonl"))]
     path = next((candidate for candidate in candidates if candidate.exists()), None)
     if path is None:
-        return []
+        from evalrx.reporting.run_events import read_v2_events
+
+        return read_v2_events(root)
     events = []
     for line in path.read_text(encoding="utf-8").splitlines():
         try:

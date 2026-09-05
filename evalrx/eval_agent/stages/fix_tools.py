@@ -860,6 +860,7 @@ def run_pipeline(
     spec: PipelineSpec,
     score_fn: "Callable[[FailureCase, str], Optional[bool]]",
     capture: "dict[str, Any] | None" = None,
+    call_logger: "Callable[[dict[str, Any]], None] | None" = None,
 ) -> "Optional[bool]":
     """Execute *spec* on one case; aggregate outputs before host-side scoring.
 
@@ -902,7 +903,11 @@ def run_pipeline(
 
     def generate(text: str) -> str:
         nonlocal n_calls
+        import time
+
         n_calls += 1
+        started = time.perf_counter()
+        new_inputs = None
         try:
             # dataclasses.replace(inp, ...), not a bare Inputs(prompt=...,
             # image=...): the bare form silently dropped .video/.audio, so
@@ -919,9 +924,25 @@ def run_pipeline(
                 if inp is not None
                 else Inputs(prompt=text, image=image)
             )
-            return str(model.generate(new_inputs, **spec.generation_kwargs))
+            output = str(model.generate(new_inputs, **spec.generation_kwargs))
+            if call_logger is not None:
+                call_logger({
+                    "inputs": new_inputs, "output": output, "error": None,
+                    "duration_sec": time.perf_counter() - started,
+                    "generation_kwargs": dict(spec.generation_kwargs),
+                })
+            return output
         except Exception as exc:
             logger.debug("run_pipeline: generate failed on %s: %s", case.id, exc)
+            if call_logger is not None:
+                try:
+                    call_logger({
+                        "inputs": new_inputs or {"prompt": text}, "output": None,
+                        "error": str(exc), "duration_sec": time.perf_counter() - started,
+                        "generation_kwargs": dict(spec.generation_kwargs),
+                    })
+                except Exception as log_exc:
+                    logger.debug("run_pipeline: call logger failed: %s", log_exc)
             return ""
 
     outputs = [

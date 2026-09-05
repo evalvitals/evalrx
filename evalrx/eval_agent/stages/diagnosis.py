@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -227,6 +228,7 @@ class DiagnosisResult:
     review_prompt: str = ""
     review_raw: str = ""
     review_decisions: list[dict[str, Any]] = field(default_factory=list)
+    model_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 _HYPOTHESIS_SCHEMA: dict = {
@@ -527,6 +529,7 @@ def _validate_hypotheses(
     if capture is not None:
         capture["prompt"] = prompt
 
+    started = time.perf_counter()
     try:
         # Use temperature=0 so the critic is deterministic and strict.
         # Models that don't accept a temperature kwarg are called without it.
@@ -536,7 +539,7 @@ def _validate_hypotheses(
             raw = judge.generate(prompt, temperature=0)
         else:
             raw = judge.generate(prompt)
-    except Exception:
+    except Exception as exc:
         if capture is not None:
             # A transport failure must not silently delete ideas — and the
             # record must distinguish it from an evidence-based rejection.
@@ -544,10 +547,14 @@ def _validate_hypotheses(
                 "statement": h.statement, "decision": "review_unavailable",
                 "reason": "The adversarial review call failed; proposal retained.",
             } for h in hypotheses]
+            capture["error"] = str(exc)
+            capture["duration_sec"] = time.perf_counter() - started
         return hypotheses  # validation failed — keep originals, unannotated
     raw = str(raw)
     if capture is not None:
         capture["raw"] = raw
+        capture["error"] = None
+        capture["duration_sec"] = time.perf_counter() - started
 
     def _match(stmt: str) -> "Hypothesis | None":
         stmt = stmt.strip().lower()
@@ -708,11 +715,23 @@ class DiagnosisAgent:
             "DiagnosisAgent: the judge wrote %d chars that parsed to zero hypotheses; "
             "re-asking once for the labelled format: %r", len(text), text[:160],
         )
+        repair_prompt = _FORMAT_REPAIR_PROMPT.format(raw=raw)
+        started = time.perf_counter()
         try:
-            reasked = str(self.judge.generate(_FORMAT_REPAIR_PROMPT.format(raw=raw)))
+            reasked = str(self.judge.generate(repair_prompt))
         except Exception as exc:  # noqa: BLE001
+            self._model_calls.append({
+                "role": "diagnosis_format_repair", "operation": "generate",
+                "inputs": repair_prompt, "output": None, "error": str(exc),
+                "duration_sec": time.perf_counter() - started,
+            })
             log.warning("DiagnosisAgent: format re-ask failed: %s", exc)
             return raw, []
+        self._model_calls.append({
+            "role": "diagnosis_format_repair", "operation": "generate",
+            "inputs": repair_prompt, "output": reasked, "error": None,
+            "duration_sec": time.perf_counter() - started,
+        })
         hypotheses = _parse_hypotheses(reasked, model_name)
         if hypotheses:
             return reasked, hypotheses
@@ -744,16 +763,28 @@ class DiagnosisAgent:
         ]
         if not violations:
             return hypotheses
+        repair_prompt = _PLAIN_REPAIR_PROMPT.format(
+            raw=raw, violations="\n".join(f"- {v}" for v in violations),
+        )
+        started = time.perf_counter()
         try:
-            repaired_raw = self.judge.generate(_PLAIN_REPAIR_PROMPT.format(
-                raw=raw, violations="\n".join(f"- {v}" for v in violations),
-            ))
+            repaired_raw = self.judge.generate(repair_prompt)
         except Exception as exc:  # noqa: BLE001
+            self._model_calls.append({
+                "role": "diagnosis_plain_language_repair", "operation": "generate",
+                "inputs": repair_prompt, "output": None, "error": str(exc),
+                "duration_sec": time.perf_counter() - started,
+            })
             import logging
 
             logging.getLogger(__name__).warning(
                 "DiagnosisAgent: plain-language repair failed: %s", exc)
             return hypotheses
+        self._model_calls.append({
+            "role": "diagnosis_plain_language_repair", "operation": "generate",
+            "inputs": repair_prompt, "output": str(repaired_raw), "error": None,
+            "duration_sec": time.perf_counter() - started,
+        })
         repaired = _parse_hypotheses(str(repaired_raw), model_name)
         return repaired or hypotheses
 
@@ -794,6 +825,8 @@ class DiagnosisAgent:
             :class:`DiagnosisResult` with zero or more hypotheses.
         """
         from evalrx.analysis.analysis_module import AnalysisModule, AnalysisReport
+
+        self._model_calls: list[dict[str, Any]] = []
 
         if not isinstance(analysis, AnalysisReport):
             # Backward compat: wrap raw results in a minimal AnalysisReport.
@@ -871,10 +904,26 @@ class DiagnosisAgent:
         if explore_context is not None:
             _figs += [_Path(f) for f in explore_context.figure_paths if _Path(f).exists()]
         _sig = _inspect.signature(self.judge.generate)
-        if "images" in _sig.parameters and _figs:
-            raw = self.judge.generate(prompt, images=_figs)
-        else:
-            raw = self.judge.generate(prompt)
+        started = time.perf_counter()
+        try:
+            if "images" in _sig.parameters and _figs:
+                raw = self.judge.generate(prompt, images=_figs)
+            else:
+                raw = self.judge.generate(prompt)
+        except Exception as exc:
+            self._model_calls.append({
+                "role": "diagnosis_judge", "operation": "generate",
+                "inputs": {"prompt": prompt, "images": [str(f) for f in _figs]},
+                "output": None, "error": str(exc),
+                "duration_sec": time.perf_counter() - started,
+            })
+            raise
+        self._model_calls.append({
+            "role": "diagnosis_judge", "operation": "generate",
+            "inputs": {"prompt": prompt, "images": [str(f) for f in _figs]},
+            "output": str(raw), "error": None,
+            "duration_sec": time.perf_counter() - started,
+        })
         proposed_hypotheses = _parse_hypotheses(str(raw), analysis.model_name or model_name)
         if not proposed_hypotheses:
             raw, proposed_hypotheses = self._reask_for_format(
@@ -907,6 +956,12 @@ class DiagnosisAgent:
                 hypotheses, findings_json_str, self.judge, capture=critic,
                 context=critic_context,
             )
+            self._model_calls.append({
+                "role": "hypothesis_critic", "operation": "generate",
+                "inputs": critic.get("prompt", ""), "output": critic.get("raw"),
+                "error": critic.get("error"),
+                "duration_sec": critic.get("duration_sec"),
+            })
 
         # Fallback: if the judge returned NO_ISSUE but M2 has medium/high findings,
         # auto-generate one hypothesis per finding so M5 can still run.
@@ -958,4 +1013,5 @@ class DiagnosisAgent:
             review_prompt=str(critic.get("prompt", "") or ""),
             review_raw=str(critic.get("raw", "") or ""),
             review_decisions=list(critic.get("decisions") or []),
+            model_calls=list(self._model_calls),
         )

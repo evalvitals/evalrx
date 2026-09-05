@@ -739,6 +739,35 @@ class ProbeAgent:
         model: "Model",
         data: "CaseBatch",
     ) -> "Result | None":
+        # Wrap the model so every generate/forward/logprobs/chat call THIS
+        # analyzer makes is durably recorded (see model_instrumentation.py) —
+        # including calls an analyzer makes several times per case and then
+        # reduces to one derived score, which otherwise leave no trace. A
+        # fresh proxy per call keeps call_index scoped to (cycle, analyzer);
+        # __repr__ forwards to the wrapped model so Experiment.fingerprint()
+        # and Result.model stay unaffected by the wrapping. Only reaches
+        # in-process (non-Docker) analyzers — Docker-mode calls happen inside
+        # a subprocess and are out of reach of this wrapper.
+        if self.run_logger is not None:
+            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+
+            # Best-effort (prompt -> case_id) for THIS analyzer's batch, so a
+            # call that reuses the case's own prompt unmodified can be tied
+            # back to it; batch_case_ids is the fallback for calls that
+            # rewrite the prompt (format_sensitivity, cot_faithfulness, ...).
+            batch_case_ids = [str(getattr(c, "id", "")) for c in data]
+            case_prompts = {
+                str(prompt): case_id
+                for c, case_id in zip(data, batch_case_ids)
+                if (prompt := getattr(getattr(c, "inputs", None), "prompt", None)) is not None
+            }
+            model = InstrumentedModel(
+                model, self.run_logger,
+                cycle=getattr(self.run_logger, "current_cycle", -1),
+                analyzer=analyzer.name,
+                case_prompts=case_prompts,
+                batch_case_ids=batch_case_ids,
+            )
         exp = Experiment(model=model, analyzer=analyzer, data=data)
         try:
             return self.runner.run(exp)

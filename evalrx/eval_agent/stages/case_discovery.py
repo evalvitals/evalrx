@@ -167,6 +167,9 @@ class CaseDiscoveryAgent:
         # A deployed-pipeline wrapper (fix_tools.SpecPipelineModel) is exactly
         # as reentrant as the handle it drives — judge it by its inner model.
         model = getattr(model, "inner_model", model)
+        # InstrumentedModel is also a transparent proxy; preserve the API
+        # handle's configured discovery concurrency while recording each call.
+        model = getattr(model, "_model", model)
         if not isinstance(model, APIModel):
             return 1
         return min(self.concurrency, max(1, n_cases))

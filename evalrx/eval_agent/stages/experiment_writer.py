@@ -171,6 +171,7 @@ class ExperimentWriterResult:
     cli_usage: dict | None = None
     provider: str = "llm"
     workdir: str = ""
+    model_calls: "list[dict[str, Any]]" = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -340,6 +341,7 @@ class ExperimentWriter:
         self._calls = 0
         self._runs = 0
         self._log = []
+        self._model_calls: "list[dict[str, Any]]" = []
         self._forbid_model_load = model_context.get("access_mode") == "artifacts_only"
         self._log_event("ExperimentWriter.write_and_run() started")
 
@@ -385,6 +387,7 @@ class ExperimentWriter:
                     validation_log=list(self._log),
                     total_llm_calls=self._calls,
                     total_sandbox_runs=self._runs,
+                    model_calls=list(self._model_calls),
                 )
             files = {"main.py": code}
 
@@ -407,6 +410,7 @@ class ExperimentWriter:
                 validation_log=list(self._log),
                 total_llm_calls=self._calls,
                 total_sandbox_runs=self._runs,
+                model_calls=list(self._model_calls),
             )
 
         # Phase 4 — exec-fix loop (tree search or plain)
@@ -454,6 +458,7 @@ class ExperimentWriter:
             validation_log=list(self._log),
             provider="llm",
             workdir=str(getattr(sandbox, "workdir", "")),
+            model_calls=list(self._model_calls),
         )
 
     # ------------------------------------------------------------------
@@ -1315,6 +1320,15 @@ class ExperimentWriter:
         # The agent's stdout is its narration / coding trajectory while it
         # writes and self-repairs the script — keep it for the coding log.
         cli_raw_output = cli_result.raw_output
+        self._model_calls.append({
+            "role": "experiment_coder",
+            "operation": f"cli:{cli_cfg.provider}",
+            "inputs": prompt,
+            "output": cli_raw_output,
+            "error": cli_result.error or None,
+            "duration_sec": cli_result.elapsed_sec,
+            "metadata": {"files": sorted(cli_result.files), "usage": cli_result.usage},
+        })
         cli_usage = cli_result.usage
         self._log_event(
             f"  CLI finished: ok={cli_result.ok}, "
@@ -1333,6 +1347,7 @@ class ExperimentWriter:
                 cli_usage=cli_usage,
                 provider=cli_cfg.provider,
                 workdir=str(workdir),
+                model_calls=list(self._model_calls),
             )
 
         code = cli_result.files.get("experiment.py") or next(iter(cli_result.files.values()))
@@ -1356,6 +1371,7 @@ class ExperimentWriter:
                 cli_usage=cli_usage,
                 provider=cli_cfg.provider,
                 workdir=str(workdir),
+                model_calls=list(self._model_calls),
             )
 
         if self._cfg.hard_validation:
@@ -1391,6 +1407,7 @@ class ExperimentWriter:
             cli_usage=cli_usage,
             provider=cli_cfg.provider,
             workdir=str(workdir),
+            model_calls=list(self._model_calls),
         )
 
     @staticmethod
@@ -1591,12 +1608,26 @@ class ExperimentWriter:
 
     def _llm_call(self, system: str, user: str) -> str:
         self._calls += 1
+        import time
+
+        started = time.perf_counter()
+        prompt = f"{system}\n\n{user}"
         try:
-            prompt = f"{system}\n\n{user}"
-            return self._judge.generate(prompt)
+            output = self._judge.generate(prompt)
         except Exception as exc:  # noqa: BLE001
             self._log_event(f"  LLM call failed: {exc}")
+            self._model_calls.append({
+                "role": "experiment_writer", "operation": "generate",
+                "inputs": prompt, "output": None, "error": str(exc),
+                "duration_sec": time.perf_counter() - started,
+            })
             return ""
+        self._model_calls.append({
+            "role": "experiment_writer", "operation": "generate",
+            "inputs": prompt, "output": output, "error": None,
+            "duration_sec": time.perf_counter() - started,
+        })
+        return output
 
     def _log_event(self, msg: str) -> None:
         logger.debug(msg)

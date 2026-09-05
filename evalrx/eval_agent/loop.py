@@ -1086,6 +1086,13 @@ class VLDiagnoseLoop:
             len(hypotheses), len(list(confirm)),
             ", ".join(pinned) or "<probe agent's own selection>",
         )
+        # Stamped BEFORE probe() (not just before log_probe below): ProbeAgent
+        # tags every model call it makes with whatever current_cycle reads AT
+        # CALL TIME, and probe() is where those calls happen. Setting this
+        # only right before log_probe(-1, ...) tagged this whole confirm-split
+        # re-probe's model calls with the previous explore cycle's number.
+        if self.run_logger:
+            self.run_logger.current_cycle = -1
         _t0 = time.monotonic()
         try:
             if pinned:
@@ -1114,7 +1121,6 @@ class VLDiagnoseLoop:
             return [], "failed"
         self._bridge_signals(probe_results, confirm)
         if self.run_logger:
-            self.run_logger.current_cycle = -1
             self.run_logger.log_probe(
                 -1, probe_results,
                 schema=getattr(self.probe_agent, "last_schema", None),

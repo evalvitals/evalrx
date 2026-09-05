@@ -285,7 +285,10 @@ def _search_probes(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dic
         if not len(seed_pool):
             return ToolOutcome(False, "no seed cases available to probe", error="empty")
         budget = int(params.get("budget", 10))
-        agent = ProbeSearchAgent(judge=loop.judge, protocol=loop.protocol, budget=budget)
+        agent = ProbeSearchAgent(
+            judge=loop.judge, protocol=loop.protocol, budget=budget,
+            run_logger=getattr(loop, "run_logger", None),
+        )
         result = agent.run(loop.model, seed_pool)
         state.probe_search_result = result
         board.probe_search_findings = [
