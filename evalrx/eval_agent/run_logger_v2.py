@@ -13,7 +13,7 @@ rules that shaped it:
    not one small file per call.
 3. M1..M5 each get their own folder. A reader who only cares about M3 opens
    exactly one folder.
-4. Nothing but JSON, except real binary media (images, audio, tensors). Code,
+4. Nothing but JSON, except real binary artifacts (images, audio, tensors). Code,
    stdout, prompts, markdown summaries — all of that is now a STRING VALUE
    inside the JSON, not a sibling ``.py``/``.txt``/``.md`` file.
 
@@ -25,11 +25,9 @@ this class by construction alone — no other code in ``loop.py``,
 ``probe_agent.py``, or any ``stages/*.py`` needs to change to try it.
 
 Known, deliberate scope cuts (see the design doc for why each is safe):
-  - Does not integrate with :class:`~evalrx.eval_agent.run_context.RunContext`
-    (no ``context=`` parameter, no ``new_trial()`` trial folders). Every stage
-    that reads ``getattr(run_logger, "_context", None)`` degrades to its own
-    non-trial fallback, exactly as it does for a legacy standalone
-    ``RunLogger()`` — verified by reading ``fix_agent.py``/``surgery.py``.
+  - RunContext integration uses an external ephemeral runtime tree. Generated
+    text/code is captured into stage JSON and the runtime tree is removed at
+    finalization instead of becoming a forest of trial files.
   - No human-readable Markdown summaries (``record.md``, ``outcome.md``) —
     the same information is in the JSON for a renderer to build one from.
   - No opt-in JSON-Schema self-validation (``EVALRX_VALIDATE_LOG``) — this is
@@ -259,6 +257,7 @@ class RunLoggerV2:
         self.current_cycle: int = -1
         self.verbose = verbose
         self._context = context
+        self._closed = False
         # Producers use this capability flag to keep text/code in log events
         # instead of writing V1-style sibling files into trial directories.
         self.inline_text_artifacts = True
@@ -269,6 +268,7 @@ class RunLoggerV2:
         # the doc(s) it touched — see _atomic_write_json.
         self._lock = threading.RLock()
         self._run_doc: dict[str, Any] = {
+            "trace_id": self.trace_id,
             "run_start": None,
             "cases": [],
             "report_published": [],
@@ -1298,6 +1298,7 @@ class RunLoggerV2:
         rationale: str = "", valid: bool = True, repair_attempts: int = 0,
         fallback_used: bool = False, judge_prompt: "str | None" = None,
         judge_raw: "str | None" = None, duration_sec: "float | None" = None,
+        judge_calls: "list[dict[str, Any]] | None" = None,
     ) -> None:
         entry: dict[str, Any] = {
             "ts": self._ts(), "step": step, "action": action, "params": params or {},
@@ -1308,6 +1309,8 @@ class RunLoggerV2:
             entry["judge_prompt"] = judge_prompt
         if judge_raw:
             entry["judge_response"] = judge_raw
+        if judge_calls:
+            entry["model_calls"] = json.loads(json.dumps(judge_calls, default=str))
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         self._append_run("agent_decisions", entry)
@@ -1439,15 +1442,22 @@ class RunLoggerV2:
 
     def close(self) -> None:
         """Flush every doc one last time and persist the Langfuse trace bundle."""
+        if self._closed:
+            return
         with self._lock:
             self._flush_run()
             for stage in _STAGES:
                 self._flush_stage(stage)
+        self.tracer.end_trace({
+            "spans": len(self.tracer.spans),
+            "generations": len(self.tracer.generations),
+            "scores": len(self.tracer.scores),
+        })
+        self.tracer.flush()
         try:
             self.tracer.export_bundle(self.run_dir / "langfuse_trace.json")
         except Exception:  # noqa: BLE001
             pass
-        self.tracer.flush()
         # Offline runs need no retry queue once the complete JSON trace bundle
         # has been exported.  A live run keeps a non-empty queue for retry.
         if self.tracer.mode == "offline" or self.tracer.outbox.pending_count() == 0:
@@ -1456,12 +1466,7 @@ class RunLoggerV2:
                 self._outbox_path.parent.rmdir()
             except OSError:
                 pass
-        self.tracer.end_trace({
-            "spans": len(self.tracer.spans),
-            "generations": len(self.tracer.generations),
-            "scores": len(self.tracer.scores),
-        })
-        self.tracer.flush()
+        self._closed = True
 
     def __enter__(self) -> "RunLoggerV2":
         return self

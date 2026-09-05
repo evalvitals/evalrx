@@ -134,3 +134,17 @@ def test_missing_run_dir_is_a_no_op(tmp_path):
     with quarantine_run_dir(tmp_path / "never", write_manifest=True) as q:
         assert q.hidden == []
     assert not (tmp_path / "never").exists()
+
+
+def test_atomic_rewrite_log_does_not_create_pre_fix_sidecar(tmp_path):
+    log = tmp_path / "logs" / "M5" / "log.json"
+    log.parent.mkdir(parents=True)
+    log.write_text('{"experiment": [{"id": 1}]}')
+    with quarantine_run_dir(
+        tmp_path, rewrite_logs=[log], write_manifest=False,
+    ) as report:
+        log.write_text('{"experiment": [{"id": 1}], "fix": [{"id": 2}]}')
+
+    assert json.loads(log.read_text())["fix"] == [{"id": 2}]
+    assert not log.with_name("log.json.pre_fix").exists()
+    assert report.merged == ["logs/M5/log.json"]

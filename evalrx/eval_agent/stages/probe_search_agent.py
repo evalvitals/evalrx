@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from evalrx.analysis.probe_search import ProbeSearch, ProbeSearchResult
 from evalrx.eval_agent.stages.case_discovery import CaseDiscoveryAgent
@@ -55,6 +55,7 @@ class ProbeSearchAgent:
     budget: int = 20
     beta: float = 1.0
     w_max: int = 3
+    run_logger: Any | None = None
 
     def __post_init__(self) -> None:
         if self.judge is None:
@@ -65,8 +66,23 @@ class ProbeSearchAgent:
             )
 
     def run(self, model: "Model", seed_pool: "CaseBatch") -> ProbeSearchResult:
-        discovery = CaseDiscoveryAgent(judge=self.judge)
-        generator = VLMProbeCandidateGenerator(seed_pool=seed_pool, judge=self.judge)
+        judge = self.judge
+        if getattr(self.run_logger, "preserve_full_model_io", False):
+            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+
+            cycle = int(getattr(self.run_logger, "current_cycle", -1))
+            ids = [case.id for case in seed_pool]
+            prompts = {case.inputs.prompt: case.id for case in seed_pool}
+            judge = InstrumentedModel(
+                judge, self.run_logger, cycle=cycle, analyzer="probe_search_judge",
+                batch_case_ids=ids,
+            )
+            model = InstrumentedModel(
+                model, self.run_logger, cycle=cycle, analyzer="probe_search_target",
+                case_prompts=prompts, batch_case_ids=ids,
+            )
+        discovery = CaseDiscoveryAgent(judge=judge)
+        generator = VLMProbeCandidateGenerator(seed_pool=seed_pool, judge=judge)
 
         def verify(case: "FailureCase") -> "FailureCase":
             report = discovery.discover(model, [case], protocol=self.protocol)

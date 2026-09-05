@@ -36,7 +36,7 @@ def read_v2_events(root: str | Path) -> list[dict[str, Any]]:
     except (OSError, json.JSONDecodeError):
         return []
 
-    trace_id = str((run.get("run_start") or {}).get("trace_id") or "")
+    trace_id = str((run.get("run_start") or {}).get("trace_id") or run.get("trace_id") or "")
     events: list[dict[str, Any]] = []
 
     def append(event: str, payload: Any, *, stage: str = "RUN") -> None:

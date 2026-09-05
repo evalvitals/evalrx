@@ -108,6 +108,11 @@ def test_explorer_runs_generated_local_analysis(tmp_path):
     assert report.tables["counts"] == {"fail": 3, "pass": 3}
     assert "exploratory only" in report.caveats
     assert (tmp_path / "records.json").exists()
+    assert len(report.model_calls) == 1
+    assert report.model_calls[0]["inputs"] == agent._judge.prompts[0]
+    assert report.model_calls[0]["output"].startswith("```python")
+    assert report.model_calls[0]["error"] is None
+    assert report.model_calls[0]["duration_sec"] >= 0
 
 
 def test_explorer_prompt_requires_visual_plan(tmp_path):
@@ -147,6 +152,12 @@ def test_explorer_uses_inspector_for_repair(tmp_path):
     assert len(judge.prompts) == 1
     assert len(inspector.prompts) == 1
     assert "Previous code" in inspector.prompts[0]
+    assert [call["role"] for call in report.model_calls] == [
+        "explore_coder", "explore_inspector",
+    ]
+    assert [call["inputs"] for call in report.model_calls] == [
+        judge.prompts[0], inspector.prompts[0],
+    ]
 
 
 _CODE_JARGON_TAKEAWAY = """

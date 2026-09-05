@@ -143,8 +143,8 @@ contains `role`, `operation`, complete JSON-safe `inputs`, complete `output`,
 `error`, `duration_sec` when measured, and correlation metadata such as
 `case_id`, candidate, generation kwargs, or tool name. Coverage includes:
 
-- pre-loop case-discovery inputs and observed outputs (the common benchmark
-  runner records batch-average timing explicitly as approximate);
+- every pre-loop case-discovery request, response/error, generation kwargs,
+  case id, and individually measured latency (written as each call completes);
 - every in-process M1 analyzer `generate`/`forward`/`logprobs`/`chat` call,
   without V1's 8,000-character truncation when V2 is active;
 - selection, statistics, diagnosis/critic, protocol, tool-codegen, fix-judge,
@@ -274,7 +274,8 @@ ephemeral execution space for V2, and the logger captures its evidence before
    inlining, artifact copying, and quarantine rewrites.
 
 The reporting compatibility reader in `evalrx/reporting/run_events.py` exposes
-V2 documents to the existing report/UI event view without rewriting them.
+V2 documents to the existing dynamic report, HTML report, server, dashboard,
+case-study loader, and Langfuse backfill paths without rewriting them.
 
 ## Next steps (explicitly not done here)
 

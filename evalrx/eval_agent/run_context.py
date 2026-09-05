@@ -149,13 +149,11 @@ class RunContext:
         logger_version: "v1" (default, :class:`RunLogger`) or "v2"
                   (:class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`, the
                   tidy M1..M5-folder layout described in
-                  ``evalrx/eval_agent/RUN_LOGGER_V2.md``). V2 does not take a
-                  ``context=`` — producers that need real RunContext sandboxing
-                  (FixAgent, SurgeryAgent) must still receive ``run_context=``
-                  separately, as they already do; only ``ctx.logger`` itself
-                  changes shape. This flag exists to validate V2 against real
-                  pipelines while V1 stays the default everywhere; it is not
-                  yet a stable public option.
+                  ``evalrx/eval_agent/RUN_LOGGER_V2.md``). V2 receives this
+                  context and allocates producer sandboxes in an external
+                  ephemeral runtime tree; their text is inlined into JSON and
+                  their media is copied before finalization removes the tree.
+                  V1 remains the default until real-run and UI acceptance.
     """
 
     def __init__(
@@ -188,6 +186,7 @@ class RunContext:
         self._workdir_seq = 0
         self._trial_seq: "dict[str, int]" = {}
         self._runtime_root: "Path | None" = None
+        self._finalized = False
 
     @property
     def is_v2(self) -> bool:
@@ -539,18 +538,24 @@ class RunContext:
 
     def finalize(self) -> None:
         """Write the manifest + README and close the logger.  Idempotent."""
+        if self._finalized:
+            return
         if self.is_v2:
             if self._logger is not None:
-                self._logger.log_manifest(run_id=self.run_id, config=self.config)
                 self._logger.close()
+                # close() materializes the trace bundle and every M1-M5 log;
+                # index only afterwards so the manifest is complete.
+                self._logger.log_manifest(run_id=self.run_id, config=self.config)
             if self._runtime_root is not None:
                 shutil.rmtree(self._runtime_root, ignore_errors=True)
+            self._finalized = True
             return
         if self._logger is not None:
             self._logger.close()
         self.write_contract_index()
         self.write_manifest()
         self.write_readme()
+        self._finalized = True
 
     def write_contract_index(self) -> "Path | None":
         """Write ``contract/index.json`` when any stage emitted a payload.

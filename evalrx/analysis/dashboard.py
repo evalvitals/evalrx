@@ -178,12 +178,22 @@ def load_loop_story(run_dir: str | Path) -> dict[str, Any] | None:
         p for p in [root / "run_log.jsonl", *sorted(root.glob("logs*/run_log.jsonl"))]
         if p.exists()
     ]
+    v2_events: list[dict[str, Any]] = []
     if not candidate_paths:
-        return None
+        from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
+
+        v2_root = resolve_v2_root(root)
+        if v2_root is None:
+            return None
+        candidate_paths = [v2_root / "run.json"]
+        v2_events = read_v2_events(v2_root)
 
     _M2PLUS = {"analysis", "diagnosis", "surgery", "fix"}
     events_by_path: dict[Path, list[dict[str, Any]]] = {}
     for lp in candidate_paths:
+        if v2_events:
+            events_by_path[lp] = v2_events
+            continue
         evs: list[dict[str, Any]] = []
         try:
             for line in lp.read_text(encoding="utf-8").splitlines():

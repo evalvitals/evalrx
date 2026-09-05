@@ -3319,6 +3319,16 @@ class FixAgent:
     ) -> "dict[str, Optional[bool]]":
         """Per-case success of one candidate (batch path for coded pipelines)."""
         if candidate.kind == "primitive":
+            if getattr(self.run_logger, "preserve_full_model_io", False):
+                from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+
+                model = InstrumentedModel(
+                    model, self.run_logger, stage="M5",
+                    cycle=int(getattr(self.run_logger, "current_cycle", -1)),
+                    analyzer=f"fix_primitive:{candidate.name}",
+                    case_prompts={case.inputs.prompt: case.id for case in data},
+                    batch_case_ids=[case.id for case in data],
+                )
             prim = INTERNALS_PRIMITIVES[candidate.payload["primitive"]]
             return prim.run(model, data, self._score, candidate.payload.get("params"))
         if candidate.kind == "code":
@@ -3329,6 +3339,16 @@ class FixAgent:
                 self._frozen_model_control(candidate, data)
             return score_outputs(result, data, self._score)
         if candidate.kind == "finetune_spec":
+            if getattr(self.run_logger, "preserve_full_model_io", False):
+                from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+
+                model = InstrumentedModel(
+                    model, self.run_logger, stage="M5",
+                    cycle=int(getattr(self.run_logger, "current_cycle", -1)),
+                    analyzer=f"fix_finetune:{candidate.name}",
+                    case_prompts={case.inputs.prompt: case.id for case in data},
+                    batch_case_ids=[case.id for case in data],
+                )
             result = run_lora_repair(model, self._finetune_pool, data, candidate.payload, self._score)
             if isinstance(candidate.payload, dict):
                 candidate.payload["exec_error"] = "" if result.ok else result.error

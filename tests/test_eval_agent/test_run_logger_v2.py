@@ -405,3 +405,110 @@ def test_full_loop_run_is_a_drop_in_replacement_for_run_logger(tmp_path):
     # exactly as it drives RunLogger.
     m1 = _load(run_dir, "M1", "log.json")
     assert m1.get("probe")
+
+
+def test_run_context_v2_keeps_only_json_and_media_and_inlines_reports(tmp_path):
+    """The real integration boundary is RunContext, not a standalone logger."""
+    from types import SimpleNamespace
+
+    from evalrx.eval_agent.run_context import RunContext
+
+    root = tmp_path / "run"
+    ctx = RunContext(
+        root, logger_version="v2", config={"model": "fake"},
+        observability_mode="offline",
+    )
+    runtime = ctx.runtime_root
+    trial = ctx.new_trial("fixes", "candidate")
+    trial.write("prompt.txt", "exact coder prompt")
+    trial.write("pipeline.py", "print('candidate')")
+    ctx.logger.log_run_start({"model": "fake"})
+    ctx.logger.log_tool_codegen(
+        module="fix_pipeline", name="candidate", need="repair", source="judge",
+        ok=True, prompt="exact coder prompt", raw_output="exact coder response",
+        code="print('candidate')",
+    )
+    report = SimpleNamespace(
+        cycles=1, stopped_by="done", resolved=False, all_hypotheses=[],
+        final_hypotheses=[], verified_hypotheses=[], all_test_results=[],
+    )
+    ctx.write_diagnose_report(report, [], discovery=[{"id": "case-1"}])
+    ctx.finalize()
+    ctx.finalize()  # lifecycle is explicitly idempotent
+
+    assert not runtime.exists()
+    assert not (root / "README.txt").exists()
+    assert not (root / "report").exists()
+    assert not (root / ".evalrx").exists()
+    allowed_media = {
+        ".npy", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+        ".wav", ".mp3", ".flac", ".ogg", ".mp4", ".avi", ".mov",
+    }
+    leaked = [
+        path for path in root.rglob("*")
+        if path.is_file() and path.suffix.lower() not in allowed_media | {".json"}
+    ]
+    assert leaked == []
+
+    run_doc = _load(root, "run.json")
+    assert run_doc["diagnose_reports"][0]["discovery"] == [{"id": "case-1"}]
+    assert run_doc["manifest"]["run_id"] == "run"
+    assert "langfuse_trace.json" in run_doc["manifest"]["files"]
+    assert {f"M{i}/log.json" for i in range(1, 6)} <= set(run_doc["manifest"]["files"])
+    m5 = _load(root, "M5", "log.json")
+    call = m5["model_calls"][0]
+    assert call["inputs"] == "exact coder prompt"
+    assert call["output"] == "exact coder response"
+
+
+def test_run_context_v2_snapshots_explore_text_and_media(tmp_path):
+    from types import SimpleNamespace
+
+    from evalrx.eval_agent.run_context import RunContext
+
+    root = tmp_path / "run"
+    ctx = RunContext(root, logger_version="v2", observability_mode="offline")
+    explore = ctx.explore_dir
+    (explore / "analysis.py").write_text("print('eda')")
+    (explore / "table.csv").write_text("name,value\na,1\n")
+    (explore / "plot.png").write_bytes(b"png-bytes")
+    report = SimpleNamespace(
+        ok=True, observations=["signal"], charts=[{"figure_path": str(explore / "plot.png")}],
+        tables={"t": str(explore / "table.csv")}, adjudication={}, caveats=[],
+        candidate_signals=[], hypotheses=[], attempts=1, error="", code="print('eda')",
+        raw_outputs=["agent response"],
+    )
+    ctx.logger.log_explore(0, report, out_dir=explore)
+    runtime = ctx.runtime_root
+    ctx.finalize()
+
+    assert not runtime.exists()
+    m2 = _load(root, "M2", "log.json")["explore"][0]
+    assert m2["workspace_snapshot"]["files"]["analysis.py"] == "print('eda')"
+    assert m2["workspace_snapshot"]["files"]["table.csv"].startswith("name,value")
+    assert len(m2["workspace_snapshot"]["media"]) == 1
+    assert (root / m2["workspace_snapshot"]["media"][0]).is_file()
+
+
+def test_reporting_reader_and_server_discover_v2_run(tmp_path):
+    from evalrx.analysis.dashboard import load_loop_story
+    from evalrx.observability.tracer import backfill_run_to_langfuse
+    from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
+    from evalrx.reporting.server import find_run_root
+
+    root = tmp_path / "archive" / "logs"
+    _emit_every_method(root)
+    events = read_v2_events(root.parent)
+
+    assert resolve_v2_root(root.parent) == root.resolve()
+    assert find_run_root(tmp_path / "archive") == root
+    assert any(event["event"] == "run_start" for event in events)
+    assert any(event["event"] == "case_record" for event in events)
+    assert any(event["event"] == "probe" and event["stage"] == "M1" for event in events)
+    assert any(event["event"] == "fix" and event["stage"] == "M5" for event in events)
+    assert all(event.get("trace_id") for event in events)
+    story = load_loop_story(root.parent)
+    assert story is not None and story["probes"] and story["diagnoses"]
+    backfill = backfill_run_to_langfuse(root.parent, dry_run=True)
+    assert backfill["trace_id"] == events[0]["trace_id"]
+    assert backfill["events"] == len(events)

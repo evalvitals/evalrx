@@ -40,10 +40,9 @@ this writing:
   ``fix_tools.py``, ``fix_pipeline.py``) — but these already have a durable,
   pre-existing home: per-candidate per-case outputs land in
   ``fixes/<trial>/outputs.jsonl`` via ``RunLogger.log_fix``.
-- Pre-loop ``case_discovery.py`` harvesting — its ``model.generate()`` calls
-  produce a case's ``observed`` field, which is captured once the case enters
-  the loop via ``RunLogger.log_cases``; the call itself (latency, exact
-  wording of intermediate attempts) is not.
+- Pre-loop ``case_discovery.py`` harvesting in arbitrary callers. The common
+  benchmark runner now wraps this path when V2 is selected, so its exact
+  per-case input/output/error/latency is covered there as well.
 
 Each of those is a plausible next analyzer to wrap the same way; this pass
 targets the M1 catalog because that is where the derived-score-only,
@@ -151,6 +150,7 @@ class InstrumentedModel:
         *,
         cycle: int,
         analyzer: str,
+        stage: str = "M1",
         case_prompts: "dict[str, str] | None" = None,
         batch_case_ids: "list[str] | None" = None,
     ) -> None:
@@ -158,6 +158,7 @@ class InstrumentedModel:
         self._run_logger = run_logger
         self._cycle = cycle
         self._analyzer = analyzer
+        self._stage = stage
         self._call_index = 0
         self._lock = threading.Lock()
         # Best-effort (prompt -> case_id) for this analyzer's batch, so a call
@@ -197,6 +198,19 @@ class InstrumentedModel:
         prompt = inputs if isinstance(inputs, str) else getattr(inputs, "prompt", None)
         case_id = self._case_prompts.get(str(prompt)) if prompt is not None else None
         full = bool(getattr(self._run_logger, "preserve_full_model_io", False))
+        if self._stage != "M1" and callable(getattr(self._run_logger, "log_model_exchange", None)):
+            self._run_logger.log_model_exchange(
+                self._stage, role=self._analyzer, operation=method,
+                inputs=_snapshot_inputs(inputs, full=full), output=output, error=error,
+                duration_sec=duration_sec, cycle=self._cycle,
+                metadata={
+                    "call_index": self._next_call_index(), "case_id": case_id,
+                    "batch_case_ids": self._batch_case_ids_inline,
+                    "n_batch_cases": self._n_batch_cases,
+                    "kwargs": {k: str(v) for k, v in (kwargs or {}).items()},
+                },
+            )
+            return
         self._run_logger.log_model_call(
             cycle=self._cycle,
             analyzer=self._analyzer,
