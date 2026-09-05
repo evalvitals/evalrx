@@ -1,4 +1,4 @@
-"""M1-M5 emit contract-validated payloads for a real loop run.
+"""M1-M4 emit contract-validated payloads for a real loop run.
 
 The contract described the stage boundaries and nothing called it, so nothing
 detected when the description and the pipeline disagreed. These tests close that
@@ -32,7 +32,7 @@ from evalrx.contract import (  # noqa: E402
 )
 
 STAGE_MODELS = {
-    "m1": ProbeOutput, "m2": StatsReportWire, "m3": DiagnosisOutput, "m5": HypothesisTestOutput,
+    "m1": ProbeOutput, "m2": StatsReportWire, "m3": DiagnosisOutput, "m4": HypothesisTestOutput,
 }
 
 
@@ -231,12 +231,12 @@ def test_report_data_carries_the_contract_payloads(tmp_path):
 
 # ── defects the first real vLLM run surfaced ─────────────────────────────────
 
-def test_m3_and_m5_name_the_same_hypothesis_the_same_way(tmp_path):
+def test_m3_and_m4_name_the_same_hypothesis_the_same_way(tmp_path):
     """The join between a claim and its verdict must actually close.
 
     Hypothesis.id defaults to "" and nothing in the loop fills it, so each stage
     derives one. Deriving it per call site produced "h0" from M3 and "unknown"
-    from M5 for one object on the first real run — a join that silently matches
+    from M4 for one object on the first real run — a join that silently matches
     nothing, which downstream is indistinguishable from "no verdict yet".
     """
     from evalrx.contract.emit import hypothesis_id

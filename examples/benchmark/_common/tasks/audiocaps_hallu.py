@@ -1,6 +1,6 @@
 """AudioCaps object-hallucination (Kuan et al. 2024): yes/no "is sound X present?".
 
-Port of examples/m1_m4/audiocaps_hallucination_qwen2_audio/download_audiohallucination.py:
+Port of examples/m1_m5/audiocaps_hallucination_qwen2_audio/download_audiohallucination.py:
 question rows from kuanhuggingface/AudioHallucination_AudioCaps-<sampling> joined on
 youtube_id to the audio in OpenSound/AudioCaps, both read through pyarrow, clips
 re-encoded to 16 kHz mono WAV via ffmpeg.

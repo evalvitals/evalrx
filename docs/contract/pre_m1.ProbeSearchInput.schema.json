@@ -95,7 +95,7 @@
     },
     "ProtocolWire": {
       "additionalProperties": true,
-      "description": "The user's natural-language statement of what to investigate.\n\nCarried through to M2 (tool selection), M3 (prompt) and M5 (the\nprotocol-consistency gate) — a hypothesis can be statistically real and still\nbe off-topic, and only this makes that judgeable.",
+      "description": "The user's natural-language statement of what to investigate.\n\nCarried through to M2 (tool selection), M3 (prompt) and M4 (the\nprotocol-consistency gate) — a hypothesis can be statistically real and still\nbe off-topic, and only this makes that judgeable.",
       "properties": {
         "description": {
           "title": "Description",
@@ -178,6 +178,6 @@
   "$id": "https://evalrx.dev/contract/pre_m1.ProbeSearchInput.json",
   "x-stage": "pre_m1",
   "x-role": "input",
-  "x-schema-version": 4,
+  "x-schema-version": 5,
   "x-optional-stage": true
 }

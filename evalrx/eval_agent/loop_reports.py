@@ -32,7 +32,7 @@ class AutoDiagnoseReport:
     Unified 2026-08 from two previously-separate dataclasses
     (``AutoDiagnoseReport`` / ``VLDiagnoseReport``) that carried the same
     information under different field names. Every field below is populated
-    by all three loops except where noted "Auto-only" / "M5-only", which stay
+    by all three loops except where noted "Auto-only" / "M4-only", which stay
     at their default (``None`` / empty) when the producing loop has no
     equivalent concept.
 
@@ -40,36 +40,36 @@ class AutoDiagnoseReport:
         cycles:               Number of M1→M4/M5 cycles executed (or agentic
                               decision steps taken).
         resolved:             ``True`` once the diagnosis is considered
-                              closed — M4 surgery confirmed a fix (legacy
-                              loop), or M5 found at least one supported,
+                              closed — M5 surgery confirmed a fix (legacy
+                              loop), or M4 found at least one supported,
                               protocol-consistent hypothesis (``bool(verified_hypotheses)``,
                               current/agentic loops).
-        stopped_by:           M5-path only. Why the loop stopped: ``"criteria_met"``,
+        stopped_by:           M4-path only. Why the loop stopped: ``"criteria_met"``,
                               ``"max_cycles"``, ``"budget"``, ``"no_hypotheses"``,
                               ``"no_probe_results"``, ``"analysis_complete"``
                               (from ``run_analysis``, which proposes hypotheses
                               without confirming them) — or, for the agentic
                               loop, ``"agent_stop"`` / ``"max_actions"`` /
                               ``"time_budget"`` / ``"invalid_actions"``. ``None``
-                              for the legacy M4-per-cycle loop, which has no
+                              for the legacy M5-per-cycle loop, which has no
                               single stopping-reason concept.
         final_hypotheses:      All M3 proposals across every cycle. (Formerly
                               ``all_hypotheses`` on the VL-shaped report —
                               ``all_hypotheses`` is now a read-only alias
                               for this field, kept for existing callers.)
-        verified_hypotheses:  M5-only. Statistically supported, protocol-consistent
+        verified_hypotheses:  M4-only. Statistically supported, protocol-consistent
                               test results — sorted highest confidence first.
-                              Feed into ``run_m4``.
-        all_test_results:     M5-only. All M5 test results across every cycle.
+                              Feed into ``run_m5``.
+        all_test_results:     M4-only. All M4 test results across every cycle.
         final_results:        Auto-only. Raw analyzer results from the last M1 probe.
         final_analysis:       Structured M2 report from the last cycle. Mirrors
                               ``final_stats_report`` when only that was set
                               (``StatsAnalysisReport`` is an ``AnalysisReport``
                               subclass), so this field works for every loop.
-        final_stats_report:   M2 report from the last cycle (M5-path shape;
+        final_stats_report:   M2 report from the last cycle (M4-path shape;
                               same object as ``final_analysis`` when set).
-        fix_proposal:         Populated by ``run_m4`` when called after ``run``.
-        m5_holdout:           Held-out M5 confirmation status (see field note).
+        fix_proposal:         Populated by ``run_m5`` when called after ``run``.
+        m4_holdout:           Held-out M4 confirmation status (see field note).
         fix_outcome:          Populated by ``run_fix`` — tiered fix attempts +
                               escalation recommendation.
         store:                Accumulated results and hypotheses.
@@ -87,19 +87,19 @@ class AutoDiagnoseReport:
     fix_proposal: "Any | None" = None
     fix_outcome: "Any | None" = None
     store: Store = field(default_factory=InMemoryStore)
-    #: How the held-out M5 pass resolved (``VLDiagnoseLoop`` only):
-    #: ``"confirmed"`` — M5 ran on the held-out confirm split (the only M5
+    #: How the held-out M4 pass resolved (``VLDiagnoseLoop`` only):
+    #: ``"confirmed"`` — M4 ran on the held-out confirm split (the only M4
     #: this run: in-cycle testing is skipped when a confirm split is in play);
     #: ``"failed"`` — the confirm-split re-probe produced nothing, so no
     #: hypothesis could be verified (flagged loudly in the log);
     #: ``None`` — no confirm split / holdout disabled / legacy loop.
-    m5_holdout: "str | None" = None
+    m4_holdout: "str | None" = None
     # Internal — set by the loops for evolution/git integration
     _run_id: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
         # StatsAnalysisReport IS-A AnalysisReport, so a report built from the
-        # M5 path can satisfy readers that only know the Auto-shaped field.
+        # M4 path can satisfy readers that only know the Auto-shaped field.
         if self.final_analysis is None and self.final_stats_report is not None:
             self.final_analysis = self.final_stats_report
 

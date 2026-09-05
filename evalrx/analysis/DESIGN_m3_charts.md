@@ -4,7 +4,7 @@
 >
 > 本文档定义如何在**只有单轮管线、无交互式 REPL**的前提下，让 explorer 的**图表/观察(机制语言)**进入 in-loop **M3** 并渲染成 **dashboard**，同时把 `chat` 的能力收敛进单轮入口、退役交互 REPL，使**全系统只有一套探索引擎、一套 viz 核**。
 > 配套：[DESIGN.md](DESIGN.md)（LAMBDA×M2 信号集成，Phase A–D 已实现）。前者接「信号→M2 确证」；本设计接「机制语言→M3 提假设」+「可视化共享核」。
-> 一句话：**砍掉交互 REPL，三条单轮入口（explore / fused / loop）共用一个 `render_chart_specs` + 一个 dashboard loader；图表只进 M3 prompt 与 dashboard，永不进 M2/M5/修复门。**
+> 一句话：**砍掉交互 REPL，三条单轮入口（explore / fused / loop）共用一个 `render_chart_specs` + 一个 dashboard loader；图表只进 M3 prompt 与 dashboard，永不进 M2/M4/修复门。**
 
 ---
 
@@ -17,8 +17,8 @@
 4. **chat 退役**：删交互 REPL，其非交互用法由 `evalrx explore`（单轮）顶替。
 
 **核心原则（不变量）**：
-- **图表/观察 = 描述性、未认证。** 只进 **M3 的提假设 prompt** 与 **dashboard**；**绝不进 M2(确证)、M5(检验)、Fix(修复门)**（[DESIGN.md](DESIGN.md) 护栏「图表无权威」）。
-- **机制语言 informs *哪个* 假设，不 informs *是否* 为真**：chart 启发的假设照走 M5(gated on M2)+M4+e-BH。
+- **图表/观察 = 描述性、未认证。** 只进 **M3 的提假设 prompt** 与 **dashboard**；**绝不进 M2(确证)、M4(检验)、Fix(修复门)**（[DESIGN.md](DESIGN.md) 护栏「图表无权威」）。
+- **机制语言 informs *哪个* 假设，不 informs *是否* 为真**：chart 启发的假设照走 M4(gated on M2)+M5+e-BH。
 - **explorer 不在循环内重跑**：循环消费 Step 1 的 explore 报告（守 split：explorer 只见 EXPLORE 留出集）。
 - **图表宿主确定性渲染**：从 chart spec + CSV 渲染，不执行 LLM 写的绘图代码。
 - **一引擎一 viz 核**：`ExploratoryAnalysisAgent`（探索）+ `render_chart_specs`（渲染）+ `dashboard.load_run`（加载）三者唯一，三入口共用。
@@ -59,14 +59,14 @@
        → M3.diagnose(analysis, explore_context=ctx)  ← 图表/观察进 M3
             prompt += explore_section(标 UNCONFIRMED) + images=[explore PNG]
             → DiagnosisResult.referenced_charts
-       → M5 → M4 → Fix(e-BH)                          ← explore_ctx 全程不进这些门
+       → M4 → M5 → Fix(e-BH)                          ← explore_ctx 全程不进这些门
        → run_logger 落 explore 图 + M3 引用 → load_run 渲染 loop dashboard
 
 退役删除
   ✗ chat.py: M2ChatShell（REPL）  ✗ cli.py: chat_main  ✗ dashboard.load_session（turn_* 会话）
 ```
 
-**角色一句话**：探索=ExploratoryAnalysisAgent(唯一)；渲染=render_chart_specs(宿主)；看图提假设=M3；渲染面板=load_run；谁**绝不**碰图表=M2/M5/Fix；交互 REPL=**没有了**。
+**角色一句话**：探索=ExploratoryAnalysisAgent(唯一)；渲染=render_chart_specs(宿主)；看图提假设=M3；渲染面板=load_run；谁**绝不**碰图表=M2/M4/Fix；交互 REPL=**没有了**。
 
 ---
 
@@ -85,7 +85,7 @@ def render_chart_specs(charts, tables_dir, out_dir) -> list[dict]:
 def load_run(path) -> dict:
     """统一单轮加载器，自动识别两种产物目录：
       - explore 输出：exploratory_report.json / fused_report.json（+ figures/ tables/）
-      - loop run：    logs_*/run_log.jsonl（M2 统计 / M3 假设+引用 / M5 / Fix）+ fused_report.json
+      - loop run：    logs_*/run_log.jsonl（M2 统计 / M3 假设+引用 / M4 / Fix）+ fused_report.json
     组装成统一"诊断故事"视图供静态 HTML 报告渲染。取代 load_session(turn_* 会话)。"""
 ```
 - env：venv 装 `matplotlib`；`pyproject.toml` 加 `viz=["matplotlib>=3.5"]`（可选 extra，缺则纯文字 explore_section / 报告图表降级）。
@@ -151,7 +151,7 @@ claim must still be tested downstream):
 ```python
 # DiagnosisResult 加: referenced_charts: list[str]; explore_context_used: bool
 # run_logger.log_diagnosis 落 explore 图(路径) + M3 引用 → run 目录
-# HTML 报告加 loop-run 视图: explore 图 → M2 forest/统计 → M3 假设(每条标引用的图/观察) → M5 → Fix+e-BH
+# HTML 报告加 loop-run 视图: explore 图 → M2 forest/统计 → M3 假设(每条标引用的图/观察) → M4 → Fix+e-BH
 ```
 
 ---
@@ -160,8 +160,8 @@ claim must still be tested downstream):
 
 | 护栏 | 规则 | 支撑 |
 |---|---|---|
-| **图表无权威** | explore_context 只进 M3 prompt + dashboard；M2/M5/Fix 永不接收 | 仅是 `DiagnosisAgent` 参数，M2/M5/Fix 签名不含它 |
-| **机制语言≠证据** | prompt 强标 UNCONFIRMED；假设照走 M5+M4+e-BH | 现有链路不变 |
+| **图表无权威** | explore_context 只进 M3 prompt + dashboard；M2/M4/Fix 永不接收 | 仅是 `DiagnosisAgent` 参数，M2/M4/Fix 签名不含它 |
+| **机制语言≠证据** | prompt 强标 UNCONFIRMED；假设照走 M4+M5+e-BH | 现有链路不变 |
 | **不重跑 explorer** | 循环消费 Step1 报告；explorer 只见 EXPLORE | `--explore-report` 透传 |
 | **宿主渲染** | 图从 spec+CSV 确定性渲染，不执行 LLM 绘图代码 | `render_chart_specs` |
 | **一引擎一 viz 核** | 探索/渲染/dashboard 各唯一，三入口共用，无重复 | 退役 chat 第二套 + 共享核 |
@@ -187,7 +187,7 @@ claim must still be tested downstream):
 - `DiagnosisResult.referenced_charts`/`explore_context_used`；`run_logger.log_diagnosis` 落 explore 图+引用；HTML 报告的 loop-run 视图。
 
 **Phase D — 测试**
-- 双盲守卫：带 explore_context 的 M3 调用，断言它**从不**进 M2/M5/Fix（签名+运行期）。
+- 双盲守卫：带 explore_context 的 M3 调用，断言它**从不**进 M2/M4/Fix（签名+运行期）。
 - 渲染确定性：spec+CSV→PNG 同输入同图；matplotlib 缺失优雅回退。
 - M3 读取：explore_section 进 prompt、figures 进 `images=`、`referenced_charts` 抽取正确。
 - chat 退役：`evalrx explore` 覆盖原 chat 非交互用例（单轮 explore_path + 产物 + dashboard）；无 REPL 残留。
@@ -202,15 +202,15 @@ claim must still be tested downstream):
 - ❌ **把图表/观察当确证** —— 描述性，只进 M3 prompt 与 dashboard。
 - ❌ **循环内重跑 explorer** —— 消费 Step1 留出集报告（防 double-dip + 省钱）。
 - ❌ **执行 LLM 绘图代码** —— 宿主从 spec+CSV 确定性渲染。
-- ❌ **让 explore_context 影响 M5/Fix 门** —— 它只选**哪个**假设。
+- ❌ **让 explore_context 影响 M4/Fix 门** —— 它只选**哪个**假设。
 
 ---
 
 ## 8. 开放问题 / 风险 / 迁移
 
-- **chat 退役清单**（删/移）：删 `chat.py:M2ChatShell` + `cli.py:chat_main` + `dashboard.load_session`；移 `write_report_artifacts`/`_verdict_suffix` → `explore_run.py`；留 `ExploratoryAnalysisAgent`/`run_fused_analysis`/`adjudicate_report`。**core 分析环节(M1/M2/M3/M5)零改动。**
+- **chat 退役清单**（删/移）：删 `chat.py:M2ChatShell` + `cli.py:chat_main` + `dashboard.load_session`；移 `write_report_artifacts`/`_verdict_suffix` → `explore_run.py`；留 `ExploratoryAnalysisAgent`/`run_fused_analysis`/`adjudicate_report`。**core 分析环节(M1/M2/M3/M4)零改动。**
 - **explore 是否覆盖所有 chat 用例**：chat 唯一独有的是多轮对话；其余(单 question 探索、写产物、dashboard)`evalrx explore` 全覆盖。需确认无脚本依赖 `evalrx chat` 入口名（可留一个 `chat`→`explore` 的弃用别名一个版本周期）。
-- **循环信号的图误导 M3**：会启发(如 deco_hallu probe1≈label)，但 M5/M4/e-BH 兜底（实测：语言先验假设被 M4 确证、best-of-N 修复被 e-BH 拒）。把 explorer 自己的循环 caveat 一并呈现给 M3。
+- **循环信号的图误导 M3**：会启发(如 deco_hallu probe1≈label)，但 M4/M5/e-BH 兜底（实测：语言先验假设被 M5 确证、best-of-N 修复被 e-BH 拒）。把 explorer 自己的循环 caveat 一并呈现给 M3。
 - **多模态 judge 图像支持**：`ClaudeModel.generate` 接受 `images=`，但 claude CLI 实际是否消费图像需实测；不支持则 M3 退化为读图的文字描述（仍有用）。
 - **依赖**：matplotlib(渲染) 为可选 extra；缺则纯文字 explore_section / 报告无图表但 run 正常。
 - **dashboard 单轮 vs 历史**：`load_run` 读单个 run/输出目录；若要跨 run 对比，另起一个 `load_runs(dirs)`（非本设计范围）。

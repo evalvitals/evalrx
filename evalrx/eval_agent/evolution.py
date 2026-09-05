@@ -1,6 +1,6 @@
 """EvolutionStore — cross-run lesson accumulation with time-decay weighting.
 
-Mirrors ``researchclaw/evolution.py`` adapted to the evalrx M1→M4 pipeline.
+Mirrors ``researchclaw/evolution.py`` adapted to the evalrx M1→M5 pipeline.
 
 The store is JSONL-backed (append-only) so it accumulates lessons across many
 diagnosis runs.  When building prompt overlays for the LLM agents, lessons are
@@ -47,7 +47,7 @@ def _tokenise(text: str) -> frozenset[str]:
 HALF_LIFE_DAYS: float = 30.0
 MAX_AGE_DAYS: float = 90.0
 
-# Valid category tags matching the M1–M4 pipeline stages
+# Valid category tags matching the M1–M5 pipeline stages
 CATEGORIES = frozenset({"probe", "analysis", "diagnosis", "surgery"})
 SEVERITIES = frozenset({"info", "warning", "error"})
 
@@ -63,7 +63,7 @@ class LessonEntry:
 
     Attributes:
         run_id:      Identifier of the run that generated this lesson.
-        cycle:       M1→M4 cycle number within that run.
+        cycle:       M1→M5 cycle number within that run.
         category:    Pipeline stage: ``"probe" | "analysis" | "diagnosis" | "surgery"``.
         severity:    ``"info" | "warning" | "error"``.
         description: Human-readable lesson text (injected into prompts).
@@ -316,7 +316,7 @@ class EvolutionStore:
         context_keywords: list[str] | None = None,
         caller_run_id: str = "",
     ) -> str:
-        """Generate a prompt overlay string for a given M1–M4 *category*.
+        """Generate a prompt overlay string for a given M1–M5 *category*.
 
         Returns an empty string when no relevant lessons qualify.
         The overlay is formatted for direct injection into LLM prompts.

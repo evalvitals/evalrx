@@ -1,4 +1,4 @@
-"""M4 — SurgeryAgent: perform targeted interventions to verify hypotheses.
+"""M5 — SurgeryAgent: perform targeted interventions to verify hypotheses.
 
 Given a hypothesis from the diagnosis agent, the surgery agent operates on the
 model/data to check whether the hypothesized cause actually predicts the
@@ -234,7 +234,7 @@ class SurgeryAgent:
                          When set (and *sandbox_dir* is not), each ``operate()``
                          call allocates its own self-contained *trial* under
                          ``experiments/`` (code + sandbox + record.md, see
-                         :meth:`RunContext.new_trial`) instead of every M4
+                         :meth:`RunContext.new_trial`) instead of every M5
                          experiment sharing — and overwriting — one sandbox.
     """
 
@@ -387,7 +387,7 @@ class SurgeryAgent:
         model: "Model",
         data: CaseBatch,
     ) -> InterventionResult:
-        """M4 strategy 3: write + execute a targeted diagnostic script.
+        """M5 strategy 3: write + execute a targeted diagnostic script.
 
         Mirrors ``researchclaw`` Stage-14 diagnosis + repair loop:
 
@@ -411,10 +411,10 @@ class SurgeryAgent:
             sandbox = ExperimentSandbox(workdir=str(trial.workspace), cleanup=False)
 
         # The model under test is already resident in the parent process.  A
-        # second evalrx.load() in M4 can duplicate tens of GB of weights
+        # second evalrx.load() in M5 can duplicate tens of GB of weights
         # and OOM (notably Qwen Omni).  Generated diagnostics therefore operate
-        # on frozen case artifacts; fresh interventions remain host-run M5/fix
-        # work and an artifact-insufficient M4 result is INCONCLUSIVE.
+        # on frozen case artifacts; fresh interventions remain host-run M4/fix
+        # work and an artifact-insufficient M5 result is INCONCLUSIVE.
         model_context = build_model_context(model, allow_reconstruction=False)
         # Save images alongside cases.json so codex can load them
         image_dir = getattr(sandbox, "workdir", None)
@@ -439,7 +439,7 @@ class SurgeryAgent:
         # Full experiment payload for RunLogger.log_experiment — the generated
         # script(s), the run's output, the agent's thinking, and the workspace.
         experiment: dict[str, Any] = {
-            "module": "m4",
+            "module": "m5",
             "provider": writer_result.provider,
             "code": writer_result.code,
             "files": writer_result.files,

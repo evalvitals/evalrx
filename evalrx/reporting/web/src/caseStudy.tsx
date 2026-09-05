@@ -127,7 +127,7 @@ function Verdict({ verdict }: { verdict: CaseStudyVerdict }) {
 
 export function CaseStudySheet({ sheet }: { sheet: CaseStudy }) {
   const [askOpen, setAskOpen] = useState(false);
-  const { headline, m1, m2, m3, m5, m4, repair, validation, example_case: example } = sheet;
+  const { headline, m1, m2, m3, m4, m5, repair, validation, example_case: example } = sheet;
   // The held-out pass is what the verdicts were adjudicated on; a run that
   // never got one is screened on explore, and the sheet says which it is.
   const phase = m2?.heldout ? "heldout" : "explore";
@@ -224,19 +224,19 @@ export function CaseStudySheet({ sheet }: { sheet: CaseStudy }) {
         {m3.map((hypothesis) => <Hypothesis key={hypothesis.id} hypothesis={hypothesis} />)}
       </article>}
 
-      {!!m5.length && <article className="cs-mod val">
-        <div className="cs-tag">M5</div>
-        <h3>{modules.M5?.name}</h3>
-        <p className="cs-sub">{modules.M5?.subtitle}</p>
-        {m5.map((verdict) => <Verdict key={verdict.id} verdict={verdict} />)}
-      </article>}
-
-      {m4 && <article className="cs-mod val cs-wide">
+      {!!m4.length && <article className="cs-mod val">
         <div className="cs-tag">M4</div>
         <h3>{modules.M4?.name}</h3>
         <p className="cs-sub">{modules.M4?.subtitle}</p>
+        {m4.map((verdict) => <Verdict key={verdict.id} verdict={verdict} />)}
+      </article>}
+
+      {m5 && <article className="cs-mod val cs-wide">
+        <div className="cs-tag">M5</div>
+        <h3>{modules.M5?.name}</h3>
+        <p className="cs-sub">{modules.M5?.subtitle}</p>
         <div className="cs-ladder">
-          {m4.ladder.map((rung) => <div key={rung.tier}
+          {m5.ladder.map((rung) => <div key={rung.tier}
             className={`cs-rung${rung.status === "accepted" ? " ok" : rung.status === "regressed" ? " bad" : ""}${rung.status === "untouched" ? " off" : ""}`}>
             <span className="cs-lv">{rung.tier}</span>
             <span className="cs-nm">{rung.label}</span>
@@ -246,11 +246,11 @@ export function CaseStudySheet({ sheet }: { sheet: CaseStudy }) {
                   : `Tried ${rung.n_candidates}, not selected`}</span>
           </div>)}
         </div>
-        {!!m4.candidates.length && (() => {
-          const reach = Math.max(0.05, ...m4.candidates.map((candidate) => Math.abs(candidate.effect ?? 0)));
+        {!!m5.candidates.length && (() => {
+          const reach = Math.max(0.05, ...m5.candidates.map((candidate) => Math.abs(candidate.effect ?? 0)));
           return <>
-            <div className="cs-lbl">{m4.candidates.length} candidates tried on explore</div>
-            <div className="cs-cands">{m4.candidates.map((candidate, index) => {
+            <div className="cs-lbl">{m5.candidates.length} candidates tried on explore</div>
+            <div className="cs-cands">{m5.candidates.map((candidate, index) => {
               const effect = candidate.effect ?? 0;
               const width = `${(Math.abs(effect) / reach) * 46}%`;
               return <div className={`cs-crow${candidate.selected ? " win" : effect < 0 ? " neg" : ""}`} key={`${candidate.name}-${index}`}>

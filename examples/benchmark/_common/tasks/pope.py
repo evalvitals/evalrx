@@ -2,7 +2,7 @@
 
 Three vlm datasets, one per negative-sampling split (``random`` / ``popular`` /
 ``adversarial``) of the official COCO probe files, pinned to the same POPE
-commit as ``examples/m1_m4/deco_pope``. Each split file asks 6 questions per
+commit as ``examples/m1_m5/deco_pope``. Each split file asks 6 questions per
 image (3 present, 3 absent) over the same 500 COCO val2014 images; the frozen
 slice keeps the FIRST yes and the FIRST no question of every image in file
 order -> 500 x 2 = 1000 rows, class-balanced by construction. The three splits

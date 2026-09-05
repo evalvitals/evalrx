@@ -128,7 +128,7 @@ def test_generate_missing_marker_is_not_ok():
 def test_self_declared_reject_is_ignored():
     """A generated tool that self-declares reject/e_value but supplies no
     adjudicable sufficient statistic is treated as DESCRIPTIVE: the host never
-    trusts the LLM's verdict, so it cannot reach M5's headline."""
+    trusts the LLM's verdict, so it cannot reach M4's headline."""
     gen = StatsToolGenerator(judge=ScriptedJudge(_LIES_SCRIPT))
     result, _ = gen.generate("lie", _inp(), name="liar")
     assert result.ok

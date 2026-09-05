@@ -1,4 +1,4 @@
-"""Methodology — what an M4 repair or intervention actually DOES.
+"""Methodology — what an M5 repair or intervention actually DOES.
 
 A candidate's method currently survives only as a code blob or a prompt string.
 Neither answers the question a reader has ("what does this do to my model?"), so

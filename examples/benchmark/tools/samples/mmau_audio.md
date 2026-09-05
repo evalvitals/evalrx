@@ -55,7 +55,7 @@
 
 Strongest confirmed effect: **+0.41** extra failure rate when `selfcheck_consistency.n_sentences` is high (95% CI +0.26 to +0.56)
 
-## M3 · Hypothesis Formation  →  M5 · Held-out Verification
+## M3 · Hypothesis Formation  →  M4 · Held-out Verification
 
 *frozen on explore, then adjudicated on held-out cases*
 
@@ -71,7 +71,7 @@ Strongest confirmed effect: **+0.41** extra failure rate when `selfcheck_consist
 
 > Restricted to the 43 contract-respecting (`termination_class == 'clean'`) cases, answers are produced from an option-letter/text prior rather than from the audio — the model's own leaked text says so…
 
-## M4 · Validated Repair
+## M5 · Validated Repair
 
 *Fix the failure with the validated repair ladder*
 

@@ -67,7 +67,7 @@ report = loop.run(failure_cases)
 - [Quickstart](quickstart.md): runnable examples and common entry points.
 - [Exploratory Analysis (M2/M3)](m2_analysis.md): standalone `evalrx
   explore` — descriptive analysis + hypothesis proposal, no code required.
-- [Intervention & Verification (M4/M5)](intervention.md): `HypothesisTester`
+- [Verification & Intervention (M4/M5)](intervention.md): `HypothesisTester`
   verification and `FixAgent`/`SurgeryAgent` tiered repair, loop-internal.
 - [Stage Input/Output Reference](stage_io.md): one page listing the exact
   input and output type of every M1–M5 stage.
@@ -88,19 +88,19 @@ registry. Several analyzers are Stage-2 stubs that intentionally raise
 
 Two diagnosis loops are available:
 
-**`AutoDiagnoseLoop`** (M1→M4) ships with production-grade operational
+**`AutoDiagnoseLoop`** (M1→M5) ships with production-grade operational
 infrastructure: atomic checkpoints with `resume()`, heartbeat liveness,
 git-native run versioning (`ExperimentGitManager`), cross-run lesson accumulation
 (`EvolutionStore` with 30-day half-life decay), a durable `JsonlStore`, multi-phase
 `ExperimentWriter` (blueprint → sequential → hard-validate → exec-fix → tree-search →
 review), CLI agent backends (codex, claude_code, opencode, agy …), and a VLM
-image-attention analysis rule that closes the M1→M4 loop for vision models.
+image-attention analysis rule that closes the M1→M5 loop for vision models.
 
-**`VLDiagnoseLoop`** (M1→M2→M3→M5, M4 post-loop) adds protocol-guided diagnosis:
+**`VLDiagnoseLoop`** (M1→M2→M3→M4, M5 post-loop) adds protocol-guided diagnosis:
 the user supplies an `ExperimentProtocol` (a natural-language description of what
 to investigate), which drives analyzer prioritization in M1 and protocol-consistency
-checking in M5.  `StatsAnalysisAgent` (M2) generates an LLM-written evidence chain
-alongside the threshold-based findings.  `HypothesisTester` (M5) applies a
+checking in M4.  `StatsAnalysisAgent` (M2) generates an LLM-written evidence chain
+alongside the threshold-based findings.  `HypothesisTester` (M4) applies a
 statistical fail-rate test and verifies protocol consistency; the loop stops as soon
 as a supported, consistent hypothesis is found.
 

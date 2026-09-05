@@ -36,7 +36,7 @@ cd examples/benchmark/vlm/qwen
 docker compose build                                   # once per family (cached afterwards)
 # per-cell smoke: load + Stage 0 on 8 rows, no judge
 EXTRA_ARGS="--baseline-only --limit 8" docker compose run --rm qwen3.5-2b
-# the full chain (M1 -> explore -> M2 -> M3 -> held-out M5 -> M4 -> fix), detached
+# the full chain (M1 -> explore -> M2 -> M3 -> held-out M4 -> M5 -> fix), detached
 DATASET=chartqa CUDA_VISIBLE_DEVICES=0 docker compose run -d --name vlm-qwen3.5-2b-chartqa qwen3.5-2b
 docker logs -f vlm-qwen3.5-2b-chartqa
 ```

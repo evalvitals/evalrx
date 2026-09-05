@@ -176,7 +176,7 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "hypotheses": {"type": "array", "items": _HYPOTHESIS},
             "raw_judge_output": {"type": ["string", "null"]},
             # Provenance of the (UNCONFIRMED) explorer mechanism notes M3 was shown.
-            # Descriptive/display-only — never enters M2/M5/fix.
+            # Descriptive/display-only — never enters M2/M4/fix.
             "referenced_charts": {"type": "array", "items": {"type": "string"}},
             "explore_context_used": {"type": "boolean"},
             "explore_figures": {"type": "array", "items": {"type": "string"}},
@@ -199,7 +199,7 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "evidence": {"type": ["object", "null"]},
             "n_refocused_cases": {"type": ["integer", "null"]},
             "duration_sec": {"type": "number"},
-            # Additive: M5 protocol-consistency judge prompt/response, persisted
+            # Additive: M4 protocol-consistency judge prompt/response, persisted
             # under prompts/ (same pattern as probe/analysis/diagnosis).
             "judge_io": _JUDGE_IO,
         },

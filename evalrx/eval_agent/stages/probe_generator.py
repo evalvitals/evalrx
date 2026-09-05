@@ -13,7 +13,7 @@ subprocess.  So the split is:
    strict ``PROBE_RESULT_JSON=`` line.
 3. The host wraps the parsed findings into a
    :class:`~evalrx.core.result.Result` whose ``per_case`` entries flow into
-   M2 (stats tools) → M5 exactly like any catalog analyzer's output.
+   M2 (stats tools) → M4 exactly like any catalog analyzer's output.
 
 This keeps the M2-tier(b) safety model: generated code never touches the repo
 source, never sees the weights, and runs in an

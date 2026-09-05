@@ -20,7 +20,7 @@ top_k: 20
 max_tokens: 20480
 
 # Thinking. OFF for every call the pipeline makes to the model under test --
-# Stage 0 baselines, M1 analyzers, M4 experiments, fix candidates, logprobs:
+# Stage 0 baselines, M1 analyzers, M5 experiments, fix candidates, logprobs:
 # each request sends chat_template_kwargs={"enable_thinking": false}. It is sent
 # explicitly because the checkpoints disagree on the template default when the
 # kwarg is absent (Qwen3.5-2B: off, Qwen3.5-9B: on). true = the pre-2026-08-21
@@ -67,7 +67,7 @@ logprobs_mode: answer
 logprobs_max_tokens: 64
 logprobs_top_k: 5
 
-# Judge (M1 selection / M2 narrative / M3 hypotheses / M5 verdicts) and the
+# Judge (M1 selection / M2 narrative / M3 hypotheses / M4 verdicts) and the
 # codegen coder for M2 statistics. Both are `claude -p` CLI calls, NOT the model
 # under test -- the model under test is the one vLLM is serving.
 #
@@ -86,7 +86,7 @@ codegen_effort: high
 # which costs far more than the difference.
 codegen_budget_usd: 25.0
 codegen_timeout_sec: 1800
-judge_timeout_sec: 600      # ONE judge call (M2 narrative, M3, M5, fix proposals). The wrapper's 240 s
+judge_timeout_sec: 600      # ONE judge call (M2 narrative, M3, M4, fix proposals). The wrapper's 240 s
                             # default was exceeded by M2's 11-analyzer prompt at opus/high on
                             # bbh_causal_judgement (2026-08-18) -> silent fallback to the threshold
                             # narrative. 600 s is still a bound, not an invitation to hang.
@@ -97,7 +97,7 @@ judge_timeout_sec: 600      # ONE judge call (M2 narrative, M3, M5, fix proposal
 # + exploratory_report.json under outputs/<model>/<dataset>/explore/ (the
 # dashboard picks them up), and its observations/charts reach M3 as UNCONFIRMED
 # notes that steer WHICH hypotheses get proposed. It never enters M2's
-# confirmatory family, M5, or the fix gate -- the catalog M2 runs unchanged
+# confirmatory family, M4, or the fix gate -- the catalog M2 runs unchanged
 # beside it. Cost: one coder-agent call per cycle (a few minutes) plus host-side
 # chart rendering. `explore: false` (or EXPLORE=0 / --no-explore) turns it off.
 explore: true
@@ -107,7 +107,7 @@ explore_timeout_sec: 1800    # per coder attempt. Measured on the 2026-08-18 smo
                              # cost again (29 min total). Same ceiling as codegen_timeout_sec.
 explore_max_attempts: 2      # a failed script gets one repair round, then the step is skipped
 
-# M4 surgery
+# M5 surgery
 fix_max_tier: L3b
 fix_validation_cases: 0     # 0 = the whole partition (the default since 2026-08-21): every
                             # candidate is selected on ALL of EXPLORE and the chosen one is
@@ -140,7 +140,7 @@ fix_baseline_repeats: 5     # baseline samples per case = frozen Stage 0 output 
                             # (run7: 10 fixed / 1 broken, e=15.5, one break short). 1 = old McNemar.
 fix_candidate_repeats: 1    # passes per template/spec candidate (coded pipelines always 1). >1
                             # multiplies candidate cost; the baseline side is where the noise was.
-fix_on_unverified: true     # when M5 verified nothing: still run the M4 intervention experiment on
+fix_on_unverified: true     # when M4 verified nothing: still run the M5 intervention experiment on
                             # the best UNVERIFIED hypothesis, then the fix stage on the best
                             # unverified leads (flagged "UNVERIFIED" to the proposer). The fix gate
                             # is the paired candidate validation, not the hypothesis, so this is
@@ -148,7 +148,7 @@ fix_on_unverified: true     # when M5 verified nothing: still run the M4 interve
 
 # Cap on how many cases each per-case analyzer generates for. 0 = every case
 # (the default since 2026-08-21, for the library too: analyzers no longer ship
-# their own caps, so M1 on EXPLORE and the held-out M5 re-probe on CONFIRM each
+# their own caps, so M1 on EXPLORE and the held-out M4 re-probe on CONFIRM each
 # measure their whole partition).
 #
 # Why a cap ever existed: analyzers run in parallel with EACH OTHER but iterate
@@ -162,14 +162,14 @@ fix_on_unverified: true     # when M5 verified nothing: still run the M4 interve
 # records it in summary.json, so a wide interval is not misread as a null.
 analyzer_max_cases: 0
 
-# M1->explore->M2->M3->M5 iterations before M4/fix. The loop still stops early
-# when M5 verifies a hypothesis; extra cycles only matter when nothing
+# M1->explore->M2->M3->M4 iterations before M5/fix. The loop still stops early
+# when M4 verifies a hypothesis; extra cycles only matter when nothing
 # verifies, and on the 2B runs (minervamath 08-19: 3 cycles, 0/9 verified,
 # +7 h) they re-diagnosed the same floor. Default 1 = single diagnosis pass,
-# then M4 + fix (fix_on_unverified covers the no-verified case). Raise (or
-# --max-cycles N) to let each cycle's M5 test designs steer the next M1.
+# then M5 + fix (fix_on_unverified covers the no-verified case). Raise (or
+# --max-cycles N) to let each cycle's M4 test designs steer the next M1.
 max_cycles: 1
-# Fraction of the batch held out from M1-M5 so M4 validates its fix on data the
+# Fraction of the batch held out from M1-M4 so M5 validates its fix on data the
 # loop never mined. 0.5 is a 1:1 explore/confirm split -- the loop mines half and
 # the fix is scored on the other half, which it never saw.
 #
@@ -177,9 +177,9 @@ max_cycles: 1
 # dataset leaves ~30 PASS and ~30 FAIL per half. Raise n_cases with this, or the
 # split buys leak-freedom with intervals too wide to conclude from.
 confirm_split: 0.5
-# M5 on held-out data (framework default true): the cycle only mines
+# M4 on held-out data (framework default true): the cycle only mines
 # (M1->explore->M2->M3); after the loop every proposed hypothesis is tested
 # ONCE on the confirm half (the same analyzers re-run there) — the same
-# discipline the fix gate uses. M5's verdict never steers the loop (no early
-# stop / extra cycles). false = old behaviour (in-cycle M5 on explore data).
-m5_holdout: true
+# discipline the fix gate uses. M4's verdict never steers the loop (no early
+# stop / extra cycles). false = old behaviour (in-cycle M4 on explore data).
+m4_holdout: true

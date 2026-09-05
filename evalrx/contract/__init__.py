@@ -1,4 +1,4 @@
-"""Wire contract for the M1-M5 diagnosis pipeline.
+"""Wire contract for the M1-M4 diagnosis pipeline.
 
 The single machine-readable definition of what crosses each stage boundary.
 Python is the source of truth; JSON Schema and TypeScript are generated from it
@@ -89,17 +89,17 @@ from evalrx.contract.m3 import (
     HypothesisWire,
 )
 from evalrx.contract.m4 import (
+    HypothesisTestInput,
+    HypothesisTestOutput,
+    HypothesisTestResultWire,
+    TestEvidence,
+)
+from evalrx.contract.m5 import (
     FixAttemptWire,
     FixInput,
     FixOutput,
     InterventionOutput,
     SurgeryInput,
-)
-from evalrx.contract.m5 import (
-    HypothesisTestInput,
-    HypothesisTestOutput,
-    HypothesisTestResultWire,
-    TestEvidence,
 )
 from evalrx.contract.methodology import MethodologyWire
 from evalrx.contract.pre_m1 import ProbeSearchInput, ProbeSearchOutput
@@ -119,8 +119,8 @@ class StageContract(NamedTuple):
 #: instead of restating the wiring in prose that then drifts.
 #:
 #: Execution order note: the numbering is registration order, not run order.
-#: ``VLDiagnoseLoop`` runs M1->M2->M3->M5 as its cycle and calls M4 once after,
-#: because M4 is expensive and should only run on a hypothesis M5 verified.
+#: ``VLDiagnoseLoop`` runs M1->M2->M3->M4 as its cycle and calls M5 once after,
+#: because M5 is expensive and should only run on a hypothesis M4 verified.
 STAGE_IO: dict[str, StageContract] = {
     "pre_m1": StageContract(
         "pre_m1", "Synthesize new failing cases (output is DATA, not a verdict).",
@@ -138,16 +138,16 @@ STAGE_IO: dict[str, StageContract] = {
         "m3", "Explain: propose falsifiable mechanism hypotheses, each with a routable test_design.",
         DiagnosisInput, DiagnosisOutput,
     ),
-    "m5": StageContract(
-        "m5", "Adjudicate: statistical gate AND protocol-consistency gate. Both, or not SUPPORTED.",
+    "m4": StageContract(
+        "m4", "Adjudicate: statistical gate AND protocol-consistency gate. Both, or not SUPPORTED.",
         HypothesisTestInput, HypothesisTestOutput,
     ),
-    "m4_surgery": StageContract(
-        "m4_surgery", "Intervene: change one variable, re-run, read as causal evidence. Does not repair.",
+    "m5_surgery": StageContract(
+        "m5_surgery", "Intervene: change one variable, re-run, read as causal evidence. Does not repair.",
         SurgeryInput, InterventionOutput,
     ),
-    "m4_fix": StageContract(
-        "m4_fix", "Repair: propose candidates, validate paired against the unmodified baseline.",
+    "m5_fix": StageContract(
+        "m5_fix", "Repair: propose candidates, validate paired against the unmodified baseline.",
         FixInput, FixOutput, optional=True,
     ),
 }
@@ -169,11 +169,11 @@ __all__ = [
     "CorrectedRejections", "ExploreContextWire",
     # M3
     "DiagnosisInput", "DiagnosisOutput", "HypothesisWire",
-    # M4
+    # M5
     "SurgeryInput", "InterventionOutput",
     "FixInput", "FixOutput", "FixAttemptWire",
     # methodology
     "MethodologyWire",
-    # M5
+    # M4
     "HypothesisTestInput", "HypothesisTestOutput", "HypothesisTestResultWire", "TestEvidence",
 ]

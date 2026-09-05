@@ -6,7 +6,7 @@ Two product shapes are recognised:
 - **explore output**: an ``exploratory_report.json`` (or ``fused_report.json``)
   directly in the directory, with ``figures/`` and ``tables/`` beside it.
 - **loop run**: a ``logs_*/run_log.jsonl`` (M2 stats / M3 hypotheses + chart
-  references / M5 / Fix) plus an optional ``fused_report.json``.
+  references / M4 / Fix) plus an optional ``fused_report.json``.
 
 There is no multi-turn chat session anymore — ``load_run`` replaces the old
 ``load_session`` that walked ``turn_*`` subdirectories.
@@ -256,7 +256,7 @@ def load_loop_story(run_dir: str | Path) -> dict[str, Any] | None:
         "explore_dir": explore_dir,
         # Convention files a stage may have written next to the log (not events —
         # so no new run_log schema surface is needed for these).
-        "m5_results": _read_sibling_json(root, log_path, "report/m5_results.json") or [],
+        "m4_results": _read_sibling_json(root, log_path, "report/m4_results.json") or [],
         "failure_modes": _read_sibling_json(root, log_path, "artifacts/failure_modes.json"),
     }
     if not story["diagnoses"]:
@@ -308,7 +308,7 @@ def _find_explore_report(root: Path, log_path: Path) -> tuple[dict[str, Any] | N
 
 
 def _read_sibling_json(root: Path, log_path: Path, *rel_paths: str) -> Any | None:
-    """Look for any of *rel_paths* (e.g. ``"report/m5_results.json"``) under
+    """Look for any of *rel_paths* (e.g. ``"report/m4_results.json"``) under
     ``root``, then the log's parent and grandparent — mirrors
     :func:`_find_explore_report`'s search so convention files resolve whether
     *run_dir* is a bare RunContext root or a ``logs*/`` subdir was selected as

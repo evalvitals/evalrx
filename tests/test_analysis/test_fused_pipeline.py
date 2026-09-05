@@ -242,7 +242,7 @@ def test_label_restatements_are_dropped_from_the_plan():
     """6 of 6 FDR survivors in the live run were the label under another name.
 
     They always reject H0, always survive correction, carry no information, and
-    crowd out the real signals — which is what M5 then draws on to "verify" a
+    crowd out the real signals — which is what M4 then draws on to "verify" a
     hypothesis.
     """
     from evalrx.analysis.planner import label_restating_signals, plan_stats_input

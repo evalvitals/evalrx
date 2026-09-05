@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def _module():
-    path = Path(__file__).parents[2] / "examples/m1_m4/vlm_benchmark_common.py"
+    path = Path(__file__).parents[2] / "examples/m1_m5/vlm_benchmark_common.py"
     spec = importlib.util.spec_from_file_location("vlm_benchmark_common_test", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -39,7 +39,7 @@ def test_examples_choose_their_model_through_the_config():
 
     common = _module()
     assert common.BenchmarkConfig.model == "qwen2.5-vl-7b-instruct"  # the default
-    root = Path(__file__).parents[2] / "examples/m1_m4"
+    root = Path(__file__).parents[2] / "examples/m1_m5"
     for example in ("chartqa_qwen3_5_2b", "spatial457_qwen3_5_2b"):
         src = (root / example / "run.py").read_text()
         key = re.search(r'model="([^"]+)"', src).group(1)

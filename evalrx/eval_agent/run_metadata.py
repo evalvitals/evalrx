@@ -103,7 +103,7 @@ def _run_config(loop: Any, data: Any, *, loop_name: str) -> dict[str, Any]:
     if judge is not None:
         cfg["judge"] = repr(judge)
 
-    # Coder — the M4 surgery writer's CLI provider/model, when configured.
+    # Coder — the M5 surgery writer's CLI provider/model, when configured.
     surgery = getattr(loop, "surgery_agent", None)
     writer = getattr(surgery, "_writer", None) if surgery is not None else None
     cli = getattr(getattr(writer, "_cfg", None), "cli_agent", None)
@@ -188,12 +188,12 @@ def _make_intervention_result_from_test(tr: "Any") -> Any:
         status=tr.status,
         fixed=False,
         evidence={
-            "m5_test_name": tr.test_name,
-            "m5_effect_size": tr.effect_size,
-            "m5_confidence": tr.confidence,
-            "m5_protocol_consistent": tr.is_consistent_with_protocol,
-            "m5_verdict": tr.verdict,
-            "m5_evidence_grade": tr.evidence_grade,
+            "m4_test_name": tr.test_name,
+            "m4_effect_size": tr.effect_size,
+            "m4_confidence": tr.confidence,
+            "m4_protocol_consistent": tr.is_consistent_with_protocol,
+            "m4_verdict": tr.verdict,
+            "m4_evidence_grade": tr.evidence_grade,
             **tr.evidence,
         },
         confidence_score=tr.confidence,

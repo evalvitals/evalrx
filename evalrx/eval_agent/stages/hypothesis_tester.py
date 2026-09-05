@@ -1,10 +1,10 @@
-"""M5 — HypothesisTester: verify hypotheses via statistical tests + protocol consistency.
+"""M4 — HypothesisTester: verify hypotheses via statistical tests + protocol consistency.
 
-M5 is the *gatekeeper* between M3 (hypothesis generation) and the stopping
+M4 is the *gatekeeper* between M3 (hypothesis generation) and the stopping
 decision.  It asks two questions for each hypothesis:
 
 1. **Statistical support** — do cases that exhibit the hypothesised signal fail
-   at a higher rate than cases that do not?  M5 now *consumes M2's rigorous
+   at a higher rate than cases that do not?  M4 now *consumes M2's rigorous
    ``stats_results``* (effect size + CI + e-value, FDR-corrected via e-BH) when
    present, deciding SUPPORTED/REFUTED only on a corrected rejection.  When M2
    ran without labeled data (no ``stats_results``), it falls back to a rigorous
@@ -18,7 +18,7 @@ decision.  It asks two questions for each hypothesis:
 **Stopping criteria** (Plan A from the 2026-06-05 meeting):
 :meth:`stopping_criteria_met` returns ``True`` when at least one hypothesis is
 *both* statistically supported *and* protocol-consistent.  The loop calls this
-after each M5 pass and breaks when it returns ``True``.
+after each M4 pass and breaks when it returns ``True``.
 
 Usage::
 
@@ -27,7 +27,7 @@ Usage::
 
     if tester.stopping_criteria_met(results, protocol):
         best = tester.best_hypotheses(results)
-        # pass best[0].hypothesis to M4
+        # pass best[0].hypothesis to M5
 
     # With LLM judge for richer protocol consistency:
     tester = HypothesisTester(judge=gemini)
@@ -78,7 +78,7 @@ _DESCRIPTIVE_TOOLS = frozenset({"single_rate_evalue"})
 
 @dataclass
 class HypothesisTestResult:
-    """Result of M5 testing one :class:`~evalrx.eval_agent.hypothesis.Hypothesis`.
+    """Result of M4 testing one :class:`~evalrx.eval_agent.hypothesis.Hypothesis`.
 
     Attributes:
         hypothesis:                  The hypothesis under test.
@@ -112,7 +112,7 @@ class HypothesisTestResult:
     evidence: dict[str, Any] = field(default_factory=dict)
     # Verbatim protocol-consistency judge I/O (empty when the heuristic check
     # ran or no judge is configured) — forwarded to RunLogger.log_surgery so
-    # the M5 judge call is persisted under prompts/ like M1/M2/M3.
+    # the M4 judge call is persisted under prompts/ like M1/M2/M3.
     judge_prompt: str = ""
     judge_raw: str = ""
 
@@ -137,7 +137,7 @@ def _evidence_grade(tool: str, signal: str) -> str:
 # ---------------------------------------------------------------------------
 
 class HypothesisTester:
-    """M5: test hypotheses using statistical methods and protocol consistency.
+    """M4: test hypotheses using statistical methods and protocol consistency.
 
     Args:
         judge:       Optional LLM for protocol consistency checks.
@@ -253,7 +253,7 @@ class HypothesisTester:
         """Return verified, protocol-consistent hypotheses, strongest evidence first.
 
         Sorted by evidence grade (intervention > observational), then
-        confidence.  The first element is the candidate to hand to M4.
+        confidence.  The first element is the candidate to hand to M5.
         """
         supported = [
             r for r in test_results
@@ -762,7 +762,7 @@ class HypothesisTester:
         import inspect
 
         prompt = _CONSISTENCY_PROMPT.format(
-            # M5 decides whether the hypothesis is within the task contract.
+            # M4 decides whether the hypothesis is within the task contract.
             # ``description`` is only its overview; omission of
             # ``failure_patterns`` made explicitly declared mechanisms (for
             # example AudioCaps' paraphrase-stability failure) invisible to
@@ -777,7 +777,7 @@ class HypothesisTester:
         else:
             raw = self._judge.generate(prompt)  # type: ignore[union-attr]
 
-        # Retain the verbatim judge I/O so the caller can persist it (M5 was
+        # Retain the verbatim judge I/O so the caller can persist it (M4 was
         # the one stage whose judge calls left no record under prompts/).
         self._last_judge_prompt = prompt
         self._last_judge_raw = str(raw)
@@ -795,7 +795,7 @@ def _fallback_case_signals(data: CaseBatch, hypothesis: Hypothesis) -> dict[str,
 
     These are operational signals from discovery/generation, not PASS/FAIL
     labels: empty outputs, discovery exceptions, or UNKNOWN scorer verdicts.
-    They keep M5 from becoming vacuous while avoiding label leakage.
+    They keep M4 from becoming vacuous while avoiding label leakage.
     """
     hyp_text = (
         hypothesis.statement + " " + hypothesis.predicted_failure_mode

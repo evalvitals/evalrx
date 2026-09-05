@@ -1,4 +1,4 @@
-"""ffmpeg helpers shared by the audio tasks (from the m1_m4 audio downloaders)."""
+"""ffmpeg helpers shared by the audio tasks (from the m1_m5 audio downloaders)."""
 
 from __future__ import annotations
 

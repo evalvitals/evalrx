@@ -44,7 +44,7 @@ def hypotheses(story: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def render_hypotheses(st: Any, view: RunView) -> None:
-    """Render M3 hypotheses with outcomes from either M5 or M4 beside them."""
+    """Render M3 hypotheses with outcomes from either M4 or M5 beside them."""
     story = view.story or {}
     items = hypotheses(story)
     surgeries = list(story.get("surgeries") or [])
@@ -76,7 +76,7 @@ def render_hypotheses(st: Any, view: RunView) -> None:
 
 
 def render_stage_events(st: Any, events: list[dict[str, Any]], empty: str) -> None:
-    """Small generic event view for M5 validation and M4 intervention records."""
+    """Small generic event view for M4 validation and M5 intervention records."""
     if not events:
         st.info(empty)
         return

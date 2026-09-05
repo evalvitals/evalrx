@@ -160,7 +160,7 @@ class PromptContrastAnalyzer(Analyzer):
         score_fn: Callable[[Any, str], Optional[bool]] | None = None,
         # Sized for enriched batches: the per-strategy McNemar is powered by the
         # scarce FAIL group (a strategy can only *flip* an already-failing case),
-        # so a small cap leaves too few discordant pairs for M5 to clear the
+        # so a small cap leaves too few discordant pairs for M4 to clear the
         # e-value bar. 128 covers typical mined fail counts plus controls.
         max_cases: int = 0,
     ) -> None:

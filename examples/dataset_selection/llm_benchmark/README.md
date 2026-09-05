@@ -1,7 +1,7 @@
 # llm_benchmark — 文本 LLM 的全链路探测与修复
 
 在**实测确认可诊断**的八个数据集上,对 Qwen3.5 **2B / 4B / 9B** 跑完整的
-M1 → M2 → M3 → M5 → M4 链路,结果落到 `outputs/<model>/<dataset>/`。
+M1 → M2 → M3 → M4 → M5 链路,结果落到 `outputs/<model>/<dataset>/`。
 
 ---
 
@@ -55,7 +55,7 @@ export VLLM_BIN=/your/vllm
 
 ### 2. claude CLI(judge,不可省)
 
-M1 选 analyzer、M2 写统计、M3 提假设、M5 判定 —— **全部**靠它。
+M1 选 analyzer、M2 写统计、M3 提假设、M4 判定 —— **全部**靠它。
 它不是被测模型,被测模型是 vLLM 那个。
 
 ```bash
@@ -128,13 +128,13 @@ cd <repo>/evalrx/examples/dataset_selection/llm_benchmark
 **首次在一台新机器上跑,先看上面的「从零搭建」并跑 `preflight.py`。**
 
 它会依次:挑一张空闲 GPU → 起 vLLM → **等就绪** → Stage 0 生成并冻结 batch →
-M1→[explore]→M2→M3→M5→M4 → **无论成败都关掉 vLLM 释放显存**(EXIT trap)。
+M1→[explore]→M2→M3→M4→M5 → **无论成败都关掉 vLLM 释放显存**(EXIT trap)。
 
 `explore` 是 M1 之后、catalog M2 之前的一步自由探索(与 M2 同一个 coder,在
 sandbox 里对 **M1 的同一张 per-case 信号表** 写 pandas):产出
 `outputs/<model>/<dataset>/explore/{exploratory_report.json,tables/*.csv,figures/*.png}`
 给 dashboard,观察/图表作为**未确认线索**进 M3(决定提哪些假设)。它不改动
-M2 的工具目录与 e-BH,也不进 M5 / fix 门 —— 证据仍然只来自 M2。
+M2 的工具目录与 e-BH,也不进 M4 / fix 门 —— 证据仍然只来自 M2。
 
 ```bash
 ./run_all.sh <model> <dataset> [n_cases]   # n_cases 省略 = 全量
@@ -142,9 +142,9 @@ M2 的工具目录与 e-BH,也不进 M5 / fix 门 —— 证据仍然只来自 M
 # model:   qwen3.5-2b | qwen3.5-4b | qwen3.5-9b
 # dataset: 见第 1 节的八个
 # 环境变量:
-#   ANALYSIS_ONLY=1   只跑 M1→M2→M3,不做 M5 确认和 M4 修复
+#   ANALYSIS_ONLY=1   只跑 M1→M2→M3,不做 M4 确认和 M5 修复
 #   CONFIRM_ONLY=1    跳过 M1→M3:重用 logs/ 里上一轮的 M2 统计 + M3 假设,只跑
-#                     M5→M4→fix(要配 SKIP_STAGE0=1;日志写到 logs_confirm/,
+#                     M4→M5→fix(要配 SKIP_STAGE0=1;日志写到 logs_confirm/,
 #                     摘要写到 summary_confirm.json,dashboard 会自动合并)
 #   EXPLORE=0         关掉 M1 之后的 explore 步(自由 EDA:csv 表 + 渲染图 +
 #                     给 M3 的未确认线索;默认开,见 config.yaml `explore`)
@@ -161,8 +161,8 @@ M2 的工具目录与 e-BH,也不进 M5 / fix 门 —— 证据仍然只来自 M
 |---|---|
 | vLLM 加载权重 | 3–6 分钟(冷 page cache 更久) |
 | Stage 0 `build_cases.py` **全量** | **20 分钟 – 6.5 小时**,见下方逐数据集表 |
-| M1→M5 | **30–90 分钟**(judge 是 `claude-opus-5 --effort high`,想得久) |
-| M4 修复 | **20–60 分钟** |
+| M1→M4 | **30–90 分钟**(judge 是 `claude-opus-5 --effort high`,想得久) |
+| M5 修复 | **20–60 分钟** |
 
 **总计 1.5–8 小时**,几乎全部取决于切片大小(judge 用 high effort;调低 `judge_effort` 会快很多)。 建议 `setsid nohup ./run_all.sh ... > run.log 2>&1 &` 后台跑再轮询日志,
 不要在一次前台工具调用里等它。
@@ -508,7 +508,7 @@ $VLLM serve Qwen/Qwen3.5-9B \
 > `T=0.6/top_p=0.95/top_k=20` 用 1,352 token 就正常结束。`config.yaml` 已钉死这组参数。
 
 > **thinking 一律关闭(2026-08-21 起)。** `config.yaml` 的 `enable_thinking: false`
-> 让这条链路对被测模型的**每一次**调用——Stage 0 基线、M1 探针、M4 实验、fix 候选、
+> 让这条链路对被测模型的**每一次**调用——Stage 0 基线、M1 探针、M5 实验、fix 候选、
 > logprobs——都显式带上 `chat_template_kwargs={"enable_thinking": false}`。之所以显式发,
 > 是因为两个 checkpoint 的模板在缺省时行为相反(Qwen3.5-2B 默认关、9B 默认开)。
 > `datasets.py` 里的难度带是**开着 thinking** 量的,所以同一数据集的 PASS/FAIL 划分会变;
@@ -535,7 +535,7 @@ $PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law
   wrote outputs/qwen3.5-9b/supergpqa_law/cases.json
 ```
 
-**为什么单独一步**:M2/M3/M5 可以在冻结的 batch 上反复重跑、改 prompt、调试,
+**为什么单独一步**:M2/M3/M4 可以在冻结的 batch 上反复重跑、改 prompt、调试,
 不必重新付生成的钱;而且两次运行的 judge 看到的是**字面相同**的 PASS/FAIL 标签。
 
 它会在两种情况下叫停或警告:
@@ -555,9 +555,9 @@ cd <repo>/evalrx
 $PY -m evalrx.cli dashboard examples/dataset_selection/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
 ```
 
-产出提出的假设,但**不做 M5 确认、不做修复**。先把分析故事看明白再决定要不要往下走。
+产出提出的假设,但**不做 M4 确认、不做修复**。先把分析故事看明白再决定要不要往下走。
 
-### Stage 2 — 全链路 M1 → M5 → M4
+### Stage 2 — 全链路 M1 → M4 → M5
 
 ```bash
 $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
@@ -570,16 +570,16 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 | **M1** | `ProbeAgent` | 按 protocol 选择并运行 analyzer |
 | **M2** | `StatsAnalysisAgent` | 对 M1 的 per-case 信号做统计分析 |
 | **M3** | `DiagnosisAgent` | 从统计结果提出假设 |
-| **M5** | `HypothesisTester` | 统计检验 + protocol 一致性检查 |
-| **M4** | `SurgeryAgent` / `FixAgent` | 对已确认假设提出并验证修复 |
+| **M4** | `HypothesisTester` | 统计检验 + protocol 一致性检查 |
+| **M5** | `SurgeryAgent` / `FixAgent` | 对已确认假设提出并验证修复 |
 
-> **M4 跑在循环之外**,且跑在 `confirm_split` 留出的**留出集**上,
+> **M5 跑在循环之外**,且跑在 `confirm_split` 留出的**留出集**上,
 > 所以修复是在循环从未挖过的数据上验证的。
 > `confirm_split: 0.0` 会让修复在产生假设的同一批数据上打分 —— 那是诊断循环自我恭维的标准做法。
 >
 > **默认 `confirm_split: 0.5`,即 1:1** —— 循环挖一半,修复在它从没见过的另一半上打分。
 > 划分是**确定性的**(按 label + probe_type 分层、固定 seed),所以 `run()` 和
-> `run_m4()` 从同一批输入推出完全相同的划分。
+> `run_m5()` 从同一批输入推出完全相同的划分。
 >
 > ⚠️ **代价是两边的统计功效都减半**,这正是 `n_cases` 默认取全量的原因。
 > 每个数据集实际剩多少,用 `$PY datasets.py --plan` 算,别估。
@@ -594,19 +594,19 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 | **解码预算下限** | `baseline_generation_kwargs={max_tokens, temperature, top_p}` = Stage 0 的配置 | 判官给的 `max_tokens` 低于基线会被**抬到基线**;tracking7 上判官曾给 900,基线 4096、基线输出中位数 806 tok,30% 已超 900 → 候选被截断成 "regressed" |
 | 截断遥测 | `EndpointModel.n_truncated` 在每个候选前后做差 → `n_truncated` | 区分"想法坏"和"被 token 上限截断" |
 | 每例输出 | `logs*/fixes/NN_<tier>_<name>/outputs.jsonl`(fixed/broken/unchanged 三态) | 声明式候选以前不留任何输出,regressed 无法复盘 |
-| 判官/coder 看到的 | explore 半区的完整样例(prompt + 模型基线输出 + gold + PASS 对照)、评分规则(`make_scoring_note`)、基线解码、M2/M5/explore 证据、被 M4 反驳的假设 | 之前只有 160 字符的 prompt 开头 |
+| 判官/coder 看到的 | explore 半区的完整样例(prompt + 模型基线输出 + gold + PASS 对照)、评分规则(`make_scoring_note`)、基线解码、M2/M4/explore 证据、被 M5 反驳的假设 | 之前只有 160 字符的 prompt 开头 |
 | 家族地板 | `fix_floor_candidates: [self_consistency_5]`(文本任务) | 默认候选以前只在判官沉默时兜底,最基础的多数投票从没进过家族 |
 | 并发 | `fix_concurrency: 6`(声明式候选按 case 多线程打 endpoint) | 5 样本 × 80 例串行要一个多小时 |
 | **噪声模型** | `fix_baseline_repeats: 5`(基线 = 冻结样本 + 4 次新采样 → 每例通过率),`fix_candidate_repeats: 1` | 配对检验改为对每例通过率之差做 betting e-value(`compare_paired_rates`):不稳定的例子按幅度计权,不再丢弃,也不再让 T=0.6 的单次采样决定 fixed/broken(run7 差 1 个 break) |
 
 `n_samples` 对每种 strategy 都生效(整条 least_to_most / self_refine 链重复 n 次,
 按抽出的最终答案投票 —— 之前非 direct 策略会静默忽略 n_samples,而对 CoT 输出按全文投票等于不投票)。
-`run_fix` 会**剔除被 M4 实验反驳的假设**,并把它作为 "REFUTED — do not build on" 传给 proposer。
+`run_fix` 会**剔除被 M5 实验反驳的假设**,并把它作为 "REFUTED — do not build on" 传给 proposer。
 
-**没有 verified 假设时**(`fix_on_unverified: true`,CLI `--[no-]fix-unverified`):M4 干预实验照做,
-对象是 M5 打分最高、未被反驳的 **unverified** 假设;随后 fix 阶段用这些 unverified 线索(标注
+**没有 verified 假设时**(`fix_on_unverified: true`,CLI `--[no-]fix-unverified`):M5 干预实验照做,
+对象是 M4 打分最高、未被反驳的 **unverified** 假设;随后 fix 阶段用这些 unverified 线索(标注
 "UNVERIFIED … treat as hints")继续提候选 —— fix 的门是候选的配对验证,不是假设本身。
-`false` 回到旧行为(只有 verified 才进 M4/fix)。
+`false` 回到旧行为(只有 verified 才进 M5/fix)。
 
 ### 三个尺寸都跑
 
@@ -809,7 +809,7 @@ outputs/
         │   ├── figures/*.png      # host 从 spec + csv 渲染的图(M3 看到的就是这些)
         │   ├── analysis.py        # coder 生成的分析代码(可审计、可重跑)
         │   └── sandbox/           # 该步的工作目录
-        └── logs/                  # RunLogger:M1-M5 逐阶段轨迹
+        └── logs/                  # RunLogger:M1-M4 逐阶段轨迹
             ├── run_log.jsonl      # 含 `explore` 事件(计数 + 路径,描述性)
             ├── artifacts/         # M2 统计结果 JSON(c0_m2_stats_results.json 等)
             └── figures/m2_effects.png   # catalog M2 的森林图(effect ± CI)
@@ -844,8 +844,8 @@ outputs/
 **judge 探针返回空**
 → claude CLI 被限流。换 `--judge-model sonnet`。
 
-**M4 报 `no verified hypothesis to fix`**
-→ M5 没有确认任何假设。这是合法结果,不是故障。先看 `--analysis-only` 的产出,
+**M5 报 `no verified hypothesis to fix`**
+→ M4 没有确认任何假设。这是合法结果,不是故障。先看 `--analysis-only` 的产出,
 确认 M3 提的假设是否本来就站不住。
 
 ---
@@ -856,7 +856,7 @@ outputs/
 |---|---|
 | [`datasets.py`](datasets.py) | 八个数据集的机器可读目录 |
 | [`build_cases.py`](build_cases.py) | Stage 0:生成 + 判分 + 冻结 batch |
-| [`run_pipeline.py`](run_pipeline.py) | M1→M2→M3→M5→M4 驱动;`EndpointModel` 含 logprobs |
+| [`run_pipeline.py`](run_pipeline.py) | M1→M2→M3→M4→M5 驱动;`EndpointModel` 含 logprobs |
 | [`whitebox.py`](whitebox.py) | Stage W:hf_local 加载 + 显存护栏 + 混合栈层映射 |
 | [`run_whitebox.py`](run_whitebox.py) | Stage W 驱动:逐 case 跑 attention analyzer 并做 PASS/FAIL 对比 |
 | [`preflight.py`](preflight.py) | 上机前自检,每条 FAIL 附安装命令 |
@@ -893,7 +893,7 @@ outputs/
   `whitebox.json`,长度混淆警告正确触发
 - 新增 25 个单测;仓库全量 **1814 passed / 15 skipped**
 
-**尚未验证的**:M1→M5→M4 主链路本身还没在这三个尺寸上端到端跑过一次
+**尚未验证的**:M1→M4→M5 主链路本身还没在这三个尺寸上端到端跑过一次
 (第 4 节的 logprobs 与 Stage W 已验证,Stage 0 也已验证)。
 上面的命令是照着已验证的接口和 `deco_hallu` 的参考实现写的,
 但第一次跑仍可能碰到运行时问题 —— 建议先用 `--analysis-only` 加一个小 `--n` 试通。

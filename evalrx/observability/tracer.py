@@ -6,7 +6,7 @@ This module provides first-class observability for model evaluations and agentic
    this file is the durable source of truth and works with no SDK installed.
 3. Multi-tier hierarchical span recording:
    - Root Trace: Benchmark run session (model metadata, benchmark parameters, dataset fingerprint).
-   - Pipeline Stage Spans: PRE-M1, M1 Checkup, M2 Screening, M3 Diagnosis, M5 Adjudication, M4 Repair,
+   - Pipeline Stage Spans: PRE-M1, M1 Checkup, M2 Screening, M3 Diagnosis, M4 Adjudication, M5 Repair,
      plus Explore and Tool-Codegen (the coder-agent trajectories).
    - Probe Execution Spans: Granular probe runs with findings and artifact paths.
    - AI Doctor Generations: LLM reasoning, screening evidence digest, and falsifiable hypothesis generation.
@@ -492,9 +492,9 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
     m1 = data["m1"]
     m2 = data["m2"]
     m3 = data["m3"]
-    m5 = data["m5"]
-    m4_s = data["m4_surgery"]
-    m4_f = data["m4_fix"]
+    m4 = data["m4"]
+    m5_s = data["m5_surgery"]
+    m5_f = data["m5_fix"]
 
     trace_id = _resolve_trace_id(run_dir, run.get("data_fingerprint") or "")
     trace_name = f"EvalRX: {run['model']} · {run['benchmark_name']}"
@@ -634,67 +634,67 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
             "metadata": {"failure_mode": h.get("failure_mode")},
         })
 
-    # M5 Span
-    if m5["ran"]:
+    # M4 Span
+    if m4["ran"]:
         spans.append({
-            "id": f"{trace_id}_m5",
-            "name": "M5: Independent Blind Adjudication",
+            "id": f"{trace_id}_m4",
+            "name": "M4: Independent Blind Adjudication",
             "type": "span",
             "metadata": {
-                "stage": "M5",
-                "results_count": len(m5["results"]),
+                "stage": "M4",
+                "results_count": len(m4["results"]),
             },
             "input": {"hypotheses_tested": [h.get("statement") for h in m3["hypotheses"]]},
-            "output": {"event": m5["event"], "results": m5["results"]},
+            "output": {"event": m4["event"], "results": m4["results"]},
         })
 
-    # M4 Surgery Span
-    if m4_s["ran"]:
+    # M5 Surgery Span
+    if m5_s["ran"]:
         spans.append({
-            "id": f"{trace_id}_m4_surgery",
-            "name": "M4-SURGERY: Causal Mechanism Interventions",
+            "id": f"{trace_id}_m5_surgery",
+            "name": "M5-SURGERY: Causal Mechanism Interventions",
             "type": "span",
-            "metadata": {"stage": "M4-Surgery"},
-            "output": {"surgeries": m4_s["surgeries"]},
+            "metadata": {"stage": "M5-Surgery"},
+            "output": {"surgeries": m5_s["surgeries"]},
         })
 
-    # M4 Fix Span & Generations
-    if m4_f["ran"]:
-        m4_span_id = f"{trace_id}_m4_fix"
+    # M5 Fix Span & Generations
+    if m5_f["ran"]:
+        m5_span_id = f"{trace_id}_m5_fix"
         spans.append({
-            "id": m4_span_id,
-            "name": "M4-FIX: Targeted Repair & Confirmation",
+            "id": m5_span_id,
+            "name": "M5-FIX: Targeted Repair & Confirmation",
             "type": "span",
             "metadata": {
-                "stage": "M4-Fix",
-                "fixed": m4_f["fixed"],
-                "n_candidates_screened": len(m4_f["selection"]),
+                "stage": "M5-Fix",
+                "fixed": m5_f["fixed"],
+                "n_candidates_screened": len(m5_f["selection"]),
             },
-            "input": {"candidates": [s.get("name") for s in m4_f["selection"]]},
+            "input": {"candidates": [s.get("name") for s in m5_f["selection"]]},
             "output": {
                 # Fix events written before PR #88 carry ``best`` as the candidate
                 # NAME, later ones as the candidate record: accept both.
                 "best_candidate": (
-                    (m4_f.get("best") or {}).get("name")
-                    if isinstance(m4_f.get("best"), dict) else (m4_f.get("best") or None)
-                ) or (m4_f.get("confirm") or {}).get("name"),
-                "confirm": m4_f.get("confirm"),
+                    (m5_f.get("best") or {}).get("name")
+                    if isinstance(m5_f.get("best"), dict) else (m5_f.get("best") or None)
+                ) or (m5_f.get("confirm") or {}).get("name"),
+                "confirm": m5_f.get("confirm"),
             },
         })
-        if m4_f.get("prompt_template"):
+        if m5_f.get("prompt_template"):
             generations.append({
-                "id": "gen_m4_patch",
+                "id": "gen_m5_patch",
                 "trace_id": trace_id,
-                "span_id": m4_span_id,
+                "span_id": m5_span_id,
                 "name": "Winning Repair Patch",
                 "model": "Repair Search Agent",
                 "prompt": "Synthesize targeted prompt patch based on diagnosed mechanism",
-                "completion": m4_f["prompt_template"],
-                "metadata": {"candidate_name": (m4_f.get("confirm") or {}).get("name")},
+                "completion": m5_f["prompt_template"],
+                "metadata": {"candidate_name": (m5_f.get("confirm") or {}).get("name")},
             })
 
     # Global Key Evaluation Scores
-    cfm = m4_f.get("confirm") or {}
+    cfm = m5_f.get("confirm") or {}
     if cfm.get("n_baseline_correct") is not None and cfm.get("n_pairs"):
         scores.append({
             "name": "baseline_accuracy",

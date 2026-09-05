@@ -12,7 +12,7 @@ The requested matrix is complete for Gemma 4 E2B, E4B, and 12B:
 - VLM: `chartqa`, `spatial457`
 - 3 model sizes x 4 datasets = 12 successful cells
 
-Every result below has a completed `logs/contract/m4_fix.json` with
+Every result below has a completed `logs/contract/m5_fix.json` with
 `fixed=true` and `reject=true`. Effects are paired CONFIRM accuracy changes.
 
 | Modality | Dataset | Model | Baseline | CONFIRM | Fixed / broken | Effect | e-value | Frozen repair |
@@ -33,7 +33,7 @@ Every result below has a completed `logs/contract/m4_fix.json` with
 ## Formal artifacts
 
 The contract for each result is under the listed run root at
-`logs/contract/m4_fix.json`:
+`logs/contract/m5_fix.json`:
 
 - E2B MMAU: `examples/benchmark/alm/gemma/outputs/gemma-4-e2b/mmau.agy-significant-v1`
 - E4B MMAU: `examples/benchmark/alm/gemma/host_outputs/gemma-4-e4b/mmau.agy-gemini-pro-guard-output-holdout-v7`
@@ -61,7 +61,7 @@ the new sizes. An additional successful VLM result is also retained:
 - E2B POPE adversarial: baseline 211/256 (0.8242); CONFIRM 128;
   `detector_grounded_presence_calibrated`; 14 fixed / 2 broken; effect +0.0938;
   e-value 32.13; `fixed=true`.
-- Contract: `examples/benchmark/vlm/gemma/host_outputs/gemma-4-e2b/pope_adversarial.agy-detector-calibrated-fresh-v8/logs/contract/m4_fix.json`.
+- Contract: `examples/benchmark/vlm/gemma/host_outputs/gemma-4-e2b/pope_adversarial.agy-detector-calibrated-fresh-v8/logs/contract/m5_fix.json`.
 
 Historical MMAU comparison baselines still available in the repository:
 

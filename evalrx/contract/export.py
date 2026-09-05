@@ -117,8 +117,8 @@ def _layout_doc() -> str:
         "│   ├── c0.m1.json            one file per (cycle, stage)",
         "│   ├── c0.m2.json",
         "│   ├── c0.m3.json",
-        "│   ├── c-1.m5.json           cycle -1 = the post-loop / held-out pass",
-        "│   ├── m4_fix.json           post-loop stages carry no cycle prefix",
+        "│   ├── c-1.m4.json           cycle -1 = the post-loop / held-out pass",
+        "│   ├── m5_fix.json           post-loop stages carry no cycle prefix",
         "│   └── <stage>.invalid.json  a payload that FAILED validation, with the error",
         "├── run_log.jsonl             the raw event stream (untyped; predates this)",
         "├── artifacts/",
@@ -155,9 +155,9 @@ def _layout_doc() -> str:
                      f"| {c.purpose} | {'yes' if c.optional else 'no'} |")
     lines += [
         "",
-        "Execution order is not the numbering: the loop runs M1→M2→M3→M5 as its cycle",
-        "and calls M4 once afterwards, because a repair should only be attempted on a",
-        "hypothesis M5 verified.",
+        "Execution order is not the numbering: the loop runs M1→M2→M3→M4 as its cycle",
+        "and calls M5 once afterwards, because a repair should only be attempted on a",
+        "hypothesis M4 verified.",
         "",
         "## Reading it",
         "",
@@ -186,7 +186,7 @@ def _layout_doc() -> str:
         "  routing actually used — they differ, and the difference is diagnostic.",
         "- **A hypothesis with an empty `test_design` is undecidable.** It will return",
         "  INCONCLUSIVE on every cycle no matter how much evidence is gathered. Join",
-        "  M5's `hypothesis_id` back to M3 before reading any verdict.",
+        "  M4's `hypothesis_id` back to M3 before reading any verdict.",
         "",
     ]
     return "\n".join(lines) + "\n"

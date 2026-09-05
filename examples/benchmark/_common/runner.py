@@ -1,6 +1,6 @@
-"""One execution path for every cell: Stage 0 discovery -> M1..M5 -> M4 -> fix.
+"""One execution path for every cell: Stage 0 discovery -> M1..M4 -> M5 -> fix.
 
-Mirrors the validated wiring of ``examples/m1_m4/vlm_benchmark_common.py`` (the
+Mirrors the validated wiring of ``examples/m1_m5/vlm_benchmark_common.py`` (the
 ChartQA/Spatial457 chains) with the per-modality settings of the audio examples
 and ``llm_benchmark`` folded in as task attributes: pinned M1 set, scorer,
 protocol, generation budget. The model under test is ``hf_local`` by default
@@ -136,7 +136,7 @@ def load_weights(model, resolved: Resolved, args, task: T.Task):
 
 def build_judge(args):
     """``(judge, coder_provider, coder_model, coder_extra_args)`` — the same three
-    providers as the m1_m4 examples; the benchmark CLI and compose files pin
+    providers as the m1_m5 examples; the benchmark CLI and compose files pin
     Codex / gpt-5.6-terra / medium."""
     if args.judge_provider == "agy":
         from evalrx.agent_runtime.judges import AgyModel
@@ -216,7 +216,7 @@ def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
 
     By the time the fix stage starts, ``baseline.json``, ``logs/report/
     discovery_cases.json``, the ``case_record`` events, the M1 signal tables
-    (``gold_yes`` is the gold answer on a yes/no task) and the M4 workspace all
+    (``gold_yes`` is the gold answer on a yes/no task) and the M5 workspace all
     carry per-case labels for EVERY case, CONFIRM included -- and the coder
     CLI (``Bash Edit Write Read``) and the pipeline sandbox both run from a
     workspace two directory levels below them. The prompt-level withholding
@@ -315,8 +315,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     if args.baseline_only:
         print(f"Done (baseline only). {run_dir / 'baseline.json'}")
         return 0
-    if not discovery.has_m5_groups:
-        raise SystemExit("M5 needs both PASS and FAIL cases; adjust --limit / --seed")
+    if not discovery.has_m4_groups:
+        raise SystemExit("M4 needs both PASS and FAIL cases; adjust --limit / --seed")
 
     from evalrx.eval_agent import (
         CliAgentConfig,
@@ -417,10 +417,10 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         fix_agent=fix_agent, max_cycles=args.max_cycles, run_logger=ctx.logger,
         confirm_split=0.5, confirm_split_seed=20260818,
         # This benchmark reserves CONFIRM exclusively for the final frozen
-        # repair. M5 screens hypotheses on EXPLORE; otherwise its verdict (and
-        # the M4 decision it triggers) would adapt repair selection to the same
+        # repair. M4 screens hypotheses on EXPLORE; otherwise its verdict (and
+        # the M5 decision it triggers) would adapt repair selection to the same
         # cases later used for the significance gate.
-        m5_holdout=False,
+        m4_holdout=False,
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer, explore_dir=run_dir / "explore", verbose=True,
     )
@@ -444,26 +444,26 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         print(f"[fix] --fix-tier {args.fix_tier} clamped to {fix_tier}: the {resolved.backend} backend "
               "exposes no model internals (L3a/L3b need the white-box executors)")
     if not args.skip_fix:
-        # No M5-verified hypothesis still gets M4 + a fix attempt on the best
+        # No M4-verified hypothesis still gets M5 + a fix attempt on the best
         # unverified leads (the candidate validation on CONFIRM is the gate).
         # An explicitly pre-registered fix is already the experiment the
-        # caller asked to validate.  Running an unrelated M4 surgery first is
+        # caller asked to validate.  Running an unrelated M5 surgery first is
         # pure latency and can contend for the same GPU; it cannot influence
         # the frozen candidate or its EXPLORE/CONFIRM verdict.
-        if args.skip_m4:
-            print("M4: skipped by --skip-m4 (tiered fix search remains enabled)")
+        if args.skip_m5:
+            print("M5: skipped by --skip-m5 (tiered fix search remains enabled)")
         elif args.fix_candidate or args.code_only or args.registered_repairs_only:
             requested = (
                 args.fix_candidate or ("coded_pipeline" if args.code_only else "registered methods")
             )
-            print(f"M4: skipped for pre-registered fix scope {requested!r}")
+            print(f"M5: skipped for pre-registered fix scope {requested!r}")
         else:
-            proposal = loop.run_m4(report, cases, allow_unverified=True)
+            proposal = loop.run_m5(report, cases, allow_unverified=True)
             if proposal is not None:
                 tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
-                print(f"M4 experiment on the {tag} hypothesis: status={proposal.status}")
+                print(f"M5 experiment on the {tag} hypothesis: status={proposal.status}")
             else:
-                print("M4: no hypothesis to experiment on")
+                print("M5: no hypothesis to experiment on")
         outcome = run_fix_isolated(loop, run_dir, ctx, report, cases, max_tier=fix_tier,
                                    auto_escalate=args.auto_escalate, allow_unverified=True)
         attempted = []

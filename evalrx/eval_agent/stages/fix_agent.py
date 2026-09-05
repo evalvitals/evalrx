@@ -689,15 +689,15 @@ class FixContext:
       Expected/gold answers are always withheld. They are normally disjoint
       from the candidate-validation batch: the loop passes its EXPLORE split
       and scores the fix on CONFIRM.
-    * ``evidence`` / ``refuted`` are read-only narrative: what M2/M5/explore
-      established and what M4's intervention experiment knocked down. They
+    * ``evidence`` / ``refuted`` are read-only narrative: what M2/M4/explore
+      established and what M5's intervention experiment knocked down. They
       steer *what* to propose; validation still decides *whether* it works.
 
     Attributes:
         example_cases:      Cases the proposer may see in full (see above).
-        evidence:           Host-built summary of M2 statistics, M5 test
+        evidence:           Host-built summary of M2 statistics, M4 test
                             verdicts and exploratory notes.
-        refuted:            Hypotheses an M4 experiment REFUTED (statement +
+        refuted:            Hypotheses an M5 experiment REFUTED (statement +
                             why), so the proposer does not build on them.
         scoring_note:       How outputs are scored / the expected final-answer
                             format (e.g. "last 'Answer:' line, '(D)' == 'D'").
@@ -707,7 +707,7 @@ class FixContext:
                             below.
         task_note:          One-paragraph task / protocol description.
         hypotheses_note:    Status caveat printed right under the hypotheses
-                            (e.g. "UNVERIFIED: M5 found no significant evidence
+                            (e.g. "UNVERIFIED: M4 found no significant evidence
                             …") when the loop hands the fix unverified leads.
     """
 
@@ -955,7 +955,7 @@ class FixAgent:
 
         *context* (optional :class:`FixContext`) is what the proposer sees
         besides the hypotheses — full example cases from a DISJOINT split,
-        the M2/M5/explore evidence, M4-refuted hypotheses, the scoring rule
+        the M2/M4/explore evidence, M5-refuted hypotheses, the scoring rule
         and the baseline decoding budget.  ``proposal_data``, when supplied,
         is the discovery partition available to the repair author; ``data``
         remains untouched confirmation data and permits only one round.
@@ -1847,10 +1847,10 @@ class FixAgent:
                     "try to save tokens; only raise max_tokens if the baseline truncates."
                 )
         if context.evidence:
-            lines += ["DIAGNOSTIC EVIDENCE (what M2 statistics / M5 tests / exploration "
+            lines += ["DIAGNOSTIC EVIDENCE (what M2 statistics / M4 tests / exploration "
                       "established — read-only, steer WHAT to try):", context.evidence.rstrip()]
         if context.refuted:
-            lines += ["REFUTED BY AN INTERVENTION EXPERIMENT (M4) — do NOT build a fix on these:"]
+            lines += ["REFUTED BY AN INTERVENTION EXPERIMENT (M5) — do NOT build a fix on these:"]
             lines += [f"  - {r}" for r in context.refuted]
         if floor_names:
             lines.append(

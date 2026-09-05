@@ -20,8 +20,8 @@ from evalrx.contract import (
 )
 from evalrx.contract.m2 import CorrectedRejections, StatsToolResultWire
 from evalrx.contract.m3 import HypothesisWire
-from evalrx.contract.m4 import FixAttemptWire, FixOutput
-from evalrx.contract.m5 import HypothesisTestOutput, HypothesisTestResultWire
+from evalrx.contract.m4 import HypothesisTestOutput, HypothesisTestResultWire
+from evalrx.contract.m5 import FixAttemptWire, FixOutput
 from evalrx.contract.methodology import MethodologyWire
 
 
@@ -161,7 +161,7 @@ def test_a_prose_design_that_names_its_signal_is_routable():
     """What a strong judge actually writes.
 
     Opus at high effort produced designs that name the analyzer and metric
-    inside a paragraph of interventional protocol. M5 routed all of them
+    inside a paragraph of interventional protocol. M4 routed all of them
     (routed_by="test_design"), while a validator demanding the string BE a bare
     signal rejected the whole M3 payload — stricter than the consumer it exists
     to protect, so it discarded good work without preventing anything.
@@ -193,7 +193,7 @@ def test_no_test_design_at_all_is_untestable():
     assert not h.is_proposed and not h.is_routable
 
 
-# --- M5: both gates ---------------------------------------------------------
+# --- M4: both gates ---------------------------------------------------------
 
 def _result(status, consistent, grade="observational", hid="h1"):
     return HypothesisTestResultWire(
@@ -214,7 +214,7 @@ def test_supported_requires_evidence():
 
 
 def test_verified_is_derived_from_results():
-    out = HypothesisTestOutput(**_envelope("m5"), results=[
+    out = HypothesisTestOutput(**_envelope("m4"), results=[
         _result(HypothesisStatus.SUPPORTED, consistent=True, hid="h1"),
         _result(HypothesisStatus.INCONCLUSIVE, consistent=True, hid="h2"),
         _result(HypothesisStatus.SUPPORTED, consistent=True, hid="h3"),
@@ -223,13 +223,13 @@ def test_verified_is_derived_from_results():
 
 
 def test_nothing_verified_when_no_result_passes_both_gates():
-    out = HypothesisTestOutput(**_envelope("m5"), results=[
+    out = HypothesisTestOutput(**_envelope("m4"), results=[
         _result(HypothesisStatus.REFUTED, consistent=True),
     ])
     assert out.verified() == []
 
 
-# --- M4: selection is not confirmation --------------------------------------
+# --- M5: selection is not confirmation --------------------------------------
 
 _MIN_XML = (
     '<mxfile><diagram><mxGraphModel><root>'
@@ -255,7 +255,7 @@ def _attempt(name="c1", **kw):
 
 def _fix(**kw):
     kw.setdefault("max_tier", "L1")
-    return FixOutput(**_envelope("m4_fix"), **kw)
+    return FixOutput(**_envelope("m5_fix"), **kw)
 
 
 def test_fixed_needs_the_winner_among_the_attempts():
@@ -273,7 +273,7 @@ def test_intervention_flag_is_derived_from_strategy():
 
     def _op(strategy):
         return InterventionOutput(
-            **_envelope("m4_surgery"), hypothesis_id="h1",
+            **_envelope("m5_surgery"), hypothesis_id="h1",
             hypothesis_status=HypothesisStatus.SUPPORTED, strategy=strategy,
         )
 

@@ -1,7 +1,7 @@
-"""M1 -> M2 -> M3 -> M5 -> M4 over a frozen CaseBatch from build_cases.py.
+"""M1 -> M2 -> M3 -> M4 -> M5 over a frozen CaseBatch from build_cases.py.
 
     python run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
-    python run_pipeline.py --analysis-only        # M1->M2->M3, stop before M5/M4
+    python run_pipeline.py --analysis-only        # M1->M2->M3, stop before M4/M5
     python -m evalrx.cli dashboard outputs/qwen3.5-9b/supergpqa_law
 
 Stages (evalrx.eval_agent.loop.VLDiagnoseLoop -- the class name says VL, but
@@ -16,17 +16,17 @@ it takes a plain Model plus an ExperimentProtocol whose target_modalities is
     M2 StatsAnalysisAgent  protocol-aware statistics over M1's per-case signals
                           (the confirmatory tool catalog + e-BH; unchanged)
     M3 DiagnosisAgent      proposes hypotheses from the stats (+ explore notes)
-    M5 HypothesisTester    tests each hypothesis + checks protocol consistency
-    M4 SurgeryAgent        proposes a fix for the best VERIFIED hypothesis
+    M4 HypothesisTester    tests each hypothesis + checks protocol consistency
+    M5 SurgeryAgent        proposes a fix for the best VERIFIED hypothesis
 
-M4 runs OUTSIDE the loop, on the held-out confirm split (config `confirm_split`),
+M5 runs OUTSIDE the loop, on the held-out confirm split (config `confirm_split`),
 so the repair is validated on cases the loop never mined for its hypothesis. With
 confirm_split at 0 the fix is scored on the same data that produced the
 hypothesis, which is how a diagnosis loop flatters itself.
 
 The judge/coder are `claude -p` CLI calls and are NOT the model under test. The
 model under test is only loaded for generation: already done in build_cases.py,
-and again by M4 if the fix needs to be executed.
+and again by M5 if the fix needs to be executed.
 """
 
 from __future__ import annotations
@@ -405,7 +405,7 @@ def subsample_batch(batch, report: dict, n: int, seed: int = 0):
 
 
 def build_protocol(dataset: str):
-    """The human prior handed to M1/M2/M5.
+    """The human prior handed to M1/M2/M4.
 
     States the OBSERVATION and the grading rule only. It must NOT name a
     suspected mechanism -- proposing the mechanism is M3's job, and supplying one
@@ -579,7 +579,7 @@ def load_prior_run(logs_dir: Path):
     ``(hypotheses, stats_report)`` — the exact hypotheses that run proposed
     and a StatsAnalysisReport carrying its per-signal tool results (with the
     BH verdicts as serialised), its multiplicity summary, its conclusion, and
-    the M1 analyzer findings — everything M5, M4 and the fix module read.
+    the M1 analyzer findings — everything M4, M5 and the fix module read.
     Findings objects and figures are not rebuilt (nothing downstream needs
     them). Raises SystemExit with the missing piece named when the logs do
     not hold a completed M2->M3.
@@ -743,16 +743,16 @@ def main() -> None:
                          "default). Analyzers generate serially, so this is the "
                          "main knob on M1 wall-clock; it costs power, not correctness")
     ap.add_argument("--analysis-only", action="store_true",
-                    help="M1->M2->M3 and stop: propose hypotheses, skip M5 and M4")
+                    help="M1->M2->M3 and stop: propose hypotheses, skip M4 and M5")
     ap.add_argument("--fix-unverified", dest="fix_unverified", action="store_true", default=None,
-                    help="when M5 verified nothing, still run the M4 intervention experiment "
+                    help="when M4 verified nothing, still run the M5 intervention experiment "
                          "on the best UNVERIFIED hypothesis and then the fix stage on the "
                          "best unverified leads (flagged as unverified to the proposer). "
                          "Default: config fix_on_unverified")
     ap.add_argument("--no-fix-unverified", dest="fix_unverified", action="store_false",
-                    help="require a verified hypothesis for M4 + fix (the old behaviour)")
-    ap.add_argument("--skip-m4", action="store_true",
-                    help="run M1->M5 but do not attempt a fix")
+                    help="require a verified hypothesis for M5 + fix (the old behaviour)")
+    ap.add_argument("--skip-m5", action="store_true",
+                    help="run M1->M4 but do not attempt a fix")
     ap.add_argument("--max-cases", type=int, default=0,
                     help="label-stratified subsample of the frozen batch for a "
                          "smoke run (0 = the whole batch). Cuts M1 wall-clock; "
@@ -773,7 +773,7 @@ def main() -> None:
                          "catalog M2) even when config.yaml has explore: true")
     ap.add_argument("--confirm-only", action="store_true",
                     help="skip M1->M3: reload the last run's M2 stats + M3 hypotheses "
-                         "from outputs/<model>/<dataset>/logs/ and run M5 -> M4 -> fix "
+                         "from outputs/<model>/<dataset>/logs/ and run M4 -> M5 -> fix "
                          "on them (logs go to logs_confirm/, summary to "
                          "summary_confirm.json)")
     args = ap.parse_args()
@@ -816,7 +816,7 @@ def main() -> None:
     # Same budget Stage 0 used, or M1's probes truncate where the batch did not
     # and the two halves of the run stop being comparable.
     max_tokens = CATALOG.get(args.dataset).max_tokens or int(CFG["max_tokens"])
-    # Thinking is a property of the whole run (Stage 0 baselines, M1 probes, M4
+    # Thinking is a property of the whole run (Stage 0 baselines, M1 probes, M5
     # experiments, fix candidates, logprobs all go through band_locate.generate
     # or EndpointModel.logprobs): one switch, read by both.
     B.ENABLE_THINKING = bool(args.enable_thinking if args.enable_thinking is not None
@@ -866,7 +866,7 @@ def main() -> None:
     # Every stage takes its judge/coder through its CONSTRUCTOR. Assigning
     # `stage.judge` afterwards would leave each stage on its own default and the
     # run would complete looking normal while none of the configured judge
-    # reached M1/M2/M3/M5.
+    # reached M1/M2/M3/M4.
     loop = VLDiagnoseLoop(
         model=model,
         protocol=build_protocol(args.dataset),
@@ -925,14 +925,14 @@ def main() -> None:
         max_cycles=args.max_cycles,
         run_logger=logger,
         confirm_split=args.confirm_split,
-        # M5 verifies on the held-out confirm half (screening stays on
+        # M4 verifies on the held-out confirm half (screening stays on
         # explore); costs one extra pinned M1+M2 pass over confirm.
-        m5_holdout=bool(CFG.get("m5_holdout", True)),
+        m4_holdout=bool(CFG.get("m4_holdout", True)),
         # Explore beside the catalog M2, not instead of it: a free-form EDA pass
         # over the same M1 per-case table, between M1 and M2. Its
         # observations/charts reach M3 as UNCONFIRMED notes and land under
         # outputs/<model>/<dataset>/explore/ (exploratory_report.json + tables/
-        # + figures/) for the dashboard. M2's confirmatory family, M5 and the
+        # + figures/) for the dashboard. M2's confirmatory family, M4 and the
         # fix gate never see it.
         explorer=explorer,
         explore_dir=out / "explore",
@@ -946,27 +946,27 @@ def main() -> None:
         if args.confirm_only:
             hypotheses, stats_report = prior
             report = loop.run_confirm(batch, hypotheses, stats_report=stats_report)
-            print(f"[M5 confirm-only] stopped_by={report.stopped_by} "
+            print(f"[M4 confirm-only] stopped_by={report.stopped_by} "
                   f"verified={len(report.verified_hypotheses)}/"
                   f"{len(report.all_test_results)}")
         else:
             report = loop.run(batch)
-            print(f"[M1-M5] cycles={report.cycles} stopped_by={report.stopped_by} "
+            print(f"[M1-M4] cycles={report.cycles} stopped_by={report.stopped_by} "
                   f"verified={len(report.verified_hypotheses)}/"
                   f"{len(report.all_test_results)}")
         for t in report.all_test_results:
             stmt = getattr(t.hypothesis, "statement", str(t.hypothesis))
             print(f"  - [{t.status}] conf={t.confidence:.2f} "
                   f"grade={t.evidence_grade} {stmt[:100]}")
-        if not args.skip_m4:
+        if not args.skip_m5:
             fix_unverified = (args.fix_unverified if args.fix_unverified is not None
                               else bool(CFG.get("fix_on_unverified", True)))
-            fix = loop.run_m4(report, batch, allow_unverified=fix_unverified)
+            fix = loop.run_m5(report, batch, allow_unverified=fix_unverified)
             if fix is not None:
                 tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
-                print(f"[M4] experiment run on the {tag} hypothesis: status={fix.status}")
+                print(f"[M5] experiment run on the {tag} hypothesis: status={fix.status}")
             else:
-                print("[M4] no hypothesis to experiment on"
+                print("[M5] no hypothesis to experiment on"
                       + ("" if fix_unverified else " (no verified hypothesis; "
                          "--fix-unverified / fix_on_unverified to proceed anyway)"))
             if fix is not None or (fix_unverified and report.final_hypotheses):

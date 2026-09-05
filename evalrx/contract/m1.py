@@ -29,7 +29,7 @@ from evalrx.contract.common import (
 class ProtocolWire(OpenWireModel):
     """The user's natural-language statement of what to investigate.
 
-    Carried through to M2 (tool selection), M3 (prompt) and M5 (the
+    Carried through to M2 (tool selection), M3 (prompt) and M4 (the
     protocol-consistency gate) — a hypothesis can be statistically real and still
     be off-topic, and only this makes that judgeable.
     """
@@ -283,7 +283,7 @@ class ProbeOutput(StageEnvelope):
     """M1's serialized output.
 
     Keyed by analyzer name because downstream routes BY name: M3 writes
-    ``test_design="attention.image_token_ratio"`` and M5 resolves it against this
+    ``test_design="attention.image_token_ratio"`` and M4 resolves it against this
     map. A list would make that a scan and would not enforce uniqueness.
     """
 
@@ -309,7 +309,7 @@ class ProbeOutput(StageEnvelope):
         return self
 
     def signal_names(self) -> list[str]:
-        """Every ``"<analyzer>.<metric>"`` this output exposes to M2/M5 routing."""
+        """Every ``"<analyzer>.<metric>"`` this output exposes to M2/M4 routing."""
         names: set[str] = set()
         for aname, res in self.results.items():
             names |= {f"{aname}.{k}" for k in res.findings.scalars()}

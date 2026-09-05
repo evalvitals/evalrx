@@ -16,12 +16,12 @@
       "subtitle": "Explore the reason behind the signals"
     },
     {
-      "module": "M5",
+      "module": "M4",
       "name": "Held-out Verification",
       "subtitle": "Confirm whether the hypothesis is verified over the held-out cases"
     },
     {
-      "module": "M4",
+      "module": "M5",
       "name": "Validated Repair",
       "subtitle": "Fix the failure with the validated repair ladder"
     }
@@ -82,8 +82,8 @@
       "explore": 630.773,
       "m2": 241.673,
       "m3": 104.709,
-      "m5_holdout_m1": 366.139,
-      "m5": 15.377
+      "m4_holdout_m1": 366.139,
+      "m4": 15.377
     },
     "total_duration_sec": 1681.7
   },
@@ -1170,8 +1170,8 @@
       "note": "critic objections are recorded, not vetoes; adjudication is statistical"
     }
   },
-  "m5_verdicts": {
-    "module": "M5 · Held-out Verification",
+  "m4_verdicts": {
+    "module": "M4 · Held-out Verification",
     "verdicts": [
       {
         "hypothesis_id": "H1",
@@ -1295,8 +1295,8 @@
       }
     ]
   },
-  "m4_repair_search": {
-    "module": "M4 · Validated Repair",
+  "m5_repair_search": {
+    "module": "M5 · Validated Repair",
     "ladder": [
       {
         "tier": "L1",
@@ -1578,9 +1578,9 @@
     "m2_test": "logs/artifacts/c0_m2_stats_results.json",
     "m3_critic": "logs/run_log.jsonl:diagnosis",
     "m3_hypothesis": "logs/run_log.jsonl:diagnosis",
-    "m4_candidate": "logs/run_log.jsonl:fix.selection_attempted",
-    "m4_ladder": "logs/run_log.jsonl:fix",
-    "m5_verdict": "logs/run_log.jsonl:surgery[module=m5] + logs/report/m5_results.json",
+    "m5_candidate": "logs/run_log.jsonl:fix.selection_attempted",
+    "m5_ladder": "logs/run_log.jsonl:fix",
+    "m4_verdict": "logs/run_log.jsonl:surgery[module=m4] + logs/report/m4_results.json",
     "qa_flags": "derived from the blocks above",
     "repair": "logs/run_log.jsonl:fix.best.payload",
     "run": "summary.json + logs/manifest.json + logs/run_log.jsonl",

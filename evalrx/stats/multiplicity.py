@@ -2,7 +2,7 @@
 
 The older M2 path only corrected e-values with e-BH. A generalized analysis
 layer also needs ordinary p-value BH families while preserving the e-value path
-used by the M1-M5 loop. This module keeps those families separate and writes the
+used by the M1-M4 loop. This module keeps those families separate and writes the
 family verdict back onto each result object.
 """
 
@@ -133,7 +133,7 @@ def correct_results(results: list[Any], *, alpha: float = 0.05) -> dict[str, Any
             result.fdr_corrected = False
             result.correction_method = "e-BH"
         elif i in p_indices:
-            # Keep the tool's raw effect/CI verdict available to the M1-M5 loop.
+            # Keep the tool's raw effect/CI verdict available to the M1-M4 loop.
             # BH status is exposed separately for controlled downstream claims.
             result.fdr_corrected = False
             result.correction_method = "BH"

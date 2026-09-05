@@ -103,15 +103,15 @@ def canonical_json(value: Any) -> str:
 
 def _stage_for(event: dict[str, Any]) -> str:
     # Lifecycle events carry their target stage in the payload; preserving it
-    # keeps a deliberately skipped M4 beside the rest of its evidence in
+    # keeps a deliberately skipped M5 beside the rest of its evidence in
     # Langfuse instead of burying it under an undifferentiated RUN row.
     event_type = str(event.get("event") or "event")
     if event_type == "stage_skipped":
         return str(event.get("stage") or "RUN")
     return {
         "probe_search": "PRE_M1", "probe": "M1", "analysis": "M2",
-        "explore": "M2", "diagnosis": "M3", "surgery": "M5",
-        "fix": "M4", "experiment": "M4",
+        "explore": "M2", "diagnosis": "M3", "surgery": "M4",
+        "fix": "M5", "experiment": "M5",
         "case_record": "DATA", "report_published": "REPORT",
     }.get(event_type, "RUN")
 

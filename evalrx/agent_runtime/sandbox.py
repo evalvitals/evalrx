@@ -261,7 +261,7 @@ class ExperimentSandbox:
                           project is deleted (see ``_should_cleanup``) — the
                           original behaviour for an ephemeral *workdir*. Pass
                           ``False`` when *workdir* is a durable, self-contained
-                          location (e.g. one fix/M4 trial's ``workspace/``)
+                          location (e.g. one fix/M5 trial's ``workspace/``)
                           whose code should stay on disk even on success.
     """
 

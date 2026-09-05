@@ -242,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     langfuse_cmd = sub.add_parser(
         "export-langfuse",
         help="Export a diagnostic run to Langfuse trace JSON format or sync live.",
-        description="Map an EvalRX run (M1-M5, fixes, scores) to Langfuse Traces, Spans, and Scores.",
+        description="Map an EvalRX run (M1-M4, fixes, scores) to Langfuse Traces, Spans, and Scores.",
     )
     langfuse_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory.")
     langfuse_cmd.add_argument("--out", "-o", default=None, help="Output JSON path.")

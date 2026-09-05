@@ -71,19 +71,19 @@ def compile_reader_report(data: dict[str, Any]) -> ReaderReport:
     m1 = data.get("m1") or {}
     m2 = data.get("m2") or {}
     m3 = data.get("m3") or {}
-    m5 = data.get("m5") or {}
-    m4_fix = data.get("m4_fix") or {}
+    m4 = data.get("m4") or {}
+    m5_fix = data.get("m5_fix") or {}
     explore = m2.get("explore") or {}
     n_cases = int(run.get("n_cases") or 0)
     model = str(run.get("model") or "the model")
     benchmark = str(run.get("benchmark_name") or "this benchmark")
     question = _reader_question(run.get("protocol"))
 
-    m5_ran = bool(m5.get("ran"))
+    m4_ran = bool(m4.get("ran"))
     hypotheses = m3.get("hypotheses") or []
-    repair_ran = bool(m4_fix.get("ran"))
-    repair_effect = (m4_fix.get("confirm") or {}).get("effect")
-    if m5_ran:
+    repair_ran = bool(m5_fix.get("ran"))
+    repair_effect = (m5_fix.get("confirm") or {}).get("effect")
+    if m4_ran:
         headline = "A possible explanation was checked on new cases."
         confidence = "Independently checked"
     elif hypotheses:
@@ -100,7 +100,7 @@ def compile_reader_report(data: dict[str, Any]) -> ReaderReport:
         f"{len(m1.get('analyzers') or [])} behavior checks were compared between successful and unsuccessful cases.",
     ]
 
-    findings = _reader_findings(explore, m2, verified=m5_ran)
+    findings = _reader_findings(explore, m2, verified=m4_ran)
     if not findings:
         findings = [ReaderFinding(
             title="No clear pattern",
@@ -111,14 +111,14 @@ def compile_reader_report(data: dict[str, Any]) -> ReaderReport:
 
     open_questions = [
         "Whether the leading pattern explains the outcome on new cases."
-    ] if not m5_ran else []
+    ] if not m4_ran else []
     next_steps = [
         "Test the leading pattern on new cases."
-    ] if not m5_ran else []
+    ] if not m4_ran else []
 
     answer = (
         "The findings below are leads, not proven causes."
-        if not m5_ran else "This report separates observed patterns from independently checked results."
+        if not m4_ran else "This report separates observed patterns from independently checked results."
     )
     return ReaderReport(
         headline=headline,
@@ -191,7 +191,7 @@ def _reader_question(protocol: Any) -> str:
 
 _DESCRIPTIVE_BANNER = (
     "ANALYSIS PHASE (descriptive): distributions, charts, and proposed hypotheses "
-    "only — signal/hypothesis VALIDITY (e-BH + M5) is deferred to the confirm phase "
+    "only — signal/hypothesis VALIDITY (e-BH + M4) is deferred to the confirm phase "
     "and is not shown here."
 )
 _DESCRIPTIVE_ANSWER = (
@@ -202,7 +202,7 @@ _DESCRIPTIVE_ANSWER = (
 
 def _is_descriptive_only(story: dict[str, Any]) -> bool:
     """True when every M2 analysis in the story deferred its validity verdict and
-    no confirmation (M5/surgery) has run yet — i.e. the loaded run is analysis-only.
+    no confirmation (M4/surgery) has run yet — i.e. the loaded run is analysis-only.
 
     A single confirmatory M2 (``descriptive_only=False``, logged by the confirm
     phase or the all-in-one loop) or any recorded surgery flips this off, so the
@@ -424,7 +424,7 @@ def _compile_timeline(story: dict[str, Any], explore_report: dict[str, Any]) -> 
     surgeries = story.get("surgeries") or []
     if surgeries:
         steps.append(ReportStep(
-            stage="M5/M4",
+            stage="M4/M5",
             title="Hypotheses were tested by interventions",
             summary=f"{len(surgeries)} test/intervention event(s) recorded.",
         ))
@@ -505,7 +505,7 @@ def _signal_interpretation(signal: dict[str, Any]) -> str:
 def _do_not_infer(signal: dict[str, Any]) -> str:
     if _is_leaky_signal(signal):
         return "Sanity check only: do not rank this as a root cause."
-    return "Do not infer causality from association without M5/M4 support."
+    return "Do not infer causality from association without M4/M5 support."
 
 
 def _plural(count: int, singular: str, plural: str | None = None) -> str:
@@ -551,7 +551,7 @@ def _critique(explore_report: dict[str, Any], signals: list[dict[str, Any]]) -> 
 def _next_actions(explore_report: dict[str, Any], claims: list[Claim]) -> list[str]:
     actions = [str(x) for x in (explore_report.get("recommended_confirmatory_tests") or [])]
     if any(c.status == "supported" for c in claims):
-        actions.append("Inspect the linked M3/M5 outcomes before treating supported signals as causes.")
+        actions.append("Inspect the linked M3/M4 outcomes before treating supported signals as causes.")
     if not actions:
         actions.append("Re-run with a larger held-out split or richer probes if no claim is supported.")
     return actions

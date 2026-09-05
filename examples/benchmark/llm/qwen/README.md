@@ -42,7 +42,7 @@ cd examples/benchmark/llm/qwen
 docker compose build                                   # once per family (cached afterwards)
 # per-cell smoke: load + Stage 0 on 8 rows, no judge
 EXTRA_ARGS="--baseline-only --limit 8" docker compose run --rm qwen3.5-2b
-# the full chain (M1 -> explore -> M2 -> M3 -> held-out M5 -> M4 -> fix), detached
+# the full chain (M1 -> explore -> M2 -> M3 -> held-out M4 -> M5 -> fix), detached
 DATASET=bbh_causal_judgement CUDA_VISIBLE_DEVICES=0 docker compose run -d --name llm-qwen3.5-2b-bbh_causal_judgement qwen3.5-2b
 docker logs -f llm-qwen3.5-2b-bbh_causal_judgement
 ```

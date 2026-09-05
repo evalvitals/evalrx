@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# One command, whole chain: serve -> wait -> build cases -> M1..M4 -> release GPU.
+# One command, whole chain: serve -> wait -> build cases -> M1..M5 -> release GPU.
 #
 #   ./run_all.sh qwen3.5-9b supergpqa_law            # full chain, ALL items
 #   ./run_all.sh qwen3.5-2b cruxeval_output 60       # cap at 60 items
-#   ANALYSIS_ONLY=1 ./run_all.sh qwen3.5-9b bamboogle 40   # M1->M3, no M5/M4
+#   ANALYSIS_ONLY=1 ./run_all.sh qwen3.5-9b bamboogle 40   # M1->M3, no M4/M5
 #   SKIP_STAGE0=1 CONFIRM_ONLY=1 ./run_all.sh qwen3.5-2b bbh_word_sorting
-#                                     # M5->M4->fix only, on the last run's M2/M3
+#                                     # M4->M5->fix only, on the last run's M2/M3
 #   EXPLORE=0 ./run_all.sh qwen3.5-2b bbh_word_sorting   # no explore step (catalog M2 only)
 #   SKIP_STAGE0=1 ANALYSIS_ONLY=1 RUN_TAG=smoke MAX_CASES=60 ./run_all.sh qwen3.5-2b bbh_word_sorting
 #                                     # smoke run: 60-case subsample of the frozen batch,
@@ -166,7 +166,7 @@ fi
 BASE_URL="http://127.0.0.1:$PORT/v1"
 
 # SKIP_STAGE0=1 reuses the frozen batch. This is the whole reason Stage 0 is a
-# separate step: when M1-M4 fails, the four hours of GPU generation that
+# separate step: when M1-M5 fails, the four hours of GPU generation that
 # preceded it are still valid, and regenerating them would only add noise (the
 # sampler is not seeded). Refuses rather than silently regenerating if absent.
 if [ "${SKIP_STAGE0:-0}" = "1" ]; then
@@ -205,10 +205,10 @@ if [ "$ANALYSIS_ONLY" = "1" ]; then
   stamp "STAGE 1 run_pipeline --analysis-only (M1->[explore]->M2->M3)"
   "$EVAL_PY" -u "$HERE/run_pipeline.py" "${COMMON[@]}" --analysis-only "${EXTRA[@]}"
 elif [ "$CONFIRM_ONLY" = "1" ]; then
-  stamp "STAGE 2' run_pipeline --confirm-only (M5->M4->fix on the last run's M2/M3; logs_confirm/)"
+  stamp "STAGE 2' run_pipeline --confirm-only (M4->M5->fix on the last run's M2/M3; logs_confirm/)"
   "$EVAL_PY" -u "$HERE/run_pipeline.py" "${COMMON[@]}" --confirm-only "${EXTRA[@]}"
 else
-  stamp "STAGE 2 run_pipeline (M1->[explore]->M2->M3->M5->M4)"
+  stamp "STAGE 2 run_pipeline (M1->[explore]->M2->M3->M4->M5)"
   "$EVAL_PY" -u "$HERE/run_pipeline.py" "${COMMON[@]}" "${EXTRA[@]}"
 fi
 rc=$?

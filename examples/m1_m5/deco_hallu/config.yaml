@@ -1,0 +1,21 @@
+# deco_hallu — POPE hallucination subset (absent object answered "Yes"); the
+# hard slice. The batch mixes hallucinations with present-object detections so a
+# degenerate "always No" fix cannot win the no-free-lunch guard.
+model: qwen3-vl-2b-instruct   # also available: 4b / 8b (build_cases.py)
+
+
+# Judge for M1 selection / M2 / M3 / M4 + codegen coder — both are claude -p CLI
+# calls; fable-5 is currently unavailable, so both use opus-4-8 low effort.
+judge_model: claude-opus-4-8
+judge_effort: low
+codegen_model: claude-opus-4-8
+codegen_effort: low
+codegen_budget_usd: 2.0
+codegen_timeout_sec: 480   # bundled figure skills (eval-chart-style/nature-figure) add read+apply time
+
+# Fix module: allow internals-write (L3b). Whether any tier flips a confident
+# hallucination without breaking present detections is the open question.
+fix_max_tier: L3b
+fix_validation_cases: 0    # 0 = no cap: validate every candidate on the FULL batch
+                           # (all 201 cases). Higher power, ~2.5x the model calls.
+fix_exec_timeout_sec: 1800 # full batch -> coded pipeline does up to 201 calls; widen

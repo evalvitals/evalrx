@@ -1,10 +1,10 @@
 """Self-contained, tabbed, human-understandable HTML report generator for EvalRX.
 
-This module parses a finished diagnostic run (M1 through M5 and fixes) and
+This module parses a finished diagnostic run (M1 through M4 and fixes) and
 renders a single, zero-dependency, tabbed interactive HTML diagnostic report in English.
 
 Design Philosophy:
-- Tabbed Navigation: Clean stage-by-stage tabs (Overview, M1, M2, M3, M5, M4, Cases)
+- Tabbed Navigation: Clean stage-by-stage tabs (Overview, M1, M2, M3, M4, M5, Cases)
   allowing focused inspection without endless scrolling.
 - Human-Friendly Header: Clean model and benchmark titles instead of raw code/debug dumps.
 - Plain-English First: Clinical medical-checkup analogy with intuitive explanations.
@@ -57,20 +57,20 @@ STAGE_METADATA: dict[str, dict[str, str]] = {
         "short_role": "Falsifiable Mechanism Hypothesis",
         "plain_desc": "An AI Diagnostician analyzes the screened evidence to propose specific, falsifiable root-cause hypotheses explaining exactly why and when the model fails.",
     },
-    "m5": {
-        "code": "M5",
+    "m4": {
+        "code": "M4",
         "name": "Independent Adjudication",
         "short_role": "Blind-Holdout Validation",
         "plain_desc": "Blindly re-tests the AI Doctor's hypothesis on a held-out validation set the model has never seen before, determining whether the mechanism is confirmed or refuted.",
     },
-    "m4_surgery": {
-        "code": "M4-SURGERY",
+    "m5_surgery": {
+        "code": "M5-SURGERY",
         "name": "Causal Surgery",
         "short_role": "Internal Mechanism Intervention",
         "plain_desc": "Directly intervenes in or ablates internal model components (such as attention heads or activation layers) to prove causal necessity.",
     },
-    "m4_fix": {
-        "code": "M4-FIX",
+    "m5_fix": {
+        "code": "M5-FIX",
         "name": "Targeted Repair",
         "short_role": "Repair Search & Paired Confirmation",
         "plain_desc": "Applies targeted treatments across intervention tiers (from prompt patches to decoding scaffolds). Validates on held-out test data by comparing cured cases against broken cases.",
@@ -85,7 +85,7 @@ STAGE_METADATA: dict[str, dict[str, str]] = {
         "code": "AGENTS",
         "name": "Agent Trajectories",
         "short_role": "Judge & Coder Agent I/O",
-        "plain_desc": "Every agent invocation behind the diagnosis, layer by layer: verbatim judge prompts and responses (M1 selection, M2 screening, M3 diagnosis, M5 adjudication), the explore coder-agent's raw CLI trajectory, and every synthesized tool's codegen attempt. This is the audit trail for debugging and case studies.",
+        "plain_desc": "Every agent invocation behind the diagnosis, layer by layer: verbatim judge prompts and responses (M1 selection, M2 screening, M3 diagnosis, M4 adjudication), the explore coder-agent's raw CLI trajectory, and every synthesized tool's codegen attempt. This is the audit trail for debugging and case studies.",
     },
 }
 
@@ -305,10 +305,10 @@ def _extract_agent_layer(logs_dir: Path, explore_dir: "Path | None") -> dict[str
             return "M2 Statistical Screening"
         if "_m3_" in stem:
             return "M3 AI Doctor Diagnosis"
-        if "_m5_" in stem:
-            return "M5 Protocol Consistency"
         if "_m4_" in stem:
-            return "M4 Intervention"
+            return "M4 Protocol Consistency"
+        if "_m5_" in stem:
+            return "M5 Intervention"
         if "_agent_decision" in stem:
             return "Agentic Loop Decision"
         return "Other"
@@ -585,33 +585,33 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         except Exception:
             pass
 
-    # M5: Adjudication
+    # M4: Adjudication
     surgeries = by_event("surgery")
-    m5_surgeries = [s for s in surgeries if s.get("module") == "m5" or s.get("adjudication")]
-    m5_results_file = logs_dir / "report" / "m5_results.json"
+    m4_surgeries = [s for s in surgeries if s.get("module") == "m4" or s.get("adjudication")]
+    m4_results_file = logs_dir / "report" / "m4_results.json"
     try:
-        m5_results = json.loads(m5_results_file.read_text()) if m5_results_file.exists() else []
+        m4_results = json.loads(m4_results_file.read_text()) if m4_results_file.exists() else []
     except (OSError, json.JSONDecodeError):
-        m5_results = []
-    m5_event = m5_surgeries[-1] if m5_surgeries else {}
-    if m5_event:
-        evidence = m5_event.get("evidence") or {}
+        m4_results = []
+    m4_event = m4_surgeries[-1] if m4_surgeries else {}
+    if m4_event:
+        evidence = m4_event.get("evidence") or {}
         # The JSONL event is trace-scoped; a report artifact can be stale when
         # the same run directory is appended to later.
-        m5_results = [{
-            "status": m5_event.get("status"),
-            "effect_size": evidence.get("m5_effect_size"),
-            "confidence": m5_event.get("confidence_score"),
-            "verdict": evidence.get("m5_verdict"),
-            "evidence_grade": evidence.get("m5_evidence_grade"),
-            "protocol_consistent": evidence.get("m5_protocol_consistent"),
+        m4_results = [{
+            "status": m4_event.get("status"),
+            "effect_size": evidence.get("m4_effect_size"),
+            "confidence": m4_event.get("confidence_score"),
+            "verdict": evidence.get("m4_verdict"),
+            "evidence_grade": evidence.get("m4_evidence_grade"),
+            "protocol_consistent": evidence.get("m4_protocol_consistent"),
         }]
 
-    # M4-Surgery
-    m4_surgeries = [s for s in surgeries if s.get("module") != "m5"]
-    m4_surgery_ran = bool(m4_surgeries)
+    # M5-Surgery
+    m5_surgeries = [s for s in surgeries if s.get("module") != "m4"]
+    m5_surgery_ran = bool(m5_surgeries)
 
-    # M4-Fix: Repair
+    # M5-Fix: Repair
     fixes = by_event("fix")
     f0 = fixes[-1] if fixes else {}
     best_fix = f0.get("best") or {}
@@ -810,16 +810,16 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "proposed_hypotheses": dg.get("proposed_hypotheses") or [],
             "duration": dg.get("duration_sec"),
         },
-        "m5": {
-            "ran": bool(m5_surgeries or m5_results),
-            "results": m5_results,
-            "event": m5_event,
+        "m4": {
+            "ran": bool(m4_surgeries or m4_results),
+            "results": m4_results,
+            "event": m4_event,
         },
-        "m4_surgery": {
-            "ran": m4_surgery_ran,
-            "surgeries": m4_surgeries,
+        "m5_surgery": {
+            "ran": m5_surgery_ran,
+            "surgeries": m5_surgeries,
         },
-        "m4_fix": {
+        "m5_fix": {
             "ran": bool(fixes or confirmed_fix),
             "fixed": bool(f0.get("fixed") or confirmed_fix.get("fixed")),
             "selection": fix_attempts,
@@ -952,45 +952,45 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
     m1 = data["m1"]
     m2 = data["m2"]
     m3 = data["m3"]
-    m5 = data["m5"]
-    m4_s = data["m4_surgery"]
-    m4_f = data["m4_fix"]
+    m4 = data["m4"]
+    m5_s = data["m5_surgery"]
+    m5_f = data["m5_fix"]
     cases = data["cases"]
     reader = data.get("reader_report") or {}
 
     n_total = run["n_cases"] or len(cases) or 1
-    cfm = m4_f.get("confirm") or {}
+    cfm = m5_f.get("confirm") or {}
     repair_effect = cfm.get("effect")
     e_val = cfm.get("e_value")
     n_fixed = cfm.get("n_fixed") or sum(1 for c in cases if c["status"] == "fixed")
     n_broken = cfm.get("n_broken") or sum(1 for c in cases if c["status"] == "broken")
 
-    # M5 Verdict
-    m5_status = "Skipped"
-    m5_tone = "skip"
-    if m5["ran"]:
-        m5_r0 = m5["results"][0] if m5["results"] else {}
-        verdict_status = str(m5_r0.get("status") or m5["event"].get("status") or "").lower()
-        if verdict_status == "supported":
-            m5_status = "Supported"
-            m5_tone = "good"
-        elif verdict_status == "refuted":
-            m5_status = "Refuted"
-            m5_tone = "warn"
-        else:
-            m5_status = "Inconclusive"
-            m5_tone = "neutral"
-
-    # M4 Status
-    m4_status = "Not Tested"
+    # M4 Verdict
+    m4_status = "Skipped"
     m4_tone = "skip"
-    if m4_f["ran"]:
-        if m4_f["fixed"] or (repair_effect is not None and repair_effect > 0):
-            m4_status = f"+{repair_effect * 100:.1f}% Net Gain" if repair_effect is not None else "Repair Validated"
+    if m4["ran"]:
+        m4_r0 = m4["results"][0] if m4["results"] else {}
+        verdict_status = str(m4_r0.get("status") or m4["event"].get("status") or "").lower()
+        if verdict_status == "supported":
+            m4_status = "Supported"
             m4_tone = "good"
-        else:
-            m4_status = "Inconclusive / Neutral"
+        elif verdict_status == "refuted":
+            m4_status = "Refuted"
             m4_tone = "warn"
+        else:
+            m4_status = "Inconclusive"
+            m4_tone = "neutral"
+
+    # M5 Status
+    m5_status = "Not Tested"
+    m5_tone = "skip"
+    if m5_f["ran"]:
+        if m5_f["fixed"] or (repair_effect is not None and repair_effect > 0):
+            m5_status = f"+{repair_effect * 100:.1f}% Net Gain" if repair_effect is not None else "Repair Validated"
+            m5_tone = "good"
+        else:
+            m5_status = "Inconclusive / Neutral"
+            m5_tone = "warn"
 
     stats_sig = [s for s in m2["stats"] if s["reject"]]
 
@@ -1006,15 +1006,15 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         ),
         (
             "Independent check",
-            m5_status,
-            "new cases" if m5["ran"] else "not run",
-            m5_tone,
+            m4_status,
+            "new cases" if m4["ran"] else "not run",
+            m4_tone,
         ),
         (
             "Repair result",
             f"{repair_effect * 100:+.2f}%" if repair_effect is not None else "—",
             f"{n_fixed} improved · {n_broken} worse" if (n_fixed or n_broken) else "not tested",
-            m4_tone,
+            m5_tone,
         ),
     ]
 
@@ -1052,8 +1052,8 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         f'<div class="run-node run-node--good"><span class="run-node-label">M1 · Probe</span><span class="run-node-title">Characterize the failure</span><span class="run-node-value">{len(m1["analyzers"])} targeted probes</span></div>',
         f'<div class="run-node run-node--good"><span class="run-node-label">M2 · Analyze</span><span class="run-node-title">Find recurring structure</span><span class="run-node-value">{len(stats_sig)} patterns retained</span></div>',
         f'<div class="run-node run-node--{"good" if m3["hypotheses"] else "skip"}"><span class="run-node-label">M3 · Diagnose</span><span class="run-node-title">Propose a testable mechanism</span><span class="run-node-value">{len(m3["hypotheses"])} hypotheses</span></div>',
-        f'<div class="run-node run-node--{m5_tone if m5["ran"] else "skip"}"><span class="run-node-label">M5 · Verify</span><span class="run-node-title">Check on unseen cases</span><span class="run-node-value">{esc(m5_status)}</span></div>',
-        f'<div class="run-node run-node--{m4_tone}"><span class="run-node-label">M4 · Repair</span><span class="run-node-title">Beat the original baseline</span><span class="run-node-value">{esc(m4_status)}</span></div>',
+        f'<div class="run-node run-node--{m4_tone if m4["ran"] else "skip"}"><span class="run-node-label">M4 · Verify</span><span class="run-node-title">Check on unseen cases</span><span class="run-node-value">{esc(m4_status)}</span></div>',
+        f'<div class="run-node run-node--{m5_tone}"><span class="run-node-label">M5 · Repair</span><span class="run-node-title">Beat the original baseline</span><span class="run-node-value">{esc(m5_status)}</span></div>',
     ])
 
     # ── Agent Trajectory layer ────────────────────────────────────────────
@@ -1161,15 +1161,15 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         ("tab_m1", "1", "What we checked", f"{len(m1['analyzers'])} checks", "neutral"),
         ("tab_m2", "2", "What we found", f"{len(stats_sig)} leads" if stats_sig else "Patterns", "neutral"),
         ("tab_m3", "3", "Possible explanation", "Not run" if not m3["hypotheses"] else "To test", "skip" if not m3["hypotheses"] else "neutral"),
-        ("tab_m5", "4", "Independent check", "Not run" if not m5["ran"] else m5_status, "skip" if not m5["ran"] else m5_tone),
-        ("tab_m4_fix", "5", "Repair attempt", m4_status, m4_tone),
+        ("tab_m4", "4", "Independent check", "Not run" if not m4["ran"] else m4_status, "skip" if not m4["ran"] else m4_tone),
+        ("tab_m5_fix", "5", "Repair attempt", m5_status, m5_tone),
         ("tab_case_book", "EXAMPLES", "Listen to real cases", f"{len(cases)} cases", "neutral"),
         ("tab_agents", "DETAILS", "Research details", f"{agents_summary}", "neutral" if agents_n else "skip"),
     ]
     if data["pre_m1"]["ran"]:
         tab_items.insert(1, ("tab_pre_m1", "PREP", "Extra test cases", "Completed", "neutral"))
-    if m4_s["ran"]:
-        tab_items.insert(-2, ("tab_m4_surgery", "RESEARCH", "Internal intervention", "Completed", "neutral"))
+    if m5_s["ran"]:
+        tab_items.insert(-2, ("tab_m5_surgery", "RESEARCH", "Internal intervention", "Completed", "neutral"))
 
     tabs_html = "\n".join([
         f'<button type="button" class="tab-btn {"is-active" if tid == "tab_overview" else ""}" data-tab="{tid}">'
@@ -1307,8 +1307,8 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
     hero_figs_html = "\n".join(hero_fig_blocks)
 
     sel_rows = []
-    max_eff = max([abs(s.get("effect") or 0) for s in m4_f["selection"]] + [0.01])
-    for s in m4_f["selection"]:
+    max_eff = max([abs(s.get("effect") or 0) for s in m5_f["selection"]] + [0.01])
+    for s in m5_f["selection"]:
         eff = s.get("effect") or 0.0
         w = min(100, abs(eff) / max_eff * 50)
         side = "pos" if eff >= 0 else "neg"
@@ -1360,49 +1360,49 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
           {test_line}
         </div>""")
     m3_hypotheses_html = "\n".join(m3_items) if m3_items else "<p class='text-muted'>No M3 hypotheses proposed.</p>"
-    m5_tone_cls = "callout--good" if m5_tone == "good" else ("callout--warn" if m5_tone == "warn" else "callout--neutral")
-    if m5_tone == "good":
-        m5_plain_text = f"<b>Verdict: {m5_status}</b>. Re-evaluated probe signals on an independent held-out split. Observed direction matched the predicted failure mechanism with statistical significance."
-    elif m5_tone == "warn":
-        m5_plain_text = f"<b>Verdict: {m5_status}</b>. When re-tested on independent validation cases, the empirical data contradicted the AI Doctor's hypothesis."
+    m4_tone_cls = "callout--good" if m4_tone == "good" else ("callout--warn" if m4_tone == "warn" else "callout--neutral")
+    if m4_tone == "good":
+        m4_plain_text = f"<b>Verdict: {m4_status}</b>. Re-evaluated probe signals on an independent held-out split. Observed direction matched the predicted failure mechanism with statistical significance."
+    elif m4_tone == "warn":
+        m4_plain_text = f"<b>Verdict: {m4_status}</b>. When re-tested on independent validation cases, the empirical data contradicted the AI Doctor's hypothesis."
     else:
-        m5_plain_text = "Independent M5 blind validation was not executed for this run."
+        m4_plain_text = "Independent M4 blind validation was not executed for this run."
 
-    m5_detail_html = ""
-    if m5["results"] or m5["event"]:
-        res0 = m5["results"][0] if m5["results"] else {}
+    m4_detail_html = ""
+    if m4["results"] or m4["event"]:
+        res0 = m4["results"][0] if m4["results"] else {}
         eff_size = res0.get("effect_size", 0)
         eff_str = f"{eff_size:+.3f}" if isinstance(eff_size, (int, float)) else "—"
         conf_val = res0.get("confidence", 0)
         conf_str = f"{conf_val:.2f}" if isinstance(conf_val, (int, float)) else "—"
         ev_grade = esc(res0.get("evidence_grade") or res0.get("evidence", {}).get("evidence_grade") or "—")
-        verdict_raw = esc(res0.get("verdict") or m5["event"].get("verdict") or json.dumps(m5["event"], indent=2, ensure_ascii=False))
-        status_cls = "text-good font-bold" if m5_tone == "good" else "text-bad font-bold"
+        verdict_raw = esc(res0.get("verdict") or m4["event"].get("verdict") or json.dumps(m4["event"], indent=2, ensure_ascii=False))
+        status_cls = "text-good font-bold" if m4_tone == "good" else "text-bad font-bold"
 
-        m5_detail_html = f"""
+        m4_detail_html = f"""
         <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-label">Verdict</div><div class="kpi-val {status_cls}">{esc(m5_status)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Verdict</div><div class="kpi-val {status_cls}">{esc(m4_status)}</div></div>
           <div class="kpi-card"><div class="kpi-label">Validation Effect</div><div class="kpi-val">{eff_str}</div></div>
           <div class="kpi-card"><div class="kpi-label">Confidence Score</div><div class="kpi-val">{conf_str}</div></div>
           <div class="kpi-card"><div class="kpi-label">Evidence Grade</div><div class="kpi-val">{ev_grade}</div></div>
         </div>
         <pre class="code-block"><b>Adjudication Audit Log:</b>\n{verdict_raw}</pre>"""
 
-    m4_s_desc = f"Executed {len(m4_s['surgeries'])} causal model interventions / ablations." if m4_s["ran"] else "Focused on black-box prompt and scaffold optimizations (white-box surgery was not invoked)."
-    m4_s_sub = "Executed" if m4_s["ran"] else "Skipped"
+    m5_s_desc = f"Executed {len(m5_s['surgeries'])} causal model interventions / ablations." if m5_s["ran"] else "Focused on black-box prompt and scaffold optimizations (white-box surgery was not invoked)."
+    m5_s_sub = "Executed" if m5_s["ran"] else "Skipped"
 
-    m4_f_tone_cls = "callout--good" if m4_tone == "good" else "callout--neutral"
+    m5_f_tone_cls = "callout--good" if m5_tone == "good" else "callout--neutral"
     if repair_effect is not None and repair_effect > 0:
         cand_name = esc(cfm.get("name", "selected_fix"))
         e_str = f"e = {e_val:,.0f}" if e_val else "Significant"
-        m4_f_plain = f"Successfully confirmed repair strategy <b><code>{cand_name}</code></b>! Produced a <b>{repair_effect * 100:+.2f}% net accuracy gain</b> on held-out test data (<b>{n_fixed}</b> cured vs <b>{n_broken}</b> broken, evidence strength <b>{e_str}</b>)."
+        m5_f_plain = f"Successfully confirmed repair strategy <b><code>{cand_name}</code></b>! Produced a <b>{repair_effect * 100:+.2f}% net accuracy gain</b> on held-out test data (<b>{n_fixed}</b> cured vs <b>{n_broken}</b> broken, evidence strength <b>{e_str}</b>)."
     else:
-        m4_f_plain = "Screened repair candidates across tiers, but no strategy met the statistical threshold for a significant net gain."
+        m5_f_plain = "Screened repair candidates across tiers, but no strategy met the statistical threshold for a significant net gain."
 
-    tmpl_code = esc(m4_f["prompt_template"] or cfm.get("summary") or "")
-    m4_f_tmpl_html = ""
+    tmpl_code = esc(m5_f["prompt_template"] or cfm.get("summary") or "")
+    m5_f_tmpl_html = ""
     if tmpl_code:
-        m4_f_tmpl_html = f"""
+        m5_f_tmpl_html = f"""
         <div style="margin-top:16px;">
           <div class="section-subhead">Winning Prompt / Repair Patch</div>
           <pre class="code-block">{tmpl_code}</pre>
@@ -1745,40 +1745,40 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         f'      {m3_hypotheses_html}',
         '    </div>',
         '  </div>',
-        '  <div class="tab-pane" id="tab_m5">',
+        '  <div class="tab-pane" id="tab_m4">',
         '    <div class="card">',
         '      <div class="card-head">',
-        '        <span class="card-tag">M5</span>',
+        '        <span class="card-tag">M4</span>',
         '        <h2 class="card-title">Independent check</h2>',
-        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m5_status}</span>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m4_status}</span>',
         '        <p class="card-subtext">This is where we ask whether a proposed explanation still holds on new cases.</p>',
         '      </div>',
-        f'      <div class="callout {m5_tone_cls}">{m5_plain_text}</div>',
-        f'      {m5_detail_html}',
+        f'      <div class="callout {m4_tone_cls}">{m4_plain_text}</div>',
+        f'      {m4_detail_html}',
         '    </div>',
         '  </div>',
-        '  <div class="tab-pane" id="tab_m4_surgery">',
+        '  <div class="tab-pane" id="tab_m5_surgery">',
         '    <div class="card">',
         '      <div class="card-head">',
-        '        <span class="card-tag">M4-SURGERY</span>',
+        '        <span class="card-tag">M5-SURGERY</span>',
         '        <h2 class="card-title">Causal Surgery & Interventions</h2>',
-        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m4_s_sub}</span>',
-        f'        <p class="card-subtext">{STAGE_METADATA["m4_surgery"]["plain_desc"]}</p>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m5_s_sub}</span>',
+        f'        <p class="card-subtext">{STAGE_METADATA["m5_surgery"]["plain_desc"]}</p>',
         '      </div>',
-        f'      <div class="callout"><b>Stage Status:</b> {m4_s_desc}</div>',
+        f'      <div class="callout"><b>Stage Status:</b> {m5_s_desc}</div>',
         '    </div>',
         '  </div>',
-        '  <div class="tab-pane" id="tab_m4_fix">',
+        '  <div class="tab-pane" id="tab_m5_fix">',
         '    <div class="card">',
         '      <div class="card-head">',
-        '        <span class="card-tag">M4-FIX</span>',
+        '        <span class="card-tag">M5-FIX</span>',
         '        <h2 class="card-title">Repair attempt</h2>',
-        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m4_status}</span>',
+        f'        <span class="text-muted mono" style="margin-left:auto; font-size:12px;">{m5_status}</span>',
         '        <p class="card-subtext">We test a focused change and count both improvements and newly introduced mistakes.</p>',
         '      </div>',
-        f'      <div class="callout {m4_f_tone_cls}">{m4_f_plain}</div>',
+        f'      <div class="callout {m5_f_tone_cls}">{m5_f_plain}</div>',
         '      <details class="collapsible-box" open>',
-        f'        <summary>Repair Candidate Sweep ({len(m4_f["selection"])} candidates evaluated)</summary>',
+        f'        <summary>Repair Candidate Sweep ({len(m5_f["selection"])} candidates evaluated)</summary>',
         '        <div class="content">',
         '          <div class="table-wrapper">',
         '            <table class="data-table">',
@@ -1798,7 +1798,7 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
         '          </div>',
         '        </div>',
         '      </details>',
-        f'      {m4_f_tmpl_html}',
+        f'      {m5_f_tmpl_html}',
         '    </div>',
         '  </div>',
         '  <div class="tab-pane" id="tab_agents">',

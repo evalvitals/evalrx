@@ -499,15 +499,15 @@ backward compatibility):
 M1  ProbeAgent         protocol-guided analyzer selection + execute
 M2  StatsAnalysisAgent stats tools + e-BH FDR correction + LLM evidence chain
 M3  DiagnosisAgent     "AI scientist" hypothesis generation
-M5  HypothesisTester   stats test + protocol consistency check
+M4  HypothesisTester   stats test + protocol consistency check
      ↑___________________________________|
-     stop when M5 finds a verified, protocol-consistent hypothesis
+     stop when M4 finds a verified, protocol-consistent hypothesis
 ```
 
-M4 (`SurgeryAgent`) runs **after** the loop via `loop.run_m4()` to propose
+M5 (`SurgeryAgent`) runs **after** the loop via `loop.run_m5()` to propose
 (Plan A) or execute (Plan B) a targeted fix for the best verified hypothesis.
 See [Architecture](architecture.md#eval_agent-automated-diagnosis-pipeline)
-for the stage contracts, M1's two-tier analyzer selection, and what M2/M5 ask.
+for the stage contracts, M1's two-tier analyzer selection, and what M2/M4 ask.
 
 ```python
 from evalrx import compose
@@ -539,10 +539,10 @@ loop = VLDiagnoseLoop(
 )
 report = loop.run(failure_cases)
 
-print(report.resolved)           # True when M5 finds a supported, consistent hypothesis
+print(report.resolved)           # True when M4 finds a supported, consistent hypothesis
 print(report.final_hypotheses)   # list[Hypothesis] — status SUPPORTED/REFUTED/INCONCLUSIVE
 
-fix = loop.run_m4(report, failure_cases)   # post-loop fix proposal
+fix = loop.run_m5(report, failure_cases)   # post-loop fix proposal
 ```
 
 `RunLogger()` above writes just the JSONL event log. For the full output
@@ -551,7 +551,7 @@ folders, `manifest.json` — construct a `RunContext` and pass `run_logger=ctx.l
 instead; see [RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory).
 
 **`ExperimentProtocol`** is the human prior that anchors the loop. M1 uses it
-to select analyzers relevant to the task; M5 uses it to reject hypotheses that
+to select analyzers relevant to the task; M4 uses it to reject hypotheses that
 drift from what the user was investigating:
 
 ```python
@@ -566,11 +566,11 @@ protocol = ExperimentProtocol(
 )
 ```
 
-## AgenticDiagnoseLoop — Judge-Decided M1-M5 (Alternative to the Fixed Cycle)
+## AgenticDiagnoseLoop — Judge-Decided M1-M4 (Alternative to the Fixed Cycle)
 
-`VLDiagnoseLoop` above always runs M1→M2→M3→M5 in the same order every cycle.
+`VLDiagnoseLoop` above always runs M1→M2→M3→M4 in the same order every cycle.
 `AgenticDiagnoseLoop` wraps the identical stages, confirm-split, and post-loop
-`run_m4`/`run_fix` — but a CLI judge decides which tool to call next each
+`run_m5`/`run_fix` — but a CLI judge decides which tool to call next each
 turn (probe, run stats, explore the raw data, cluster failure modes, search
 for new failure cases via a Macro/Micro MCTS probe search, propose
 hypotheses, test one, fix, or stop), instead of a fixed sequence. The host — not the judge —
@@ -615,7 +615,7 @@ inside the container and writes findings to `outputs/`.
    objects instead of `failure_cases` and call `loop.run(cases)`.
 2. **Add a Dockerfile + docker-compose.yml** mirroring one of the concrete
    example directories under `examples/analyzer_demos/`, `examples/m2_m3/`,
-   or `examples/m1_m3/` / `examples/m1_m4/`.
+   or `examples/m1_m3/` / `examples/m1_m5/`.
 3. **Submit the container:**
 
 ```bash
@@ -667,7 +667,7 @@ The generated scaffold contains `run.py` (diagnosis script with
 `.gitignore`. In template mode, edit the `CASES` list in `run.py` to add your
 own failure examples before running `docker compose up`.
 
-## AutoDiagnoseLoop — Legacy M1→M4 Pipeline
+## AutoDiagnoseLoop — Legacy M1→M5 Pipeline
 
 `AutoDiagnoseLoop` closes the analysis→diagnosis→intervention cycle automatically.
 It needs a **judge model** (any instruction-following model with `GENERATE`) and
@@ -689,7 +689,7 @@ judge = compose("qwen3-8b", "api", RuntimeConfig(generate_fn=my_generate_fn))
 loop = AutoDiagnoseLoop(
     model=model,
     diagnosis_agent=DiagnosisAgent(judge=judge),
-    max_cycles=3,     # max M1→M4 iterations
+    max_cycles=3,     # max M1→M5 iterations
     max_analyzers=4,  # analyzers per cycle (ranked by diagnostic priority)
 )
 

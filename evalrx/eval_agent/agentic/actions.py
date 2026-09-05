@@ -93,7 +93,7 @@ def parse_action(raw: str, registry: "ToolRegistry") -> Action:
 
 
 def _fallback_action(board: "EvidenceBoard") -> Action:
-    """Deterministic next-step heuristic: the first unmet M1->M5 stage.
+    """Deterministic next-step heuristic: the first unmet M1->M4 stage.
 
     Used when the judge's output is unusable even after one repair prompt, so
     a stuck judge doesn't stall the run — the action is marked ``valid=False``

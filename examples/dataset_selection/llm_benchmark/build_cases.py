@@ -1,7 +1,7 @@
 """Stage 0 — run the model once per item and freeze a LABELLED CaseBatch.
 
-This is the only GPU-bound step before M4. It is separated from the pipeline so
-that M2/M3/M5 can be re-run, re-prompted, and debugged against a FROZEN batch
+This is the only GPU-bound step before M5. It is separated from the pipeline so
+that M2/M3/M4 can be re-run, re-prompted, and debugged against a FROZEN batch
 without paying for generation again, and so two judges see literally the same
 PASS/FAIL labels.
 

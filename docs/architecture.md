@@ -174,7 +174,7 @@ The design keeps common failure modes contained:
 ## eval_agent — automated diagnosis pipeline
 
 `eval_agent/` implements a multi-stage automated diagnosis cycle on top of the
-core contracts described above. Three loops are available — the same M1-M5
+core contracts described above. Three loops are available — the same M1-M4
 stages, three different orchestration strategies:
 
 ```text
@@ -182,7 +182,7 @@ AutoDiagnoseLoop  (legacy.py — four-stage sweep, kept for existing callers)
   M1 · ProbeAgent         detect model kind → run ranked analyzers
   M2 · AnalysisModule     threshold rules + derived metrics → AnalysisReport
   M3 · DiagnosisAgent     judge.generate(report) → Hypothesis list
-  M4 · SurgeryAgent       correlate / param-sweep / ExperimentWriter → SUPPORTED/REFUTED
+  M5 · SurgeryAgent       correlate / param-sweep / ExperimentWriter → SUPPORTED/REFUTED
        ↑_________________________________________________________________| (refocus or stop)
 
 VLDiagnoseLoop  (loop.py — current, protocol-guided, stops on verified hypothesis)
@@ -191,20 +191,20 @@ VLDiagnoseLoop  (loop.py — current, protocol-guided, stops on verified hypothe
   M1 · ProbeAgent         same as above; protocol.probe_hints() boosts relevant analyzers
   M2 · StatsAnalysisAgent protocol-aware; LLM judge writes conclusion + evidence chain
   M3 · DiagnosisAgent     same as above
-  M5 · HypothesisTester   statistical test + protocol consistency check
+  M4 · HypothesisTester   statistical test + protocol consistency check
        │
-  loop exits when M5 finds a SUPPORTED + protocol-consistent hypothesis
+  loop exits when M4 finds a SUPPORTED + protocol-consistent hypothesis
        │
-  M4 · SurgeryAgent       called once post-loop on the best verified hypothesis
+  M5 · SurgeryAgent       called once post-loop on the best verified hypothesis
 
-AgenticDiagnoseLoop  (agentic/loop.py — judge-decided, same M1-M5 stages)
+AgenticDiagnoseLoop  (agentic/loop.py — judge-decided, same M1-M4 stages)
   A CLI judge picks the next tool (run_probe / run_stats / explore_data /
   cluster_failures / search_probes / propose_hypotheses / test_hypothesis /
   run_surgery / run_fix / stop) each turn from an EvidenceBoard, instead of a
   fixed cycle. The host — not the judge — enforces tool call caps,
   preconditions, and the stop-gate (declaring success requires an
   actually-tested, supported, protocol-consistent hypothesis). See
-  [quickstart](quickstart.md#agenticdiagnoseloop--judge-decided-m1-m5-alternative-to-the-fixed-cycle).
+  [quickstart](quickstart.md#agenticdiagnoseloop--judge-decided-m1-m4-alternative-to-the-fixed-cycle).
 ```
 
 The agent touches models only through the `Model` protocol and stores all
@@ -226,7 +226,7 @@ eval_agent/
 │                         three loops return this one unified report class)
 ├── checkpoint.py         write_checkpoint / write_heartbeat / read_checkpoint
 ├── run_metadata.py       shared run-provenance + logging-wiring helpers
-├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M5 (see below)
+├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M4 (see below)
 ├── run_context.py        RunContext, Trial — single owner of a run's output directory
 ├── run_logger.py         RunLogger — per-cycle JSONL log + artifact sink
 ├── log_schema.py         published run_log.jsonl JSON Schema
@@ -244,11 +244,11 @@ eval_agent/
     ├── probe_agent.py    M1  ProbeAgent
     ├── protocol.py       M1  ExperimentProtocol, ProbingSchema
     ├── diagnosis.py      M3  DiagnosisAgent, DiagnosisResult
-    ├── surgery.py        M4  SurgeryAgent, InterventionResult
-    ├── experiment_writer.py  M4  ExperimentWriter
-    ├── fix_agent.py       M4 (post-loop)  FixAgent, FixCandidate, FixOutcome
+    ├── surgery.py        M5  SurgeryAgent, InterventionResult
+    ├── experiment_writer.py  M5  ExperimentWriter
+    ├── fix_agent.py       M5 (post-loop)  FixAgent, FixCandidate, FixOutcome
     ├── fix_tiers.py       FixTier ladder (L1 prompt → L4 parameter space)
-    ├── hypothesis_tester.py  M5  HypothesisTester, HypothesisTestResult
+    ├── hypothesis_tester.py  M4  HypothesisTester, HypothesisTestResult
     ├── case_discovery.py  CaseDiscoveryAgent — runs candidates through a model,
     │                      labels PASS/FAIL/UNKNOWN (judge or heuristic scorer)
     ├── probe_candidate_generator.py  VLMProbeCandidateGenerator — ProbeLLM
@@ -285,8 +285,8 @@ evalrx.analysis/       M2 lives here now (StatsAnalysisAgent, AnalysisModule,
 | M2 | `evalrx.analysis.analysis_module` | `AnalysisModule` | `analyze(results, model_name) → AnalysisReport` |
 | M2 | `evalrx.analysis.stats_agent` | `StatsAnalysisAgent` | `analyze(results, model_name, protocol) → StatsAnalysisReport` |
 | M3 | `stages/diagnosis.py` | `DiagnosisAgent` | `diagnose(report, prior_cycles) → DiagnosisResult` |
-| M4 | `stages/surgery.py` | `SurgeryAgent` | `operate(hypothesis, model, results, data) → InterventionResult` |
-| M5 | `stages/hypothesis_tester.py` | `HypothesisTester` | `test(hypotheses, report, data, protocol) → list[HypothesisTestResult]`; `stopping_criteria_met(results) → bool` |
+| M5 | `stages/surgery.py` | `SurgeryAgent` | `operate(hypothesis, model, results, data) → InterventionResult` |
+| M4 | `stages/hypothesis_tester.py` | `HypothesisTester` | `test(hypotheses, report, data, protocol) → list[HypothesisTestResult]`; `stopping_criteria_met(results) → bool` |
 
 **Pre-M1 (optional): `ProbeSearchAgent.run(model, seed_pool) → ProbeSearchResult`**
 — a hierarchical Macro/Micro MCTS (`evalrx.analysis.probe_search.ProbeSearch`)
@@ -337,7 +337,7 @@ This is a different, confirmatory system from the standalone
 descriptive with no verdict; `StatsAnalysisAgent` is the loop's FDR-controlled
 confirmatory stage.
 
-**M5 `HypothesisTester`** asks two questions per hypothesis:
+**M4 `HypothesisTester`** asks two questions per hypothesis:
 
 1. *Statistical support* — does the signal group fail at a significantly
    higher rate than the control group? Consumes M2's FDR-corrected stats when
@@ -379,12 +379,12 @@ loop = VLDiagnoseLoop(
 )
 report = loop.run(cases)
 ctx.write_diagnose_report(report, cases)
-fix = loop.run_m4(report, cases)   # M4 called post-loop on best hypothesis
+fix = loop.run_m5(report, cases)   # M5 called post-loop on best hypothesis
 ```
 
-### M4 SurgeryAgent — four strategies
+### M5 SurgeryAgent — four strategies
 
-M4 selects the first matching strategy:
+M5 selects the first matching strategy:
 
 1. **`verify_fn`** — caller-supplied callable; full custom override.
 2. **`analyzer_params`** — re-run named analyzers with modified parameters; surface before/after findings.
@@ -412,7 +412,7 @@ sandbox = ExperimentSandbox(workdir=Path("tmp/"))
 # Single-file execution
 result = sandbox.run("print('verdict: 1.0')")
 
-# Multi-file project execution (M4 ExperimentWriter path)
+# Multi-file project execution (M5 ExperimentWriter path)
 result = sandbox.run_project(
     project_dir,
     entry_point="main.py",
@@ -516,7 +516,7 @@ finding:
 VLM nearly ignores image tokens — attention dominated by text/structural tokens
 ```
 
-This finding propagates to M3 DiagnosisAgent and M4 SurgeryAgent, closing the loop from
+This finding propagates to M3 DiagnosisAgent and M5 SurgeryAgent, closing the loop from
 attention measurement to codex-generated diagnostic code.
 
 ### Result image overlays
@@ -546,7 +546,7 @@ multimodal judge already receives — no per-analyzer wiring required.
 
 `RunContext` replaces the old per-example pattern of hand-written report
 files, `RunLogger` buried under a `logs/` subdir, hand-built figure-dir paths,
-and M4 sandboxes living in ephemeral temp dirs deleted on success.  One
+and M5 sandboxes living in ephemeral temp dirs deleted on success.  One
 `RunContext` owns the whole run root and hands every producer its
 subdirectory:
 
@@ -555,11 +555,11 @@ subdirectory:
 ├── manifest.json     run config + index of every produced file
 ├── run_log.jsonl     structured event stream (RunLogger)
 ├── README.txt        auto-generated file guide (from manifest)
-├── report/           human deliverables (summary.md, hypotheses.json, m5_results.json, …)
+├── report/           human deliverables (summary.md, hypotheses.json, m4_results.json, …)
 ├── figures/          M1 heatmaps (+ overlay PNGs) and M2 effect plots
 ├── artifacts/        M1 heavy numeric data (.npy / .json)
 ├── prompts/          judge prompt / response
-├── experiments/      one self-contained folder per M4 ExperimentWriter trial
+├── experiments/      one self-contained folder per M5 ExperimentWriter trial
 ├── tools/            synthesised probe / stats tool code (M1/M2, run-global)
 ├── workspace/        sandbox working dirs outside any trial
 └── fixes/            one self-contained folder per FixAgent repair attempt
@@ -628,7 +628,7 @@ this one class — see "Stage contracts" above), replacing the
 example.
 
 **Per-trial folders** (`ctx.new_trial("fixes" | "experiments", label)`):
-each fix candidate or M4 experiment gets its own numbered folder —
+each fix candidate or M5 experiment gets its own numbered folder —
 `fixes/03_widen_crop/` — holding the generated code, the sandbox it ran in,
 judge prompt/output, `record.md`, and `result.json`, instead of scattering
 those across `tools/` / `workspace/` / `fixes/` and re-correlating them by
@@ -646,9 +646,9 @@ neither. `RunContext` owns *output* (report/figures/artifacts/fixes/manifest).
 `AutoDiagnoseLoop`'s own `run_dir` infra was deliberately left untouched when
 `RunContext` was introduced.
 
-### FixAgent — tiered post-loop repair (M4)
+### FixAgent — tiered post-loop repair (M5)
 
-`FixAgent` (`stages/fix_agent.py`) is a second M4 path, invoked via
+`FixAgent` (`stages/fix_agent.py`) is a second M5 path, invoked via
 `loop.run_fix(report, data)` after `loop.run()` — distinct from `SurgeryAgent`
 above, which verifies *why* something fails; `FixAgent` proposes and validates
 candidate *fixes*. The allowed intervention space is an **input** (`FixTier`,
@@ -704,10 +704,10 @@ evalrx.Capability
 evalrx.FailureCase
 evalrx.Result
 
-# Automated diagnosis — AutoDiagnoseLoop (legacy M1→M4 sweep)
+# Automated diagnosis — AutoDiagnoseLoop (legacy M1→M5 sweep)
 from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLogger, StrategyProbe, SurgeryAgent
 
-# Protocol-guided diagnosis — VLDiagnoseLoop (M1→M2→M3→M5, M4 post-loop)
+# Protocol-guided diagnosis — VLDiagnoseLoop (M1→M2→M3→M4, M5 post-loop)
 from evalrx.eval_agent import (
     VLDiagnoseLoop, ExperimentProtocol,
     StatsAnalysisAgent, HypothesisTester,

@@ -65,10 +65,10 @@ class ExploreContext:
 
     This is **never authoritative**: it is read-only, enters ONLY the M3
     hypothesis-proposal prompt (and the dashboard), and never the M2 confirmatory
-    family, M5 testing, or the fix gate. It informs *which* hypotheses M3
+    family, M4 testing, or the fix gate. It informs *which* hypotheses M3
     proposes — not *whether* any of them is true. Every chart/observation here is
     free-form EDA on a HELD-OUT explore split and stays UNCONFIRMED until the
-    downstream M5+M4+e-BH machinery tests it.
+    downstream M4+M5+e-BH machinery tests it.
 
     Attributes:
         observations: Free-text EDA observations.
@@ -189,7 +189,7 @@ class DiagnosisResult:
     Attributes:
         model_name:           ``repr()`` of the analysed model.
         hypotheses:           Proposed :class:`~evalrx.eval_agent.hypothesis.Hypothesis`
-                              objects for M4.
+                              objects for M5.
         findings_summary:     The findings dict forwarded to the judge.
         raw_judge_output:     Verbatim LLM response (useful for debugging).
         referenced_charts:    Explore chart titles M3 cited (provenance only).
@@ -208,9 +208,9 @@ class DiagnosisResult:
     #: The adversarial critic's verbatim verdicts (``KEEP:``/``REJECT:`` +
     #: ``REASON:`` lines) and its tally. The critic ANNOTATES hypotheses
     #: (``metadata["critic"]``, ``metadata["critic_reason"]``) and orders the
-    #: kept ones first — it never removes a proposal: with M5 testing on the
+    #: kept ones first — it never removes a proposal: with M4 testing on the
     #: held-out split, the data is the arbiter, and a critic that rejects every
-    #: claim used to end the run with "0 hypotheses" and no M5/M4/fix at all.
+    #: claim used to end the run with "0 hypotheses" and no M4/M5/fix at all.
     critic_raw_output: str = ""
     critic_prompt: str = ""
     n_critic_kept: int = 0
@@ -351,7 +351,7 @@ def _normalise_label_line(line: str) -> str:
     # `` `KEEP:` x `` wrap the LABEL, so the marker after the colon closes that
     # wrapper and goes. `TEST: `modality_ablation.grounded_in_audio` ...` opens a
     # code span belonging to the CONTENT, and eating it corrupts the identifier
-    # M5 routes on. The difference is whether the line opened with a marker at
+    # M4 routes on. The difference is whether the line opened with a marker at
     # all -- so decide on that rather than on the marker's position.
     opened = bool(_OPENING_MARKER.match(line))
     rest = line[m.end():] if opened else (m.group("after") or "") + line[m.end():]
@@ -491,10 +491,10 @@ def _validate_hypotheses(
     carrying its ``REASON:`` line, kept hypotheses ordered first. Dropping
     the rejected ones used to end a run at "0 hypotheses" whenever a strict
     critic (opus at high effort, n=32 evidence) rejected all of them —
-    three llm_benchmark runs in a row on 2026-08-20 — with no M5, M4 or fix
-    afterwards. M5 now tests on the held-out split, so the data decides; the
+    three llm_benchmark runs in a row on 2026-08-20 — with no M4, M5 or fix
+    afterwards. M4 now tests on the held-out split, so the data decides; the
     critic's verdict travels with the hypothesis as provenance and as the
-    tie-breaker for M4's best-lead ordering.
+    tie-breaker for M5's best-lead ordering.
 
     *capture*, when given, receives ``raw`` (the critic's verbatim answer),
     ``prompt``, ``n_kept`` and ``n_rejected``. Falls back to the unannotated
@@ -604,7 +604,7 @@ def _validate_hypotheses(
         import logging as _logging
         _logging.getLogger(__name__).info(
             "DiagnosisAgent validation: critic rejected all %d hypothesis(es) — "
-            "kept as flagged leads; M5 testing decides",
+            "kept as flagged leads; M4 testing decides",
             len(hypotheses),
         )
     order = {"keep": 0, "unparsed": 1, "reject": 2}
@@ -732,7 +732,7 @@ class DiagnosisAgent:
         (:func:`~evalrx.analysis.plain_language.jargon_violation`) also
         guards this path, which is the one the benchmark runner takes. Never
         raises: a failed repair keeps the original hypotheses, since a jargon-y
-        headline is worse than no diagnosis only for the reader, not for M5.
+        headline is worse than no diagnosis only for the reader, not for M4.
         """
         if not hypotheses:
             return hypotheses
@@ -774,7 +774,7 @@ class DiagnosisAgent:
                           ``{analyzer_name: Result}`` dict.
             model_name:   Ignored when *analysis* is an ``AnalysisReport``
                           (the name is taken from the report).
-            prior_cycles: Summary of previous M1→M4 cycles produced by
+            prior_cycles: Summary of previous M1→M5 cycles produced by
                           :class:`~evalrx.eval_agent.legacy.AutoDiagnoseLoop`.
                           Each entry is ``{"cycle": int, "severity": str,
                           "hypotheses": [{"statement", "failure_mode", "status"}]}``.
@@ -866,7 +866,7 @@ class DiagnosisAgent:
         from pathlib import Path as _Path
         # M2's confirmatory figures, then the explorer's (UNCONFIRMED) charts.
         # The explore charts are attached to the M3 prompt ONLY — they never reach
-        # M2's confirmatory family, M5, or the fix gate.
+        # M2's confirmatory family, M4, or the fix gate.
         _figs = [_Path(f) for f in getattr(analysis, "figures", []) if _Path(f).exists()]
         if explore_context is not None:
             _figs += [_Path(f) for f in explore_context.figure_paths if _Path(f).exists()]
@@ -909,7 +909,7 @@ class DiagnosisAgent:
             )
 
         # Fallback: if the judge returned NO_ISSUE but M2 has medium/high findings,
-        # auto-generate one hypothesis per finding so M4 can still run.
+        # auto-generate one hypothesis per finding so M5 can still run.
         # This prevents self-diagnosis bias when the judge is the model under test.
         if not hypotheses and analysis.findings:
             from evalrx.analysis.analysis_module import _SEVERITY_ORDER

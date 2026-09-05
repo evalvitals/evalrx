@@ -4,7 +4,7 @@ A wrong multi-hop answer has two incompatible causes.  Either the model never
 knew the bridging fact (a *knowledge* deficit — retrieval, tools, or a bigger
 model), or it knew every fact and still failed to combine them (a *reasoning*
 deficit — decomposition scaffolds, which do nothing for missing knowledge).
-Picking the wrong one costs a whole M4 tier.
+Picking the wrong one costs a whole M5 tier.
 
 The discriminating move needs no dataset annotation: ask the model to state the
 facts it needs, then hand *its own* stated facts back and ask again.  If it now

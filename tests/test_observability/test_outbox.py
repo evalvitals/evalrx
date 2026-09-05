@@ -72,11 +72,11 @@ def test_skipped_stage_keeps_its_pipeline_stage_in_the_envelope():
     from evalrx.observability.envelope import make_event_envelope
 
     envelope = make_event_envelope(
-        {"event": "stage_skipped", "stage": "M4", "reason_code": "no_accepted_hypothesis"},
+        {"event": "stage_skipped", "stage": "M5", "reason_code": "no_accepted_hypothesis"},
         trace_id="trace", event_seq=1,
     )
 
-    assert envelope["stage"] == "M4"
+    assert envelope["stage"] == "M5"
 
 
 def test_backfill_dry_run_preserves_existing_trace_and_order(tmp_path):
