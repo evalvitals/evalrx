@@ -49,6 +49,7 @@ class DiagnosticTracer:
         run_dir: str | Path | None = None,
         auto_sync: bool = False,
         mode: str | None = None,
+        outbox_path: str | Path | None = None,
     ):
         self.run_dir = Path(run_dir).resolve() if run_dir else None
         self.auto_sync = auto_sync
@@ -70,11 +71,12 @@ class DiagnosticTracer:
         # Every structured run-log event enters this durable queue before live
         # delivery.  It is intentionally kept separate from the human-readable
         # JSONL log so delivery retries never mutate the run record.
-        self.outbox = ObservabilityOutbox(
+        default_outbox = (
             (self.run_dir / ".evalrx" / "langfuse_outbox.sqlite3")
             if self.run_dir is not None
             else Path(".evalrx-langfuse-outbox.sqlite3")
         )
+        self.outbox = ObservabilityOutbox(outbox_path or default_outbox)
 
         has_credentials = bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
         if requested_mode == "live" and not has_credentials:

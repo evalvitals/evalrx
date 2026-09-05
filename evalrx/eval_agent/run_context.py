@@ -48,6 +48,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -185,6 +187,22 @@ class RunContext:
         self._logger: "RunLogger | RunLoggerV2 | None" = None
         self._workdir_seq = 0
         self._trial_seq: "dict[str, int]" = {}
+        self._runtime_root: "Path | None" = None
+
+    @property
+    def is_v2(self) -> bool:
+        return self._logger_version == "v2"
+
+    @property
+    def runtime_root(self) -> Path:
+        """Ephemeral execution workspace used by V2 producers.
+
+        Generated text/code is captured by RunLoggerV2 before this tree is
+        removed; it never becomes part of the portable run artifact.
+        """
+        if self._runtime_root is None:
+            self._runtime_root = Path(tempfile.mkdtemp(prefix=f"evalrx-{self.run_id}-"))
+        return self._runtime_root
 
     # ------------------------------------------------------------------
     # Directory properties — each lazily created on first access.
@@ -201,13 +219,17 @@ class RunContext:
 
     @property
     def figures_dir(self) -> Path:
-        return self._sub("figures")
+        return self._sub("M2/artifacts") if self.is_v2 else self._sub("figures")
 
     @property
     def explore_dir(self) -> Path:
         """``explore/`` — the in-cycle explore step's report, tables and rendered
         figures (``VLDiagnoseLoop(explorer=..., explore_dir=ctx.explore_dir)``;
         the loop derives the same path from ``ctx.logger`` when not given)."""
+        if self.is_v2:
+            d = self.runtime_root / "explore"
+            d.mkdir(parents=True, exist_ok=True)
+            return d
         return self._sub("explore")
 
     @property
@@ -261,6 +283,7 @@ class RunContext:
                 self._logger = RunLoggerV2(
                     run_dir=self.root, verbose=self._verbose,
                     observability_mode=self._observability_mode,
+                    context=self,
                 )
             else:
                 from evalrx.eval_agent.run_logger import RunLogger
@@ -284,7 +307,8 @@ class RunContext:
         """
         self._workdir_seq += 1
         slug = re.sub(r"[^a-zA-Z0-9]+", "_", label).strip("_") or "work"
-        d = self.workspace_dir / f"{self._workdir_seq:02d}_{slug}"
+        parent = self.runtime_root / "workspace" if self.is_v2 else self.workspace_dir
+        d = parent / f"{self._workdir_seq:02d}_{slug}"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
@@ -304,7 +328,9 @@ class RunContext:
         still advances, so a gap in the sequence honestly means "proposed,
         then discarded," not a missing record.
         """
-        if category == "fixes":
+        if self.is_v2:
+            parent = self.runtime_root / category
+        elif category == "fixes":
             parent = self.fixes_dir
         elif category == "experiments":
             parent = self.experiments_dir
@@ -358,6 +384,10 @@ class RunContext:
         verbatim to ``report/discovery_cases.json`` — examples that compute
         task-specific columns (e.g. parsed yes/no) build the rows themselves.
         """
+        if self.is_v2:
+            self.logger.log_diagnose_report(report, cases, discovery=discovery)
+            return {}
+
         hyps_src = getattr(report, "all_hypotheses", None)
         if hyps_src is None:
             hyps_src = getattr(report, "final_hypotheses", [])
@@ -509,6 +539,13 @@ class RunContext:
 
     def finalize(self) -> None:
         """Write the manifest + README and close the logger.  Idempotent."""
+        if self.is_v2:
+            if self._logger is not None:
+                self._logger.log_manifest(run_id=self.run_id, config=self.config)
+                self._logger.close()
+            if self._runtime_root is not None:
+                shutil.rmtree(self._runtime_root, ignore_errors=True)
+            return
         if self._logger is not None:
             self._logger.close()
         self.write_contract_index()

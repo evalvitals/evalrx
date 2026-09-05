@@ -69,6 +69,7 @@ import dataclasses
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional
 
@@ -2692,7 +2693,8 @@ class FixAgent:
             if source.startswith("cli:") and self._last_usage
             else None
         )
-        if trial is not None:
+        inline = bool(getattr(self.run_logger, "inline_text_artifacts", False))
+        if trial is not None and not inline:
             if prompt:
                 trial.write(f"{name}_prompt.txt", prompt)
             if code:
@@ -2703,6 +2705,11 @@ class FixAgent:
                 trial.write(f"{name}_agent_raw_stream.txt", self._last_raw_stream)
             extra = {**(extra or {}), "trial_root": str(trial.root)}
             prompt, code, raw = "", "", ""
+        elif trial is not None:
+            # V2 keeps the exact prompt/code/response in M5/log.json.  The
+            # trial workspace is ephemeral execution state and is snapshotted
+            # separately by log_experiment/log_fix.
+            extra = {**(extra or {}), "trial_root": str(trial.root)}
         if self.run_logger is None:
             return
         try:
@@ -2891,11 +2898,16 @@ class FixAgent:
         """Single-JSON-object variant of :meth:`_ask_judge`."""
         if self._judge is None:
             return {}
+        raw = ""
+        error = None
         try:
             raw = str(self._judge.generate(prompt))
         except Exception as exc:
             logger.warning("FixAgent: judge call failed: %s", exc)
+            error = str(exc)
+            self._log_model_exchange("fix_judge_object", prompt, raw, error=error)
             return {}
+        self._log_model_exchange("fix_judge_object", prompt, raw)
         match = re.search(
             r"\{.*\}", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL), flags=re.DOTALL
         )
@@ -2910,11 +2922,16 @@ class FixAgent:
     def _ask_judge(self, prompt: str) -> "list[dict[str, Any]]":
         if self._judge is None:
             return []
+        raw = ""
+        error = None
         try:
             raw = str(self._judge.generate(prompt))
         except Exception as exc:
             logger.warning("FixAgent: judge call failed: %s", exc)
+            error = str(exc)
+            self._log_model_exchange("fix_judge_list", prompt, raw, error=error)
             return []
+        self._log_model_exchange("fix_judge_list", prompt, raw)
         match = re.search(
             r"\[.*\]", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL), flags=re.DOTALL
         )
@@ -2926,6 +2943,57 @@ class FixAgent:
             logger.warning("FixAgent: unparseable judge proposal; using defaults")
             return []
         return [p for p in parsed if isinstance(p, dict)] if isinstance(parsed, list) else []
+
+    def _log_model_exchange(
+        self, operation: str, prompt: str, output: str, *, error: "str | None" = None,
+    ) -> None:
+        """Best-effort detailed V2 model-call logging without changing V1."""
+        fn = getattr(self.run_logger, "log_model_exchange", None)
+        if not callable(fn):
+            return
+        try:
+            fn(
+                "M5", role="fix_judge", operation=operation,
+                inputs=prompt, output=output, error=error,
+            )
+        except Exception as exc:  # logging must never break repair
+            logger.debug("FixAgent: model exchange logging failed: %s", exc)
+
+    def _log_target_exchange(
+        self,
+        operation: str,
+        inputs: Any,
+        output: Any,
+        *,
+        case_id: str,
+        error: "str | None" = None,
+        duration_sec: "float | None" = None,
+        metadata: "dict[str, Any] | None" = None,
+    ) -> None:
+        fn = getattr(self.run_logger, "log_model_exchange", None)
+        if not callable(fn):
+            return
+        try:
+            fn(
+                "M5", role="target_model", operation=operation,
+                inputs=inputs, output=output, error=error, duration_sec=duration_sec,
+                metadata={"case_id": case_id, **(metadata or {})},
+            )
+        except Exception as exc:
+            logger.debug("FixAgent: target exchange logging failed: %s", exc)
+
+    def _log_bridge_exchange(self, record: "dict[str, Any]") -> None:
+        response = record.get("response") or {}
+        self._log_target_exchange(
+            "coded_pipeline_bridge", record.get("request"), response.get("output"),
+            case_id=str(record.get("case_id") or ""), error=response.get("error"),
+            duration_sec=record.get("duration_sec"),
+            metadata={
+                "replayed_from_recorded_baseline": bool(
+                    record.get("replayed_from_recorded_baseline")
+                )
+            },
+        )
 
     # -- strategy compilation + validation --------------------------------
 
@@ -2995,11 +3063,20 @@ class FixAgent:
         jobs = [case for case, n in need for _ in range(n)]
 
         def one(case: Any) -> "tuple[str, Optional[bool]]":
+            started = time.perf_counter()
             try:
                 output = str(model.generate(case.inputs))
             except Exception as exc:
                 logger.debug("FixAgent: baseline generate failed on %s: %s", case.id, exc)
+                self._log_target_exchange(
+                    "fresh_baseline", case.inputs, None, case_id=case.id,
+                    error=str(exc), duration_sec=time.perf_counter() - started,
+                )
                 return case.id, None
+            self._log_target_exchange(
+                "fresh_baseline", case.inputs, output, case_id=case.id,
+                duration_sec=time.perf_counter() - started,
+            )
             return case.id, score_to_bool(self._score(case, output))
 
         if self._concurrency > 1 and len(jobs) > 1:
@@ -3116,6 +3193,7 @@ class FixAgent:
         if candidate.kind == "visual_search":
 
             def visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                started = time.perf_counter()
                 try:
                     search = getattr(model, "generate_visual_search")
                     output = search(
@@ -3123,9 +3201,19 @@ class FixAgent:
                         baseline_answer=getattr(case, "observed", None),
                         **candidate.payload,
                     )
+                    self._log_target_exchange(
+                        "guided_visual_search", case.inputs, output, case_id=case.id,
+                        duration_sec=time.perf_counter() - started,
+                        metadata={"candidate": candidate.name, "parameters": candidate.payload},
+                    )
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
+                    self._log_target_exchange(
+                        "guided_visual_search", case.inputs, None, case_id=case.id,
+                        error=str(exc), duration_sec=time.perf_counter() - started,
+                        metadata={"candidate": candidate.name, "parameters": candidate.payload},
+                    )
                     logger.debug("Guided visual search failed on %s: %s", case.id, exc)
                     return None
 
@@ -3133,6 +3221,7 @@ class FixAgent:
         if candidate.kind == "detector_visual_search":
 
             def detector_visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":
+                started = time.perf_counter()
                 try:
                     search = getattr(model, "generate_detector_visual_search")
                     output = search(
@@ -3140,9 +3229,19 @@ class FixAgent:
                         baseline_answer=getattr(case, "observed", None),
                         **candidate.payload,
                     )
+                    self._log_target_exchange(
+                        "detector_visual_search", case.inputs, output, case_id=case.id,
+                        duration_sec=time.perf_counter() - started,
+                        metadata={"candidate": candidate.name, "parameters": candidate.payload},
+                    )
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
+                    self._log_target_exchange(
+                        "detector_visual_search", case.inputs, None, case_id=case.id,
+                        error=str(exc), duration_sec=time.perf_counter() - started,
+                        metadata={"candidate": candidate.name, "parameters": candidate.payload},
+                    )
                     logger.debug("Detector visual search failed on %s: %s", case.id, exc)
                     return None
 
@@ -3160,6 +3259,7 @@ class FixAgent:
                 # Inside the try, not before it: rendering the template is as
                 # capable of failing as generating from it, and a single bad
                 # case must score None rather than abort the whole validation.
+                started = time.perf_counter()
                 try:
                     # dataclasses.replace, not a bare Inputs(prompt=..., image=...):
                     # that silently dropped .video/.audio, so every L1 candidate was
@@ -3170,9 +3270,20 @@ class FixAgent:
                         inp, prompt=safe_format(template, template_context)
                     )
                     output = str(model.generate(new_inputs, **gen_kwargs))
+                    self._log_target_exchange(
+                        "template_candidate", new_inputs, output, case_id=case.id,
+                        duration_sec=time.perf_counter() - started,
+                        metadata={"generation_kwargs": gen_kwargs, "candidate": candidate.name},
+                    )
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, output))
-                except Exception:
+                except Exception as exc:
+                    self._log_target_exchange(
+                        "template_candidate", locals().get("new_inputs", inp), None,
+                        case_id=case.id, error=str(exc),
+                        duration_sec=time.perf_counter() - started,
+                        metadata={"generation_kwargs": gen_kwargs, "candidate": candidate.name},
+                    )
                     return None
 
             return l1
@@ -3183,7 +3294,18 @@ class FixAgent:
 
         def declarative(model: "Model", case: "FailureCase") -> "Optional[bool]":
             capture: "dict[str, Any]" = {}
-            result = run_pipeline(model, case, spec, self._score, capture=capture)
+            result = run_pipeline(
+                model, case, spec, self._score, capture=capture,
+                call_logger=lambda record: self._log_target_exchange(
+                    "declarative_pipeline", record.get("inputs"), record.get("output"),
+                    case_id=case.id, error=record.get("error"),
+                    duration_sec=record.get("duration_sec"),
+                    metadata={
+                        "candidate": candidate.name,
+                        "generation_kwargs": record.get("generation_kwargs") or {},
+                    },
+                ),
+            )
             winner = capture.get("winner")
             if winner is None and capture.get("outputs"):
                 winner = capture["outputs"][0]
@@ -3305,6 +3427,7 @@ class FixAgent:
             concurrency=self._concurrency,
             consensus_min_support=int(candidate.payload.get("consensus_min_support", 0)),
             max_calls_per_case=int(candidate.payload.get("max_calls_per_case", 0)),
+            call_logger=self._log_bridge_exchange,
         )
         if not result.ok and self.codegen_available:
             logger.warning("FixAgent: coded pipeline failed (%s) — one repair round", result.error)
@@ -3333,6 +3456,7 @@ class FixAgent:
                         candidate.payload.get("consensus_min_support", 0)
                     ),
                     max_calls_per_case=int(candidate.payload.get("max_calls_per_case", 0)),
+                    call_logger=self._log_bridge_exchange,
                 )
         candidate.payload["exec_error"] = "" if result.ok else result.error
         candidate.payload["selection_guard"] = {

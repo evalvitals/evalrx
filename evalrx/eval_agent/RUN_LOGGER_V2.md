@@ -2,10 +2,9 @@
 
 Status: **coexists with `RunLogger`** (`run_logger.py`). Nothing in `RunLogger`
 was touched, modified, or deleted to build this. `RunLoggerV2` is an opt-in
-alternative — construct it and pass it as `run_logger=` anywhere `RunLogger`
-is accepted today. Once it's been run against real examples and confirmed to
-capture everything `RunLogger` does, `RunLogger` can be retired in a follow-up
-— that decision and that removal are explicitly OUT of scope for this change.
+alternative. Use `RunContext(..., logger_version="v2")`, or construct it and
+pass it as `run_logger=` anywhere `RunLogger` is accepted. V1 remains the
+default and must not be removed until real-run parity and UI acceptance pass.
 
 ## Why this exists
 
@@ -94,6 +93,8 @@ exception — it holds events that are not stage content:
 | `run_start`           | run config, git commit, versions (a single object, not a list) |
 | `cases`                | the baseline `FailureCase` records + media references |
 | `report_published`     | cached-report-publication audit records |
+| `diagnose_reports`     | hypotheses, M4 verdicts, discovery rows, and summary |
+| `manifest`              | final config and compact file index |
 | `loop_end`              | one entry per loop-run summary |
 | `agent_decisions`        | `AgenticDiagnoseLoop`'s own dispatch-judge turns |
 | `agent_tool_calls`        | the dispatch layer's accept/reject outcome per tool call |
@@ -126,6 +127,33 @@ file, either inlines the text (source, data, logs) or — for a recognised
 media extension — copies it to that stage's `artifacts/` and leaves a path
 reference. Nothing is silently skipped: an unrecognised binary file gets a
 one-line `"<skipped: ...>"` note instead of being dropped from the record.
+
+`RunContext` gives V2 producers an ephemeral runtime tree outside the run
+artifact. Explore, M5 experiments, and fix candidates may execute real code
+there. Before finalization, source, prompts, responses, tables, stdout/stderr,
+and validation records are inlined into JSON; recognised binary media is
+copied into `M<n>/artifacts/`; then the runtime tree is deleted. V2 finalization
+does not emit V1's `README.txt`, `summary.md`, trial `.txt`/`.py` files, or
+in-run SQLite outbox.
+
+## Model-call fidelity
+
+Every recorded exchange lives in that stage's single `model_calls` array and
+contains `role`, `operation`, complete JSON-safe `inputs`, complete `output`,
+`error`, `duration_sec` when measured, and correlation metadata such as
+`case_id`, candidate, generation kwargs, or tool name. Coverage includes:
+
+- pre-loop case-discovery inputs and observed outputs (the common benchmark
+  runner records batch-average timing explicitly as approximate);
+- every in-process M1 analyzer `generate`/`forward`/`logprobs`/`chat` call,
+  without V1's 8,000-character truncation when V2 is active;
+- selection, statistics, diagnosis/critic, protocol, tool-codegen, fix-judge,
+  experiment-writer, and CLI-coder calls for which the stage exposes I/O;
+- fresh fix baselines, template candidates, declarative multi-call pipelines,
+  guided/detector search, and every coded-pipeline bridge request/reply.
+
+The stage summary keeps its convenient `judge_prompt`/`judge_response` fields;
+`model_calls` is the exhaustive query surface.
 
 ## Routing: how an event picks its folder
 
@@ -205,22 +233,13 @@ depend on the return value or a live attribute:
   present, writing under a run-global `artifacts/` (not stage-scoped, since
   callers address it by a fixed name, not by cycle).
 
-**Verified, not assumed** (see `RunLoggerV2 is a genuinely drop-in swap`
-below): `fix_agent.py`/`surgery.py` fetch a `RunContext` via
-`getattr(run_logger, "_context", None)` (fix_agent.py) or an explicit
-constructor argument (surgery.py) — never an attribute `RunLoggerV2` is
-required to have. `RunLoggerV2` has no `_context`, so `getattr(..., None)`
-safely returns `None` and those stages fall back to their own non-trial path
-— exactly what already happens when `RunLogger` itself is used standalone
-(`context=None`), so this is not a new code path, just the existing one.
+`RunLoggerV2` keeps its `RunContext` in `_context`, matching V1's integration
+boundary. The difference is storage: `new_trial()` and `new_workdir()` allocate
+ephemeral execution space for V2, and the logger captures its evidence before
+`RunContext.finalize()` removes it.
 
 ## Deliberate scope cuts
 
-- **No `RunContext` integration.** No `context=` constructor parameter, no
-  `new_trial()` / trial-folder allocation. A stage that would have written
-  code/sandbox files into a trial folder just has that content inlined into
-  the JSON entry instead (see rule 4) — there's nothing left needing a
-  dedicated folder per attempt.
 - **No Markdown summaries** (`record.md`, `outcome.md`). Same information,
   no separate file; a renderer builds a human view from the JSON on demand.
 - **No opt-in JSON-Schema self-validation** (`RunLogger`'s
@@ -243,32 +262,28 @@ safely returns `None` and those stages fall back to their own non-trial path
    `StatsAnalysisReport`, `DiagnosisResult`, `InterventionResult`,
    `ExploratoryAnalysisReport`, `Hypothesis`) — not bespoke V2-shaped fakes.
 2. Asserts the layout rules directly: exactly one folder per stage, no
-   non-JSON/non-media files anywhere under a stage folder, same-type events
+   non-JSON/non-media files anywhere under the complete RunContext root, same-type events
    share one array, an unroutable tag lands in `unrouted` rather than
    vanishing, every JSON file left on disk is valid (parses) after a full
    run including after `close()`, no leftover `.tmp*` files.
-3. Runs a REAL `VLDiagnoseLoop.run()` end to end (the same scenario
+3. Runs a real `VLDiagnoseLoop.run()` end to end (the same scenario
    `test_holdout_cases_logged.py` uses to catch a real historical bug —
    the held-out confirm split's cases never getting logged) with
-   `RunLoggerV2` constructed directly in place of `ctx.logger`, with **zero
-   changes to `loop.py`, `probe_agent.py`, or any `stages/*.py`** — confirming
-   the drop-in claim isn't just true method-by-method but true for an actual
-   loop run.
+   `RunLoggerV2` and also tests the actual `RunContext(logger_version="v2")`
+   boundary, ephemeral trial/explore cleanup, full model-call I/O, report
+   inlining, artifact copying, and quarantine rewrites.
 
-This is the same bar `RunLogger`'s own test suite holds itself to (fixture
-objects + one real end-to-end loop run, not a full example with real model
-weights) — a real example run is the natural next step, once this change is
-reviewed and a repo maintainer wants to point one at `RunLoggerV2`.
+The reporting compatibility reader in `evalrx/reporting/run_events.py` exposes
+V2 documents to the existing report/UI event view without rewriting them.
 
 ## Next steps (explicitly not done here)
 
-- Run a real `examples/*/run.py` against `RunLoggerV2` and diff its output
-  against the same example's `RunLogger` output for information-content
-  parity (every field V1 recorded should be locatable in V2).
-- Decide whether/how the report UI (`evalrx/reporting/`) should read this
-  layout — out of scope until `RunLoggerV2` is the thing actually producing
-  runs someone wants to look at.
-- Only after both of the above: swap `RunContext.logger` (or each example) to
+- Re-run a real `examples/benchmark/*` job after these integration changes and
+  check the entire output tree, per-stage/model-call counts, relative artifact
+  references, and rendered UI against its matched V1 run.
+- Add a published JSON Schema for V2 and measure write amplification on long
+  runs; atomic full-document rewrites favor crash readability over throughput.
+- Only after real-run and UI acceptance: swap `RunContext.logger` (or examples) to
   default to `RunLoggerV2`, and remove `run_logger.py` + its sibling files
   (`log_schema.py`, `run_log.schema.json`, `model_calls.jsonl` handling in
   `model_instrumentation.py`'s call sites) — a separate, later change.

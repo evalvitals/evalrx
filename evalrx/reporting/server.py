@@ -103,11 +103,21 @@ def find_run_root(base: Path) -> Path | None:
     to share is the one nearest the surface.
     """
     candidates: list[tuple[int, int, Path]] = []
-    for rank, pattern in ((0, "run_log.jsonl"), (1, "report/report_data.json")):
+    for rank, pattern in (
+        (0, "run_log.jsonl"), (1, "report/report_data.json"), (2, "run.json"),
+    ):
         for hit in base.rglob(pattern.rsplit("/", 1)[-1]):
             if rank == 1 and hit.parent.name != "report":
                 continue
-            run_root = hit.parent if rank == 0 else hit.parent.parent
+            if rank == 0 or rank == 2:
+                run_root = hit.parent
+            else:
+                run_root = hit.parent.parent
+            if rank == 2 and not any(
+                (run_root / stage / "log.json").is_file()
+                for stage in ("M1", "M2", "M3", "M4", "M5")
+            ):
+                continue
             if any(part in _JUNK_DIRS for part in run_root.relative_to(base).parts):
                 continue
             candidates.append((len(run_root.relative_to(base).parts), rank, run_root))
@@ -292,10 +302,13 @@ def _resolve_report_root(requested_root: Path) -> Path:
     # top-level run; silently preferring it makes the UI show the wrong repair.
     if (requested_root / "run_log.jsonl").is_file():
         return requested_root
+    if (requested_root / "run.json").is_file():
+        return requested_root
     nested_logs = requested_root / "logs"
     if nested_logs.is_dir() and (
         (nested_logs / "run_log.jsonl").is_file()
         or (nested_logs / "report" / "report_data.json").is_file()
+        or (nested_logs / "run.json").is_file()
     ):
         return nested_logs
     return requested_root

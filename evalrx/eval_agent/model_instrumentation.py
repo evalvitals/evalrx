@@ -90,7 +90,7 @@ def _capped_ids(ids: "list[str]") -> "tuple[list[str], int]":
     return ids[:_MAX_BATCH_IDS_INLINE], len(ids)
 
 
-def _snapshot_inputs(inputs: Any) -> Any:
+def _snapshot_inputs(inputs: Any, *, full: bool = False) -> Any:
     """A JSON-safe stand-in for whatever an analyzer passed as *inputs*.
 
     Handles the three shapes analyzers actually use: a bare string (some
@@ -102,11 +102,13 @@ def _snapshot_inputs(inputs: Any) -> Any:
     uses for baseline case media.
     """
     if isinstance(inputs, str):
-        return _truncate(inputs)
+        return inputs if full else _truncate(inputs)
     prompt = getattr(inputs, "prompt", None)
     if prompt is None:
-        return _truncate(str(inputs))
-    snapshot: dict[str, Any] = {"prompt": _truncate(str(prompt))}
+        return str(inputs) if full else _truncate(str(inputs))
+    snapshot: dict[str, Any] = {
+        "prompt": str(prompt) if full else _truncate(str(prompt))
+    }
     for kind in ("image", "audio", "video"):
         value = getattr(inputs, kind, None)
         if value is None:
@@ -194,6 +196,7 @@ class InstrumentedModel:
     ) -> None:
         prompt = inputs if isinstance(inputs, str) else getattr(inputs, "prompt", None)
         case_id = self._case_prompts.get(str(prompt)) if prompt is not None else None
+        full = bool(getattr(self._run_logger, "preserve_full_model_io", False))
         self._run_logger.log_model_call(
             cycle=self._cycle,
             analyzer=self._analyzer,
@@ -202,7 +205,7 @@ class InstrumentedModel:
             case_id=case_id,
             batch_case_ids=self._batch_case_ids_inline,
             n_batch_cases=self._n_batch_cases,
-            inputs=_snapshot_inputs(inputs),
+            inputs=_snapshot_inputs(inputs, full=full),
             kwargs={k: str(v) for k, v in (kwargs or {}).items()},
             output=output,
             duration_sec=duration_sec,
@@ -216,7 +219,8 @@ class InstrumentedModel:
         except Exception as exc:  # noqa: BLE001 - record the failure, then re-raise it
             self._record("generate", inputs, kwargs, None, time.monotonic() - t0, repr(exc))
             raise
-        self._record("generate", inputs, kwargs, _truncate(str(out)), time.monotonic() - t0, None)
+        rendered = str(out) if getattr(self._run_logger, "preserve_full_model_io", False) else _truncate(str(out))
+        self._record("generate", inputs, kwargs, rendered, time.monotonic() - t0, None)
         return out
 
     def forward(
@@ -250,7 +254,10 @@ class InstrumentedModel:
         except Exception as exc:  # noqa: BLE001
             self._record("chat", messages, {"tools": tools}, None, time.monotonic() - t0, repr(exc))
             raise
-        output = {"text": _truncate(str(getattr(turn, "text", turn)))}
+        text = str(getattr(turn, "text", turn))
+        if not getattr(self._run_logger, "preserve_full_model_io", False):
+            text = _truncate(text)
+        output = {"text": text}
         raw_tool_calls = getattr(turn, "raw_tool_calls", None)
         if raw_tool_calls:
             output["tool_calls"] = str(raw_tool_calls)

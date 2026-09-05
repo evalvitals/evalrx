@@ -224,6 +224,8 @@ def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
     logs_dir = run_dir
     if (run_dir / "logs" / "run_log.jsonl").exists():
         logs_dir = run_dir / "logs"
+    elif (run_dir / "logs" / "run.json").exists():
+        logs_dir = run_dir / "logs"
     elif not (run_dir / "run_log.jsonl").exists():
         for child in run_dir.glob("*/run_log.jsonl"):
             logs_dir = child.parent
@@ -433,6 +435,10 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
                     events.append(json.loads(line))
                 except Exception:
                     pass
+    elif (logs_dir / "run.json").exists():
+        from evalrx.reporting.run_events import read_v2_events
+
+        events = read_v2_events(logs_dir)
 
     all_run_starts = [e for e in events if e.get("event") == "run_start"]
     run_start = all_run_starts[-1] if all_run_starts else {}

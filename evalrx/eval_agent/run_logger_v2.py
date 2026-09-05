@@ -45,7 +45,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
+import tempfile
 import threading
 import uuid
 import warnings
@@ -138,7 +138,9 @@ def _atomic_write_json(path: Path, obj: Any) -> None:
     os.replace(tmp, path)
 
 
-def _inline_workspace(workdir: "str | Path", media_dir: Path) -> "dict[str, Any] | None":
+def _inline_workspace(
+    workdir: "str | Path", media_dir: Path, *, run_dir: "Path | None" = None,
+) -> "dict[str, Any] | None":
     """Read a sandbox working directory into a JSON-safe dict, inlining text.
 
     Returns ``{"files": {relative_path: content_or_note}, "media": [rel_paths],
@@ -172,7 +174,10 @@ def _inline_workspace(workdir: "str | Path", media_dir: Path) -> "dict[str, Any]
             dest = media_dir / f"{f.stem}_{digest}{suffix}"
             try:
                 shutil.copy2(f, dest)
-                media.append(str(dest))
+                try:
+                    media.append(str(dest.relative_to(run_dir)) if run_dir else str(dest))
+                except ValueError:
+                    media.append(str(dest))
             except Exception:  # noqa: BLE001
                 skipped += 1
             continue
@@ -242,6 +247,7 @@ class RunLoggerV2:
         verbose: bool = False,
         trace_id: "str | None" = None,
         observability_mode: "str | None" = None,
+        context: "Any | None" = None,
     ) -> None:
         if run_dir is None:
             run_dir = Path("runs_v2") / datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -252,6 +258,11 @@ class RunLoggerV2:
         self.trace_id: str = trace_id or str(uuid.uuid4())
         self.current_cycle: int = -1
         self.verbose = verbose
+        self._context = context
+        # Producers use this capability flag to keep text/code in log events
+        # instead of writing V1-style sibling files into trial directories.
+        self.inline_text_artifacts = True
+        self.preserve_full_model_io = True
 
         # One in-memory doc per stage + one run-level doc. Every log_* method
         # appends to the relevant bucket(s), then atomically rewrites exactly
@@ -261,6 +272,8 @@ class RunLoggerV2:
             "run_start": None,
             "cases": [],
             "report_published": [],
+            "diagnose_reports": [],
+            "manifest": None,
             "loop_end": [],
             "agent_decisions": [],
             "agent_tool_calls": [],
@@ -276,8 +289,14 @@ class RunLoggerV2:
         self._pending_model_calls: "dict[int, list[dict[str, Any]]]" = {}
 
         from evalrx.observability.tracer import DiagnosticTracer
+        # The SQLite delivery queue is runtime state, not part of the tidy run
+        # artifact.  Keep it outside the run tree; langfuse_trace.json remains
+        # the durable, portable JSON trace bundled with the run.
+        outbox_dir = Path(tempfile.gettempdir()) / "evalrx-v2-outbox"
+        self._outbox_path = outbox_dir / f"{self.trace_id}.sqlite3"
         self.tracer = DiagnosticTracer(
             run_dir=self.run_dir, mode=observability_mode, auto_sync=True,
+            outbox_path=self._outbox_path,
         )
         self.tracer.trace_id = self.trace_id
 
@@ -337,6 +356,11 @@ class RunLoggerV2:
         if self.verbose:
             print(_V2JsonFormatter.line(None, key, record))
 
+    @property
+    def managed_json_paths(self) -> "tuple[Path, ...]":
+        """Atomic JSON documents that may be rewritten while quarantine runs."""
+        return (self.run_json_path, *(self.run_dir / s / "log.json" for s in _STAGES))
+
     @staticmethod
     def _ts() -> str:
         return datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -382,6 +406,13 @@ class RunLoggerV2:
         if not copied.exists():
             shutil.copy2(path, copied)
         return str(copied.relative_to(self.run_dir))
+
+    def _portable_path(self, value: "str | Path") -> str:
+        path = Path(value)
+        try:
+            return str(path.resolve().relative_to(self.run_dir.resolve()))
+        except (OSError, ValueError):
+            return str(value)
 
     # ------------------------------------------------------------------
     # Run provenance
@@ -478,6 +509,106 @@ class RunLoggerV2:
             "generated_by": generated,
             "report_paths": ["report/report_data.json", "report/report_spec.json"],
         })
+
+    def log_diagnose_report(
+        self,
+        report: Any,
+        cases: "list[Any]",
+        *,
+        discovery: "list[dict[str, Any]] | None" = None,
+    ) -> None:
+        """Inline the standard post-diagnosis report into ``run.json``.
+
+        V1 renders several JSON and Markdown siblings.  V2 keeps one detailed
+        machine-readable record; a UI can render prose from this data.
+        """
+        hyps_src = getattr(report, "all_hypotheses", None)
+        if hyps_src is None:
+            hyps_src = getattr(report, "final_hypotheses", [])
+        hypotheses = [
+            {
+                "statement": h.statement,
+                "plain_statement": getattr(h, "plain_statement", ""),
+                "failure_mode": h.predicted_failure_mode,
+                "status": h.status.value if h.status else None,
+            }
+            for h in hyps_src
+        ]
+        m4_results = [
+            {
+                "hypothesis": tr.hypothesis.statement,
+                "failure_mode": tr.hypothesis.predicted_failure_mode,
+                "status": tr.status.value,
+                "effect_size": tr.effect_size,
+                "confidence": tr.confidence,
+                "protocol_consistent": tr.is_consistent_with_protocol,
+                "verdict": tr.verdict,
+                "evidence": tr.evidence,
+            }
+            for tr in getattr(report, "all_test_results", [])
+        ]
+        self._append_run("diagnose_reports", {
+            "ts": self._ts(),
+            "cycles": report.cycles,
+            "stopped_by": getattr(report, "stopped_by", None),
+            "resolved": getattr(report, "resolved", None),
+            "n_cases": len(cases),
+            "n_hypotheses": len(hypotheses),
+            "n_verified": len(getattr(report, "verified_hypotheses", [])),
+            "hypotheses": hypotheses,
+            "m4_results": m4_results,
+            "discovery": list(discovery or []),
+        })
+
+    def log_manifest(self, *, run_id: str, config: "dict[str, Any]") -> None:
+        """Record final run provenance and a compact file index in ``run.json``."""
+        files = [
+            str(path.relative_to(self.run_dir))
+            for path in sorted(self.run_dir.rglob("*"))
+            if path.is_file() and not path.name.startswith(".")
+        ]
+        with self._lock:
+            self._run_doc["manifest"] = {
+                "ts": self._ts(), "run_id": run_id, "config": dict(config), "files": files,
+            }
+            self._flush_run()
+
+    def log_model_exchange(
+        self,
+        stage: str,
+        *,
+        role: str,
+        operation: str,
+        inputs: Any,
+        output: Any = None,
+        error: "str | None" = None,
+        duration_sec: "float | None" = None,
+        metadata: "dict[str, Any] | None" = None,
+        cycle: "int | None" = None,
+    ) -> None:
+        """Persist one exact model/agent input-output exchange in its stage."""
+        def json_safe(value: Any) -> Any:
+            import dataclasses
+
+            if dataclasses.is_dataclass(value):
+                value = dataclasses.asdict(value)
+            elif hasattr(value, "to_dict") and callable(value.to_dict):
+                try:
+                    value = value.to_dict()
+                except Exception:  # noqa: BLE001
+                    pass
+            return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+
+        entry: dict[str, Any] = {
+            "ts": self._ts(),
+            "cycle": self.current_cycle if cycle is None else cycle,
+            "role": role,
+            "operation": operation, "inputs": json_safe(inputs), "output": json_safe(output),
+            "error": error, "metadata": json_safe(dict(metadata or {})),
+        }
+        if duration_sec is not None:
+            entry["duration_sec"] = round(duration_sec, 4)
+        self._append_stage(stage, "model_calls", entry)
 
     def save_artifact_json(self, stem: str, obj: Any) -> "str | None":
         """Write *obj* as JSON under the run-global ``artifacts/`` dir; return rel path."""
@@ -606,6 +737,12 @@ class RunLoggerV2:
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         self._append_stage("M1", "probe", entry)
+        if judge_prompt or judge_raw:
+            self.log_model_exchange(
+                "M1", role="analyzer_selection_judge", operation="generate",
+                inputs=judge_prompt or "", output=judge_raw or "", cycle=cycle,
+                duration_sec=duration_sec,
+            )
 
         png_figures: list[Path] = list(overlay_pngs)
         for rel_npy in artifact_paths.values():
@@ -715,7 +852,7 @@ class RunLoggerV2:
             entry["corrected_rejections"] = corrected
         figures = getattr(report, "figures", None)
         if figures:
-            entry["figures"] = list(figures)
+            entry["figures"] = [self._portable_path(f) for f in figures]
         llm_prompt = getattr(report, "llm_prompt", None)
         llm_raw = getattr(report, "llm_raw", None)
         if llm_prompt:
@@ -725,6 +862,12 @@ class RunLoggerV2:
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         self._append_stage("M2", "analysis", entry)
+        if llm_prompt or llm_raw:
+            self.log_model_exchange(
+                "M2", role="statistics_judge", operation="generate",
+                inputs=llm_prompt or "", output=llm_raw or "", cycle=cycle,
+                duration_sec=duration_sec,
+            )
 
         m2_span = self.tracer.start_span(
             name=f"M2: Screening & Confirmatory Signals (Cycle {cycle})", stage="M2",
@@ -758,6 +901,16 @@ class RunLoggerV2:
             str(c.get("figure_path")) for c in charts
             if isinstance(c, dict) and c.get("figure_path")
         ]
+        workspace = None
+        if out_dir is not None:
+            workspace = _inline_workspace(
+                out_dir, self._stage_artifacts_dir("M2"), run_dir=self.run_dir,
+            )
+            if workspace and workspace.get("media"):
+                rendered = [
+                    path for path in workspace["media"]
+                    if Path(path).suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+                ]
         tables = getattr(report, "tables", None) or {}
         adjudication = dict(getattr(report, "adjudication", None) or {}) if report is not None else {}
         entry: dict[str, Any] = {
@@ -776,12 +929,13 @@ class RunLoggerV2:
             "observations": [str(o) for o in (getattr(report, "observations", None) or [])[:12]] if report is not None else [],
             "caveats": [str(c) for c in (getattr(report, "caveats", None) or [])[:8]] if report is not None else [],
             "figures": rendered,
+            "workspace_snapshot": workspace,
             "attempts": int(getattr(report, "attempts", 0) or 0) if report is not None else 0,
         }
         error = str(getattr(report, "error", "") or "") if report is not None else "explorer produced no report"
         if error:
             entry["error"] = error
-        if out_dir is not None:
+        if out_dir is not None and workspace is None:
             entry["out_dir"] = str(out_dir)
             report_path = Path(out_dir) / "exploratory_report.json"
             if report_path.exists():
@@ -793,6 +947,15 @@ class RunLoggerV2:
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         self._append_stage("M2", "explore", entry)
+        for call in list(getattr(report, "model_calls", None) or []):
+            self.log_model_exchange(
+                "M2",
+                role=str(call.get("role") or "explore_coder"),
+                operation=str(call.get("operation") or "generate"),
+                inputs=call.get("inputs"), output=call.get("output"),
+                error=call.get("error"), duration_sec=call.get("duration_sec"),
+                metadata=dict(call.get("metadata") or {}), cycle=cycle,
+            )
 
         exp_span = self.tracer.start_span(
             name=f"Explore: Free-form EDA (Cycle {cycle})", stage="EXPLORE",
@@ -883,6 +1046,31 @@ class RunLoggerV2:
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         self._append_stage("M3", "diagnosis", entry)
+        detailed_calls = list(getattr(diag, "model_calls", None) or [])
+        if detailed_calls:
+            for call in detailed_calls:
+                self.log_model_exchange(
+                    "M3",
+                    role=str(call.get("role") or "diagnosis_judge"),
+                    operation=str(call.get("operation") or "generate"),
+                    inputs=call.get("inputs"), output=call.get("output"),
+                    error=call.get("error"), duration_sec=call.get("duration_sec"),
+                    metadata=dict(call.get("metadata") or {}), cycle=cycle,
+                )
+        else:
+            # Compatibility for DiagnosisResult values created by older callers.
+            if m3_prompt or diag.raw_judge_output:
+                self.log_model_exchange(
+                    "M3", role="diagnosis_judge", operation="generate",
+                    inputs=m3_prompt, output=diag.raw_judge_output or "", cycle=cycle,
+                    duration_sec=duration_sec,
+                )
+            if critic_raw or review_prompt or review_raw:
+                self.log_model_exchange(
+                    "M3", role="hypothesis_critic", operation="generate",
+                    inputs=entry.get("critic_prompt") or review_prompt,
+                    output=critic_raw or review_raw, cycle=cycle,
+                )
 
         m3_span = self.tracer.start_span(
             name=f"M3: Root-Cause Diagnosis (Cycle {cycle})", stage="M3",
@@ -952,6 +1140,12 @@ class RunLoggerV2:
         if duration_sec is not None:
             entry["duration_sec"] = round(duration_sec, 3)
         self._append_stage(stage, "surgery", entry)
+        if judge_prompt or judge_raw:
+            self.log_model_exchange(
+                stage, role="protocol_consistency_judge", operation="generate",
+                inputs=judge_prompt or "", output=judge_raw or "", cycle=cycle,
+                duration_sec=duration_sec,
+            )
 
         stage_title = "M4 Adjudication" if is_m4 else "M5 Intervention"
         surg_span = self.tracer.start_span(
@@ -1000,8 +1194,10 @@ class RunLoggerV2:
 
         workspace = None
         workdir = exp.get("workdir")
-        if workdir and not exp.get("trial_root"):
-            workspace = _inline_workspace(workdir, self._stage_artifacts_dir(stage))
+        if workdir:
+            workspace = _inline_workspace(
+                workdir, self._stage_artifacts_dir(stage), run_dir=self.run_dir,
+            )
 
         entry: dict[str, Any] = {
             "ts": self._ts(), "cycle": cycle, "module": module,
@@ -1021,6 +1217,16 @@ class RunLoggerV2:
             "trial_root": exp.get("trial_root"),
         }
         self._append_stage(stage, "experiment", entry)
+        for call in exp.get("model_calls") or []:
+            if isinstance(call, dict):
+                self.log_model_exchange(
+                    stage,
+                    role=str(call.get("role") or "experiment_writer"),
+                    operation=str(call.get("operation") or "generate"),
+                    inputs=call.get("inputs"), output=call.get("output"),
+                    error=call.get("error"), duration_sec=call.get("duration_sec"),
+                    metadata=call.get("metadata"),
+                )
 
         exp_span = self.tracer.start_span(
             name=f"{stage}: Experiment — {hypothesis.statement[:60]}",
@@ -1192,6 +1398,14 @@ class RunLoggerV2:
         if extra:
             entry.update(extra)
         self._append_stage(module, "tool_codegen", entry)
+        if prompt or raw_stream or raw_output:
+            self.log_model_exchange(
+                _resolve_stage(module) or "M5", role="tool_codegen",
+                operation=source, inputs=prompt or "",
+                output=raw_stream or raw_output or code,
+                error=error or None, cycle=cyc,
+                metadata={"tool_name": name, "ok": ok},
+            )
 
         cg_span = self.tracer.start_span(
             name=f"Tool Codegen: {module}/{name}", stage=f"CODEGEN_{module}",
@@ -1234,6 +1448,14 @@ class RunLoggerV2:
         except Exception:  # noqa: BLE001
             pass
         self.tracer.flush()
+        # Offline runs need no retry queue once the complete JSON trace bundle
+        # has been exported.  A live run keeps a non-empty queue for retry.
+        if self.tracer.mode == "offline" or self.tracer.outbox.pending_count() == 0:
+            try:
+                self._outbox_path.unlink(missing_ok=True)
+                self._outbox_path.parent.rmdir()
+            except OSError:
+                pass
         self.tracer.end_trace({
             "spans": len(self.tracer.spans),
             "generations": len(self.tracer.generations),

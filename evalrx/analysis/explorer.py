@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -190,6 +191,7 @@ class ExploratoryAnalysisReport:
     # UNTRUNCATED raw CLI streams, one per attempt (the truncated renderings
     # above exist for compact UIs; these are the full audit trail).
     raw_streams: list[str] = field(default_factory=list)
+    model_calls: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def candidate_signal_names(self) -> list[str]:
@@ -223,6 +225,7 @@ class ExploratoryAnalysisReport:
             "attempts": self.attempts,
             "workdir": self.workdir,
             "agent_audits": self.agent_audits,
+            "model_calls": self.model_calls,
         }
 
 
@@ -276,6 +279,7 @@ class ExploratoryAnalysisAgent:
         self._progress_sink = progress_sink
         self._last_agent_audit: dict[str, Any] | None = None
         self._last_raw_stream: str = ""
+        self._model_calls: list[dict[str, Any]] = []
 
     @property
     def available(self) -> bool:
@@ -423,6 +427,7 @@ class ExploratoryAnalysisAgent:
                 workdir=str(self._sandbox.workdir),
             )
 
+        self._model_calls = []
         raw_outputs: list[str] = []
         raw_streams: list[str] = []
         agent_audits: list[dict[str, Any]] = []
@@ -494,6 +499,7 @@ class ExploratoryAnalysisAgent:
             report.raw_outputs = raw_outputs
             report.raw_streams = raw_streams
             report.agent_audits = agent_audits
+            report.model_calls = list(self._model_calls)
             if report.ok:
                 violations = _plain_language_violations(report)
                 if not violations or attempt == self._max_attempts:
@@ -524,6 +530,7 @@ class ExploratoryAnalysisAgent:
                 "kept the original working analysis, whose plain_title/"
                 "plain_question violation may be unfixed.",
             ]
+            best_report.model_calls = list(self._model_calls)
             return best_report
 
         stdout = last_result.stdout if last_result is not None else ""
@@ -541,6 +548,7 @@ class ExploratoryAnalysisAgent:
             raw_outputs=raw_outputs,
             raw_streams=raw_streams,
             agent_audits=agent_audits,
+            model_calls=list(self._model_calls),
         )
 
     def _write_input(self, rows: list[dict[str, Any]]) -> None:
@@ -610,20 +618,49 @@ class ExploratoryAnalysisAgent:
         if self._cli_config is not None and self._cli_config.provider != "llm":
             return self._run_cli_writer(prompt)
         model = self._inspector if use_inspector and self._inspector is not None else self._judge
-        raw = model.generate(prompt)  # type: ignore[union-attr]
+        started = time.perf_counter()
+        try:
+            raw = model.generate(prompt)  # type: ignore[union-attr]
+        except Exception as exc:
+            self._model_calls.append({
+                "role": "explore_inspector" if use_inspector else "explore_coder",
+                "operation": "generate", "inputs": prompt, "output": None,
+                "error": str(exc), "duration_sec": time.perf_counter() - started,
+            })
+            raise
         raw_text = str(raw)
+        self._model_calls.append({
+            "role": "explore_inspector" if use_inspector else "explore_coder",
+            "operation": "generate", "inputs": prompt, "output": raw_text,
+            "error": None, "duration_sec": time.perf_counter() - started,
+        })
         return _extract_code(raw_text), raw_text
 
     def _run_cli_writer(self, prompt: str) -> tuple[str, str]:
         from evalrx.agent_runtime.codegen import CodegenRunner
 
-        result = CodegenRunner(self._cli_config).write_code(  # type: ignore[arg-type]
-            prompt,
-            workdir=Path(self._sandbox.workdir),
-            timeout_sec=self._timeout_sec,
-            preferred_filenames=("analysis.py",),
-            include_error_in_raw=True,
-        )
+        started = time.perf_counter()
+        try:
+            result = CodegenRunner(self._cli_config).write_code(  # type: ignore[arg-type]
+                prompt,
+                workdir=Path(self._sandbox.workdir),
+                timeout_sec=self._timeout_sec,
+                preferred_filenames=("analysis.py",),
+                include_error_in_raw=True,
+            )
+        except Exception as exc:
+            self._model_calls.append({
+                "role": "explore_cli_coder", "operation": "write_code",
+                "inputs": prompt, "output": None, "error": str(exc),
+                "duration_sec": time.perf_counter() - started,
+            })
+            raise
+        self._model_calls.append({
+            "role": "explore_cli_coder", "operation": "write_code",
+            "inputs": prompt, "output": result.raw_output, "error": None,
+            "duration_sec": time.perf_counter() - started,
+            "metadata": {"audit": result.audit},
+        })
         self._last_agent_audit = result.audit
         # Snapshot the untruncated raw stream NOW: the next repair attempt in
         # the loop overwrites agent_raw_stream.txt in the shared workdir.
