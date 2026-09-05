@@ -1,11 +1,11 @@
-"""GSM8K test split (Cobbe et al. 2021) — a seeded 500-of-1,319 sample.
+"""GSM8K test split (Cobbe et al. 2021) — a seeded 450-of-1,319 sample.
 
 HF ``openai/gsm8k`` (config ``main``, split ``test``, 1,319 grade-school math
 word problems). The gold is the number after the ``####`` marker of the
 reference solution (commas and dollar signs stripped); the model may reason
 freely and is graded on the ``Answer:`` line by the benchmark's
 ``exact_or_numeric`` rule with zero tolerance, whose numeric path already
-equates ``1,234`` / ``$1234`` / ``1234.0``. The 500-row slice is a
+equates ``1,234`` / ``$1234`` / ``1234.0``. The 450-row slice is a
 ``random.Random(seed)`` sample of the test indices kept in test-file order;
 ``limit=0`` freezes the whole split.
 """
@@ -49,7 +49,7 @@ def _gold(answer: str, source_index: int) -> tuple[str, int]:
     return canonical, len([line for line in rationale.splitlines() if line.strip()])
 
 
-def download(out_dir: Path, limit: int = 500, seed: int = 0) -> dict:
+def download(out_dir: Path, limit: int = 450, seed: int = 0) -> dict:
     """Freeze ``limit`` seeded-sampled rows (0 = the whole test split) in
     test-file order."""
     out_dir = Path(out_dir)
@@ -85,7 +85,7 @@ def protocol(model_label: str):
     return _protocol(
         description=(
             f"A text-only LLM ({model_label}) solves grade-school multi-step math word "
-            "problems from the GSM8K test split (a seeded 500-of-1,319 sample). Each "
+            "problems from the GSM8K test split (a seeded 450-of-1,319 sample). Each "
             "problem takes two to eight arithmetic steps over small quantities stated in "
             "the text; the model may reason before committing to a final 'Answer:' line. "
             "Failure cases are items whose final number does not equal the reference "
@@ -111,7 +111,7 @@ TASK = Task(
     name="gsm8k", modality="llm", kind="exact_or_numeric", title="GSM8K/test",
     download=download, protocol=protocol,
     pinned_m1=PINNED_M1,
-    default_limit=500, default_seed=0, max_new_tokens=1024,
+    default_limit=450, default_seed=0, max_new_tokens=1024,
     short_answer=False,
     source="openai/gsm8k (main, test split)",
 )

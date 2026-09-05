@@ -252,3 +252,73 @@ def test_explore_selection_rejects_tiny_high_effect_candidate():
     assert outcome.selected_on_explore == "supported"
     assert outcome.selection_attempted[0]["e_value"] == 2.0
     assert "coverage" in outcome.selection_attempted[0]
+
+
+# ---------------------------------------------------------------------------
+# Train/val/test mode (test_split > 0): the loop mines on TRAIN, M4 + the fix
+# candidate search run on VAL, and the frozen winner is scored once on TEST.
+# ---------------------------------------------------------------------------
+
+def test_tvt_split_three_way_disjoint_deterministic():
+    batch = _batch(24)
+    loop = _loop(confirm_split=1 / 3, test_split=1 / 3)
+    train, val, test = loop._split_partitions(batch)
+    tr = {id(c) for c in train}
+    va = {id(c) for c in val}
+    te = {id(c) for c in test}
+    assert tr.isdisjoint(va) and tr.isdisjoint(te) and va.isdisjoint(te)
+    assert len(tr | va | te) == len(list(batch))
+    assert (len(tr), len(va), len(te)) == (8, 8, 8)
+    for part in (train, val, test):
+        labels = {c.label for c in part}
+        assert Label.FAIL in labels and Label.PASS in labels
+    # deterministic re-split (what run_fix does)
+    train2, val2, test2 = loop._split_partitions(batch)
+    assert {id(c) for c in val2} == va and {id(c) for c in test2} == te
+    # the two-tuple view (run_analysis / run_m5 / agentic) sees the SAME
+    # train/val pair and never the test cases
+    explore, confirm = loop._split_explore_confirm(batch)
+    assert {id(c) for c in explore} == tr and {id(c) for c in confirm} == va
+
+
+def test_tvt_split_uneven_counts_are_one_to_one_to_one():
+    batch = _batch(250)
+    train, val, test = _loop(confirm_split=1 / 3, test_split=1 / 3)._split_partitions(batch)
+    sizes = sorted((len(list(train)), len(list(val)), len(list(test))))
+    assert sizes == [83, 83, 84] and sum(sizes) == 250
+
+
+def test_tvt_run_fix_develops_on_val_confirms_on_test():
+    batch = _batch(24)
+    stub = _RecordingFixAgent()
+    loop = _loop(fix_agent=stub, confirm_split=1 / 3, test_split=1 / 3)
+    train, val, test = loop._split_partitions(batch)
+
+    loop.run_fix(_report(), batch, auto_escalate=True, max_tier="L2", allow_unverified=True)
+
+    # The ladder is authored/selected on VAL only; TRAIN never reaches the fix
+    # agent; TEST is touched exactly once, by the frozen candidate.
+    assert stub.seen_ids == {id(c) for c in val}
+    assert stub.confirm_ids == {id(c) for c in test}
+    assert stub.seen_ids.isdisjoint({id(c) for c in train})
+    assert stub.confirm_ids.isdisjoint(stub.seen_ids)
+    assert stub.confirm_cap == 0  # full TEST partition for the frozen winner
+
+
+def test_tvt_run_m5_surgery_stays_on_train():
+    batch = _batch(24)
+    seen = set()
+
+    class _Surgery:
+        def operate(self, hypothesis, model, results, data):
+            seen.update(id(case) for case in data)
+            return SimpleNamespace(status="refuted", evidence={})
+
+    loop = _loop(confirm_split=1 / 3, test_split=1 / 3)
+    loop.surgery_agent = _Surgery()
+    train, val, test = loop._split_partitions(batch)
+    loop.run_m5(_report(), batch, allow_unverified=True)
+
+    assert seen == {id(case) for case in train}
+    assert seen.isdisjoint(id(case) for case in val)
+    assert seen.isdisjoint(id(case) for case in test)

@@ -39,6 +39,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import random
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -70,6 +71,22 @@ _STOPPED_BY_NO_PROBE  = "no_probe_results"
 # run_analysis() ran M1->M2->M3 and proposed hypotheses without confirming them
 # (M4 deferred to run_confirm()). Not a failure — the analysis dashboard is ready.
 _STOPPED_BY_ANALYSIS  = "analysis_complete"
+
+
+def _exact_size(picked: "list", pool: "list", n: int, seed: int) -> "list":
+    """Top a stratified draw up to exactly *n* items, deterministically.
+
+    :func:`~evalrx.stats.subset_sampling.stratified_subset` returns at most
+    *n* items but per-stratum rounding can under-allocate by one or two; the
+    train/val/test split promises exact 1:1:1 counts, so the shortfall is
+    filled from a seeded shuffle of the untaken remainder of *pool*.
+    """
+    if len(picked) >= n:
+        return picked[:n]
+    picked_ids = {id(c) for c in picked}
+    leftover = [c for c in pool if id(c) not in picked_ids]
+    random.Random(seed + 7919).shuffle(leftover)
+    return picked + leftover[: n - len(picked)]
 
 
 def _diagnose_with_optional_context(
@@ -318,6 +335,16 @@ class VLDiagnoseLoop:
                             early nor keeps cycling based on M4 verdicts —
                             the same discipline the fix gate follows. Without
                             a confirm split M4 stays in-cycle as before.
+        test_split:         Optional third partition (train/val/test mode).
+                            When > 0 alongside ``confirm_split``, the batch is
+                            split three ways: the loop mines on EXPLORE (train),
+                            M4's single holdout pass AND the fix stage's whole
+                            candidate search/selection run on CONFIRM (val),
+                            and the frozen winner is scored exactly once on the
+                            TEST partition — so hypothesis verification and fix
+                            development never share cases with the final gate.
+                            0.0 (default) keeps the two-way explore/confirm
+                            behaviour byte-for-byte.
         max_cycles:         Hard cap on M1→M4 iterations (default 1: one
                             diagnosis pass, then the caller moves on to
                             M5/fix — with fix-on-unverified enabled the
@@ -376,6 +403,7 @@ class VLDiagnoseLoop:
         confirm_split: float = 0.0,
         confirm_split_seed: int = 0,
         m4_holdout: bool = True,
+        test_split: float = 0.0,
         signal_recipes: "list | None" = None,
         bridge_analyzer_name: str = "explored",
         explore_report: "Any | None" = None,
@@ -423,6 +451,11 @@ class VLDiagnoseLoop:
         self.confirm_split = float(confirm_split)
         self.confirm_split_seed = int(confirm_split_seed)
         self.m4_holdout = bool(m4_holdout)
+        # Train/val/test mode: a second held-out fraction. With both fractions
+        # set, CONFIRM becomes the VALIDATION partition (M4 holdout + fix
+        # candidate development) and the frozen fix candidate is scored exactly
+        # once on the TEST partition. 0.0 = two-way behaviour, unchanged.
+        self.test_split = float(test_split)
         # Operationalization bridge (off by default): pre-registered SignalRecipes
         # are compiled over the analyzer per_case signals each cycle into a synthetic
         # "<bridge_analyzer_name>" analyzer Result, so LAMBDA-discovered composite
@@ -532,12 +565,17 @@ class VLDiagnoseLoop:
         probe = (getattr(case, "metadata", {}) or {}).get("probe_type")
         return (label, probe)
 
-    def _split_explore_confirm(self, data: "CaseBatch"):
-        """Deterministic, stratified (explore, confirm) partition.
+    def _split_partitions(self, data: "CaseBatch"):
+        """Deterministic, stratified (explore, confirm, test) partition.
 
-        Returns ``(explore_batch, confirm_batch)``. When ``confirm_split <= 0``
-        (or the batch is too small to split), returns ``(data, None)`` — a
-        no-op, so existing runs are byte-for-byte unchanged.
+        The single source of truth for how a batch is divided; every stage
+        re-derives the identical partition from the same input batch. When
+        ``confirm_split <= 0`` (or the batch is too small to split), returns
+        ``(data, None, None)`` — a no-op, so existing runs are byte-for-byte
+        unchanged. When ``test_split <= 0`` the third element is ``None`` (the
+        two-way explore/confirm behaviour). With both fractions set, CONFIRM is
+        drawn first (same seed as the two-way split), then TEST from the
+        remainder (seed+1); EXPLORE is what is left.
         """
         from evalrx.core.case import CaseBatch
         from evalrx.stats.subset_sampling import stratified_subset
@@ -545,15 +583,44 @@ class VLDiagnoseLoop:
         cases = list(data)
         frac = self.confirm_split
         if frac <= 0.0 or len(cases) < 4:
-            return data, None
+            return data, None, None
         n_confirm = round(len(cases) * frac)
         if n_confirm <= 0 or n_confirm >= len(cases):
-            return data, None
+            return data, None, None
+        three_way = self.test_split > 0.0
         confirm = stratified_subset(cases, self._strat_key, n_confirm,
                                     seed=self.confirm_split_seed)
+        if three_way:
+            # ``stratified_subset`` guarantees at MOST n (per-stratum rounding
+            # can under-allocate by one or two); the train/val/test mode
+            # promises exact counts, so top the draw up deterministically.
+            # The two-way path is left untouched — byte-for-byte reproducible.
+            confirm = _exact_size(confirm, cases, n_confirm,
+                                  self.confirm_split_seed)
         confirm_ids = {id(c) for c in confirm}
-        explore = [c for c in cases if id(c) not in confirm_ids]
-        return CaseBatch(explore), CaseBatch(confirm)
+        rest = [c for c in cases if id(c) not in confirm_ids]
+        if not three_way:
+            return CaseBatch(rest), CaseBatch(confirm), None
+        n_test = round(len(cases) * self.test_split)
+        if n_test <= 0 or n_test >= len(rest):
+            return CaseBatch(rest), CaseBatch(confirm), None
+        test = stratified_subset(rest, self._strat_key, n_test,
+                                 seed=self.confirm_split_seed + 1)
+        test = _exact_size(test, rest, n_test, self.confirm_split_seed + 1)
+        test_ids = {id(c) for c in test}
+        explore = [c for c in rest if id(c) not in test_ids]
+        return CaseBatch(explore), CaseBatch(confirm), CaseBatch(test)
+
+    def _split_explore_confirm(self, data: "CaseBatch"):
+        """The (explore, confirm) view of :meth:`_split_partitions`.
+
+        Stages that never touch the TEST partition (analysis, deferred confirm,
+        surgery) use this two-tuple view; the partition is identical to the one
+        :meth:`run` / :meth:`run_fix` derive — the test cases are simply
+        invisible here, which is exactly the point.
+        """
+        explore, confirm, _test = self._split_partitions(data)
+        return explore, confirm
 
     def _bridge_signals(self, probe_results: "dict[str, Any]", data: "Any | None") -> None:
         """Compile pre-registered signal recipes into a synthetic analyzer Result
@@ -1089,12 +1156,24 @@ class VLDiagnoseLoop:
         # Held-out CONFIRM split (leak #3): M1-M4 see only EXPLORE; the post-loop
         # fix/surgery validate on the frozen CONFIRM partition (run_m5/run_fix
         # re-derive the same deterministic split from the same input batch).
-        explore, confirm = self._split_explore_confirm(data)
+        # With test_split > 0 (train/val/test mode) a third partition is also
+        # reserved here: CONFIRM plays validation (M4 holdout + fix candidate
+        # development) and TEST is only ever touched by the final frozen-fix
+        # gate in run_fix.
+        explore, confirm, test = self._split_partitions(data)
         if confirm is not None:
-            logger.info(
-                "confirm split: explore=%d cases, confirm=%d held out (frac=%.2f)",
-                len(list(explore)), len(list(confirm)), self.confirm_split,
-            )
+            if test is not None:
+                logger.info(
+                    "train/val/test split: train=%d, val=%d, test=%d "
+                    "(frac=%.2f/%.2f)",
+                    len(list(explore)), len(list(confirm)), len(list(test)),
+                    self.confirm_split, self.test_split,
+                )
+            else:
+                logger.info(
+                    "confirm split: explore=%d cases, confirm=%d held out (frac=%.2f)",
+                    len(list(explore)), len(list(confirm)), self.confirm_split,
+                )
             data = explore
 
         # With a confirm split (and m4_holdout on), M4 runs ONCE after the
@@ -1117,6 +1196,8 @@ class VLDiagnoseLoop:
                 # single case behind its strongest evidence: the repair's own
                 # per-case outputs joined to nothing.
                 self.run_logger.log_cases(confirm)
+            if test is not None:
+                self.run_logger.log_cases(test)
 
         for cycle in range(self.max_cycles):
             if self.token_budget > 0 and self._tokens_used >= self.token_budget:
@@ -1483,7 +1564,9 @@ class VLDiagnoseLoop:
         # reaches the repair proposer.  It therefore belongs to EXPLORE, not
         # the final repair CONFIRM partition.  Touching CONFIRM here would make
         # the later candidate choice depend on the same cases used for its
-        # significance gate.
+        # significance gate.  (Train/val/test mode: surgery stays on TRAIN —
+        # its inputs, the M2 raw_results and per-case signals, were computed
+        # there — and the TEST partition is invisible to this method entirely.)
         explore, confirm = self._split_explore_confirm(data)
         if confirm is not None:
             data = explore
@@ -1566,13 +1649,24 @@ class VLDiagnoseLoop:
         """
         from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier
 
-        # Validate the fix on the held-out partition (leak #3): the hypotheses
+        # Validate the fix on a held-out partition (leak #3): the hypotheses
         # were generated on EXPLORE, so the deployed repair must be confirmed on
-        # CONFIRM — cases the loop never used to pick the fix. Deterministic
-        # re-split of the same batch; no-op when confirm_split=0.
-        explore, confirm = self._split_explore_confirm(data)
+        # cases the loop never used to pick the fix. Deterministic re-split of
+        # the same batch; no-op when confirm_split=0.
+        #
+        # Two-way mode: candidates are searched on EXPLORE, the frozen winner is
+        # scored on CONFIRM. Train/val/test mode (test_split > 0): the whole
+        # candidate search/selection moves to CONFIRM (val) — the same partition
+        # M4's holdout verification used, never the train cases the hypotheses
+        # were mined from — and the frozen winner is scored exactly once on the
+        # TEST partition, which no adaptive decision has ever touched.
+        explore, confirm, test = self._split_partitions(data)
+        if test is not None:
+            dev_data, final_data, dev_label = confirm, test, "VAL"
+        else:
+            dev_data, final_data, dev_label = explore, confirm, "EXPLORE"
         if confirm is not None:
-            data = confirm
+            data = final_data
 
         agent = fix_agent or self.fix_agent
         # M5's intervention experiment (run_m5) can REFUTE the very hypothesis
@@ -1647,12 +1741,13 @@ class VLDiagnoseLoop:
         )
         context.hypotheses_note = hypotheses_note
 
-        # With a held-out split, the entire tier ladder is searched on EXPLORE.
-        # Feedback may adapt the next tier there; CONFIRM remains untouched
-        # until one candidate is frozen and evaluated exactly once.  This keeps
-        # automatic L0 -> L1 -> L2 -> L3a -> L3b escalation without tuning on
-        # the holdout.  Each ceiling is tried separately: cheaper candidates
-        # are not pooled with a newly opened, more invasive tier.
+        # With a held-out split, the entire tier ladder is searched on the
+        # development partition (EXPLORE, or VAL in train/val/test mode).
+        # Feedback may adapt the next tier there; the final partition remains
+        # untouched until one candidate is frozen and evaluated exactly once.
+        # This keeps automatic L0 -> L1 -> L2 -> L3a -> L3b escalation without
+        # tuning on the holdout.  Each ceiling is tried separately: cheaper
+        # candidates are not pooled with a newly opened, more invasive tier.
         if auto_escalate and confirm is not None:
             ladder = [
                 FixTier.L0_RUNTIME_CONFIG,
@@ -1678,14 +1773,15 @@ class VLDiagnoseLoop:
                     agent.max_tier = tier
                     agent.min_tier = tier
                     logger.info(
-                        "run_fix: EXPLORE trying tier %s (%d prior attempt(s))",
+                        "run_fix: %s trying tier %s (%d prior attempt(s))",
+                        dev_label,
                         tier.label,
                         len(prior),
                     )
                     selection = _propose_and_validate(
                         agent,
                         self.model,
-                        explore,
+                        dev_data,
                         hypotheses,
                         prior_attempts=prior if prior else None,
                         context=context,
@@ -1696,10 +1792,10 @@ class VLDiagnoseLoop:
                     attempted.extend(selection.attempted)
                     repair_rounds += int(getattr(selection, "repair_rounds", 0) or 0)
                     if selection.fixed:
-                        logger.info("run_fix: EXPLORE fixed at tier %s", tier.label)
+                        logger.info("run_fix: %s fixed at tier %s", dev_label, tier.label)
                         break
                     prior.extend(v for v in selection.attempted if not v.fixed)
-                    logger.info("run_fix: EXPLORE tier %s exhausted — escalating", tier.label)
+                    logger.info("run_fix: %s tier %s exhausted — escalating", dev_label, tier.label)
             finally:
                 agent.run_logger = agent_logger
                 agent.max_tier = ceiling
@@ -1708,7 +1804,7 @@ class VLDiagnoseLoop:
             outcome = _confirm_from_explore(
                 agent,
                 self.model,
-                confirm,
+                final_data,
                 attempted,
                 max_tier=ceiling,
                 repair_rounds=repair_rounds,
@@ -1799,10 +1895,11 @@ class VLDiagnoseLoop:
             return last_outcome
 
         # Non-escalating path.  With a held-out split this is a genuine
-        # two-stage repair experiment: the agent may iterate and select on
-        # EXPLORE, then exactly one frozen candidate is tested on CONFIRM.
+        # two-stage repair experiment: the agent may iterate and select on the
+        # development partition (EXPLORE, or VAL in train/val/test mode), then
+        # exactly one frozen candidate is tested on the final partition.
         # Selection statistics are descriptive only; the final paired gate is
-        # computed from CONFIRM alone.
+        # computed from the final partition alone.
         if max_tier is not None:
             agent.max_tier = parse_tier(max_tier)
         if confirm is not None:
@@ -1810,7 +1907,7 @@ class VLDiagnoseLoop:
             agent.run_logger = None
             try:
                 selection = _propose_and_validate(
-                    agent, self.model, explore, hypotheses, context=context
+                    agent, self.model, dev_data, hypotheses, context=context
                 )
             finally:
                 agent.run_logger = agent_logger
@@ -1827,7 +1924,7 @@ class VLDiagnoseLoop:
             outcome = _confirm_from_explore(
                 agent,
                 self.model,
-                confirm,
+                final_data,
                 selection.attempted,
                 max_tier=agent.max_tier,
                 repair_rounds=selection.repair_rounds,

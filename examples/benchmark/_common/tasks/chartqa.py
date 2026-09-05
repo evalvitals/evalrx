@@ -17,7 +17,7 @@ REPO = "HuggingFaceM4/ChartQA"
 TEST_PARQUET = "data/test-00000-of-00001-e2cd0b7a0f9eb20d.parquet"
 
 
-def download(out_dir: Path, limit: int = 256, seed: int = 5022, exclude_ids: set | None = None) -> dict:
+def download(out_dir: Path, limit: int = 450, seed: int = 5022, exclude_ids: set | None = None) -> dict:
     import pyarrow.parquet as pq
     from huggingface_hub import hf_hub_download
     from PIL import Image
@@ -73,6 +73,6 @@ TASK = Task(
     name="chartqa", modality="vlm", kind="exact_or_numeric", title="ChartQA/test_human",
     download=download, protocol=protocol,
     pinned_m1=("answer_extraction_audit", "selfcheck_consistency", "coverage_verification_gap"),
-    default_limit=256, default_seed=5022, max_new_tokens=64,
+    default_limit=450, default_seed=5022, max_new_tokens=64,
     source="HuggingFaceM4/ChartQA (test, human-authored)",
 )

@@ -21,4 +21,4 @@ services:
     <<: *nemotron
     # 2 GPUs: CUDA_VISIBLE_DEVICES=a,b (62 GB BF16: device=auto over two 48 GB cards; FP8 (33 GB) is vLLM-only)
     command: >
-      sh -c "python -m _common.run --modality vlm --model nemotron-3-nano-omni-30b-a3b --dataset ${DATASET:-chartqa} --limit ${LIMIT:-256} --device auto --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+      sh -c "python -m _common.run --modality vlm --model nemotron-3-nano-omni-30b-a3b --dataset ${DATASET:-chartqa} --limit ${LIMIT:-0} --device auto --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"

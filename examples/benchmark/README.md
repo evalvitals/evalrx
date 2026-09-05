@@ -63,15 +63,15 @@ for the 3.x models), so `calibration` runs on its verbalized channel only,
 
 | modality | `--dataset` | slice | scoring | default rows |
 |---|---|---|---|---|
-| vlm | `chartqa` (default) | ChartQA test, human-authored | normalised exact match, 5 % numeric tolerance | 256 |
-| vlm | `spatial457` | Spatial457 L5_6d_spatial | normalised exact match | 256 |
+| vlm | `chartqa` (default) | ChartQA test, human-authored | normalised exact match, 5 % numeric tolerance | 450 |
+| vlm | `spatial457` | Spatial457 L5_6d_spatial | normalised exact match | 450 |
 | vlm | `pope_random` / `pope_popular` / `pope_adversarial` | POPE COCO object hallucination, 1 present + 1 absent question per image (split = how the absent object is sampled) | Yes/No | 1000 |
 | llm | `bbh_causal_judgement` (default), `bbh_word_sorting`, `bbh_tracking7`, `cruxeval_output`, `bamboogle`, `minervamath`, `supergpqa_law`, `supergpqa_economics`, `supergpqa_medicine_hard` | the band-located slices of [`dataset_selection`](../dataset_selection/llm_benchmark/datasets.py) | each slice's own grader on the extracted answer | 256 |
-| llm | `hotpotqa_gepa` | the 300-question GEPA test split of HotpotQA (fullwiki/train, seed-1 sample, arXiv:2507.19457) with the dataset's own 10 candidate paragraphs in-prompt | SQuAD-normalised exact match | 300 |
-| llm | `gsm8k` | a seeded 500-of-1,319 sample of the GSM8K test split (grade-school multi-step word problems) | numeric exact match on the `Answer:` line | 500 |
-| alm | `mmau` (default) | MMAU test-mini, 4-way MC | option letter | 256 |
+| llm | `hotpotqa_gepa` | the GEPA test (300) + train (150) splits of HotpotQA (fullwiki/train, seed-1 sample, arXiv:2507.19457) with the dataset's own 10 candidate paragraphs in-prompt | SQuAD-normalised exact match | 450 |
+| llm | `gsm8k` | a seeded 450-of-1,319 sample of the GSM8K test split (grade-school multi-step word problems) | numeric exact match on the `Answer:` line | 450 |
+| alm | `mmau` (default) | MMAU test-mini, 4-way MC | option letter | 450 |
 | alm | `mmsu` | MMSU: 47 spoken-language perception/reasoning tasks (official 5,000-row `train`-named evaluation split; deterministic sample by default) | option letter | 256 |
-| alm | `audiocaps_hallu` | AudioCaps object hallucination (Random) | Yes/No | 300 |
+| alm | `audiocaps_hallu` | AudioCaps object hallucination (Random) | Yes/No | 450 |
 | alm | `af_reasoning_mcq` | NVIDIA Audio Flamingo's AF-Reasoning-Eval (AQA-MCQ): 4-way MC requiring discrimination among closely related choices; audio via the `gijs/clothoaqa` mirror of Clotho-AQA | option letter | 76 (fixed eval set; census) |
 
 Every dataset is frozen to `<modality>/_data/<dataset>/manifest.json` (+ `images/`
@@ -79,6 +79,18 @@ or `audio/`) the first time a cell of that modality needs it, with the same seed
 sample the `m1_m5` examples use; the manifest protocol is modality-blind
 (`prompt`, `image`, `audio`, `answers`, `task`), so one `build_cases` /
 `score_case` serves all three.
+
+### Data split (`--split-mode`)
+
+`tvt` (the default) partitions every run's cases deterministically 1:1:1 into
+**train / val / test** (stratified by label, seed 20260818): M1–M3 mine on
+train; M4 verifies each proposed hypothesis ONCE on val (a holdout re-probe
+with the last cycle's pinned analyzers); the fix ladder is searched and its
+winner selected on val; the frozen winner is scored exactly once on test. So
+hypothesis verification and fix development never share cases with the final
+significance gate. `--split-mode legacy` restores the pre-2026-09 behaviour: a
+50/50 explore/confirm split with M4 screening on explore and CONFIRM reserved
+for the frozen repair.
 
 ## Design rules (why the tree looks like this)
 
