@@ -39,17 +39,17 @@ STAGE_SPECS: tuple[StageSpec, ...] = (
     ),
     StageSpec(
         id="M4",
-        name="Intervention & repair",
-        question="Does a targeted intervention repair failures without unacceptable regressions?",
-        artifacts="Intervention records, repair candidates, paired outcome comparisons.",
-        dashboard_role="Intervene & repair: causal experiments and the repair sweep after validation.",
-    ),
-    StageSpec(
-        id="M5",
         name="Hypothesis validation",
         question="Does corrected statistical evidence and protocol consistency support the hypothesis?",
         artifacts="Held-out verdicts, adjudication records, and evidence grades.",
         dashboard_role="Validate hypotheses: the gate before intervention or repair.",
+    ),
+    StageSpec(
+        id="M5",
+        name="Intervention & repair",
+        question="Does a targeted intervention repair failures without unacceptable regressions?",
+        artifacts="Intervention records, repair candidates, paired outcome comparisons.",
+        dashboard_role="Intervene & repair: causal experiments and the repair sweep after validation.",
     ),
 )
 

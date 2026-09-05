@@ -140,7 +140,7 @@ for _key, _repo in (
 
 # Qwen3.5 WITH its vision tower -- the same checkpoints as the text specs above,
 # loaded as ``Qwen3_5ForConditionalGeneration`` (``AutoModelForImageTextToText``)
-# for the image benchmarks (examples/m1_m4/*_qwen3_5_2b). Layout verified on
+# for the image benchmarks (examples/m1_m5/*_qwen3_5_2b). Layout verified on
 # transformers 5.15.0: ``model.language_model.layers`` (24 layers on the 2B,
 # ``layer_types`` = [linear x3, full] x 6), ``model.visual.blocks``,
 # ``config.image_token_id`` top-level, ``vision_config.spatial_merge_size`` = 2,
@@ -175,7 +175,7 @@ for _key, _repo, _n_layers in (
             "the TokenTypeMap, so the image analyzers are offered",
             "needs transformers >= 5.15 (qwen3_5 is absent from 4.57); the "
             "package's [local] extra pins transformers < 5, install it explicitly "
-            "(see examples/m1_m4/chartqa_qwen3_5_2b/Dockerfile)",
+            "(see examples/m1_m5/chartqa_qwen3_5_2b/Dockerfile)",
             "thinking is OFF here: the spec sends enable_thinking=False on every "
             "template render; the 2B template defaults off and the 9B template "
             "defaults on when the kwarg is absent",

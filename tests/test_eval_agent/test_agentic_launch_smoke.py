@@ -2,7 +2,7 @@
 
 Mirrors test_agent_launch_smoke.py's fixtures (a synthetic attention signal
 that discriminates FAIL/PASS perfectly), but drives the loop via a scripted
-decision judge instead of a fixed M1->M2->M3->M5 cycle, and additionally
+decision judge instead of a fixed M1->M2->M3->M4 cycle, and additionally
 proves the host-enforced pre-registration gate: declaring success before a
 hypothesis is actually tested is rejected, not honored.
 """
@@ -140,7 +140,7 @@ def test_agentic_loop_reaches_a_supported_hypothesis_via_scripted_actions(tmp_pa
 
     # The two new agentic events (agent_decision/agent_tool) were logged and
     # validate against the published run_log schema, alongside the reused
-    # probe/analysis/diagnosis/surgery events from the wrapped M1-M5 stages,
+    # probe/analysis/diagnosis/surgery events from the wrapped M1-M4 stages,
     # bracketed by run_start/loop_end so the dashboard can show run provenance.
     errors = list(iter_log_errors(ctx.log_path))
     assert errors == []

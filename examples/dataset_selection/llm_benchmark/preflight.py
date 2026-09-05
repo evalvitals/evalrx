@@ -95,7 +95,7 @@ def check_imports() -> None:
 def check_claude() -> None:
     exe = shutil.which("claude")
     if not exe:
-        bad("`claude` CLI not on PATH — M1/M2/M3/M5 judges cannot run",
+        bad("`claude` CLI not on PATH — M1/M2/M3/M4 judges cannot run",
             "install Claude Code and authenticate: https://claude.com/claude-code")
         return
     try:
@@ -133,7 +133,7 @@ def check_claude() -> None:
                              cwd="/tmp")
     except subprocess.TimeoutExpired:
         warn(f"judge probe (model={model} effort={effort}) took >5 min",
-             "works, but M1-M5 will be slow; consider a lower effort")
+             "works, but M1-M4 will be slow; consider a lower effort")
         return
     except OSError as exc:
         bad(f"judge probe failed to launch ({type(exc).__name__})", "check the CLI")

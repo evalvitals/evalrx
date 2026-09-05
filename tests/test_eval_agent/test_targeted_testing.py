@@ -1,6 +1,6 @@
 """P3+P4: hypothesis test designs, evidence routing, and depth-tiered stopping.
 
-P3 — M3 attaches a ``test_design`` to each hypothesis; M5 routes evidence by it
+P3 — M3 attaches a ``test_design`` to each hypothesis; M4 routes evidence by it
 (deterministic) before falling back to keywords; M1 folds the designs into
 cycle-2 analyzer selection.
 P4 — verdicts carry an ``evidence_grade`` (intervention > observational) and
@@ -251,8 +251,8 @@ def test_diagnosis_parses_test_line_into_design():
 def test_critic_rejection_annotates_instead_of_deleting():
     """A critic that rejects every proposal used to end the run at
     '0 hypothesis/es' (three llm_benchmark runs on 2026-08-20) with no
-    M5/M4/fix. The verdict is provenance now: the hypothesis stays, flagged,
-    and the held-out M5 decides."""
+    M4/M5/fix. The verdict is provenance now: the hypothesis stays, flagged,
+    and the held-out M4 decides."""
     judge = TwoAnswerJudge([
         "HYPOTHESIS: the model ignores visual evidence entirely\n"
         "PLAIN_STATEMENT: The model answers without looking at the picture.\n"
@@ -341,7 +341,7 @@ def test_m1_selection_prompt_includes_test_designs():
                 protocol=ExperimentProtocol(description="d"), prior_hypotheses=prior)
     assert "proposed test: run prompt_contrast describe_first" in judge.prompt
 
-# ── M5 must read the corrected verdict, not the raw one ─────────────────────
+# ── M4 must read the corrected verdict, not the raw one ─────────────────────
 def _bh_family_report() -> StatsAnalysisReport:
     """Three signal_label_assoc results as correct_results() leaves them.
 
@@ -349,7 +349,7 @@ def _bh_family_report() -> StatsAnalysisReport:
     the three keeps only changed_answer (p=.0013); cot_sentences (p=.039) and
     max_value_drop (p=.143, n_signal=3) fail. All three carry raw reject=True
     because signal_label_assoc rejects on a bootstrap CI, and a CI over three
-    cases cannot straddle zero — that is the arm M5 must not be allowed to read.
+    cases cannot straddle zero — that is the arm M4 must not be allowed to read.
     """
     from evalrx.analysis.stats_tools import fdr_correct
 
@@ -376,11 +376,11 @@ def _bh_family_report() -> StatsAnalysisReport:
 
 
 def test_a_signal_bh_killed_cannot_support_a_hypothesis():
-    """p=0.143 over three cases printed 'REJECT H0' and M5 said SUPPORTED.
+    """p=0.143 over three cases printed 'REJECT H0' and M4 said SUPPORTED.
 
     `reject` stays raw for BH members on purpose (multiplicity.py keeps the
     tool's own verdict visible to the loop); the corrected verdict lives in
-    fdr_corrected. M5 read the former.
+    fdr_corrected. M4 read the former.
     """
     h = _hyp("Value drops mid-chain cause the failure.",
              design="step_rollout_value.max_value_drop")
@@ -567,7 +567,7 @@ def test_diagnosis_prompt_asks_for_the_direction():
     assert "never on\nextracted_answer, labelled_fail" in _DIAGNOSE_PROMPT
 
 
-def test_an_outcome_regrade_cannot_be_m5_evidence_even_from_an_old_m2():
+def test_an_outcome_regrade_cannot_be_m4_evidence_even_from_an_old_m2():
     """h3 on minervamath named `gold_in_answer_region` = 0; the old M2 results
     still carry that column (84% label copy). It must not decide the verdict
     in either direction — the design is unmet, not refuted / supported."""

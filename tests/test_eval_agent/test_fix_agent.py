@@ -3403,7 +3403,7 @@ def test_safe_format_leaves_non_placeholder_braces_alone():
     r"""str.format treats every {...} as a field; a math prompt is full of them.
 
     All four of these are real str.format failures, and the third ended a live
-    qwen3.5-2b / minervamath run after M4 had already produced its fix:
+    qwen3.5-2b / minervamath run after M5 had already produced its fix:
 
         "{prompt} \frac{a}{b}"  KeyError: 'a'
         "{prompt} 10^{33}"      IndexError: Replacement index 33

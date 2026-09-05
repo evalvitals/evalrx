@@ -35,7 +35,7 @@ cd examples/benchmark/alm/gemma
 docker compose build                                   # once per family (cached afterwards)
 # per-cell smoke: load + Stage 0 on 8 rows, no judge
 EXTRA_ARGS="--baseline-only --limit 8" docker compose run --rm gemma-4-e2b
-# the full chain (M1 -> explore -> M2 -> M3 -> held-out M5 -> M4 -> fix), detached
+# the full chain (M1 -> explore -> M2 -> M3 -> held-out M4 -> M5 -> fix), detached
 DATASET=mmau CUDA_VISIBLE_DEVICES=0 docker compose run -d --name alm-gemma-4-e2b-mmau gemma-4-e2b
 docker logs -f alm-gemma-4-e2b-mmau
 ```

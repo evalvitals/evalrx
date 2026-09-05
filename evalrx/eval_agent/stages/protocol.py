@@ -5,7 +5,7 @@ The protocol is the human prior that anchors the self-evolving loop:
 - **M1** passes the protocol to :class:`~evalrx.eval_agent.probe_agent.ProbeAgent`,
   which uses an LLM judge to select analyzers from the description.
 - **M2** uses the protocol to frame its statistical narrative.
-- **M5** uses it to verify that a hypothesis is consistent with what the user
+- **M4** uses it to verify that a hypothesis is consistent with what the user
   actually set out to investigate.
 
 The description should be written in plain researcher language describing the
@@ -46,7 +46,7 @@ class ExperimentProtocol:
         description:        What the experiment tests — free text (required).
         task_domain:        Short label, e.g. ``"spatial reasoning"``,
                             ``"GUI navigation"``.
-        success_criteria:   What counts as a pass (used by M5 verifier).
+        success_criteria:   What counts as a pass (used by M4 verifier).
         failure_patterns:   Optional free-text observations about what the
                             researcher has already noticed — passed verbatim
                             to the LLM judge as additional context.

@@ -2,9 +2,9 @@
 
 Two loops are available:
 
-  AutoDiagnoseLoop   M1 → M2 → M3 → M4 (legacy, four-stage sweep)
-  VLDiagnoseLoop     M1 → M2 → M3 → M5 inner loop, M4 called post-loop (Plan A)
-                     Stops when M5 finds a statistically supported,
+  AutoDiagnoseLoop   M1 → M2 → M3 → M5 (legacy, four-stage sweep)
+  VLDiagnoseLoop     M1 → M2 → M3 → M4 inner loop, M5 called post-loop (Plan A)
+                     Stops when M4 finds a statistically supported,
                      protocol-consistent hypothesis.
 
 Stage modules live in ``stages/``; shared infrastructure stays at the top level.
@@ -38,7 +38,7 @@ evalrx.agent_runtime (shared CLI-agent runtime, imports neither analysis nor eva
   codegen/             shared code-generation runner used by stages
   skills/              skill resolution, installation, and prompt policy
 
-stages/ (M1–M5 implementation):
+stages/ (M1–M4 implementation):
   probe.py             M1 — StrategyProbe: model-kind detection + analyzer ranking
   probe_agent.py       M1 — ProbeAgent: execute ranked analyzers (direct or Docker);
                               protocol-guided via ExperimentProtocol.probe_hints();
@@ -62,9 +62,9 @@ stages/ (M1–M5 implementation):
                               STATS_RESULT_JSON contract (never mutates repo source)
   diagnosis.py         M3 — DiagnosisAgent: judge reads report → Hypothesis list
   case_discovery.py    Data — run candidate prompts and label PASS/FAIL cases
-  surgery.py           M4 — SurgeryAgent: correlate / param-sweep / ExperimentWriter
+  surgery.py           M5 — SurgeryAgent: correlate / param-sweep / ExperimentWriter
                               → InterventionResult (SUPPORTED / REFUTED / INCONCLUSIVE)
-  experiment_writer.py M4 — multi-phase LLM/CLI agent writes + executes fix scripts
+  experiment_writer.py M5 — multi-phase LLM/CLI agent writes + executes fix scripts
   fix_tiers.py         Fix — FixTier intervention-space ladder (L0 runtime /
                               L1 prompt / L2 scaffold / L3a read / L3b write /
                               L4 params)
@@ -80,7 +80,7 @@ stages/ (M1–M5 implementation):
                               FinetuneSpec + run_lora_repair (v1: LoRA on
                               target="llm" only, trained on a caller-supplied
                               finetune_pool; other recipe shapes recorded only)
-  hypothesis_tester.py M5 — HypothesisTester: statistical test + protocol consistency;
+  hypothesis_tester.py M4 — HypothesisTester: statistical test + protocol consistency;
                               stopping_criteria_met() drives the VLDiagnoseLoop exit
 """
 
@@ -237,7 +237,7 @@ __all__ = [
     # Case discovery / labeling
     "CaseDiscoveryAgent",
     "CaseDiscoveryReport",
-    # M4
+    # M5
     "SurgeryAgent",
     "InterventionResult",
     # Loop
@@ -246,7 +246,7 @@ __all__ = [
     "SelfEvolveLoop",
     "VLDiagnoseLoop",
     "VLDiagnoseReport",
-    # Agentic loop (judge-decided M1-M5, alternative to VLDiagnoseLoop's fixed cycle)
+    # Agentic loop (judge-decided M1-M4, alternative to VLDiagnoseLoop's fixed cycle)
     "AgenticDiagnoseLoop",
     "ToolSpec",
     "ToolOutcome",
@@ -279,7 +279,7 @@ __all__ = [
     # M2 tier (b) code generation
     "StatsToolGenerator",
     "GeneratedStatsTool",
-    # M5 hypothesis tester
+    # M4 hypothesis tester
     "HypothesisTester",
     "HypothesisTestResult",
     # Shared

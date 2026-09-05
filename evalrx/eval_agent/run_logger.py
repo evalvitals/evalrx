@@ -1,6 +1,6 @@
 """RunLogger — structured per-cycle logging for AutoDiagnoseLoop.
 
-Writes a JSONL event log (one line per M1/M2/M3/M4 event) and saves heavy
+Writes a JSONL event log (one line per M1/M2/M3/M5 event) and saves heavy
 analyzer artifacts (attention tensors, hidden-state arrays) to a separate
 ``artifacts/`` directory, keyed by cycle number so they stay navigable.
 
@@ -375,7 +375,7 @@ class _VerboseFormatter(logging.Formatter):
             if p.get("out_dir"):
                 lines.append(f"     out_dir    : {p['out_dir']}")
             lines.append("     (descriptive only — feeds M3's notes and the dashboard, "
-                         "never M2/M5/fix)")
+                         "never M2/M4/fix)")
             return "\n".join(lines)
 
         if event == "analysis":
@@ -446,7 +446,7 @@ class _VerboseFormatter(logging.Formatter):
             if n_rej or n_keep:
                 head += f"  (critic: {n_keep} kept, {n_rej} rejected"
                 head += (" — all rejected: kept as flagged leads, the held-out "
-                         "M5 decides)" if n_rej and not n_keep else
+                         "M4 decides)" if n_rej and not n_keep else
                          "; rejected ones demoted)" if n_rej else ")")
             lines = [head]
             for h in p.get("hypotheses") or []:
@@ -461,12 +461,12 @@ class _VerboseFormatter(logging.Formatter):
             return "\n".join(lines)
 
         if event == "surgery":
-            module = p.get("module", "m4").upper()
+            module = p.get("module", "m5").upper()
             hyp = p.get("hypothesis", "")[:70]
             status = p.get("status", "?")
             lines = [f"\n[{module}] cycle={cycle}  '{hyp}'"]
             ev = p.get("evidence") or {}
-            if module == "M5":
+            if module == "M4":
                 # This is the only stage allowed to say whether an explanation
                 # held up, so it is the line most worth being a sentence.
                 plain = {
@@ -478,13 +478,13 @@ class _VerboseFormatter(logging.Formatter):
                     lines.append(f"     in plain terms: {plain}")
                 lines.append(
                     f"     status={status}"
-                    f"  effect={ev.get('m5_effect_size', '?')}"
-                    f"  confidence={ev.get('m5_confidence', '?')}"
+                    f"  effect={ev.get('m4_effect_size', '?')}"
+                    f"  confidence={ev.get('m4_confidence', '?')}"
                 )
                 lines.append(
-                    f"     protocol_consistent={ev.get('m5_protocol_consistent', '?')}"
+                    f"     protocol_consistent={ev.get('m4_protocol_consistent', '?')}"
                 )
-                lines.append(f"     verdict : {ev.get('m5_verdict', '')}")
+                lines.append(f"     verdict : {ev.get('m4_verdict', '')}")
             else:
                 lines.append(f"     status={status}  fixed={p.get('fixed')}")
                 if ev:
@@ -492,7 +492,7 @@ class _VerboseFormatter(logging.Formatter):
             return "\n".join(lines)
 
         if event == "experiment":
-            module = p.get("module", "m4").upper()
+            module = p.get("module", "m5").upper()
             lines = [f"\n[{module}] cycle={cycle}  experiment run"]
             lines.append(f"     hypothesis : {p.get('hypothesis', '')[:70]}")
             lines.append(
@@ -535,13 +535,13 @@ class _VerboseFormatter(logging.Formatter):
             return "\n".join(lines)
 
         if event == "fix":
-            # Without this branch the whole M4 result reached the console as a
+            # Without this branch the whole M5 result reached the console as a
             # json.dumps of the payload — the one stage whose answer is the
             # point of the run was the one stage nobody could read.
             best = p.get("best") or {}
             attempted = p.get("attempted") or []
             n = len(attempted) if isinstance(attempted, list) else 0
-            head = f"\n[M4] {n} repair candidate(s) tried"
+            head = f"\n[M5] {n} repair candidate(s) tried"
             ref = best.get("ref") or best.get("name")
             if ref:
                 head += f"; best = {ref}"
@@ -652,7 +652,7 @@ class RunLogger:
             self.run_dir = Path(run_dir)
             self.artifact_dir = self.run_dir / "artifacts"
             # Dedicated, human-navigable sinks for the heavier event payloads.
-            #   experiments/  — M4 experiment scripts, run stdout/stderr, the agent's
+            #   experiments/  — M5 experiment scripts, run stdout/stderr, the agent's
             #                   intermediate thinking (CLI narration / LLM phase log)
             #   tools/        — code the agent synthesised for new probes / stats tools
             #   workspace/    — per-event snapshots of the sandbox working directory
@@ -676,7 +676,7 @@ class RunLogger:
 
         # The loop stamps this at the top of every cycle so generator-level
         # events (which have no cycle of their own) can be correlated with the
-        # M1→M5 events around them.  -1 means "outside any cycle" (e.g. post-loop M4).
+        # M1→M4 events around them.  -1 means "outside any cycle" (e.g. post-loop M5).
         self.current_cycle: int = -1
         # Stable ordering for Langfuse/API readers.  Timestamps alone are not
         # sufficient when a stage emits several records in the same clock tick.
@@ -1290,7 +1290,7 @@ class RunLogger:
                 "decisions": review_decisions,
             }
         # Provenance of the (UNCONFIRMED) explorer mechanism notes M3 was shown.
-        # Descriptive only — these never enter M2/M5/fix; logged so the dashboard
+        # Descriptive only — these never enter M2/M4/fix; logged so the dashboard
         # can tag which explore charts/observations each hypothesis cited.
         referenced = getattr(diag, "referenced_charts", None)
         if referenced:
@@ -1369,16 +1369,16 @@ class RunLogger:
         judge_prompt: "str | None" = None,
         judge_raw: "str | None" = None,
     ) -> None:
-        """M4/M5: log intervention outcome for one hypothesis.
+        """M5/M4: log intervention outcome for one hypothesis.
 
-        M5 results are distinguished by the presence of ``m5_test_name`` in
-        ``iv.evidence``; they get span_id ``c{cycle}.m5`` instead of ``.m4``.
-        The M5 protocol-consistency judge call (when a judge was used) is
+        M4 results are distinguished by the presence of ``m4_test_name`` in
+        ``iv.evidence``; they get span_id ``c{cycle}.m4`` instead of ``.m5``.
+        The M4 protocol-consistency judge call (when a judge was used) is
         saved under ``prompts/`` via ``judge_io`` — same pattern as
         M1/M2/M3, closing the last gap in verbatim judge I/O coverage.
         """
-        is_m5 = "m5_test_name" in (iv.evidence or {})
-        span_suffix = "m5" if is_m5 else "m4"
+        is_m4 = "m4_test_name" in (iv.evidence or {})
+        span_suffix = "m4" if is_m4 else "m5"
         entry: dict[str, Any] = {
             "event": "surgery",
             "cycle": cycle,
@@ -1392,8 +1392,8 @@ class RunLogger:
             "evidence": iv.evidence,
             "n_refocused_cases": len(iv.new_data) if iv.new_data else None,
         }
-        if is_m5:
-            # Store one actual held-out input when it is available.  The M5
+        if is_m4:
+            # Store one actual held-out input when it is available.  The M4
             # verdict itself remains aggregate and must never be inferred from
             # this example alone.
             candidates = _iter_cases(validation_cases)
@@ -1401,7 +1401,7 @@ class RunLogger:
                 snapshots = [_case_snapshot(case) for case in candidates]
                 snapshot = next((item for item in snapshots if str(item.get("outcome", "")).lower() == "fail"), snapshots[0])
                 entry["validation_examples"] = [{
-                    "id": f"m5-{snapshot.get('id')}", "kind": "validation_case",
+                    "id": f"m4-{snapshot.get('id')}", "kind": "validation_case",
                     "case_id": snapshot.get("id"), **snapshot,
                     "plain_reading": "This is one case in the independent validation pool. The verdict is determined from the full pool, not this case alone.",
                     "evidence_scope": "one case in the independent validation pool",
@@ -1415,10 +1415,10 @@ class RunLogger:
         self._log(entry, span_id=f"c{cycle}.{span_suffix}")
 
         # Native Langfuse Audit
-        stage_title = "M5 Adjudication" if is_m5 else "M4 Intervention"
+        stage_title = "M4 Adjudication" if is_m4 else "M5 Intervention"
         surg_span = self.tracer.start_span(
             name=f"{stage_title}: {hypothesis.statement[:60]}",
-            stage="M5" if is_m5 else "M4_SURGERY",
+            stage="M4" if is_m4 else "M5_SURGERY",
             input_data={"hypothesis": hypothesis.statement, "failure_mode": hypothesis.predicted_failure_mode},
             metadata={"status": iv.status.value, "fixed": iv.fixed, "confidence_score": iv.confidence_score},
         )
@@ -1550,8 +1550,8 @@ class RunLogger:
 
         # Native Langfuse Audit
         fix_span = self.tracer.start_span(
-            name="M4: Targeted Repair & Confirmation",
-            stage="M4_FIX",
+            name="M5: Targeted Repair & Confirmation",
+            stage="M5_FIX",
             input_data={"candidates_evaluated": len(d.get("attempted", []))},
         )
         if best.get("effect") is not None:
@@ -1781,9 +1781,9 @@ class RunLogger:
     ) -> None:
         """Final summary entry for the diagnosis loop — does **not** close the log.
 
-        ``loop_end`` marks the end of the M1→M5 diagnosis loop, not the end of
-        logging: the post-loop experiments (M4 mechanism verification via
-        :meth:`AutoDiagnoseLoop.run_m4`, tiered repair via ``run_fix``) run
+        ``loop_end`` marks the end of the M1→M4 diagnosis loop, not the end of
+        logging: the post-loop experiments (M5 mechanism verification via
+        :meth:`AutoDiagnoseLoop.run_m5`, tiered repair via ``run_fix``) run
         *after* ``loop.run()`` returns and must still be recorded.  The logger's
         lifecycle therefore belongs to whoever created it — use it as a context
         manager or call :meth:`close` explicitly when all work is done.  (Each
@@ -1847,7 +1847,7 @@ class RunLogger:
             pass
 
     # ------------------------------------------------------------------
-    # Experiment log (M4) + workspace snapshot
+    # Experiment log (M5) + workspace snapshot
     # ------------------------------------------------------------------
 
     def log_experiment(
@@ -1856,9 +1856,9 @@ class RunLogger:
         hypothesis: "Hypothesis",
         iv: "InterventionResult",
         *,
-        module: str = "m4",
+        module: str = "m5",
     ) -> None:
-        """M4: log the *experiment* the agent wrote and ran to test *hypothesis*.
+        """M5: log the *experiment* the agent wrote and ran to test *hypothesis*.
 
         Consumes the rich ``iv.experiment`` payload attached by
         :class:`~evalrx.eval_agent.stages.surgery.SurgeryAgent` (the
@@ -1960,7 +1960,7 @@ class RunLogger:
     def _write_experiment_record(
         self, entry: "dict[str, Any]", dest_dir: Path, name_prefix: str
     ) -> "str | None":
-        """Write a one-page Markdown summary of an M4 experiment.
+        """Write a one-page Markdown summary of an M5 experiment.
 
         Lands in *dest_dir* with *name_prefix* — the same trial folder (no
         prefix) or the flat ``experiments/`` dir (``{stem}_`` prefix) the rest
@@ -1968,7 +1968,7 @@ class RunLogger:
         """
         status = (entry.get("status") or "unknown").upper()
         lines = [
-            f"# Experiment — {entry.get('module', 'm4').upper()}  ({status})",
+            f"# Experiment — {entry.get('module', 'm5').upper()}  ({status})",
             "",
             f"**Hypothesis:** {entry.get('hypothesis', '')}",
             f"**Failure mode:** {entry.get('failure_mode', '—')}",
@@ -2206,7 +2206,7 @@ class RunLogger:
     def _save_text(self, directory: Path, stem: str, text: str) -> "str | None":
         """Write *text* to ``directory/stem`` (creating *directory*); return rel path.
 
-        ``stem`` already carries the extension (e.g. ``c0_m4_main.py``).  Returns
+        ``stem`` already carries the extension (e.g. ``c0_m5_main.py``).  Returns
         the path relative to :attr:`run_dir` for embedding in the JSONL event, or
         ``None`` if writing fails.
         """

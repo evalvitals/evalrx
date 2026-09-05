@@ -1,7 +1,7 @@
-"""AgenticDiagnoseLoop — an LLM-driven decision loop over the M1-M5 stages.
+"""AgenticDiagnoseLoop — an LLM-driven decision loop over the M1-M4 stages.
 
-``VLDiagnoseLoop`` runs M1->M2->M3->M5 in a hardcoded sequence every cycle.
-This loop keeps every stage (and the confirm-split / post-loop run_m4/run_fix
+``VLDiagnoseLoop`` runs M1->M2->M3->M4 in a hardcoded sequence every cycle.
+This loop keeps every stage (and the confirm-split / post-loop run_m5/run_fix
 discipline) exactly as-is, but replaces the fixed sequence with a CLI judge
 that decides, one tool call at a time, what to do next — probe, run stats,
 explore the raw data, propose hypotheses, test one, fix, or stop. The host,
@@ -47,11 +47,11 @@ def _protocol_summary(protocol: "Any | None") -> str:
 
 
 class AgenticDiagnoseLoop(VLDiagnoseLoop):
-    """M1-M5 investigation driven by judge decisions instead of a fixed cycle.
+    """M1-M4 investigation driven by judge decisions instead of a fixed cycle.
 
     Reuses :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop`'s constructor,
-    stage helpers (``_do_m1``..``_do_m5``), confirm-split, and post-loop
-    ``run_m4``/``run_fix`` — only :meth:`run` differs.
+    stage helpers (``_do_m1``..``_do_m4``), confirm-split, and post-loop
+    ``run_m5``/``run_fix`` — only :meth:`run` differs.
 
     Args:
         judge:            CLI-backed judge that decides the next action each

@@ -6,7 +6,7 @@ Covers:
   - ProbeAgent LLM-guided selection (judge= path)
   - StatsAnalysisAgent + StatsAnalysisReport (backward compat with AnalysisReport)
   - HypothesisTester (statistical test, protocol consistency, stopping criteria)
-  - VLDiagnoseLoop (M1→M2→M3→M5, stopping, run_m4)
+  - VLDiagnoseLoop (M1→M2→M3→M4, stopping, run_m5)
 """
 
 from __future__ import annotations
@@ -170,7 +170,7 @@ class TestCaseDiscoveryAgent:
         assert report.cases[0].label == Label.PASS
         assert report.cases[0].metadata["discovery_label"] == "pass"
 
-    def test_discovers_pass_fail_groups_for_m5(self):
+    def test_discovers_pass_fail_groups_for_m4(self):
         model = ScriptedModel(
             ["wrong answer", "No."],
             capabilities={Capability.GENERATE},
@@ -189,7 +189,7 @@ class TestCaseDiscoveryAgent:
         ])
 
         discovery = CaseDiscoveryAgent().discover(model, candidates)
-        assert discovery.has_m5_groups
+        assert discovery.has_m4_groups
 
         fail_ids = [case.id for case in discovery.cases if case.label == Label.FAIL]
         stats_report = _make_stats_report_with_signal(fail_ids)
@@ -487,7 +487,7 @@ class TestStatsAnalysisAgent:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HypothesisTester (M5)
+# HypothesisTester (M4)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _make_stats_report_with_signal(case_ids_with_signal: list[str]) -> StatsAnalysisReport:
@@ -790,7 +790,7 @@ class TestVLDiagnoseLoop:
         assert report.stopped_by in {"max_cycles", "no_hypotheses", "no_probe_results"}
 
     def test_stopped_by_criteria(self):
-        # Force a high-signal case batch that makes M5 support the hypothesis
+        # Force a high-signal case batch that makes M4 support the hypothesis
         cases = [
             FailureCase(inputs=Inputs(prompt="q1"), label=Label.FAIL),
             FailureCase(inputs=Inputs(prompt="q2"), label=Label.FAIL),
@@ -826,7 +826,7 @@ class TestVLDiagnoseLoop:
         assert report.stopped_by == "criteria_met"
         assert len(report.verified_hypotheses) >= 1
 
-    def test_run_m4_returns_none_without_verified(self):
+    def test_run_m5_returns_none_without_verified(self):
         loop = VLDiagnoseLoop(
             model=_vlm(),
             protocol=_spatial_protocol(),
@@ -834,10 +834,10 @@ class TestVLDiagnoseLoop:
             max_cycles=1,
         )
         report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles")
-        result = loop.run_m4(report, _labeled_batch())
+        result = loop.run_m5(report, _labeled_batch())
         assert result is None
 
-    def test_run_m4_operates_on_best_hypothesis(self):
+    def test_run_m5_operates_on_best_hypothesis(self):
         from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
         from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
@@ -866,7 +866,7 @@ class TestVLDiagnoseLoop:
             max_cycles=1,
         )
         data = _labeled_batch()
-        iv = loop.run_m4(report, data)
+        iv = loop.run_m5(report, data)
         # SurgeryAgent default falls back to label correlation
         assert iv is not None
         assert iv.hypothesis is h
@@ -930,7 +930,7 @@ class TestVLDiagnoseTwoPhase:
 
     def _signal_setup(self, **loop_kw):
         """A loop whose probe fires a per-case signal exactly on the FAIL cases,
-        so M5 can confirm. Returns (loop, data)."""
+        so M4 can confirm. Returns (loop, data)."""
         from evalrx.core.result import Result as R
         from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 
@@ -968,7 +968,7 @@ class TestVLDiagnoseTwoPhase:
         assert report.stopped_by == "analysis_complete"
         assert report.cycles == 1
         assert len(report.all_hypotheses) >= 1
-        # M5 did not run: no test results, nothing verified.
+        # M4 did not run: no test results, nothing verified.
         assert report.all_test_results == []
         assert report.verified_hypotheses == []
         # M2 ran: the stats report (charts/signal verdicts) is present for the dashboard.
@@ -1020,7 +1020,7 @@ class TestVLDiagnoseTwoPhase:
         assert len(confirmed.all_test_results) == len(reloaded)
         assert confirmed.final_stats_report is not None
 
-    def test_confirm_then_run_m4(self):
+    def test_confirm_then_run_m5(self):
         from evalrx.eval_agent.hypothesis import (
             hypothesis_from_dict,
             hypothesis_to_dict,
@@ -1034,7 +1034,7 @@ class TestVLDiagnoseTwoPhase:
             data, reloaded, stats_report=analysis.final_stats_report
         )
         # The confirm report drives the post-loop fix step just like run().
-        iv = loop.run_m4(confirmed, data)
+        iv = loop.run_m5(confirmed, data)
         assert iv is not None
         assert confirmed.fix_proposal is iv
 
@@ -1111,10 +1111,10 @@ class TestDescriptivePhaseCompiler:
         from evalrx.reporting.compiler import compile_diagnostic_report
 
         # Even a descriptive analysis flips to validity once a confirm-phase
-        # surgery (M5) is recorded in the merged story.
+        # surgery (M4) is recorded in the merged story.
         story = {
             "analyses": [{"cycle": 0, "descriptive_only": True}],
-            "surgeries": [{"cycle": 0, "module": "m5"}],
+            "surgeries": [{"cycle": 0, "module": "m4"}],
         }
         rep = compile_diagnostic_report(story, self._EXPLORE).to_dict()
         assert any(c["status"] == "supported" for c in rep["claims"])
@@ -1143,14 +1143,14 @@ class TestM3FaultTolerance:
 
 
 def test_default_is_a_single_diagnosis_cycle():
-    """One M1→M5 pass by default, then the caller moves on to M4/fix (the
+    """One M1→M4 pass by default, then the caller moves on to M5/fix (the
     unverified path covers 'nothing verified'); extra cycles are opt-in."""
     loop = VLDiagnoseLoop(model=FakeModel(), protocol=ExperimentProtocol(description="d"))
     assert loop.max_cycles == 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# M5 on held-out data (leak fix: cycles mine on EXPLORE, M5 tests on CONFIRM)
+# M4 on held-out data (leak fix: cycles mine on EXPLORE, M4 tests on CONFIRM)
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -1202,16 +1202,16 @@ def _holdout_loop(probe, **kw):
     )
 
 
-class TestM5Holdout:
-    def test_m5_runs_only_on_the_confirm_split(self):
+class TestM4Holdout:
+    def test_m4_runs_only_on_the_confirm_split(self):
         data = _holdout_batch()
         # signal marks every FAIL on both splits — verifies on holdout
         probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
         report = _holdout_loop(probe).run(data)
-        assert report.m5_holdout == "confirmed"
+        assert report.m4_holdout == "confirmed"
         assert len(report.verified_hypotheses) >= 1
         assert report.verified_hypotheses[0].evidence["split"] == "confirm_holdout"
-        # every M5 result this run came from the held-out pass — no in-cycle M5
+        # every M4 result this run came from the held-out pass — no in-cycle M4
         assert report.all_test_results
         assert all(tr.evidence.get("split") == "confirm_holdout"
                    for tr in report.all_test_results)
@@ -1233,13 +1233,13 @@ class TestM5Holdout:
         # signal marks FAILs only on the EXPLORE side — an in-sample artifact
         probe = _RecordingSignalProbe(explore_fails)
         report = _holdout_loop(probe).run(data)
-        assert report.m5_holdout == "confirmed"          # the pass RAN
+        assert report.m4_holdout == "confirmed"          # the pass RAN
         assert report.verified_hypotheses == []          # and did not verify
         assert report.resolved is False
 
     def test_no_early_stop_on_supported_with_multiple_cycles(self):
         """In holdout mode the cycles only mine: a strong in-sample signal
-        must NOT stop the loop early (M5's verdict never steers mining)."""
+        must NOT stop the loop early (M4's verdict never steers mining)."""
         data = _holdout_batch()
         probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
         report = _holdout_loop(probe, max_cycles=2).run(data)
@@ -1251,13 +1251,13 @@ class TestM5Holdout:
     def test_disabled_holdout_keeps_the_old_behavior(self):
         data = _holdout_batch()
         probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
-        report = _holdout_loop(probe, m5_holdout=False).run(data)
-        assert report.m5_holdout is None
+        report = _holdout_loop(probe, m4_holdout=False).run(data)
+        assert report.m4_holdout is None
         assert len(probe.calls) == 1
         assert len(report.verified_hypotheses) >= 1      # in-sample, as before
         assert report.stopped_by == "criteria_met"       # old early stop
 
-    def test_no_confirm_split_means_in_cycle_m5(self):
+    def test_no_confirm_split_means_in_cycle_m4(self):
         data = _holdout_batch()
         probe = _RecordingSignalProbe([c.id for c in data if c.label == Label.FAIL])
         loop = VLDiagnoseLoop(
@@ -1266,7 +1266,7 @@ class TestM5Holdout:
             hypothesis_tester=HypothesisTester(min_effect=0.05), max_cycles=1,
         )
         report = loop.run(data)
-        assert report.m5_holdout is None
+        assert report.m4_holdout is None
         assert len(probe.calls) == 1
 
     def test_run_confirm_tests_on_holdout(self):
@@ -1276,6 +1276,6 @@ class TestM5Holdout:
         h = Hypothesis(statement="Model fails due to attention issue.",
                        target_model="fake", predicted_failure_mode="attention")
         report = loop.run_confirm(data, [h])
-        assert report.m5_holdout == "confirmed"
+        assert report.m4_holdout == "confirmed"
         assert len(report.verified_hypotheses) >= 1
         assert report.verified_hypotheses[0].evidence["split"] == "confirm_holdout"

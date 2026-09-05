@@ -1,4 +1,4 @@
-"""Prompt templates for M5 hypothesis testing."""
+"""Prompt templates for M4 hypothesis testing."""
 
 _CONSISTENCY_PROMPT = """\
 Experiment protocol:

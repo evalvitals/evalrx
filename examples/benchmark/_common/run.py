@@ -22,7 +22,7 @@ from .models import BACKENDS, MODALITIES, SIZES, default_backend, matrix_text, r
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="EvalRX benchmark cell: Stage 0 -> M1..M5 -> M4 -> fix")
+    p = argparse.ArgumentParser(description="EvalRX benchmark cell: Stage 0 -> M1..M4 -> M5 -> fix")
     p.add_argument("--modality", choices=MODALITIES, help="which dataset family / input slot the cell uses")
     p.add_argument("--model", help=f"size key ({', '.join(SIZES)}) or a registered spec key")
     p.add_argument("--dataset", default=None, help="task name (default per modality: "
@@ -140,9 +140,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="feedback-driven coded-pipeline attempts (default: 2)")
     p.add_argument("--baseline-only", action="store_true",
                    help="download + load + Stage 0 only (no judge): the per-cell smoke check")
-    p.add_argument("--skip-fix", action="store_true", help="stop after M1..M5")
+    p.add_argument("--skip-fix", action="store_true", help="stop after M1..M4")
     p.add_argument(
-        "--skip-m4",
+        "--skip-m5",
         action="store_true",
         help="skip the optional pre-fix surgery experiment; keep the full tiered fix search",
     )

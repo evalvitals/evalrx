@@ -12,7 +12,7 @@ twin of ``examples/benchmark/tools/extract_figure_data.py``: same block names,
 same field names, so a figure drawn from the CLI tool and this sheet cannot
 disagree about what a number means.
 
-Every block degrades on its own. A run that never reached M4 still gets its M1
+Every block degrades on its own. A run that never reached M5 still gets its M1
 and M2 sections; a run with no probe artifacts at all yields ``None`` and the
 section is dropped rather than rendered empty.
 """
@@ -165,9 +165,9 @@ MODULES = [
      "Using plots to explain, statistical tests to decide."),
     ("M3", "Hypothesis formation",
      "Explore the reason behind the signals."),
-    ("M5", "Held-out verification",
+    ("M4", "Held-out verification",
      "Confirm the hypothesis over cases it never saw."),
-    ("M4", "Validated repair",
+    ("M5", "Validated repair",
      "Climb the repair ladder until something holds."),
 ]
 
@@ -595,8 +595,8 @@ def _m3(run: _Run) -> "list[dict[str, Any]]":
     ]
 
 
-def _m5(run: _Run) -> "list[dict[str, Any]]":
-    verdicts = [e for e in run.events_of("surgery") if e.get("module") == "m5"]
+def _m4(run: _Run) -> "list[dict[str, Any]]":
+    verdicts = [e for e in run.events_of("surgery") if e.get("module") == "m4"]
     out = []
     for index, verdict in enumerate(verdicts, start=1):
         evidence = verdict.get("evidence") or {}
@@ -605,16 +605,16 @@ def _m5(run: _Run) -> "list[dict[str, Any]]":
             "failure_mode": str(verdict.get("failure_mode") or "").strip("`"),
             "status": verdict.get("status"),
             "statement": verdict.get("hypothesis"),
-            "test_name": evidence.get("m5_test_name") or evidence.get("chosen_tool"),
+            "test_name": evidence.get("m4_test_name") or evidence.get("chosen_tool"),
             "effect": evidence.get("effect_size"),
             "ci": evidence.get("ci"),
-            "evidence_grade": evidence.get("m5_evidence_grade"),
+            "evidence_grade": evidence.get("m4_evidence_grade"),
             "underpowered": evidence.get("underpowered"),
         })
     return out
 
 
-def _m4(run: _Run) -> "dict[str, Any] | None":
+def _m5(run: _Run) -> "dict[str, Any] | None":
     """The repair ladder, and every candidate the search actually tried.
 
     Two lists with different authority: ``selection_attempted`` is the search on
@@ -766,11 +766,11 @@ def _example_case(run: _Run, curve: "Mapping[str, Any] | None") -> "dict[str, An
     }
 
 
-def _qa_flags(curve, m5, validation, example, m2) -> "list[dict[str, str]]":
+def _qa_flags(curve, m4, validation, example, m2) -> "list[dict[str, str]]":
     """The caveats the sheet is required to carry, from the run's own numbers."""
     flags: list[dict[str, str]] = []
     seen: dict[tuple, str] = {}
-    for verdict in m5:
+    for verdict in m4:
         key = (verdict.get("test_name"), verdict.get("effect"))
         if key[0] is not None and key[1] is not None:
             if key in seen:
@@ -794,7 +794,7 @@ def _qa_flags(curve, m5, validation, example, m2) -> "list[dict[str, str]]":
         flags.append({"level": "note", "code": "example_case_from_explore",
                       "detail": "the illustrative case comes from the explore split; its output is "
                                 "the unchanged model's, not a measured repaired result"})
-    if validation and not any(v.get("status") == "supported" for v in m5):
+    if validation and not any(v.get("status") == "supported" for v in m4):
         flags.append({"level": "warning", "code": "repair_without_supported_hypothesis",
                       "detail": "a repair was accepted although no hypothesis reached 'supported'; "
                                 "the gain is empirical, not a validated mechanism"})
@@ -824,8 +824,8 @@ def build_case_study(
     signals = _survivors(run)
     curve = _signal_curve(run, signals) if signals else None
     m3 = _m3(run)
-    m5 = _m5(run)
     m4 = _m4(run)
+    m5 = _m5(run)
     repair = _repair(run)
     validation = _validation(run)
     example = _example_case(run, curve)
@@ -877,10 +877,10 @@ def build_case_study(
         "m1": m1,
         "m2": m2,
         "m3": m3,
-        "m5": m5,
         "m4": m4,
+        "m5": m5,
         "repair": repair,
         "validation": validation,
         "example_case": example,
-        "qa_flags": _qa_flags(curve, m5, validation, example, m2),
+        "qa_flags": _qa_flags(curve, m4, validation, example, m2),
     }

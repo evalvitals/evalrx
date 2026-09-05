@@ -27,7 +27,7 @@ pre-registered and replicated on five further tasks:
 E-values multiply across independent batches: combined e ≈ 1.6×10¹⁰ ≫ 20 —
 validated. **`run_m1.py` therefore runs the loop-policy agent by default**;
 pass `--no-loop-policy` to reproduce the unfixed baseline (and to record the
-baseline that `run_m4.py` fix comparisons require — it refuses a policy-on
+baseline that `run_m5.py` fix comparisons require — it refuses a policy-on
 baseline via `run_config.json`).
 
 Escalation context: 4B/8B do not beat the ~0.8 fail rate (the capability wall
@@ -54,8 +54,8 @@ Then, from this directory (data root expected at
 python run_m1.py --task counting                  # M1: batch + probes -> outputs/records.json
 bash run_explore.sh                               # M2/M3 + 0.6/0.4 held-out confirm
 python run_m1.py --task counting --no-loop-policy # unfixed baseline for fix comparisons
-python run_m4.py --task counting                  # paired fix arms vs that baseline
-python run_m4.py --task chart --arms L2_loop_policy --out outputs_2b_chart
+python run_m5.py --task counting                  # paired fix arms vs that baseline
+python run_m5.py --task chart --arms L2_loop_policy --out outputs_2b_chart
                                                   # pre-registered single-arm replication
 ```
 

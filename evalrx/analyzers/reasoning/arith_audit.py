@@ -4,7 +4,7 @@
 was right and one multiplication came out wrong (a *computation slip*, fixed by
 a calculator tool or a verification pass), or every stated computation checks
 out and the answer is still wrong (a *chain break*, fixed by better
-decomposition — a calculator changes nothing).  M4 picks opposite tiers for the
+decomposition — a calculator changes nothing).  M5 picks opposite tiers for the
 two, so collapsing them wastes the whole arc.
 
 The split needs **no extra generations**: every ``a op b = c`` statement in the

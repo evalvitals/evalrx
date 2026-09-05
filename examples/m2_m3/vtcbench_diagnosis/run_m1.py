@@ -114,7 +114,7 @@ def main() -> None:
         "--no-loop-policy", action="store_true",
         help="disable the VALIDATED default loop policy (block_repeat_calls + "
              "force_final_answer) to reproduce the unfixed baseline — required "
-             "for run_m4.py fix comparisons",
+             "for run_m5.py fix comparisons",
     )
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)

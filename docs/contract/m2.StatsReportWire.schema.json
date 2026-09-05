@@ -261,9 +261,9 @@
             "explore",
             "m2",
             "m3",
-            "m4_surgery",
-            "m4_fix",
-            "m5"
+            "m5_surgery",
+            "m5_fix",
+            "m4"
           ],
           "title": "Stage",
           "type": "string"
@@ -595,7 +595,7 @@
   "description": "M2's serialized report.\n\nTwo field groups with different authority: everything above\n``descriptive_only`` is computed by code and is authoritative; ``conclusion``\nand ``evidence_chain`` are written by the judge and are presentation only.\nEmpty narrative is valid and must never be backfilled with an invented\nsummary. The LLM may not write a number, and keeping the groups visibly\napart is what makes that reviewable.\n\nAbsent by design: the judge's prompt and raw response (already\n``prompts/c<cycle>_m2_analysis.{prompt,response}.txt``), the tool-selection\nplan (already ``artifacts/c<cycle>_m2_stats_plan.json``), the model name and\nprotocol (both in the run config and in :class:`AnalysisInput`), and the\nthreshold-rule narrative (a rendering of ``findings``).",
   "properties": {
     "schema_version": {
-      "default": 4,
+      "default": 5,
       "title": "Schema Version",
       "type": "integer"
     },
@@ -738,6 +738,6 @@
   "$id": "https://evalrx.dev/contract/m2.StatsReportWire.json",
   "x-stage": "m2",
   "x-role": "output",
-  "x-schema-version": 4,
+  "x-schema-version": 5,
   "x-optional-stage": false
 }

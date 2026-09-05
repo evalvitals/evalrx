@@ -920,7 +920,7 @@ def _format_stats_for_prompt(
       the same dict, at per-signal granularity.
 
     ``reject`` itself is deliberately not touched here: for the BH family it
-    keeps the tool's raw CI verdict for the M1-M5 loop (see
+    keeps the tool's raw CI verdict for the M1-M4 loop (see
     :mod:`evalrx.stats.multiplicity`). This renderer is the place that has
     to make the difference between raw and corrected legible.
     """

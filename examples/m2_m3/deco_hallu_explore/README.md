@@ -3,7 +3,7 @@
 Demonstrates `evalrx explore` (M2 exploratory analysis + M3 hypothesis
 proposal) on **real M1 data**, not a synthetic demo: the per-case VLM
 object-presence probe results already committed at
-[`examples/m1_m4/deco_hallu/data/cases/`](../../diagnosis_loops/deco_hallu/data/cases)
+[`examples/m1_m5/deco_hallu/data/cases/`](../../diagnosis_loops/deco_hallu/data/cases)
 (three Qwen3-VL checkpoints — 2b/4b/8b — answering "Is there a {object} in
 the image?" for COCO images, `label` = pass/fail).
 
@@ -132,7 +132,7 @@ Env overrides: `CODER_MODEL` / `JUDGE_MODEL` (e.g. `claude-opus-4-8`),
    half (`adjudicate_signals(split_label="held_out")`: a REJECT here is a real
    held-out verdict), then an LLM judge grades every hypothesis
    (supported / partial / refuted / not_testable + surgery routing);
-4. `run_surgery.py` — survivors go to the diagnosis loop's M5 confirm → M4 →
+4. `run_surgery.py` — survivors go to the diagnosis loop's M4 confirm → M5 →
    tiered fix (L1→L3b) on the loop example's frozen M1 batch (GPU).
 
 `confirm_report.json` / `fix_report.json` land next to the exploratory report.
@@ -150,8 +150,8 @@ evalrx serve outputs_pipeline/1_explore
 attention-peakedness recipes replicated on the held-out half (6/6 REJECT H0);
 the judge graded the scale-moderation hypothesis *partial* (its correlational
 part held, the mechanism claim overreached) and the object-priors hypothesis
-*not_testable*; in phase 3 M5 supported the surviving hypothesis
-observationally but the M4 intervention experiment **refuted** its mechanistic
+*not_testable*; in phase 3 M4 supported the surviving hypothesis
+observationally but the M5 intervention experiment **refuted** its mechanistic
 form — and the tiered fix swept 10 candidates to find that a plain L1 prompt
 (`scan_then_decide`: scan the image region-by-region before answering) repaired
 12 hallucinations and broke 0 (paired McNemar, e=315 → REJECT H0), beating
@@ -179,5 +179,5 @@ portable `report.html`; open it locally with `evalrx serve <output-dir>`.
 
 See [`docs/m2_analysis.md`](../../../docs/m2_analysis.md) for the general
 standalone M2/M3 workflow, and
-[`examples/m1_m4/deco_hallu/README.md`](../../diagnosis_loops/deco_hallu/README.md)
-for the full M1 → M2 → M3 → M5 → Fix loop this data was built for.
+[`examples/m1_m5/deco_hallu/README.md`](../../diagnosis_loops/deco_hallu/README.md)
+for the full M1 → M2 → M3 → M4 → Fix loop this data was built for.

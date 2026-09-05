@@ -3,7 +3,7 @@ name: case-study-figure
 version: 0.1.0
 description: >
   Draw the one-page case-study figure for a finished EvalRX benchmark run —
-  the M1→M2→M3→M5→M4 story as a single SVG. Use whenever someone asks for a case
+  the M1→M2→M3→M4→M5 story as a single SVG. Use whenever someone asks for a case
   study figure, a qualitative figure, or "the figure" for a run directory under
   examples/benchmark/*/outputs/. Runs extract_figure_data.py first and draws only
   numbers that come back in its JSON; the run's own qa_flags are binding on what
@@ -62,7 +62,7 @@ not go on the figure. Leave the gap and say what is missing. Never round a
 
 | flag | what the figure must do |
 | --- | --- |
-| `repair_without_supported_hypothesis` | M5 carries an amber callout: no mechanism was confirmed, the gain below is an empirical fix |
+| `repair_without_supported_hypothesis` | M4 carries an amber callout: no mechanism was confirmed, the gain below is an empirical fix |
 | `multiple_signals_survived` | M2 states how many signals survived; never imply there was one |
 | `accepted_fix_breaks_cases` | the bottom prints the broken count beside the fixed count |
 | `example_case_from_explore` | the last box is *the output shape this repair demands*, not a measured result for that case — never write it up as "fixed" |
@@ -71,7 +71,7 @@ not go on the figure. Leave the gap and say what is missing. Never round a
 | `direction_mismatch` | do not draw that hypothesis as a clean finding; surface the contradiction or leave it out |
 | `shared_test_between_hypotheses` | two hypotheses resting on one test are one finding — draw them as one, or say they share a predicate |
 
-**Explore and held-out never mix.** M1/M2/M3 sit in the explore swimlane, M5/M4
+**Explore and held-out never mix.** M1/M2/M3 sit in the explore swimlane, M4/M5
 in the held-out one. A number measured on explore may not be captioned as a
 held-out result, and the split sizes in `run` say which is which.
 

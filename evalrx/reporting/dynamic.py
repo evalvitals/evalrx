@@ -139,7 +139,7 @@ def build_report_data(
     media = _media_index(cases)
     normalized_cases = [_normalise_case(case, media) for case in cases if isinstance(case, dict)]
     normalized_cases = _merge_recorded_case_evidence(normalized_cases, root)
-    # Attach what M4's repair answered on each case, so "12 repaired, 1 broken"
+    # Attach what M5's repair answered on each case, so "12 repaired, 1 broken"
     # is thirteen cases a reader can open rather than two numbers.
     repairs = _repair_outcomes(root, contract)
     for case in normalized_cases:
@@ -147,7 +147,7 @@ def build_report_data(
         if hit:
             case["repair"] = hit
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
-    stages = _stages(raw, stage_detail.get("m4") if isinstance(stage_detail, dict) else None)
+    stages = _stages(raw, stage_detail.get("m5") if isinstance(stage_detail, dict) else None)
     setting = {
         "model": _contract_model_name(contract) or run.get("model") or "Target model",
         "dataset": run.get("benchmark_name") or "Evaluation dataset",
@@ -245,7 +245,7 @@ class ReportAgent:
         }
         return f"""You are the Report Agent for EvalRX. Compose a concise visual report
 showing the journey: model fails on a dataset -> M1 probes behavior -> M2 screens
-associations -> M3 proposes mechanisms -> M5 tests on held-out evidence -> M4 repairs
+associations -> M3 proposes mechanisms -> M4 tests on held-out evidence -> M5 repairs
 the model. A passer-by must understand the setting and outcome without knowing EvalRX.
 
 Return ONLY a json-render tree with shape {{"root":"id","elements":{{...}}}}.
@@ -514,13 +514,13 @@ def _diagnosed_by(root: Path, run: Mapping[str, Any]) -> str:
     return f"{label} · {model.strip()}" if model.strip() else label
 
 
-def _stages(raw: Mapping[str, Any], m4_detail: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
+def _stages(raw: Mapping[str, Any], m5_detail: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     definitions = [
         ("M1", "Check behavior", "See what the model does differently when it succeeds or fails", raw.get("m1"), "results"),
         ("M2", "Find patterns", "Look for behaviors that reliably appear alongside errors", raw.get("m2"), "stats"),
         ("M3", "Suggest causes", "Turn the strongest patterns into ideas that can be tested", raw.get("m3"), "hypotheses"),
-        ("M5", "Test on new cases", "Check those ideas on evidence not used to create them", raw.get("m5"), "results"),
-        ("M4", "Try repairs", "Compare possible fixes with the unchanged model", raw.get("m4_fix"), "selection"),
+        ("M4", "Test on new cases", "Check those ideas on evidence not used to create them", raw.get("m4"), "results"),
+        ("M5", "Try repairs", "Compare possible fixes with the unchanged model", raw.get("m5_fix"), "selection"),
     ]
     result = []
     for code, title, purpose, payload, evidence_key in definitions:
@@ -528,9 +528,9 @@ def _stages(raw: Mapping[str, Any], m4_detail: Mapping[str, Any] | None = None) 
         evidence = stage.get(evidence_key) or []
         ran = bool(stage.get("ran")) if "ran" in stage else bool(evidence or stage.get("duration"))
         status = "completed" if ran else "not-run"
-        if code == "M4" and m4_detail and m4_detail.get("skipped"):
+        if code == "M5" and m5_detail and m5_detail.get("skipped"):
             status = "skipped"
-        if code == "M4" and ran:
+        if code == "M5" and ran:
             status = "improved" if stage.get("fixed") else "no-improvement"
         result.append({
             "id": code.lower(), "code": code, "title": title, "purpose": purpose,
@@ -545,7 +545,7 @@ def _stage_detail(
     """Compile the mature stage-specific views into a bounded web contract.
 
     The contract preserves the old workbench's load-bearing distinctions:
-    M2 is descriptive, M3 is proposal-only, M5 owns held-out verdicts, and M4
+    M2 is descriptive, M3 is proposal-only, M4 owns held-out verdicts, and M5
     compares every intervention against the unchanged baseline.
     """
     logs_dir = Path(raw.get("logs_dir") or root)
@@ -598,37 +598,37 @@ def _stage_detail(
             if recovered:
                 h["plain_statement"] = recovered
 
-    m5 = dict(raw.get("m5") or {})
-    saved_m5 = _load_json(logs_dir / "report" / "m5_results.json")
-    m5_results = saved_m5 if isinstance(saved_m5, list) and saved_m5 else list(m5.get("results") or [])
-    m5_event = dict(m5.get("event") or {})
+    m4 = dict(raw.get("m4") or {})
+    saved_m4 = _load_json(logs_dir / "report" / "m4_results.json")
+    m4_results = saved_m4 if isinstance(saved_m4, list) and saved_m4 else list(m4.get("results") or [])
+    m4_event = dict(m4.get("event") or {})
 
-    m4 = dict(raw.get("m4_fix") or {})
+    m5 = dict(raw.get("m5_fix") or {})
     # html_report may see an older sibling log when an example contains
     # multiple attempts.  The event stream is trace-filtered and is the source
     # of truth for the run currently being rendered.
     fix_event = next((event for event in reversed(events) if event.get("event") == "fix"), {})
     skipped_event = next((
         event for event in reversed(events)
-        if event.get("event") == "stage_skipped" and str(event.get("stage")) == "M4"
+        if event.get("event") == "stage_skipped" and str(event.get("stage")) == "M5"
     ), {})
     if fix_event:
         attempted = [item for item in fix_event.get("attempted") or [] if isinstance(item, Mapping)]
         best_name = fix_event.get("best")
         best = next((item for item in attempted if item.get("name") == best_name), {})
-        m4.update({
+        m5.update({
             "ran": True, "fixed": bool(fix_event.get("fixed")), "selection": attempted,
             "best": best, "confirm": best, "recommendation": fix_event.get("recommendation"),
         })
     if skipped_event:
-        m4.update({
+        m5.update({
             "ran": False,
             "skipped": True,
             "skip_reason": skipped_event.get("reason_code") or "not_attempted",
             "skip_detail": skipped_event.get("detail") or "",
         })
-    candidates = [_repair_candidate(item) for item in m4.get("selection") or [] if isinstance(item, dict)]
-    confirmation = _repair_candidate(m4.get("confirm") or {})
+    candidates = [_repair_candidate(item) for item in m5.get("selection") or [] if isinstance(item, dict)]
+    confirmation = _repair_candidate(m5.get("confirm") or {})
     if confirmation.get("name"):
         existing = next((i for i, item in enumerate(candidates) if item.get("name") == confirmation["name"]), None)
         if existing is None:
@@ -643,16 +643,16 @@ def _stage_detail(
         item for event in events if event.get("event") == "probe"
         for item in (event.get("examples") or []) if isinstance(item, Mapping)
     ]
-    logged_m5_event = next((event for event in reversed(events) if event.get("event") == "surgery" and event.get("module") == "m5"), {})
+    logged_m4_event = next((event for event in reversed(events) if event.get("event") == "surgery" and event.get("module") == "m4"), {})
     m1_examples = [dict(item) for item in logged_m1_examples[:2]] or _m1_examples(probes, cases)
-    m5_examples = _m5_examples(m5_results, {**m5_event, **logged_m5_event}, cases)
+    m4_examples = _m4_examples(m4_results, {**m4_event, **logged_m4_event}, cases)
     m1_examples = _attach_example_media(m1_examples, cases)
-    m5_examples = _attach_example_media(m5_examples, cases)
+    m4_examples = _attach_example_media(m4_examples, cases)
     enriched_stats = _enrich_m2_stats(
         [item for item in m2.get("stats") or [] if isinstance(item, Mapping)], logs_dir
     )
     display_stats = [_display_stat(item) for item in enriched_stats]
-    repair_examples = _m4_examples(candidates, cases, list(m1.get("results") or []))
+    repair_examples = _m5_examples(candidates, cases, list(m1.get("results") or []))
     # A trajectory is the only source allowed to say that an agent actually
     # used an intermediate operation (zoom, crop, search, ...).  Candidate
     # specs are kept separately below because a proposed operation is not an
@@ -682,21 +682,21 @@ def _stage_detail(
             "recommended_tests": list(explore.get("recommended_confirmatory_tests") or []),
             "evidence_figures": figures[:3], "evidence_stats": display_stats[:6],
         },
-        "m5": {
-            "ran": bool(m5.get("ran") or m5_results), "mode": "confirmatory",
-            "results": m5_results, "event": m5_event, "examples": m5_examples,
-        },
         "m4": {
-            "ran": bool(m4.get("ran")), "fixed": bool(m4.get("fixed")),
-            "skipped": bool(m4.get("skipped")),
-            "skip_reason": str(m4.get("skip_reason") or ""),
-            "skip_detail": str(m4.get("skip_detail") or ""),
+            "ran": bool(m4.get("ran") or m4_results), "mode": "confirmatory",
+            "results": m4_results, "event": m4_event, "examples": m4_examples,
+        },
+        "m5": {
+            "ran": bool(m5.get("ran")), "fixed": bool(m5.get("fixed")),
+            "skipped": bool(m5.get("skipped")),
+            "skip_reason": str(m5.get("skip_reason") or ""),
+            "skip_detail": str(m5.get("skip_detail") or ""),
             "candidates": candidates, "confirmation": confirmation,
-            "best": _repair_candidate(m4.get("best") or {}),
+            "best": _repair_candidate(m5.get("best") or {}),
             "examples": repair_examples,
             "operation_previews": repair_operation_previews,
-            "surgeries": list((raw.get("m4_surgery") or {}).get("surgeries") or []),
-            "prompt_template": str(m4.get("prompt_template") or ""),
+            "surgeries": list((raw.get("m5_surgery") or {}).get("surgeries") or []),
+            "prompt_template": str(m5.get("prompt_template") or ""),
         },
     }
 
@@ -771,7 +771,7 @@ def _attach_example_media(examples: list[dict[str, Any]], cases: list[Mapping[st
     return examples
 
 
-def _m5_examples(
+def _m4_examples(
     results: list[Any], event: Mapping[str, Any], cases: list[Mapping[str, Any]]
 ) -> list[dict[str, Any]]:
     """Return explicit validation examples, with a truthful aggregate fallback."""
@@ -793,19 +793,19 @@ def _m5_examples(
     if first is None:
         return []
     evidence = first.get("evidence") if isinstance(first.get("evidence"), Mapping) else {}
-    # Legacy M5 logs retain the frozen claim and the actual validation statistic
+    # Legacy M4 logs retain the frozen claim and the actual validation statistic
     # but not a row-level verdict.  That is still a concrete example of the
     # validation operation; label it as an aggregate test rather than pretend a
     # case was individually adjudicated.
     return [{
-        "id": "m5-validation-test-1",
+        "id": "m4-validation-test-1",
         "kind": "validation_test",
         "hypothesis": first.get("hypothesis") or first.get("statement") or "Frozen hypothesis",
         "test": first.get("test_name") or evidence.get("chosen_tool") or "held-out statistical test",
         "effect": first.get("effect_size", evidence.get("effect_size")),
         "interval": evidence.get("ci"),
         "status": first.get("status") or "inconclusive",
-        "verdict": first.get("verdict") or evidence.get("m5_verdict") or "No validation explanation was retained.",
+        "verdict": first.get("verdict") or evidence.get("m4_verdict") or "No validation explanation was retained.",
         "plain_reading": "This is one frozen claim tested on the independent validation evidence. The verdict uses the full validation set, not a single hand-picked case.",
         "evidence_scope": "aggregate independent-validation test",
     }]
@@ -962,7 +962,7 @@ def _plain_operation(value: Any) -> str:
     return names.get(raw, _plain_label(raw))
 
 
-def _m4_examples(
+def _m5_examples(
     candidates: list[Mapping[str, Any]], cases: list[Mapping[str, Any]], probe_results: list[Any]
 ) -> list[dict[str, Any]]:
     """Reconstruct a truthful before/after repair example — confirmed or not.
@@ -972,7 +972,7 @@ def _m4_examples(
     see a real case, not just "no candidate passed the repair gate". Prefer a
     `fixed` winner (statistically significant, net-positive); when none
     exists, fall back to the strongest attempt by effect size — the same
-    fallback `M4Detail` already uses for its own "best repair" KPI — and tag
+    fallback `M5Detail` already uses for its own "best repair" KPI — and tag
     the example `confirmed: False` so the UI can say plainly it is one
     candidate's attempt, not an accepted repair. When that candidate never
     flipped a case to correct either, fall back once more to a case it broke:
@@ -1037,7 +1037,7 @@ def _m4_examples(
                        "flip any case to correct either — this is a case it broke instead, "
                        "shown so the failure mode is inspectable.")
         return {
-            "id": f"m4-{winner.get('name', 'repair')}-{case_id}", "case_id": case_id,
+            "id": f"m5-{winner.get('name', 'repair')}-{case_id}", "case_id": case_id,
             "kind": kind, "confirmed": confirmed,
             "repair_name": winner.get("name") or "Recorded repair", "input": case.get("prompt") or "",
             "expected": case.get("expected"), "baseline_output": baseline,
@@ -1245,7 +1245,7 @@ def _findings(reader: Mapping[str, Any], raw: Mapping[str, Any]) -> list[dict[st
                 "title": hypothesis.get("failure_mode") or "Candidate mechanism",
                 "summary": hypothesis.get("plain_statement") or hypothesis.get("statement") or "",
                 "evidence_level": hypothesis.get("status") or "Proposed",
-                "limitation": "See M5 for independent verification.",
+                "limitation": "See M4 for independent verification.",
             })
     return result
 
@@ -1295,7 +1295,7 @@ def _charts(run: Mapping[str, Any], raw: Mapping[str, Any],
 
 
 def _repairs(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
-    fix = raw.get("m4_fix") or {}
+    fix = raw.get("m5_fix") or {}
     if not fix.get("ran"):
         return []
     confirm = fix.get("confirm") if isinstance(fix.get("confirm"), Mapping) else {}
@@ -1315,7 +1315,7 @@ def _repairs(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
 def _metrics(run: Mapping[str, Any], raw: Mapping[str, Any], cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     labels = run.get("label_distribution") or {}
     failed = labels.get("fail", labels.get("FAIL", 0)) if isinstance(labels, dict) else 0
-    verified = len((raw.get("m5") or {}).get("results") or [])
+    verified = len((raw.get("m4") or {}).get("results") or [])
     fixed = sum(1 for case in cases if case.get("status") == "fixed")
     return [
         {"id": "evaluated", "label": "Cases evaluated", "value": int(run.get("n_cases") or len(cases))},
@@ -1352,7 +1352,7 @@ def _contract_payloads(root: Path) -> dict[str, Any]:
         # can see that a stage failed validation rather than silently missing it.
         out[path.name[: -len(".json")]] = payload
     for key, payload in out.items():
-        if key.endswith("m4_fix"):
+        if key.endswith("m5_fix"):
             _backfill_repair_identity(payload)
     return out
 
@@ -1398,7 +1398,7 @@ def _backfill_repair_identity(payload: Any) -> None:
 def _repair_outcomes(root: Path, contract: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     """What each repair candidate answered, per case.
 
-    ``case_id -> {candidate, tier, status, output}``. The counts in M4 say twelve
+    ``case_id -> {candidate, tier, status, output}``. The counts in M5 say twelve
     cases were repaired and one broken; this is what lets a reader open those
     thirteen and see what actually changed. Without it a repair is a number.
 
@@ -1410,7 +1410,7 @@ def _repair_outcomes(root: Path, contract: Mapping[str, Any]) -> dict[str, dict[
     """
     out: dict[str, dict[str, Any]] = {}
     for key in sorted(contract):
-        if not key.endswith("m4_fix"):
+        if not key.endswith("m5_fix"):
             continue
         for attempt in (contract[key] or {}).get("attempted") or []:
             trial = str(attempt.get("trial_root") or "")
@@ -1592,8 +1592,8 @@ def _debug_event(event: Mapping[str, Any]) -> dict[str, Any]:
     event_type = str(event.get("event") or "")
     inferred_stage = {
         "probe": "M1", "explore": "M2", "analysis": "M2", "diagnosis": "M3",
-        "surgery": "M5" if event.get("module") == "m5" else "M4",
-        "experiment": "M4", "fix": "M4", "case_record": "DATA",
+        "surgery": "M4" if event.get("module") == "m4" else "M5",
+        "experiment": "M5", "fix": "M5", "case_record": "DATA",
         "report_published": "REPORT",
     }.get(event_type, "RUN")
     return {

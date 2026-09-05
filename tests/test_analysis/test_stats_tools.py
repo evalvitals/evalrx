@@ -3,7 +3,7 @@
 def test_outcome_regrades_go_to_the_sanity_lane():
     """'Is the answer correct' columns (an analyzer's own re-grade of the
     outcome) agree with the label at ~84% — under the leak threshold, but they
-    were every BH survivor on qwen3.5-2b/minervamath and then M5's tautological
+    were every BH survivor on qwen3.5-2b/minervamath and then M4's tautological
     'evidence'. They are isolated by NAME; derived mechanism flags stay."""
     from evalrx.analysis.stats_tools import (
         OUTCOME_REGRADE_METRICS,

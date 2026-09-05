@@ -1,4 +1,4 @@
-"""M4 generated diagnostics must not duplicate the resident model."""
+"""M5 generated diagnostics must not duplicate the resident model."""
 
 from __future__ import annotations
 

@@ -21,7 +21,7 @@ Layout (single root, no ``logs/`` nesting)::
     │                     tables/*.csv, figures/*.png (VLDiagnoseLoop(explorer=...))
     ├── artifacts/        M1 heavy numeric data (.npy / .json)
     ├── prompts/          judge prompt / response
-    ├── experiments/      one self-contained folder per M4 experiment (see new_trial)
+    ├── experiments/      one self-contained folder per M5 experiment (see new_trial)
     ├── tools/            synthesised probe / stats tool code (M1/M2, run-global)
     ├── workspace/         sandbox working dirs outside any trial
     └── fixes/            one self-contained folder per repair attempt + outcome.md
@@ -60,17 +60,17 @@ if TYPE_CHECKING:
 # top-level subdirectory name.  Files that do not fall under a known category
 # are grouped under "other".
 _CATEGORY_DESCRIPTIONS: dict[str, str] = {
-    "contract": "one contract-validated JSON per stage (c<cycle>.m1 … m4_fix): the "
+    "contract": "one contract-validated JSON per stage (c<cycle>.m1 … m5_fix): the "
                 "typed shape a frontend decodes with docs/contract/contract.d.ts, "
                 "instead of re-deriving it from run_log.jsonl",
-    "report": "human-facing deliverables: run summary, hypotheses, M5 results",
+    "report": "human-facing deliverables: run summary, hypotheses, M4 results",
     "figures": "plots: M1 attention/spatial heatmaps and M2 effect-size charts",
     "explore": "in-cycle explore step (VLDiagnoseLoop(explorer=...)): free-form EDA "
                "beside the catalog M2 — exploratory_report.json, tables/*.csv, "
-               "figures/*.png; descriptive notes M3 was shown, never M2/M5 evidence",
+               "figures/*.png; descriptive notes M3 was shown, never M2/M4 evidence",
     "artifacts": "M1 heavy numeric data (.npy tensors, .json finding dumps)",
     "prompts": "verbatim judge prompt + response for each M1/M2/M3 call",
-    "experiments": "one self-contained folder per M4 mechanism-verification "
+    "experiments": "one self-contained folder per M5 mechanism-verification "
                    "experiment (code + sandbox + record.md), see new_trial()",
     "tools": "code the agent synthesised for new probes / stats tools (M1/M2)",
     "workspace": "sandbox working directories outside any trial",
@@ -86,7 +86,7 @@ _CATEGORY_ORDER = [
 
 
 class Trial:
-    """One self-contained attempt — a fix candidate or an M4 experiment.
+    """One self-contained attempt — a fix candidate or an M5 experiment.
 
     Returned by :meth:`RunContext.new_trial`.  Everything about this one
     attempt (generated code, the sandbox it ran in, judge prompt/output, and
@@ -263,7 +263,7 @@ class RunContext:
     def new_trial(self, category: str, label: str) -> "Trial":
         """Allocate one self-contained attempt folder under ``<category>/``.
 
-        A *trial* is one fix candidate or one M4 experiment: its generated
+        A *trial* is one fix candidate or one M5 experiment: its generated
         code, the sandbox it actually ran in, judge prompt/output, and its
         result/record all live together under one numbered folder, instead of
         being scattered across ``tools/`` / ``workspace/`` / ``fixes/`` and
@@ -341,7 +341,7 @@ class RunContext:
             }
             for h in hyps_src
         ]
-        m5_results = [
+        m4_results = [
             {
                 "hypothesis": tr.hypothesis.statement,
                 "failure_mode": tr.hypothesis.predicted_failure_mode,
@@ -369,8 +369,8 @@ class RunContext:
         written["hypotheses"] = self.write_report_file(
             "hypotheses.json", json.dumps(hypotheses, indent=2, default=str)
         )
-        written["m5_results"] = self.write_report_file(
-            "m5_results.json", json.dumps(m5_results, indent=2, default=str)
+        written["m4_results"] = self.write_report_file(
+            "m4_results.json", json.dumps(m4_results, indent=2, default=str)
         )
         written["summary_json"] = self.write_report_file(
             "summary.json", json.dumps(summary, indent=2, default=str)

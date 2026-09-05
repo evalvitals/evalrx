@@ -1,4 +1,4 @@
-"""ClaudeModel — the Claude Code CLI wrapped as an M1–M5 judge.
+"""ClaudeModel — the Claude Code CLI wrapped as an M1–M4 judge.
 
 Tested against a fake ``claude`` executable (a tiny shell script) so no real
 CLI, auth, or network is involved.

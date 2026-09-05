@@ -16,7 +16,7 @@ def test_reader_report_is_generic_and_keeps_observation_distinct_from_proof():
             "name": "arbitrary_task_signal", "display_name": "Arbitrary task signal",
             "rationale": "It differed between the two outcome groups.",
         }]}},
-        "m3": {"hypotheses": []}, "m5": {"ran": False}, "m4_fix": {"ran": False},
+        "m3": {"hypotheses": []}, "m4": {"ran": False}, "m5_fix": {"ran": False},
     })
 
     payload = report.to_dict()

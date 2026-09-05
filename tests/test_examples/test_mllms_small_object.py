@@ -10,7 +10,7 @@ def _load_example():
     path = (
         Path(__file__).resolve().parents[2]
         / "examples"
-        / "m1_m4"
+        / "m1_m5"
         / "mllms_small_object"
         / "run.py"
     )

@@ -221,7 +221,7 @@ def test_extraction_audit_runs_without_generate_by_default():
 def test_extraction_audit_emits_direction_marginals_on_binary_tasks():
     """A yes/no task gets answered_yes + gold_yes -- two MARGINALS, never their
     conjunction (audiocaps 2026-08-20: M3 named extracted_answer / labelled_fail
-    and M5 had nothing numeric to test a 'Yes prior' on). true/false fold onto
+    and M4 had nothing numeric to test a 'Yes prior' on). true/false fold onto
     yes/no; a free-form gold grows no direction columns."""
     batch = CaseBatch([
         _case("b1", "Yes, there is.", "No", Label.FAIL),                     # answered yes, gold no
@@ -271,7 +271,7 @@ def test_termination_audit_trusts_recorded_finish_reason_over_text_shape():
     (musicavqa_videollama2): termination_audit reported truncation_rate up to
     98% while the model's own finish_reason telemetry said 0% were actually
     cut off by the token budget -- M3 kept chasing a truncation hypothesis
-    that M4 then had to refute every cycle using that same telemetry. When
+    that M5 then had to refute every cycle using that same telemetry. When
     finish_reason is recorded, it must override the text-shape guess."""
     batch = CaseBatch([
         _case("q1", "guitar", "guitar", Label.PASS, metadata={"finish_reason": "stop"}),

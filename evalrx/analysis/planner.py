@@ -78,7 +78,7 @@ _CORRECTNESS_NAME = re.compile(
 # PASS/FAIL label.  A sparse flag can have low whole-batch agreement while
 # still making ``P(FAIL | flag)=1`` by construction, so an association test is
 # circular.  They remain useful descriptive sanity signals, never candidate
-# discriminators for M2/M5.
+# discriminators for M2/M4.
 _LABEL_DERIVED_SUFFIXES = frozenset({
     "answer_extraction_audit.extraction_suspect",
     "answer_extraction_audit.extraction_point_miss",
@@ -101,13 +101,13 @@ def restates_label(inp: Any, signal: str) -> bool:
 
     Such a signal always rejects H0, always survives FDR, and carries no
     information — "does the label predict the label". Left in the pool it also
-    CROWDS OUT the real ones, because the survivor list is what M5 draws on to
+    CROWDS OUT the real ones, because the survivor list is what M4 draws on to
     verify a hypothesis. Measured on qwen3.5-2b / bbh_causal_judgement: of 10
     rejecting signals, 6 survived FDR and every one of those 6 was the label
     (``labelled_fail``, ``strict_match``, ``calibration.correct``,
     ``self_repair.baseline_correct`` / ``revised_correct``), while the two
     genuinely informative extraction flags did not survive. M2's own narrative
-    called them out as "the label copied under another name"; M5 then verified a
+    called them out as "the label copied under another name"; M4 then verified a
     hypothesis about label REPRODUCIBILITY using ``labelled_fail``, at
     confidence 0.73.
 

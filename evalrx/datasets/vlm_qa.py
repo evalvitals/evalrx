@@ -544,7 +544,7 @@ _VQA_RAD_SAMPLE = [
 ]
 
 # Question fragments that identify "easy" identification questions (modality /
-# plane / organ) a general VLM reliably answers — the M5 control (PASS) group.
+# plane / organ) a general VLM reliably answers — the M4 control (PASS) group.
 _VQA_RAD_EASY_FRAGMENTS = (
     "modality", "what plane", "which plane", "plane is", "what organ",
     "which organ", "organ system", "part of the body", "what type of imaging",
@@ -588,7 +588,7 @@ class VQARADDataset(Dataset):
     Builds a **diagnosis-ready** case mix for the VL failure-analysis loop:
 
     - ``n_easy`` identification questions (modality/plane/organ) the model
-      reliably PASSES — M5's control group;
+      reliably PASSES — M4's control group;
     - ``n_presence`` closed yes/no finding-presence questions, balanced between
       gold "yes" and gold "no" — where presence hallucination (yes-bias)
       concentrates the failures.

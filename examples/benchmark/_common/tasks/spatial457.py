@@ -1,6 +1,6 @@
 """Spatial457 L5 6D-spatial questions (Wang et al. 2025) — frozen deterministic sample.
 
-Port of examples/m1_m4/spatial457_qwen3_5_2b/download_spatial457.py (no dataset
+Port of examples/m1_m5/spatial457_qwen3_5_2b/download_spatial457.py (no dataset
 loader scripts: questions JSON + per-image hub downloads).
 """
 

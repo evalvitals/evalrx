@@ -1,6 +1,6 @@
 """Tests for the AutoDiagnose pipeline.
 
-M1 ProbeAgent, M2 AnalysisModule, M3 DiagnosisAgent, M4 SurgeryAgent,
+M1 ProbeAgent, M2 AnalysisModule, M3 DiagnosisAgent, M5 SurgeryAgent,
 and the full AutoDiagnoseLoop that ties them together.
 """
 
@@ -324,7 +324,7 @@ def _make_report(severity="high") -> AnalysisReport:
 def test_unparsed_judge_text_falls_back_loudly_but_no_issue_quietly(caplog):
     """gemma-4-e2b/bbh_causal_judgement (2026-08-22): the judge wrote three
     hypotheses in a label format the parser missed and the run silently diagnosed
-    an analysis-module template. The fallback stays (M4 still needs a hypothesis)
+    an analysis-module template. The fallback stays (M5 still needs a hypothesis)
     but a parse miss must be visible; a genuine NO_ISSUE verdict stays quiet."""
     import logging
 
@@ -389,7 +389,7 @@ def test_diagnosis_prompt_includes_severity_and_narrative():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# M4 — SurgeryAgent (unchanged; smoke-tested here for integration)
+# M5 — SurgeryAgent (unchanged; smoke-tested here for integration)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _hypothesis(mode: str = "loop") -> Hypothesis:
@@ -440,7 +440,7 @@ def test_surgery_param_sweep():
     assert "attention" in iv.evidence["param_sweep"]
 
 
-# ── M4 per-trial output: each operate() call gets its own self-contained
+# ── M5 per-trial output: each operate() call gets its own self-contained
 # experiments/NN_.../ folder (code + a kept, non-overwritten sandbox) ────────
 
 
@@ -464,8 +464,8 @@ class _FakeExperimentWriter:
         )
 
 
-def test_m4_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
-    """The bug this feature exists to fix: M4 experiments used to share (and
+def test_m5_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
+    """The bug this feature exists to fix: M5 experiments used to share (and
     overwrite) one sandbox, and ExperimentSandbox deleted it on success —
     so a *successful* experiment left no runnable code behind at all."""
     from evalrx.eval_agent.run_context import RunContext
@@ -502,7 +502,7 @@ def test_m4_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# AutoDiagnoseLoop — full M1→M2→M3→M4
+# AutoDiagnoseLoop — full M1→M2→M3→M5
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_loop_analysis_only_mode():

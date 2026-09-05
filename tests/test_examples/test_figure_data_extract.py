@@ -73,7 +73,7 @@ def _write(path: Path, payload) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def make_run(root: Path, *, signal_values=None, m5_effect=-0.42, n_broken=1) -> Path:
+def make_run(root: Path, *, signal_values=None, m4_effect=-0.42, n_broken=1) -> Path:
     """Write a run directory in the shape _common/runner.py + RunContext produce."""
     rows = signal_values if signal_values is not None else EXPLORE
     logs = root / "logs"
@@ -109,9 +109,9 @@ def make_run(root: Path, *, signal_values=None, m5_effect=-0.42, n_broken=1) -> 
     })
 
     stats = [
-        {"tool": "signal_label_assoc", "config": {"signal": SIGNAL}, "effect": m5_effect,
+        {"tool": "signal_label_assoc", "config": {"signal": SIGNAL}, "effect": m4_effect,
          "p_value": 0.001, "fdr_corrected": True, "correction_method": "BH",
-         "correction_family": "m2_assoc", "summary": f"assoc CI={m5_effect:+.4f}..+0.0100",
+         "correction_family": "m2_assoc", "summary": f"assoc CI={m4_effect:+.4f}..+0.0100",
          "details": {"n_signal": 2, "n_control": 2,
                      "fail_rate_signal": 1.0, "fail_rate_control": 0.0}},
         {"tool": "signal_label_assoc", "config": {"signal": "other.flag"}, "effect": 0.01,
@@ -140,11 +140,11 @@ def make_run(root: Path, *, signal_values=None, m5_effect=-0.42, n_broken=1) -> 
             {"failure_mode": "runaway_generation", "statement": "the model never stops",
              "test_design": "continuation_chars vs label", "expected_direction": "higher"}],
          "n_critic_kept": 1, "n_critic_rejected": 0, "review": {"objection": "confounded"}},
-        {"event": "surgery", "module": "m5", "failure_mode": "runaway_generation",
+        {"event": "surgery", "module": "m4", "failure_mode": "runaway_generation",
          "status": "supported", "hypothesis": "the model never stops",
-         "evidence": {"m5_test_name": "signal_label_assoc", "expected_direction": "higher",
-                      "effect_size": m5_effect, "ci": [-0.6, -0.2], "reject": True,
-                      "m5_evidence_grade": "B"}},
+         "evidence": {"m4_test_name": "signal_label_assoc", "expected_direction": "higher",
+                      "effect_size": m4_effect, "ci": [-0.6, -0.2], "reject": True,
+                      "m4_evidence_grade": "B"}},
         {"event": "fix", "best": {
             "name": "stop_sequences", "tier": "L2", "n_pairs": 10,
             "n_baseline_correct": 4, "n_candidate_correct": 6,
@@ -304,7 +304,7 @@ def test_qa_flags_catch_a_direction_mismatch_and_a_regressing_fix(efd, run_dir):
 
 
 def test_a_clean_run_raises_no_flags(efd, tmp_path):
-    root = make_run(tmp_path / "clean", m5_effect=0.42, n_broken=0)
+    root = make_run(tmp_path / "clean", m4_effect=0.42, n_broken=0)
     records = efd.extract(str(root))
     codes = {f["code"] for f in blocks(records, "qa_flags") for f in f["flags"]}
     assert "direction_mismatch" not in codes
@@ -347,10 +347,10 @@ def test_document_and_markdown_render_the_run(efd, run_dir):
     assert doc["headline"]["baseline_accuracy"] == 0.5
     assert doc["m1_probe"]["signal_curve"]["signal"] == SIGNAL
     assert doc["m1_probe"]["measurement_inventory"], "the funnel travels with the document"
-    assert doc["m5_verdicts"]["verdicts"][0]["status"] == "supported"
+    assert doc["m4_verdicts"]["verdicts"][0]["status"] == "supported"
     assert doc["_sources"], "every section must say which file it came from"
     # the figure draws five cards in this order, named by the pipeline block
-    assert [p["module"] for p in doc["pipeline"]] == ["M1", "M2", "M3", "M5", "M4"]
+    assert [p["module"] for p in doc["pipeline"]] == ["M1", "M2", "M3", "M4", "M5"]
     assert doc["pipeline"][0]["name"] == "Suspicious Behavior Detection"
     md = efd.to_markdown(doc, title="chartqa.chain1")
     assert "chartqa.chain1" in md

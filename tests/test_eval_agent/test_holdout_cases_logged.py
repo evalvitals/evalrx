@@ -1,10 +1,10 @@
 """The held-out cases must be recorded, or the strongest evidence has no cases.
 
 With a confirm split, `run()` reassigns `data` to the explore half and then logs
-`data`. The held-out half was never logged -- and that is the half M5 adjudicates
-on and M4 validates its repair on.
+`data`. The held-out half was never logged -- and that is the half M4 adjudicates
+on and M5 validates its repair on.
 
-Consequence, seen on a live audio-visual run: M4 reported "12 repaired, 1 broken"
+Consequence, seen on a live audio-visual run: M5 reported "12 repaired, 1 broken"
 and named thirteen case ids, and not one of them appeared in the report. Worse,
 `FailureCase.id` defaults to a fresh uuid4, so those ids existed only inside that
 process: unlogged means unrecoverable, permanently. The run's best-supported
@@ -61,7 +61,7 @@ def test_the_held_out_split_is_recorded_too(tmp_path):
     missing = all_ids - logged
     assert not missing, (
         f"{len(missing)} of {len(all_ids)} cases were never logged. The held-out "
-        "split is what M5 and M4 are measured on; ids are per-process uuids, so "
+        "split is what M4 and M5 are measured on; ids are per-process uuids, so "
         "unlogged is unrecoverable."
     )
 

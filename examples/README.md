@@ -7,14 +7,14 @@ against each `run.py`'s own imports, not assumed from the folder name:
 
 - `m1/` — M1 (probe/selection) only. *(Reserved — no example runs only M1
   as a complete deliverable today.)*
-- `m1_m3/` — `VLDiagnoseLoop` through M1→M2→M3(→M5): diagnose a failure and
+- `m1_m3/` — `VLDiagnoseLoop` through M1→M2→M3(→M4): diagnose a failure and
   hold out a verified hypothesis, but attempt no repair.
 - `m2_m3/` — standalone M2 (stats) + M3 (hypothesis) via `evalrx.explore()`,
   outside any loop object. M1 case-selection may be a separate script that
   runs first (see each example's own README), never baked into the same call.
-- `m4/` — `FixAgent` direct: propose → validate a repair against a
+- `m5/` — `FixAgent` direct: propose → validate a repair against a
   **hand-supplied** hypothesis. No M1–M3 discovery stage.
-- `m1_m4/` — the full loop, M1→M2→M3→M4→M5. M4's exact position (baked into
+- `m1_m5/` — the full loop, M1→M2→M3→M4→M5. M5's exact position (baked into
   the same call, or a separate script run right after) is noted per example
   below — that distinction matters and doesn't fit in a folder name.
 
@@ -38,23 +38,23 @@ kept under their own names rather than forced into a stage bucket:
 
 ## Stage coverage
 
-| Example | Orchestrator | Stages run | M4 |
+| Example | Orchestrator | Stages run | M5 |
 |---|---|---|---|
-| `m1_m4/deco_pope`, `deco_hallu`, `deco_miss`, `deco_chair` | `VLDiagnoseLoop` | M1→M2→M3→M5 | baked in |
-| `m1_m4/qwen_loop_claude` | `VLDiagnoseLoop` | M1→M2→M3→M5 | baked in |
-| `m1_m4/mllms_hallucination`, `mllms_small_object` | `VLDiagnoseLoop` | M1→M2→M3→M5 | baked in |
-| `m1_m4/musicavqa_videollama2` | `VLDiagnoseLoop` | M1→M2→M3→M5 | separate call (`loop.run_m4`/`run_fix`), right after `loop.run()` |
-| `m1_m4/mmau_qwen2_audio` | `VLDiagnoseLoop` | M1→M2→M3→M5 | `loop.run_fix()`, right after `loop.run()`; M1 pinned to a static audio-safe analyzer set (see run.py) |
-| `m1_m3/qwen_loop_agy`, `qwen_video_temporal` | `VLDiagnoseLoop` | M1→M2→M3→M5 | separate script, run after the loop |
-| `m1_m3/vlm_research_topics` | `VLDiagnoseLoop` | M1→M2→M3→M5 | none |
-| `m4/vlm_paper_benchmark/*` | `FixAgent` only | M4 only — **designed as M1→M4, M1–M3 discovery never built** | is M4; held-out confirm split |
+| `m1_m5/deco_pope`, `deco_hallu`, `deco_miss`, `deco_chair` | `VLDiagnoseLoop` | M1→M2→M3→M4 | baked in |
+| `m1_m5/qwen_loop_claude` | `VLDiagnoseLoop` | M1→M2→M3→M4 | baked in |
+| `m1_m5/mllms_hallucination`, `mllms_small_object` | `VLDiagnoseLoop` | M1→M2→M3→M4 | baked in |
+| `m1_m5/musicavqa_videollama2` | `VLDiagnoseLoop` | M1→M2→M3→M4 | separate call (`loop.run_m5`/`run_fix`), right after `loop.run()` |
+| `m1_m5/mmau_qwen2_audio` | `VLDiagnoseLoop` | M1→M2→M3→M4 | `loop.run_fix()`, right after `loop.run()`; M1 pinned to a static audio-safe analyzer set (see run.py) |
+| `m1_m3/qwen_loop_agy`, `qwen_video_temporal` | `VLDiagnoseLoop` | M1→M2→M3→M4 | separate script, run after the loop |
+| `m1_m3/vlm_research_topics` | `VLDiagnoseLoop` | M1→M2→M3→M4 | none |
+| `m5/vlm_paper_benchmark/*` | `FixAgent` only | M5 only — **designed as M1→M5, M1–M3 discovery never built** | is M5; held-out confirm split |
 | `m2_m3/deco_hallu_explore`, `synthetic_yield_explore` | bare `explore()` | M2→M3 | n/a |
 | `m2_m3/vtcbench_diagnosis` | bare scripts | M1 → M2/M3 (`explore`) | n/a |
 | `analyzer_demos/*` | none | single analyzer call | n/a |
 | `agent_demos/visual_zoom_agent` | `Agent` (tool-calling) | trajectory capture only | n/a — pre-diagnosis |
 | `preregistered_ab_demo/eval_agent` | `EvalOrchestrator` | mine → hypothesis → validate → confirm | not M-numbered |
 | `dataset_selection/llm_band_probe` | none | pre-M1 | n/a |
-| `benchmark/<modality>/<family>` | `VLDiagnoseLoop` | M1→M2→M3→M5 | `loop.run_m4`/`run_fix`, right after `loop.run()`; pinned M1 per dataset |
+| `benchmark/<modality>/<family>` | `VLDiagnoseLoop` | M1→M2→M3→M4 | `loop.run_m5`/`run_fix`, right after `loop.run()`; pinned M1 per dataset |
 | `paper_diagnosis_benchmark/` | mostly bare `explore()` | M2-ish, meta over papers | one script also uses `FixAgent` |
 
 ## Run
@@ -69,8 +69,8 @@ cd examples/m2_m3/deco_hallu_explore && bash run_web.sh           # ONE web page
                                                                    # to start a new M2+M3 run, plus the script outputs
                                                                    # above attached read-only in the same sidebar
 cd examples/m1_m3/qwen_loop_agy && docker compose up
-cd examples/m1_m4/musicavqa_videollama2 && docker compose up  # audio-visual QA, VideoLLaMA2.1-7B-AV
-cd examples/m1_m4/mmau_qwen2_audio && docker compose up  # TCD vs MMAU, full M1->M4 loop
+cd examples/m1_m5/musicavqa_videollama2 && docker compose up  # audio-visual QA, VideoLLaMA2.1-7B-AV
+cd examples/m1_m5/mmau_qwen2_audio && docker compose up  # TCD vs MMAU, full M1->M5 loop
 cd examples/agent_demos/visual_zoom_agent && docker compose up
 cd examples/m2_m3/vtcbench_diagnosis && docker compose up
 cd examples/paper_diagnosis_benchmark && docker compose up
@@ -101,14 +101,14 @@ thing:
 | input | M1 analyzer per-case findings (`StatsInput`) | a flat per-case records table (any source) |
 | method | **confirmatory**: judge-picked tools from a fixed statistical catalog, e-BH/BH multiplicity, optional codegen tools | **exploratory**: a coder agent writes free-form pandas EDA in a sandbox; the host recomputes candidate verdicts (`adjudicate`) and renders its chart specs |
 | output | JSON (`artifacts/c0_m2_stats_results.json` …) + chart *specs* the dashboard plots live; `m2_effects.png` only with `figure_dir=` | `exploratory_report.json` + `tables/*.csv` + `figures/*.png` + `analysis.py` |
-| verdict | yes — the evidence M5 tests | no — "the explorer never decides" |
+| verdict | yes — the evidence M4 tests | no — "the explorer never decides" |
 
 A `VLDiagnoseLoop` run can carry **both**: keep the catalog M2 as the evidence
 and add the explorer as a descriptive lane that runs between M1 and M2 over
 the *same* per-case table (M1 signals + PASS/FAIL labels). Its observations
 and rendered charts reach M3 as an `ExploreContext` (which hypotheses to
 propose — never *whether* one is true), and land on disk for the dashboard.
-It never enters M2's confirmatory family, M5, or the fix gate. Wiring, for a
+It never enters M2's confirmatory family, M4, or the fix gate. Wiring, for a
 `RunContext`-style example:
 
 ```python
@@ -151,12 +151,12 @@ What you get per run:
 Rules of the road:
 
 - The step is best-effort: an explorer failure logs a warning and the cycle
-  continues on M2 alone; `run_confirm()` (M5 → fix) never explores.
+  continues on M2 alone; `run_confirm()` (M4 → fix) never explores.
 - The explorer's recipes are **not** bridged into M2's family here — the loop
   discovers and confirms on the same rows, which would be double-dipping. To
   confirm explorer recipes on a held-out split use the fused pipeline
   (`run_fused_analysis` → `signal_recipes=` + `explore_report=`, as
-  `m1_m4/deco_hallu/run_fused.py` does).
+  `m1_m5/deco_hallu/run_fused.py` does).
 - `explore/` is rewritten every cycle (it holds what the latest M3 saw); the
   per-cycle `explore` events keep every cycle's counts.
 - Cost: one coder-agent call per cycle (minutes) plus host-side matplotlib

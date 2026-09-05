@@ -1,7 +1,7 @@
 /**
  * L2 — one screen per stage: what this stop did, what came out, what that rests on.
  *
- * The report has three depths. L1 (the overview) shows the M1→M4 path and says
+ * The report has three depths. L1 (the overview) shows the M1→M5 path and says
  * nothing about any one stage. L3 (`StageArtifact` in views.tsx) shows
  * everything a stage retained — every probe, every figure, every raw record —
  * and is the audit surface. Between them there was nothing, so clicking a stage
@@ -170,7 +170,7 @@ function BriefImage({ figure }: { figure: any }) {
 export function buildBrief(stage: string, report: ReportData): Brief | null {
   const detail = stageDetail(report, stage);
   const status = report.stages.find((item) => item.id === stage)?.status || "";
-  if (["not-run", "skipped"].includes(status) && stage !== "m4") {
+  if (["not-run", "skipped"].includes(status) && stage !== "m5") {
     return {
       verdict: "This step did not run.",
       lead: "Nothing was measured here, so there is nothing to summarise. The steps "
@@ -181,8 +181,8 @@ export function buildBrief(stage: string, report: ReportData): Brief | null {
   if (stage === "m1") return briefM1(report, detail);
   if (stage === "m2") return briefM2(report, detail);
   if (stage === "m3") return briefM3(report, detail);
-  if (stage === "m5") return briefM5(report, detail);
   if (stage === "m4") return briefM4(report, detail);
+  if (stage === "m5") return briefM5(report, detail);
   return null;
 }
 
@@ -463,14 +463,14 @@ function briefM3(report: ReportData, detail: Record<string, any>): Brief {
   };
 }
 
-// ── M5 ─────────────────────────────────────────────────────────────────────
-const M5_WORD: Record<string, string> = {
+// ── M4 ─────────────────────────────────────────────────────────────────────
+const M4_WORD: Record<string, string> = {
   supported: "the held-out cases agreed with it",
   refuted: "the held-out cases pointed the other way",
   inconclusive: "the held-out cases could not settle it",
 };
 
-function briefM5(report: ReportData, detail: Record<string, any>): Brief {
+function briefM4(report: ReportData, detail: Record<string, any>): Brief {
   const results: any[] = detail.results || [];
   if (!detail.ran || !results.length) {
     return {
@@ -503,8 +503,8 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
   const m3 = findContract<DiagnosisOutput>(report, "m3");
   const untestable = new Set((m3?.hypotheses || [])
     .filter((h) => !h.test_design?.trim()).map((h) => h.id));
-  const m5 = findContract<HypothesisTestOutput>(report, "m5");
-  const stuck = (m5?.results || []).filter(
+  const m4 = findContract<HypothesisTestOutput>(report, "m4");
+  const stuck = (m4?.results || []).filter(
     (r) => r.status === "inconclusive" && untestable.has(r.hypothesis_id));
 
   const points = results.slice(0, 4).map((result, i) => {
@@ -514,7 +514,7 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
     // summary by cutting only at the author's own punctuation.
     const claim = (headlineSplit(full)[0] || full).replace(/[.]$/, "");
     const status = String(result.status || "inconclusive").toLowerCase();
-    return `${claim} — ${M5_WORD[status] || status}.`;
+    return `${claim} — ${M4_WORD[status] || status}.`;
   });
   if (consistent < results.length) {
     const off = results.length - consistent;
@@ -581,11 +581,11 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
   };
 }
 
-// ── M4 ─────────────────────────────────────────────────────────────────────
-function briefM4(report: ReportData, detail: Record<string, any>): Brief {
+// ── M5 ─────────────────────────────────────────────────────────────────────
+function briefM5(report: ReportData, detail: Record<string, any>): Brief {
   const candidates: any[] = detail.candidates || [];
-  const m4 = findContract<FixOutput>(report, "m4_fix");
-  const sweep = m4?.selection || [];
+  const m5 = findContract<FixOutput>(report, "m5_fix");
+  const sweep = m5?.selection || [];
 
   if (!detail.ran || !candidates.length) {
     const tried = sweep.length;
@@ -619,7 +619,7 @@ function briefM4(report: ReportData, detail: Record<string, any>): Brief {
   // guaranteed — a run with neither gets no sentence rather than its slug.
   const headline = String(
     winner?.headline
-    || [...(m4?.attempted || []), ...sweep].find((row) => row.name === winner?.name)?.headline
+    || [...(m5?.attempted || []), ...sweep].find((row) => row.name === winner?.name)?.headline
     || "",
   ).trim();
 
@@ -713,10 +713,10 @@ function briefM4(report: ReportData, detail: Record<string, any>): Brief {
 /** Status icon for the L2 header, so the verdict reads before the words do. */
 export function BriefStatusIcon({ stage, report }: { stage: string; report: ReportData }) {
   const detail = stageDetail(report, stage);
-  if (stage === "m4") {
+  if (stage === "m5") {
     return detail.fixed ? <CheckCircle2 /> : detail.ran ? <XCircle /> : <HelpCircle />;
   }
-  if (stage === "m5") {
+  if (stage === "m4") {
     const results: any[] = detail.results || [];
     const supported = results.filter((r) => String(r.status).toLowerCase() === "supported").length;
     if (!results.length) return <HelpCircle />;

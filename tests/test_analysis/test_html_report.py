@@ -9,8 +9,8 @@ from evalrx.reporting.langfuse_exporter import export_to_langfuse_bundle
 
 def test_html_report_generation(tmp_path: Path):
     # Test against real MMAU outputs
-    run_dir = Path("examples/m1_m4/mmau_qwen2_audio/outputs")
-    example_dir = Path("examples/m1_m4/mmau_qwen2_audio")
+    run_dir = Path("examples/m1_m5/mmau_qwen2_audio/outputs")
+    example_dir = Path("examples/m1_m5/mmau_qwen2_audio")
     out_file = tmp_path / "test_report.html"
 
     if run_dir.exists():
@@ -39,7 +39,7 @@ def test_html_report_generation(tmp_path: Path):
 
 
 def test_langfuse_bundle_export(tmp_path: Path):
-    run_dir = Path("examples/m1_m4/mmau_qwen2_audio/outputs")
+    run_dir = Path("examples/m1_m5/mmau_qwen2_audio/outputs")
     out_json = tmp_path / "langfuse_trace.json"
 
     if run_dir.exists():
@@ -52,8 +52,8 @@ def test_langfuse_bundle_export(tmp_path: Path):
         assert loaded["trace"]["name"].startswith("EvalRX:")
 
 
-def test_report_uses_latest_trace_and_m5_status(tmp_path: Path):
-    """An appended run must not inherit M1/M5 state from an earlier trace."""
+def test_report_uses_latest_trace_and_m4_status(tmp_path: Path):
+    """An appended run must not inherit M1/M4 state from an earlier trace."""
     events = [
         {"event": "run_start", "trace_id": "old", "model": "old", "protocol": {}},
         {"event": "probe", "trace_id": "old", "cycle": 0, "analyzers": ["old_probe"]},
@@ -68,15 +68,15 @@ def test_report_uses_latest_trace_and_m5_status(tmp_path: Path):
         {
             "event": "surgery",
             "trace_id": "new",
-            "module": "m5",
+            "module": "m4",
             "status": "supported",
             "fixed": False,
             "confidence_score": 0.8,
             "evidence": {
-                "m5_test_name": "association",
-                "m5_effect_size": 0.3,
-                "m5_verdict": "supported by held-out evidence",
-                "m5_evidence_grade": "causal",
+                "m4_test_name": "association",
+                "m4_effect_size": 0.3,
+                "m4_verdict": "supported by held-out evidence",
+                "m4_evidence_grade": "causal",
             },
         },
     ]
@@ -88,7 +88,7 @@ def test_report_uses_latest_trace_and_m5_status(tmp_path: Path):
 
     assert data["run"]["raw_model"] == "new"
     assert data["m1"]["analyzers"] == ["new_probe"]
-    assert data["m5"]["results"][0]["status"] == "supported"
+    assert data["m4"]["results"][0]["status"] == "supported"
 
 
 def test_report_escapes_script_terminators_in_case_data(tmp_path: Path):

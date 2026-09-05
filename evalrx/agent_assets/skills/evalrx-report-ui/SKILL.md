@@ -25,9 +25,9 @@ Use these stage names consistently:
   Analysis.
 - **M3 — Hypothesis generation:** falsifiable explanations formed from M2
   evidence plus exploratory context. Dashboard role: Hypotheses.
-- **M5 — Hypothesis validation:** corrected statistical and protocol evidence
+- **M4 — Hypothesis validation:** corrected statistical and protocol evidence
   gates a proposed mechanism. Dashboard role: decision evidence.
-- **M4 — Intervention & repair:** targeted interventions and repair candidates
+- **M5 — Intervention & repair:** targeted interventions and repair candidates
   are compared against the unchanged baseline. Dashboard role: final action.
 
 Every dashboard/report should make clear which stage produced each claim,

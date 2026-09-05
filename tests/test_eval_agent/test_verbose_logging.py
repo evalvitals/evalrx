@@ -1,7 +1,7 @@
 """VLDiagnoseLoop(verbose=True) / FixAgent(verbose=True) enable console logging.
 
 Cheap constructor-level checks -- no .run()/.propose_and_validate() (those need
-a full M1-M5 or fix-validation pass); this only verifies the wiring reaches
+a full M1-M4 or fix-validation pass); this only verifies the wiring reaches
 evalrx.logging_utils's idempotent handler.
 """
 

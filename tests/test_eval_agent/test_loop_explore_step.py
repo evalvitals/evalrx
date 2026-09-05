@@ -6,9 +6,9 @@ Contract under test:
     signals + labels), and only when an explorer is configured;
   * its output reaches M3 as an ``ExploreContext`` (observations / rendered
     charts / caveats) and the dashboard as files under ``<run>/explore/`` —
-    never M2's confirmatory family, M5, or the fix gate;
+    never M2's confirmatory family, M4, or the fix gate;
   * it is best-effort: an explorer failure costs the notes, not the run;
-  * ``run_confirm`` (M5 → fix) never explores — there is no M3 to inform.
+  * ``run_confirm`` (M4 → fix) never explores — there is no M3 to inform.
 """
 
 from __future__ import annotations
@@ -285,7 +285,7 @@ def test_run_analysis_explores_and_run_confirm_does_not(tmp_path):
 
     calls.clear()
     loop.run_confirm(_batch(), list(report.final_hypotheses))
-    assert "explore" not in calls   # M5 only — no M3 to inform
+    assert "explore" not in calls   # M4 only — no M3 to inform
 
 
 def test_default_question_is_built_from_the_protocol():

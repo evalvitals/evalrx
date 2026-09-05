@@ -150,7 +150,7 @@ def main() -> None:
         judge = AgyModel()
     except RuntimeError:
         judge = None
-        print("[warn] agy binary not found — M3/M5 will be skipped")
+        print("[warn] agy binary not found — M3/M4 will be skipped")
 
     ctx = RunContext(args.run_dir, verbose=True)
     print(f"Logging to: {{ctx.root}}")

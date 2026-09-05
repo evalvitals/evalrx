@@ -190,7 +190,7 @@ def test_plain_language_repair_runs_once_when_the_plain_line_is_jargon():
 
 def test_plain_language_repair_failure_keeps_the_original_hypotheses():
     """A repair that raises must not cost the run its diagnosis — a jargon-y
-    headline is a reader problem, not an M5 problem."""
+    headline is a reader problem, not an M4 problem."""
     class RaisesOnRepair(FakeModel):
         def __init__(self) -> None:
             super().__init__(capabilities={Capability.GENERATE})

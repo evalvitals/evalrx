@@ -160,7 +160,7 @@ class StatsToolResultWire(WireModel):
     def is_decisive(self, report_survivors: set[str] | None = None) -> bool:
         """Whether this result may decide a hypothesis's direction.
 
-        Mirrors the M5 gate: raw rejection is necessary but never sufficient.
+        Mirrors the M4 gate: raw rejection is necessary but never sufficient.
         """
         if not self.reject:
             return False
@@ -300,7 +300,7 @@ class ExploreContextWire(WireModel):
     """Descriptive EDA notes from the optional explore side-path.
 
     Never authoritative. It enters the M3 prompt and the dashboard and nothing
-    else — not M2's tested family, not M5, not the fix gate. It shapes WHICH
+    else — not M2's tested family, not M4, not the fix gate. It shapes WHICH
     hypotheses get proposed, never WHETHER one is true.
     """
 

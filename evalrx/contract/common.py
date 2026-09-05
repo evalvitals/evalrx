@@ -1,4 +1,4 @@
-"""Shared wire types for the M1-M5 stage contract.
+"""Shared wire types for the M1-M4 stage contract.
 
 These models describe the **serialized** shape crossing a stage boundary — what
 lands on disk and what a frontend reads — not the in-memory Python objects.
@@ -33,7 +33,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 #:
 #: 4: ``AnalyzerSelection.model_kind`` (a combination enum) replaced by modality
 #:    slots + ``is_agent``; ``StepWire.role`` realigned to ``core.case.StepRole``.
-SCHEMA_VERSION = 4
+#: 5: stage ids M4 and M5 swapped so numbering follows execution order —
+#:    hypothesis verification is now ``m4`` (was ``m5``), surgery + fix are now
+#:    ``m5_surgery``/``m5_fix`` (were ``m4_surgery``/``m4_fix``).
+SCHEMA_VERSION = 5
 
 
 class WireModel(BaseModel):
@@ -411,7 +414,7 @@ class StageStatus(WireModel):
     has for whether to trust the absence of a result.
     """
 
-    stage: Literal["pre_m1", "m1", "explore", "m2", "m3", "m4_surgery", "m4_fix", "m5"]
+    stage: Literal["pre_m1", "m1", "explore", "m2", "m3", "m5_surgery", "m5_fix", "m4"]
     state: StageState
     cycle: int = Field(description="Normal cycles start at 0; the post-loop fix uses -1.")
     reason: str | None = Field(

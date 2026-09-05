@@ -108,8 +108,8 @@ m1_probe            analyzers (which families exist, which was selected)
                     signal_curve (the bar chart)
 m2_statistics       explore and heldout phases, each with a correction-family summary + per-test rows
 m3_hypotheses       the proposed hypotheses + the adversarial critic's objections
-m5_verdicts         the adjudication on the held-out split
-m4_repair_search    the L1–L4 ladder + the candidate list (explore selection and heldout confirmation kept apart)
+m4_verdicts         the adjudication on the held-out split
+m5_repair_search    the L1–L4 ladder + the candidate list (explore selection and heldout confirmation kept apart)
 accepted_repair     the accepted fix: image ops, prompt, decoding settings, steps split out
 heldout_validation  before/after accuracy + the paired 2x2
 example_case        one illustrative case (question, gold, model output, media path)
@@ -126,8 +126,8 @@ The module names are fixed, so every figure labels the pipeline the same way:
 M1  Suspicious Behavior Detection   Run the analyzer probing library, find per-case suspicious behaviors
 M2  Statistical Screening           Using plots to explain, statistical tests to decide
 M3  Hypothesis Formation            Explore the reason behind the signals
-M5  Held-out Verification           Confirm whether the hypothesis is verified over the held-out cases
-M4  Validated Repair                Fix the failure with the validated repair ladder
+M4  Held-out Verification           Confirm whether the hypothesis is verified over the held-out cases
+M5  Validated Repair                Fix the failure with the validated repair ladder
 ```
 
 ---

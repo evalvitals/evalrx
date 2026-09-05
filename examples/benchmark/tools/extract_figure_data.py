@@ -34,9 +34,9 @@ carrying a ``block`` key:
     m2_test          one row per statistical test (the forest plot), per phase
     m2_family        the multiplicity-correction family summary, per phase
     m3_hypothesis    one row per proposed hypothesis + the critic's reaction
-    m5_verdict       one row per adjudicated hypothesis
-    m4_candidate     one row per repair candidate tried
-    m4_ladder        one row per tier L1..L4 with its outcome
+    m4_verdict       one row per adjudicated hypothesis
+    m5_candidate     one row per repair candidate tried
+    m5_ladder        one row per tier L1..L4 with its outcome
     repair           the accepted fix: image ops, prompt, decoding settings
     validation       the paired held-out comparison
     example_case     one illustrative failing case, with its media path
@@ -260,16 +260,16 @@ MODULE_NAMES = {
     "M1": "Suspicious Behavior Detection",
     "M2": "Statistical Screening",
     "M3": "Hypothesis Formation",
-    "M5": "Held-out Verification",
-    "M4": "Validated Repair",
+    "M4": "Held-out Verification",
+    "M5": "Validated Repair",
 }
 
 MODULE_SUBTITLES = {
     "M1": "Run the analyzer probing library, find per-case suspicious behaviors",
     "M2": "Using plots to explain, statistical tests to decide",
     "M3": "Explore the reason behind the signals",
-    "M5": "Confirm whether the hypothesis is verified over the held-out cases",
-    "M4": "Fix the failure with the validated repair ladder",
+    "M4": "Confirm whether the hypothesis is verified over the held-out cases",
+    "M5": "Fix the failure with the validated repair ladder",
 }
 
 # What a probe is actually asking, in the reader's language. Keyed by the
@@ -783,10 +783,10 @@ def block_m3(run: Run) -> List[dict]:
         return []
     hyps = diag.get("hypotheses") or diag.get("proposed_hypotheses") or []
     review = diag.get("review") or {}
-    # the proposal record does not always store the direction; M5 does
+    # the proposal record does not always store the direction; M4 does
     direction = {}
     for v in run.events_of("surgery"):
-        if v.get("module") == "m5":
+        if v.get("module") == "m4":
             d = (v.get("evidence") or {}).get("expected_direction")
             if d:
                 direction[v.get("failure_mode")] = d
@@ -824,9 +824,9 @@ def block_m3(run: Run) -> List[dict]:
     return out
 
 
-def block_m5(run: Run) -> List[dict]:
-    verdicts = [e for e in run.events_of("surgery") if e.get("module") == "m5"]
-    stored = load_json(run.rel("report", "m5_results.json"), []) or []
+def block_m4(run: Run) -> List[dict]:
+    verdicts = [e for e in run.events_of("surgery") if e.get("module") == "m4"]
+    stored = load_json(run.rel("report", "m4_results.json"), []) or []
     by_mode = {}
     for s in stored:
         if isinstance(s, dict):
@@ -839,26 +839,26 @@ def block_m5(run: Run) -> List[dict]:
         fdr = (extra.get("evidence") or {}).get("fdr") if isinstance(extra, dict) else None
         out.append(
             {
-                "block": "m5_verdict",
+                "block": "m4_verdict",
                 "run_id": run.run_id,
                 "hypothesis_id": f"H{i}",
                 "failure_mode": v.get("failure_mode"),
                 "status": v.get("status"),
                 "statement": v.get("hypothesis"),
-                "test_name": ev.get("m5_test_name") or ev.get("chosen_tool"),
+                "test_name": ev.get("m4_test_name") or ev.get("chosen_tool"),
                 "expected_direction": ev.get("expected_direction"),
                 "effect": ev.get("effect_size"),
                 "ci": ev.get("ci"),
                 "e_value": ev.get("e_value"),
                 "reject": ev.get("reject"),
                 "underpowered": ev.get("underpowered"),
-                "evidence_grade": ev.get("m5_evidence_grade"),
-                "protocol_consistent": ev.get("m5_protocol_consistent"),
+                "evidence_grade": ev.get("m4_evidence_grade"),
+                "protocol_consistent": ev.get("m4_protocol_consistent"),
                 "confidence_score": v.get("confidence_score"),
                 "fdr": fdr,
-                "verdict_text": ev.get("m5_verdict"),
+                "verdict_text": ev.get("m4_verdict"),
                 "split": "heldout",
-                "source": "logs/run_log.jsonl:surgery[module=m5] + logs/report/m5_results.json",
+                "source": "logs/run_log.jsonl:surgery[module=m4] + logs/report/m4_results.json",
             }
         )
     return out
@@ -874,7 +874,7 @@ TIER_LABEL = {
 }
 
 
-def block_m4(run: Run) -> List[dict]:
+def block_m5(run: Run) -> List[dict]:
     fix = run.event("fix")
     if not fix:
         return []
@@ -884,7 +884,7 @@ def block_m4(run: Run) -> List[dict]:
     for c in fix.get("selection_attempted") or []:
         out.append(
             {
-                "block": "m4_candidate",
+                "block": "m5_candidate",
                 "run_id": run.run_id,
                 "phase": "explore_selection",
                 "tier": c.get("tier"),
@@ -903,7 +903,7 @@ def block_m4(run: Run) -> List[dict]:
     for c in fix.get("attempted") or []:
         out.append(
             {
-                "block": "m4_candidate",
+                "block": "m5_candidate",
                 "run_id": run.run_id,
                 "phase": "heldout_confirmation",
                 "tier": c.get("tier"),
@@ -943,7 +943,7 @@ def block_m4(run: Run) -> List[dict]:
             status = "not_selected"
         out.append(
             {
-                "block": "m4_ladder",
+                "block": "m5_ladder",
                 "run_id": run.run_id,
                 "tier": tier,
                 "label": TIER_LABEL.get(tier),
@@ -1117,7 +1117,7 @@ def block_qa_flags(run: Run, records: List[dict]) -> List[dict]:
     """Cheap consistency checks, so a figure is not built on a silent bug."""
     flags: List[dict] = []
 
-    verdicts = [r for r in records if r["block"] == "m5_verdict"]
+    verdicts = [r for r in records if r["block"] == "m4_verdict"]
     # two hypotheses adjudicated with the identical test and effect are really
     # one finding wearing two hats
     seen: Dict[tuple, str] = {}
@@ -1272,8 +1272,8 @@ def to_document(records: List[dict]) -> dict:
         "confirmed_signal": one("m1_signal_curve").get("signal"),
         "hypotheses": {
             "proposed": one("m3_critic").get("n_proposed"),
-            "supported": sum(1 for v in many("m5_verdict") if v.get("status") == "supported"),
-            "inconclusive": sum(1 for v in many("m5_verdict") if v.get("status") == "inconclusive"),
+            "supported": sum(1 for v in many("m4_verdict") if v.get("status") == "supported"),
+            "inconclusive": sum(1 for v in many("m4_verdict") if v.get("status") == "inconclusive"),
         },
         "accepted_repair": rep.get("name"),
         "accepted_tier": rep.get("tier"),
@@ -1295,10 +1295,10 @@ def to_document(records: List[dict]) -> dict:
             "tests": [_clean(t, BOILERPLATE + ("phase", "summary")) for t in tests],
         })
 
-    # ---- M4 candidates, split by what the phase actually proves ----
-    cands = many("m4_candidate")
-    m4 = _clean({
-        "ladder": [_clean(t, BOILERPLATE) for t in many("m4_ladder")],
+    # ---- M5 candidates, split by what the phase actually proves ----
+    cands = many("m5_candidate")
+    m5 = _clean({
+        "ladder": [_clean(t, BOILERPLATE) for t in many("m5_ladder")],
         "candidates_selected_on_explore": [
             _clean(c, BOILERPLATE + ("phase",))
             for c in cands if c.get("phase") == "explore_selection"
@@ -1317,7 +1317,7 @@ def to_document(records: List[dict]) -> dict:
     doc = {
         "pipeline": [
             {"module": m, "name": MODULE_NAMES[m], "subtitle": MODULE_SUBTITLES[m]}
-            for m in ("M1", "M2", "M3", "M5", "M4")
+            for m in ("M1", "M2", "M3", "M4", "M5")
         ],
         "headline": headline,
         "run": _clean(run, BOILERPLATE),
@@ -1335,9 +1335,9 @@ def to_document(records: List[dict]) -> dict:
             "proposed": [_clean(h, BOILERPLATE) for h in many("m3_hypothesis")],
             "adversarial_critic": _clean(one("m3_critic"), BOILERPLATE),
         }),
-        "m5_verdicts": {"module": f'M5 \u00b7 {MODULE_NAMES["M5"]}',
-                        "verdicts": [_clean(v, BOILERPLATE) for v in many("m5_verdict")]},
-        "m4_repair_search": {"module": f'M4 \u00b7 {MODULE_NAMES["M4"]}', **m4},
+        "m4_verdicts": {"module": f'M4 \u00b7 {MODULE_NAMES["M4"]}',
+                        "verdicts": [_clean(v, BOILERPLATE) for v in many("m4_verdict")]},
+        "m5_repair_search": {"module": f'M5 \u00b7 {MODULE_NAMES["M5"]}', **m5},
         "accepted_repair": repair,
         "heldout_validation": _clean(val, BOILERPLATE),
         "example_case": _clean(one("example_case"), BOILERPLATE),
@@ -1477,11 +1477,11 @@ def to_markdown(doc: dict, title: Optional[str] = None) -> str:
                  + (f" (95% CI {ci[0]:+.2f} to {ci[1]:+.2f})" if ci else ""))
     L.append("")
 
-    # ---------------- M3 / M5 ----------------
+    # ---------------- M3 / M4 ----------------
     hyps = (doc.get("m3_hypotheses") or {}).get("proposed", [])
-    verdicts = (doc.get("m5_verdicts") or {}).get("verdicts", [])
+    verdicts = (doc.get("m4_verdicts") or {}).get("verdicts", [])
     by_mode = {v.get("failure_mode"): v for v in verdicts}
-    L.append(f"## M3 · {MODULE_NAMES['M3']}  →  M5 · {MODULE_NAMES['M5']}")
+    L.append(f"## M3 · {MODULE_NAMES['M3']}  →  M4 · {MODULE_NAMES['M4']}")
     L.append("")
     L.append("*frozen on explore, then adjudicated on held-out cases*")
     L.append("")
@@ -1501,11 +1501,11 @@ def to_markdown(doc: dict, title: Optional[str] = None) -> str:
                  f"adjudication is statistical.*")
         L.append("")
 
-    # ---------------- M4 ----------------
-    search = doc.get("m4_repair_search", {})
-    L.append(f"## M4 · {MODULE_NAMES['M4']}")
+    # ---------------- M5 ----------------
+    search = doc.get("m5_repair_search", {})
+    L.append(f"## M5 · {MODULE_NAMES['M5']}")
     L.append("")
-    L.append(f"*{MODULE_SUBTITLES['M4']}*")
+    L.append(f"*{MODULE_SUBTITLES['M5']}*")
     L.append("")
     STATUS = {"accepted": "**accepted**", "regressed": "regressed",
               "untouched": "untouched", "not_selected": "tried, not selected"}
@@ -1622,8 +1622,8 @@ def extract(root: str, example_case: Optional[str] = None) -> List[dict]:
         ("m1_signal_curve", lambda: block_m1_signal_curve(run, signal, signals)),
         ("m2", lambda: block_m2(run)),
         ("m3", lambda: block_m3(run)),
-        ("m5", lambda: block_m5(run)),
         ("m4", lambda: block_m4(run)),
+        ("m5", lambda: block_m5(run)),
         ("repair", lambda: block_repair(run)),
         ("validation", lambda: block_validation(run)),
         ("example_case", lambda: block_example_case(run, signal, example_case)),

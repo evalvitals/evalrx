@@ -61,7 +61,7 @@ cd examples/benchmark/llm/gemini
 docker compose build                                   # once per family (cached afterwards)
 # per-cell smoke: Stage 0 on 8 rows, no judge
 EXTRA_ARGS="--baseline-only --limit 8" docker compose run --rm gemini-3.6-flash
-# the full chain (M1 -> explore -> M2 -> M3 -> held-out M5 -> M4 -> fix L0..L2), detached
+# the full chain (M1 -> explore -> M2 -> M3 -> held-out M4 -> M5 -> fix L0..L2), detached
 DATASET=bbh_causal_judgement CONCURRENCY=8 docker compose run -d --name llm-gemini-3.6-flash-bbh_causal_judgement gemini-3.6-flash
 docker logs -f llm-gemini-3.6-flash-bbh_causal_judgement
 ```
