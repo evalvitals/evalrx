@@ -85,6 +85,25 @@ REASON: <one or two sentences naming the flaw you found, or why it survives>
 REASON: <specific flaw, or "evidence directly supports this claim" if keeping>"""
 
 
+_FORMAT_REPAIR_PROMPT = """\
+Your previous answer below could not be read: it contains no line that starts
+with the label HYPOTHESIS:. The hypotheses are only usable in the exact
+line-labelled format.
+
+Previous answer:
+{raw}
+
+Rewrite the SAME hypotheses (do not invent new ones) so that each one is a block
+of these lines, in this order, each label at the start of its own line:
+HYPOTHESIS: <one-sentence falsifiable technical claim>
+PLAIN_STATEMENT: <the same claim in one everyday sentence, no jargon>
+FAILURE_MODE: <short snake_case tag naming the mechanism>
+TEST: <which signal/analyzer verifies the claim>
+EXPECTED_ASSOCIATION: <higher_on_failures or lower_on_failures>
+
+If your previous answer meant that there is no issue to report, reply with the
+single word NO_ISSUE."""
+
 _PLAIN_REPAIR_PROMPT = """\
 Your previous answer below proposed hypotheses correctly, but some
 PLAIN_STATEMENT lines fail a plain-language check.

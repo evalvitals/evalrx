@@ -998,7 +998,9 @@ def test_l1_template_candidate_preserves_non_image_modality_fields():
         def generate(self, inputs, **kwargs):
             if getattr(inputs, "video", None) is None:
                 raise ValueError("requires Inputs.video")
-            return "cello"
+            # baseline must fail: an all-pass subset short-circuits the search
+            p = str(getattr(inputs, "prompt", "")).lower()
+            return "cello" if "carefully" in p else "viola"
 
         def forward(self, inputs, capture, spec=None):
             raise NotImplementedError
@@ -2070,7 +2072,11 @@ def test_no_rubric_cases_yield_recommendation_not_crash():
 
 
 def test_broken_cases_counted_and_net_negative_not_fixed():
-    """A candidate that repairs nothing and breaks passing cases must not pass."""
+    """A candidate that repairs nothing and breaks passing cases must not pass.
+
+    One case (c8) fails the baseline so the zero-fail gate lets the search
+    run; the candidate then repairs nothing and breaks the eight passers.
+    """
 
     class InvertModel(Model):
         capabilities = frozenset({Capability.GENERATE})
@@ -2078,7 +2084,9 @@ def test_broken_cases_counted_and_net_negative_not_fixed():
 
         def generate(self, inputs, **kwargs):
             p = str(getattr(inputs, "prompt", inputs)).lower()
-            return "No." if "carefully" in p else "Yes."
+            if "carefully" in p:
+                return "No."
+            return "No." if "8" in p else "Yes."
 
         def forward(self, inputs, capture, spec=None):
             raise NotImplementedError
@@ -2087,7 +2095,7 @@ def test_broken_cases_counted_and_net_negative_not_fixed():
         json.dumps([{"name": "careful", "prompt_template": "Look very carefully. {prompt}"}])
     )
     agent = FixAgent(judge=judge, max_tier="L1")
-    out = agent.propose_and_validate(InvertModel(), _gold_yes_batch(), [_hyp("x")])
+    out = agent.propose_and_validate(InvertModel(), _gold_yes_batch(9), [_hyp("x")])
     v = out.attempted[0]
     assert v.n_broken == 8 and v.n_fixed == 0
     assert v.fixed is False and out.fixed is False

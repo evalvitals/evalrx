@@ -35,7 +35,7 @@ COPY . /evalrx
 # backend. requests: the LLM datasets come through the HF datasets-server.
 # scipy/soundfile: remote audio processors resample/read through them.
 # gemini extra (google-genai): the Gemini API family (--backend gemini).
-RUN pip install --no-cache-dir "/evalrx[data,viz,gemini]" pandas requests openai scipy soundfile \
+RUN pip install --no-cache-dir "/evalrx[data,viz,gemini]" pandas requests openai scipy soundfile "matplotlib<3.11" \
     "transformers==5.15.0" "accelerate>=0.26.0"
 
 # The benchmark code + the LLM dataset catalog it imports, at the SAME relative
@@ -44,6 +44,10 @@ COPY examples/dataset_selection/llm_band_probe /app/examples/dataset_selection/l
 COPY examples/dataset_selection/llm_benchmark/datasets.py /app/examples/dataset_selection/llm_benchmark/datasets.py
 COPY examples/benchmark/_common /app/examples/benchmark/_common
 COPY --chmod=0755 examples/benchmark/docker/codex /usr/local/bin/codex
+# CHAIR captioning task (tasks/chair_words.py): nltk tokeniser/tagger/WordNet on
+# the default search path, so the in-harness grader is the official chair.py rule.
+RUN pip install --no-cache-dir "nltk>=3.9" \
+    && python -m nltk.downloader -d /usr/share/nltk_data punkt punkt_tab averaged_perceptron_tagger_eng wordnet omw-1.4
 
 ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/examples/benchmark
 WORKDIR /app/work
@@ -69,7 +73,7 @@ RUN pip install --no-cache-dir "torch==2.10.0" "torchvision==0.25.0" \
 COPY . /evalrx
 # [local] pins transformers < 5 -> 4.57.x, the 4.x line the repo code targets
 # (the model card tests 4.48.3). einops/packaging: the Omni remote code.
-RUN pip install --no-cache-dir "/evalrx[local,data,viz]" pandas requests openai scipy soundfile \
+RUN pip install --no-cache-dir "/evalrx[local,data,viz]" pandas requests openai scipy soundfile "matplotlib<3.11" \
     einops packaging "transformers==4.57.6"
 # Prebuilt kernels matching torch 2.10 / cu12 / cp311 / cxx11abi=TRUE (Dao-AILab +
 # state-spaces release assets): causal_conv1d for the fast path, mamba_ssm for the
@@ -81,6 +85,10 @@ COPY examples/dataset_selection/llm_band_probe /app/examples/dataset_selection/l
 COPY examples/dataset_selection/llm_benchmark/datasets.py /app/examples/dataset_selection/llm_benchmark/datasets.py
 COPY examples/benchmark/_common /app/examples/benchmark/_common
 COPY --chmod=0755 examples/benchmark/docker/codex /usr/local/bin/codex
+# CHAIR captioning task (tasks/chair_words.py): nltk tokeniser/tagger/WordNet on
+# the default search path, so the in-harness grader is the official chair.py rule.
+RUN pip install --no-cache-dir "nltk>=3.9" \
+    && python -m nltk.downloader -d /usr/share/nltk_data punkt punkt_tab averaged_perceptron_tagger_eng wordnet omw-1.4
 ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/examples/benchmark
 WORKDIR /app/work
 CMD ["python", "-m", "_common.run", "--list"]

@@ -96,6 +96,7 @@ from evalrx.eval_agent.stages.fix_pipeline import (
 from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier, route_min_tier
 from evalrx.eval_agent.stages.fix_tools import (
     PipelineSpec,
+    _safe_generation_kwargs,
     catalog_text,
     run_pipeline,
     safe_format,
@@ -861,6 +862,8 @@ class FixAgent:
         scoring_note: str = "",
         floor_candidates: "Iterable[str] | None" = ("self_consistency_5",),
         prewritten_code: str = "",
+        candidate_model: "Model | None" = None,
+        deployed_spec: "dict[str, Any] | None" = None,
     ) -> None:
         if verbose:
             # Surfaces this module's own logger.info()/.warning() calls (tier
@@ -912,6 +915,17 @@ class FixAgent:
             tuple(str(n) for n in floor_candidates) if floor_candidates else ()
         )
         self._prewritten_code = str(prewritten_code or "")
+        # Winner-as-new-baseline (spec deploys, recursive rounds): when the
+        # caller runs the whole loop against a DEPLOYED pipeline handle
+        # (fix_tools.SpecPipelineModel), `candidate_model` is the raw model —
+        # baseline arms keep measuring the deployed pipeline while proposals
+        # and candidate arms run on the raw handle, so every candidate is a
+        # full REPLACEMENT pipeline paired against the deployed one.
+        # `deployed_spec` (the deployed PipelineSpec as a dict) is shown to
+        # the proposer so its candidates are edits of a known incumbent
+        # rather than blind wraps.
+        self._candidate_model = candidate_model
+        self._deployed_spec = dict(deployed_spec) if deployed_spec else None
         # Per-candidate scratch: case id -> the final output that was scored.
         # Filled by the strategy closures / run_pipeline capture while a
         # candidate runs; _validate moves it onto the FixValidation.
@@ -947,6 +961,13 @@ class FixAgent:
         remains untouched confirmation data and permits only one round.
         """
         outcome = FixOutcome(max_tier=self.max_tier)
+        # Winner-as-new-baseline: `model` as handed in is what the baseline
+        # arm must measure (the deployed pipeline, when one is configured);
+        # proposals and candidate arms run on the raw handle so a candidate
+        # REPLACES the deployed pipeline instead of nesting inside it.
+        baseline_model = model
+        if self._candidate_model is not None:
+            model = self._candidate_model
         self._max_tokens_floor = self._resolve_max_tokens_floor(model, data)
         routed_tiers: "list[FixTier]" = []
         for h in hypotheses:
@@ -962,7 +983,7 @@ class FixAgent:
 
         data = self._validation_subset(data)
         authoring_data = proposal_data if proposal_data is not None else data
-        baseline, unstable = self._baseline(model, data)
+        baseline, unstable = self._baseline(baseline_model, data)
         if not any(v is not None for v in baseline.values()):
             logger.warning("FixAgent: no scorable case (no rubrics); nothing to validate")
             outcome.recommendation = self._recommend(
@@ -971,6 +992,43 @@ class FixAgent:
                 data=data,
                 reason_prefix=("no case carries a scoring rubric, so no fix can be validated"),
             )
+            self._emit(outcome)
+            return outcome
+
+        # With zero repairable failure mass in the fresh baseline no candidate
+        # can ever validate (n_fixed stays 0, the e-value ceiling is 1 <
+        # 1/alpha), yet the search would still spend its whole judge/model
+        # budget — a saturated live cell burned an hour on 15 candidates this
+        # way. The paired test uses the FRESH baseline, not the stale case
+        # labels, so the gate must too. Tiers above L2 are exempt: an L3a
+        # candidate pairs against its own matched sampling control
+        # (``baseline_executor``), so a clean greedy baseline does not bound
+        # its e-value.
+        repairable = True
+        if self.max_tier <= FixTier.L2_SCAFFOLD:
+            if self._baseline_repeats > 1 or self._candidate_repeats > 1:
+                repairable = any(
+                    r is not None and r < 1.0 for r in self._baseline_rates.values()
+                )
+            else:
+                repairable = any(v is False for v in baseline.values())
+        if not repairable:
+            n_scorable = sum(1 for v in baseline.values() if v is not None)
+            logger.warning(
+                "FixAgent: all %d scorable case(s) pass the fresh baseline — no candidate "
+                "can be validated here; skipping candidate proposal",
+                n_scorable,
+            )
+            outcome.recommendation = {
+                "recommend_tier": None,
+                "action": "gather_more_failures",
+                "reason": (
+                    f"nothing to repair: all {n_scorable} scorable validation case(s) pass "
+                    f"the fresh baseline, so even a perfect candidate tops out at e=1.0 "
+                    f"(< {1.0 / self._alpha:.0f} needed) — collect failing cases instead of "
+                    "spending the candidate budget."
+                ),
+            }
             self._emit(outcome)
             return outcome
 
@@ -1099,9 +1157,14 @@ class FixAgent:
         selection correction is needed on the confirmation split.
         """
         data = self._validation_subset(data)
+        # Same handle split as propose_and_validate: baseline arm = deployed
+        # pipeline (when configured), candidate arm = raw model.
+        baseline_model = model
+        if self._candidate_model is not None:
+            model = self._candidate_model
         self._max_tokens_floor = self._resolve_max_tokens_floor(model, data)
         self._enforce_generation_floor([candidate])
-        baseline, unstable = self._baseline(model, data)
+        baseline, unstable = self._baseline(baseline_model, data)
         return self._validate(candidate, model, data, baseline, unstable)
 
     def _ebh_survivors(self, tested: "list[FixValidation]") -> "set[int]":
@@ -1350,6 +1413,11 @@ class FixAgent:
         context_block = self._context_block(
             context, data, model, floor_names=floor_names
         )
+        # Recursive rounds only (see _edit_note): the L1/L2 proposers may also
+        # EDIT the previously deployed template instead of wrapping it. The
+        # coded-pipeline path is left out — its cases_file carries rendered
+        # prompts only, so {original_prompt} means nothing to written code.
+        proposal_context = context_block + self._edit_note(data)
 
         candidates: "list[FixCandidate]" = []
         # Pre-registered conditional repair for audio/other A-D tasks whose
@@ -1542,7 +1610,7 @@ class FixAgent:
                 prior_names,
                 has_images=has_images,
                 tasks=tasks,
-                context_block=context_block,
+                context_block=proposal_context,
             )
         if (
             not code_only
@@ -1558,7 +1626,7 @@ class FixAgent:
                 has_images=has_images,
                 model=model,
                 tasks=tasks,
-                context_block=context_block,
+                context_block=proposal_context,
                 catalog=catalog,
             )
             # The floor: always-tested defaults, on top of the judge's ideas.
@@ -1712,14 +1780,15 @@ class FixAgent:
         never appears, which the scorer reads as a wrong answer — a decoding
         artefact that says nothing about the candidate's idea. The judge's
         proposal is kept in ``payload["generation_kwargs_proposed"]`` for the
-        record; the applied value is what ``PipelineSpec.from_dict`` reads.
+        record; the applied value is what ``PipelineSpec.from_dict`` (spec) or
+        the template runner (template) reads.
         """
         floor = self._max_tokens_floor
         if not floor:
             return
         for candidate in candidates:
             payload = candidate.payload
-            if not isinstance(payload, dict) or candidate.kind != "spec":
+            if not isinstance(payload, dict) or candidate.kind not in ("spec", "template"):
                 continue
             gk = payload.get("generation_kwargs")
             if not isinstance(gk, dict):
@@ -1793,6 +1862,80 @@ class FixAgent:
         if not lines:
             return ""
         return "\n" + "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _deployed_template(data: "CaseBatch") -> "str | None":
+        """The template a previous repair round already deployed, if coherent.
+
+        Recursive-round manifests record the winning template in every row's
+        ``metadata.recursive_stack[-1]["template"]`` alongside the pristine
+        ``metadata.original_prompt`` (the round-0 text).  Returns the template
+        only when EVERY case carries the same one plus its original prompt —
+        anything less means there is no single deployed template to edit.
+        """
+        tpl: "str | None" = None
+        for case in data:
+            md = getattr(case, "metadata", {}) or {}
+            stack = md.get("recursive_stack")
+            entry = stack[-1] if isinstance(stack, list) and stack else None
+            text = entry.get("template") if isinstance(entry, dict) else None
+            if not text or not md.get("original_prompt"):
+                return None
+            if tpl is None:
+                tpl = str(text)
+            elif str(text) != tpl:
+                return None
+        return tpl
+
+    def _edit_note(self, data: "CaseBatch") -> str:
+        """Proposer context inviting EDIT candidates on recursive rounds.
+
+        Only rendered when the batch carries a coherent deployed template (see
+        :meth:`_deployed_template`); default runs get "" and are unchanged.
+        An edit candidate is an ordinary template/spec proposal whose template
+        is written against ``{original_prompt}`` — the L1 closure and the spec
+        runner both fill that placeholder from case metadata, so it REPLACES
+        the deployed template instead of wrapping it.
+
+        A SPEC deploy (``deployed_spec`` + ``candidate_model``: the baseline
+        handle runs the previous winner's whole pipeline) is different: rows
+        stay pristine, so templates use ``{prompt}`` as usual, and EVERY
+        candidate is validated as a full pipeline paired against the deployed
+        one — the note shows the incumbent spec and asks for revisions of it.
+        """
+        if self._deployed_spec is not None:
+            spec_json = json.dumps(self._deployed_spec, indent=2, default=str)
+            return (
+                "\nDEPLOYED PIPELINE (the baseline your candidates are paired "
+                "against is NOT the raw model: it is the already-deployed pipeline "
+                "below — a previous repair round's validated winner. Every case's "
+                "recorded baseline output came from running it):\n"
+                "<<<\n" + spec_json + "\n>>>\n"
+                "Your candidates run as full pipelines that REPLACE this one, so "
+                "beating the baseline means beating this pipeline, not the plain "
+                "model.  Prefer minimal revisions of it — keep what its validation "
+                "proved, change the ONE part the failure evidence indicts (its "
+                "template wording, its sampling, its scaffold) — over unrelated "
+                "fresh ideas that discard its confirmed gains.\n"
+            )
+        deployed = self._deployed_template(data)
+        if not deployed:
+            return ""
+        return (
+            "\nDEPLOYED TEMPLATE (a previous repair round already rewrote every case "
+            "prompt: each case's {prompt} value IS the rendered output of the template "
+            "below, and the pristine pre-rewrite text is available as the placeholder "
+            "{original_prompt}):\n"
+            "<<<\n" + deployed.rstrip() + "\n>>>\n"
+            "In addition to your other strategies, propose 1-2 EDIT candidates: a "
+            "minimal revision of the deployed template — change, tighten, or remove "
+            "the ONE clause the failure evidence indicts, and keep what already "
+            "works.  Write an edit against {original_prompt} (and do NOT also "
+            "include {prompt}): it REPLACES the deployed template instead of "
+            "wrapping it, so the model sees one coherent instruction rather than "
+            "an override fighting the text above it.\n"
+        )
+
     def _runtime_candidates(
         self,
         data: "CaseBatch",
@@ -1891,7 +2034,7 @@ class FixAgent:
         # Some permissive judges return an L2 pipeline for the L1 request
         # because both prompts include the same examples. Do not silently turn
         # that into an identity L1 candidate (and an unnecessary e-BH test).
-        structural_keys = {"image_ops", "generation_kwargs", "n_samples", "strategy"}
+        structural_keys = {"image_ops", "n_samples", "strategy"}
         has_structural_proposal = False
         for p in proposals:
             template = str(p.get("prompt_template", ""))
@@ -1899,14 +2042,26 @@ class FixAgent:
             if structural_keys.intersection(p):
                 has_structural_proposal = True
                 continue
-            if name and "{prompt}" in template:
+            # An EDIT candidate (recursive rounds, see _edit_note) replaces the
+            # deployed template by rendering against {original_prompt} instead
+            # of wrapping the already-rewritten {prompt}.
+            if name and ("{prompt}" in template or "{original_prompt}" in template):
+                payload: "dict[str, Any]" = {"prompt_template": template}
+                # L1 stays prompt-only except for decode ROOM: a template that
+                # asks for intermediate work must be able to finish (at a 64-
+                # token vlm budget every such rewrite truncated and scored as a
+                # regression). max_tokens is floor-enforced later; sampler
+                # controls (temperature/top_p) remain L2-only and are dropped.
+                max_tokens = _safe_generation_kwargs(p.get("generation_kwargs")).get("max_tokens")
+                if max_tokens:
+                    payload["generation_kwargs"] = {"max_tokens": max_tokens}
                 out.append(
                     FixCandidate(
                         tier=FixTier.L1_PROMPT,
                         name=name,
                         kind="template",
                         description=_judge_description(p),
-                        payload={"prompt_template": template},
+                        payload=payload,
                     )
                 )
         # Image tasks always receive one conservative, declarative grounding
@@ -2994,6 +3149,7 @@ class FixAgent:
             return detector_visual_search
         if candidate.kind == "template":
             template = candidate.payload["prompt_template"]
+            gen_kwargs = _safe_generation_kwargs(candidate.payload.get("generation_kwargs"))
 
             def l1(model: "Model", case: "FailureCase") -> "Optional[bool]":
                 inp = case.inputs
@@ -3013,7 +3169,7 @@ class FixAgent:
                     new_inputs = dataclasses.replace(
                         inp, prompt=safe_format(template, template_context)
                     )
-                    output = str(model.generate(new_inputs))
+                    output = str(model.generate(new_inputs, **gen_kwargs))
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, output))
                 except Exception:

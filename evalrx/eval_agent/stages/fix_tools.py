@@ -18,9 +18,10 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from evalrx.core.model import Model
+
 if TYPE_CHECKING:
     from evalrx.core.case import FailureCase
-    from evalrx.core.model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -890,7 +891,13 @@ def run_pipeline(
     # contains braces (LaTeX, sets like "{1,2,3}", JSON) — str.format raised
     # KeyError OUTSIDE the per-case try and took down a whole fix stage
     # (qwen3.5-2b/bbh_tracking7 run8: template with "{1,2,3,4,5,6,7}").
-    base_prompt = safe_format(spec.prompt_template, {"prompt": prompt})
+    # {original_prompt} lets an EDIT candidate (recursive rounds) REPLACE the
+    # previously deployed template instead of wrapping its rendered output.
+    template_context = {"prompt": prompt}
+    original = (getattr(case, "metadata", {}) or {}).get("original_prompt")
+    if original:
+        template_context["original_prompt"] = str(original)
+    base_prompt = safe_format(spec.prompt_template, template_context)
     n_calls = 0
 
     def generate(text: str) -> str:
@@ -952,3 +959,55 @@ def run_pipeline(
     if capture is not None:
         capture["winner"] = winner
     return score_to_bool(score_fn(case, winner))
+
+
+class SpecPipelineModel(Model):
+    """A deployed :class:`PipelineSpec` exposed as a ``Model`` handle.
+
+    Winner-as-new-baseline for recursive repair rounds: a pure L1 template
+    winner deploys as data (its rendering pre-baked into manifest prompts),
+    but a spec winner (n_samples / strategy / generation_kwargs) has to RUN.
+    Wrapping it as a model makes "the fixed pipeline" the thing every
+    downstream stage calls ``.generate()`` on: Stage-0 discovery, the M-stage
+    probes and the fix stage's baseline arm all measure the deployed pipeline,
+    while candidates run on the raw handle (``FixAgent(candidate_model=...)``)
+    and REPLACE it.
+
+    Two deliberate semantic notes:
+
+    * ``baseline_override_min_support`` is stripped from the deployed spec: it
+      arbitrates against a case's RECORDED baseline output, and once the spec
+      IS the baseline there is no previous recording to defer to (a bare
+      ``generate(inputs)`` call carries no ``observed``, which the gate would
+      treat as the incumbent answer and return verbatim).
+    * caller ``generation_kwargs`` are ignored: the deployed pipeline defines
+      its own decoding, exactly as it did when it validated.
+    """
+
+    def __init__(self, model: "Model", spec: "PipelineSpec | dict[str, Any]") -> None:
+        payload = spec.to_dict() if isinstance(spec, PipelineSpec) else dict(spec)
+        payload.pop("baseline_override_min_support", None)
+        parsed = PipelineSpec.from_dict(payload)
+        if parsed is None:
+            raise ValueError(f"not a deployable pipeline spec: {payload!r}")
+        self.inner_model = model
+        self.spec = parsed
+        self.capabilities = getattr(model, "capabilities", frozenset())
+        self.modalities = getattr(model, "modalities", frozenset({"text"}))
+
+    def generate(self, inputs: Any, **kwargs: Any) -> str:
+        from evalrx.core.case import FailureCase, Inputs
+
+        if not hasattr(inputs, "prompt"):
+            inputs = Inputs(prompt=str(inputs))
+        case = FailureCase(id="spec_baseline", inputs=inputs)
+        capture: "dict[str, Any]" = {}
+        run_pipeline(self.inner_model, case, self.spec, lambda _case, _out: None, capture)
+        winner = capture.get("winner")
+        if winner is None:
+            outputs = capture.get("outputs") or []
+            winner = outputs[0] if outputs else ""
+        return str(winner)
+
+    def forward(self, inputs: Any, capture: Any, spec: Any = None):
+        raise NotImplementedError("SpecPipelineModel is a generate-only deployed pipeline")

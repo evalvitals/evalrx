@@ -258,6 +258,23 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         print(f"[model] weights loaded in {time.monotonic() - t0:.0f}s "
               f"(attn_impl={getattr(model.runtime, 'attn_impl', None)}); generation={gen_kwargs}")
 
+    # Winner-as-new-baseline (recursive rounds with an L2 spec winner): the
+    # deployed pipeline becomes the handle everything downstream measures —
+    # Stage-0, the M stages, and the fix stage's baseline arm — while fix
+    # candidates run on the raw model and REPLACE the pipeline.
+    raw_model, deployed_spec = model, None
+    if getattr(args, "baseline_spec", ""):
+        from evalrx.eval_agent.stages.fix_tools import SpecPipelineModel
+
+        payload = json.loads(Path(args.baseline_spec).read_text(encoding="utf-8"))
+        if isinstance(payload, dict) and isinstance(payload.get("payload"), dict):
+            payload = payload["payload"]  # a fix attempt's result.json
+        model = SpecPipelineModel(model, payload)
+        deployed_spec = model.spec.to_dict()
+        print(f"[baseline-spec] baseline = deployed pipeline {deployed_spec.get('name')!r} "
+              f"(n_samples={model.spec.n_samples}, strategy={model.spec.strategy}); "
+              "fix candidates run on the raw model and replace it")
+
     from evalrx.eval_agent import CaseDiscoveryAgent
 
     started = time.monotonic()
@@ -362,6 +379,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         Path(args.fix_code_file).read_text(encoding="utf-8")
         if args.fix_code_file else ""
     )
+    if deployed_spec is not None:
+        fix_kwargs.update(candidate_model=raw_model, deployed_spec=deployed_spec)
     fix_agent = FixAgent(
         judge=judge, max_tier=args.fix_tier, score_fn=T.score_case, run_logger=ctx.logger,
         cli_config=(CliAgentConfig(provider=coder_provider, timeout_sec=420, model=coder_model,
@@ -389,7 +408,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         explorer = ExploratoryAnalysisAgent(
             cli_config=coder_cfg,
             sandbox=ExperimentSandbox(workdir=run_dir / "explore" / "sandbox", cleanup=False),
-            timeout_sec=900, max_attempts=2,
+            timeout_sec=900, max_attempts=3,
         )
     loop = VLDiagnoseLoop(
         model=model, protocol=protocol, probe_agent=probe_agent, stats_agent=stats_agent,

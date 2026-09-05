@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { JSONUIProvider, Renderer } from "@json-render/react";
-import { Activity, Bot } from "lucide-react";
+import { Activity, Bot, Moon, Sun } from "lucide-react";
+import { applyTheme, initialTheme, type Theme } from "./theme";
 import { registry, ReportProviders } from "./reportCatalog";
 import type { LayoutEnvelope, ReportData } from "./types";
 import { Lightbox } from "./lightbox";
@@ -21,6 +22,10 @@ export function App() {
   const [error, setError] = useState("");
   const [needsRun, setNeedsRun] = useState(false);
   const [view, setView] = useState("overview");
+  // Charts read their colors through theme.tc at render time, so a switch
+  // remounts the view tree (key={theme}) rather than restyling in place.
+  const [theme, setTheme] = useState<Theme>(initialTheme);
+  useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => {
     if (embedded) return;
     fetch("/api/report").then(async (res) => {
@@ -57,5 +62,14 @@ export function App() {
           <ReportProviders data={payload.data} navigate={setView}><JSONUIProvider registry={registry} initialState={{}}><Renderer spec={payload.layout.spec} registry={registry} /></JSONUIProvider></ReportProviders>
           <footer><span>EvalRX</span><p>Evidence is progressively disclosed from overview to raw audit logs.</p><small>Layout: {payload.layout.generated_by.mode}</small></footer>
         </>;
-  return <>{body}<Lightbox /></>;
+  return <>
+    <div key={theme}>{body}</div>
+    <button
+      className="theme-toggle"
+      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+      aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+    >{theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}</button>
+    <Lightbox />
+  </>;
 }

@@ -73,13 +73,37 @@ def _embed_media(root: Path, data: dict, *, mode: EmbedMedia) -> None:
         item["data_uri"] = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
 
 
+_FIGURE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
+
+
 def _embed_stage_figures(root: Path, data: dict) -> None:
-    """Keep cited M2 evidence visible in a portable single-file report."""
-    details = data.get("stage_detail") or {}
-    figures = (details.get("m2") or {}).get("figures") or []
-    for figure in figures:
-        path = _resolve_media(root, str(figure.get("path") or ""))
-        if path is None:
-            continue
-        mime = mimetypes.guess_type(path.name)[0] or "image/png"
-        figure["data_uri"] = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+    """Keep every cited stage figure visible in a portable single-file report.
+
+    Figure references are not confined to one list: M2 publishes
+    ``stage_detail.m2.figures``, M3 cites some of the same files again as
+    ``stage_detail.m3.evidence_figures``, and each entry is its own dict even
+    when the underlying file is shared. Walk the whole stage_detail tree and
+    embed anything that looks like a figure, caching by path so a file shared
+    across stages is read (and stored) once.
+    """
+    cache: dict[str, str] = {}
+
+    def embed(node: object) -> None:
+        if isinstance(node, dict):
+            raw = node.get("path")
+            if isinstance(raw, str) and raw.lower().endswith(_FIGURE_SUFFIXES) \
+                    and not node.get("data_uri"):
+                if raw not in cache:
+                    path = _resolve_media(root, raw)
+                    if path is not None:
+                        mime = mimetypes.guess_type(path.name)[0] or "image/png"
+                        cache[raw] = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+                if raw in cache:
+                    node["data_uri"] = cache[raw]
+            for value in node.values():
+                embed(value)
+        elif isinstance(node, list):
+            for value in node:
+                embed(value)
+
+    embed(data.get("stage_detail") or {})
