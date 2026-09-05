@@ -54,6 +54,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
 
 # Human-readable descriptions for the auto-generated README, keyed by the
@@ -143,6 +144,16 @@ class RunContext:
         verbose:  Forwarded to the :class:`RunLogger` (human-readable stdout).
         config:   Optional run-configuration dict recorded verbatim in the
                   manifest (model, judge, protocol, …).
+        logger_version: "v1" (default, :class:`RunLogger`) or "v2"
+                  (:class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`, the
+                  tidy M1..M5-folder layout described in
+                  ``evalrx/eval_agent/RUN_LOGGER_V2.md``). V2 does not take a
+                  ``context=`` — producers that need real RunContext sandboxing
+                  (FixAgent, SurgeryAgent) must still receive ``run_context=``
+                  separately, as they already do; only ``ctx.logger`` itself
+                  changes shape. This flag exists to validate V2 against real
+                  pipelines while V1 stays the default everywhere; it is not
+                  yet a stable public option.
     """
 
     def __init__(
@@ -153,6 +164,7 @@ class RunContext:
         verbose: bool = False,
         config: "dict[str, Any] | None" = None,
         observability_mode: str | None = None,
+        logger_version: str = "v1",
     ) -> None:
         if root is None:
             root = Path("runs") / datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -167,7 +179,10 @@ class RunContext:
         self.config = dict(config or {})
         self._verbose = verbose
         self._observability_mode = observability_mode
-        self._logger: "RunLogger | None" = None
+        if logger_version not in ("v1", "v2"):
+            raise ValueError(f"logger_version must be 'v1' or 'v2', got {logger_version!r}")
+        self._logger_version = logger_version
+        self._logger: "RunLogger | RunLoggerV2 | None" = None
         self._workdir_seq = 0
         self._trial_seq: "dict[str, int]" = {}
 
@@ -232,15 +247,28 @@ class RunContext:
     # ------------------------------------------------------------------
 
     @property
-    def logger(self) -> "RunLogger":
-        """The :class:`RunLogger` bound to this context (created on first use)."""
-        if self._logger is None:
-            from evalrx.eval_agent.run_logger import RunLogger
+    def logger(self) -> "RunLogger | RunLoggerV2":
+        """The logger bound to this context (created on first use).
 
-            self._logger = RunLogger(
-                context=self, verbose=self._verbose,
-                observability_mode=self._observability_mode,
-            )
+        ``RunLogger`` (V1) unless constructed with ``logger_version="v2"``,
+        in which case this returns a :class:`RunLoggerV2` rooted at
+        ``self.root`` instead — see the constructor docstring.
+        """
+        if self._logger is None:
+            if self._logger_version == "v2":
+                from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+                self._logger = RunLoggerV2(
+                    run_dir=self.root, verbose=self._verbose,
+                    observability_mode=self._observability_mode,
+                )
+            else:
+                from evalrx.eval_agent.run_logger import RunLogger
+
+                self._logger = RunLogger(
+                    context=self, verbose=self._verbose,
+                    observability_mode=self._observability_mode,
+                )
         return self._logger
 
     # ------------------------------------------------------------------

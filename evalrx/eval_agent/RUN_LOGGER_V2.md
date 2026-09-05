@@ -1,0 +1,274 @@
+# RunLoggerV2 — design notes
+
+Status: **coexists with `RunLogger`** (`run_logger.py`). Nothing in `RunLogger`
+was touched, modified, or deleted to build this. `RunLoggerV2` is an opt-in
+alternative — construct it and pass it as `run_logger=` anywhere `RunLogger`
+is accepted today. Once it's been run against real examples and confirmed to
+capture everything `RunLogger` does, `RunLogger` can be retired in a follow-up
+— that decision and that removal are explicitly OUT of scope for this change.
+
+## Why this exists
+
+`RunLogger` grew organically over many stages of the diagnose-loop project
+(see `evalrx/eval_agent/run_logger.py`'s own docstring and CLAUDE.md history)
+and its current output for one run looks like:
+
+```
+run_dir/
+  run_log.jsonl          one JSON line per event, EVERY stage interleaved
+  model_calls.jsonl       a second, separate JSONL stream
+  artifacts/              *.npy, *.json, *.png — all stages mixed together
+  prompts/                one *.prompt.txt + *.response.txt PER judge call
+  experiments/             *.py, *.txt, record.md per M5 experiment
+  tools/                   *.py, *.txt per synthesised tool
+  workspace/                copied sandbox files
+  fixes/                    record.md + result.json + outputs.jsonl per candidate
+```
+
+That's 7+ top-level directories, an unbounded number of small text files (one
+pair per judge call, one per tool-codegen attempt, one per experiment), and no
+way to look at "just M3" without grep-ing a shared JSONL stream and cross
+referencing `cycle`/`event` fields.
+
+This file describes the replacement layout and the reasoning behind each
+rule the user asked for.
+
+## The four rules, and how the layout satisfies them
+
+### 1. Few files
+
+One JSON document per pipeline stage. A run that used all five stages
+produces exactly:
+
+```
+run_dir/
+  run.json          run-wide events (see below)
+  M1/log.json
+  M2/log.json
+  M3/log.json
+  M4/log.json
+  M5/log.json
+  M*/artifacts/      only for stages that actually produced binary media
+  media/             only if the run had case-level images/audio
+  artifacts/          only if save_artifact_json() was called
+```
+
+A stage that never ran (e.g. a run with no M4/M5 activity) still gets a
+folder + an empty-ish `log.json` — but only once `close()` runs: `close()` is
+the one call site that flushes all five stages unconditionally, so a normal
+`with RunLoggerV2(...) as logger: ...` run, or any `run_logger.close()` at the
+end of a loop, produces all five `M*/log.json` regardless of activity. A run
+that crashes before `close()` leaves folders only for stages that actually
+logged something — `_append_stage`/`log_model_call` only flush the stage they
+just wrote to, and `RunLoggerV2.__init__` doesn't pre-create anything.
+`_stage_dir`/`_stage_artifacts_dir` create the `artifacts/` subfolders lazily,
+on first use, so an unused stage never costs more than one small JSON file.
+
+### 2. Same-type logging in one JSON
+
+Within one stage's `log.json`, every event of a given kind is one array, one
+key:
+
+```json
+{
+  "probe": [ {...cycle 0...}, {...cycle 1...} ],
+  "model_calls": [ {...}, {...}, ... ],
+  "tool_codegen": [ {...} ],
+  "tool_registry": [ {...} ],
+  "stage_skipped": [ {...} ]
+}
+```
+
+Never one small file per call. This is what let `model_calls` — the highest
+fan-out event (self-consistency resampling, counterfactual regeneration —
+see `model_instrumentation.py`) — collapse from its own `model_calls.jsonl`
+stream into just another key in `M1/log.json`.
+
+### 3. M1..M5 each get their own folder
+
+Everything above. `run.json` at the top level is the one deliberate
+exception — it holds events that are not stage content:
+
+| `run.json` key       | what |
+|---|---|
+| `run_start`           | run config, git commit, versions (a single object, not a list) |
+| `cases`                | the baseline `FailureCase` records + media references |
+| `report_published`     | cached-report-publication audit records |
+| `loop_end`              | one entry per loop-run summary |
+| `agent_decisions`        | `AgenticDiagnoseLoop`'s own dispatch-judge turns |
+| `agent_tool_calls`        | the dispatch layer's accept/reject outcome per tool call |
+| `unrouted`                 | see "Routing", below — never silently dropped |
+
+### 4. Nothing but JSON, except real binary media
+
+Every text-shaped thing `RunLogger` wrote as a sibling file — judge prompts
+and responses, generated code, stdout/stderr, the coder agent's raw
+narration, human-readable Markdown summaries — is now a **string value
+inside the relevant JSON entry**:
+
+| RunLogger (a file + a path field)              | RunLoggerV2 (inline) |
+|---|---|
+| `prompts/c0_m1_selection.prompt.txt` + `judge_io.prompt_path` | `probe[].judge_prompt` |
+| `experiments/c0_m5_main.py` + `code_paths["main.py"]` | `experiment[].code["main.py"]` |
+| `experiments/c0_m5_stdout.txt` + `output_paths["stdout"]` | `experiment[].stdout` |
+| `fixes/01_L1_cand1/record.md` (human summary)     | not generated — the same fields (`status`, `evidence`, `verdict`, ...) are already in `fix[]`; a renderer builds its own view from them |
+| `tools/c0_m1_probe_gen_probe_01_code.py`  | `tool_codegen[].code` |
+
+The one thing that stays a separate file is **real binary media**: numeric
+tensors (`.npy`), rendered figures (`.png`), and any audio/video a sandbox
+happens to produce. Those live under `M<n>/artifacts/` (or `media/` for
+case-level images/audio), referenced by a relative-path string in the JSON —
+see `_MEDIA_EXTS` in `run_logger_v2.py`.
+
+A sandbox workspace snapshot (`log_experiment`'s `workdir`) is a directory of
+arbitrary files, not a single value — `_inline_workspace()` walks it and, per
+file, either inlines the text (source, data, logs) or — for a recognised
+media extension — copies it to that stage's `artifacts/` and leaves a path
+reference. Nothing is silently skipped: an unrecognised binary file gets a
+one-line `"<skipped: ...>"` note instead of being dropped from the record.
+
+## Routing: how an event picks its folder
+
+Most events know their stage unambiguously (`log_probe` → M1, `log_analysis`
+→ M2, ...). Four kinds of event carry a free-text `module`/`stage` string
+instead (`log_surgery`'s M4-vs-M5 split, `log_experiment`, `log_tool_codegen`,
+`log_tool_registry`, `log_stage_skipped`) and need to be **resolved**:
+
+```python
+_STAGE_RE = re.compile(r"m([1-5])", re.IGNORECASE)
+_STAGE_ALIASES = {"fix_pipeline": "M5", "fix": "M5", "explore": "M2"}
+```
+
+1. Search the tag for `m[1-5]` (case-insensitive), anywhere in the string —
+   covers `"m1_probe"`, `"M4_SURGERY"`, `"codegen_m2_stats"`.
+2. Fall back to `_STAGE_ALIASES` for the handful of tags that carry no digit
+   at all — as of this writing, only `fix_agent.py`'s
+   `log_tool_codegen(module="fix_pipeline", ...)` needs this.
+3. If NEITHER matches, the event goes into `run.json["unrouted"]` with a
+   `warnings.warn` — never silently discarded. `_STAGE_ALIASES` was built by
+   grepping every literal `module=`/`stage=` call site in `evalrx/eval_agent/`
+   as of this writing (see the commit that introduced this file); a NEW call
+   site added later with a tag that matches neither the regex nor the alias
+   table will still surface — loudly, in `unrouted` — rather than vanish.
+
+`log_surgery`'s M4/M5 split is NOT tag-based — it inspects
+`"m4_test_name" in iv.evidence`, exactly mirroring `RunLogger.log_surgery`
+post the M4/M5 stage-id swap (hypothesis verification = M4, intervention =
+M5). Verified directly against `evalrx/eval_agent/run_metadata.py`, which is
+where `m4_test_name` is actually set.
+
+## Durability: why every event triggers a full-file rewrite
+
+`RunLogger` appends one line to a JSONL stream per event — cheap, and a crash
+mid-run leaves everything written so far intact. `RunLoggerV2` instead keeps
+one in-memory dict per stage (+ one for `run.json`) and, on every single
+`log_*` call, serialises the WHOLE current dict and writes it via
+temp-file-then-`os.replace` (`_atomic_write_json`):
+
+- **Why not just append?** Rule 2 requires one JSON *document* per stage —
+  a bucketed object, not a line stream — so there's no way to "append" to it
+  without rewriting the document (or accepting that reads mid-run see a
+  syntactically invalid partial file).
+- **Why not buffer everything and write once at `close()`?** That would lose
+  every event on a crash mid-run — the same failure mode
+  `test_holdout_cases_logged.py` exists to catch for V1 (an unlogged case id
+  is unrecoverable). `model_calls` in particular was built specifically to
+  survive "the process dies mid-cycle" (see `model_instrumentation.py`) — an
+  in-memory-only V2 would silently regress that guarantee.
+- **The trade-off, stated plainly:** each write is `O(current stage document
+  size)`, and a stage that logs many small events (M1's `model_calls`, chiefly
+  — a self-consistency/coverage_gap analyzer can make dozens of calls per
+  case) rewrites a document that keeps growing. For a realistic run (dozens
+  to a few hundred model calls, each a KB or two serialized) this is at most
+  low tens of MB of total I/O across a whole cycle — negligible next to the
+  model-inference time the run is dominated by. If a future run's volume
+  makes this a real bottleneck, the fix is a batching/coalescing write behind
+  the same `_flush_stage`/`_flush_run` calls, not a redesign of the layout.
+- The write is **atomic**: a reader (a human `cat`-ing the file, or a future
+  dashboard) either sees the complete state as of event N, or as of N-1 —
+  never a truncated document.
+
+## API parity: how this can be a drop-in
+
+Every `RunLogger.log_*` method has a same-named, same-signature counterpart
+here, including the two that matter for callers who don't just log — they
+depend on the return value or a live attribute:
+
+- `log_probe(...)` returns `list[Path]` (rendered PNG figures) — `loop.py`
+  forwards these to the judge as visual context. `RunLoggerV2.log_probe`
+  returns the same shape, pointing into `M1/artifacts/`.
+- `current_cycle` is a plain read/write attribute `ProbeAgent`/`loop.py` set
+  before probing and `InstrumentedModel` reads at call time — present here
+  unchanged.
+- `save_artifact_json(stem, obj)` — used by `agentic/tools.py` for
+  fixed-name lookups (`failure_modes.json`, `probe_search_result.json`) —
+  present, writing under a run-global `artifacts/` (not stage-scoped, since
+  callers address it by a fixed name, not by cycle).
+
+**Verified, not assumed** (see `RunLoggerV2 is a genuinely drop-in swap`
+below): `fix_agent.py`/`surgery.py` fetch a `RunContext` via
+`getattr(run_logger, "_context", None)` (fix_agent.py) or an explicit
+constructor argument (surgery.py) — never an attribute `RunLoggerV2` is
+required to have. `RunLoggerV2` has no `_context`, so `getattr(..., None)`
+safely returns `None` and those stages fall back to their own non-trial path
+— exactly what already happens when `RunLogger` itself is used standalone
+(`context=None`), so this is not a new code path, just the existing one.
+
+## Deliberate scope cuts
+
+- **No `RunContext` integration.** No `context=` constructor parameter, no
+  `new_trial()` / trial-folder allocation. A stage that would have written
+  code/sandbox files into a trial folder just has that content inlined into
+  the JSON entry instead (see rule 4) — there's nothing left needing a
+  dedicated folder per attempt.
+- **No Markdown summaries** (`record.md`, `outcome.md`). Same information,
+  no separate file; a renderer builds a human view from the JSON on demand.
+- **No opt-in JSON-Schema self-validation** (`RunLogger`'s
+  `EVALRX_VALIDATE_LOG` / `log_schema.py` / `run_log.schema.json`). This is a
+  new structure with this markdown file as its spec instead of a machine
+  schema. (A JSON-Schema for this layout is a reasonable follow-up, not done
+  here.)
+- **Simplified verbose console output.** `RunLogger`'s `verbose=True` renders
+  multi-line, stage-specific narration (`_VerboseFormatter`). `RunLoggerV2`'s
+  `verbose=True` prints one line per event (`[M3] diagnosis cycle=0`) — this
+  change was about file layout, not console UX, and porting that formatter
+  verbatim would have doubled the size of this module for no layout benefit.
+
+## What "confirmed working" means so far
+
+`tests/test_eval_agent/test_run_logger_v2.py`:
+
+1. Drives every single `log_*` method with the SAME real domain objects
+   `test_log_schema.py` uses to conformance-check `RunLogger` (`Result`,
+   `StatsAnalysisReport`, `DiagnosisResult`, `InterventionResult`,
+   `ExploratoryAnalysisReport`, `Hypothesis`) — not bespoke V2-shaped fakes.
+2. Asserts the layout rules directly: exactly one folder per stage, no
+   non-JSON/non-media files anywhere under a stage folder, same-type events
+   share one array, an unroutable tag lands in `unrouted` rather than
+   vanishing, every JSON file left on disk is valid (parses) after a full
+   run including after `close()`, no leftover `.tmp*` files.
+3. Runs a REAL `VLDiagnoseLoop.run()` end to end (the same scenario
+   `test_holdout_cases_logged.py` uses to catch a real historical bug —
+   the held-out confirm split's cases never getting logged) with
+   `RunLoggerV2` constructed directly in place of `ctx.logger`, with **zero
+   changes to `loop.py`, `probe_agent.py`, or any `stages/*.py`** — confirming
+   the drop-in claim isn't just true method-by-method but true for an actual
+   loop run.
+
+This is the same bar `RunLogger`'s own test suite holds itself to (fixture
+objects + one real end-to-end loop run, not a full example with real model
+weights) — a real example run is the natural next step, once this change is
+reviewed and a repo maintainer wants to point one at `RunLoggerV2`.
+
+## Next steps (explicitly not done here)
+
+- Run a real `examples/*/run.py` against `RunLoggerV2` and diff its output
+  against the same example's `RunLogger` output for information-content
+  parity (every field V1 recorded should be locatable in V2).
+- Decide whether/how the report UI (`evalrx/reporting/`) should read this
+  layout — out of scope until `RunLoggerV2` is the thing actually producing
+  runs someone wants to look at.
+- Only after both of the above: swap `RunContext.logger` (or each example) to
+  default to `RunLoggerV2`, and remove `run_logger.py` + its sibling files
+  (`log_schema.py`, `run_log.schema.json`, `model_calls.jsonl` handling in
+  `model_instrumentation.py`'s call sites) — a separate, later change.
