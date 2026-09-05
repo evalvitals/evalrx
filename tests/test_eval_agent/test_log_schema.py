@@ -103,7 +103,7 @@ def _emit_every_event_type(run_dir) -> list[dict]:
         experiment={"provider": "llm", "verdict": 0.0, "metrics": {}, "returncode": 0},
     )
     logger.log_surgery(0, hyp, iv)
-    logger.log_experiment(0, hyp, iv, module="m4")
+    logger.log_experiment(0, hyp, iv, module="m5")
 
     logger.log_tool_codegen(
         module="m1_probe", name="t", need="x", source="llm", ok=True, code="print(1)",
@@ -119,7 +119,7 @@ def _emit_every_event_type(run_dir) -> list[dict]:
     logger.log_agent_tool(0, tool="run_probe", ok=True, summary="1 analyzer ran")
 
     logger.log_fix(SimpleNamespace(to_dict=lambda: {"attempted": [], "recommendation": None}))
-    logger.log_stage_skipped("M4", "no_accepted_hypothesis")
+    logger.log_stage_skipped("M5", "no_accepted_hypothesis")
 
     logger.log_loop_end(
         SimpleNamespace(cycles=1, resolved=True, final_hypotheses=[hyp]),

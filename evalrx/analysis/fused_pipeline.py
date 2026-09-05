@@ -25,7 +25,7 @@ One pass that DISCOVERS freely and CONFIRMS rigorously, with the two split apart
 
 Multiplicity note: paired/e-value tools use e-BH and marginal p-value tools use
 BH. The report exposes both legacy ``rejected_tools`` and precise
-``rejected_result_keys`` so M1-M5 remains compatible while standalone M2 can
+``rejected_result_keys`` so M1-M4 remains compatible while standalone M2 can
 audit the exact tested family.
 """
 

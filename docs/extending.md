@@ -326,7 +326,7 @@ Output layout (standalone `RunLogger`, no `RunContext`):
 
 ```text
 runs/exp_01/
-├── run_log.jsonl                         ← one JSON line per M1/M2/M3/M4 event
+├── run_log.jsonl                         ← one JSON line per M1/M2/M3/M5 event
 └── artifacts/
     ├── c0_attention_attn_weights.npy     ← attention tensor, cycle 0
     ├── c0_cka_layer_similarities.npy     ← CKA similarity matrix, cycle 0

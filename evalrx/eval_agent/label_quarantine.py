@@ -9,7 +9,7 @@ EXPLORE cases only, the coded-pipeline payload carries ``id`` / ``prompt`` /
 ``baseline_output`` and nothing else, and every FixAgent prompt says so. But the
 coder CLI runs with ``Bash Edit Write Read`` and the pipeline sandbox is a plain
 subprocess, both rooted *inside* the run directory — where, by the time the fix
-stage starts, M1..M5 have written the same labels many times over:
+stage starts, M1..M4 have written the same labels many times over:
 
 * ``baseline.json`` and ``logs/report/discovery_cases.json`` — every case with
   ``expected`` and ``label``, CONFIRM cases included;
@@ -18,7 +18,7 @@ stage starts, M1..M5 have written the same labels many times over:
 * ``logs/artifacts/*.result.json``, ``logs/contract/c*.m1.json``,
   ``explore/records.json`` — per-case analyzer signals, among them
   ``gold_yes``, which *is* the gold answer on a yes/no task;
-* ``logs/workspace/post_m4/cases.json`` — the M4 experiment's cases with gold.
+* ``logs/workspace/post_m5/cases.json`` — the M5 experiment's cases with gold.
 
 ``cat ../../../baseline.json`` from a fix workspace is two directory levels
 away. A candidate that joins its cases to any of these by id can hard-code the

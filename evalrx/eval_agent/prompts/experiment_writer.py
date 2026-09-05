@@ -1,4 +1,4 @@
-"""Prompt templates for the M4 experiment writer."""
+"""Prompt templates for the M5 experiment writer."""
 
 from typing import Any
 

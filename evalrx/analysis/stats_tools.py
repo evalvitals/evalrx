@@ -474,7 +474,7 @@ def label_leak_score(sigmap: dict[str, float], labels: dict[str, bool]) -> dict[
 #: (the matchers differ), above anything a real mechanism signal reaches — so
 #: left in the family they are the BH survivors every time (qwen3.5-2b/
 #: minervamath: all 6 survivors of 41 tests were these, effect -0.63 each) and
-#: M5 then "refutes" or "supports" hypotheses on a tautology. The mechanism
+#: M4 then "refutes" or "supports" hypotheses on a tautology. The mechanism
 #: content of these analyzers lives in their DERIVED flags (extraction_suspect,
 #: label_disagrees, coverage_gap, majority_share, changed_answer, …), which
 #: stay; strategy outcomes are compared PAIRED through ``groups``.
@@ -494,7 +494,7 @@ OUTCOME_REGRADE_METRICS: frozenset = frozenset({
     # 0..k integer, so label_leak_score (binary-only) never flags it, and
     # under degenerate sampling it is exactly {0, k} = the label. It was the
     # lone BH survivor on spatial457/qwen2.5-vl (2026-08-20) and named as
-    # M5 evidence. n_unique (sample diversity) stays: that is a mechanism.
+    # M4 evidence. n_unique (sample diversity) stays: that is a mechanism.
     "n_correct",
 })
 
@@ -1111,7 +1111,7 @@ def fdr_correct(results: list[StatsToolResult], alpha: float = 0.05) -> dict[str
     """Apply multiplicity correction across all supported result families.
 
     e-values use e-BH; p-values use BH. The returned ``rejected_tools`` field is
-    preserved for existing M1-M5 consumers, while ``rejected_result_keys`` and
+    preserved for existing M1-M4 consumers, while ``rejected_result_keys`` and
     ``families`` expose the precise generalized-M2 family membership.
     """
     return correct_results(results, alpha=alpha)

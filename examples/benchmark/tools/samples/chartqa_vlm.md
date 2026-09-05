@@ -49,7 +49,7 @@
 
 Strongest confirmed effect: **+0.46** extra failure rate when `coverage_verification_gap.n_unique` is high (95% CI +0.30 to +0.61)
 
-## M3 · Hypothesis Formation  →  M5 · Held-out Verification
+## M3 · Hypothesis Formation  →  M4 · Held-out Verification
 
 *frozen on explore, then adjudicated on held-out cases*
 
@@ -67,7 +67,7 @@ Strongest confirmed effect: **+0.46** extra failure rate when `coverage_verifica
 
 *An adversarial critic objected to 3 of 3 hypotheses; objections are recorded, not vetoes — adjudication is statistical.*
 
-## M4 · Validated Repair
+## M5 · Validated Repair
 
 *Fix the failure with the validated repair ladder*
 

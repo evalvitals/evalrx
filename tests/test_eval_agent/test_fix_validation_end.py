@@ -13,10 +13,10 @@ verdict on the qwen3.5-2b bbh_tracking7 / bbh_word_sorting runs):
 * what each candidate PRODUCED per case is captured (``FixValidation.outputs``)
   and persisted as ``outputs.jsonl`` beside the record, and calls that hit
   the decode cap are counted (``n_truncated``);
-* ``run_fix`` drops hypotheses M4's experiment REFUTED and tells the proposer;
+* ``run_fix`` drops hypotheses M5's experiment REFUTED and tells the proposer;
 * the proposer sees full example cases (prompt + baseline output + expected
   answer) from a DISJOINT split, the scoring rule, the baseline decoding, the
-  M2/M5/explore evidence — and no image-tool catalog on a text-only batch;
+  M2/M4/explore evidence — and no image-tool catalog on a text-only batch;
 * the built-in ``self_consistency_5`` is a FLOOR of the tested family for
   text-only batches, not a fallback for a silent judge.
 """
@@ -373,7 +373,7 @@ def test_floor_skipped_for_image_yes_no_batches():
 # ── run_fix: refuted hypotheses never reach the proposer as verified ─────────
 
 
-def test_run_fix_drops_m4_refuted_hypothesis_and_tells_the_proposer():
+def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
     from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
@@ -427,7 +427,7 @@ def test_run_fix_drops_m4_refuted_hypothesis_and_tells_the_proposer():
 
 
 def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
-    """Even a legacy minimal proposer cannot bypass the M5 evidence gate."""
+    """Even a legacy minimal proposer cannot bypass the M4 evidence gate."""
     from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
@@ -645,7 +645,7 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
     assert scores["q1"] is None and scores["q0"] is True and scores["q2"] is True
 
 
-# ── no verified hypothesis: M4 + fix on the best unverified lead (opt-in) ────
+# ── no verified hypothesis: M5 + fix on the best unverified lead (opt-in) ────
 
 
 def _inconclusive_report():
@@ -670,14 +670,14 @@ def _inconclusive_report():
                             all_test_results=trs, final_hypotheses=hs), hs
 
 
-def test_run_m4_default_still_requires_verified_but_allow_unverified_uses_best_lead():
+def test_run_m5_default_still_requires_verified_but_allow_unverified_uses_best_lead():
     from evalrx.eval_agent import VLDiagnoseLoop
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     report, hs = _inconclusive_report()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"))
-    assert loop.run_m4(report, _mc_batch()) is None                       # unchanged default
-    iv = loop.run_m4(report, _mc_batch(), allow_unverified=True)
+    assert loop.run_m5(report, _mc_batch()) is None                       # unchanged default
+    iv = loop.run_m5(report, _mc_batch(), allow_unverified=True)
     assert iv is not None and iv.hypothesis is hs[1]                     # best non-refuted lead
     assert iv.evidence.get("hypothesis_was_verified") is False
     assert report.fix_proposal is iv
@@ -830,7 +830,7 @@ def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
 
 # ── allow_unverified=True: the exploratory fix path, opt-in ──────────────────
 #
-# Without an M5-verified hypothesis run_fix records a skipped stage (above).
+# Without an M4-verified hypothesis run_fix records a skipped stage (above).
 # The examples we run pass allow_unverified=True so the fix still executes on
 # the best unverified leads — the candidate validation on CONFIRM is the gate.
 
@@ -884,7 +884,7 @@ def test_run_fix_allow_unverified_uses_unverified_leads_and_says_so():
     judge = ScriptedJudge("[]")
     agent = FixAgent(judge=judge, max_tier="L1")
     agent.propose_and_validate(CountingModel(), _mc_batch(), stub.hypotheses, context=stub.context)
-    assert "UNVERIFIED: M5 found no statistically significant evidence" in judge.prompts[-1]
+    assert "UNVERIFIED: M4 found no statistically significant evidence" in judge.prompts[-1]
 
 
 def test_run_fix_allow_unverified_keeps_leads_beside_verified_symptom():

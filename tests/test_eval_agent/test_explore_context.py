@@ -3,7 +3,7 @@
 Covers the core guardrail (DESIGN_m3_charts.md §5): an ``ExploreContext`` is
 DESCRIPTIVE and UNCONFIRMED — it enters the M3 hypothesis-proposal prompt (and
 its charts are attached as images), but it NEVER reaches the M2 confirmatory
-family, M5 testing, or the fix gate.
+family, M4 testing, or the fix gate.
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ def test_only_m3_diagnose_accepts_explore_context():
 
     assert "explore_context" in inspect.signature(DiagnosisAgent.diagnose).parameters
 
-    # M2 / M5 / fix must NOT take an explore_context anywhere in their public API.
+    # M2 / M4 / fix must NOT take an explore_context anywhere in their public API.
     for cls in (StatsAnalysisAgent, HypothesisTester, FixAgent):
         for _name, member in inspect.getmembers(cls, predicate=inspect.isfunction):
             params = inspect.signature(member).parameters

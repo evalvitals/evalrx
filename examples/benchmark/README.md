@@ -1,7 +1,7 @@
 # Benchmark matrix: model family × modality × dataset
 
 The full diagnosis chain — Stage 0 baseline → M1 (pinned analyzers) → explore →
-M2 → M3 → held-out M5 → M4 → fix — run as a **matrix** over three model families,
+M2 → M3 → held-out M4 → M5 → fix — run as a **matrix** over three model families,
 three input modalities and the benchmark datasets of each modality, through one
 code path ([`_common/run.py`](_common/run.py)). Each `<modality>/<family>/`
 directory is one cell family: a compose file whose services are the sizes, with
@@ -76,7 +76,7 @@ for the 3.x models), so `calibration` runs on its verbalized channel only,
 
 Every dataset is frozen to `<modality>/_data/<dataset>/manifest.json` (+ `images/`
 or `audio/`) the first time a cell of that modality needs it, with the same seeded
-sample the `m1_m4` examples use; the manifest protocol is modality-blind
+sample the `m1_m5` examples use; the manifest protocol is modality-blind
 (`prompt`, `image`, `audio`, `answers`, `task`), so one `build_cases` /
 `score_case` serves all three.
 
@@ -159,7 +159,7 @@ sample the `m1_m4` examples use; the manifest protocol is modality-blind
   defaults `enable_thinking` to false and the spec sends it explicitly, yet 3/8
   MMAU generations still opened a `thought` channel and hit the 64-token cap.
   `termination_audit` / `answer_extraction_audit` are pinned for exactly that.
-* **M1 is pinned per task** (`Task.pinned_m1`, the audited sets of the `m1_m4`
+* **M1 is pinned per task** (`Task.pinned_m1`, the audited sets of the `m1_m5`
   examples; an 8-analyzer text set for llm). `--m1-selection judge` switches to
   catalog selection, which is modality-gated on the MODEL — on a multimodal spec
   running a text task it can pick image analyzers, hence the pinned default.
@@ -171,7 +171,7 @@ sandbox both run from a workspace *inside* the run directory, and by the time th
 fix stage starts that directory holds per-case labels for every case, CONFIRM
 included (`baseline.json`, `logs/report/discovery_cases.json`, the `case_record`
 events, the M1 signal tables — `gold_yes` is the gold answer on a yes/no task —
-and the M4 workspace). `run_fix_isolated` in `_common/runner.py` therefore holds
+and the M5 workspace). `run_fix_isolated` in `_common/runner.py` therefore holds
 every file the run has written so far in memory and off disk for the duration
 of `run_fix`, then restores it byte-for-byte; `fix_quarantine.json` in the run
 directory names what was hidden. This complements the prompt-level withholding
@@ -201,7 +201,7 @@ DATASET=bbh_word_sorting CONCURRENCY=8 docker compose run -d --name llm-gemini-3
 ```
 
 Useful `EXTRA_ARGS`: `--baseline-only` (download + load + Stage 0, the cheap
-per-cell check), `--skip-fix` (M1..M5 only), `--code-only`, `--no-explore`,
+per-cell check), `--skip-fix` (M1..M4 only), `--code-only`, `--no-explore`,
 `--run-tag smoke`, `--analyzer-max-cases 16`, `--m1-selection judge`,
 `--backend endpoint --base-url http://host.docker.internal:8020/v1`; for the
 Gemini family `--thinking-level low`, `--thinking-budget 1024`, `--concurrency 8`,
@@ -224,7 +224,7 @@ All smokes: `--baseline-only --limit 8`, A6000, 2026-08-21.
 
 | cell | baseline | chain | notes |
 |---|---|---|---|
-| vlm / qwen3.5-2b / chartqa | ✓ 7/8, 2.0 s/case | | same 256-row sample (seed 5022) as `m1_m4/chartqa_qwen3_5_2b` |
+| vlm / qwen3.5-2b / chartqa | ✓ 7/8, 2.0 s/case | | same 256-row sample (seed 5022) as `m1_m5/chartqa_qwen3_5_2b` |
 | llm / qwen3.5-2b / bbh_causal_judgement | ✓ 4/8, 25 s/case | | before the chat-template fix: 8/8 at the 2048 cap (greedy) and 4/4 at an 8192 cap (sampled), all starting with `<think>` |
 | vlm / gemma-4-e2b / chartqa | ✓ 4/8, 0.8 s/case | | first run 28 s/case = the 10 GB lazy load; the runner now loads before timing |
 | llm / gemma-4-e2b / bbh_causal_judgement | ✓ 2/8, 27 s/case | | every output ends in an `Answer:` line |

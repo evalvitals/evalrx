@@ -23,10 +23,10 @@ The five cards sit at fixed x coordinates:
 | M1 | 40 | 290 | thin grey + cyan top bar |
 | M2 | 342 | 300 | thin grey + cyan top bar |
 | M3 | 654 | 216 | thin grey + cyan top bar |
-| M5 | 890 | 320 | **heavy black** (under the held-out swimlane) |
-| M4 | 1222 | 498 | **blue** |
+| M4 | 890 | 320 | **heavy black** (under the held-out swimlane) |
+| M5 | 1222 | 498 | **blue** |
 
-The swimlane boundary is near x=880: M1/M2/M3 are explore, M5/M4 are held-out.
+The swimlane boundary is near x=880: M1/M2/M3 are explore, M4/M5 are held-out.
 
 Card titles come from `pipeline[]` — `name` as the title, `subtitle` under it — so
 every figure labels the pipeline the same way.
@@ -89,15 +89,15 @@ blue-bordered, pale-blue box per hypothesis. First line inside is `H{n} {short n
 (`failure_mode` rewritten as a human-readable phrase), then two or three lines
 condensing `statement`. More than three hypotheses: shrink the type, never drop one.
 
-## M5 · Held-out Verification
+## M4 · Held-out Verification
 
-From `m5_verdicts.verdicts`: one row each, a status pill on the left (`SUPPORTED`
+From `m4_verdicts.verdicts`: one row each, a status pill on the left (`SUPPORTED`
 green on green / `REFUTED` red on red / `INCONCLUSIVE` grey on grey) and the
 hypothesis's short name on the right.
 
-## M4 · Validated Repair
+## M5 · Validated Repair
 
-From `m4_repair_search`:
+From `m5_repair_search`:
 
 1. The upper half is the L1–L4 ladder: a round tier badge per rung, its name, and the
    outcome text right-aligned. Colour by `ladder[].status`: `accepted` green,

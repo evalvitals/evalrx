@@ -1,6 +1,6 @@
 """Held-out CONFIRM split (leak #3, Phase 1).
 
-When confirm_split>0, M1-M5 hypothesis generation runs on the EXPLORE partition
+When confirm_split>0, M1-M4 hypothesis generation runs on the EXPLORE partition
 and the post-loop fix/surgery validate on the frozen CONFIRM partition — so the
 deployed fix is confirmed on data the loop never mined (selection independent of
 confirmation, the one guarantee e-values cannot provide). confirm_split=0 is a
@@ -139,7 +139,7 @@ def _report():
     return VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[h])
 
 
-# The reports below carry proposals only (nothing M5-verified): since the
+# The reports below carry proposals only (nothing M4-verified): since the
 # 2026-08-21 merge of main, run_fix records a skipped stage for that unless the
 # caller opts in with allow_unverified=True — the split mechanics are the
 # subject here, so every call opts in.
@@ -176,7 +176,7 @@ def test_run_fix_off_uses_full_batch():
     assert stub.confirm_ids is None
 
 
-def test_run_m4_adapts_on_explore_not_final_confirm():
+def test_run_m5_adapts_on_explore_not_final_confirm():
     batch = _batch()
     seen = set()
 
@@ -188,7 +188,7 @@ def test_run_m4_adapts_on_explore_not_final_confirm():
     loop = _loop(confirm_split=0.5)
     loop.surgery_agent = _Surgery()
     explore, confirm = loop._split_explore_confirm(batch)
-    loop.run_m4(_report(), batch, allow_unverified=True)
+    loop.run_m5(_report(), batch, allow_unverified=True)
 
     assert seen == {id(case) for case in explore}
     assert seen.isdisjoint(id(case) for case in confirm)

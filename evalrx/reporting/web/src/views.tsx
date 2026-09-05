@@ -19,7 +19,7 @@ import { chartPercent, chartValue, findContract, stageCode } from "./reportAcces
  * a way down; the full record (L3) is unchanged behind it, because nothing in
  * it was surplus, it was just never the first thing anyone needed.
  *
- * Depth resets when the reader moves to another stage: arriving at M5 already
+ * Depth resets when the reader moves to another stage: arriving at M4 already
  * scrolled into its raw event log is a state nobody asked for.
  */
 export function EvidenceView({ data, back, navigate, initialStage }: { data: ReportData; back: () => void; navigate?: (view: string) => void; initialStage?: string }) {
@@ -59,8 +59,8 @@ function StageArtifact({ stage, detail, report, navigate }: { stage: string; det
   if (stage === "m1") return <M1Detail data={detail.m1 || {}} report={report} />;
   if (stage === "m2") return <M2Detail data={detail.m2 || {}} />;
   if (stage === "m3") return <M3Detail data={detail.m3 || {}} report={report} />;
-  if (stage === "m5") return <M5Detail data={detail.m5 || {}} report={report} />;
-  if (stage === "m4") return <M4Detail data={detail.m4 || {}} report={report} navigate={navigate} />;
+  if (stage === "m4") return <M4Detail data={detail.m4 || {}} report={report} />;
+  if (stage === "m5") return <M5Detail data={detail.m5 || {}} report={report} navigate={navigate} />;
   return <EmptyStage title="No stage data" body="This stage did not retain a structured artifact." />;
 }
 
@@ -320,7 +320,7 @@ function StatEvidenceChart({ stats, title, note }: { stats: any[]; title: string
  *
  * The legacy card renders "No test design was retained", which says the design
  * existed and was lost. It did not exist: the judge proposed a mechanism and no
- * way to be wrong about it. That distinction decides how to read M5 — such a
+ * way to be wrong about it. That distinction decides how to read M4 — such a
  * claim returns INCONCLUSIVE however much evidence the next cycle gathers, and
  * without saying so the reader concludes "needs more data" and runs it again.
  */
@@ -329,7 +329,7 @@ function untestableIds(report: ReportData): Set<string> {
   return new Set((m3?.hypotheses || []).filter((h) => !h.test_design?.trim()).map((h) => h.id));
 }
 
-/** A design a person can act on, but that names nothing M5 measured this cycle. */
+/** A design a person can act on, but that names nothing M4 measured this cycle. */
 const SIGNAL_REF = /\b[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\b/;
 const DIRECTIVES = ["prompt_contrast", "analyzer_params", "strategy_contrast", "paired_rerun"];
 function isRoutable(design?: string): boolean {
@@ -370,17 +370,17 @@ function M3Detail({ data, report }: { data: any; report: ReportData }) {
 /**
  * Separates "the evidence was weak" from "the claim was never decidable".
  *
- * Both render as INCONCLUSIVE, and only the M3<->M5 join can tell them apart:
+ * Both render as INCONCLUSIVE, and only the M3<->M4 join can tell them apart:
  * match each verdict's hypothesis_id back to the proposal and check whether it
  * carried a test_design. Without this the reader sees "inconclusive", concludes
  * "gather more data", and the next cycle returns the same verdict for the same
  * reason. The join is why the ids on both sides have to agree.
  */
 function UndecidableNote({ report }: { report: ReportData }) {
-  const m5 = findContract<HypothesisTestOutput>(report, "m5");
-  if (!m5) return null;
+  const m4 = findContract<HypothesisTestOutput>(report, "m4");
+  if (!m4) return null;
   const untestable = untestableIds(report);
-  const stuck = (m5.results || []).filter(
+  const stuck = (m4.results || []).filter(
     (r) => r.status === "inconclusive" && untestable.has(r.hypothesis_id),
   );
   if (!stuck.length) return null;
@@ -394,7 +394,7 @@ function UndecidableNote({ report }: { report: ReportData }) {
   </div></div>;
 }
 
-function M5Detail({ data, report }: { data: any; report: ReportData }) {
+function M4Detail({ data, report }: { data: any; report: ReportData }) {
   const results = data.results || [];
   if (!data.ran || !results.length) return <><StageBanner kind="CONFIRMATORY" title="Held-out validation">M4 tests frozen hypotheses on evidence not used to propose them.</StageBanner><EmptyStage title="Validation was not reached" body="No accepted M3 hypothesis was available for independent adjudication in this run." /></>;
   const statuses = (name: string) => results.filter((item: any) => String(item.status || "").toLowerCase() === name).length;
@@ -404,15 +404,15 @@ function M5Detail({ data, report }: { data: any; report: ReportData }) {
     <StageBanner kind="CONFIRMATORY" title="Independent check">First we freeze a possible explanation. Then we test it on fresh evidence the agent did not use to invent the explanation. This is the stage allowed to say whether the idea held up.</StageBanner>
     <StageKpis items={[{ label: "Hypotheses checked", value: results.length }, { label: "Supported", value: statuses("supported") }, { label: "Refuted", value: statuses("refuted") }, { label: "Inconclusive", value: statuses("inconclusive") }, { label: "Answered the question asked", value: `${consistent}/${results.length}` }]} />
     <UndecidableNote report={report} />
-    {examples.length > 0 && <ExampleSection eyebrow="A validation example" title="How we decide whether an explanation survives" note="This is one recorded validation check. Its conclusion uses the complete independent test set—not a hand-picked example."><div className="example-deck">{examples.map((example: any) => <M5Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
+    {examples.length > 0 && <ExampleSection eyebrow="A validation example" title="How we decide whether an explanation survives" note="This is one recorded validation check. Its conclusion uses the complete independent test set—not a hand-picked example."><div className="example-deck">{examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>}
     <div className="verdict-list">{results.map((result: any, index: number) => <VerdictCard result={result} fallback={data.event} index={index} key={index} />)}</div>
   </>;
 }
 
-function M5Example({ example, report }: { example: any; report?: ReportData }) {
+function M4Example({ example, report }: { example: any; report?: ReportData }) {
   const status = String(example.status || "inconclusive").replaceAll("_", " ");
   const isCase = example.kind === "validation_case";
-  return <article className="example-card m5-example"><header><span className="example-step">1 · FROZEN IDEA</span><em className={`status status-${status}`}>{plainStatus(status)}</em></header><h4>{example.hypothesis || "A proposed explanation"}</h4>{isCase && <><span className="example-step">2 · ONE FRESH CASE IN THE TEST POOL</span><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>MODEL ANSWER</small><b>{displayValue(example.baseline_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div></>}<div className="validation-flow"><div><span>2 · INDEPENDENT TEST</span><b>{plainTest(example.test)}</b></div><div><span>3 · RESULT</span><b>{plainStatus(status)}</b>{example.effect !== undefined && example.effect !== null && <small>Measured difference: {number(example.effect)}</small>}{example.interval && <small>Likely range: {formatInterval(example.interval)}</small>}</div></div>{example.verdict && <p className="example-verdict">{example.verdict}</p>}<footer>{example.plain_reading}</footer></article>;
+  return <article className="example-card m4-example"><header><span className="example-step">1 · FROZEN IDEA</span><em className={`status status-${status}`}>{plainStatus(status)}</em></header><h4>{example.hypothesis || "A proposed explanation"}</h4>{isCase && <><span className="example-step">2 · ONE FRESH CASE IN THE TEST POOL</span><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>MODEL ANSWER</small><b>{displayValue(example.baseline_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div></>}<div className="validation-flow"><div><span>2 · INDEPENDENT TEST</span><b>{plainTest(example.test)}</b></div><div><span>3 · RESULT</span><b>{plainStatus(status)}</b>{example.effect !== undefined && example.effect !== null && <small>Measured difference: {number(example.effect)}</small>}{example.interval && <small>Likely range: {formatInterval(example.interval)}</small>}</div></div>{example.verdict && <p className="example-verdict">{example.verdict}</p>}<footer>{example.plain_reading}</footer></article>;
 }
 
 function VerdictCard({ result, fallback, index }: { result: any; fallback: any; index: number }) {
@@ -421,7 +421,7 @@ function VerdictCard({ result, fallback, index }: { result: any; fallback: any; 
   const hypothesis = result.hypothesis || result.statement || fallback?.hypothesis || `Hypothesis ${index + 1}`;
   const icon = status === "supported" ? <CheckCircle2 /> : status === "refuted" ? <XCircle /> : <AlertTriangle />;
   const ci = evidence.ci || result.ci;
-  return <article className={`verdict-card verdict-${status}`}><header>{icon}<div><span>H{index + 1} · INDEPENDENT CHECK</span><strong>{plainStatus(status)}</strong></div></header><h3>{hypothesis}</h3><div className="verdict-metrics"><span><small>MEASURED DIFFERENCE</small><b>{number(result.effect_size ?? evidence.effect_size)}</b></span><span><small>CONFIDENCE</small><b>{percent(result.confidence ?? fallback?.confidence_score)}</b></span><span><small>LIKELY RANGE</small><b>{formatInterval(ci)}</b></span><span><small>TYPE OF EVIDENCE</small><b>{plainEvidence(result.evidence_grade || evidence.evidence_grade)}</b></span></div><p className="verdict-reason">{plainVerdict(result.verdict || evidence.m5_verdict || "No validation explanation was retained.")}</p><div className="verdict-foot"><span className={result.protocol_consistent === false ? "bad" : "good"}>{result.protocol_consistent === false ? "Does not match the requested evaluation" : "Matches the requested evaluation"}</span><span>{evidence.fdr?.method ? "Multiple-comparison check applied" : "Independent evidence"}</span></div><details><summary>Technical audit evidence</summary><pre>{JSON.stringify(evidence, null, 2)}</pre></details></article>;
+  return <article className={`verdict-card verdict-${status}`}><header>{icon}<div><span>H{index + 1} · INDEPENDENT CHECK</span><strong>{plainStatus(status)}</strong></div></header><h3>{hypothesis}</h3><div className="verdict-metrics"><span><small>MEASURED DIFFERENCE</small><b>{number(result.effect_size ?? evidence.effect_size)}</b></span><span><small>CONFIDENCE</small><b>{percent(result.confidence ?? fallback?.confidence_score)}</b></span><span><small>LIKELY RANGE</small><b>{formatInterval(ci)}</b></span><span><small>TYPE OF EVIDENCE</small><b>{plainEvidence(result.evidence_grade || evidence.evidence_grade)}</b></span></div><p className="verdict-reason">{plainVerdict(result.verdict || evidence.m4_verdict || "No validation explanation was retained.")}</p><div className="verdict-foot"><span className={result.protocol_consistent === false ? "bad" : "good"}>{result.protocol_consistent === false ? "Does not match the requested evaluation" : "Matches the requested evaluation"}</span><span>{evidence.fdr?.method ? "Multiple-comparison check applied" : "Independent evidence"}</span></div><details><summary>Technical audit evidence</summary><pre>{JSON.stringify(evidence, null, 2)}</pre></details></article>;
 }
 
 /**
@@ -448,9 +448,9 @@ function VerdictCard({ result, fallback, index }: { result: any; fallback: any; 
  * slug in title case, which would read as an explanation the run never gave.
  */
 function repairRefs(report: ReportData): Map<string, FixAttemptWire> {
-  const m4 = findContract<FixOutput>(report, "m4_fix");
+  const m5 = findContract<FixOutput>(report, "m5_fix");
   const byName = new Map<string, FixAttemptWire>();
-  for (const row of [...(m4?.selection || []), ...(m4?.attempted || [])]) {
+  for (const row of [...(m5?.selection || []), ...(m5?.attempted || [])]) {
     if (!byName.has(row.name)) byName.set(row.name, row);
   }
   return byName;
@@ -469,12 +469,12 @@ function headlineFor(report: ReportData, name?: string) {
 }
 
 function SelectionSweep({ report }: { report: ReportData }) {
-  const m4 = findContract<FixOutput>(report, "m4_fix");
-  const rows = m4?.selection || [];
+  const m5 = findContract<FixOutput>(report, "m5_fix");
+  const rows = m5?.selection || [];
   if (!rows.length) return null;
   const tiers = [...new Set(rows.map((r) => r.tier))].sort();
   const anyHeadline = rows.some((r) => r.headline);
-  const chosen = m4?.selected_on_explore;
+  const chosen = m5?.selected_on_explore;
   const tone = (v?: string) => v === "fixed" ? "ok"
     : v === "unsafe" || v === "regressed" ? "bad"
     : v === "partial" || v === "model_independent" ? "warn" : "";
@@ -555,7 +555,7 @@ function CaseLinks({ ids, kind, report, navigate }: {
   </div>;
 }
 
-function M4Detail({ data, report, navigate }: { data: any; report: ReportData; navigate?: (view: string) => void }) {
+function M5Detail({ data, report, navigate }: { data: any; report: ReportData; navigate?: (view: string) => void }) {
   const candidates = data.candidates || [];
   if (!data.ran || !candidates.length) return <><StageBanner kind="INTERVENTION" title="Repair and regression check">M5 compares targeted changes against the same unmodified baseline cases.</StageBanner><SelectionSweep report={report} /><EmptyStage title={data.skipped ? "Repair was deliberately held back" : data.ran ? "No repair candidate was testable" : "Repair was not reached"} body={data.skipped ? (data.skip_detail || "The evidence review did not yet accept a mechanism for repair. The next step is a targeted diagnostic probe, not a failed repair.") : data.ran ? "The stage opened, but no accepted and testable mechanism produced a repair candidate." : "The run stopped before a targeted intervention could be evaluated."} /></>;
   const fixed = candidates.reduce((sum: number, item: any) => sum + Number(item.n_fixed || 0), 0);
@@ -574,7 +574,7 @@ function M4Detail({ data, report, navigate }: { data: any; report: ReportData; n
     {(headlineFor(report, winner?.name) || winner?.headline)
       ? <p>{headlineFor(report, winner?.name) || winner?.headline}</p>
       : winner ? <RepairVerdict candidate={winner} /> : <p>Inspect the full repair sweep below.</p>}</div></div>
-    {data.examples?.length > 0 && <M4ExampleSection examples={data.examples} report={report} />}
+    {data.examples?.length > 0 && <M5ExampleSection examples={data.examples} report={report} />}
     {data.operation_previews?.length > 0 && <RepairOperationPreviews examples={data.operation_previews} report={report} />}
     <SelectionSweep report={report} />
     <div className="repair-chart"><h3>Confirmed on held-out cases: paired flips vs. baseline</h3><ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} /></div>
@@ -625,13 +625,13 @@ function RepairVerdict({ candidate }: { candidate: any }) {
 }
 
 /**
- * The example deck wrapper, worded for whichever case M4's search actually
+ * The example deck wrapper, worded for whichever case M5's search actually
  * produced. A confirmed repair gets the "accepted" framing it earned; an
  * unconfirmed one is still shown — that is the whole point, a reader
  * debugging a failed search needs a real case, not just a gate that closed —
  * but the copy around it says plainly that nothing here was accepted.
  */
-function M4ExampleSection({ examples, report }: { examples: any[]; report: ReportData }) {
+function M5ExampleSection({ examples, report }: { examples: any[]; report: ReportData }) {
   const first = examples[0] || {};
   const confirmed = first.confirmed !== false;
   const broke = !confirmed && first.kind === "broken";
@@ -642,16 +642,16 @@ function M4ExampleSection({ examples, report }: { examples: any[]; report: Repor
   const note = confirmed
     ? "This is a case counted as fixed. The repair was accepted only after checking every paired case for improvements and regressions."
     : "No candidate cleared the significance bar, so nothing below was accepted as a repair. This is the strongest attempt's own case — shown so the search is debuggable, not just marked failed.";
-  return <ExampleSection eyebrow={eyebrow} title={title} note={note}><div className="example-deck">{examples.map((example: any) => <M4Example example={example} report={report} key={example.id} />)}</div></ExampleSection>;
+  return <ExampleSection eyebrow={eyebrow} title={title} note={note}><div className="example-deck">{examples.map((example: any) => <M5Example example={example} report={report} key={example.id} />)}</div></ExampleSection>;
 }
 
-function M4Example({ example, report }: { example: any; report: ReportData }) {
+function M5Example({ example, report }: { example: any; report: ReportData }) {
   const confirmed = example.confirmed !== false;
   const broke = example.kind === "broken";
   const label = confirmed ? "A CASE THE REPAIR HELPED" : broke ? "A CASE THE ATTEMPT BROKE" : "A CASE THE ATTEMPT HELPED — UNCONFIRMED";
   const status = confirmed ? "fixed" : broke ? "broken" : "unconfirmed";
   const statusLabel = confirmed ? "fixed" : broke ? "broken" : "not confirmed";
-  return <article className="example-card m4-example"><header><span className="example-step">{label}</span><em className={`status status-${status}`}>{statusLabel}</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>{broke ? "BEFORE ATTEMPT" : "BEFORE REPAIR"}</small><b>{example.baseline_available ? displayValue(example.baseline_output) : "Not retained"}</b></div><div><small>{broke ? "AFTER ATTEMPT" : "AFTER REPAIR"}</small><b>{displayValue(example.repaired_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><footer>{example.plain_reading}</footer></article>;
+  return <article className="example-card m5-example"><header><span className="example-step">{label}</span><em className={`status status-${status}`}>{statusLabel}</em></header><ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} /><div className="example-prompt">{example.input || "The original task text was not retained."}</div><div className="example-flow"><div><small>{broke ? "BEFORE ATTEMPT" : "BEFORE REPAIR"}</small><b>{example.baseline_available ? displayValue(example.baseline_output) : "Not retained"}</b></div><div><small>{broke ? "AFTER ATTEMPT" : "AFTER REPAIR"}</small><b>{displayValue(example.repaired_output)}</b></div><div><small>EXPECTED ANSWER</small><b>{displayValue(example.expected)}</b></div></div><footer>{example.plain_reading}</footer></article>;
 }
 
 function OperationExamples({ examples, report }: { examples: any[]; report: ReportData }) {
@@ -712,7 +712,7 @@ export function CasesView({ data, back, initialCaseId }: { data: ReportData; bac
 }
 
 /**
- * The same case before and after M4's repair, side by side.
+ * The same case before and after M5's repair, side by side.
  *
  * A repair reported as "12 repaired, 1 broken" is only reviewable if you can
  * read what changed. The gold answer sits between the two so the direction is

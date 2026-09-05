@@ -1,4 +1,4 @@
-"""Turn a real M4 fix candidate into the MethodologyWire the contract wants.
+"""Turn a real M5 fix candidate into the MethodologyWire the contract wants.
 
 Shows the intended split: a producer describes steps (drawio_builder.MethodGraph,
 which is NOT part of the contract), renders them once, and ships only the XML.

@@ -197,8 +197,8 @@ code, adjudicates host-checkable statistics, renders figures, and proposes
 M1 targeted probes
  → M2 exploratory and statistical analysis
  → M3 diagnosis hypotheses
- → M5 held-out hypothesis verification
- → M4 surgery and tiered fixes
+ → M4 held-out hypothesis verification
+ → M5 surgery and tiered fixes
 ```
 
 Interventions can range from prompt changes and scaffolds to read/write access
@@ -288,7 +288,7 @@ installing anything, marked 📦 below.
 |---|---|
 | 📦 [`synthetic_yield_explore`](examples/m2_m3/synthetic_yield_explore/reference_output/) | Standalone Explore on structured tabular outcomes — and a confound caught unprompted. |
 | 📦 [`deco_hallu_explore`](examples/m2_m3/deco_hallu_explore/reference_output/) | Explore → held-out hypothesis tests → tiered repair, on 606 real VLM cases. |
-| [`deco_hallu`](examples/m1_m4/deco_hallu/) | Decoupled multimodal hallucination diagnosis and intervention. |
+| [`deco_hallu`](examples/m1_m5/deco_hallu/) | Decoupled multimodal hallucination diagnosis and intervention. |
 | [`qwen_attention`](examples/analyzer_demos/qwen_attention/) | White-box attention analysis on a local model. |
 
 [See all examples →](examples/README.md)

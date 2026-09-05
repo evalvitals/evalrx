@@ -1,0 +1,31 @@
+services:
+  spatial457_qwen2_5_vl:
+    build:
+      context: ../../..
+      dockerfile: examples/m1_m5/spatial457_qwen2_5_vl/Dockerfile
+    image: evalrx-spatial457-qwen2-5-vl
+    environment:
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - HF_HOME=/hf_cache
+      - HOME=/home/user
+      - IS_SANDBOX=1
+    volumes:
+      - ${HF_HOME:-~/.cache/huggingface}:/hf_cache
+      - ./data:/app/example/data
+      - ./outputs:/app/example/outputs
+      - ${CLAUDE_PATH:-~/.local/bin/claude}:/usr/local/bin/claude:ro
+      - ~/.claude:/home/user/.claude
+      - ~/.claude.json:/home/user/.claude.json
+      - ${AGY_PATH:-~/.local/bin/agy}:/usr/local/bin/agy:ro
+      - ~/.gemini/antigravity-cli:/home/user/.gemini/antigravity-cli
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      sh -c "python download_spatial457.py --limit 512 --seed 7457 --exclude-json outputs/auto_fix_v7/report/discovery_cases.json --exclude-json outputs/auto_fix_v8/report/discovery_cases.json --exclude-json outputs/auto_fix_v9/report/discovery_cases.json --exclude-json outputs/auto_fix_v10/report/discovery_cases.json && python run.py --limit 512 --judge-provider claude --judge-model claude-opus-5 --judge-effort high --run-dir outputs/auto_fix_v12"

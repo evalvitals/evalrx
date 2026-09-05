@@ -142,7 +142,7 @@ def test_both_logprobs_modes_send_thinking_off_and_only_answer_mode_adds_the_suf
 
 def test_generate_sends_thinking_off_on_every_request(pipe, monkeypatch):
     """generate() goes through band_locate.generate; the payload must carry the
-    explicit kwarg (M1 probes, M4 experiments and fix candidates all take this
+    explicit kwarg (M1 probes, M5 experiments and fix candidates all take this
     path)."""
     seen = {}
 

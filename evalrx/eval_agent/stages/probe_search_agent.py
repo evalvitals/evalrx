@@ -11,7 +11,7 @@ from real components:
 The discovered failure cases (``ProbeSearchResult.failure_cases``) are plain
 ``FailureCase`` objects and feed directly into
 :func:`evalrx.analysis.failure_modes.cluster_failures` for failure-mode
-synthesis, or into M1-M5 like any other labeled batch.
+synthesis, or into M1-M4 like any other labeled batch.
 """
 
 from __future__ import annotations

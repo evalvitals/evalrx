@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 #   phase 1  evalrx explore    M2+M3 on the explore half -> hypotheses + dashboard
 #   phase 2  test_hypotheses.py    frozen-recipe re-eval + e-BH on the validate half
 #                                  + LLM judge grades each hypothesis
-#   phase 3  run_surgery.py        M5 confirm -> M4 -> tiered fix (L1..L3b) on GPU
+#   phase 3  run_surgery.py        M4 confirm -> M5 -> tiered fix (L1..L3b) on GPU
 #                                  (needs ../diagnosis_loops/deco_hallu/outputs/m1_state.pkl)
 #   report   confirm_report.json + fix_report.json land next to the exploratory
 #            report; the dashboard renders proposal + verdicts + fix in one page.

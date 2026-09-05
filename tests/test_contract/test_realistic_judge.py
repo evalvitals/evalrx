@@ -119,23 +119,23 @@ def test_a_judge_that_proposes_no_test_still_produces_a_coherent_run(tmp_path):
     assert m3.untestable == [h.id]
 
 
-def test_the_m3_m5_join_closes_when_no_id_was_ever_assigned(tmp_path):
+def test_the_m3_m4_join_closes_when_no_id_was_ever_assigned(tmp_path):
     """Hypothesis.id is "" and nothing in the loop fills it.
 
     Each stage therefore derives one, and on the live run they derived
-    DIFFERENTLY -- M3 said "h0", M5 said "unknown" -- so the verdict pointed at
+    DIFFERENTLY -- M3 said "h0", M4 said "unknown" -- so the verdict pointed at
     no claim. Downstream that is indistinguishable from "not adjudicated yet",
     which is the silent-join failure the contract exists to expose.
     """
     files = _run(tmp_path, NO_TEST_RESPONSE)
     m3 = _latest(files, "m3", DiagnosisOutput)
-    m5 = _latest(files, "m5", HypothesisTestOutput)
+    m4 = _latest(files, "m4", HypothesisTestOutput)
 
     m3_ids = {h.id for h in m3.hypotheses}
-    m5_ids = {r.hypothesis_id for r in m5.results}
-    assert m5_ids, "M5 adjudicated nothing"
-    assert m5_ids <= m3_ids, f"verdicts point at unknown claims: {m5_ids - m3_ids}"
-    assert "unknown" not in m5_ids
+    m4_ids = {r.hypothesis_id for r in m4.results}
+    assert m4_ids, "M4 adjudicated nothing"
+    assert m4_ids <= m3_ids, f"verdicts point at unknown claims: {m4_ids - m3_ids}"
+    assert "unknown" not in m4_ids
 
 
 def test_every_verdict_is_attributable_to_whether_the_claim_was_testable(tmp_path):
@@ -148,11 +148,11 @@ def test_every_verdict_is_attributable_to_whether_the_claim_was_testable(tmp_pat
     """
     files = _run(tmp_path, NO_TEST_RESPONSE)
     m3 = _latest(files, "m3", DiagnosisOutput)
-    m5 = _latest(files, "m5", HypothesisTestOutput)
+    m4 = _latest(files, "m4", HypothesisTestOutput)
 
     untestable = set(m3.untestable)
     assert untestable, "this fixture is supposed to produce an untestable claim"
-    attributable = [r for r in m5.results if r.hypothesis_id in untestable]
+    attributable = [r for r in m4.results if r.hypothesis_id in untestable]
     assert attributable, "no verdict could be traced back to the claim it judges"
     for r in attributable:
         # The provenance of the evidence is on the wire too, so a reader can see
@@ -182,8 +182,8 @@ def test_omitting_the_test_design_is_currently_the_more_permissive_path(tmp_path
     bug fix -- so this test asserts what the code does today, and will fail
     loudly the day someone changes it.
     """
-    lax = _latest(_run(tmp_path / "lax", NO_TEST_RESPONSE), "m5", HypothesisTestOutput)
-    strict = _latest(_run(tmp_path / "strict", WITH_TEST_RESPONSE), "m5", HypothesisTestOutput)
+    lax = _latest(_run(tmp_path / "lax", NO_TEST_RESPONSE), "m4", HypothesisTestOutput)
+    strict = _latest(_run(tmp_path / "strict", WITH_TEST_RESPONSE), "m4", HypothesisTestOutput)
 
     assert [r.status.value for r in lax.results] == ["supported"]
     assert [r.status.value for r in strict.results] == ["inconclusive"]
@@ -395,13 +395,13 @@ def test_every_statistical_result_carries_a_distinct_human_label():
     assert len(set(labels)) == 3, labels
 
 
-# ── M4's tier is an enum in the pipeline and a string on the wire ────────────
+# ── M5's tier is an enum in the pipeline and a string on the wire ────────────
 
 def test_a_fix_tier_enum_serialises_to_its_wire_spelling():
     """FixTier is an IntEnum: .value is an ordinal, .name is L3A_INTERNALS_READ.
 
     Neither is what the contract asks for. A live run passed the enum straight
-    through and the whole M4 payload was rejected -- the repair results were
+    through and the whole M5 payload was rejected -- the repair results were
     lost to a spelling. `.label` is exactly the wire form and was already there.
     """
     from evalrx.contract.emit import _tier
@@ -424,7 +424,7 @@ def test_every_tier_the_pipeline_has_is_representable():
     for tier in FixTier:
         FixOutput(
             schema_version=SCHEMA_VERSION, trace_id="t", produced_at="2026-08-23T00:00:00Z",
-            status={"stage": "m4_fix", "state": "succeeded", "cycle": -1},
+            status={"stage": "m5_fix", "state": "succeeded", "cycle": -1},
             max_tier=_tier(tier),
         )
 
@@ -456,7 +456,7 @@ def test_a_paired_contrast_is_named_by_its_arms():
     assert measured_label(_R({})).startswith("unnamed contrast")
 
 
-# ── M4 must report the search, not only its winner ───────────────────────────
+# ── M5 must report the search, not only its winner ───────────────────────────
 
 def test_the_selection_sweep_reaches_the_wire():
     """A run that swept seven candidates and confirmed one reported one row.
@@ -497,7 +497,7 @@ def test_the_selection_sweep_reaches_the_wire():
     assert wire.attempted == []
 
 
-# ── M4 must be pointable-at and readable, not just correct ───────────────────
+# ── M5 must be pointable-at and readable, not just correct ───────────────────
 
 def test_the_same_repair_carries_one_number_in_both_lists():
     """The frozen candidate appears twice; numbering it by position renamed it.

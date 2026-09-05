@@ -15,7 +15,7 @@ the M2-tier(b) safety model intact:
    reads the dump, computes a per-case scalar/boolean signal for the
    hypothesised mechanism, and prints a strict ``PROBE_RESULT_JSON=`` line.
 3. The parsed findings become a normal :class:`~evalrx.core.result.Result`
-   whose ``per_case`` entries flow into M2's stats layer and M5's routing.
+   whose ``per_case`` entries flow into M2's stats layer and M4's routing.
 
 Dump layout (documented verbatim in the generation prompt):
 

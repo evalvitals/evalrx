@@ -215,7 +215,7 @@ def test_sandbox_runs_correctly_with_relative_workdir(tmp_path, monkeypatch):
     argv. If workdir stayed relative, the child process resolved the script
     path a second time relative to its new cwd, doubling it and failing with
     'python: can't open file <workdir>/<workdir>/exp_0001.py'. Every coded
-    fix/M4 attempt hit this in practice since example run.py scripts pass a
+    fix/M5 attempt hit this in practice since example run.py scripts pass a
     relative --run-dir straight into RunContext."""
     from evalrx.agent_runtime.sandbox import ExperimentSandbox
 
@@ -227,7 +227,7 @@ def test_sandbox_runs_correctly_with_relative_workdir(tmp_path, monkeypatch):
 
 
 def test_sandbox_cleanup_false_keeps_script_on_success(tmp_path):
-    """A durable, self-contained workdir (e.g. one fix/M4 trial's workspace/)
+    """A durable, self-contained workdir (e.g. one fix/M5 trial's workspace/)
     must keep its code even on success — cleanup=True is the legacy/ephemeral
     default; the trial-backed path opts out."""
     from evalrx.agent_runtime.sandbox import ExperimentSandbox

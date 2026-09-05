@@ -80,10 +80,10 @@ def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported"
             {"failure_mode": "`list_integrity_drift", "statement": "words get dropped while re-copying"},
             {"failure_mode": "self_correction_failure", "statement": "re-verify passes corrupt the answer"},
         ]},
-        {"event": "surgery", "module": "m5", "failure_mode": "`list_integrity_drift",
+        {"event": "surgery", "module": "m4", "failure_mode": "`list_integrity_drift",
          "status": verdict_status, "hypothesis": "words get dropped while re-copying",
-         "evidence": {"m5_test_name": "signal_label_assoc", "effect_size": 0.65, "ci": [0.46, 0.82],
-                      "m5_evidence_grade": "observational"}},
+         "evidence": {"m4_test_name": "signal_label_assoc", "effect_size": 0.65, "ci": [0.46, 0.82],
+                      "m4_evidence_grade": "observational"}},
         {"event": "fix",
          "max_tier": "L2",
          "selection_attempted": [
@@ -168,13 +168,13 @@ def test_the_degenerate_test_is_shown_but_kept_out_of_the_correction_family(shee
 
 
 def test_the_ladder_reports_each_tier_from_the_explore_search(sheet):
-    ladder = {rung["tier"]: rung for rung in sheet["m4"]["ladder"]}
+    ladder = {rung["tier"]: rung for rung in sheet["m5"]["ladder"]}
     assert ladder["L1"]["status"] == "regressed" and ladder["L1"]["n_candidates"] == 2
     assert ladder["L2"]["status"] == "accepted" and ladder["L2"]["best_effect"] == 0.088
     assert ladder["L3"]["status"] == "untouched" and ladder["L3"]["within_cap"] is False
     # the confirmation list is the held-out re-run, not the explore search
-    assert [c["name"] for c in sheet["m4"]["confirmed"]] == ["self_consistency_5"]
-    assert len(sheet["m4"]["candidates"]) == 4
+    assert [c["name"] for c in sheet["m5"]["confirmed"]] == ["self_consistency_5"]
+    assert len(sheet["m5"]["candidates"]) == 4
 
 
 def test_the_repair_describes_itself_from_its_payload(sheet):

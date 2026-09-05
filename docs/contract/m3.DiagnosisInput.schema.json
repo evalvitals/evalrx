@@ -2,7 +2,7 @@
   "$defs": {
     "ExploreContextWire": {
       "additionalProperties": false,
-      "description": "Descriptive EDA notes from the optional explore side-path.\n\nNever authoritative. It enters the M3 prompt and the dashboard and nothing\nelse — not M2's tested family, not M5, not the fix gate. It shapes WHICH\nhypotheses get proposed, never WHETHER one is true.",
+      "description": "Descriptive EDA notes from the optional explore side-path.\n\nNever authoritative. It enters the M3 prompt and the dashboard and nothing\nelse — not M2's tested family, not M4, not the fix gate. It shapes WHICH\nhypotheses get proposed, never WHETHER one is true.",
       "properties": {
         "observations": {
           "items": {
@@ -87,6 +87,6 @@
   "$id": "https://evalrx.dev/contract/m3.DiagnosisInput.json",
   "x-stage": "m3",
   "x-role": "input",
-  "x-schema-version": 4,
+  "x-schema-version": 5,
   "x-optional-stage": false
 }

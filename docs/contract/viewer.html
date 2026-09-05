@@ -204,9 +204,9 @@ const STAGE_TITLE = {
   m1: ["Measure", "Runs analyzers over the cases and emits per-case numbers. Makes no judgement."],
   m2: ["Screen", "Joins those numbers to pass/fail labels and tests which signals track failure."],
   m3: ["Explain", "Proposes falsifiable mechanisms. Proposals only — no verdicts live here."],
-  m5: ["Adjudicate", "Decides each claim against corrected statistics AND the stated protocol."],
-  m4_surgery: ["Intervene", "Changes one variable and re-runs, as causal evidence. Not a repair."],
-  m4_fix: ["Repair", "Validates candidate repairs paired against the unmodified baseline."],
+  m4: ["Adjudicate", "Decides each claim against corrected statistics AND the stated protocol."],
+  m5_surgery: ["Intervene", "Changes one variable and re-runs, as causal evidence. Not a repair."],
+  m5_fix: ["Repair", "Validates candidate repairs paired against the unmodified baseline."],
   pre_m1: ["Search", "Synthesises new failing cases. Its output is data, not a verdict."],
 };
 const num = v => v === null || v === undefined ? "—"
@@ -245,7 +245,7 @@ function raw(label, obj){
    screens below the headline has already failed to do its job. */
 function qualifications(byStage){
   const out = [];
-  const m1 = byStage.m1?.[0], m2 = last(byStage.m2), m3 = last(byStage.m3), m5 = last(byStage.m5);
+  const m1 = byStage.m1?.[0], m2 = last(byStage.m2), m3 = last(byStage.m3), m4 = last(byStage.m4);
   if (m2){
     if (m2.descriptive_only)
       out.push(["warn", "Descriptive only — no validity verdict was computed"]);
@@ -270,10 +270,10 @@ function qualifications(byStage){
     if (untestable.length)
       out.push(["bad", `${untestable.length} hypothes${untestable.length===1?"is names":"es name"} no test — undecidable by any evidence`]);
   }
-  if (m5){
-    if (m5.split === "explore")
+  if (m4){
+    if (m4.split === "explore")
       out.push(["warn", "Adjudicated in-sample — the claims were generated on these same cases"]);
-    (m5.results||[]).forEach(r => {
+    (m4.results||[]).forEach(r => {
       if (!r.is_consistent_with_protocol)
         out.push(["warn", `${r.hypothesis_id} is off-protocol`]);
     });
@@ -364,7 +364,7 @@ function renderM3(d){
   const untestable = hyps.filter(h => !(h.test_design||"").trim());
   if (untestable.length) box.append(note(
     untestable.length === 1 ? "One proposal names no test" : `${untestable.length} proposals name no test`,
-    "A hypothesis with no test design cannot be decided by any amount of evidence. Read the matching M5 verdict as “never testable”, not as “not enough data”.", true));
+    "A hypothesis with no test design cannot be decided by any amount of evidence. Read the matching M4 verdict as “never testable”, not as “not enough data”.", true));
   if (!hyps.length) box.append(el("p", "empty", "No hypotheses were proposed. That is a completed, empty result — not an error."));
   hyps.forEach(h => {
     const routable = !!(h.test_design||"").trim();
@@ -389,7 +389,7 @@ function chip(kind, label){
   c.append(document.createTextNode(label)); return c;
 }
 
-function renderM5(d, byStage){
+function renderM4(d, byStage){
   const box = el("div", "body");
   const m3 = last(byStage.m3);
   const untestable = new Set((m3?.hypotheses||[]).filter(h => !(h.test_design||"").trim()).map(h => h.id));
@@ -432,7 +432,7 @@ function renderM5(d, byStage){
   return box;
 }
 
-function renderM4Fix(d){
+function renderM5Fix(d){
   const box = el("div", "body");
   box.append(kv([["ceiling tier", d.max_tier], ["candidates", (d.attempted||[]).length],
     ["winner", d.best ?? "none"], ["shipped", d.fixed ? "yes" : "no"],
@@ -452,7 +452,7 @@ function renderM4Fix(d){
   return box;
 }
 
-const RENDER = { m1: renderM1, m2: renderM2, m3: renderM3, m5: renderM5, m4_fix: renderM4Fix };
+const RENDER = { m1: renderM1, m2: renderM2, m3: renderM3, m4: renderM4, m5_fix: renderM5Fix };
 
 function render(payloads, invalid, meta){
   const out = $("#out"); out.textContent = "";
@@ -482,7 +482,7 @@ function render(payloads, invalid, meta){
   }
 
   const spine = el("div", "spine");
-  const ORDER = ["pre_m1", "m1", "m2", "m3", "m5", "m4_surgery", "m4_fix"];
+  const ORDER = ["pre_m1", "m1", "m2", "m3", "m4", "m5_surgery", "m5_fix"];
   payloads
     .slice()
     .sort((a, b) => (a.cycle ?? 99) - (b.cycle ?? 99) || ORDER.indexOf(a.stage) - ORDER.indexOf(b.stage))

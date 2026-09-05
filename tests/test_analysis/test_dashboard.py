@@ -43,7 +43,7 @@ def test_load_run_detects_loop_run_and_parses_story(tmp_path):
         {"event": "diagnosis", "cycle": 1, "n_hypotheses": 2,
          "referenced_charts": ["ObjSize by label"], "explore_context_used": True,
          "hypotheses": [{"statement": "h1", "failure_mode": "fm"}]},
-        {"event": "surgery", "cycle": 1, "module": "m5", "status": "supported"},
+        {"event": "surgery", "cycle": 1, "module": "m4", "status": "supported"},
         {"event": "fix", "cycle": 1},
     ]
     (logs / "run_log.jsonl").write_text(
@@ -60,7 +60,7 @@ def test_load_run_detects_loop_run_and_parses_story(tmp_path):
 
 
 def test_load_loop_story_merges_multiple_logs(tmp_path):
-    # A run split across logs_m1/ (M1) and logs_m2_5/ (M2-M5): the story must
+    # A run split across logs_m1/ (M1) and logs_m2_5/ (M2-M4): the story must
     # merge both, not pick whichever sorts first (regression — logs_m1 has no
     # diagnoses, so picking it alone made the dashboard look empty).
     (tmp_path / "logs_m1").mkdir()
@@ -73,7 +73,7 @@ def test_load_loop_story_merges_multiple_logs(tmp_path):
             {"event": "analysis", "cycle": 1},
             {"event": "diagnosis", "cycle": 1, "n_hypotheses": 1,
              "hypotheses": [{"statement": "h", "failure_mode": "fm"}]},
-            {"event": "surgery", "cycle": 1, "module": "m5", "status": "supported", "hypothesis": "h"},
+            {"event": "surgery", "cycle": 1, "module": "m4", "status": "supported", "hypothesis": "h"},
         ]),
         encoding="utf-8",
     )
@@ -100,7 +100,7 @@ def test_load_loop_story_keeps_only_newest_m2_arc(tmp_path):
     stale.write_text(
         "\n".join(json.dumps(e) for e in [
             {"event": "analysis", "cycle": 1, "descriptive_only": None},
-            {"event": "surgery", "cycle": 1, "module": "m5", "status": "supported", "hypothesis": "h"},
+            {"event": "surgery", "cycle": 1, "module": "m4", "status": "supported", "hypothesis": "h"},
         ]),
         encoding="utf-8",
     )
@@ -208,13 +208,13 @@ def test_load_loop_story_without_agent_events_has_loop_mode_and_empty_steps(tmp_
     assert story["loop_end"] is None
 
 
-def test_load_loop_story_reads_m5_results_and_failure_modes_files(tmp_path):
+def test_load_loop_story_reads_m4_results_and_failure_modes_files(tmp_path):
     (tmp_path / "run_log.jsonl").write_text(
         json.dumps({"event": "analysis", "cycle": 0}) + "\n", encoding="utf-8"
     )
     report_dir = tmp_path / "report"
     report_dir.mkdir()
-    (report_dir / "m5_results.json").write_text(
+    (report_dir / "m4_results.json").write_text(
         json.dumps([{"hypothesis": "h", "status": "supported", "effect_size": 1.0}]),
         encoding="utf-8",
     )
@@ -228,15 +228,15 @@ def test_load_loop_story_reads_m5_results_and_failure_modes_files(tmp_path):
     story = load_loop_story(tmp_path)
 
     assert story is not None
-    assert story["m5_results"] == [{"hypothesis": "h", "status": "supported", "effect_size": 1.0}]
+    assert story["m4_results"] == [{"hypothesis": "h", "status": "supported", "effect_size": 1.0}]
     assert story["failure_modes"]["clusters"][0]["name"] == "small_object"
 
 
-def test_load_loop_story_degrades_gracefully_without_m5_or_failure_mode_files(tmp_path):
+def test_load_loop_story_degrades_gracefully_without_m4_or_failure_mode_files(tmp_path):
     (tmp_path / "run_log.jsonl").write_text(
         json.dumps({"event": "analysis", "cycle": 0}) + "\n", encoding="utf-8"
     )
     story = load_loop_story(tmp_path)
     assert story is not None
-    assert story["m5_results"] == []
+    assert story["m4_results"] == []
     assert story["failure_modes"] is None

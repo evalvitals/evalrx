@@ -159,10 +159,10 @@ def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
     assert example["check_result"]["answer flipped"] == 1
 
 
-def test_legacy_m5_example_is_labeled_as_an_aggregate_validation_test():
-    from evalrx.reporting.dynamic import _m5_examples
+def test_legacy_m4_example_is_labeled_as_an_aggregate_validation_test():
+    from evalrx.reporting.dynamic import _m4_examples
 
-    example = _m5_examples([{
+    example = _m4_examples([{
         "hypothesis": "Formatting causes the failure.", "status": "refuted",
         "effect_size": -0.5, "verdict": "The independent test refuted it.",
         "evidence": {"chosen_tool": "signal_label_assoc", "ci": [-0.7, -0.2]},

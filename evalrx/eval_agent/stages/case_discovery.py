@@ -3,7 +3,7 @@
 This stage turns candidate prompts into labeled cases by running the target
 model, storing its observed answer, and scoring the result.  It is intentionally
 small: dataset loading and prompt generation can live outside this class, while
-M5 receives the PASS/FAIL labels it needs for statistical testing.
+M4 receives the PASS/FAIL labels it needs for statistical testing.
 """
 
 import json
@@ -33,8 +33,8 @@ class CaseDiscoveryReport:
     errors: list[str] = field(default_factory=list)
 
     @property
-    def has_m5_groups(self) -> bool:
-        """True when M5 has both failure and control examples."""
+    def has_m4_groups(self) -> bool:
+        """True when M4 has both failure and control examples."""
         return self.n_fail > 0 and self.n_pass > 0
 
 

@@ -1,15 +1,15 @@
-# M4 → M5: Intervention & Verification
+# M4 → M5: Verification & Intervention
 
 Once M2/M3 (or a full diagnosis loop) has a candidate hypothesis, two
 loop-internal agents decide whether it's real and whether it can be fixed:
 
-- **M5 — `HypothesisTester`**: verifies a hypothesis two ways — a
+- **M4 — `HypothesisTester`**: verifies a hypothesis two ways — a
   statistical test (do flagged cases fail more often than non-flagged
   cases, McNemar + e-value / e-BH corrected) and a protocol-consistency
   check (does it match what the user said they were investigating). A
   hypothesis is only `SUPPORTED` when both hold; this is the gate the loop
   checks before stopping.
-- **M4 — intervention**: two paths, chosen by what you're trying to learn:
+- **M5 — intervention**: two paths, chosen by what you're trying to learn:
   - **`SurgeryAgent`** verifies *why* something fails (correlation check or
     param sweep, no repair attempt).
   - **`FixAgent`** proposes and validates candidate *fixes* for a verified
@@ -32,17 +32,17 @@ from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
 loop = VLDiagnoseLoop(
     model=model,
     probe_agent=ProbeAgent(max_analyzers=3),
-    stats_agent=StatsAnalysisAgent(judge=judge),      # feeds M5
+    stats_agent=StatsAnalysisAgent(judge=judge),      # feeds M4
     diagnosis_agent=DiagnosisAgent(judge=judge),
     max_cycles=3,
     run_logger=RunLogger(),
 )
-report = loop.run(failure_cases)   # M1→M2→M3→M5; stops on a supported, consistent hypothesis
+report = loop.run(failure_cases)   # M1→M2→M3→M4; stops on a supported, consistent hypothesis
 
-print(report.resolved)             # True once M5 confirms a hypothesis
+print(report.resolved)             # True once M4 confirms a hypothesis
 print(report.final_hypotheses)     # status: SUPPORTED / REFUTED / INCONCLUSIVE
 
-# M4, post-loop: propose a targeted fix for the best verified hypothesis
+# M5, post-loop: propose a targeted fix for the best verified hypothesis
 outcome = loop.run_fix(report, failure_cases)
 print(outcome.fixed)               # True if a candidate validated
 print(outcome.best)                # winning FixValidation, or None
@@ -107,12 +107,12 @@ folder under the run directory:
 ```text
 run_dir/
   fixes/NN_label/         # one folder per FixAgent candidate: code, sandbox, validation record
-  experiments/NN_label/   # one folder per ExperimentWriter trial (M4 code-writing path)
+  experiments/NN_label/   # one folder per ExperimentWriter trial (M5 code-writing path)
 ```
 
 ## Notes
 
-- `loop.run_fix` and `loop.run_m4` both re-split held-out data automatically:
+- `loop.run_fix` and `loop.run_m5` both re-split held-out data automatically:
   hypotheses are mined on the `explore` partition, so verification and fixes
   are validated on `confirm` — cases the loop never used to pick them.
 - `ExperimentWriter` (used when `FixAgent` needs to author a multi-file L2

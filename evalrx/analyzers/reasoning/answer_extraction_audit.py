@@ -304,12 +304,12 @@ class AnswerExtractionAudit(Analyzer):
         # Binary tasks only: the DIRECTION of the gold and of the answer, as two
         # separate marginals. Neither is a function of the label -- answered_yes
         # is model behaviour, gold_yes is a question covariate -- so both may
-        # enter M2's tested family, and M5 can check a directional hypothesis
+        # enter M2's tested family, and M4 can check a directional hypothesis
         # ("a Yes prior: answered_yes HIGHER on failures; failures concentrate
         # on gold_yes=0"). Their CONJUNCTION (answered Yes on a gold No) is a
         # subset of FAIL by construction and must never be a column here.
         # Live motivation: audiocaps_hallucination 2026-08-20, where M3 named
-        # extracted_answer / labelled_fail and M5 had nothing numeric to test.
+        # extracted_answer / labelled_fail and M4 had nothing numeric to test.
         gold_dir = binary_gold(case.expected)
         if gold_dir is not None:
             entry["gold_yes"] = int(gold_dir == "yes")

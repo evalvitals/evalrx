@@ -28,7 +28,7 @@ M1  ProbeAgent.probe(model, data)              → dict[str, Result]
    │
    ├─(optional) ExploratoryAnalysisAgent.explore_records(per-case table)
    │            → ExploreContext for M3 + explore/ files for the HTML report
-   │              (descriptive; never enters M2's family, M5, or the fix gate)
+   │              (descriptive; never enters M2's family, M4, or the fix gate)
    ▼
 M2  AnalysisModule.analyze(results)            → AnalysisReport
     StatsAnalysisAgent.analyze(results, data)  → StatsAnalysisReport (superset)
@@ -38,19 +38,19 @@ M3  DiagnosisAgent.diagnose(report)            → DiagnosisResult (.hypotheses)
    │
    ├──────────────────────────────┐
    ▼                              ▼
-M4  SurgeryAgent.operate(...)     M5  HypothesisTester.test(...)
+M5  SurgeryAgent.operate(...)     M4  HypothesisTester.test(...)
     → InterventionResult              → list[HypothesisTestResult]
     (verify why, no repair)           (statistical + protocol verdict;
                                         gates whether the loop stops)
    │
    ▼ (post-loop, on the best verified hypothesis)
-M4  FixAgent.propose_and_validate(...) → FixOutcome
+M5  FixAgent.propose_and_validate(...) → FixOutcome
     (propose + validate candidate repairs, tiered L1→L4)
 ```
 
-`VLDiagnoseLoop` runs M1→M2→M3→M5 in a cycle and calls M4 (`SurgeryAgent` then
+`VLDiagnoseLoop` runs M1→M2→M3→M4 in a cycle and calls M5 (`SurgeryAgent` then
 `FixAgent`) once, post-loop, on the best verified hypothesis. `AutoDiagnoseLoop`
-runs M1→M2→M3→M4 (`SurgeryAgent`) every cycle instead of M5. Both consume and
+runs M1→M2→M3→M5 (`SurgeryAgent`) every cycle instead of M4. Both consume and
 produce the same per-stage types described below — only the wiring differs.
 
 **Pre-M1 (optional):** `ProbeSearchAgent.run(model, seed_pool)` synthesizes
@@ -70,9 +70,9 @@ then probes. See [m2_analysis.md](m2_analysis.md#probe-search-hierarchical-mcts-
 | explore (loop, optional) | `ExploratoryAnalysisAgent` via `VLDiagnoseLoop(explorer=)` | `explore_records(records, question=, outcome_col="label")` | M1's per-case table (`build_stats_input` → `per_case_to_records`) — the same rows M2 sees | `ExploreContext` (observations / rendered charts / caveats) for M3; `explore/{exploratory_report.json,tables/,figures/}` on disk; an `explore` run-log event |
 | M3 (loop) | `DiagnosisAgent` | `diagnose(analysis, prior_cycles=, explore_context=, failure_modes=)` | `AnalysisReport` (or `StatsAnalysisReport`) | `DiagnosisResult` (`.hypotheses: list[Hypothesis]`) |
 | M3 (standalone) | `HypothesisAgent` | `propose(report_dict)` | M2's report dict | `list[Hypothesis]` |
-| M4 (verify) | `SurgeryAgent` | `operate(hypothesis, model, results, data)` | one `Hypothesis` + `dict[str, Result]` + `CaseBatch` | `InterventionResult` |
-| M4 (fix) | `FixAgent` | `propose_and_validate(model, data, hypotheses, prior_attempts=)` | `Model` + `CaseBatch` + `list[Hypothesis]` | `FixOutcome` |
-| M5 | `HypothesisTester` | `test(hypotheses, stats_report, data, protocol=)` | `list[Hypothesis]` + `StatsAnalysisReport` + `CaseBatch` | `list[HypothesisTestResult]` |
+| M5 (verify) | `SurgeryAgent` | `operate(hypothesis, model, results, data)` | one `Hypothesis` + `dict[str, Result]` + `CaseBatch` | `InterventionResult` |
+| M5 (fix) | `FixAgent` | `propose_and_validate(model, data, hypotheses, prior_attempts=)` | `Model` + `CaseBatch` + `list[Hypothesis]` | `FixOutcome` |
+| M4 | `HypothesisTester` | `test(hypotheses, stats_report, data, protocol=)` | `list[Hypothesis]` + `StatsAnalysisReport` + `CaseBatch` | `list[HypothesisTestResult]` |
 | Loop | `AutoDiagnoseLoop` / `VLDiagnoseLoop` / `AgenticDiagnoseLoop` | `run(cases)` | `CaseBatch` | `AutoDiagnoseReport` (all three loops return this one class — see below) |
 
 ## Shared input type — `CaseBatch`
@@ -243,7 +243,7 @@ verdicts must never look the same to the reader.
 
 **Input:** `analysis: AnalysisReport | StatsAnalysisReport | dict[str, Result]`
 (M2's output — dict form is accepted for backward compatibility),
-`prior_cycles: list[dict] | None` (summaries of earlier M1→M4 cycles, so the
+`prior_cycles: list[dict] | None` (summaries of earlier M1→M5 cycles, so the
 judge avoids re-proposing tested hypotheses), `explore_context`,
 `failure_modes` (optional, descriptive-only context from clustering).
 
@@ -274,7 +274,7 @@ list. **Business logic to preserve:** identical rendering whether or not a
 downstream confirm phase ran — this tab is always the pure proposal view; a
 verdict badge is never attached here (see Tab 4).
 
-## M4 — intervention (verify, then optionally fix)
+## M5 — intervention (verify, then optionally fix)
 
 ### `SurgeryAgent.operate` — verify *why* something fails
 
@@ -298,7 +298,7 @@ set), or passive label correlation.
 ### `FixAgent.propose_and_validate` — propose + validate repairs (post-loop)
 
 **Input:** `model: Model`, `data: CaseBatch`,
-`hypotheses: list[Hypothesis]` (the verified ones from M5),
+`hypotheses: list[Hypothesis]` (the verified ones from M4),
 `prior_attempts: list[FixValidation] | None` (carried over across tier
 escalation).
 
@@ -330,10 +330,10 @@ the model. Those cases are excluded from the paired test
 (`_render_unavailable_panel`: title, what happened, how to get it) when no
 `fix_report.json` sits next to the exploratory report — this pipeline phase
 is genuinely optional and the report never fakes a result for it. When
-present: a "Surgery context — M5 confirmation" table (one row per tested
-hypothesis: statement, M5 status, confidence, evidence grade, held-out
+present: a "Surgery context — M4 confirmation" table (one row per tested
+hypothesis: statement, M4 status, confidence, evidence grade, held-out
 verdict) sourced from `InterventionResult`/`HypothesisTestResult` flattened
-into `fix_report["m5_results"]`; then a deterministic narrative digest built
+into `fix_report["m4_results"]`; then a deterministic narrative digest built
 from `attempted` (winner 🏆 with tier/name/repaired/broke/e-value, which
 candidates survived e-BH across the family, an L1-2-vs-L3 prompt-vs-internals
 contrast when the data shows one); then the full `attempted` candidates
@@ -346,7 +346,7 @@ it survives e-BH across every candidate tried in that run (best-of-N
 correction) — `ebh_survivors` is the source of truth for the latter, not
 just `reject` on its own row.
 
-## M5 — `HypothesisTester` (statistical + protocol verification)
+## M4 — `HypothesisTester` (statistical + protocol verification)
 
 **Input:** `hypotheses: list[Hypothesis]` (from M3),
 `stats_report: StatsAnalysisReport` (M2's report — supplies `raw_results`
@@ -397,15 +397,15 @@ concept for stay at their default (`None` / empty):
 | Field | Populated by | Meaning |
 |---|---|---|
 | `cycles` | all | M1→M4/M5 cycles executed (or agentic decision steps). |
-| `resolved: bool` | all | Diagnosis considered closed — M4 confirmed a fix (legacy loop), or `bool(verified_hypotheses)` (current/agentic loops). |
+| `resolved: bool` | all | Diagnosis considered closed — M5 confirmed a fix (legacy loop), or `bool(verified_hypotheses)` (current/agentic loops). |
 | `stopped_by: str \| None` | VL / agentic | Why the loop stopped: `"criteria_met"` / `"max_cycles"` / `"budget"` / `"no_hypotheses"` / `"no_probe_results"` / `"analysis_complete"`, or agentic's `"agent_stop"` / `"max_actions"` / `"time_budget"` / `"invalid_actions"`. `None` for the legacy loop. |
 | `final_hypotheses: list[Hypothesis]` | all | All M3 proposals across every cycle. (`all_hypotheses` is a read-only alias, kept for existing callers.) |
-| `verified_hypotheses: list[HypothesisTestResult]` | VL / agentic (M5) | SUPPORTED + protocol-consistent, highest confidence first — feed into `run_m4`. |
-| `all_test_results: list[HypothesisTestResult]` | VL / agentic (M5) | All M5 test results across every cycle. |
+| `verified_hypotheses: list[HypothesisTestResult]` | VL / agentic (M4) | SUPPORTED + protocol-consistent, highest confidence first — feed into `run_m5`. |
+| `all_test_results: list[HypothesisTestResult]` | VL / agentic (M4) | All M4 test results across every cycle. |
 | `final_results: dict[str, Result]` | legacy | Raw analyzer results from the last M1 probe. |
 | `final_analysis: AnalysisReport \| None` | all | Last M2 report. Auto-populated from `final_stats_report` when only that was set (`StatsAnalysisReport` is an `AnalysisReport` subclass), so this field works regardless of which loop produced the report. |
 | `final_stats_report: StatsAnalysisReport \| None` | VL / agentic | Last M2 report (same object as `final_analysis` when set). |
-| `fix_proposal` / `fix_outcome` | post-loop | Populated by `run_m4` / `run_fix` after `run()` returns. |
+| `fix_proposal` / `fix_outcome` | post-loop | Populated by `run_m5` / `run_fix` after `run()` returns. |
 | `store` | all | Accumulated results and hypotheses. |
 
 See [RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory)
@@ -419,8 +419,8 @@ for the structured event each stage emits per cycle.
 
 **Read `<run>/contract/` first.** Every stage validates its output against
 `evalrx/contract/` on the way out and writes one JSON per stage —
-`c0.m1.json`, `c0.m2.json`, `c0.m3.json`, `c0.m5.json`, `m4_surgery.json`,
-`m4_fix.json`. That directory is the typed source of truth, and TypeScript
+`c0.m1.json`, `c0.m2.json`, `c0.m3.json`, `c0.m4.json`, `m5_surgery.json`,
+`m5_fix.json`. That directory is the typed source of truth, and TypeScript
 declarations for all of it are generated into `docs/contract/contract.d.ts`:
 
 ```ts
@@ -459,13 +459,13 @@ A normal persisted loop run has this shape (some folders are optional):
 ├── run_log.jsonl
 ├── contract/                 ← typed, validated; prefer this
 │   ├── index.json
-│   ├── c0.m1.json … c0.m5.json
-│   └── m4_surgery.json, m4_fix.json
+│   ├── c0.m1.json … c0.m4.json
+│   └── m5_surgery.json, m5_fix.json
 ├── report/
 │   ├── summary.json
 │   ├── summary.md
 │   ├── hypotheses.json
-│   ├── m5_results.json
+│   ├── m4_results.json
 │   └── discovery_cases.json
 ├── artifacts/
 │   ├── c0_<analyzer>.result.json
@@ -649,7 +649,7 @@ interface RunEventBase {
   schema_version: number; // currently 3; branch on it, do not hard-fail on newer
   ts: string;             // ISO-8601 UTC
   trace_id: string;       // run-level correlation id
-  span_id?: string;       // e.g. c0.m1, c0.m2, c0.m3, c0.m5, fix
+  span_id?: string;       // e.g. c0.m1, c0.m2, c0.m3, c0.m4, fix
   cycle?: number;         // normal cycles start at 0; post-loop fix uses -1
   [extra: string]: unknown;
 }
@@ -667,8 +667,8 @@ chunk; an incomplete line is not a run error.
 | `explore` | descriptive side path | `cycle`, `ok`, counts, observations, caveats, figures; optional error/report path | `ok: false` fails this optional step, but does not by itself fail the diagnosis loop |
 | `analysis` | M2 | `cycle`, severity, findings, narrative, `descriptive_only`; optional stats outputs, conclusion, figures, `llm_fallback_reason`, `judge_io` | label descriptive and confirmatory analysis explicitly; a fallback can still be a successful M2 |
 | `diagnosis` | M3 | `cycle`, model, `n_hypotheses`, `hypotheses`, raw output; optional referenced charts/context flags, `judge_io` | zero parsed hypotheses is a completed empty/abstained M3 unless an explicit error exists elsewhere |
-| `surgery` | M4 or M5 | `cycle`, `module`, hypothesis text, failure mode, status, `fixed`, confidence/evidence, refocused-case count | route by `module`; do not infer M4 vs M5 from the event name alone |
-| `experiment` | M4 | `cycle`, `module`, hypothesis, status/fixed; optional provider, metrics, exit/timing, code/output/workspace paths, record | generated verification execution detail; failure of one experiment need not fail the whole run |
+| `surgery` | M5 or M4 | `cycle`, `module`, hypothesis text, failure mode, status, `fixed`, confidence/evidence, refocused-case count | route by `module`; do not infer M5 vs M4 from the event name alone |
+| `experiment` | M5 | `cycle`, `module`, hypothesis, status/fixed; optional provider, metrics, exit/timing, code/output/workspace paths, record | generated verification execution detail; failure of one experiment need not fail the whole run |
 | `fix` | post-loop Fix | `cycle: -1`, `max_tier`, selection/final attempts, best, fixed, recommendation/refine signal, records | distinguish EXPLORE selection from held-out FINAL confirmation; see below |
 | `loop_end` | diagnosis loop | cycles, resolved/stopped reason, final and verified hypotheses, tokens/timings | diagnosis loop ended; **not necessarily the last event in the run** |
 | `agent_decision` | agentic loop | `step`, action/params/rationale, validity/repair/fallback, judge I/O | trajectory node; `valid: false` means host fallback, not automatically run failure |
@@ -720,7 +720,7 @@ Recommended derivation rules:
    path ran. Show the fallback badge while deriving M2 success from the actual
    analysis payload.
 7. A hypothesis status of `inconclusive` is a valid abstention, not an exception.
-8. `loop_end` terminates M1→M5 orchestration, but M4 verification and Fix can be
+8. `loop_end` terminates M1→M4 orchestration, but M5 verification and Fix can be
    logged after it. Do not mark the entire run immutable merely because
    `loop_end` appeared. A live transport/process terminal signal or a finalized
    manifest is the run-level completion signal.
@@ -737,8 +737,8 @@ function reduceEvent(state: RunView, e: RunEventBase): RunView {
   if (e.event === "explore") updateExplore(state, e);
   if (e.event === "analysis") updateM2(state, e);
   if (e.event === "diagnosis") updateM3(state, e);
-  if (e.event === "surgery" && e.module === "m4") updateM4(state, e);
-  if (e.event === "surgery" && e.module === "m5") updateM5(state, e);
+  if (e.event === "surgery" && e.module === "m5") updateM4(state, e);
+  if (e.event === "surgery" && e.module === "m4") updateM5(state, e);
   if (e.event === "fix") updateFix(state, e);
   if (e.event === "loop_end") state.diagnosisLoopEnded = true;
   return state;
@@ -869,8 +869,8 @@ structured detail view, and the unmodified raw source/artifact link.
 | Explore | observations/candidate-signal/chart counts; descriptive badge | charts/tables/caveats and source rows | show explicit explorer error while allowing later stages |
 | M2 | severity, conclusion, descriptive/confirmatory badge | findings/evidence chain, stats plan/results, corrected decisions, figures, judge-I/O audit link | no findings can be a successful empty result; fallback reason is a warning |
 | M3 | hypothesis count and short statements | failure mode, test design, parent/evidence where available, cited charts | zero hypotheses is neutral empty/abstained, not red failure |
-| M4 verify | mechanism status, confidence, whether intervention changed outcome | evidence dimensions, experiment metrics, generated files/stdout/stderr/workspace record | inconclusive is valid; execution error belongs to the experiment card |
-| M5 | supported/refuted/inconclusive count | test, effect, confidence, protocol consistency, evidence grade and evidence | descriptive M2 rejection must never appear as M5 support |
+| M5 verify | mechanism status, confidence, whether intervention changed outcome | evidence dimensions, experiment metrics, generated files/stdout/stderr/workspace record | inconclusive is valid; execution error belongs to the experiment card |
+| M4 | supported/refuted/inconclusive count | test, effect, confidence, protocol consistency, evidence grade and evidence | descriptive M2 rejection must never appear as M4 support |
 | Fix | confirmed status and best candidate | separate EXPLORE selection and FINAL confirmation tables; fixed/broken case links; code and record | distinguish no validated fix, abstention, unsafe, and unfinished |
 
 For arbitrary dictionaries, render a bounded structured view first and place
@@ -906,11 +906,11 @@ following against both a live and a persisted run:
 - All M1–M5 stages remain visible even when later stages were skipped.
 - Raw cases and raw M1 analyzer output are discoverable without developer tools.
 - An M1 per-case row opens the exact raw case via `sample_id`.
-- Descriptive M2/Explore evidence is visually distinct from confirmatory M5.
-- An empty M3, failed Explore, inconclusive M5, and missing artifact render as
+- Descriptive M2/Explore evidence is visually distinct from confirmatory M4.
+- An empty M3, failed Explore, inconclusive M4, and missing artifact render as
   four different states.
 - An externalized M2 payload lazy-loads from its `{path, n_items, bytes}` pointer.
-- A `loop_end` followed by M4/Fix updates the existing run instead of creating a
+- A `loop_end` followed by M5/Fix updates the existing run instead of creating a
   second run or freezing the first one.
 - Fix selection and final confirmation appear in separate sections, and the UI
   never claims “fixed” from selection evidence alone.
@@ -936,7 +936,7 @@ Two explicit requirements on top of what's documented below:
    report exposes `records.json`/per-case artifacts through the Case Studio
    and agent/artifact sections. A reader must be able to go from "the analysis
    says X" to the literal row or case without hunting.
-2. **Show M1's results too, not just M2 through M5.** M1 produces
+2. **Show M1's results too, not just M2 through M4.** M1 produces
    `dict[str, Result]` — one entry per analyzer that ran, each carrying
    `findings` (light JSON: scores, flagged tokens, contingency tables, …)
    and `artifacts` (heavy: attention maps, heatmaps, embeddings). The
@@ -950,22 +950,22 @@ Two explicit requirements on top of what's documented below:
 
 **The current reference UI is one compiled HTML artifact.** Exploratory and
 full diagnostic runs use the same renderer and stage order. Missing optional
-M5/M4 artifacts retain their place and explain that the stage was not recorded;
+M4/M5 artifacts retain their place and explain that the stage was not recorded;
 the tab list never changes with run completeness.
 
 ### Page layout
 
 The common header identifies the run, then a tab rail shows every M1–M5 state
-in the action order M1 → M2 → M3 → M5 → M4. The rail is orientation, not a
+in the action order M1 → M2 → M3 → M4 → M5. The rail is orientation, not a
 replacement for the stage views: a reader can move from a count/status to the
 full evidence, raw event, or artifact without switching applications.
 
 ### The "not available" pattern — the most important convention to copy
 
-M5 and M4 are genuinely optional — a run may stop at M3 and never reach
+M4 and M5 are genuinely optional — a run may stop at M3 and never reach
 validation or repair. Keep their tabs visible and render a clear stage-local
 empty state instead of deleting navigation. This lets a reader compare a
-quick M2/M3 analysis with a full M1→M5→M4 run without relearning the layout.
+quick M2/M3 analysis with a full M1→M4→M5 run without relearning the layout.
 
 ### Cross-cutting conventions worth copying
 
@@ -979,7 +979,7 @@ quick M2/M3 analysis with a full M1→M5→M4 run without relearning the layout.
   jargon-free rather than re-deriving a summary itself.
 - **Descriptive vs. confirmatory framing is never blurred.** M2 may show
   exploratory/in-sample signals but never calls them supported; that wording
-  is reserved for M5 validation. This is the single most load-bearing UI
+  is reserved for M4 validation. This is the single most load-bearing UI
   convention — getting it wrong makes an exploratory finding read as a
   validated one.
 - **Referenced-but-missing artifacts say so explicitly** rather than

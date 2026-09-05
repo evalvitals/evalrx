@@ -1,6 +1,6 @@
 """MMAU test-mini (Sakshi et al. 2024): four-way multiple choice over a short clip.
 
-Port of examples/m1_m4/mmau_qwen2_audio/download_mmau.py (pyarrow over the
+Port of examples/m1_m5/mmau_qwen2_audio/download_mmau.py (pyarrow over the
 official parquet, embedded audio decoded through ffmpeg, >29.5 s clips skipped
 with a recorded count). The prompt is composed here, once, so every model sees
 the same instruction + options + "reply with only the option letter".

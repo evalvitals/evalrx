@@ -1,9 +1,9 @@
-"""Convert the agent M4 record into the dashboard's Fix-tab format.
+"""Convert the agent M5 record into the dashboard's Fix-tab format.
 
 The five-tab explore view fills its "5 Fix" panel from a ``fix_report.json``
 sitting next to ``exploratory_report.json``.  The VLM pipeline writes that
 file from its surgery loop; the agent arc records paired fixes in
-``m4_report.json`` instead.  This script maps one onto the other — including,
+``m5_report.json`` instead.  This script maps one onto the other — including,
 when replication batches are given, the combined-e row that carries the
 validation (e-values multiply across independent batches).
 
@@ -49,20 +49,20 @@ def _arm_row(name: str, arm: dict, *, suffix: str = "") -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default=os.path.join(HERE, "outputs"),
-                    help="M1/M4 output dir (contains m4_report.json + explore/)")
+                    help="M1/M5 output dir (contains m5_report.json + explore/)")
     ap.add_argument("--replicate", nargs="*", default=[],
                     help="further output dirs whose L2 arm joins the combined-e row")
     args = ap.parse_args()
 
     out = args.out if os.path.isabs(args.out) else os.path.join(HERE, args.out)
-    m4 = json.load(open(os.path.join(out, "m4_report.json")))
+    m5 = json.load(open(os.path.join(out, "m5_report.json")))
     cfg = {}
     cfg_path = os.path.join(out, "run_config.json")
     if os.path.exists(cfg_path):
         cfg = json.load(open(cfg_path))
 
-    attempted = [_arm_row(name, arm) for name, arm in m4["arms"].items()]
-    n_cases = m4.get("n")
+    attempted = [_arm_row(name, arm) for name, arm in m5["arms"].items()]
+    n_cases = m5.get("n")
     best = None
     ebh_survivors: list[str] = []
     recommendation = (
@@ -71,16 +71,16 @@ def main() -> None:
     )
 
     # -- combined replication row (the validation, when batches are given) --
-    if args.replicate and "L2_loop_policy" in m4["arms"]:
-        arms = [m4["arms"]["L2_loop_policy"]]
+    if args.replicate and "L2_loop_policy" in m5["arms"]:
+        arms = [m5["arms"]["L2_loop_policy"]]
         for rep in args.replicate:
             rep_dir = rep if os.path.isabs(rep) else os.path.join(HERE, rep)
-            rep_m4 = json.load(open(os.path.join(rep_dir, "m4_report.json")))
-            arm = rep_m4["arms"]["L2_loop_policy"]
+            rep_m5 = json.load(open(os.path.join(rep_dir, "m5_report.json")))
+            arm = rep_m5["arms"]["L2_loop_policy"]
             attempted.append(_arm_row("L2_loop_policy", arm,
                                       suffix=f" @ {os.path.basename(rep_dir).split('_')[-1]}"))
             arms.append(arm)
-            n_cases += rep_m4.get("n", 0)
+            n_cases += rep_m5.get("n", 0)
         combined_e = math.prod(float(a["e_value"] or 0.0) for a in arms)
         combined = {
             "tier": "L2",
@@ -90,7 +90,7 @@ def main() -> None:
             "n_broken": sum(a["broken_cases"] for a in arms),
             "coverage": sum(a["pass"] for a in arms),
             "e_value": combined_e,
-            "reject": combined_e >= 1 / m4.get("alpha", 0.05),
+            "reject": combined_e >= 1 / m5.get("alpha", 0.05),
             "verdict": "VALIDATED — anytime-valid reject via multiplied e-values",
         }
         attempted.append(combined)
@@ -105,13 +105,13 @@ def main() -> None:
             "itself."
         )
 
-    # -- M5 context from the held-out confirm report ----------------------
-    m5_results = []
+    # -- M4 context from the held-out confirm report ----------------------
+    m4_results = []
     conf_path = os.path.join(out, "explore", "confirm_report.json")
     if os.path.exists(conf_path):
         conf = json.load(open(conf_path))
         for h in conf.get("hypothesis_verdicts") or []:
-            m5_results.append({
+            m4_results.append({
                 "statement": h.get("plain_statement") or h.get("statement", ""),
                 "status": h.get("verdict"),
                 "confidence": None,
@@ -120,11 +120,11 @@ def main() -> None:
             })
 
     fix_report = {
-        "model": f"{cfg.get('model', m4.get('model', '?'))} (vLLM, agent loop)",
+        "model": f"{cfg.get('model', m5.get('model', '?'))} (vLLM, agent loop)",
         "n_cases": n_cases,
         "logs": os.path.relpath(out, HERE),
-        "m5_results": m5_results,
-        "m4": {"paired_baseline": "recorded unfixed M1 run",
+        "m4_results": m4_results,
+        "m5": {"paired_baseline": "recorded unfixed M1 run",
                "stats": "paired McNemar, anytime-valid e-values, e-BH family"},
         "fix": {
             "attempted": attempted,

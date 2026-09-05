@@ -32,7 +32,7 @@ class Hypothesis:
         test_design:            How to verify this claim — analyzer / per-case
                                 signal / strategy-contrast keywords proposed by
                                 M3 (e.g. ``"relative_attention.max_relative_weight"``,
-                                ``"prompt_contrast describe_first"``).  M5 uses
+                                ``"prompt_contrast describe_first"``).  M4 uses
                                 it to route evidence deterministically and M1
                                 uses it for cycle-2 targeted probing.
         expected_association:   Pre-registered direction for the named test:

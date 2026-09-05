@@ -362,13 +362,13 @@ def test_benchmark_autofix_escalates_by_default(common):
     assert disabled.auto_escalate is False
 
 
-def test_skip_m4_is_independent_of_fix_and_tier_search(common):
+def test_skip_m5_is_independent_of_fix_and_tier_search(common):
     _, _, _, run = common
     args = run.build_parser().parse_args([
-        "--modality", "vlm", "--model", "qwen3.5-2b", "--skip-m4",
+        "--modality", "vlm", "--model", "qwen3.5-2b", "--skip-m5",
     ])
 
-    assert args.skip_m4 is True
+    assert args.skip_m5 is True
     assert args.skip_fix is False
     assert args.auto_escalate is True
     assert args.fix_candidate == ""

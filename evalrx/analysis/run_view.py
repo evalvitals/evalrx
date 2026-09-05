@@ -42,8 +42,8 @@ class StageId(_StrEnum):
     M1 = "M1"
     M2 = "M2"
     M3 = "M3"
-    M5 = "M5"
     M4 = "M4"
+    M5 = "M5"
 
 
 class StageState(_StrEnum):
@@ -93,10 +93,10 @@ _STAGE_LABELS = {
     StageId.M1: "Measure",
     StageId.M2: "Explore evidence",
     StageId.M3: "Explain hypotheses",
-    # M5 precedes M4 in the actual current loop.  The UI uses this action
+    # M4 precedes M5 in the actual current loop.  The UI uses this action
     # order rather than implying the numeric labels are execution order.
-    StageId.M5: "Validate hypotheses",
-    StageId.M4: "Intervene & repair",
+    StageId.M4: "Validate hypotheses",
+    StageId.M5: "Intervene & repair",
 }
 
 
@@ -164,10 +164,10 @@ def _from_explore(root: Path, artifact_dir: Path, report: dict[str, Any]) -> Run
                      "Normalized input records" if has_measurement else "No per-case measurement artifact."),
         StageId.M2: (m2, len(report.get("takeaways") or []), "Exploratory report"),
         StageId.M3: (m3, len(hypotheses), "Falsifiable hypotheses"),
-        StageId.M5: (StageState.SUCCEEDED if confirm else StageState.NOT_STARTED,
+        StageId.M4: (StageState.SUCCEEDED if confirm else StageState.NOT_STARTED,
                      len((confirm or {}).get("hypothesis_verdicts") or []) if confirm else None,
                      "Held-out validation" if confirm else "No held-out validation artifact."),
-        StageId.M4: (StageState.SUCCEEDED if fix_report else StageState.NOT_STARTED,
+        StageId.M5: (StageState.SUCCEEDED if fix_report else StageState.NOT_STARTED,
                      len(((fix_report or {}).get("fix") or {}).get("attempted") or []) if fix_report else None,
                      "Intervention and repair sweep" if fix_report else "No repair artifact."),
     }
@@ -189,17 +189,17 @@ def _from_loop(root: Path, story: dict[str, Any]) -> RunView:
             return StageState.NOT_STARTED, None, detail
         return StageState.SUCCEEDED, len(events), detail
 
-    m5 = [event for event in surgeries if str(event.get("module", "")).lower() == "m5"]
     m4 = [event for event in surgeries if str(event.get("module", "")).lower() == "m4"]
-    # A legacy/post-loop ``fix`` event is semantically M4 even when it does
-    # not carry an explicit m4 module tag.
-    m4_count = len(m4) + len(fixes)
+    m5 = [event for event in surgeries if str(event.get("module", "")).lower() == "m5"]
+    # A legacy/post-loop ``fix`` event is semantically M5 even when it does
+    # not carry an explicit m5 module tag.
+    m5_count = len(m5) + len(fixes)
     states = {
         StageId.M1: outcome(probes, "Analyzer measurements"),
         StageId.M2: outcome(analyses, "Evidence screening"),
         StageId.M3: outcome(diagnoses, "Mechanism hypotheses"),
-        StageId.M5: outcome(m5, "Hypothesis validation"),
-        StageId.M4: (StageState.SUCCEEDED, m4_count, "Interventions and repair attempts")
-                    if m4_count else (StageState.NOT_STARTED, None, "No intervention or repair run."),
+        StageId.M4: outcome(m4, "Hypothesis validation"),
+        StageId.M5: (StageState.SUCCEEDED, m5_count, "Interventions and repair attempts")
+                    if m5_count else (StageState.NOT_STARTED, None, "No intervention or repair run."),
     }
     return RunView("diagnostic", root, title, _stages(states), story=story)

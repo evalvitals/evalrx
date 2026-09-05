@@ -86,8 +86,8 @@ only; it imports nothing from `evalrx` and reads only run artifacts.
 
 One record per figure block: the header strip, the M1 analyzer families and the
 signal bar chart, the M2 correction families and per-test rows (explore and
-held-out kept apart), the M3 hypotheses with the critic's objections, the M5
-held-out verdicts, the M4 L1–L4 repair ladder, the accepted repair, the paired
+held-out kept apart), the M3 hypotheses with the critic's objections, the M4
+held-out verdicts, the M5 L1–L4 repair ladder, the accepted repair, the paired
 held-out validation, and one illustrative case. Every record carries the artifact
 path it was read from, so a number in a figure can be traced back.
 
@@ -210,8 +210,8 @@ judge modes led by FM-LOOP almost everywhere.
 
 ### Added — Escalation results: 2B/4B/8B on vtcbench counting
 
-Rerunning the full M1→M4 arc at 4B and 8B (`run_m1.py --model ... --out
-outputs_<tag>`, parametrized `run_explore.sh`, `run_m4.py`) turned the single
+Rerunning the full M1→M5 arc at 4B and 8B (`run_m1.py --model ... --out
+outputs_<tag>`, parametrized `run_explore.sh`, `run_m5.py`) turned the single
 diagnosis into a scaling study:
 
 - **The capability wall is flat** — pass 16/16/18 of 85; mean k-rerun success
@@ -234,14 +234,14 @@ diagnosis into a scaling study:
 Operational note: an 8B tool-shap conversation exceeded a 32k serve window;
 8B runs use `--max-model-len 49152` and the precompute now stubs failed runs.
 
-### Added — Loop-policy options + the M4 paired fix experiment (inconclusive, correctly)
+### Added — Loop-policy options + the M5 paired fix experiment (inconclusive, correctly)
 
 The two held-out-confirmed causes became deployable configuration:
 `Agent(block_repeat_calls=True)` refuses an identical consecutive tool call
 (nudge observation, `span["repeat_blocked"]`), and
 `Agent(force_final_answer=True)` spends one toolless turn to force an answer
 when the budget runs out (`terminated="forced_final"`);
-`run_batch(agent_kwargs=...)` passes them through. `run_m4.py` pairs three
+`run_batch(agent_kwargs=...)` passes them through. `run_m5.py` pairs three
 fix arms against the recorded baseline with anytime-valid e-values and e-BH
 across the family, plus no-free-lunch accounting.
 
@@ -268,7 +268,7 @@ answering failed; held-out fail 1.00 vs 0.76) and *single_tool_only* (sign
 FLIPPED on held-out — more tool use predicts failure, consistent with the
 negative tool-Shapley mass). The tool-description-gap hypothesis came back
 `not_testable` with the judge explicitly demanding the intervention test —
-the M4 handoff the agent-aware M3 hint exists to produce. Practical notes
+the M5 handoff the agent-aware M3 hint exists to produce. Practical notes
 captured in the scripts: counting originals exceed a 16k context in vision
 tokens (serve with `--mm-processor-kwargs '{"max_pixels": ...}'`), and the
 explore CLI's default `--timeout-sec 120` truncates real analyses.
@@ -594,7 +594,7 @@ Four related changes make `eval_agent` more flexible/agentic and make
   memory. `evalrx-explore` CLI behavior is unchanged (thin wrapper over the
   same function).
 - **`AgenticDiagnoseLoop`** (new, `evalrx.eval_agent.agentic`): a judge-decided
-  alternative to `VLDiagnoseLoop`'s fixed M1→M2→M3→M5 cycle — a CLI judge picks the
+  alternative to `VLDiagnoseLoop`'s fixed M1→M2→M3→M4 cycle — a CLI judge picks the
   next tool each turn (`run_probe` / `run_stats` / `explore_data` /
   `cluster_failures` / `propose_hypotheses` / `test_hypothesis` / `run_surgery` /
   `run_fix` / `stop`) instead of a hardcoded sequence. The host enforces tool call
@@ -664,7 +664,7 @@ different implementation module. `evalrx.eval_agent.loop` now contains only
   grades each M3 hypothesis against the held-out table
   (supported/partial/refuted/not_testable + needs_surgery routing). Phase 3
   `run_surgery.py` hands the surviving hypotheses to the diagnosis loop's
-  repair machinery — M5 confirm → M4 surgery → tiered fix (L1→L3b) on the
+  repair machinery — M4 confirm → M5 surgery → tiered fix (L1→L3b) on the
   loop example's frozen M1 batch (GPU) — and distills `fix_report.json`.
   Artifacts (`confirm_report.json`, `fix_report.json`) land next to the
   exploratory report for the dashboard to render.
@@ -692,7 +692,7 @@ different implementation module. `evalrx.eval_agent.loop` now contains only
   report, the view grows a "Held-out Verdicts & Fix" tab — validate-split
   metrics, the frozen-recipe re-adjudication table (REJECT here is a real
   held-out verdict, distinguished from tab 2's in-sample screen), per-
-  hypothesis judge verdict cards, the M5/M4 confirmation table, and the fix
+  hypothesis judge verdict cards, the M4/M5 confirmation table, and the fix
   recommendation. Tab 3's hypothesis cards gain held-out verdict badges
   (supported/partial/refuted/not_testable + surgery routing); without the
   artifacts the view is unchanged (three tabs, proposal-only wording).
@@ -813,7 +813,7 @@ different implementation module. `evalrx.eval_agent.loop` now contains only
   permutation** test (more powerful than linear decoding at low n; sensitive to
   nonlinear / distributional differences), with a cross-validated linear-decoder
   AUC reported alongside as an interpretable companion. Reads
-  `StatsInput.per_case_vectors`, runs as a mandatory global/omnibus tool in M5,
+  `StatsInput.per_case_vectors`, runs as a mandatory global/omnibus tool in M4,
   and is added to `default_plan` when map vectors exist. On the deco_hallu slice
   the energy test flips the verdict from inconclusive (CV-AUC 0.42) to a real
   finding (energy-distance D=1.88, permutation p=0.018) — the maps differ
@@ -853,20 +853,20 @@ different implementation module. `evalrx.eval_agent.loop` now contains only
   hypotheses) and stops — the returned `VLDiagnoseReport` carries
   `all_hypotheses` (proposed, unconfirmed) and `final_stats_report`, with
   `all_test_results` / `verified_hypotheses` empty (`stopped_by="analysis_complete"`).
-  `run_confirm(data, hypotheses, stats_report=...)` runs **M5** on those
+  `run_confirm(data, hypotheses, stats_report=...)` runs **M4** on those
   hypotheses — typically reloaded via `hypothesis_from_dict` and confirmed
   against the *exact* M2 report the dashboard showed (regenerated from the
-  frozen M1 when omitted) — then feeds `run_m4` / `run_fix` as before. The
-  shared per-stage helpers (`_do_m1/_do_m2/_do_m3/_do_m5`) are factored out of
+  frozen M1 when omitted) — then feeds `run_m5` / `run_fix` as before. The
+  shared per-stage helpers (`_do_m1/_do_m2/_do_m3/_do_m4`) are factored out of
   `run()`, whose behavior is unchanged. The dashboard renders proposed
-  hypotheses without M5/M4/Fix verdicts and gains them once the confirm phase's
+  hypotheses without M4/M5/Fix verdicts and gains them once the confirm phase's
   log dir is present.
 
 - **deco_hallu decoupled scripts** (`examples/diagnosis_loops/deco_hallu/`):
   `run_analysis.py` (GPU-free: replay M1 → M2 stats/charts → M3 propose →
   dashboard, persisting `outputs/analysis/{proposed_hypotheses.json,
-  analysis_state.pkl}`) and `run_confirm_fix.py` (reload those artifacts → M5
-  confirm → M4 + tiered Fix), with matching `run_analysis.sh` /
+  analysis_state.pkl}`) and `run_confirm_fix.py` (reload those artifacts → M4
+  confirm → M5 + tiered Fix), with matching `run_analysis.sh` /
   `run_confirm_fix.sh` wrappers. The shared frozen-M1 `ReplayProbeAgent` and a
   GPU-free `FrozenModel` stub now live in `run.py`. The one-shot `run_m2-5.py`
   path is unchanged.
@@ -876,7 +876,7 @@ different implementation module. `evalrx.eval_agent.loop` now contains only
 - **`RunContext`** (`eval_agent/run_context.py`): single owner of a diagnosis
   run's output directory, replacing the old per-example pattern of
   hand-written report files, `RunLogger` buried under a `logs/` subdir, and
-  M4 sandboxes living in ephemeral temp dirs deleted on success. Owns
+  M5 sandboxes living in ephemeral temp dirs deleted on success. Owns
   `report/`, `figures/`, `artifacts/`, `prompts/`, `experiments/`, `tools/`,
   `workspace/`, `fixes/`, plus `manifest.json` and an auto-generated
   `README.txt`. `write_diagnose_report(report, cases, discovery=...)` writes
@@ -885,7 +885,7 @@ different implementation module. `evalrx.eval_agent.loop` now contains only
   codegen template off the old `RunLogger(run_dir / "logs")` convention.
 
 - **Per-trial output folders** (`RunContext.new_trial()` / `Trial`): each
-  `FixAgent` candidate and M4 `ExperimentWriter` experiment now gets its own
+  `FixAgent` candidate and M5 `ExperimentWriter` experiment now gets its own
   lazily-created, numbered folder (`fixes/03_widen_crop/`,
   `experiments/01_...`) holding its generated code, the sandbox it ran in,
   judge prompt/output, `record.md`, and `result.json` — instead of scattering
@@ -956,10 +956,10 @@ different implementation module. `evalrx.eval_agent.loop` now contains only
 
 ### Fixed
 
-- **Path-doubling in coded fix/M4 sandboxes**: `RunContext.root`,
+- **Path-doubling in coded fix/M5 sandboxes**: `RunContext.root`,
   `ExperimentSandbox.workdir`, and `run_coded_pipeline`'s workdir are now
   resolved to absolute paths. A relative `run_dir` (the common case for
-  examples) previously made every coded fix/M4 subprocess resolve its own
+  examples) previously made every coded fix/M5 subprocess resolve its own
   script path a second time relative to its new cwd and fail with
   `FileNotFoundError`.
 - **`cli_agent.py` venv-PATH fix** (from the `jiaqiliu` merge): spawned CLI
@@ -1048,7 +1048,7 @@ different implementation module. `evalrx.eval_agent.loop` now contains only
   lifecycle, checkpoint/heartbeat/resume.
 
 - **`examples/qwen_loop/`**: end-to-end `AutoDiagnoseLoop` example on Qwen3-VL-4B
-  with a real (or synthetic fallback) image.  `VerboseRunLogger` mirrors each M1/M2/M3/M4
+  with a real (or synthetic fallback) image.  `VerboseRunLogger` mirrors each M1/M2/M3/M5
   event to stdout as it happens.  Docker Compose with CUDA 12.4 wheels, GPU selection,
   host codex binary mount, and `./outputs/` volume.
 

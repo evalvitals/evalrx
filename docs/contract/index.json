@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "stages": [
     {
       "stage": "pre_m1",
@@ -30,25 +30,25 @@
       "output": "m3.DiagnosisOutput.schema.json"
     },
     {
-      "stage": "m5",
+      "stage": "m4",
       "purpose": "Adjudicate: statistical gate AND protocol-consistency gate. Both, or not SUPPORTED.",
       "optional": false,
-      "input": "m5.HypothesisTestInput.schema.json",
-      "output": "m5.HypothesisTestOutput.schema.json"
+      "input": "m4.HypothesisTestInput.schema.json",
+      "output": "m4.HypothesisTestOutput.schema.json"
     },
     {
-      "stage": "m4_surgery",
+      "stage": "m5_surgery",
       "purpose": "Intervene: change one variable, re-run, read as causal evidence. Does not repair.",
       "optional": false,
-      "input": "m4_surgery.SurgeryInput.schema.json",
-      "output": "m4_surgery.InterventionOutput.schema.json"
+      "input": "m5_surgery.SurgeryInput.schema.json",
+      "output": "m5_surgery.InterventionOutput.schema.json"
     },
     {
-      "stage": "m4_fix",
+      "stage": "m5_fix",
       "purpose": "Repair: propose candidates, validate paired against the unmodified baseline.",
       "optional": true,
-      "input": "m4_fix.FixInput.schema.json",
-      "output": "m4_fix.FixOutput.schema.json"
+      "input": "m5_fix.FixInput.schema.json",
+      "output": "m5_fix.FixOutput.schema.json"
     }
   ]
 }

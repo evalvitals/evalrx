@@ -4,17 +4,17 @@
     Original Stage-1 skeleton.
 
 ``AutoDiagnoseLoop``
-    Concrete M1→M2→M3→M4 implementation (original architecture):
+    Concrete M1→M2→M3→M5 implementation (original architecture):
 
     ┌───────────────────────────────────────────────────────────────────┐
     │ M1 · ProbeAgent      select analyzers + execute (direct / Docker) │
     │ M2 · AnalysisModule  interpret results → structured report        │
     │ M3 · DiagnosisAgent  Gemini reads report → hypotheses             │
-    │ M4 · SurgeryAgent    operate + verify; stop or refocus data       │
+    │ M5 · SurgeryAgent    operate + verify; stop or refocus data       │
     └───────────────────────────────────────────────────────────────────┘
                             ↑__________________________│  (repeat)
 
-Prefer :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop` (M1→M2→M3→M5, M4
+Prefer :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop` (M1→M2→M3→M4, M5
 post-loop) or :class:`~evalrx.eval_agent.agentic.AgenticDiagnoseLoop`
 (judge-decided) for new work — this module is the pre-2026-06-05 architecture,
 kept for existing callers and its resumable run_dir/checkpoint infrastructure.
@@ -109,12 +109,12 @@ class SelfEvolveLoop:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# AutoDiagnoseLoop — M1 → M2 → M3 → M4
+# AutoDiagnoseLoop — M1 → M2 → M3 → M5
 # ──────────────────────────────────────────────────────────────────────────────
 
 
 class AutoDiagnoseLoop:
-    """Automated M1→M2→M3→M4 diagnosis loop.
+    """Automated M1→M2→M3→M5 diagnosis loop.
 
     Args:
         model:            The model under evaluation.
@@ -125,10 +125,10 @@ class AutoDiagnoseLoop:
         diagnosis_agent:  M3 — reads the AnalysisReport and proposes hypotheses via
                           Gemini (default when ``GEMINI_API_KEY`` is set).
                           Pass ``None`` to run in *analysis-only* mode (M1+M2 only).
-        surgery_agent:    M4 — operates on each hypothesis to verify or refute it.
+        surgery_agent:    M5 — operates on each hypothesis to verify or refute it.
                           Defaults to ``SurgeryAgent()``.
         store:            Persistent memory.  Defaults to ``InMemoryStore()``.
-        max_cycles:       Hard cap on M1→M4 iterations.
+        max_cycles:       Hard cap on M1→M5 iterations.
         run_logger:       Optional :class:`~evalrx.eval_agent.run_logger.RunLogger`
                           that writes a JSONL event log and saves analyzer artifacts.
         run_dir:          Optional root directory for run infrastructure.
@@ -237,10 +237,10 @@ class AutoDiagnoseLoop:
         )
 
     def run(self, data: "CaseBatch") -> AutoDiagnoseReport:
-        """Drive the M1→M2→M3→M4 loop until resolved or *max_cycles* reached.
+        """Drive the M1→M2→M3→M5 loop until resolved or *max_cycles* reached.
 
         Args:
-            data: Cases to analyse.  Refocused to unexplained cases when M4
+            data: Cases to analyse.  Refocused to unexplained cases when M5
                   returns a SUPPORTED finding with ``new_data``.
 
         Returns:
@@ -355,14 +355,14 @@ class AutoDiagnoseLoop:
                 self.store.add_hypothesis(h)
             all_hypotheses.extend(diag.hypotheses)
 
-            # ── M4: surgery ──────────────────────────────────────────────
+            # ── M5: surgery ──────────────────────────────────────────────
             outstanding_modes = []
             cycle_max_confidence = 0.0
             for h in diag.hypotheses:
                 _t0 = time.monotonic()
                 iv = self.surgery_agent.operate(h, self.model, probe_results, data)
                 _dt = time.monotonic() - _t0
-                self._timings["m4"] = self._timings.get("m4", 0.0) + _dt
+                self._timings["m5"] = self._timings.get("m5", 0.0) + _dt
                 h.status = iv.status
                 cycle_max_confidence = max(cycle_max_confidence, iv.confidence_score)
                 if self.run_logger:
@@ -370,7 +370,7 @@ class AutoDiagnoseLoop:
                     # When surgery wrote and ran an experiment, also persist it
                     # (script, output, thinking, workspace snapshot).
                     if getattr(iv, "experiment", None):
-                        self.run_logger.log_experiment(cycle, h, iv, module="m4")
+                        self.run_logger.log_experiment(cycle, h, iv, module="m5")
                 if iv.fixed:
                     report = AutoDiagnoseReport(
                         cycles=completed_cycles,

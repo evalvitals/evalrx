@@ -7,7 +7,7 @@ script, runs it inside an :class:`~evalrx.agent_runtime.sandbox.ExperimentSandbo
 ``STATS_RESULT_JSON=`` line from its stdout back into a
 :class:`~evalrx.analysis.stats_tools.StatsToolResult`.
 
-Design (mirrors M4's ExperimentWriter):
+Design (mirrors M5's ExperimentWriter):
 
 - **Generated code never touches the repo source.**  It lives only in the
   sandbox workdir and is executed in a child process; the host never imports it.
@@ -82,7 +82,7 @@ class StatsToolGenerator:
                      when ``None``.
         timeout_sec: Hard wall-clock limit per sandbox run — the primary guard.
         max_cpu_seconds / max_memory_bytes: optional resource caps for the
-                     default sandbox.  Default ``None`` (no cap) to match M4:
+                     default sandbox.  Default ``None`` (no cap) to match M5:
                      generated tools may ``import evalrx.stats`` which pulls
                      in torch, whose large virtual-memory reservation a
                      ``RLIMIT_AS`` cap would crash.  Ignored when *sandbox* is
@@ -350,7 +350,7 @@ def _parse_result(stdout: str, name: str, alpha: float = 0.05) -> StatsToolResul
     self-declared ``reject``/``e_value``/``p_value`` in the JSON is IGNORED — the
     LLM proposes evidence, it never adjudicates it. A tool with no adjudicable
     sufficient statistic is descriptive only (``reject=False``), mirroring the
-    ``single_rate_evalue`` muzzle, so it can never reach M5's headline.
+    ``single_rate_evalue`` muzzle, so it can never reach M4's headline.
     """
     from evalrx.analysis.result_marker import extract_marker_json
 

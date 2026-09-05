@@ -1,0 +1,39 @@
+# deco_pope — DeCo "seen but suppressed" probing + fix (DESIGN.md)
+model: qwen3-vl-8b-instruct   # also mined: qwen3-vl-4b-instruct / qwen3-vl-2b-instruct
+
+# Layer-probe window as fractions of depth (paper [20,28]/32 ≈ [0.62,0.88];
+# default starts wider, then the explore-split scan narrows it). Consumed by
+# the bespoke probe/fix written per TODO.md Steps 3-4 — not by any package code.
+window: [0.55, 0.80]
+tau: 0.05                     # activated_gt margin threshold (DeCo Eq.2 analogue)
+
+# Fix (DeCo rescoring) grid — explore split only
+alpha_grid: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+top_k: 20
+top_p: 0.9
+
+# Stats
+min_effect: 0.05              # pre-registered minimum effect for the fix
+explore_frac: 0.6
+
+# Judge for M1 selection / M2 / M3 / M4 (claude -p CLI). fable-5 is currently
+# unavailable via the CLI ("Claude Fable 5 is currently unavailable"), so both
+# claude -p roles (judge + codegen coder) use opus-4-8 low effort.
+judge_model: claude-opus-4-8
+judge_effort: low
+
+# Pipeline-autonomy codegen (tier-(b) probe generator, stats tools, M5
+# experiment writer, fix module) — the loop writes its own code via this CLI
+# agent (claude -p). Opus 4.8 low-effort: stronger coder than the fable-low
+# judge, so probe/fix code is more likely to satisfy the sandbox contract.
+codegen_model: claude-opus-4-8
+codegen_effort: low
+codegen_budget_usd: 2.0
+codegen_timeout_sec: 240
+fix_max_tier: L3b      # allow decoding/internals-write interventions (DeCo-class)
+fix_validation_cases: 60   # stratified subset for candidate validation (coded
+                           # pipelines call the model ~k×/case; full batch times out)
+fix_exec_timeout_sec: 900  # wall-clock per coded-pipeline session
+fix_repair_rounds: 1       # feedback-driven repair rounds: 1 = single-shot
+                           # (default). >1 feeds a failed round's results back to
+                           # the judge/coder for DIFFERENT candidates, same tier.

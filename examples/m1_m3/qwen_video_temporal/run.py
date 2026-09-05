@@ -7,12 +7,12 @@ Pipeline (same as qwen_loop_agy):
     M1  ProbeAgent           LLM-guided analyzer selection + execute
     M2  StatsAnalysisAgent   stats tools + e-BH FDR-correct + evidence chain
     M3  DiagnosisAgent       hypothesis generation
-    M5  HypothesisTester     statistical test + protocol consistency check
+    M4  HypothesisTester     statistical test + protocol consistency check
          │
-    loop exits when M5 finds a verified, protocol-consistent hypothesis,
+    loop exits when M4 finds a verified, protocol-consistent hypothesis,
     or after --max-cycles cycles
          │
-    M4  SurgeryAgent         post-loop fix proposal (called separately)
+    M5  SurgeryAgent         post-loop fix proposal (called separately)
 
 Key difference vs qwen_loop_agy:
   Inputs carry a *video* field (list of 3 PIL frames) instead of a single
@@ -27,7 +27,7 @@ Key difference vs qwen_loop_agy:
 
 Outputs written to --run-dir (default: ./outputs/), see manifest.json + the
 auto-generated README.txt for the full index:
-    run_log.jsonl          ← one JSON line per M1/M2/M3/M5 event
+    run_log.jsonl          ← one JSON line per M1/M2/M3/M4 event
     artifacts/              ← per-cycle analyzer artifacts
 
 Usage (via Docker — preferred):
@@ -345,7 +345,7 @@ def _run_smoke_test(args) -> None:
         f"  discovered {len(cases)} labeled cases "
         f"(PASS={discovery.n_pass}, FAIL={discovery.n_fail}, UNKNOWN={discovery.n_unknown})"
     )
-    if not discovery.has_m5_groups:
+    if not discovery.has_m4_groups:
         raise SystemExit("Smoke test requires both PASS and FAIL cases.")
 
     ctx = RunContext(args.run_dir, verbose=True, config={"smoke_test": True})
@@ -371,11 +371,11 @@ def _run_smoke_test(args) -> None:
     if report.stopped_by != "criteria_met" or not report.verified_hypotheses:
         raise SystemExit("Smoke test failed: no verified hypothesis.")
 
-    fix = loop.run_m4(report, cases)
+    fix = loop.run_m5(report, cases)
     if fix is None or fix.status.value != "supported":
-        raise SystemExit("Smoke test failed: M4 did not support the verified hypothesis.")
+        raise SystemExit("Smoke test failed: M5 did not support the verified hypothesis.")
 
-    print("  m4_status=supported")
+    print("  m5_status=supported")
     print("Smoke test passed.")
 
 
@@ -394,7 +394,7 @@ def main() -> None:
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument(
         "--judge-model", default="Gemini 3.1 Pro (Low)",
-        help="agy model for the M1–M5 judge.",
+        help="agy model for the M1–M4 judge.",
     )
     parser.add_argument("--max-cycles", type=int, default=2)
     parser.add_argument("--max-analyzers", type=int, default=2)
@@ -440,7 +440,7 @@ def main() -> None:
     try:
         judge = AgyModel(model=args.judge_model)
         print(f"\n  judge : antigravity CLI ({judge._binary})  "
-              f"model={args.judge_model or 'session default'}  [M1–M5, no API key]")
+              f"model={args.judge_model or 'session default'}  [M1–M4, no API key]")
     except RuntimeError as _agy_err:
         import warnings as _w
         _w.warn(
@@ -491,9 +491,9 @@ def main() -> None:
             f"    [{case.label.value.upper()}] {case.id}: "
             f"{textwrap.shorten(observed, width=110, placeholder='...')}"
         )
-    if not discovery.has_m5_groups:
+    if not discovery.has_m4_groups:
         print(
-            "  WARNING: M5 needs both PASS and FAIL cases; "
+            "  WARNING: M4 needs both PASS and FAIL cases; "
             "this run may stop without verified hypotheses."
         )
 
@@ -523,7 +523,7 @@ def main() -> None:
 
     # ── Run ───────────────────────────────────────────────────────────────
     print(f"\nOutput directory: {run_dir.resolve()}")
-    print("  run_log.jsonl   ← one JSON line per M1/M2/M3/M5 event")
+    print("  run_log.jsonl   ← one JSON line per M1/M2/M3/M4 event")
     print("  artifacts/      ← per-cycle analyzer artifacts")
 
     loop = VLDiagnoseLoop(
@@ -556,12 +556,12 @@ def main() -> None:
               f"  protocol_ok={vr.is_consistent_with_protocol}")
         print(f"           {vr.verdict}")
 
-    # ── M4 ────────────────────────────────────────────────────────────────
+    # ── M5 ────────────────────────────────────────────────────────────────
     print(f"\n{'='*64}")
-    print("M4  Fix proposal (post-loop)")
+    print("M5  Fix proposal (post-loop)")
     print(f"{'='*64}")
     if report.verified_hypotheses:
-        fix = loop.run_m4(report, cases)
+        fix = loop.run_m5(report, cases)
         if fix is not None:
             print(f"  hypothesis : {fix.hypothesis.statement}")
             print(f"  status     : {fix.status.value}  fixed={fix.fixed}")
@@ -570,7 +570,7 @@ def main() -> None:
         else:
             print("  SurgeryAgent returned None.")
     else:
-        print("  No verified hypotheses — skipping M4.")
+        print("  No verified hypotheses — skipping M5.")
 
     ctx.finalize()
     print(f"\n  Full guide -> {ctx.root / 'README.txt'}")

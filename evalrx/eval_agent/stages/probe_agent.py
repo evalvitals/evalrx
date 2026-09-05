@@ -221,14 +221,14 @@ class ProbeAgent:
                                  (e.g. from :class:`~evalrx.eval_agent.legacy.AutoDiagnoseLoop`).
             analyzers:           Exact analyzer names to run, bypassing selection
                                  entirely (still filtered for applicability).
-                                 Used by the loop's held-out M5 confirmation to
+                                 Used by the loop's held-out M4 confirmation to
                                  re-run the same set on the confirm split.
         """
         rationale: str
         self._last_need_custom = None
         if analyzers is not None:
             # Pinned re-run: the caller already knows exactly which analyzers to
-            # execute (M5's held-out confirmation re-runs the last explore
+            # execute (M4's held-out confirmation re-runs the last explore
             # cycle's set so the designated signals exist on the confirm split
             # too — a fresh judge selection could pick a different set and turn
             # a real signal into a spurious "designated evidence not measured").
@@ -324,7 +324,7 @@ class ProbeAgent:
         """Like :meth:`probe`, but also returns the :class:`~evalrx.eval_agent.protocol.ProbingSchema`.
 
         The schema records which analyzers were selected and why — useful for
-        M2/M5 to understand the M1 reasoning without re-running selection.
+        M2/M4 to understand the M1 reasoning without re-running selection.
 
         Returns:
             ``(results_dict, schema)`` — the same dict as :meth:`probe` plus a

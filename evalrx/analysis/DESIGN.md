@@ -1,10 +1,10 @@
-# LAMBDA 探索 × M2/M5 确证 集成设计
+# LAMBDA 探索 × M2/M4 确证 集成设计
 
 > 状态：**Phase A–D 已实现**（2026-06-27）。如何把 LAMBDA 式探索层（`evalrx/analysis/`）接入 M1→M5 诊断-修复链路。
 > 新增模块：[adjudicate.py](adjudicate.py)（宿主裁决）· [operationalize.py](operationalize.py)（recipe→冻结信号 + in-loop 桥接）· [fused_pipeline.py](fused_pipeline.py)（explore→confirm 编排）；in-loop 注入在 [loop.py](../eval_agent/loop.py) `VLDiagnoseLoop._bridge_signals`。测试 `tests/test_analysis/test_{adjudicate,operationalize,fused_pipeline,bridge_inloop,integration_fused}.py`（74 项全过）。
 >
 > **延伸（单轮 viz 管线：图表/观察→M3 + dashboard，含 chat 退役）**：本文档接的是**信号→M2 确证**；让 M3 消费/输出 explorer **图表+观察(机制语言)**、把 viz 提成共享核、退役交互 REPL（只留单轮管线）的设计见 [DESIGN_m3_charts.md](DESIGN_m3_charts.md)（设计提案，未实现）。
-> 一句话：**LAMBDA 提议、M2 扩族确证、M5（gated on M2）验证、FixAgent 修复——永不用一张图来确证。** 核心新部件是 **operationalization bridge**，把 LAMBDA 发现的复合/切片信号编译成冻结 per-case 信号，使其进入 M2 的 e-BH family。
+> 一句话：**LAMBDA 提议、M2 扩族确证、M4（gated on M2）验证、FixAgent 修复——永不用一张图来确证。** 核心新部件是 **operationalization bridge**，把 LAMBDA 发现的复合/切片信号编译成冻结 per-case 信号，使其进入 M2 的 e-BH family。
 > 配套：`/tealab-data/jiaqiliu/evalsmith/LAMBDA/LAMBDA_架构与设计原理.md`。
 
 **原则：explore freely, confirm rigorously。**
@@ -20,17 +20,17 @@ M1 ProbeAgent      analyzers → probe_results（Result.findings["per_case"] 是
   → M2 StatsAnalysisAgent   在「全部 per_case 信号」上跑已验证工具族
                             → e-BH → corrected_rejections.rejected_tools + conclusion/evidence
   → M3 DiagnosisAgent       读 M2 conclusion/evidence + findings → 提可证伪假设
-  → M5 HypothesisTester     检验每个假设
-  → M4 SurgeryAgent + FixAgent  设计实验、修复；配对 e-value、候选族 e-BH、留出 CONFIRM
+  → M4 HypothesisTester     检验每个假设
+  → M5 SurgeryAgent + FixAgent  设计实验、修复；配对 e-value、候选族 e-BH、留出 CONFIRM
 ```
 
 为什么不能删 M2、为什么 LAMBDA 必须在 M2 **上游**：
 
 1. **M2 的信号族只从 `per_case` 构造**（`build_stats_input`，[stats_tools.py:175](../eval_agent/stages/stats_tools.py)，:202-212）。**一个信号若不在某 analyzer 的 `per_case` 里，永远进不了 M2 family、拿不到 e-value、永不出现在 `rejected_tools`。**
-2. **M5 不自洽，gated on M2**（`_decisive`，[hypothesis_tester.py:324-343](../eval_agent/stages/hypothesis_tester.py)）：带 e-value 的结果只有 `tool ∈ rejected_tools` 才算 decisive。
+2. **M4 不自洽，gated on M2**（`_decisive`，[hypothesis_tester.py:324-343](../eval_agent/stages/hypothesis_tester.py)）：带 e-value 的结果只有 `tool ∈ rejected_tools` 才算 decisive。
 3. **M3 优先读 M2 的 conclusion/evidence**（[diagnosis.py:402-411](../eval_agent/stages/diagnosis.py)）。
 
-→ 推论：若 LAMBDA 只在 M2 **之后**提假设，它发现的任何新信号永远拿不到 e-value，M5 判非 decisive，假设全塌成 INCONCLUSIVE。**必须在 M2 跑之前把信号桥接进它的族。**
+→ 推论：若 LAMBDA 只在 M2 **之后**提假设，它发现的任何新信号永远拿不到 e-value，M4 判非 decisive，假设全塌成 INCONCLUSIVE。**必须在 M2 跑之前把信号桥接进它的族。**
 
 **已具备的护栏（漏洞已修）**：充分统计量+宿主重算决策（`_reconstruct_decision`，[stats_tool_generator.py:328](../eval_agent/stages/stats_tool_generator.py)）；候选族 e-BH（`_ebh_survivors`，[fix_agent.py:560](../eval_agent/stages/fix_agent.py)）；留出 CONFIRM split（`_split_explore_confirm`，[loop.py:760](../eval_agent/loop.py)，`(label, probe_type)` 分层、按 id 不相交）。
 
@@ -55,12 +55,12 @@ CONFIRM split ── ③ M2 = 防火墙（保留，信号族扩大）：validate
                  ④ M3 = 提议者（增强）：读 (a) M2 survivor+evidence（什么真）
                     + (b) LAMBDA observations/charts（机制语言）→ 提可证伪假设
                                        ▼
-                 ⑤ M5 = gate（契约不变）：假设 SUPPORTED ⟺ 信号过了 CONFIRM 上的 e-BH
+                 ⑤ M4 = gate（契约不变）：假设 SUPPORTED ⟺ 信号过了 CONFIRM 上的 e-BH
                                        ▼
-                 ⑥ M4 surgery + FixAgent：配对 e-value、候选族 e-BH、留出 CONFIRM 验证修复
+                 ⑥ M5 surgery + FixAgent：配对 e-value、候选族 e-BH、留出 CONFIRM 验证修复
 ```
 
-**角色**：谁提议=LAMBDA→M3；谁验证=M5（gated on M2）；图表=只在探索侧；family-FDR 防火墙=M2（独立、提案前、CONFIRM split）。
+**角色**：谁提议=LAMBDA→M3；谁验证=M4（gated on M2）；图表=只在探索侧；family-FDR 防火墙=M2（独立、提案前、CONFIRM split）。
 
 ---
 
@@ -88,7 +88,7 @@ def compile_recipe(recipe, records) -> dict[str, float]:
     产物进 Result.findings["per_case"] → build_stats_input 自动收进 inp.per_case。"""
 ```
 
-**注册进 M2**：编译出的信号塞进合成 analyzer 的 per_case finding → 扩展 `default_plan` 为新信号加一条已验证工具 → 在 CONFIRM split 上跑 `fdr_correct`，把【catalog 信号 + 桥接信号】放进**同一个 e-BH family**（"多提候选→多付多重性"自动成立）→ M5 `_decisive` 不变。
+**注册进 M2**：编译出的信号塞进合成 analyzer 的 per_case finding → 扩展 `default_plan` 为新信号加一条已验证工具 → 在 CONFIRM split 上跑 `fdr_correct`，把【catalog 信号 + 桥接信号】放进**同一个 e-BH family**（"多提候选→多付多重性"自动成立）→ M4 `_decisive` 不变。
 
 **关键不变量**：信号在 **EXPLORE split** 被发现/选中，在 **CONFIRM split** 被编译求值 + 确证；case id 不相交。
 

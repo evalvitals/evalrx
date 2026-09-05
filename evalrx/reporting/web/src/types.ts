@@ -8,7 +8,7 @@ import type {
 
 /**
  * Payloads the pipeline validated against the wire contract on the way out,
- * keyed by span id ("c0.m1", "c0.m2", ... / "m4_fix").
+ * keyed by span id ("c0.m1", "c0.m2", ... / "m5_fix").
  *
  * These are typed; `stage_detail` below is not, and cannot be — it is compiled
  * from the run log by a chain of defensive lookups, so its shape is whatever
@@ -83,7 +83,7 @@ export type Case = {
   task: string;
   media_ids: string[];
   trajectory?: unknown;
-  /** What M4's confirmed repair answered on this case, when it was one of the
+  /** What M5's confirmed repair answered on this case, when it was one of the
    *  held-out cases the repair was validated on. */
   repair?: {
     candidate?: string;
@@ -180,8 +180,8 @@ export type CaseStudy = {
   } | null;
   m2: Record<string, CaseStudyPhase> | null;
   m3: Array<{ id: string; failure_mode: string; statement?: string | null; expected_direction?: string | null }>;
-  m5: CaseStudyVerdict[];
-  m4: {
+  m4: CaseStudyVerdict[];
+  m5: {
     ladder: Array<{
       tier: string; label: string; n_candidates: number; best_effect?: number | null;
       best_candidate?: string | null; status: string; within_cap: boolean; tier_cap?: string | null;

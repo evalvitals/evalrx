@@ -66,7 +66,7 @@ def test_root_resolved_to_absolute_for_relative_input(tmp_path, monkeypatch):
     subprocesses with cwd=<workdir under root> *and* a script path built from
     that same (relative) workdir — a relative root makes the child process
     resolve the script path a second time relative to its new cwd, doubling
-    it and raising FileNotFoundError on every coded fix/M4 attempt."""
+    it and raising FileNotFoundError on every coded fix/M5 attempt."""
     from evalrx.eval_agent.run_context import RunContext
 
     monkeypatch.chdir(tmp_path)
@@ -157,15 +157,15 @@ def test_new_workdir_unique_under_workspace(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
-    d1 = ctx.new_workdir("m4 surgery")
-    d2 = ctx.new_workdir("m4 surgery")
+    d1 = ctx.new_workdir("m5 surgery")
+    d2 = ctx.new_workdir("m5 surgery")
     assert d1 != d2
     assert d1.parent == ctx.workspace_dir
     assert d2.parent == ctx.workspace_dir
     assert d1.is_dir()
     assert d2.is_dir()
     # label is slugified
-    assert "m4_surgery" in d1.name
+    assert "m5_surgery" in d1.name
 
 
 def test_figure_path_appends_png_by_default(tmp_path):
@@ -183,7 +183,7 @@ def test_figure_path_preserves_known_extension(tmp_path):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Trial allocation (per-attempt self-contained folders: fix candidates, M4)
+# Trial allocation (per-attempt self-contained folders: fix candidates, M5)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -307,7 +307,7 @@ def test_write_diagnose_report_vl_style(tmp_path):
     ctx = RunContext(tmp_path / "run1")
     written = ctx.write_diagnose_report(report, cases=[1, 2, 3], discovery=discovery_rows)
 
-    assert set(written) == {"hypotheses", "m5_results", "summary_json", "summary_md", "discovery"}
+    assert set(written) == {"hypotheses", "m4_results", "summary_json", "summary_md", "discovery"}
     for path in written.values():
         assert path.exists()
         assert path.parent == ctx.report_dir
@@ -319,9 +319,9 @@ def test_write_diagnose_report_vl_style(tmp_path):
         "status": hyp.status.value,
     }]
 
-    m5 = json.loads((ctx.report_dir / "m5_results.json").read_text())
-    assert m5[0]["hypothesis"] == hyp.statement
-    assert m5[0]["effect_size"] == 0.32
+    m4 = json.loads((ctx.report_dir / "m4_results.json").read_text())
+    assert m4[0]["hypothesis"] == hyp.statement
+    assert m4[0]["effect_size"] == 0.32
 
     summary = json.loads((ctx.report_dir / "summary.json").read_text())
     assert summary["cycles"] == 2
@@ -370,8 +370,8 @@ def test_write_diagnose_report_duck_typed_auto_diagnose_style(tmp_path):
         "failure_mode": hyp.predicted_failure_mode,
         "status": hyp.status.value,
     }]
-    m5 = json.loads((ctx.report_dir / "m5_results.json").read_text())
-    assert m5 == []
+    m4 = json.loads((ctx.report_dir / "m4_results.json").read_text())
+    assert m4 == []
 
     summary = json.loads((ctx.report_dir / "summary.json").read_text())
     assert summary["resolved"] is True
@@ -392,7 +392,7 @@ def test_finalize_writes_manifest_matching_disk(tmp_path):
     ctx.write_report_file("summary.md", "# hi\n")
     (ctx.figures_dir / "plot.png").write_bytes(b"\x89PNG")
     (ctx.artifacts_dir / "attn.npy").write_bytes(b"\x00")
-    ctx.new_workdir("c1_m4")
+    ctx.new_workdir("c1_m5")
 
     ctx.finalize()
 

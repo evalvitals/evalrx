@@ -1263,6 +1263,7 @@ class HFLocalModel(Model):
         engine = specialist_engine or self._vision_specialist_engines.get(str(model_id))
         if engine is None:
             import gc
+
             import torch
 
             from evalrx.specs import get_spec
@@ -1303,6 +1304,7 @@ class HFLocalModel(Model):
         engine = specialist_engine or self._vision_specialist_engines.get(str(model_id))
         if engine is None:
             import gc
+
             import torch
 
             from evalrx.specs import get_spec

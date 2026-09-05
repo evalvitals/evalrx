@@ -1,6 +1,6 @@
 """The coding provider asks for its tools, not for every permission.
 
-Live failure (VideoLLaMA2.1-7B-AV / Music-AVQA, 2026-08-23): M4's experiment
+Live failure (VideoLLaMA2.1-7B-AV / Music-AVQA, 2026-08-23): M5's experiment
 writer invoked claude_code, which exited in 0.7 seconds with
 
     --dangerously-skip-permissions cannot be used with root/sudo privileges

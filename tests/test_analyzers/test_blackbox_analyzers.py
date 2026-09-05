@@ -68,7 +68,7 @@ def test_pope_mechanism_signals():
     f = POPEAnalyzer().run(model, cases).findings
     flags = [(e["false_positive"], e["false_negative"]) for e in f["per_case"]]
     assert flags == [(False, False), (False, True), (True, False), (False, False)]
-    # the marginals those flags are built from -- the columns M2/M5 may test
+    # the marginals those flags are built from -- the columns M2/M4 may test
     assert [(e["answered_yes"], e["gold_yes"]) for e in f["per_case"]] == [
         (True, True), (False, True), (True, False), (False, False)]
     assert f["false_positive_rate"] == 0.5  # fp=1 of (fp+tn)=2

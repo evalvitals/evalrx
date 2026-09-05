@@ -3,8 +3,8 @@
 Until 2026-08 every per-case analyzer shipped its own ``max_cases`` cap (16 for
 ``coverage_verification_gap``, 32 for ``selfcheck_consistency``, 64 for
 ``termination_audit`` ...). The explore/confirm split hands M1 and the held-out
-M5 a whole partition each, and those caps silently cut both down to a few dozen
-rows: on chartqa (128/128) the M5 "confirmation" of a selfcheck-based lead ran
+M4 a whole partition each, and those caps silently cut both down to a few dozen
+rows: on chartqa (128/128) the M4 "confirmation" of a selfcheck-based lead ran
 on 32 cases. The cap is now opt-in (``max_cases=N``); ``0`` means every case.
 """
 

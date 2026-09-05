@@ -2,7 +2,7 @@
 
 This is the one stage where the LLM produces the payload rather than the prose.
 That is exactly why its output must be machine-checkable: a hypothesis carries a
-``test_design`` naming the signal that would confirm or refute it, so M5 can
+``test_design`` naming the signal that would confirm or refute it, so M4 can
 route deterministically instead of re-reading the sentence.
 """
 
@@ -37,10 +37,10 @@ class DiagnosisInput(WireModel):
 # Output
 # ---------------------------------------------------------------------------
 
-#: A ``<analyzer>.<metric>`` reference — the form M5 resolves against M2's signals.
+#: A ``<analyzer>.<metric>`` reference — the form M4 resolves against M2's signals.
 _SIGNAL_REF = re.compile(r"\b[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\b")
 
-#: Non-signal test designs M5 knows how to route. Extend this together with the
+#: Non-signal test designs M4 knows how to route. Extend this together with the
 #: router; a directive listed here and unhandled there is worse than a rejection.
 TEST_DESIGN_DIRECTIVES = frozenset({
     "prompt_contrast",
@@ -55,7 +55,7 @@ class HypothesisWire(WireModel):
 
     ``statement`` is the mechanism; ``test_design`` is the machine-readable
     commitment to how it could be wrong. A hypothesis without the latter cannot
-    be tested and is therefore not a hypothesis — M5 has nothing to route on and
+    be tested and is therefore not a hypothesis — M4 has nothing to route on and
     M1 has nothing to re-probe.
     """
 
@@ -76,7 +76,7 @@ class HypothesisWire(WireModel):
     test_design: str = Field(
         default="",
         description="Signal or contrast that would decide this, e.g. 'attention.image_token_ratio' "
-                    "or 'prompt_contrast describe_first'. M5 routes on it; M1 re-probes on it. "
+                    "or 'prompt_contrast describe_first'. M4 routes on it; M1 re-probes on it. "
                     "EMPTY means the judge proposed none — see `is_routable`.",
     )
     status: HypothesisStatus = HypothesisStatus.PROPOSED
@@ -85,7 +85,7 @@ class HypothesisWire(WireModel):
 
     @property
     def is_routable(self) -> bool:
-        """Whether M5 can resolve this design against measured signals.
+        """Whether M4 can resolve this design against measured signals.
 
         Mirrors what ``hypothesis_tester`` actually extracts — an identifier
         anywhere in the text, or one of the directives — rather than demanding a
@@ -93,14 +93,14 @@ class HypothesisWire(WireModel):
         ``<analyzer>.<metric>`` or to START with a directive, and a strong judge
         does not write like that: on the Music-AVQA run, Opus at high effort
         produced three designs that named their analyzers and metrics inside a
-        paragraph of interventional protocol. M5 routed all three
+        paragraph of interventional protocol. M4 routed all three
         (``routed_by="test_design"``, two at INTERVENTION grade) and the contract
         rejected the whole M3 payload for the formatting.
 
         A validator stricter than the consumer it protects does not prevent
         anything; it just discards good work. So routability is now REPORTED, and
         the three states stay distinguishable: empty (no test proposed),
-        non-empty but nothing resolvable (a human can act on it, M5 cannot), and
+        non-empty but nothing resolvable (a human can act on it, M4 cannot), and
         routable.
         """
         text = self.test_design.strip()
@@ -144,7 +144,7 @@ class DiagnosisOutput(StageEnvelope):
 
     @property
     def unroutable(self) -> list[str]:
-        """Ids whose design a human can act on but M5 cannot resolve.
+        """Ids whose design a human can act on but M4 cannot resolve.
 
         Distinct from :attr:`untestable`: a test WAS proposed, it just names no
         measured signal, so it is work for the next M1 cycle rather than a claim
@@ -158,7 +158,7 @@ class DiagnosisOutput(StageEnvelope):
     def _ids_unique(cls, v: list[HypothesisWire]) -> list[HypothesisWire]:
         ids = [h.id for h in v]
         if len(set(ids)) != len(ids):
-            raise ValueError("duplicate hypothesis ids make M5 verdicts ambiguous")
+            raise ValueError("duplicate hypothesis ids make M4 verdicts ambiguous")
         return v
 
 

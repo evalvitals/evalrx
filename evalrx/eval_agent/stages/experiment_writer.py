@@ -78,7 +78,7 @@ class ExperimentWriterConfig:
     All new fields default to off / zero so that the existing 3-phase
     behaviour (write → validate → exec-fix) is preserved by default.
 
-    To use a CLI coding agent for M4 instead of the single-pass LLM::
+    To use a CLI coding agent for M5 instead of the single-pass LLM::
 
         from evalrx.agent_runtime.cli_types import CliAgentConfig
         cfg = ExperimentWriterConfig(
@@ -394,7 +394,7 @@ class ExperimentWriter:
 
         if self._forbid_model_load and self._contains_forbidden_model_load(files):
             message = (
-                "generated M4 code attempted to reconstruct or download a second model; "
+                "generated M5 code attempted to reconstruct or download a second model; "
                 "execution blocked to protect the resident host model and GPU memory"
             )
             self._log_event(f"Phase 3: {message}")
@@ -814,7 +814,7 @@ class ExperimentWriter:
 
         if self._forbid_model_load and self._contains_forbidden_model_load(files):
             critical.append(
-                "[project] Model reconstruction is forbidden in this artifact-only M4 "
+                "[project] Model reconstruction is forbidden in this artifact-only M5 "
                 "sandbox. Remove evalrx.load/compose/from_pretrained/model-client "
                 "construction and analyze the stored case artifacts; if those cannot "
                 "test the hypothesis, emit inconclusive: 1.0 without a verdict."
@@ -824,7 +824,7 @@ class ExperimentWriter:
 
     @staticmethod
     def _contains_forbidden_model_load(files: dict[str, str]) -> bool:
-        """Detect heavyweight/network model construction in generated M4 code."""
+        """Detect heavyweight/network model construction in generated M5 code."""
         for name, code in files.items():
             if not name.endswith(".py"):
                 continue
@@ -1342,7 +1342,7 @@ class ExperimentWriter:
             {"experiment.py": code}
         ):
             message = (
-                "generated M4 code attempted to reconstruct or download a second model; "
+                "generated M5 code attempted to reconstruct or download a second model; "
                 "execution blocked to protect the resident host model and GPU memory"
             )
             self._log_event(message)

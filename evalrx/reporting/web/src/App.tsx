@@ -51,7 +51,7 @@ export function App() {
   // record, and the detail views all return past the topbar below.
   const body = view === "evidence" || view.startsWith("evidence:")
     ? <EvidenceView data={payload.data} back={back} navigate={setView} initialStage={view.split(":")[1]} />
-    // "cases:<id>" opens the studio focused on one case, which is how M4's
+    // "cases:<id>" opens the studio focused on one case, which is how M5's
     // repaired/broken chips link into it.
     : view === "cases" || view.startsWith("cases:")
       ? <CasesView data={payload.data} back={back} initialCaseId={view.split(":")[1]} />

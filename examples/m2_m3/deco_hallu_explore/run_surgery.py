@@ -1,7 +1,7 @@
 """Pipeline phase 3 — surgery + tiered fix (L1→L3b) on the confirmed hypotheses.
 
 Plan C: hand the held-out-vetted hypotheses to the diagnosis loop's repair
-machinery (the same M5 confirm → M4 surgery → tiered FixAgent arc as the
+machinery (the same M4 confirm → M5 surgery → tiered FixAgent arc as the
 deco_hallu loop example). Requires the loop example's frozen M1 state
 (outputs/m1_state.pkl, qwen3-vl-2b) and a GPU — the fix module validates every
 candidate repair against the unmodified baseline (paired McNemar / e-BH guard,
@@ -12,7 +12,7 @@ judged not_testable with needs_surgery=true (an interventional experiment is
 exactly what they need). "refuted" ones stay out.
 
 Writes:
-  <pipeline-root>/3_surgery/logs/run_log.jsonl   full M5/M4/Fix record
+  <pipeline-root>/3_surgery/logs/run_log.jsonl   full M4/M5/Fix record
   <pipeline-root>/1_explore/fix_report.json      distilled summary for the dashboard
 
     python run_surgery.py --pipeline-root outputs_pipeline --device cuda
@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).parent
-LOOP_DIR = HERE.parent.parent / "m1_m4" / "deco_hallu"
+LOOP_DIR = HERE.parent.parent / "m1_m5" / "deco_hallu"
 sys.path.insert(0, str(LOOP_DIR))  # reuse the loop example's setup helpers
 
 
@@ -108,7 +108,7 @@ def main() -> None:
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--dtype", default="bfloat16")
     ap.add_argument("--backend", default="claude", choices=["claude", "codex", "agy"])
-    ap.add_argument("--skip-m4", action="store_true")
+    ap.add_argument("--skip-m5", action="store_true")
     ap.add_argument("--include-refuted", action="store_true")
     ap.add_argument("--max-validation-cases", type=int, default=0,
                     help="cap fix-validation cases (0 = full batch)")
@@ -194,31 +194,31 @@ def main() -> None:
         run_logger=run_logger,
     )
 
-    # ── M5: confirm the held-out-vetted hypotheses on the loop's evidence ────
+    # ── M4: confirm the held-out-vetted hypotheses on the loop's evidence ────
     report = loop.run_confirm(cases, hypotheses)
     print(f"\nM5 confirm: verified={len(report.verified_hypotheses)}/{len(report.all_test_results)}")
-    m5 = []
+    m4 = []
     for t in report.all_test_results:
         stmt = getattr(t.hypothesis, "statement", str(t.hypothesis))
         print(f" - [{t.status}] conf={t.confidence:.2f} grade={t.evidence_grade} {stmt[:100]}")
-        m5.append({"statement": stmt, "status": str(t.status),
+        m4.append({"statement": stmt, "status": str(t.status),
                    "confidence": float(t.confidence),
                    "evidence_grade": str(t.evidence_grade),
                    "holdout_verdict": getattr(t.hypothesis, "metadata", {}).get("holdout_verdict")})
 
-    # ── M4 surgery + tiered fix (L1→L3b) ────────────────────────────────────
-    m4_summary = None
+    # ── M5 surgery + tiered fix (L1→L3b) ────────────────────────────────────
+    m5_summary = None
     fix_summary = None
-    if not args.skip_m4:
-        m4 = loop.run_m4(report, cases)
-        m4_summary = str(m4)
-        print("m4:", m4_summary[:300])
+    if not args.skip_m5:
+        m5 = loop.run_m5(report, cases)
+        m5_summary = str(m5)
+        print("m5:", m5_summary[:300])
         outcome = loop.run_fix(report, cases)
         print("fix outcome: best=", getattr(outcome, "best", None), "fixed=",
               getattr(outcome, "fixed", None))
     run_logger.close()
 
-    if not args.skip_m4:
+    if not args.skip_m5:
         # The run logger's fix event is the single source of truth for the
         # per-candidate outcomes; distill the dashboard-facing structure from it.
         event = _fix_event_from_logs(run_logger.run_dir)
@@ -229,15 +229,15 @@ def main() -> None:
         "model": args.model,
         "n_cases": len(cases),
         "hypotheses_in": [h.statement for h in hypotheses],
-        "m5_results": m5,
-        "m4": m4_summary,
+        "m4_results": m4,
+        "m5": m5_summary,
         "fix": fix_summary,
         "logs": str(run_logger.run_dir),
     }
     out_path = root / "1_explore" / "fix_report.json"
     out_path.write_text(json.dumps(out, indent=1))
     print(f"\nwrote {out_path}")
-    print(f"full M5/M4/Fix logs -> {run_logger.run_dir}")
+    print(f"full M4/M5/Fix logs -> {run_logger.run_dir}")
 
 
 if __name__ == "__main__":

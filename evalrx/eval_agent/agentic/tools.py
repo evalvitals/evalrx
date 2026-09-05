@@ -1,7 +1,7 @@
 """Tool registry for the agentic diagnosis loop.
 
 Each :class:`ToolSpec` wraps one existing stage (M1 probe, M2 stats, M3
-diagnosis, M5 test, ...) behind a name/schema the judge can call. The host —
+diagnosis, M4 test, ...) behind a name/schema the judge can call. The host —
 not the judge — enforces call caps, preconditions, and the pre-registration
 discipline (no declaring success without a statistically supported,
 protocol-consistent hypothesis).
@@ -114,7 +114,7 @@ class ToolRegistry:
 
 
 # ---------------------------------------------------------------------------
-# Default registry: wraps the same M1-M5 stages VLDiagnoseLoop calls directly.
+# Default registry: wraps the same M1-M4 stages VLDiagnoseLoop calls directly.
 # ---------------------------------------------------------------------------
 
 
@@ -170,7 +170,7 @@ def _summarize_stats(report: Any) -> list[dict[str, Any]]:
 
 
 def _current_report(loop: Any, state: _RunState) -> "VLDiagnoseReport":
-    """Snapshot the run so far into the same report shape run_m4/run_fix expect."""
+    """Snapshot the run so far into the same report shape run_m5/run_fix expect."""
     from evalrx.eval_agent.loop_reports import VLDiagnoseReport
 
     verified = loop.hypothesis_tester.best_hypotheses(state.all_test_results)
@@ -352,7 +352,7 @@ def _test_hypothesis(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, d
             )
         loop._finalize_confirmatory_stats(state.stats_report)
         board.stats_confirmatory = True
-        test_results = loop._do_m5(
+        test_results = loop._do_m4(
             state.cycle, state.pending_hypotheses, state.stats_report, state.data, state.timings
         )
         for tr in test_results:
@@ -382,7 +382,7 @@ def _test_hypothesis(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, d
 def _run_surgery(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         report = _current_report(loop, state)
-        iv = loop.run_m4(report, state.original_data)
+        iv = loop.run_m5(report, state.original_data)
         state.surgery_outcome = iv
         if iv is None:
             return ToolOutcome(False, "surgery produced no result", error="empty")
@@ -414,7 +414,7 @@ def _stop(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolO
 
 
 def build_default_registry(loop: Any, state: _RunState) -> ToolRegistry:
-    """Build the default M1-M5 tool registry for one :class:`AgenticDiagnoseLoop` run."""
+    """Build the default M1-M4 tool registry for one :class:`AgenticDiagnoseLoop` run."""
     registry = ToolRegistry()
     registry.register(ToolSpec(
         name="run_probe",
@@ -493,7 +493,7 @@ def build_default_registry(loop: Any, state: _RunState) -> ToolRegistry:
     ))
     registry.register(ToolSpec(
         name="test_hypothesis",
-        description="Run M5 to statistically test the most recently proposed hypotheses.",
+        description="Run M4 to statistically test the most recently proposed hypotheses.",
         params_schema={"type": "object", "properties": {}},
         handler=_test_hypothesis(loop, state),
         max_calls=4,
@@ -501,7 +501,7 @@ def build_default_registry(loop: Any, state: _RunState) -> ToolRegistry:
     ))
     registry.register(ToolSpec(
         name="run_surgery",
-        description="Propose a mechanistic fix (M4) for the best verified hypothesis.",
+        description="Propose a mechanistic fix (M5) for the best verified hypothesis.",
         params_schema={"type": "object", "properties": {}},
         handler=_run_surgery(loop, state),
         max_calls=1,
@@ -529,7 +529,7 @@ def build_default_registry(loop: Any, state: _RunState) -> ToolRegistry:
         handler=_stop(loop, state),
         # A rejected stop (premature resolved=true, or resolved=false to give up
         # and try again) does no real work, so it shouldn't burn down a scarce
-        # quota the way a real M1-M5 stage call does — cap generously.
+        # quota the way a real M1-M4 stage call does — cap generously.
         max_calls=5,
     ))
     return registry

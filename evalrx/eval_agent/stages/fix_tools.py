@@ -74,7 +74,7 @@ def safe_format(template: str, context: "dict[str, Any]") -> str:
         "{prompt} {}"           -> IndexError: Replacement index 0
 
     The third is not hypothetical: it ended a qwen3.5-2b/minervamath run
-    *after* M4 had produced its fix, because the formatting sat outside the
+    *after* M5 had produced its fix, because the formatting sat outside the
     per-case ``try``, so a template the model wrote for a LaTeX dataset took
     down the process instead of scoring one case as ``None``.
 

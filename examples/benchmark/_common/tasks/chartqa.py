@@ -1,6 +1,6 @@
 """ChartQA, human-authored test split (Masry et al. 2022) — frozen deterministic sample.
 
-Port of examples/m1_m4/chartqa_qwen3_5_2b/download_chartqa.py: same parquet, same
+Port of examples/m1_m5/chartqa_qwen3_5_2b/download_chartqa.py: same parquet, same
 human-only filter, same seeded sample, same prompt suffix and relaxed 5 % numeric
 tolerance; the manifest now follows the benchmark protocol (image/audio slots).
 """

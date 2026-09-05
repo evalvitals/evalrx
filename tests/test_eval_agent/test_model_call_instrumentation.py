@@ -135,7 +135,7 @@ def test_probe_still_works_when_run_logger_is_absent(tmp_path):
 
 def test_log_probe_drains_calls_tagged_under_a_stale_cycle(tmp_path):
     """Regression pin for the bug the advisor's review caught live: a caller
-    (VLDiagnoseLoop._m5_holdout_pass, before it was fixed) can stamp
+    (VLDiagnoseLoop._m4_holdout_pass, before it was fixed) can stamp
     current_cycle AFTER probe() already ran, so every call this round made
     gets tagged under the PREVIOUS cycle's number — a different key than the
     one log_probe is about to be called with. log_probe must drain the whole
@@ -150,7 +150,7 @@ def test_log_probe_drains_calls_tagged_under_a_stale_cycle(tmp_path):
     run_logger.current_cycle = 7  # stale: set as if a PRIOR cycle never advanced
     results = agent.probe(model, _batch(1), analyzers=["self_consistency"])
     # Called with a DIFFERENT cycle number than what current_cycle was during
-    # probe() above — exactly the M5 holdout shape (cycle=-1) before the fix.
+    # probe() above — exactly the M4 holdout shape (cycle=-1) before the fix.
     run_logger.log_probe(-1, results)
     run_logger.close()
 

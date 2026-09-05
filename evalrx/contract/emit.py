@@ -57,12 +57,12 @@ from evalrx.contract.m2 import (
     StatsToolResultWire,
 )
 from evalrx.contract.m3 import DiagnosisOutput, HypothesisWire
-from evalrx.contract.m4 import FixAttemptWire, FixOutput, InterventionOutput
-from evalrx.contract.m5 import (
+from evalrx.contract.m4 import (
     HypothesisTestOutput,
     HypothesisTestResultWire,
     TestEvidence,
 )
+from evalrx.contract.m5 import FixAttemptWire, FixOutput, InterventionOutput
 from evalrx.contract.methodology import MethodologyWire
 
 logger = logging.getLogger(__name__)
@@ -440,7 +440,7 @@ def hypothesis_id(hypothesis: Any) -> str:
     ``Hypothesis.id`` defaults to ``""`` and nothing in the M1-M5 loop fills it
     in, so every stage that names a hypothesis has to derive one. Deriving it
     per call site is how the first real run produced ``h0`` from M3 and
-    ``unknown`` from M5 for the *same* object: two names for one thing, and the
+    ``unknown`` from M4 for the *same* object: two names for one thing, and the
     join between the claim and its verdict silently empty.
 
     Falls back to a hash of the statement, mirroring what
@@ -486,7 +486,7 @@ def from_diagnosis(
 
 
 # ---------------------------------------------------------------------------
-# M5
+# M4
 # ---------------------------------------------------------------------------
 
 #: Provenance values TestEvidence accepts. Anything else the tester wrote is a
@@ -537,7 +537,7 @@ def from_test_results(
             ),
         ))
     return HypothesisTestOutput(
-        **envelope("m5", trace_id=trace_id, cycle=cycle,
+        **envelope("m4", trace_id=trace_id, cycle=cycle,
                    state=StageState.SUCCEEDED if rows else StageState.EMPTY,
                    duration_sec=duration_sec),
         split=split,                       # type: ignore[arg-type]
@@ -547,7 +547,7 @@ def from_test_results(
 
 
 # ---------------------------------------------------------------------------
-# M4
+# M5
 # ---------------------------------------------------------------------------
 
 _XML_ESC = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
@@ -649,7 +649,7 @@ def from_intervention(
     """``InterventionResult`` -> :class:`InterventionOutput`."""
     hyp = _val(result, "hypothesis")
     return InterventionOutput(
-        **envelope("m4_surgery", trace_id=trace_id, cycle=cycle, duration_sec=duration_sec),
+        **envelope("m5_surgery", trace_id=trace_id, cycle=cycle, duration_sec=duration_sec),
         hypothesis_id=hypothesis_id(hyp),
         hypothesis_status=_enum(_val(result, "status")) or "inconclusive",
         strategy=_val(result, "strategy", "passive_correlation") or "passive_correlation",
@@ -666,7 +666,7 @@ def _tier(value: Any, default: str = "L1") -> str:
     ``FixTier`` is an IntEnum whose ``.value`` is an ordinal and whose ``.name``
     is ``L3A_INTERNALS_READ``; neither is the wire spelling. It carries a
     ``.label`` that is exactly ``"L3a"`` — a live run shipped the enum straight
-    through and the whole M4 payload was rejected for it.
+    through and the whole M5 payload was rejected for it.
     """
     label = getattr(value, "label", None)
     if isinstance(label, str) and label:
@@ -804,7 +804,7 @@ def from_fix_outcome(
     # Attach the one derived from what the candidate declares; when nothing is
     # describable the claim is dropped rather than the payload, and `summary`
     # says so — reporting the repair with fixed=False is a smaller error than
-    # dropping M4 entirely, which reads as "no repair was attempted".
+    # dropping M5 entirely, which reads as "no repair was attempted".
     if fixed and best_name:
         for v in (_val(outcome, "attempted", []) or []):
             cand = _val(v, "candidate", v)
@@ -820,7 +820,7 @@ def from_fix_outcome(
                                             "is reported as validated-but-unexplained]").strip()
             break
     return FixOutput(
-        **envelope("m4_fix", trace_id=trace_id, cycle=cycle, duration_sec=duration_sec),
+        **envelope("m5_fix", trace_id=trace_id, cycle=cycle, duration_sec=duration_sec),
         max_tier=_tier(_val(outcome, "max_tier", "L1")),
         routed=[{str(k): str(v) for k, v in dict(r).items()}
                 for r in (_val(outcome, "routed", []) or []) if isinstance(r, dict)],
@@ -896,8 +896,8 @@ class ContractEmitter:
 #: does not have to infer the type from the filename.
 STAGE_WIRE = {
     "pre_m1": "ProbeSearchOutput", "m1": "ProbeOutput", "m2": "StatsReportWire",
-    "m3": "DiagnosisOutput", "m5": "HypothesisTestOutput",
-    "m4_surgery": "InterventionOutput", "m4_fix": "FixOutput",
+    "m3": "DiagnosisOutput", "m4": "HypothesisTestOutput",
+    "m5_surgery": "InterventionOutput", "m5_fix": "FixOutput",
 }
 
 
@@ -919,7 +919,7 @@ def write_index(root: "str | Path", *, trace_id: str = "") -> Path:
     for path in sorted(directory.glob("*.json")):
         if path.name == "index.json":
             continue
-        # "c0.m1.json" / "m4_fix.json" / "c-1.m5.invalid.json"
+        # "c0.m1.json" / "m5_fix.json" / "c-1.m4.invalid.json"
         stem = path.name[: -len(".invalid.json")] if path.name.endswith(".invalid.json") \
             else path.name[: -len(".json")]
         span, _, stage = stem.rpartition(".")

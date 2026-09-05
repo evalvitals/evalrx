@@ -91,8 +91,8 @@ def _protocol() -> ExperimentProtocol:
     )
 
 
-def test_vl_agent_launches_m1_to_m5_and_dashboard_loader_reads_run(tmp_path):
-    """Launch the real M1->M2->M3->M5 loop and verify the UI data contract."""
+def test_vl_agent_launches_m1_to_m4_and_dashboard_loader_reads_run(tmp_path):
+    """Launch the real M1->M2->M3->M4 loop and verify the UI data contract."""
     data = _cases()
     judge = _ScriptedJudge()
     ctx = RunContext(tmp_path / "run", verbose=False)
@@ -110,7 +110,7 @@ def test_vl_agent_launches_m1_to_m5_and_dashboard_loader_reads_run(tmp_path):
     )
 
     report = loop.run(data)
-    m4_result = loop.run_m4(report, data)
+    m5_result = loop.run_m5(report, data)
     ctx.write_diagnose_report(report, list(data))
 
     assert report.stopped_by == "criteria_met"
@@ -120,7 +120,7 @@ def test_vl_agent_launches_m1_to_m5_and_dashboard_loader_reads_run(tmp_path):
     assert report.all_test_results[0].status.value == "supported"
     assert report.all_test_results[0].effect_size == 1.0
     assert len(report.verified_hypotheses) == 1
-    assert m4_result is not None
+    assert m5_result is not None
     assert len(judge.calls) == 2
 
     loaded = load_run(ctx.root)
@@ -134,4 +134,4 @@ def test_vl_agent_launches_m1_to_m5_and_dashboard_loader_reads_run(tmp_path):
 
     assert (ctx.root / "report" / "summary.json").exists()
     assert (ctx.root / "report" / "hypotheses.json").exists()
-    assert (ctx.root / "report" / "m5_results.json").exists()
+    assert (ctx.root / "report" / "m4_results.json").exists()

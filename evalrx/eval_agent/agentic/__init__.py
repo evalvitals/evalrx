@@ -1,9 +1,9 @@
 """Agentic diagnosis loop — a judge-decided alternative to VLDiagnoseLoop's
-fixed M1->M2->M3->M5 cycle. See ``loop.py`` for the full picture.
+fixed M1->M2->M3->M4 cycle. See ``loop.py`` for the full picture.
 
   actions.py  Action, parse_action, decide — judge output -> validated action
   board.py    EvidenceBoard, BudgetState — what the judge sees each turn
-  tools.py    ToolSpec, ToolRegistry, build_default_registry — the M1-M5 tools
+  tools.py    ToolSpec, ToolRegistry, build_default_registry — the M1-M4 tools
   loop.py     AgenticDiagnoseLoop
 """
 
