@@ -22,12 +22,12 @@ services:
   qwen3.5-2b:
     <<: *qwen
     command: >
-      sh -c "python -m _common.run --modality llm --model qwen3.5-2b --dataset ${DATASET:-bbh_causal_judgement} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+      sh -c "python -m _common.run --modality llm --model qwen3.5-2b --dataset ${DATASET:-bbh_causal_judgement} --limit ${LIMIT:-0} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
   qwen3.5-4b:
     <<: *qwen
     command: >
-      sh -c "python -m _common.run --modality llm --model qwen3.5-4b --dataset ${DATASET:-bbh_causal_judgement} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+      sh -c "python -m _common.run --modality llm --model qwen3.5-4b --dataset ${DATASET:-bbh_causal_judgement} --limit ${LIMIT:-0} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
   qwen3.5-9b:
     <<: *qwen
     command: >
-      sh -c "python -m _common.run --modality llm --model qwen3.5-9b --dataset ${DATASET:-bbh_causal_judgement} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+      sh -c "python -m _common.run --modality llm --model qwen3.5-9b --dataset ${DATASET:-bbh_causal_judgement} --limit ${LIMIT:-0} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"

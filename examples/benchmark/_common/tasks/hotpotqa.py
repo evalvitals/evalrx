@@ -1,4 +1,4 @@
-"""HotpotQA, the GEPA split (arXiv:2507.19457) — the 300-question test set.
+"""HotpotQA, the GEPA split (arXiv:2507.19457) — test (300) + train (150), 450 rows.
 
 GEPA's appendix fixes a 150/300/300 train/val/test split of HF
 ``hotpotqa/hotpot_qa`` (config ``fullwiki``, split ``train``, 90,447 rows):
@@ -6,9 +6,10 @@ slice the split IN ORDER into a test pool (first 40 %), a val pool (middle
 40 %) and a train pool (last 20 %), then sample each pool with a fresh
 ``random.Random(); rng.seed(1)`` (``gepa-artifact`` ``benchmarks/benchmark.py``).
 ``download`` re-runs that recipe bit-for-bit — sampling indices instead of row
-objects, which picks the identical positions — and freezes the TEST pool's 300
-questions in sample order; these are the same items behind GEPA Table 1
-(Qwen3-8B 42.33 EM).
+objects, which picks the identical positions — and by default freezes the TEST
+pool's 300 questions (the same items behind GEPA Table 1, Qwen3-8B 42.33 EM)
+followed by the TRAIN pool's 150, giving 450 rows from two disjoint GEPA
+splits; ``split`` accepts a single name or a ``+``-joined list.
 
 The protocol here is NOT GEPA's: their program answers via two-hop ColBERTv2
 retrieval over a hosted Wikipedia-2017 index that is not reproducible locally.
@@ -84,54 +85,64 @@ def _context(row: dict) -> str:
     return "\n\n".join(paras)[:_CONTEXT_CHAR_CAP]
 
 
-def download(out_dir: Path, limit: int = 300, seed: int = GEPA_SEED, split: str = "test") -> dict:
-    """Freeze the GEPA *split* (test by default) in GEPA sample order.
+def download(out_dir: Path, limit: int = 450, seed: int = GEPA_SEED,
+             split: str = "test+train") -> dict:
+    """Freeze one or more GEPA splits, each in GEPA sample order.
 
-    ``limit`` > 0 keeps the first ``limit`` rows of that order (a deterministic
-    prefix); 0 keeps the whole split. ``seed`` = 1 is the published split —
-    anything else is a same-recipe robustness variant, not GEPA's set.
+    ``split`` is a single name or a ``+``-joined list (default ``test+train``:
+    the 300 test questions followed by the 150 train questions — 450 rows,
+    two disjoint pools of the same recipe). ``limit`` > 0 keeps the first
+    ``limit`` rows of the concatenated order (a deterministic prefix); 0 keeps
+    everything. ``seed`` = 1 is the published split — anything else is a
+    same-recipe robustness variant, not GEPA's set.
     """
-    if split not in SIZES:
-        raise ValueError(f"unknown GEPA split {split!r}; expected one of {tuple(SIZES)}")
+    parts = [p.strip() for p in split.split("+") if p.strip()]
+    for part in parts:
+        if part not in SIZES:
+            raise ValueError(f"unknown GEPA split {part!r}; expected one of {tuple(SIZES)}")
     out_dir = Path(out_dir)
     all_rows = _load_train_rows()
-    start, end = _pool_bounds(split, len(all_rows))
-    picked = _gepa_indices(end - start, SIZES[split], seed)
+    rows, pools = [], {}
+    for part in parts:
+        start, end = _pool_bounds(part, len(all_rows))
+        pools[part] = [start, end]
+        picked = _gepa_indices(end - start, SIZES[part], seed)
+        for rank, pool_index in enumerate(picked):
+            source_index = start + pool_index
+            row = all_rows[source_index]
+            context = _context(row)
+            question = str(row.get("question", "")).strip()
+            answer = str(row.get("answer", "")).strip()
+            if not (context and question and answer):
+                raise SystemExit(f"row {source_index} is not gradable (empty context/question/answer)")
+            supporting = row.get("supporting_facts") or {}
+            rows.append({
+                "id": f"hotpotqa-gepa-{part}-{source_index:05d}",
+                "dataset": HF_REPO, "subset": f"fullwiki/train (GEPA {part} pool)",
+                "source_index": source_index, "sample_rank": rank, "sample_seed": seed,
+                "image": None, "audio": None,
+                "prompt": f"Context:\n{context}\n\nQuestion: {question}\n\n{INSTRUCTION}",
+                "answers": [answer],
+                "task": "short_answer_em", "numeric_tolerance": 0.0,
+                "metadata": {"hotpot_id": str(row.get("id", "")), "type": str(row.get("type", "")),
+                             "level": str(row.get("level", "")), "gepa_split": part,
+                             "supporting_titles": sorted(set(supporting.get("title") or []))},
+            })
     if limit and limit > 0:
-        picked = picked[:limit]
-    rows = []
-    for rank, pool_index in enumerate(picked):
-        source_index = start + pool_index
-        row = all_rows[source_index]
-        context = _context(row)
-        question = str(row.get("question", "")).strip()
-        answer = str(row.get("answer", "")).strip()
-        if not (context and question and answer):
-            raise SystemExit(f"row {source_index} is not gradable (empty context/question/answer)")
-        supporting = row.get("supporting_facts") or {}
-        rows.append({
-            "id": f"hotpotqa-gepa-{split}-{source_index:05d}",
-            "dataset": HF_REPO, "subset": f"fullwiki/train (GEPA {split} pool)",
-            "source_index": source_index, "sample_rank": rank, "sample_seed": seed,
-            "image": None, "audio": None,
-            "prompt": f"Context:\n{context}\n\nQuestion: {question}\n\n{INSTRUCTION}",
-            "answers": [answer],
-            "task": "short_answer_em", "numeric_tolerance": 0.0,
-            "metadata": {"hotpot_id": str(row.get("id", "")), "type": str(row.get("type", "")),
-                         "level": str(row.get("level", "")), "gepa_split": split,
-                         "supporting_titles": sorted(set(supporting.get("title") or []))},
-        })
+        rows = rows[:limit]
     write_manifest(out_dir / "manifest.json", rows)
     return {"kept": len(rows), "split": split, "train_rows": len(all_rows),
-            "pool": [start, end], "manifest": str(out_dir / "manifest.json")}
+            "pool": pools, "manifest": str(out_dir / "manifest.json")}
 
 
 def protocol(model_label: str):
     return _protocol(
         description=(
-            f"A text-only LLM ({model_label}) answers the 300-question test set of the GEPA "
-            "split of HotpotQA (fullwiki/train, seed-1 sample — the same items as GEPA's "
-            "Table 1). Each prompt carries the dataset's own 10 candidate Wikipedia "
+            f"A text-only LLM ({model_label}) answers 450 questions from the GEPA split of "
+            "HotpotQA (fullwiki/train, seed-1 sample): the 300-question GEPA test set — the "
+            "same items as GEPA's Table 1 — plus the 150-question GEPA train set, two "
+            "disjoint pools of the same recipe. Each prompt carries the dataset's own 10 "
+            "candidate Wikipedia "
             "paragraphs (2 gold + 8 distractors); answering needs a two-hop combination "
             "of two of them (bridge questions) or a comparison of two entities "
             "(comparison questions, often with a yes/no answer). Failure cases are items "
@@ -163,10 +174,10 @@ def protocol(model_label: str):
 
 
 TASK = Task(
-    name="hotpotqa_gepa", modality="llm", kind="short_answer_em", title="HotpotQA/GEPA-test",
+    name="hotpotqa_gepa", modality="llm", kind="short_answer_em", title="HotpotQA/GEPA-test+train",
     download=download, protocol=protocol,
     pinned_m1=PINNED_M1,
-    default_limit=300, default_seed=GEPA_SEED, max_new_tokens=512,
+    default_limit=450, default_seed=GEPA_SEED, max_new_tokens=512,
     short_answer=False,
-    source="hotpotqa/hotpot_qa fullwiki/train, GEPA split seed 1 (150/300/300), arXiv:2507.19457",
+    source="hotpotqa/hotpot_qa fullwiki/train, GEPA split seed 1 (test 300 + train 150), arXiv:2507.19457",
 )

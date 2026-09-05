@@ -39,7 +39,7 @@ def task_prompt(instruction: str, choices: list[str]) -> str:
             "Listen to the audio and reply with only the option letter (A, B, C, or D).")
 
 
-def download(out_dir: Path, limit: int = 256, seed: int = 20260814, scan_rows: int = 1000) -> dict:
+def download(out_dir: Path, limit: int = 450, seed: int = 20260814, scan_rows: int = 1000) -> dict:
     import pyarrow.parquet as pq
     from huggingface_hub import hf_hub_download
 
@@ -119,7 +119,7 @@ TASK = Task(
         "format_sensitivity", "self_consistency", "calibration", "logprob_entropy",
         "coverage_verification_gap",
     ),
-    default_limit=256, default_seed=20260814, max_new_tokens=64,
+    default_limit=450, default_seed=20260814, max_new_tokens=64,
     output_contract={"kind": "multiple_choice_letter", "choices": LETTERS},
     source="gamma-lab-umd/MMAU-test-mini",
 )
