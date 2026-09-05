@@ -153,6 +153,12 @@
             },
             "duration_sec": {
               "type": "number"
+            },
+            "n_model_calls": {
+              "type": "integer"
+            },
+            "model_calls_path": {
+              "type": "string"
             }
           },
           "required": [

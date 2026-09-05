@@ -120,6 +120,13 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "selection_rationale": {"type": "string"},
             "judge_io": _JUDGE_IO,
             "duration_sec": {"type": "number"},
+            # Every generate/forward/logprobs/chat call an analyzer made against
+            # the target model this cycle (see model_instrumentation.py); full
+            # verbatim records live in the sibling model_calls.jsonl this points
+            # to, kept out of this event so an analyzer making dozens of calls
+            # per case doesn't drown out the cycle-level narrative.
+            "n_model_calls": {"type": "integer"},
+            "model_calls_path": {"type": "string"},
         },
     },
     "analysis": {
