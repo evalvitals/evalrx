@@ -438,7 +438,7 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 /* ── Loop figure: inputs → explore (M1·M2·M3) → held-out M4 → repair M5 → health card ── */
 .lf-section > header { margin-bottom: 26px; }
 .lf-title { font: 500 clamp(22px, 2.6vw, 30px)/1.15 Newsreader, serif; letter-spacing: -.015em; margin: 8px 0 0; color: var(--ink); }
-.lf { display: grid; grid-template-columns: 158px 20px minmax(0, 1fr) 20px 212px; gap: 0; align-items: stretch; }
+.lf { display: grid; grid-template-columns: 182px 20px minmax(0, 1fr) 20px 212px; gap: 0; align-items: stretch; }
 .lf-arrow { position: relative; }
 .lf-arrow::before { content: ""; position: absolute; left: 3px; right: 3px; top: 50%; height: 1px; background: var(--c-477865); }
 .lf-arrow::after { content: ""; position: absolute; right: 3px; top: 50%; width: 6px; height: 6px; border-top: 1px solid var(--green); border-right: 1px solid var(--green); transform: translateY(-50%) rotate(45deg); }
@@ -453,11 +453,23 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .lf-chip.on { color: var(--c-07110f); background: var(--green); border-color: var(--green); font-weight: 700; }
 .lf-plus { text-align: center; color: var(--green); font: 500 16px Newsreader, serif; line-height: 1; }
 .lf-math { font: 10px DM Mono, monospace; color: var(--c-b7c7c2, #b7c7c2); display: block; }
-.lf-splits { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 4px; }
-.lf-splits li { display: flex; align-items: baseline; gap: 8px; font-size: 10.5px; color: var(--muted); }
-.lf-splits li b { font: 500 10.5px DM Mono, monospace; color: var(--c-55665f, #55665f); min-width: 22px; }
-.lf-splits li.on { color: var(--c-b7c7c2, #b7c7c2); }
-.lf-splits li.on b { color: var(--green); }
+.lf-cyl { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; margin-top: 2px; }
+.lf-cyl svg { display: block; overflow: visible; }
+.lf-band path { stroke-width: 1; }
+.lf-band text { font: 500 10px "DM Mono", monospace; fill: var(--ink); }
+.lf-band-explore path { fill: rgba(107, 216, 173, .16); stroke: var(--c-3b6c59); }
+.lf-band-heldout path { fill: var(--c-14231f); stroke: var(--c-41534d); }
+.lf-band-confirm path { fill: rgba(107, 216, 173, .08); stroke: var(--green); }
+.lf-band.unknown path { stroke-dasharray: 3 3; fill: transparent; }
+.lf-band.unknown text { fill: var(--muted); }
+.lf-cap { fill: rgba(107, 216, 173, .26); stroke: var(--c-3b6c59); stroke-width: 1; }
+.lf-cyl ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.lf-cyl li { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 5px; font-size: 10.5px; color: var(--c-b7c7c2, #b7c7c2); white-space: nowrap; }
+.lf-cyl li i { display: grid; place-items: center; color: var(--green); }
+.lf-cyl li.lf-band-heldout i { color: var(--c-9eb1aa, #9eb1aa); }
+.lf-cyl li b { font: 500 10.5px "DM Mono", monospace; color: var(--ink); }
+.lf-cyl li.unknown { color: var(--muted); }
+.lf-cyl li.unknown i, .lf-cyl li.unknown b { color: var(--muted); }
 .lf-dataset { font-size: 10px; color: var(--muted); font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .lf-loop { display: grid; grid-template-columns: minmax(0, 3.3fr) minmax(0, 1fr) minmax(0, 1.25fr); grid-template-rows: 1fr auto; gap: 10px; }

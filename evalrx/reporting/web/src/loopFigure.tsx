@@ -11,7 +11,7 @@
  * a zero. Clicking a stage opens its evidence view; hovering a stage shows what
  * went in and what came out of it.
  */
-import { Check, Database, Lock, Trophy, X } from "lucide-react";
+import { Check, Database, Lock, Search, Trophy, X } from "lucide-react";
 import type { CaseStudy, ReportData, Stage } from "./types";
 import { Hypothesis, Verdict, humanise, pct, signed } from "./caseStudy";
 
@@ -51,6 +51,42 @@ function StageCard({ stage, code, title, subtitle, into, out, onClick, lane, chi
   </article>;
 }
 
+/**
+ * The frozen case batch as a stacked cylinder: D_E on top, D_H, D_C at the
+ * bottom, each band as tall as its share of the batch. A partition whose size
+ * is not yet known (confirm pairs before a repair was validated) keeps a
+ * minimum band, dashed, rather than being drawn as empty.
+ */
+function BatchCylinder({ explore, heldout, confirm }: { explore: number | null; heldout: number | null; confirm: number | null }) {
+  const bands = [
+    { key: "E", label: "Explore", n: explore, icon: <Search size={12} />, cls: "explore" },
+    { key: "H", label: "Held-out", n: heldout, icon: <Lock size={12} />, cls: "heldout" },
+    { key: "C", label: "Confirm", n: confirm, icon: <Check size={12} />, cls: "confirm" },
+  ];
+  const known = bands.map((b) => b.n ?? 0);
+  const total = Math.max(1, known.reduce((a, b) => a + b, 0));
+  const width = 74, rx = 33, ry = 6, cx = width / 2, left = cx - rx, right = cx + rx;
+  const usable = 92, minBand = 18;
+  const heights = bands.map((b) => Math.max(minBand, ((b.n ?? 0) / total) * usable));
+  let y = ry + 2;
+  const drawn = bands.map((band, i) => { const top = y; y += heights[i]; return { ...band, top, bottom: y }; });
+  const height = y + ry + 2;
+  return <div className="lf-cyl">
+    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} aria-hidden="true">
+      {drawn.map((band) => <g key={band.key} className={`lf-band lf-band-${band.cls}${band.n === null ? " unknown" : ""}`}>
+        <path d={`M${left} ${band.top} A${rx} ${ry} 0 0 0 ${right} ${band.top} L${right} ${band.bottom} A${rx} ${ry} 0 0 1 ${left} ${band.bottom} Z`} />
+        <text x={cx} y={(band.top + band.bottom) / 2 + ry / 2 + 3} textAnchor="middle">D<tspan baselineShift="sub" fontSize="7">{band.key}</tspan></text>
+      </g>)}
+      <ellipse className="lf-cap" cx={cx} cy={drawn[0].top} rx={rx} ry={ry} />
+    </svg>
+    <ul>
+      {drawn.map((band) => <li key={band.key} className={`lf-band-${band.cls}${band.n === null ? " unknown" : ""}`}>
+        <i>{band.icon}</i><span>{band.label}</span><b>{band.n === null ? "—" : band.n}</b>
+      </li>)}
+    </ul>
+  </div>;
+}
+
 /** Top few M2 rows: signal, effect with CI, and whether it survived correction. */
 function SignalRows({ stats }: { stats: NonNullable<CaseStudy["m2"]>[string] }) {
   const rows = stats.tests
@@ -87,8 +123,12 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
   // fix stage measured a candidate on them.
   const nTotal = data.cases.length;
   const nExplore = data.setting.n_cases || cs?.headline.n_explore || nTotal;
-  const nHeldout = nTotal > nExplore ? nTotal - nExplore : (cs?.headline.n_heldout ?? null);
+  const nWithheld = nTotal > nExplore ? nTotal - nExplore : (cs?.headline.n_heldout ?? null);
   const nConfirm = cs?.validation?.n_pairs ?? null;
+  // The withheld cases split into the held-out pool M4 adjudicates on and the
+  // confirm pairs the repair is scored on; the latter is known only after a
+  // repair was validated, so until then the whole remainder is "held-out".
+  const nHeldout = nWithheld === null ? null : nConfirm !== null && nConfirm < nWithheld ? nWithheld - nConfirm : nWithheld;
   const m1 = cs?.m1 ?? null;
   const phase = cs?.m2?.heldout ? "heldout" : "explore";
   const stats = cs?.m2?.[phase] ?? null;
@@ -142,11 +182,7 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
         <div className="lf-box">
           <small>FROZEN CASE BATCH</small>
           <code className="lf-math">D = {"{"}(x, y, ŷ, z, m){"}"}</code>
-          <ul className="lf-splits">
-            <li className="on"><b>D<sub>E</sub></b><span>{casesLabel(nExplore, "explore")}</span></li>
-            <li className={nHeldout ? "on" : ""}><b>D<sub>H</sub></b><span>{casesLabel(nHeldout, "held-out")}</span></li>
-            <li className={nConfirm ? "on" : ""}><b>D<sub>C</sub></b><span>{casesLabel(nConfirm, "confirm")}</span></li>
-          </ul>
+          <BatchCylinder explore={nExplore} heldout={nHeldout} confirm={nConfirm} />
           <em className="lf-dataset" title={data.setting.dataset}>{data.setting.dataset}</em>
         </div>
         <div className="lf-tip"><div><b>IN</b><span>{data.setting.dataset}</span></div><div><b>OUT</b><span>{data.setting.n_cases} cases, split before anything ran</span></div><small>click to open the case studio</small></div>
