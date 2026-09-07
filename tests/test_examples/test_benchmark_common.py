@@ -275,8 +275,9 @@ def test_cli_no_model_paths(common, capsys):
     _, _, _, run = common
     defaults = run.build_parser().parse_args([])
     assert (defaults.judge_provider, defaults.judge_model, defaults.judge_effort) == (
-        "codex", "gpt-5.6-terra", "medium"
+        "claude", None, "high"
     )
+    assert defaults.held_out is False
     assert defaults.fix_repair_rounds == 2
     assert defaults.allow_adapted_paper_methods is False
     assert run.build_parser().parse_args([
@@ -291,7 +292,7 @@ def test_cli_no_model_paths(common, capsys):
         run.main(["--modality", "vlm", "--model", "qwen3.5-2b", "--dataset", "mmau", "--no-download"])
 
 
-def test_leaf_compose_files_cover_every_cell_and_pin_codex_terra(common):
+def test_leaf_compose_files_cover_every_cell_and_leave_judge_to_cli_default(common):
     import yaml
 
     models, *_ = common
@@ -304,10 +305,9 @@ def test_leaf_compose_files_cover_every_cell_and_pin_codex_terra(common):
         svc = services[size.key]
         cmd = svc["command"]
         assert f"--model {size.key}" in cmd and f"--modality {modality}" in cmd
-        assert (
-            "--judge-provider codex --judge-model gpt-5.6-terra "
-            "--judge-effort medium"
-        ) in cmd
+        # no per-service judge pin: the CLI default (claude / claude-opus-5 /
+        # high) rules, and EXTRA_ARGS can still override per run
+        assert "--judge-provider" not in cmd
         assert ("--device auto" in cmd) == (size.gpus > 1)
         assert svc["extends"]["file"] == "../../_common/compose/base.yml"
         assert (leaf / svc["extends"]["file"]).resolve().is_file()
@@ -661,7 +661,7 @@ def test_hotpotqa_download_reconstructs_the_gepa_sample(common, tmp_path, monkey
     # seed-1 sample engages, exactly GEPA's trim_dataset on the pool.
     monkeypatch.setattr(hotpotqa, "_load_train_rows", lambda: _fake_hotpot_rows(1000))
     summary = tasks.get("hotpotqa_gepa").download(tmp_path / "h", limit=0, seed=1)
-    assert summary["kept"] == 300 and summary["pool"] == [0, 400]
+    assert summary["kept"] == 300 and summary["pool"] == {"test": [0, 400]}
     rows = tasks.load_rows(tmp_path / "h" / "manifest.json")
     expected = random.Random(1).sample(range(400), 300)
     assert [r["source_index"] for r in rows] == expected          # sample ORDER, not sorted
@@ -682,11 +682,20 @@ def test_hotpotqa_download_reconstructs_the_gepa_sample(common, tmp_path, monkey
     prefix = tasks.load_rows(tmp_path / "h50" / "manifest.json")
     assert [r["id"] for r in prefix] == [r["id"] for r in rows[:50]]
 
+    # val_limit freezes manifest_val.json from the DISJOINT train pool
+    with_val = hotpotqa.download(tmp_path / "h-val", limit=0, seed=1, val_limit=150)
+    assert with_val["kept"] == 300 and with_val["kept_val"] == 150
+    assert with_val["val_pool"] == [800, 1000]
+    val_rows = tasks.load_rows(tmp_path / "h-val" / "manifest_val.json")
+    assert all(r["metadata"]["gepa_split"] == "train" for r in val_rows)
+    main_ids = {r["id"] for r in tasks.load_rows(tmp_path / "h-val" / "manifest.json")}
+    assert main_ids.isdisjoint({r["id"] for r in val_rows})
+
     # a pool smaller than the split size is kept whole in pool order
     # (trim_dataset returns the dataset unchanged): 500 rows -> train pool = 100 < 150
     monkeypatch.setattr(hotpotqa, "_load_train_rows", lambda: _fake_hotpot_rows(500))
     small = hotpotqa.download(tmp_path / "h-train", limit=0, seed=1, split="train")
-    assert small["kept"] == 100 and small["pool"] == [400, 500]
+    assert small["kept"] == 100 and small["pool"] == {"train": [400, 500]}
     train_rows = tasks.load_rows(tmp_path / "h-train" / "manifest.json")
     assert [r["source_index"] for r in train_rows] == list(range(400, 500))
 
@@ -773,19 +782,19 @@ def test_gsm8k_cases_score_through_the_numeric_grader(common, tmp_path, monkeypa
     assert not tasks.score_case(comma, "Answer: 1234.5")
 
 
-def test_llm_cells_default_to_the_endpoint_backend(common):
-    """Text cells run against a served model unless --backend says otherwise;
-    image/audio cells stay in-process; the gemini family ignores both."""
+def test_all_cells_default_to_the_endpoint_backend(common):
+    """Every cell runs against a served model (vLLM endpoint) unless --backend
+    says otherwise; the gemini family ignores both."""
     models, _, _, run = common
     parse = run.build_parser().parse_args
     assert parse(["--modality", "llm", "--model", "qwen3.5-2b"]).backend is None  # resolved per modality
     assert models.default_backend("llm") == "endpoint"
-    assert models.default_backend("vlm") == "hf_local" and models.default_backend("alm") == "hf_local"
+    assert models.default_backend("vlm") == "endpoint" and models.default_backend("alm") == "endpoint"
     llm = models.resolve("qwen3.5-2b", "llm")
     assert llm.backend == "endpoint" and llm.spec_key == "qwen3.5-2b"          # no endpoint spec -> same key
     assert models.resolve("nemotron-3-nano-4b", "llm").spec_key == "nemotron-3-nano-4b-fp8"
-    assert models.resolve("qwen3.5-2b", "vlm").backend == "hf_local"
-    assert models.resolve("gemma-4-e2b", "alm").backend == "hf_local"
+    assert models.resolve("qwen3.5-2b", "vlm").backend == "endpoint"
+    assert models.resolve("gemma-4-e2b", "alm").backend == "endpoint"
     assert models.resolve("qwen3.5-2b", "llm", "hf_local").backend == "hf_local"  # explicit flag wins
     assert models.resolve("gemini-2.5-flash-lite", "llm").backend == "gemini"     # family forced
     with pytest.raises(ValueError):

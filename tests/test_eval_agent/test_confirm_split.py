@@ -322,3 +322,55 @@ def test_tvt_run_m5_surgery_stays_on_train():
     assert seen == {id(case) for case in train}
     assert seen.isdisjoint(id(case) for case in val)
     assert seen.isdisjoint(id(case) for case in test)
+
+
+# ---------------------------------------------------------------------------
+# External validation mode (val_data): a SEPARATE frozen batch takes the val
+# role — fix development runs there — while the main batch keeps its full
+# explore/confirm split and CONFIRM stays the single frozen-winner gate.
+# ---------------------------------------------------------------------------
+
+def test_val_data_exclusive_with_test_split():
+    import pytest
+
+    with pytest.raises(ValueError):
+        _loop(confirm_split=1 / 3, test_split=1 / 3, val_data=_batch(6))
+
+
+def test_val_data_run_fix_develops_on_val_confirms_on_confirm():
+    batch = _batch(24)
+    val_batch = _batch(12)
+    stub = _RecordingFixAgent()
+    loop = _loop(fix_agent=stub, confirm_split=0.5, val_data=val_batch)
+    explore, confirm = loop._split_explore_confirm(batch)
+
+    loop.run_fix(_report(), batch, auto_escalate=True, max_tier="L2", allow_unverified=True)
+
+    # The ladder is authored/selected on the EXTERNAL val batch only; neither
+    # main partition reaches the search, and CONFIRM is touched exactly once,
+    # by the frozen candidate.
+    assert stub.seen_ids == {id(c) for c in val_batch}
+    assert stub.confirm_ids == {id(c) for c in confirm}
+    assert stub.seen_ids.isdisjoint({id(c) for c in explore})
+    assert stub.seen_ids.isdisjoint(stub.confirm_ids)
+    assert stub.confirm_cap == 0  # full CONFIRM partition for the frozen winner
+
+
+def test_val_data_run_m5_surgery_stays_on_explore():
+    batch = _batch(24)
+    seen = set()
+
+    class _Surgery:
+        def operate(self, hypothesis, model, results, data):
+            seen.update(id(case) for case in data)
+            return SimpleNamespace(status="refuted", evidence={})
+
+    val_batch = _batch(12)
+    loop = _loop(confirm_split=0.5, val_data=val_batch)
+    loop.surgery_agent = _Surgery()
+    explore, confirm = loop._split_explore_confirm(batch)
+    loop.run_m5(_report(), batch, allow_unverified=True)
+
+    assert seen == {id(case) for case in explore}
+    assert seen.isdisjoint(id(case) for case in confirm)
+    assert seen.isdisjoint(id(case) for case in val_batch)
