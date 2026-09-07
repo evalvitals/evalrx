@@ -43,10 +43,14 @@ ALLOWED_COMPONENTS = frozenset(
         "OutcomeCard",
         "CasePreview",
         "CaseStudySheet",
+        "LoopFigure",
         "EvidenceIndex",
     }
 )
-REQUIRED_COMPONENTS = frozenset({"SettingHero", "Journey", "OutcomeCard"})
+REQUIRED_COMPONENTS = frozenset({"SettingHero", "OutcomeCard"})
+# The page needs one picture of the M1-M5 loop: the plain stage strip, or the
+# loop figure that folds the case-study sheet into it.
+PIPELINE_COMPONENTS = frozenset({"Journey", "LoopFigure"})
 MAX_ELEMENTS = 40
 MAX_DEPTH = 6
 
@@ -250,9 +254,10 @@ the model. A passer-by must understand the setting and outcome without knowing E
 
 Return ONLY a json-render tree with shape {{"root":"id","elements":{{...}}}}.
 Allowed component types: {', '.join(sorted(ALLOWED_COMPONENTS))}.
-Required exactly once or more: SettingHero, Journey, OutcomeCard.
-Include CaseStudySheet exactly once when has_case_study is true: it is the whole
-run as one failure-to-repair sheet and belongs directly after Journey.
+Required exactly once or more: SettingHero, OutcomeCard, and one of Journey or LoopFigure.
+When has_case_study is true prefer LoopFigure (inputs → explore M1·M2·M3 → held-out
+M4 → repair M5 → health card, one clickable figure) in place of Journey; use
+CaseStudySheet only alongside Journey, directly after it.
 ReportPage may have children. Other elements use props only.
 Every element MUST include a JSON object `"props": {{}}`, even when it has no
 properties. This is required by the json-render runtime.
@@ -277,19 +282,24 @@ def fallback_spec(data: Mapping[str, Any]) -> dict[str, Any]:
     click away in the Evidence / Cases views. FindingGrid, ChartGrid and
     CasePreview stay in the catalog for agent-composed layouts.
     """
-    children = ["setting", "metrics", "journey"]
+    children = ["setting", "metrics"]
     has_sheet = bool(data.get("case_study"))
     elements: dict[str, Any] = {
         "page": {"type": "ReportPage", "props": {}, "children": children},
         "setting": {"type": "SettingHero", "props": {}},
         "metrics": {"type": "MetricStrip", "props": {}},
-        "journey": {"type": "Journey", "props": {}},
         "outcome": {"type": "OutcomeCard", "props": {}},
         "evidence": {"type": "EvidenceIndex", "props": {}},
     }
+    # With a case study the loop figure IS the pipeline strip and the sheet in
+    # one picture; without one there is nothing to fill its cards, so the plain
+    # stage strip stands in.
     if has_sheet:
-        elements["case_study"] = {"type": "CaseStudySheet", "props": {}}
-        children.append("case_study")
+        elements["loop"] = {"type": "LoopFigure", "props": {}}
+        children.append("loop")
+    else:
+        elements["journey"] = {"type": "Journey", "props": {}}
+        children.append("journey")
     children.append("outcome")
     children.append("evidence")
     return elements and {"root": "page", "elements": elements}
@@ -342,6 +352,8 @@ def validate_spec(spec: Any, *, data: Mapping[str, Any] | None = None) -> dict[s
     missing = REQUIRED_COMPONENTS.difference(seen_types)
     if missing:
         raise ReportSpecError(f"missing required components: {', '.join(sorted(missing))}")
+    if not PIPELINE_COMPONENTS.intersection(seen_types):
+        raise ReportSpecError("missing required components: Journey or LoopFigure")
     _check_tree_depth(spec["root"], elements, set(), 1)
     return {"root": spec["root"], "elements": elements}
 

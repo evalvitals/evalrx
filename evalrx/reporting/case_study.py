@@ -547,13 +547,39 @@ def _signal_curve(run: _Run, signals: Sequence[str]) -> "dict[str, Any] | None":
     }
 
 
-def _m2(run: _Run) -> "dict[str, Any] | None":
+def _m2_sources(run: _Run) -> "list[tuple[str, list]]":
+    """[(phase, stats rows)], explore before held-out.
+
+    V1's RunLogger externalised each M2 pass to ``artifacts/<prefix>_m2_stats_results.json``;
+    RunLoggerV2 keeps the same rows inline as ``stats_results`` on the M2
+    ``analysis`` entry, with the pass told apart by cycle (0 = explore, -1 =
+    the held-out re-run). Same rows, same ``fdr_corrected`` flag — only where
+    they live differs.
+    """
     files = run.m2_files()
-    if not files:
+    if files:
+        return [(phase, _load(path, []) or []) for phase, path in files]
+    found = []
+    for entry in run.events_of("analysis"):
+        rows = entry.get("stats_results")
+        if not isinstance(rows, list) or not rows:
+            continue
+        cycle = entry.get("cycle")
+        try:
+            phase = "heldout" if cycle is not None and int(cycle) < 0 else "explore"
+        except (TypeError, ValueError):
+            phase = "explore"
+        found.append((phase, rows))
+    found.sort(key=lambda item: 0 if item[0] == "explore" else 1)
+    return found
+
+
+def _m2(run: _Run) -> "dict[str, Any] | None":
+    sources = _m2_sources(run)
+    if not sources:
         return None
     phases = {}
-    for phase, path in files:
-        results = _load(path, []) or []
+    for phase, results in sources:
         tests = []
         family_size = 0
         for row in results:
@@ -843,7 +869,12 @@ def build_case_study(
             for probe in family["probes"]:
                 probe["confirmed"] = bool(owner) and owner in probe["analyzers"]
     start = run.event("run_start") or {}
+    # The benchmark harness writes `baseline_accuracy`; llm_benchmark's
+    # summary.json nests the same number as `batch.accuracy`.
+    batch = run.summary.get("batch") if isinstance(run.summary.get("batch"), dict) else {}
     baseline = run.summary.get("baseline_accuracy")
+    if baseline is None:
+        baseline = batch.get("accuracy")
     setting = setting or {}
 
     def prefer(key: str) -> Any:

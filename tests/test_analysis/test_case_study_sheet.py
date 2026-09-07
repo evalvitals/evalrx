@@ -218,9 +218,12 @@ def test_the_report_payload_carries_the_sheet(tmp_path):
     assert data["case_study"]["headline"]["model"] == "qwen3.5-2b"
     spec = validate_spec(fallback_spec(data), data=data)
     types = [element["type"] for element in spec["elements"].values()]
-    assert "CaseStudySheet" in types, "the deterministic layout always renders the sheet"
+    # The loop figure folds the sheet into the pipeline picture; it stands in
+    # for Journey + CaseStudySheet whenever a run has a sheet to draw.
+    assert "LoopFigure" in types, "the deterministic layout always renders the sheet (as the loop figure)"
+    assert "CaseStudySheet" not in types and "Journey" not in types
     children = spec["elements"]["page"]["children"]
-    assert children.index("case_study") == children.index("journey") + 1
+    assert children.index("loop") == children.index("metrics") + 1
 
 
 def test_the_sheet_and_the_cli_tool_agree_on_the_numbers(tmp_path):
