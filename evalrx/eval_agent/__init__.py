@@ -160,6 +160,7 @@ from evalrx.eval_agent.preregister import (
 from evalrx.eval_agent.report import DiagnosticReport
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION, RunLogger
+from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 from evalrx.eval_agent.stages.case_discovery import (
     CaseDiscoveryAgent,
     CaseDiscoveryReport,
@@ -302,6 +303,7 @@ __all__ = [
     "DiagnosticReport",
     "RunContext",
     "RunLogger",
+    "RunLoggerV2",
     # run_log.jsonl published schema
     "RUN_LOG_SCHEMA_VERSION",
     "build_schema",

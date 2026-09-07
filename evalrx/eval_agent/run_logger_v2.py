@@ -55,6 +55,7 @@ from typing import TYPE_CHECKING, Any
 # already produce exactly the values this module wants to embed. Importing
 # them is the ONLY coupling to run_logger.py — nothing there is modified, and
 # these functions have no file-writing side effects of their own.
+from evalrx.eval_agent.hypothesis import hypothesis_id
 from evalrx.eval_agent.run_logger import (
     _artifact_to_numpy,
     _case_snapshot,
@@ -995,6 +996,10 @@ class RunLoggerV2:
             "n_hypotheses": len(diag.hypotheses),
             "hypotheses": [
                 {
+                    # Join key for M4/M5 entries logged against this same
+                    # hypothesis later (log_surgery/log_experiment/log_fix) —
+                    # see evalrx.eval_agent.hypothesis.hypothesis_id.
+                    "id": hypothesis_id(h),
                     "statement": h.statement, "plain_statement": h.plain_statement,
                     "failure_mode": h.predicted_failure_mode,
                     "status": h.status.value if h.status else None,
@@ -1111,6 +1116,8 @@ class RunLoggerV2:
         stage = "M4" if is_m4 else "M5"
         entry: dict[str, Any] = {
             "ts": self._ts(), "cycle": cycle,
+            # Joins this verdict back to its M3 hypotheses[] entry (same id).
+            "hypothesis_id": hypothesis_id(hypothesis),
             "hypothesis": hypothesis.statement,
             "failure_mode": hypothesis.predicted_failure_mode,
             "status": iv.status.value, "fixed": iv.fixed,
@@ -1201,6 +1208,8 @@ class RunLoggerV2:
 
         entry: dict[str, Any] = {
             "ts": self._ts(), "cycle": cycle, "module": module,
+            # Joins this experiment back to its M3 hypotheses[] entry (same id).
+            "hypothesis_id": hypothesis_id(hypothesis),
             "hypothesis": hypothesis.statement,
             "failure_mode": hypothesis.predicted_failure_mode,
             "status": iv.status.value if iv.status else None,
