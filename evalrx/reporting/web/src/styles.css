@@ -476,6 +476,13 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .lf-card.lf-holdout, .lf-card.lf-repair { border-top-color: var(--c-d6e2dd, #d6e2dd); }
 .lf-card.lf-repair { border-color: var(--c-3b6c59); }
 .lf-card:hover, .lf-card:focus-visible { border-color: var(--green); transform: translateY(-2px); outline: none; }
+/* The hover transform makes the card a stacking context, so a popover's
+   z-index cannot escape it and the next card paints over it. Lift the
+   card itself while it is hovered, focused, or holding an open popover. */
+.lf-card:hover, .lf-card:focus-within { z-index: 5; }
+.lf-card:has(.cs-hyp-pop) { z-index: 6; }
+.lf-card:has(.cs-hyp-pop) > .lf-tip { display: none !important; }
+.lf-card .cs-hyp-pop { width: max(100%, 300px); }
 .lf-card.lf-s-not-run, .lf-card.lf-s-skipped { border-style: dashed; opacity: .75; }
 .lf-card > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .lf-code { font: 500 10.5px DM Mono, monospace; letter-spacing: .14em; color: var(--green); }
