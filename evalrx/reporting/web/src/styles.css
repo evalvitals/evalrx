@@ -78,7 +78,8 @@ button, input, select { font: inherit; }
 button { color: inherit; }
 .topbar { height: 64px; border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 max(24px, calc((100vw - 1180px) / 2)); gap: 24px; color: var(--muted); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
 .topbar a { display: flex; align-items: center; gap: 10px; margin-right: auto; color: var(--ink); text-decoration: none; text-transform: none; letter-spacing: 0; }
-.logo-mark { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--c-477865); color: var(--green); font: 500 10px DM Mono; transform: rotate(-3deg); }
+.topbar a strong { font: 700 20px/1 "Inter", system-ui, sans-serif; letter-spacing: -.01em; }
+.logo-mark { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--c-477865); color: var(--green); font: 500 14px DM Mono; transform: rotate(-3deg); }
 .topbar div { display: flex; align-items: center; gap: 7px; }
 .topbar code { color: var(--c-647972); }
 .live-dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; box-shadow: 0 0 12px var(--green); }
@@ -87,6 +88,10 @@ button { color: inherit; }
 .setting-hero:after { content: ""; position: absolute; width: 290px; height: 290px; right: 3%; top: 36px; border: 1px solid var(--c-1b3029); border-radius: 50%; box-shadow: inset 0 0 0 42px var(--c-0a1713), inset 0 0 0 43px var(--c-1b3029), inset 0 0 0 86px var(--c-0a1713), inset 0 0 0 87px var(--c-1b3029); opacity: .7; pointer-events: none; }
 .eyebrow, .section-kicker { font: 500 11px DM Mono, monospace; color: var(--green); letter-spacing: .13em; text-transform: uppercase; }
 .eyebrow { display: flex; align-items: center; gap: 8px; }
+.eyebrow.eyebrow-title { font-size: 14px; letter-spacing: .1em; }
+.setting-line { margin: 36px 0 0; color: var(--c-b7c7c2); font-size: 17px; line-height: 1.6; position: relative; z-index: 1; }
+.setting-line strong { color: var(--ink); font-weight: 600; }
+.journey-hint { margin: 12px 0 0; color: var(--ink); font-size: 20px; line-height: 1.5; max-width: 720px; }
 h1 { font: 500 clamp(50px, 7vw, 88px)/.94 Newsreader, serif; letter-spacing: -.045em; margin: 24px 0; max-width: 800px; position: relative; z-index: 1; }
 h1 span { color: var(--green); font-style: italic; }
 .lead { max-width: 600px; color: var(--c-b7c7c2); font-size: 17px; line-height: 1.65; position: relative; z-index: 1; }
@@ -251,7 +256,7 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
    figure. Fixed-width in the figure, fluid here: the served report is read at
    whatever width the reader has, so the five modules wrap instead of scrolling
    sideways, and the repair strip stacks under them on a narrow screen. */
-.cs-facts { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); margin-bottom: 14px; }
+.cs-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); border: 1px solid var(--line); margin-bottom: 14px; }
 .cs-facts > div { padding: 12px 14px; border-right: 1px solid var(--line); display: grid; gap: 6px; align-content: start; min-width: 0; }
 .cs-facts > div:last-child { border-right: 0; }
 .cs-facts small { font: 9px DM Mono, monospace; letter-spacing: .14em; color: var(--muted); }

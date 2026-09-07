@@ -88,25 +88,20 @@ export const { registry } = defineRegistry(reportCatalog, {
       // keep the left-set hero and its decorative rings exactly as they were.
       const hero = data.setting.hero_image;
       return <section className={`setting-hero${hero ? " has-figure" : ""}`}>
-        <div className="eyebrow"><CircleDot size={14} /> Completed diagnostic run</div>
+        <div className="eyebrow eyebrow-title"><CircleDot size={14} /> {data.setting.model} model's diagnosis and fixing recipe report</div>
         <h1>From model failure<br /><span>to tested repair.</span></h1>
         <p className="lead">{data.setting.question}</p>
         {hero && <div className="hero-figure">
           <ZoomableImage src={hero} alt="The figure this run shipped" caption="evalrx_main — the figure this run shipped" />
         </div>}
-        <div className="setting-route">
-          <div><small>MODEL</small><strong>{data.setting.model}</strong></div>
-          <ArrowUpRight size={20} />
-          <div><small>EVALUATED ON</small><strong>{data.setting.dataset}</strong></div>
-          {/* Two runs of one benchmark against one model differ only in the
-              agent that drove them. Without this the two reports are
-              indistinguishable side by side. Omitted, not guessed, when the
-              run recorded no agent. */}
-          {data.setting.diagnosed_by && <>
-            <ArrowUpRight size={20} />
-            <div><small>DIAGNOSED BY</small><strong title={data.setting.diagnosed_by}>{data.setting.diagnosed_by}</strong></div>
-          </>}
-        </div>
+        {/* The model is already in the eyebrow, so the route reads as one
+            sentence. Two runs of one benchmark against one model differ only
+            in the agent that drove them — named when the run recorded it,
+            never guessed. */}
+        <p className="setting-line">
+          Evaluated on dataset <strong>{data.setting.dataset}</strong>.
+          {data.setting.diagnosed_by && <> Diagnosed by <strong title={data.setting.diagnosed_by}>{data.setting.diagnosed_by}</strong>.</>}
+        </p>
       </section>;
     },
     MetricStrip: () => {
@@ -118,7 +113,7 @@ export const { registry } = defineRegistry(reportCatalog, {
       const navigate = useContext(NavContext);
       const nodes: Node<{ stage: Stage }>[] = data.stages.map((stage, index) => ({ id: stage.id, type: "stage", position: { x: index * 205, y: 20 }, data: { stage } }));
       const edges: Edge[] = data.stages.slice(1).map((stage, index) => ({ id: `${data.stages[index].id}-${stage.id}`, source: data.stages[index].id, target: stage.id, animated: !["not-run", "skipped"].includes(stage.status), style: { stroke: tc("#6bd8ad"), strokeWidth: 1.5 } }));
-      return <section className="section journey-section"><header><div><span className="section-kicker">THE AGENT'S PATH</span><h2>Find the failure. Test the cause. Repair the model.</h2></div><p>Click any stage to inspect its evidence and the agent events behind it.</p></header><div className="journey-canvas"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.6} maxZoom={1.2} nodesDraggable={false} nodesConnectable={false} panOnScroll={false} onNodeClick={(_, node) => navigate(`evidence:${node.id}`)}><Background color={tc("#24332f")} gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow></div></section>;
+      return <section className="section journey-section"><header><div><span className="section-kicker">THE EVALRX PIPELINE</span><p className="journey-hint">Click any stage to inspect its evidence and the agent events behind it.</p></div></header><div className="journey-canvas"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.6} maxZoom={1.2} nodesDraggable={false} nodesConnectable={false} panOnScroll={false} onNodeClick={(_, node) => navigate(`evidence:${node.id}`)}><Background color={tc("#24332f")} gap={22} size={1} /><Controls showInteractive={false} /></ReactFlow></div></section>;
     },
     FindingGrid: ({ props }) => {
       const data = useReport();
