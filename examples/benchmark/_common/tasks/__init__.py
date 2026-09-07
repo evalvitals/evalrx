@@ -22,6 +22,7 @@ from .base import (  # noqa: F401
     load_rows,
     manifest_path,
     score_case,
+    val_manifest_path,
     write_manifest,
 )
 

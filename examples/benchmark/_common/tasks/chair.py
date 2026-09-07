@@ -1,5 +1,5 @@
 """CHAIR object-hallucination captioning (Rohrbach et al., EMNLP 2018) —
-OPERA's MSCOCO val2014 recipe at a seeded 450-image sample: prompt
+OPERA's MSCOCO val2014 recipe at a seeded 500-image sample: prompt
 ``Please describe this image in detail.``, hallucinated COCO objects counted
 with the official ``chair.py`` word rules.
 
@@ -57,7 +57,7 @@ def _evaluator(chair_dir: Path):
     return evaluator
 
 
-def download(out_dir: Path, limit: int = 450, seed: int = 0) -> dict:
+def download(out_dir: Path, limit: int = 500, seed: int = 0, val_limit: int = 0) -> dict:
     chair_dir = _chair_dir()
     coco = chair_dir / "coco"
     val_dir, ann = coco / "val2014", coco / "annotations" / "instances_val2014.json"
@@ -74,33 +74,50 @@ def download(out_dir: Path, limit: int = 450, seed: int = 0) -> dict:
     if not sample_file.is_file():
         json.dump(sampled, open(sample_file, "w"))
     evaluator = _evaluator(chair_dir)
-    rows, copied = [], 0
-    for image_id in sampled:
-        file_name = f"COCO_val2014_{image_id:012d}.jpg"
-        dest = images / file_name
-        if not dest.is_file():
-            src = val_dir / file_name
-            if not src.is_file():
-                raise FileNotFoundError(src)
-            try:
-                os.link(src, dest)
-            except OSError:
-                shutil.copy2(src, dest)
-            copied += 1
-        gt = sorted(evaluator.imid_to_objects.get(image_id, ()))
-        rows.append({
-            "id": f"chair-{image_id}", "dataset": "MSCOCO val2014 (CHAIR/OPERA 500)", "subset": "val2014",
-            "source_index": int(image_id), "sample_seed": seed,
-            "image": f"images/{file_name}", "audio": None,
-            "prompt": PROMPT,
-            "answers": [", ".join(gt)], "gold": gt,
-            "task": "chair_caption", "numeric_tolerance": 0.0,
-            "metadata": {"image_id": int(image_id), "file_name": file_name, "gt_objects": gt,
-                         "n_gt_objects": len(gt)},
-        })
-    write_manifest(out_dir / "manifest.json", rows)
-    return {"kept": len(rows), "images_linked": copied, "sample_file": str(sample_file),
-            "candidates": len(ids), "manifest": str(out_dir / "manifest.json")}
+    copied = 0
+
+    def rows_for(image_ids: list[int], sample_seed: int) -> list[dict]:
+        nonlocal copied
+        rows = []
+        for image_id in image_ids:
+            file_name = f"COCO_val2014_{image_id:012d}.jpg"
+            dest = images / file_name
+            if not dest.is_file():
+                src = val_dir / file_name
+                if not src.is_file():
+                    raise FileNotFoundError(src)
+                try:
+                    os.link(src, dest)
+                except OSError:
+                    shutil.copy2(src, dest)
+                copied += 1
+            gt = sorted(evaluator.imid_to_objects.get(image_id, ()))
+            rows.append({
+                "id": f"chair-{image_id}", "dataset": "MSCOCO val2014 (CHAIR/OPERA 500)", "subset": "val2014",
+                "source_index": int(image_id), "sample_seed": sample_seed,
+                "image": f"images/{file_name}", "audio": None,
+                "prompt": PROMPT,
+                "answers": [", ".join(gt)], "gold": gt,
+                "task": "chair_caption", "numeric_tolerance": 0.0,
+                "metadata": {"image_id": int(image_id), "file_name": file_name, "gt_objects": gt,
+                             "n_gt_objects": len(gt)},
+            })
+        return rows
+
+    write_manifest(out_dir / "manifest.json", rows_for(sampled, seed))
+    summary = {"kept": len(sampled), "images_linked": copied, "sample_file": str(sample_file),
+               "candidates": len(ids), "manifest": str(out_dir / "manifest.json")}
+    if val_limit and val_limit > 0:
+        # Held-out validation manifest: a FRESH draw (seed + 1) from the
+        # annotated images the main sample did not take — disjoint by
+        # construction. random.Random keeps the main global-seed draw intact.
+        leftover = [i for i in ids if i not in set(sampled)]
+        val_sampled = random.Random(seed + 1).sample(leftover, min(val_limit, len(leftover)))
+        val_rows = rows_for(val_sampled, seed + 1)
+        write_manifest(out_dir / "manifest_val.json", val_rows)
+        summary.update(kept_val=len(val_rows),
+                       manifest_val=str(out_dir / "manifest_val.json"))
+    return summary
 
 
 def grade(output: str, gold) -> bool:
@@ -115,7 +132,7 @@ def protocol(model_label: str):
     return _protocol(
         description=(
             f"We evaluate a vision-language model ({model_label}) on CHAIR object hallucination "
-            "in open-ended image captioning (OPERA's MSCOCO val2014 recipe, a seeded 450-image "
+            "in open-ended image captioning (OPERA's MSCOCO val2014 recipe, a seeded 500-image "
             "sample): the "
             "model is asked 'Please describe this image in detail.' and its description is "
             "scanned for the 80 COCO object categories (with the official CHAIR synonym table). "
@@ -142,9 +159,9 @@ def protocol(model_label: str):
 
 
 TASK = Task(
-    name="chair", modality="vlm", kind="chair_caption", title="CHAIR/MSCOCO-val2014-450",
+    name="chair", modality="vlm", kind="chair_caption", title="CHAIR/MSCOCO-val2014-500",
     download=download, protocol=protocol,
     pinned_m1=("termination_audit", "selfcheck_consistency", "self_consistency", "perturbation_battery"),
-    default_limit=450, default_seed=0, max_new_tokens=512, short_answer=False,
-    source="MSCOCO val2014 + OPERA chair.py (Rohrbach et al. 2018; Huang et al. 2024 recipe, 450 images)",
+    default_limit=500, val_limit=250, default_seed=0, max_new_tokens=512, short_answer=False,
+    source="MSCOCO val2014 + OPERA chair.py (Rohrbach et al. 2018; Huang et al. 2024 recipe, 500 images)",
 )

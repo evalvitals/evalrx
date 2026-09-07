@@ -38,8 +38,13 @@ def _read_parquets(repo: str, filenames: list[str]):
     return pa.concat_tables(tables) if len(tables) > 1 else tables[0]
 
 
-def download(out_dir: Path, limit: int = 450, seed: int = 20260814, scan_rows: int = 3000,
-             sampling: str = "Random") -> dict:
+def download(out_dir: Path, limit: int = 300, seed: int = 20260814, scan_rows: int = 3000,
+             sampling: str = "Random", val_limit: int = 0) -> dict:
+    """Freeze the first ``limit`` usable rows of the seeded shuffle order
+    (prefix-stable: a larger limit extends, never reshuffles). ``val_limit`` > 0
+    keeps walking the SAME order past the main slice and freezes the next
+    ``val_limit`` usable rows as ``manifest_val.json`` — a disjoint held-out
+    validation set."""
     _audio.require_ffmpeg()
     out_dir = Path(out_dir)
     audio_dir = out_dir / "audio"
@@ -53,10 +58,11 @@ def download(out_dir: Path, limit: int = 450, seed: int = 20260814, scan_rows: i
     order = list(range(q_table.num_rows))
     random.Random(seed).shuffle(order)
     order = order[: min(scan_rows, q_table.num_rows)]
+    target = limit + max(0, val_limit)
     rows, n_nomatch, n_dur = [], 0, 0
     seen: set[str] = set()
     for row_index in order:
-        if len(rows) >= limit:
+        if len(rows) >= target:
             break
         row = q_table.slice(row_index, 1).to_pylist()[0]
         ytid = str(row["audio_index"]).removeprefix("Y")
@@ -92,10 +98,16 @@ def download(out_dir: Path, limit: int = 450, seed: int = 20260814, scan_rows: i
                 "source_dataset": "AudioCaps",
             },
         })
-    write_manifest(out_dir / "manifest.json", rows)
-    return {"kept": len(rows), "skipped_no_audio_match": n_nomatch,
-            "skipped_duration_over_limit": n_dur, "scanned": len(order),
-            "sampling": sampling, "manifest": str(out_dir / "manifest.json")}
+    main_rows, val_rows = rows[:limit], rows[limit:]
+    write_manifest(out_dir / "manifest.json", main_rows)
+    summary = {"kept": len(main_rows), "skipped_no_audio_match": n_nomatch,
+               "skipped_duration_over_limit": n_dur, "scanned": len(order),
+               "sampling": sampling, "manifest": str(out_dir / "manifest.json")}
+    if val_limit and val_limit > 0:
+        write_manifest(out_dir / "manifest_val.json", val_rows)
+        summary.update(kept_val=len(val_rows),
+                       manifest_val=str(out_dir / "manifest_val.json"))
+    return summary
 
 
 def protocol(model_label: str):
@@ -138,6 +150,6 @@ TASK = Task(
         "answer_extraction_audit", "termination_audit", "selfcheck_consistency",
         "self_consistency", "calibration", "logprob_entropy", "perturbation_battery",
     ),
-    default_limit=450, default_seed=20260814, max_new_tokens=16,
+    default_limit=300, val_limit=150, default_seed=20260814, max_new_tokens=16,
     source="kuanhuggingface/AudioHallucination_AudioCaps-Random + OpenSound/AudioCaps",
 )

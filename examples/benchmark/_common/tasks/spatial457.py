@@ -17,7 +17,8 @@ REPO = "RyanWW/Spatial457"
 SUBSET = "L5_6d_spatial"
 
 
-def download(out_dir: Path, limit: int = 450, seed: int = 457, exclude_ids: set | None = None) -> dict:
+def download(out_dir: Path, limit: int = 256, seed: int = 457, exclude_ids: set | None = None,
+             val_limit: int = 0) -> dict:
     from huggingface_hub import hf_hub_download
 
     out_dir = Path(out_dir)
@@ -31,29 +32,44 @@ def download(out_dir: Path, limit: int = 450, seed: int = 457, exclude_ids: set 
         if f"spatial457-{item.get('question_index', i)}" not in excluded
     ]
     indices = random.Random(seed).sample(eligible, min(limit, len(eligible)))
-    rows = []
-    for source_index in indices:
-        item = questions[source_index]
-        filename = item["image_filename"]
-        destination = images / filename
-        if not destination.exists():
-            source = Path(hf_hub_download(REPO, f"images/{filename}", repo_type="dataset"))
-            shutil.copy2(source, destination)
-        rows.append({
-            "id": f"spatial457-{item.get('question_index', source_index)}",
-            "dataset": REPO, "subset": SUBSET, "source_index": source_index,
-            "sample_seed": seed,
-            "image": f"images/{filename}", "audio": None,
-            "prompt": item["question"] + " Answer with only the short answer.",
-            "answers": [str(item["answer"])],
-            "task": "exact_or_numeric", "numeric_tolerance": 0.0,
-            "metadata": {
-                "split": item.get("split"), "program": item.get("program"),
-                "question_index": item.get("question_index"),
-            },
-        })
-    write_manifest(out_dir / "manifest.json", rows)
-    return {"kept": len(rows), "excluded": len(excluded), "manifest": str(out_dir / "manifest.json")}
+
+    def rows_for(selected: list[int], sample_seed: int) -> list[dict]:
+        rows = []
+        for source_index in selected:
+            item = questions[source_index]
+            filename = item["image_filename"]
+            destination = images / filename
+            if not destination.exists():
+                source = Path(hf_hub_download(REPO, f"images/{filename}", repo_type="dataset"))
+                shutil.copy2(source, destination)
+            rows.append({
+                "id": f"spatial457-{item.get('question_index', source_index)}",
+                "dataset": REPO, "subset": SUBSET, "source_index": source_index,
+                "sample_seed": sample_seed,
+                "image": f"images/{filename}", "audio": None,
+                "prompt": item["question"] + " Answer with only the short answer.",
+                "answers": [str(item["answer"])],
+                "task": "exact_or_numeric", "numeric_tolerance": 0.0,
+                "metadata": {
+                    "split": item.get("split"), "program": item.get("program"),
+                    "question_index": item.get("question_index"),
+                },
+            })
+        return rows
+
+    write_manifest(out_dir / "manifest.json", rows_for(indices, seed))
+    summary = {"kept": len(indices), "excluded": len(excluded),
+               "manifest": str(out_dir / "manifest.json")}
+    if val_limit and val_limit > 0:
+        # Held-out validation manifest: a FRESH draw (seed + 1) from the
+        # questions the main sample did not take — disjoint by construction.
+        leftover = [i for i in eligible if i not in set(indices)]
+        val_indices = random.Random(seed + 1).sample(leftover, min(val_limit, len(leftover)))
+        val_rows = rows_for(val_indices, seed + 1)
+        write_manifest(out_dir / "manifest_val.json", val_rows)
+        summary.update(kept_val=len(val_rows),
+                       manifest_val=str(out_dir / "manifest_val.json"))
+    return summary
 
 
 def protocol(model_label: str):
@@ -78,6 +94,6 @@ TASK = Task(
     name="spatial457", modality="vlm", kind="exact_or_numeric", title="Spatial457/L5_6d_spatial",
     download=download, protocol=protocol,
     pinned_m1=("answer_extraction_audit", "selfcheck_consistency", "coverage_verification_gap"),
-    default_limit=450, default_seed=457, max_new_tokens=64,
+    default_limit=256, val_limit=128, default_seed=457, max_new_tokens=64,
     source="RyanWW/Spatial457 (L5_6d_spatial)",
 )

@@ -17,7 +17,8 @@ REPO = "HuggingFaceM4/ChartQA"
 TEST_PARQUET = "data/test-00000-of-00001-e2cd0b7a0f9eb20d.parquet"
 
 
-def download(out_dir: Path, limit: int = 450, seed: int = 5022, exclude_ids: set | None = None) -> dict:
+def download(out_dir: Path, limit: int = 256, seed: int = 5022, exclude_ids: set | None = None,
+             val_limit: int = 0) -> dict:
     import pyarrow.parquet as pq
     from huggingface_hub import hf_hub_download
     from PIL import Image
@@ -30,25 +31,40 @@ def download(out_dir: Path, limit: int = 450, seed: int = 5022, exclude_ids: set
     excluded = set(exclude_ids or ())
     human = [i for i in human if f"chartqa-human-{i}" not in excluded]
     selected = random.Random(seed).sample(human, min(limit, len(human)))
-    rows = []
-    for source_index in selected:
-        item = table.slice(source_index, 1).to_pylist()[0]
-        filename = f"chartqa-{source_index:05d}.png"
-        destination = images / filename
-        if not destination.exists():
-            Image.open(io.BytesIO(item["image"]["bytes"])).convert("RGB").save(destination)
-        rows.append({
-            "id": f"chartqa-human-{source_index}",
-            "dataset": REPO, "subset": "test_human", "source_index": source_index,
-            "sample_seed": seed,
-            "image": f"images/{filename}", "audio": None,
-            "prompt": item["query"] + " Answer with only the short answer.",
-            "answers": [str(a) for a in item["label"]],
-            "task": "exact_or_numeric", "numeric_tolerance": 0.05,
-            "metadata": {"human_or_machine": "human"},
-        })
-    write_manifest(out_dir / "manifest.json", rows)
-    return {"kept": len(rows), "excluded": len(excluded), "manifest": str(out_dir / "manifest.json")}
+
+    def rows_for(indices: list[int], sample_seed: int) -> list[dict]:
+        rows = []
+        for source_index in indices:
+            item = table.slice(source_index, 1).to_pylist()[0]
+            filename = f"chartqa-{source_index:05d}.png"
+            destination = images / filename
+            if not destination.exists():
+                Image.open(io.BytesIO(item["image"]["bytes"])).convert("RGB").save(destination)
+            rows.append({
+                "id": f"chartqa-human-{source_index}",
+                "dataset": REPO, "subset": "test_human", "source_index": source_index,
+                "sample_seed": sample_seed,
+                "image": f"images/{filename}", "audio": None,
+                "prompt": item["query"] + " Answer with only the short answer.",
+                "answers": [str(a) for a in item["label"]],
+                "task": "exact_or_numeric", "numeric_tolerance": 0.05,
+                "metadata": {"human_or_machine": "human"},
+            })
+        return rows
+
+    write_manifest(out_dir / "manifest.json", rows_for(selected, seed))
+    summary = {"kept": len(selected), "excluded": len(excluded),
+               "manifest": str(out_dir / "manifest.json")}
+    if val_limit and val_limit > 0:
+        # Held-out validation manifest: a FRESH draw (seed + 1) from the human
+        # rows the main sample did not take — disjoint by construction.
+        leftover = [i for i in human if i not in set(selected)]
+        val_selected = random.Random(seed + 1).sample(leftover, min(val_limit, len(leftover)))
+        val_rows = rows_for(val_selected, seed + 1)
+        write_manifest(out_dir / "manifest_val.json", val_rows)
+        summary.update(kept_val=len(val_rows),
+                       manifest_val=str(out_dir / "manifest_val.json"))
+    return summary
 
 
 def protocol(model_label: str):
@@ -73,6 +89,6 @@ TASK = Task(
     name="chartqa", modality="vlm", kind="exact_or_numeric", title="ChartQA/test_human",
     download=download, protocol=protocol,
     pinned_m1=("answer_extraction_audit", "selfcheck_consistency", "coverage_verification_gap"),
-    default_limit=450, default_seed=5022, max_new_tokens=64,
+    default_limit=256, val_limit=128, default_seed=5022, max_new_tokens=64,
     source="HuggingFaceM4/ChartQA (test, human-authored)",
 )

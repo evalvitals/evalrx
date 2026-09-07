@@ -39,7 +39,13 @@ def task_prompt(instruction: str, choices: list[str]) -> str:
             "Listen to the audio and reply with only the option letter (A, B, C, or D).")
 
 
-def download(out_dir: Path, limit: int = 450, seed: int = 20260814, scan_rows: int = 1000) -> dict:
+def download(out_dir: Path, limit: int = 256, seed: int = 20260814, scan_rows: int = 1000,
+             val_limit: int = 0) -> dict:
+    """Freeze the first ``limit`` usable rows of the seeded shuffle order
+    (prefix-stable: a larger limit extends, never reshuffles). ``val_limit`` > 0
+    keeps walking the SAME order past the main slice and freezes the next
+    ``val_limit`` usable rows as ``manifest_val.json`` — a disjoint held-out
+    validation set."""
     import pyarrow.parquet as pq
     from huggingface_hub import hf_hub_download
 
@@ -51,9 +57,10 @@ def download(out_dir: Path, limit: int = 450, seed: int = 20260814, scan_rows: i
     order = list(range(table.num_rows))
     random.Random(seed).shuffle(order)
     order = order[: min(scan_rows, table.num_rows)]
+    target = limit + max(0, val_limit)
     rows, n_dur, n_bad = [], 0, 0
     for row_index in order:
-        if len(rows) >= limit:
+        if len(rows) >= target:
             break
         row = table.slice(row_index, 1).to_pylist()[0]
         other = json.loads(row["other_attributes"])
@@ -88,10 +95,16 @@ def download(out_dir: Path, limit: int = 450, seed: int = 20260814, scan_rows: i
                 "source_dataset": other.get("dataset", ""),
             },
         })
-    write_manifest(out_dir / "manifest.json", rows)
-    return {"kept": len(rows), "skipped_duration_over_limit": n_dur,
-            "skipped_unparseable_answer": n_bad, "scanned": len(order),
-            "manifest": str(out_dir / "manifest.json")}
+    main_rows, val_rows = rows[:limit], rows[limit:]
+    write_manifest(out_dir / "manifest.json", main_rows)
+    summary = {"kept": len(main_rows), "skipped_duration_over_limit": n_dur,
+               "skipped_unparseable_answer": n_bad, "scanned": len(order),
+               "manifest": str(out_dir / "manifest.json")}
+    if val_limit and val_limit > 0:
+        write_manifest(out_dir / "manifest_val.json", val_rows)
+        summary.update(kept_val=len(val_rows),
+                       manifest_val=str(out_dir / "manifest_val.json"))
+    return summary
 
 
 def protocol(model_label: str):
@@ -119,7 +132,7 @@ TASK = Task(
         "format_sensitivity", "self_consistency", "calibration", "logprob_entropy",
         "coverage_verification_gap",
     ),
-    default_limit=450, default_seed=20260814, max_new_tokens=64,
+    default_limit=256, val_limit=128, default_seed=20260814, max_new_tokens=64,
     output_contract={"kind": "multiple_choice_letter", "choices": LETTERS},
     source="gamma-lab-umd/MMAU-test-mini",
 )
