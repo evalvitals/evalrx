@@ -332,6 +332,22 @@ class _Run:
     def per_case(self, analyzer: str, cycle_prefix: str = "c0") -> "list[dict[str, Any]]":
         blob = _load(self.logs / "artifacts" / f"{cycle_prefix}_{analyzer}.result.json", {}) or {}
         rows = (blob.get("findings") or {}).get("per_case") or []
+        if not rows:
+            # V1 externalised each analyzer's result to artifacts/; RunLoggerV2
+            # keeps every analyzer's findings inline on the M1 probe entry,
+            # one entry per pass (cycle 0 = explore, -1 = the held-out re-run).
+            want = -1 if cycle_prefix in ("c-1", "post") else 0
+            for entry in self.events_of("probe"):
+                try:
+                    cycle = int(entry.get("cycle") or 0)
+                except (TypeError, ValueError):
+                    cycle = 0
+                if cycle != want:
+                    continue
+                findings = (entry.get("findings") or {}).get(analyzer)
+                if isinstance(findings, dict) and findings.get("per_case"):
+                    rows = findings["per_case"]
+                    break
         return [row for row in rows if isinstance(row, dict)]
 
     def m2_files(self) -> "list[tuple[str, Path]]":

@@ -149,7 +149,10 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
   const supported = verdictCount("supported"), refuted = verdictCount("refuted");
   const inconclusive = m4.length - supported - refuted;
   const selectedFamilies = (m1?.families ?? []).filter((f) => f.selected);
-  const usedProbes = (m1?.families ?? []).flatMap((f) => f.probes.filter((p) => p.used).map((p) => p.phrase));
+  // Only the probes this run actually ran; `confirmed` marks the one whose
+  // signal survived M2's correction — that is a flag, "ran" is not a verdict.
+  const usedProbes = (m1?.families ?? []).flatMap((f) => f.probes.filter((p) => p.used));
+  const flagged = usedProbes.filter((p) => p.confirmed).length;
   const accepted = Boolean(repair?.fixed || (validation && String(validation.verdict || "").toLowerCase().includes("accept")));
   const ladder = m5?.ladder ?? [];
   const tried = m5?.candidates.length ?? 0;
@@ -202,14 +205,23 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
               out={[m1 ? `${m1.n_measured} measurements` : "—", m1?.n_forwarded != null ? `${m1.n_forwarded} signals forwarded to M2` : "—"]}>
               {m1 ? <>
                 <ul className="lf-list">
-                  {m1.families.map((family) => <li key={family.family} className={family.selected ? "on" : ""}>{family.label.toLowerCase().includes("black") ? "Black-box behavior" : family.label.toLowerCase().includes("white") || family.label.toLowerCase().includes("internal") ? "White-box internals" : family.label.toLowerCase().includes("multi") ? "Multi-modal grounding" : family.label}</li>)}
-                  <li className="on">Agent trajectories</li>
+                  {m1.families.map((family) => <li key={family.family} className={family.selected ? "on" : ""}
+                    title={family.selected ? family.analyzers.join(", ") : "not used on this run"}>
+                    {family.label.toLowerCase().includes("black") ? "Black-box behavior" : family.label.toLowerCase().includes("white") || family.label.toLowerCase().includes("internal") ? "White-box internals" : family.label.toLowerCase().includes("multi") ? "Multi-modal grounding" : family.label}
+                    {!family.selected && <em> · not used</em>}
+                  </li>)}
                 </ul>
                 <div className="lf-vitals">
-                  <small>VITALS · PROBES RUN</small>
-                  {usedProbes.slice(0, 4).map((phrase) => <div key={phrase}><span>{phrase}</span><b>OK</b></div>)}
-                  {usedProbes.length > 4 && <em>+{usedProbes.length - 4} more</em>}
+                  <small>PROBES RUN · {usedProbes.length}{flagged ? ` · ${flagged} FLAG` : ""}</small>
+                  {usedProbes.map((probe) => <div key={probe.phrase} title={probe.analyzers.join(", ")}>
+                    <span>{probe.phrase}</span>{probe.confirmed && <b>FLAG</b>}
+                  </div>)}
+                  {!usedProbes.length && <em>none recorded</em>}
                 </div>
+                {m1.n_measured > 0 ? <div className="lf-meter" title={`${m1.n_measured} measurements, ${m1.n_forwarded ?? "—"} entered M2's correction family`}>
+                  <div className="lf-meter-bar"><b style={{ width: `${Math.min(100, ((m1.n_forwarded ?? 0) / m1.n_measured) * 100)}%` }} /></div>
+                  <small>{m1.n_measured} measurements → <em>{m1.n_forwarded ?? "—"}</em> forwarded to M2</small>
+                </div> : <div className="lf-meter"><small>measurements not recorded{m1.n_forwarded != null ? ` · ${m1.n_forwarded} forwarded to M2` : ""}</small></div>}
               </> : <p className="lf-empty">no probe record</p>}
             </StageCard>
 

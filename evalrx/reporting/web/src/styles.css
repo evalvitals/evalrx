@@ -590,3 +590,10 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
   .lf-loop { grid-template-columns: 1fr; }
   .lf-lane-explore .lf-lane-cards { grid-template-columns: 1fr; }
 }
+.lf-list li em { font-style: normal; font: 9px DM Mono, monospace; color: var(--c-55665f, #55665f); }
+.lf-vitals div b.flag, .lf-vitals div b { color: var(--c-f4ca72, #f4ca72); border-color: var(--c-6a5932); }
+.lf-meter { margin-top: auto; padding-top: 10px; }
+.lf-meter-bar { height: 6px; background: var(--c-16211d, #16211d); }
+.lf-meter-bar b { display: block; height: 100%; background: var(--green); }
+.lf-meter small { display: block; margin-top: 6px; font: 9px DM Mono, monospace; color: var(--muted); letter-spacing: 0; }
+.lf-meter small em { font-style: normal; color: var(--green); }
