@@ -345,6 +345,19 @@ class VLDiagnoseLoop:
                             development never share cases with the final gate.
                             0.0 (default) keeps the two-way explore/confirm
                             behaviour byte-for-byte.
+        val_data:           Optional EXTERNAL validation batch (cases frozen
+                            from a separate, disjoint sample — e.g. a task's
+                            ``manifest_val.json``). The main batch keeps the
+                            two-way explore/confirm split; when set (with
+                            ``m4_holdout``), M4's single holdout pass runs on
+                            these cases instead of the confirm partition, the
+                            fix ladder is searched and its winner selected
+                            here, and the frozen winner is scored exactly once
+                            on the untouched CONFIRM partition. The same
+                            train/val/test discipline as ``test_split``, but
+                            the validation data costs no confirm power and no
+                            training cases. Mutually exclusive with
+                            ``test_split > 0``.
         max_cycles:         Hard cap on M1→M4 iterations (default 1: one
                             diagnosis pass, then the caller moves on to
                             M5/fix — with fix-on-unverified enabled the
@@ -404,6 +417,7 @@ class VLDiagnoseLoop:
         confirm_split_seed: int = 0,
         m4_holdout: bool = True,
         test_split: float = 0.0,
+        val_data: "CaseBatch | None" = None,
         signal_recipes: "list | None" = None,
         bridge_analyzer_name: str = "explored",
         explore_report: "Any | None" = None,
@@ -456,6 +470,17 @@ class VLDiagnoseLoop:
         # candidate development) and the frozen fix candidate is scored exactly
         # once on the TEST partition. 0.0 = two-way behaviour, unchanged.
         self.test_split = float(test_split)
+        # External validation batch: the val role filled by SEPARATE frozen
+        # cases instead of a third carve of the main batch. With m4_holdout it
+        # takes the holdout-M4 + fix-development roles; the main batch keeps
+        # its full two-way explore/confirm split, and CONFIRM stays the single
+        # frozen-winner gate. Exclusive with test_split — two competing
+        # definitions of "validation" would be a config error, not a feature.
+        if val_data is not None and self.test_split > 0.0:
+            raise ValueError("val_data and test_split are mutually exclusive: "
+                             "pass an external validation batch OR carve one "
+                             "from the main batch, not both")
+        self.val_data = val_data
         # Operationalization bridge (off by default): pre-registered SignalRecipes
         # are compiled over the analyzer per_case signals each cycle into a synthetic
         # "<bridge_analyzer_name>" analyzer Result, so LAMBDA-discovered composite
@@ -1175,6 +1200,13 @@ class VLDiagnoseLoop:
                     len(list(explore)), len(list(confirm)), len(list(test)),
                     self.confirm_split, self.test_split,
                 )
+            elif self.val_data is not None:
+                logger.info(
+                    "explore/confirm split: explore=%d, confirm=%d (frac=%.2f) "
+                    "+ external validation set: %d cases",
+                    len(list(explore)), len(list(confirm)), self.confirm_split,
+                    len(list(self.val_data)),
+                )
             else:
                 logger.info(
                     "confirm split: explore=%d cases, confirm=%d held out (frac=%.2f)",
@@ -1183,9 +1215,13 @@ class VLDiagnoseLoop:
             data = explore
 
         # With a confirm split (and m4_holdout on), M4 runs ONCE after the
-        # loop, on the held-out split — the cycles only mine (M1→M3). Without
-        # one there is no held-out data, so M4 stays in-cycle as before.
-        holdout_mode = confirm is not None and self.m4_holdout
+        # loop, on held-out data — the cycles only mine (M1→M3). The holdout
+        # target is the external validation set when one was supplied (the
+        # confirm partition then stays reserved for the frozen fix winner),
+        # else the confirm partition itself. Without any held-out data M4
+        # stays in-cycle as before.
+        holdout_target = self.val_data if self.val_data is not None else confirm
+        holdout_mode = holdout_target is not None and self.m4_holdout
 
         # Forward the RunLogger into the agents so the probe / stats tool
         # generators record their tool-synthesis attempts ("tool_codegen" events).
@@ -1204,6 +1240,8 @@ class VLDiagnoseLoop:
                 self.run_logger.log_cases(confirm)
             if test is not None:
                 self.run_logger.log_cases(test)
+            if self.val_data is not None:
+                self.run_logger.log_cases(self.val_data)
 
         for cycle in range(self.max_cycles):
             if self.token_budget > 0 and self._tokens_used >= self.token_budget:
@@ -1293,7 +1331,7 @@ class VLDiagnoseLoop:
         m4_holdout_status: "str | None" = None
         if holdout_mode and all_hypotheses:
             all_test_results, m4_holdout_status = self._m4_holdout_pass(
-                all_hypotheses, confirm, last_analyzer_names, timings,
+                all_hypotheses, holdout_target, last_analyzer_names, timings,
             )
         verified = self.hypothesis_tester.best_hypotheses(all_test_results)
 
@@ -1485,15 +1523,17 @@ class VLDiagnoseLoop:
         if hypotheses:
             for h in hypotheses:
                 self.store.add_hypothesis(h)
-            if confirm is not None and self.m4_holdout:
-                # The one M4 pass, on the held-out split (never the explore
-                # stats the hypotheses were mined from). The analyzer set to
-                # re-run there is recovered from the supplied/regenerated
-                # stats report's signal keys; with none recoverable the probe
-                # agent selects on the confirm split itself.
+            holdout_target = self.val_data if self.val_data is not None else confirm
+            if holdout_target is not None and self.m4_holdout:
+                # The one M4 pass, on held-out data (never the explore stats
+                # the hypotheses were mined from): the external validation set
+                # when one was supplied, else the confirm split. The analyzer
+                # set to re-run there is recovered from the supplied/
+                # regenerated stats report's signal keys; with none
+                # recoverable the probe agent selects on the holdout itself.
                 analyzer_names = _analyzer_names_from_stats(stats_report)
                 test_results, m4_holdout_status = self._m4_holdout_pass(
-                    hypotheses, confirm, analyzer_names, timings,
+                    hypotheses, holdout_target, analyzer_names, timings,
                 )
             else:
                 test_results = self._do_m4(0, hypotheses, stats_report, data, timings)
@@ -1665,9 +1705,14 @@ class VLDiagnoseLoop:
         # candidate search/selection moves to CONFIRM (val) — the same partition
         # M4's holdout verification used, never the train cases the hypotheses
         # were mined from — and the frozen winner is scored exactly once on the
-        # TEST partition, which no adaptive decision has ever touched.
+        # TEST partition, which no adaptive decision has ever touched. External
+        # validation mode (val_data): same discipline, with the separate frozen
+        # validation batch as the development partition and CONFIRM as the
+        # untouched final gate.
         explore, confirm, test = self._split_partitions(data)
-        if test is not None:
+        if self.val_data is not None and confirm is not None:
+            dev_data, final_data, dev_label = self.val_data, confirm, "VAL"
+        elif test is not None:
             dev_data, final_data, dev_label = confirm, test, "VAL"
         else:
             dev_data, final_data, dev_label = explore, confirm, "EXPLORE"
