@@ -267,10 +267,16 @@ Available report data identifiers:
 
 
 def fallback_spec(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Deterministic, evidence-first layout used without or after a failed model."""
-    finding_ids = [str(item.get("id")) for item in data.get("findings", [])[:3]]
-    chart_ids = [str(item.get("id")) for item in data.get("charts", [])[:2]]
-    case_ids = [str(item.get("id")) for item in data.get("cases", [])[:4]]
+    """Deterministic, evidence-first layout used without or after a failed model.
+
+    Deliberately short: hero, metrics, the M1–M5 pipeline, the takeaway sheet,
+    the one-line outcome, and the audit index. The finding grid, the chart
+    grid and the representative-case preview were dropped from the landing
+    page — on a real run they repeated the metric strip (pass/fail donut) or
+    said "no finding" in a full-width card, and every one of them is still a
+    click away in the Evidence / Cases views. FindingGrid, ChartGrid and
+    CasePreview stay in the catalog for agent-composed layouts.
+    """
     children = ["setting", "metrics", "journey"]
     has_sheet = bool(data.get("case_study"))
     elements: dict[str, Any] = {
@@ -284,16 +290,7 @@ def fallback_spec(data: Mapping[str, Any]) -> dict[str, Any]:
     if has_sheet:
         elements["case_study"] = {"type": "CaseStudySheet", "props": {}}
         children.append("case_study")
-    if finding_ids:
-        elements["findings"] = {"type": "FindingGrid", "props": {"findingIds": finding_ids}}
-        children.append("findings")
-    if chart_ids:
-        elements["charts"] = {"type": "ChartGrid", "props": {"chartIds": chart_ids}}
-        children.append("charts")
     children.append("outcome")
-    if case_ids:
-        elements["cases"] = {"type": "CasePreview", "props": {"caseIds": case_ids}}
-        children.append("cases")
     children.append("evidence")
     return elements and {"root": "page", "elements": elements}
 

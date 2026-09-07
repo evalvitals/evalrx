@@ -1,5 +1,5 @@
-"""CHAIR object-hallucination captioning (Rohrbach et al., EMNLP 2018) — the
-OPERA 500-image setting: MSCOCO val2014 images, prompt
+"""CHAIR object-hallucination captioning (Rohrbach et al., EMNLP 2018) —
+OPERA's MSCOCO val2014 recipe at a seeded 450-image sample: prompt
 ``Please describe this image in detail.``, hallucinated COCO objects counted
 with the official ``chair.py`` word rules.
 
@@ -10,7 +10,7 @@ CHAIR is a metric, not a dataset; the frozen slice is built locally from
 evaluator gives every image its gold object set (segmentation categories +
 the 5 ground-truth captions). Sampling follows chair_data.md exactly:
 ``random.seed(seed); random.sample(sorted(ids_with_instances), limit)`` — the
-list is also written to ``$CHAIR_DIR/sampled_500.json``.
+list is also written to ``$CHAIR_DIR/sampled_<limit>.json``.
 
 Per-case label (kind ``chair_caption``): PASS iff the caption names NO object
 outside the image's gold set (per-image CHAIR_S == 0) AND names at least one
@@ -57,7 +57,7 @@ def _evaluator(chair_dir: Path):
     return evaluator
 
 
-def download(out_dir: Path, limit: int = 500, seed: int = 0) -> dict:
+def download(out_dir: Path, limit: int = 450, seed: int = 0) -> dict:
     chair_dir = _chair_dir()
     coco = chair_dir / "coco"
     val_dir, ann = coco / "val2014", coco / "annotations" / "instances_val2014.json"
@@ -115,7 +115,8 @@ def protocol(model_label: str):
     return _protocol(
         description=(
             f"We evaluate a vision-language model ({model_label}) on CHAIR object hallucination "
-            "in open-ended image captioning (the OPERA 500-image MSCOCO val2014 setting): the "
+            "in open-ended image captioning (OPERA's MSCOCO val2014 recipe, a seeded 450-image "
+            "sample): the "
             "model is asked 'Please describe this image in detail.' and its description is "
             "scanned for the 80 COCO object categories (with the official CHAIR synonym table). "
             "A case FAILS when the description names an object that is not in the image's gold "
@@ -141,9 +142,9 @@ def protocol(model_label: str):
 
 
 TASK = Task(
-    name="chair", modality="vlm", kind="chair_caption", title="CHAIR/MSCOCO-val2014-500",
+    name="chair", modality="vlm", kind="chair_caption", title="CHAIR/MSCOCO-val2014-450",
     download=download, protocol=protocol,
     pinned_m1=("termination_audit", "selfcheck_consistency", "self_consistency", "perturbation_battery"),
-    default_limit=500, default_seed=0, max_new_tokens=512, short_answer=False,
-    source="MSCOCO val2014 + OPERA chair.py (Rohrbach et al. 2018; Huang et al. 2024 500-image setting)",
+    default_limit=450, default_seed=0, max_new_tokens=512, short_answer=False,
+    source="MSCOCO val2014 + OPERA chair.py (Rohrbach et al. 2018; Huang et al. 2024 recipe, 450 images)",
 )

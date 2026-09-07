@@ -38,7 +38,7 @@ def _read_parquets(repo: str, filenames: list[str]):
     return pa.concat_tables(tables) if len(tables) > 1 else tables[0]
 
 
-def download(out_dir: Path, limit: int = 256, seed: int = 20260814, scan_rows: int = 2000,
+def download(out_dir: Path, limit: int = 450, seed: int = 20260814, scan_rows: int = 3000,
              sampling: str = "Random") -> dict:
     _audio.require_ffmpeg()
     out_dir = Path(out_dir)
@@ -138,6 +138,6 @@ TASK = Task(
         "answer_extraction_audit", "termination_audit", "selfcheck_consistency",
         "self_consistency", "calibration", "logprob_entropy", "perturbation_battery",
     ),
-    default_limit=300, default_seed=20260814, max_new_tokens=16,
+    default_limit=450, default_seed=20260814, max_new_tokens=16,
     source="kuanhuggingface/AudioHallucination_AudioCaps-Random + OpenSound/AudioCaps",
 )

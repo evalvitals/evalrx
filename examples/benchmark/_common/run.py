@@ -120,6 +120,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--explore", action=argparse.BooleanOptionalAction, default=True,
                    help="in-cycle free-form EDA between M1 and M2")
     p.add_argument("--max-cycles", type=int, default=1)
+    p.add_argument("--split-mode", choices=["tvt", "legacy"], default="tvt",
+                   help="tvt (default) = deterministic 1:1:1 train/val/test: M1-M3 mine on train, "
+                        "M4 verifies once on val (holdout re-probe, pinned analyzers), the fix "
+                        "ladder searches and selects on val, and the frozen winner is scored "
+                        "exactly once on test; legacy = the pre-2026-09 50/50 explore/confirm "
+                        "split (M4 screens on explore, CONFIRM reserved for the frozen repair)")
     p.add_argument("--m1-selection", choices=["pinned", "judge"], default="pinned",
                    help="pinned = the task's static analyzer set; judge = catalog selection "
                         "(modality-gated on the MODEL, so avoid on multimodal specs for text tasks)")

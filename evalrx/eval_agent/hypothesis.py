@@ -7,6 +7,7 @@ cases + an experiment, runs it, and updates its status from the findings.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -119,6 +120,35 @@ def hypothesis_from_dict(data: dict[str, Any]) -> Hypothesis:
         evidence=list(data.get("evidence", [])),
         metadata=dict(data.get("metadata", {})),
     )
+
+
+def _hyp_val(obj: Any, name: str, default: Any = None) -> Any:
+    """Read an attribute or mapping key, whichever *obj* is."""
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def hypothesis_id(hypothesis: Any) -> str:
+    """Stable join key for one hypothesis, shared by every M3/M4/M5 log entry.
+
+    ``Hypothesis.id`` defaults to ``""`` and nothing in the M1-M5 loop fills it
+    in, so every stage that names a hypothesis has to derive one — deriving it
+    per call site is how the same object ends up with two different names from
+    two different stages, and the join between a claim and its verdict goes
+    silently empty. Falls back to a hash of the statement, mirroring
+    ``eval_agent.loop._hyp_key`` — deterministic, so two stages holding the
+    same hypothesis always agree. ``evalrx.contract.emit.hypothesis_id``
+    delegates here so the optional contract sidecar and the primary log never
+    disagree on the id.
+    """
+    hid = str(_hyp_val(hypothesis, "id", "") or "").strip()
+    if hid:
+        return hid
+    statement = str(_hyp_val(hypothesis, "statement", "") or "").strip()
+    if statement:
+        return "h-" + hashlib.sha1(statement.encode("utf-8")).hexdigest()[:12]
+    return "unknown"
 
 
 class ManualHypothesisGenerator(HypothesisGenerator):

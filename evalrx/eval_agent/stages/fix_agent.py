@@ -74,6 +74,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional
 
 from evalrx.analyzers.perturbation.prompt_contrast import _default_score
+from evalrx.eval_agent.hypothesis import hypothesis_id
 from evalrx.eval_agent.prompts.fix_agent import (
     _L1_PROMPT,
     _L2_CODE_PROMPT,
@@ -976,6 +977,10 @@ class FixAgent:
             routed_tiers.append(tier)
             outcome.routed.append(
                 {
+                    # Full-statement hash, NOT derived from the truncated
+                    # "hypothesis" string below — must match the id the same
+                    # Hypothesis object got in its M3 log entry.
+                    "hypothesis_id": hypothesis_id(h),
                     "hypothesis": getattr(h, "statement", str(h))[:160],
                     "min_tier": tier.label,
                     "rationale": why,

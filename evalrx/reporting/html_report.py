@@ -187,7 +187,9 @@ def clean_model_display_name(raw: str) -> str:
         key = m.group(1)
         parts = [p.capitalize() if not p.isdigit() else p for p in key.split("-")]
         return "-".join(parts)
-    clean = re.sub(r"^HFLocalModel\((.*?)\)$", r"\1", raw).strip()
+    # Any Model subclass stringifies as ClassName(<name>) — EndpointModel(qwen3.5-2b)
+    # for the vLLM chain — and the class is not something a reader needs.
+    clean = re.sub(r"^[A-Za-z_]\w*\((.*)\)$", r"\1", raw.strip()).strip().strip("'\"")
     return clean or raw
 
 
@@ -475,6 +477,28 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         else str(protocol)
     )
     benchmark_name = clean_benchmark_name(protocol_desc, str(manifest_path or ""))
+    # The run's own summary.json (written by run_pipeline beside logs/) names
+    # the model and dataset the way the user typed them — "qwen3.5-2b",
+    # "bbh_word_sorting". It beats both a stringified Model repr and the
+    # keyword table above, which only knows a handful of benchmarks and
+    # otherwise says "Evaluation Benchmark". The run directory's own name is
+    # the last resort for the dataset, since run_all.sh names it after one.
+    run_summary: dict[str, Any] = {}
+    try:
+        summary_path = logs_dir.parent / "summary.json"
+        loaded = json.loads(summary_path.read_text()) if summary_path.exists() else {}
+        run_summary = loaded if isinstance(loaded, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        run_summary = {}
+    if run_summary.get("model"):
+        clean_model = str(run_summary["model"])
+    if benchmark_name == "Evaluation Benchmark":
+        folder = logs_dir.parent.name
+        benchmark_name = (
+            str(run_summary.get("dataset") or "")
+            or (folder if folder not in {"outputs", "logs", ""} else "")
+            or benchmark_name
+        )
 
     # Pre-M1
     probe_searches = by_event("probe_search")
@@ -600,18 +624,22 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     except (OSError, json.JSONDecodeError):
         m4_results = []
     m4_event = m4_surgeries[-1] if m4_surgeries else {}
-    if m4_event:
-        evidence = m4_event.get("evidence") or {}
+    if m4_surgeries:
         # The JSONL event is trace-scoped; a report artifact can be stale when
-        # the same run directory is appended to later.
+        # the same run directory is appended to later. One hypothesis can be
+        # tested more than once across cycles — every hypothesis this run
+        # actually adjudicated belongs here, not just the most recent verdict,
+        # otherwise a 3-hypothesis M4 pass reports as if only 1 ran.
         m4_results = [{
-            "status": m4_event.get("status"),
-            "effect_size": evidence.get("m4_effect_size"),
-            "confidence": m4_event.get("confidence_score"),
-            "verdict": evidence.get("m4_verdict"),
-            "evidence_grade": evidence.get("m4_evidence_grade"),
-            "protocol_consistent": evidence.get("m4_protocol_consistent"),
-        }]
+            "hypothesis_id": event.get("hypothesis_id"),
+            "hypothesis": event.get("hypothesis"),
+            "status": event.get("status"),
+            "effect_size": (event.get("evidence") or {}).get("m4_effect_size"),
+            "confidence": event.get("confidence_score"),
+            "verdict": (event.get("evidence") or {}).get("m4_verdict"),
+            "evidence_grade": (event.get("evidence") or {}).get("m4_evidence_grade"),
+            "protocol_consistent": (event.get("evidence") or {}).get("m4_protocol_consistent"),
+        } for event in m4_surgeries]
 
     # M5-Surgery
     m5_surgeries = [s for s in surgeries if s.get("module") != "m4"]

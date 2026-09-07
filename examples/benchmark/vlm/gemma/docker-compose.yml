@@ -20,12 +20,12 @@ services:
   gemma-4-e2b:
     <<: *gemma
     command: >
-      sh -c "python -m _common.run --modality vlm --model gemma-4-e2b --dataset ${DATASET:-chartqa} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+      sh -c "python -m _common.run --modality vlm --model gemma-4-e2b --dataset ${DATASET:-chartqa} --limit ${LIMIT:-0} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
   gemma-4-e4b:
     <<: *gemma
     command: >
-      sh -c "python -m _common.run --modality vlm --model gemma-4-e4b --dataset ${DATASET:-chartqa} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+      sh -c "python -m _common.run --modality vlm --model gemma-4-e4b --dataset ${DATASET:-chartqa} --limit ${LIMIT:-0} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
   gemma-4-12b:
     <<: *gemma
     command: >
-      sh -c "python -m _common.run --modality vlm --model gemma-4-12b --dataset ${DATASET:-chartqa} --limit ${LIMIT:-256} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"
+      sh -c "python -m _common.run --modality vlm --model gemma-4-12b --dataset ${DATASET:-chartqa} --limit ${LIMIT:-0} --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium ${EXTRA_ARGS:-}"

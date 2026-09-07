@@ -45,6 +45,16 @@ def read_v2_events(root: str | Path) -> list[dict[str, Any]]:
         record = dict(payload)
         record.setdefault("event", event)
         record.setdefault("stage", stage)
+        if event == "surgery":
+            # V1's RunLogger wrote M4 and M5 "surgery" entries into one flat
+            # array, disambiguated only by a lowercase "module" field
+            # ("m4"/"m5"). V2 already separates them by stage folder and
+            # never writes that field (see RunLoggerV2.log_surgery) — but
+            # legacy consumers (extract_run_data's m4_surgeries/m5_surgeries
+            # filters) still key off it. Restore it here so a V2 run's M4
+            # stage isn't misread as "not run" and its verdicts don't get
+            # misattributed to M5.
+            record.setdefault("module", stage.lower())
         if trace_id:
             record.setdefault("trace_id", trace_id)
         events.append(record)

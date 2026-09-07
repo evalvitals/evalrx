@@ -333,12 +333,15 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
     from evalrx.eval_agent.stages.repair_catalog import method_names
 
+    tvt = args.split_mode == "tvt"
     ctx = RunContext(run_dir / "logs", verbose=True, config={
         "benchmark": task.title, "dataset": task.name, "modality": task.modality,
         "model": args.model, "spec": spec.key, "hf_repo": spec.hf_repo, "backend": resolved.backend,
         "n_cases": len(cases), "manifest": str(manifest),
         "manifest_seed": rows[0].get("sample_seed") if rows else None,
-        "confirm_split": 0.5, "fix_tier": args.fix_tier, "allow_codegen": args.allow_codegen,
+        "split_mode": args.split_mode,
+        "confirm_split": (1 / 3 if tvt else 0.5), "test_split": (1 / 3 if tvt else 0.0),
+        "fix_tier": args.fix_tier, "allow_codegen": args.allow_codegen,
         "auto_escalate": args.auto_escalate, "m1_selection": args.m1_selection,
         "generation_kwargs": gen_kwargs,
         "enable_thinking": bool(args.enable_thinking), "judge_provider": args.judge_provider,
@@ -415,12 +418,17 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         diagnosis_agent=DiagnosisAgent(judge=judge),
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
         fix_agent=fix_agent, max_cycles=args.max_cycles, run_logger=ctx.logger,
-        confirm_split=0.5, confirm_split_seed=20260818,
-        # This benchmark reserves CONFIRM exclusively for the final frozen
-        # repair. M4 screens hypotheses on EXPLORE; otherwise its verdict (and
-        # the M5 decision it triggers) would adapt repair selection to the same
-        # cases later used for the significance gate.
-        m4_holdout=False,
+        confirm_split=(1 / 3 if tvt else 0.5), confirm_split_seed=20260818,
+        test_split=(1 / 3 if tvt else 0.0),
+        # tvt (default): deterministic 1:1:1 train/val/test. M1-M3 mine on
+        # TRAIN; M4 verifies every proposed hypothesis ONCE on VAL (holdout
+        # re-probe with the last cycle's pinned analyzers); the fix ladder is
+        # searched and its winner selected on VAL; the frozen winner is scored
+        # exactly once on TEST — verification and fix development never share
+        # cases with the final significance gate.
+        # legacy: the pre-2026-09 50/50 explore/confirm design, where M4
+        # screened on EXPLORE and CONFIRM was reserved for the frozen repair.
+        m4_holdout=tvt,
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer, explore_dir=run_dir / "explore", verbose=True,
     )
