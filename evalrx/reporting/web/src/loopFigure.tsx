@@ -57,7 +57,7 @@ function StageCard({ stage, code, title, subtitle, into, out, onClick, lane, chi
  * is not yet known (confirm pairs before a repair was validated) keeps a
  * minimum band, dashed, rather than being drawn as empty.
  */
-function BatchCylinder({ explore, heldout, confirm }: { explore: number | null; heldout: number | null; confirm: number | null }) {
+function BatchCylinder({ explore, heldout, confirm, caption }: { explore: number | null; heldout: number | null; confirm: number | null; caption?: string }) {
   const bands = [
     { key: "E", label: "Explore", n: explore, icon: <Search size={12} />, cls: "explore" },
     { key: "H", label: "Held-out", n: heldout, icon: <Lock size={12} />, cls: "heldout" },
@@ -79,6 +79,7 @@ function BatchCylinder({ explore, heldout, confirm }: { explore: number | null; 
       </g>)}
       <ellipse className="lf-cap" cx={cx} cy={drawn[0].top} rx={rx} ry={ry} />
     </svg>
+    {caption && <em className="lf-dataset" title={caption}>{caption}</em>}
     <ul>
       {drawn.map((band) => <li key={band.key} className={`lf-band-${band.cls}${band.n === null ? " unknown" : ""}`}>
         <i>{band.icon}</i><span>{band.label}</span><b>{band.n === null ? "—" : band.n}</b>
@@ -97,7 +98,7 @@ function SignalRows({ stats }: { stats: NonNullable<CaseStudy["m2"]>[string] }) 
   const span = Math.max(0.2, ...rows.flatMap((row) => [Math.abs(row.effect ?? 0), ...(row.ci || []).map(Math.abs)]));
   const at = (value: number) => `${50 + (value / span) * 46}%`;
   return <div className="lf-signals">
-    <div className="lf-sighead">effect ± CI · <Check size={9} /> survived correction</div>
+    <div className="lf-sighead"><span>effect ± CI</span><span title="survived multiplicity correction">BH</span></div>
     {rows.map((row, index) => {
       const ci = row.ci || [row.effect ?? 0, row.effect ?? 0];
       return <div key={`${row.signal}-${index}`} className={`lf-sig${row.survives_correction ? " on" : ""}`}
@@ -185,8 +186,7 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
         <div className="lf-box">
           <small>FROZEN CASE BATCH</small>
           <code className="lf-math">D = {"{"}(x, y, ŷ, z, m){"}"}</code>
-          <BatchCylinder explore={nExplore} heldout={nHeldout} confirm={nConfirm} />
-          <em className="lf-dataset" title={data.setting.dataset}>{data.setting.dataset}</em>
+          <BatchCylinder explore={nExplore} heldout={nHeldout} confirm={nConfirm} caption={data.setting.dataset} />
         </div>
         <div className="lf-tip"><div><b>IN</b><span>{data.setting.dataset}</span></div><div><b>OUT</b><span>{data.setting.n_cases} cases, split before anything ran</span></div><small>click to open the case studio</small></div>
       </aside>
