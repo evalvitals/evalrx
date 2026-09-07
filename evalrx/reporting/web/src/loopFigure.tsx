@@ -40,12 +40,16 @@ function StageCard({ stage, code, title, subtitle, into, out, onClick, lane, chi
   return <article className={`lf-card lf-${lane} lf-s-${status}`} tabIndex={0} onClick={onClick}
     onKeyDown={(event) => { if (event.key === "Enter") onClick(); }}
     aria-label={`${code} ${title}, ${STATUS_WORD[status] ?? status}`}>
-    <header>
-      <span className="lf-code">{code}</span>
-      <span className={`lf-status lf-status-${status}`}>{STATUS_WORD[status] ?? status}</span>
-    </header>
-    <h3>{title}</h3>
-    <p className="lf-sub">{subtitle}</p>
+    {/* The IN/OUT tip belongs to the stage, so it answers to the stage's own
+        chrome only; the body holds buttons with their own hover and popovers. */}
+    <div className="lf-head">
+      <header>
+        <span className="lf-code">{code}</span>
+        <span className={`lf-status lf-status-${status}`}>{STATUS_WORD[status] ?? status}</span>
+      </header>
+      <h3>{title}</h3>
+      <p className="lf-sub">{subtitle}</p>
+    </div>
     <div className="lf-body" onClick={(event) => event.stopPropagation()}>{children}</div>
     <IO into={into} out={out} />
   </article>;
