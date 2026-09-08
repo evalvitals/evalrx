@@ -239,7 +239,10 @@ def test_hf_noncolor_spatial_specialist_preserves_color_baseline():
     )
     model = HFLocalModel(spec, RuntimeConfig())
     calls = []
-    engine = lambda inputs: calls.append(inputs) or "suv"
+
+    def engine(inputs):
+        calls.append(inputs)
+        return "suv"
 
     shape = model.generate_noncolor_spatial_specialist(
         Inputs(prompt="What shape is left of the gray bus?", image="scene.png"),

@@ -31,6 +31,9 @@ class Task:
     protocol: Callable[[str], Any]             # protocol(model_label) -> ExperimentProtocol
     pinned_m1: tuple                           # static M1 analyzer set (ProbeAgent(judge=None))
     default_limit: int = 256                   # rows frozen AND used when --limit is absent
+    val_limit: int = 0                         # optional validation manifest size (0 = task has none);
+                                               # a FRESH sample, disjoint from the main manifest, frozen
+                                               # as manifest_val.json and used only with --held-out
     default_seed: int = 0
     max_new_tokens: int = 64
     output_contract: dict | None = None        # copied into protocol + case metadata when set
@@ -40,6 +43,11 @@ class Task:
 
 def manifest_path(data_dir: Path, task: Task) -> Path:
     return Path(data_dir) / task.name / "manifest.json"
+
+
+def val_manifest_path(data_dir: Path, task: Task) -> Path:
+    """The optional held-out validation manifest beside the main one."""
+    return Path(data_dir) / task.name / "manifest_val.json"
 
 
 def write_manifest(path: Path, rows: list[dict]) -> None:

@@ -3,10 +3,12 @@
 Mirrors the validated wiring of ``examples/m1_m5/vlm_benchmark_common.py`` (the
 ChartQA/Spatial457 chains) with the per-modality settings of the audio examples
 and ``llm_benchmark`` folded in as task attributes: pinned M1 set, scorer,
-protocol, generation budget. The model under test is ``hf_local`` by default
-(white-box capture + paper-method candidates stay available); ``--backend
-endpoint`` swaps in an OpenAI-compatible server for the black-box path and the
-``gemini`` family runs through Google's Gen AI API (``--backend gemini``, forced).
+protocol, generation budget. The model under test runs on ``endpoint`` by
+default (an OpenAI-compatible server — vLLM in practice — at ``--base-url``;
+fix ladder clamped to L2 there); ``--backend hf_local`` swaps in in-process
+transformers for the white-box path (capture + L3a/L3b paper-method
+candidates) and the ``gemini`` family runs through Google's Gen AI API
+(``--backend gemini``, forced).
 """
 
 from __future__ import annotations
@@ -136,18 +138,19 @@ def load_weights(model, resolved: Resolved, args, task: T.Task):
 
 def build_judge(args):
     """``(judge, coder_provider, coder_model, coder_extra_args)`` — the same three
-    providers as the m1_m5 examples; the benchmark CLI and compose files pin
-    Codex / gpt-5.6-terra / medium."""
+    providers as the m1_m5 examples; the benchmark CLI defaults to
+    Claude / claude-opus-5 / high."""
     if args.judge_provider == "agy":
         from evalrx.agent_runtime.judges import AgyModel
 
         judge = AgyModel(model=args.judge_model, timeout_sec=300)
         coder = ("antigravity", args.judge_model, ())
     elif args.judge_provider == "claude":
+        name = args.judge_model or "claude-opus-5"
         from evalrx.eval_agent import ClaudeModel
 
-        judge = ClaudeModel(model=args.judge_model or "sonnet", effort=args.judge_effort, timeout_sec=300)
-        coder = ("claude_code", args.judge_model, (("--effort", args.judge_effort) if args.judge_effort else ()))
+        judge = ClaudeModel(model=name, effort=args.judge_effort, timeout_sec=300)
+        coder = ("claude_code", name, (("--effort", args.judge_effort) if args.judge_effort else ()))
     else:
         from evalrx.agent_runtime.judges import CodexModel
 
@@ -173,10 +176,33 @@ def ensure_manifest(task: T.Task, args) -> Path:
         raise SystemExit(f"{manifest} is missing and --no-download was given")
     seed = args.seed if args.seed is not None else task.default_seed
     n = args.download_limit if args.download_limit is not None else task.default_limit
-    print(f"[data] freezing {task.name}: limit={n} seed={seed} -> {manifest.parent}")
-    summary = task.download(manifest.parent, limit=n, seed=seed)
+    print(f"[data] freezing {task.name}: limit={n} seed={seed}"
+          + (f" val_limit={task.val_limit}" if task.val_limit else "") + f" -> {manifest.parent}")
+    # A task with a validation slice freezes BOTH manifests in one call — the
+    # val draw is derived from (and disjoint with) the main draw, so they must
+    # be frozen together or not at all.
+    kwargs = {"val_limit": task.val_limit} if task.val_limit else {}
+    summary = task.download(manifest.parent, limit=n, seed=seed, **kwargs)
     print("[data] " + json.dumps(summary))
     return manifest
+
+
+def ensure_val_manifest(task: T.Task, args) -> Path:
+    """The held-out validation manifest ``--held-out`` runs on. Never (re)built
+    here: a fresh ``ensure_manifest`` download writes it alongside the main
+    manifest; a data dir frozen before the val feature must be re-frozen
+    deliberately, not silently overwritten."""
+    if not task.val_limit:
+        raise SystemExit(f"--held-out: task {task.name!r} defines no validation slice "
+                         "(val_limit=0); only non-census datasets carry one")
+    val_manifest = T.val_manifest_path(Path(args.data_dir), task)
+    if not val_manifest.is_file():
+        raise SystemExit(
+            f"--held-out: {val_manifest} is missing. This data dir was frozen before "
+            f"the validation slice existed — delete {val_manifest.parent} to re-freeze "
+            "both manifests (the main draw is deterministic and unchanged), or run "
+            "without --held-out.")
+    return val_manifest
 
 
 def run_dir_for(args, task: T.Task) -> Path:
@@ -241,6 +267,9 @@ def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
 
 def run(args, task: T.Task, resolved: Resolved) -> int:
     manifest = ensure_manifest(task, args)
+    # Fail fast: the held-out validation manifest must exist before any model
+    # or judge is loaded.
+    val_manifest = ensure_val_manifest(task, args) if args.held_out else None
     if args.download_only:
         return 0
     limit = args.limit if args.limit is not None else task.default_limit
@@ -297,6 +326,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                 "manifest_seed": rows[0].get("sample_seed") if rows else None,
                 "split_mode": args.split_mode,
                 "confirm_split": (1 / 3 if tvt else 0.5), "test_split": (1 / 3 if tvt else 0.0),
+                "held_out": bool(args.held_out),
                 "fix_tier": args.fix_tier,
                 "allow_codegen": args.allow_codegen, "auto_escalate": args.auto_escalate,
                 "m1_selection": args.m1_selection, "generation_kwargs": gen_kwargs,
@@ -360,6 +390,42 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     if not discovery.has_m4_groups:
         raise SystemExit("M4 needs both PASS and FAIL cases; adjust --limit / --seed")
 
+    # Held-out validation set (--held-out): a SEPARATE frozen sample, labeled
+    # by its own Stage-0 pass. It takes the M4-holdout + fix-development roles;
+    # the main batch keeps its full explore/confirm split and CONFIRM stays
+    # the single frozen-winner gate.
+    val_cases = None
+    if val_manifest is not None:
+        val_candidates, _ = T.build_cases(task, val_manifest, 0)
+        v0 = time.monotonic()
+        val_discovery = CaseDiscoveryAgent(
+            scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
+            concurrency=getattr(args, "concurrency", 1),
+        ).discover(model, val_candidates, protocol=protocol)
+        val_cases = val_discovery.cases
+        val_elapsed = time.monotonic() - v0
+        val_accuracy = val_discovery.n_pass / max(1, len(val_cases))
+        (run_dir / "baseline_val.json").write_text(json.dumps({
+            "model": args.model, "spec": spec.key, "dataset": task.name, "role": "validation",
+            "n": len(val_cases), "n_pass": val_discovery.n_pass, "n_fail": val_discovery.n_fail,
+            "n_unknown": val_discovery.n_unknown, "accuracy": round(val_accuracy, 4),
+            "seconds": round(val_elapsed, 1), "manifest": str(val_manifest),
+            "cases": [{
+                "id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value,
+            } for c in val_cases],
+        }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"Validation baseline: PASS={val_discovery.n_pass}, FAIL={val_discovery.n_fail}, "
+              f"accuracy={val_accuracy:.3f} ({val_elapsed:.0f}s, n={len(val_cases)})")
+        if task.short_answer:
+            for case in val_cases:
+                case.metadata["finish_reason"] = "stop"
+        if not val_discovery.has_m4_groups:
+            print("  NOTE the validation set lacks a PASS or FAIL group; the holdout "
+                  "M4 verification there will have nothing to contrast")
+        if ctx is not None:
+            ctx.config["val_manifest"] = str(val_manifest)
+            ctx.config["n_val_cases"] = len(val_cases)
+
     from evalrx.eval_agent import (
         CliAgentConfig,
         DiagnosisAgent,
@@ -374,6 +440,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
     from evalrx.eval_agent.stages.repair_catalog import method_names
 
+    # ctx already exists (constructed before Stage-0, above) with held_out/
+    # val_manifest/n_val_cases folded into its config as they became known.
     assert ctx is not None
     coder_cfg = CliAgentConfig(provider=coder_provider, model=coder_model, timeout_sec=900,
                                extra_args=coder_extra)
@@ -450,17 +518,18 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         diagnosis_agent=DiagnosisAgent(judge=judge),
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
         fix_agent=fix_agent, max_cycles=args.max_cycles, run_logger=ctx.logger,
-        confirm_split=(1 / 3 if tvt else 0.5), confirm_split_seed=20260818,
-        test_split=(1 / 3 if tvt else 0.0),
-        # tvt (default): deterministic 1:1:1 train/val/test. M1-M3 mine on
-        # TRAIN; M4 verifies every proposed hypothesis ONCE on VAL (holdout
-        # re-probe with the last cycle's pinned analyzers); the fix ladder is
-        # searched and its winner selected on VAL; the frozen winner is scored
-        # exactly once on TEST — verification and fix development never share
-        # cases with the final significance gate.
-        # legacy: the pre-2026-09 50/50 explore/confirm design, where M4
-        # screened on EXPLORE and CONFIRM was reserved for the frozen repair.
-        m4_holdout=tvt,
+        confirm_split=0.5, confirm_split_seed=20260818,
+        # Default: the 50/50 explore/confirm design — M1-M4 work on EXPLORE
+        # (M4 in-cycle), the fix ladder searches on EXPLORE, and CONFIRM is
+        # reserved for the single frozen-winner validation.
+        # --held-out: the SEPARATE frozen validation manifest (a disjoint
+        # sample, labeled by its own Stage-0 pass) takes the val role — M4
+        # verifies every proposed hypothesis ONCE there (holdout re-probe,
+        # pinned analyzers) and the fix ladder searches + selects there — while
+        # the main batch keeps its full explore/confirm split and the frozen
+        # winner is still scored exactly once on CONFIRM.
+        m4_holdout=bool(args.held_out),
+        val_data=val_cases,
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer,
         explore_dir=ctx.explore_dir if ctx.is_v2 else run_dir / "explore",

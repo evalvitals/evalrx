@@ -1,7 +1,7 @@
 # Benchmark matrix: model family × modality × dataset
 
 The full diagnosis chain — Stage 0 baseline → M1 (pinned analyzers) → explore →
-M2 → M3 → held-out M4 → M5 → fix — run as a **matrix** over three model families,
+M2 → M3 → M4 → M5 → fix — run as a **matrix** over three model families,
 three input modalities and the benchmark datasets of each modality, through one
 code path ([`_common/run.py`](_common/run.py)). Each `<modality>/<family>/`
 directory is one cell family: a compose file whose services are the sizes, with
@@ -63,15 +63,15 @@ for the 3.x models), so `calibration` runs on its verbalized channel only,
 
 | modality | `--dataset` | slice | scoring | default rows |
 |---|---|---|---|---|
-| vlm | `chartqa` (default) | ChartQA test, human-authored | normalised exact match, 5 % numeric tolerance | 450 |
-| vlm | `spatial457` | Spatial457 L5_6d_spatial | normalised exact match | 450 |
+| vlm | `chartqa` (default) | ChartQA test, human-authored | normalised exact match, 5 % numeric tolerance | 256 (+128 val) |
+| vlm | `spatial457` | Spatial457 L5_6d_spatial | normalised exact match | 256 (+128 val) |
 | vlm | `pope_random` / `pope_popular` / `pope_adversarial` | POPE COCO object hallucination, 1 present + 1 absent question per image (split = how the absent object is sampled) | Yes/No | 1000 |
 | llm | `bbh_causal_judgement` (default), `bbh_word_sorting`, `bbh_tracking7`, `cruxeval_output`, `bamboogle`, `minervamath`, `supergpqa_law`, `supergpqa_economics`, `supergpqa_medicine_hard` | the band-located slices of [`dataset_selection`](../dataset_selection/llm_benchmark/datasets.py) | each slice's own grader on the extracted answer | 256 |
-| llm | `hotpotqa_gepa` | the GEPA test (300) + train (150) splits of HotpotQA (fullwiki/train, seed-1 sample, arXiv:2507.19457) with the dataset's own 10 candidate paragraphs in-prompt | SQuAD-normalised exact match | 450 |
-| llm | `gsm8k` | a seeded 450-of-1,319 sample of the GSM8K test split (grade-school multi-step word problems) | numeric exact match on the `Answer:` line | 450 |
-| alm | `mmau` (default) | MMAU test-mini, 4-way MC | option letter | 450 |
+| llm | `hotpotqa_gepa` | the GEPA test split of HotpotQA (fullwiki/train, seed-1 sample, arXiv:2507.19457) with the dataset's own 10 candidate paragraphs in-prompt; val = the disjoint GEPA train pool | SQuAD-normalised exact match | 300 (+150 val) |
+| llm | `gsm8k` | a seeded 500-of-1,319 sample of the GSM8K test split (grade-school multi-step word problems) | numeric exact match on the `Answer:` line | 500 (+250 val) |
+| alm | `mmau` (default) | MMAU test-mini, 4-way MC | option letter | 256 (+128 val) |
 | alm | `mmsu` | MMSU: 47 spoken-language perception/reasoning tasks (official 5,000-row `train`-named evaluation split; deterministic sample by default) | option letter | 256 |
-| alm | `audiocaps_hallu` | AudioCaps object hallucination (Random) | Yes/No | 450 |
+| alm | `audiocaps_hallu` | AudioCaps object hallucination (Random) | Yes/No | 300 (+150 val) |
 | alm | `af_reasoning_mcq` | NVIDIA Audio Flamingo's AF-Reasoning-Eval (AQA-MCQ): 4-way MC requiring discrimination among closely related choices; audio via the `gijs/clothoaqa` mirror of Clotho-AQA | option letter | 76 (fixed eval set; census) |
 
 Every dataset is frozen to `<modality>/_data/<dataset>/manifest.json` (+ `images/`
@@ -80,17 +80,22 @@ sample the `m1_m5` examples use; the manifest protocol is modality-blind
 (`prompt`, `image`, `audio`, `answers`, `task`), so one `build_cases` /
 `score_case` serves all three.
 
-### Data split (`--split-mode`)
+### Data split (`--held-out`)
 
-`tvt` (the default) partitions every run's cases deterministically 1:1:1 into
-**train / val / test** (stratified by label, seed 20260818): M1–M3 mine on
-train; M4 verifies each proposed hypothesis ONCE on val (a holdout re-probe
-with the last cycle's pinned analyzers); the fix ladder is searched and its
-winner selected on val; the frozen winner is scored exactly once on test. So
-hypothesis verification and fix development never share cases with the final
-significance gate. `--split-mode legacy` restores the pre-2026-09 behaviour: a
-50/50 explore/confirm split with M4 screening on explore and CONFIRM reserved
-for the frozen repair.
+By default every run's cases are split deterministically 50/50 into
+**explore / confirm** (stratified by label, seed 20260818): M1–M4 work on
+explore (M4 in-cycle), the fix ladder searches and selects on explore, and
+CONFIRM is reserved for the single frozen-winner validation. The non-census
+datasets additionally freeze `manifest_val.json` — a fresh, disjoint sample of
+half the main slice — which the default run does **not** touch.
+
+`--held-out` puts that validation set to work: it is labeled by its own
+Stage-0 pass, M4 verifies each proposed hypothesis ONCE there (a holdout
+re-probe with the last cycle's pinned analyzers), and the fix ladder is
+searched and its winner selected there — while the main batch keeps its full
+explore/confirm split and the frozen winner is still scored exactly once on
+CONFIRM. So hypothesis verification and fix development never share cases with
+the final significance gate, and the validation data costs no confirm power.
 
 ## Design rules (why the tree looks like this)
 
@@ -110,13 +115,13 @@ for the frozen repair.
   must also stop on the tokenizer's `<|im_end|>` (the template's turn end;
   `generation_config` only lists `</s>`, so every answer padded to the cap).
   The remote class has no SDPA dispatch, so nemotron sizes default to eager.
-* **The default backend follows the modality** (`_common/models.py`
-  `DEFAULT_BACKEND`): **llm cells run on `endpoint`** — an OpenAI-compatible
-  server at `--base-url` (default `http://host.docker.internal:8020/v1`, i.e. a
-  vLLM server on the host; serve the size's endpoint spec, or its hf_local spec
-  when it has none) — while **vlm / alm cells stay on `hf_local`** (in-process
-  transformers: white-box capture and paper-method fix candidates stay
-  available). `--backend hf_local` puts a text cell back in-process; `--backend
+* **The default backend is `endpoint` for every modality** (`_common/models.py`
+  `DEFAULT_BACKEND`): an OpenAI-compatible server at `--base-url` (default
+  `http://host.docker.internal:8020/v1`, i.e. a vLLM server on the host; serve
+  the size's endpoint spec, or its hf_local spec when it has none) — vLLM 0.27
+  serves the multimodal families too, so image/audio cells run served as well.
+  `--backend hf_local` puts a cell back in-process (in-process transformers:
+  white-box capture and the L3a/L3b paper-method fix candidates); `--backend
   endpoint` serves an image/audio cell (images and audio carried as `image_url` /
   `input_audio`); `--backend gemini` is the Gemini family's only backend (Google
   Gen AI API; images and audio as inline parts) and is forced whatever the flag
@@ -158,9 +163,11 @@ for the frozen repair.
   vLLM endpoint (~29 tok/s on the 2B; ~25 s per causal-judgement item), so the
   llm default is 256 rows, not a census; `--backend endpoint` is the fast path
   when a vLLM server is up.
-* **Judge/coder pinned to Codex `gpt-5.6-terra` at medium effort** in every
-  compose command and in the CLI defaults. The Codex npm package, Node runtime,
-  and authenticated `CODEX_HOME` are mounted through `.env`.
+* **Judge/coder defaults to Claude `claude-opus-5` at high effort** (CLI
+  defaults; the compose commands no longer pin a judge, so `EXTRA_ARGS` can
+  still override). `--judge-provider codex` restores Codex `gpt-5.6-terra`;
+  the Codex npm package, Node runtime, and authenticated `CODEX_HOME` are
+  mounted through `.env`.
 * **Nemotron's FP8 checkpoints** (`nvidia/NVIDIA-Nemotron-3-Nano-4B-FP8`,
   `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8`) are ModelOpt exports:
   transformers has no ModelOpt quantizer and refuses fp8 below compute

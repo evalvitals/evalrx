@@ -140,14 +140,16 @@ class Resolved:
         return self.size.label if self.size is not None else self.spec_key
 
 
-#: The backend a cell runs on when ``--backend`` is absent. Text cells are served
-#: (an OpenAI-compatible server, vLLM in practice, at ``--base-url``): one served
-#: model answers the concurrent discovery requests that a serial in-process
-#: transformers load cannot, and the llm datasets' sampled 1-2k-token generations
-#: are where that matters. Image and audio cells stay in-process, where the
-#: white-box capture and paper-method fix candidates live. The gemini family is
-#: untouched: it runs on ``gemini`` whatever this table or the flag says.
-DEFAULT_BACKEND = {"llm": "endpoint", "vlm": "hf_local", "alm": "hf_local"}
+#: The backend a cell runs on when ``--backend`` is absent: served (an OpenAI-
+#: compatible server, vLLM in practice, at ``--base-url``) for EVERY modality —
+#: one served model answers concurrent discovery/fix requests that a serial
+#: in-process transformers load cannot, and vLLM 0.27 serves the multimodal
+#: (image/audio) families too. The trade: an API backend exposes no internals,
+#: so the fix ladder is clamped to L2 there; pass ``--backend hf_local`` to run
+#: in-process when the white-box capture and the L3a/L3b paper-method fix
+#: candidates are wanted. The gemini family is untouched: it runs on ``gemini``
+#: whatever this table or the flag says.
+DEFAULT_BACKEND = {"llm": "endpoint", "vlm": "endpoint", "alm": "endpoint"}
 
 
 def default_backend(modality: str) -> str:

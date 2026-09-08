@@ -1,7 +1,7 @@
 """examples/benchmark entry point: one (modality, model size, dataset) cell per invocation.
 
-    python -m _common.run --modality vlm --model qwen3.5-2b --dataset chartqa \
-        --judge-provider codex --judge-model gpt-5.6-terra --judge-effort medium
+    python -m _common.run --modality vlm --model qwen3.5-2b --dataset chartqa
+        # judge/agent default: claude / claude-opus-5 / high
 
 Data lands in ``<data-dir>/<dataset>/`` (frozen once, shared by every family of
 the modality), outputs in ``<run-dir>/<model>/<dataset>[.<tag>]/``.
@@ -28,9 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dataset", default=None, help="task name (default per modality: "
                    + ", ".join(f"{m}={n}" for m, n in T.DEFAULT_TASK.items()) + ")")
     p.add_argument("--backend", choices=list(BACKENDS), default=None,
-                   help="hf_local = in-process transformers (white-box + paper methods; the default "
-                        "for vlm/alm); endpoint = OpenAI-compatible server at --base-url (black-box; "
-                        "the default for llm); gemini = Google Gen AI API through google-genai "
+                   help="endpoint = OpenAI-compatible server at --base-url (vLLM in practice; "
+                        "black-box, fix ladder clamped to L2; the default for every modality); "
+                        "hf_local = in-process transformers (white-box + paper methods, opens "
+                        "L3a/L3b); gemini = Google Gen AI API through google-genai "
                         "(forced for the gemini family)")
     p.add_argument("--concurrency", type=int, default=1,
                    help="Cases generated at once during baseline discovery. Honoured only for "
@@ -76,9 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--enable-thinking", action="store_true",
                    help="turn the model's thinking mode ON for every call (default OFF on every model; "
                         "gemini: leave the API's default level instead of sending the floor)")
-    p.add_argument("--judge-provider", choices=["agy", "claude", "codex"], default="codex")
-    p.add_argument("--judge-model", default="gpt-5.6-terra")
-    p.add_argument("--judge-effort", default="medium")
+    p.add_argument("--judge-provider", choices=["agy", "claude", "codex"], default="claude")
+    p.add_argument("--judge-model", default=None,
+                   help="default per provider: claude -> claude-opus-5, codex -> gpt-5.6-terra")
+    p.add_argument("--judge-effort", default="high")
     p.add_argument("--fix-tier", choices=["L1", "L2", "L3a", "L3b"], default="L3b",
                    help="fix-search ceiling; L3b opens the pre-audited internals-write "
                         "primitives (VLM + hf_local only; models without a usable "
@@ -120,12 +122,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--explore", action=argparse.BooleanOptionalAction, default=True,
                    help="in-cycle free-form EDA between M1 and M2")
     p.add_argument("--max-cycles", type=int, default=1)
-    p.add_argument("--split-mode", choices=["tvt", "legacy"], default="tvt",
-                   help="tvt (default) = deterministic 1:1:1 train/val/test: M1-M3 mine on train, "
-                        "M4 verifies once on val (holdout re-probe, pinned analyzers), the fix "
-                        "ladder searches and selects on val, and the frozen winner is scored "
-                        "exactly once on test; legacy = the pre-2026-09 50/50 explore/confirm "
-                        "split (M4 screens on explore, CONFIRM reserved for the frozen repair)")
+    p.add_argument("--held-out", action=argparse.BooleanOptionalAction, default=False,
+                   help="use the task's held-out validation manifest (manifest_val.json, a "
+                        "disjoint fresh sample of half the main slice): M4 verifies once there "
+                        "(holdout re-probe, pinned analyzers) and the fix ladder searches and "
+                        "selects there, while the frozen winner is still scored exactly once on "
+                        "CONFIRM. Default off = the 50/50 explore/confirm design (M4 screens on "
+                        "explore, CONFIRM reserved for the frozen repair); the validation set "
+                        "is then not used at all")
     p.add_argument("--m1-selection", choices=["pinned", "judge"], default="pinned",
                    help="pinned = the task's static analyzer set; judge = catalog selection "
                         "(modality-gated on the MODEL, so avoid on multimodal specs for text tasks)")

@@ -252,3 +252,21 @@ examples/diagnosis_loops/deco_hallu/outputs/m1_state.pkl
 # Dynamic report UI: source and lockfile are versioned; these are local/build outputs.
 evalrx/reporting/web/node_modules/
 evalrx/reporting/web_dist/
+
+# Stray pre-rename package snapshot left by the 2026-09-03 evalvitals/ -> evalrx/
+# rename (196M of it is reporting/web node_modules); local only, safe to delete.
+/evalvitals/
+
+# Experiment-result archives (zipped run dirs). NOTE: gitignore does not affect
+# files already tracked, so examples/m2_m3/deco_hallu_explore/data_attn_2b.zip
+# stays versioned.
+*.zip
+
+# Tagged run-output dirs (outputs.smoke-0819/ etc.); plain outputs/ and
+# outputs_*/ are already ignored above.
+examples/**/outputs.*/
+
+# Local docker compose overrides (machine-specific mounts / GPU pins). The
+# already-tracked examples/m1_m5/mmau_qwen2_audio/docker-compose.override.yml
+# stays versioned.
+docker-compose.override.yml
