@@ -142,6 +142,45 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, str, list[tuple[str, str, str]]]] =
             ("Majority Answer Agreement Rate", "consistency", "pct"),
         ],
     ),
+    "self_repair": (
+        "Self-Repair on Re-ask",
+        "When asked to check its own answer, does the model catch and fix its mistakes?",
+        "Asks the model to critique and revise its first answer. Reports how often it detects a real error, how often it raises a false alarm on a correct answer, and how often the revision actually repairs a failure.",
+        [
+            ("Error Detection Accuracy", "detection_accuracy", "pct"),
+            ("False Alarm Rate on Correct Answers", "false_alarm_rate", "pct"),
+            ("Repair Rate on Failures", "repair_rate", "pct"),
+        ],
+    ),
+    "cot_faithfulness": (
+        "Chain-of-Thought Faithfulness",
+        "Does the written reasoning actually drive the final answer, or is it decoration?",
+        "Compares the answer the model commits to early in its reasoning with the one it ends on: reasoning that drifts away from a correct early answer, or rescues a wrong one late, is unfaithful to the final output.",
+        [
+            ("Early Answer Matches Final", "mean_early_match_rate", "pct"),
+            ("Drift-Away Rate", "drift_away_rate", "pct"),
+            ("Late Rescue Rate", "late_rescue_rate", "pct"),
+        ],
+    ),
+    "perturbation_battery": (
+        "Perturbation Invariance",
+        "Do meaning-preserving edits to the prompt change the answer?",
+        "Rewrites each prompt in ways that should not change the answer (paraphrase, whitespace, ordering) and counts how often the answer breaks anyway; a no-op edit that breaks the answer points at memorisation or brittleness.",
+        [
+            ("Invariance Break Rate", "mean_invariance_break_rate", "pct"),
+            ("No-op Break Rate", "noop_break_rate", "pct"),
+        ],
+    ),
+    "step_rollout_value": (
+        "Step Rollout Value",
+        "At which reasoning step does the model's chance of finishing correctly collapse?",
+        "Rolls out completions from successive prefixes of the reasoning and scores each; the point where the success rate drops is where the reasoning went wrong.",
+        [
+            ("Success Rate from the First Step", "mean_initial_value", "pct"),
+            ("Success Rate from the Last Step", "mean_final_value", "pct"),
+            ("Mean Break Depth", "mean_break_depth", "num"),
+        ],
+    ),
     "logprob_entropy": (
         "Predictive Uncertainty (Output Entropy)",
         "Is the model confident or internally hesitating when generating key tokens?",
@@ -515,12 +554,27 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     analyzers = p0.get("analyzers") or p0.get("selected_analyzers") or []
     m1_duration = p0.get("duration_sec")
 
+    # An agent-written probe ("generated:probe1") has no glossary entry; the
+    # need it was written for is the only description that exists, and the
+    # codegen event carries it verbatim.
+    generated_need: dict[str, str] = {}
+    for event in by_event("tool_codegen"):
+        tool = str(event.get("tool_name") or "")
+        if tool and event.get("need"):
+            generated_need[tool] = str(event["need"])
     m1_results = []
     for name in analyzers:
         result_paths = p0.get("result_paths") or {}
         p = logs_dir / str(result_paths.get(name) or f"artifacts/c{m1_cycle}_{name}.result.json")
         findings, n = {}, None
         per_case_rows = []
+        # V1 externalised each analyzer's result to artifacts/; RunLoggerV2
+        # keeps the findings inline on the probe entry itself.
+        inline = (p0.get("findings") or {}).get(name)
+        if not p.exists() and isinstance(inline, dict):
+            findings = inline
+            n = findings.get("n_cases") or findings.get("n_scored")
+            per_case_rows = findings.get("per_case") or []
         if p.exists():
             try:
                 raw = json.loads(p.read_text())
@@ -545,6 +599,9 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         meta = ANALYZER_GLOSSARY.get(
             name, (name.replace("_", " ").title(), "Measures model behavior across this dimension", "Standard diagnostic probe.", [])
         )
+        if name.startswith("generated:") and name.split(":", 1)[1] in generated_need:
+            need = generated_need[name.split(":", 1)[1]]
+            meta = (f"Agent-written probe · {name.split(':', 1)[1]}", need, need, [])
         headline = []
         for label, path, fmt in meta[3]:
             v = _dig(findings, path)

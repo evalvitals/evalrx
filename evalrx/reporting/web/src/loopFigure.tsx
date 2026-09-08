@@ -162,6 +162,11 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
   // signal survived M2's correction — that is a flag, "ran" is not a verdict.
   const usedProbes = (m1?.families ?? []).flatMap((f) => f.probes.filter((p) => p.used));
   const flagged = usedProbes.filter((p) => p.confirmed).length;
+  // Per-analyzer question + headline numbers, compiled by extract_run_data
+  // (stage_detail.m1.probes) — the "what did it find" behind each phrase.
+  type ProbeDetail = { raw_name?: string; question?: string; description?: string; n_cases?: number | null; metrics?: Array<{ label: string; value: string | number | null }> };
+  const probeDetail: Record<string, ProbeDetail> = Object.fromEntries(
+    (((data.stage_detail?.m1 ?? {}) as { probes?: ProbeDetail[] }).probes ?? []).map((item) => [String(item.raw_name || ""), item]));
   const accepted = Boolean(repair?.fixed || (validation && String(validation.verdict || "").toLowerCase().includes("accept")));
   const ladder = m5?.ladder ?? [];
   const tried = m5?.candidates.length ?? 0;
@@ -232,7 +237,16 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
                     {usedProbes.map((probe) => <div key={probe.phrase} className={probe.confirmed ? "flag" : ""}>
                       <span>{probe.phrase}</span>
                       {probe.confirmed ? <b>FLAG</b> : <b className="ran">ran</b>}
-                      <i>{probe.analyzers.join(" · ")}</i>
+                      {/* What each analyzer behind the phrase asks, and what it measured. */}
+                      {probe.analyzers.map((analyzer) => {
+                        const detail = probeDetail[analyzer];
+                        const metrics = (detail?.metrics ?? []).filter((m) => m.value !== null && m.value !== undefined);
+                        return <div className="lf-probe-detail" key={analyzer}>
+                          <i>{analyzer}{detail?.n_cases ? ` · ${detail.n_cases} cases` : ""}</i>
+                          {detail?.question && !detail.question.startsWith("Measures model behavior") && <p>{detail.question}</p>}
+                          {metrics.length > 0 && <dl>{metrics.map((m) => <div key={m.label}><dt>{m.label}</dt><dd>{m.value}</dd></div>)}</dl>}
+                        </div>;
+                      })}
                     </div>)}
                   </div>}
                 </div>
