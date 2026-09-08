@@ -27,6 +27,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: evalrx/reporting/web/package-lock.json
+      - name: Build the report UI
+        # web_dist/ is gitignored (a build output, not source) and this repo
+        # ships no other build step for it -- without this, GET / in the
+        # dynamic report server has no index.html to serve and falls through
+        # to a JSON response, which is what test_dynamic_api_filters_and_serves_spa
+        # (and every other SPA-serving test) actually catches.
+        run: |
+          cd evalrx/reporting/web
+          npm ci
+          npm run build
       - name: Install torch (CPU-only, for test fixtures)
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Install package + dev deps
