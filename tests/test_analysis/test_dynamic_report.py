@@ -142,6 +142,38 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
         assert client.post("/api/runs/not-a-real-id/open").status_code == 404
 
 
+def test_runs_panel_discovers_and_opens_a_v2_run(tmp_path):
+    """RunLoggerV2 writes no run_log.jsonl at all — a run.json plus at least
+    one M<n>/log.json is its entire on-disk signature (run_logger_v2.py's
+    module docstring: "few files", one JSON doc per stage). discover_runs
+    must recognize that layout too, not only V1's flat run_log.jsonl, or
+    every V2 run — the current logger — would be invisible to the panel."""
+    from fastapi.testclient import TestClient
+
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.server import create_app, discover_runs
+
+    v2_run = tmp_path / "exp_v2" / "outputs" / "logs"
+    logger = RunLoggerV2(run_dir=v2_run)
+    logger.log_run_start({"model": "v2-model", "benchmark_name": "demo-v2", "n_cases": 1})
+    logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
+    logger.log_stage_skipped("M1", "no_signal")  # writes M1/log.json — the marker discover_runs looks for
+    logger.close()
+    assert not (v2_run / "run_log.jsonl").exists()  # the layout this test guards against regressing on
+
+    assert discover_runs(tmp_path) == [v2_run]
+
+    with TestClient(create_app(v2_run, runs_root=tmp_path)) as client:
+        items = client.get("/api/runs").json()["items"]
+        assert [item["path"] for item in items] == ["exp_v2/outputs/logs"]
+        opened = client.post(f"/api/runs/{items[0]['id']}/open")
+        assert opened.status_code == 200
+        assert opened.json()["data"]["setting"]["model"] == "v2-model"
+
+        assert client.post("/api/runs/not-a-real-id/open").status_code == 404
+
+
 def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, monkeypatch):
     """discover_runs' own cutoff is a traversal safety valve, not recency
     order — the endpoint must sort the full find before truncating to what

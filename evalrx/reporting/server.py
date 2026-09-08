@@ -101,6 +101,35 @@ def _run_label(root: Path) -> str:
     return f"{root.parent.name}/{root.name}" if root.name == "logs" else root.name
 
 
+#: RunLoggerV2's per-stage documents (evalrx/eval_agent/run_logger_v2.py).
+#: V2 writes no run_log.jsonl at all — a run.json + at least one of these is
+#: its on-disk signature, matching find_run_root's rank-2 marker and
+#: reporting/run_events.py's resolve_v2_root.
+_V2_STAGES = ("M1", "M2", "M3", "M4", "M5")
+
+
+def _is_run_root(current: Path, filenames: list[str]) -> bool:
+    """Whether *current* is a run's own directory, V1 or V2 layout."""
+    if "run_log.jsonl" in filenames:
+        return True
+    return "run.json" in filenames and any(
+        (current / stage / "log.json").is_file() for stage in _V2_STAGES
+    )
+
+
+def _run_mtime(root: Path) -> float | None:
+    """Last-activity time for a run, V1 (one growing file) or V2 (several)."""
+    candidates = (root / "run_log.jsonl", root / "run.json",
+                  *(root / stage / "log.json" for stage in _V2_STAGES))
+    stamps = []
+    for candidate in candidates:
+        try:
+            stamps.append(candidate.stat().st_mtime)
+        except OSError:
+            continue
+    return max(stamps) if stamps else None
+
+
 # Directories a run scan never descends into: version control and dependency
 # noise, plus a found run's own internals (raw case media, the coder's
 # sandbox, cached transcodes) — none of those hold a *further* run, and
@@ -116,12 +145,12 @@ RUNS_DISPLAY_LIMIT = 200
 def discover_runs(scan_root: Path, *, max_depth: int = 8, max_results: int = 2000) -> list[Path]:
     """Find run directories under ``scan_root``, without walking into any of them.
 
-    A run directory is one holding ``run_log.jsonl`` directly at its root —
-    the layout both the legacy logger and V2 ``RunContext`` write (matching
-    ``find_run_root``'s rank-0 marker). Once a run is found its own subtree
-    (data, sandbox, report, ...) is not searched further, and directories
-    named `outputs*`/`logs` are walked through since a run commonly sits a
-    few levels under an example's output directory.
+    A run directory is one written by either logger: V1's flat
+    ``run_log.jsonl``, or V2's ``run.json`` plus at least one ``M<n>/log.json``
+    (see ``_is_run_root``). Once a run is found its own subtree (data,
+    sandbox, report, the V2 stage folders, ...) is not searched further, and
+    directories named `outputs*`/`logs` are walked through since a run
+    commonly sits a few levels under an example's output directory.
 
     ``max_results`` is a safety valve for a pathological tree, not the panel's
     display limit — hitting it means the *walk* stops, in whatever order
@@ -134,7 +163,7 @@ def discover_runs(scan_root: Path, *, max_depth: int = 8, max_results: int = 200
     for dirpath, dirnames, filenames in os.walk(scan_root):
         current = Path(dirpath)
         dirnames[:] = sorted(d for d in dirnames if d not in _SCAN_SKIP_DIRS and not d.startswith("."))
-        if "run_log.jsonl" in filenames:
+        if _is_run_root(current, filenames):
             found.append(current)
             dirnames[:] = []  # a run's own subtree holds no further runs
             if len(found) >= max_results:
@@ -147,11 +176,7 @@ def discover_runs(scan_root: Path, *, max_depth: int = 8, max_results: int = 200
 
 def _run_summary(root: Path, run_id: str, scan_root: Path) -> dict[str, Any]:
     """Cheap, read-only metadata for the runs panel — never compiles a report."""
-    log_path = root / "run_log.jsonl"
-    try:
-        mtime = log_path.stat().st_mtime
-    except OSError:
-        mtime = None
+    mtime = _run_mtime(root)
     dataset = model = None
     published = False
     data_path = root / "report" / "report_data.json"
@@ -303,11 +328,7 @@ def create_app(
         # Sort the full (safety-valve-capped, not display-capped) find before
         # truncating to what the panel actually shows — discover_runs' own
         # cutoff stops the walk in traversal order, which is not recency.
-        found.sort(
-            key=lambda path: (path / "run_log.jsonl").stat().st_mtime
-            if (path / "run_log.jsonl").is_file() else 0,
-            reverse=True,
-        )
+        found.sort(key=lambda path: _run_mtime(path) or 0, reverse=True)
         items = []
         for path in found[:RUNS_DISPLAY_LIMIT]:
             run_id = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:16]
