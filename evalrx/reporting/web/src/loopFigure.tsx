@@ -61,7 +61,7 @@ function StageCard({ stage, code, title, subtitle, into, out, onClick, lane, chi
  * is not yet known (confirm pairs before a repair was validated) keeps a
  * minimum band, dashed, rather than being drawn as empty.
  */
-function BatchCylinder({ explore, heldout, confirm, caption }: { explore: number | null; heldout: number | null; confirm: number | null; caption?: string }) {
+function BatchCylinder({ explore, heldout, confirm, caption, onBand }: { explore: number | null; heldout: number | null; confirm: number | null; caption?: string; onBand?: (key: "E" | "H" | "C") => void }) {
   const bands = [
     { key: "E", label: "Explore", n: explore, icon: <Search size={12} />, cls: "explore" },
     { key: "H", label: "Held-out", n: heldout, icon: <Lock size={12} />, cls: "heldout" },
@@ -77,7 +77,9 @@ function BatchCylinder({ explore, heldout, confirm, caption }: { explore: number
   const height = y + ry + 2;
   return <div className="lf-cyl">
     <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} aria-hidden="true">
-      {drawn.map((band) => <g key={band.key} className={`lf-band lf-band-${band.cls}${band.n === null ? " unknown" : ""}`}>
+      {drawn.map((band) => <g key={band.key} className={`lf-band lf-band-${band.cls}${band.n === null ? " unknown" : ""}${onBand ? " clickable" : ""}`}
+        onClick={onBand ? (event) => { event.stopPropagation(); onBand(band.key as "E" | "H" | "C"); } : undefined}>
+        {onBand && <title>{`open the ${band.label.toLowerCase()} cases`}</title>}
         <path d={`M${left} ${band.top} A${rx} ${ry} 0 0 0 ${right} ${band.top} L${right} ${band.bottom} A${rx} ${ry} 0 0 1 ${left} ${band.bottom} Z`} />
         <text x={cx} y={(band.top + band.bottom) / 2 + ry / 2 + 3} textAnchor="middle">D<tspan baselineShift="sub" fontSize="7">{band.key}</tspan></text>
       </g>)}
@@ -85,7 +87,8 @@ function BatchCylinder({ explore, heldout, confirm, caption }: { explore: number
     </svg>
     {caption && <em className="lf-dataset" title={caption}>{caption}</em>}
     <ul>
-      {drawn.map((band) => <li key={band.key} className={`lf-band-${band.cls}${band.n === null ? " unknown" : ""}`}>
+      {drawn.map((band) => <li key={band.key} className={`lf-band-${band.cls}${band.n === null ? " unknown" : ""}${onBand ? " clickable" : ""}`}
+        onClick={onBand ? (event) => { event.stopPropagation(); onBand(band.key as "E" | "H" | "C"); } : undefined}>
         <i>{band.icon}</i><span>{band.label}</span><b>{band.n === null ? "—" : band.n}</b>
       </li>)}
     </ul>
@@ -127,6 +130,7 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
   // list was withheld from M1-M3. The confirm pairs are known only once the
   // fix stage measured a candidate on them.
   const nTotal = data.cases.length;
+  const partitions = data.setting.partitions ?? [];
   const nExplore = data.setting.n_cases || cs?.headline.n_explore || nTotal;
   const nWithheld = nTotal > nExplore ? nTotal - nExplore : (cs?.headline.n_heldout ?? null);
   const nConfirm = cs?.validation?.n_pairs ?? null;
@@ -199,7 +203,14 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
         <div className="lf-box">
           <small>FROZEN CASE BATCH</small>
           <code className="lf-math">D = {"{"}(x, y, ŷ, z, m){"}"}</code>
-          <BatchCylinder explore={nExplore} heldout={nHeldout} confirm={nConfirm} caption={data.setting.dataset} />
+          <BatchCylinder explore={nExplore} heldout={nHeldout} confirm={nConfirm} caption={data.setting.dataset}
+            onBand={partitions.length ? (key) => {
+              // A band opens the studio on its own partition. The cylinder's
+              // three letters map onto whatever the run actually recorded: on
+              // a two-way run H and C are one pool, coded "H/C".
+              const hit = partitions.find((p) => p.code.split("/").includes(key));
+              navigate(hit ? `cases:split=${hit.split}` : "cases");
+            } : undefined} />
         </div>
         <div className="lf-tip"><div><b>IN</b><span>{data.setting.dataset}</span></div><div><b>OUT</b><span>{data.setting.n_cases} cases, split before anything ran</span></div><small>click to open the case studio</small></div>
       </aside>

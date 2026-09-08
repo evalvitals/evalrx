@@ -78,3 +78,40 @@ def test_logging_a_case_twice_does_not_duplicate_it(tmp_path):
         if json.loads(line).get("event") == "case_record"
     ]
     assert len(ids) == len(set(ids)) == 8
+
+
+def test_each_case_record_names_its_partition(tmp_path):
+    """Logging every partition is not enough: the record has to say which.
+
+    Without the tag a report sees one flat list and cannot tell the cases
+    M1-M3 mined from the ones M4 and M5 were measured on -- the very
+    distinction the split exists to make.
+    """
+    cases = _batch(20)
+    with RunContext(tmp_path / "run") as ctx:
+        VLDiagnoseLoop(
+            model=FakeModel(capabilities={Capability.GENERATE}, modalities={"text"}),
+            protocol=ExperimentProtocol(description="does it answer?", task_domain="qa"),
+            diagnosis_agent=DiagnosisAgent(judge=ScriptedModel([
+                '[{"hypothesis":"it is unstable","failure_mode":"x","test":"attention.entropy"}]'
+            ])),
+            max_cycles=1, run_logger=ctx.logger,
+            confirm_split=0.3,
+        ).run(cases)
+
+    by_split: dict[str, set[str]] = {}
+    run_start = None
+    for line in (ctx.root / "run_log.jsonl").read_text().splitlines():
+        e = json.loads(line)
+        if e.get("event") == "run_start":
+            run_start = e
+        if e.get("event") == "case_record":
+            by_split.setdefault(e.get("split", "<none>"), set()).add(e["case"]["id"])
+    assert set(by_split) == {"explore", "confirm"}, by_split.keys()
+    assert len(by_split["explore"]) == 14 and len(by_split["confirm"]) == 6
+    assert not (by_split["explore"] & by_split["confirm"])
+    # run_start's n_cases is the explore partition, and the record now says
+    # how the batch was divided rather than leaving that to be inferred.
+    assert run_start is not None
+    assert run_start["n_cases"] == 14
+    assert run_start["confirm_split"] == 0.3

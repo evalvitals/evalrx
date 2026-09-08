@@ -32,7 +32,7 @@ import type {
 } from "./types";
 import { ZoomableImage } from "./lightbox";
 import {
-  chartValue, countOf, findContract, headlineSplit, leadFrom, metric, oddsPhrase,
+  chartValue, countOf, findContract, headlineSplit, leadFrom, metric, oddsPhrase, oddsValue,
   outcomeColors, plural, pointsGap, stageDetail, stripMarkdown,
 } from "./reportAccess";
 
@@ -624,6 +624,9 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
   const broke = Number(winner?.n_broken || 0);
   const pairs = Number(winner?.n_pairs || 0);
   const odds = oddsPhrase(winner?.e_value);
+  // The e-value gate this candidate was judged against (1/alpha), when the
+  // run recorded it; older runs did not, and the note then names no bar.
+  const gate = oddsValue(winner?.e_threshold);
   // The plain description of a repair can live in either place. A "floor"
   // candidate carries it on the stage row; one the judge authored carries it
   // only in the contract, and reading just the stage row lost the sentence for
@@ -636,6 +639,11 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
   ).trim();
 
   const held = candidates.filter((item: any) => item.fixed).length;
+  const ratio = oddsValue(winner?.e_value);
+  const bar = gate ? `the ${gate} bar` : "the bar";
+  const heldNote = held
+    ? `cleared ${bar}${ratio ? ` at ${ratio}` : ""}`
+    : `none cleared ${bar}${ratio ? ` · best ran ${ratio}` : ""}`;
   const heldWord = held > 1 ? `${held} repairs held up, the strongest of them` : "One repair held up";
   const verdict = detail.fixed
     ? (headline
@@ -669,26 +677,53 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
       + "tested on the same cases and are listed one level down.");
   }
 
+  // The best repair's tested cases as one ring: what it moved against what
+  // it left alone. Fixed and broken are the two live slices; the two
+  // "unchanged" slices are deliberately recessive so the eye lands on the
+  // moved ones and reads how small (or large) a share of the pool they are.
+  // Counts derive from the paired tally the run recorded, so the four sum to
+  // the cases tested; a run that logged no baseline tally shows only the
+  // slices it can vouch for.
+  const baselineRight = Number(winner?.n_baseline_correct);
+  const stillRight = Number.isFinite(baselineRight) ? Math.max(0, baselineRight - broke) : null;
+  const stillWrong = stillRight !== null && pairs ? Math.max(0, pairs - stillRight - fixed - broke) : null;
+  const slices = [
+    { name: "errors fixed", value: fixed, color: tc("#6bd8ad") },
+    { name: "new errors", value: broke, color: tc("#f06d5f") },
+    ...(stillRight !== null ? [{ name: "still right", value: stillRight, color: tc("#8fa49d") }] : []),
+    ...(stillWrong !== null ? [{ name: "still wrong", value: stillWrong, color: tc("#4f615b") }] : []),
+  ];
+  const net = fixed - broke;
   const option = {
-    grid: { left: 120, right: 24, top: 26, bottom: 28 },
-    color: [tc("#6bd8ad"), tc("#f06d5f")],
-    tooltip: { trigger: "axis", valueFormatter: chartValue },
-    legend: { textStyle: { color: tc("#9fb2ac"), fontSize: 11 }, top: 0 },
-    xAxis: {
-      type: "value", axisLabel: { color: tc("#8da19b") },
-      splitLine: { lineStyle: { color: tc("#23332f") } },
+    // Drawn in one frame: an entry animation only delays the ring, and a
+    // capture taken from a background tab (where animation frames never
+    // fire) would otherwise show the legend and the centre with no ring.
+    animation: false,
+    tooltip: { trigger: "item", valueFormatter: chartValue },
+    color: slices.map((slice) => slice.color),
+    legend: {
+      bottom: 0, itemWidth: 10, itemHeight: 10, itemGap: 14,
+      textStyle: { color: tc("#b8c9c4"), fontSize: 11 },
+      formatter: (name: string) => `${name}  ${slices.find((slice) => slice.name === name)?.value ?? ""}`,
     },
-    yAxis: {
-      type: "category",
-      data: candidates.map((item: any, i: number) => item.ref || `R${i + 1}`),
-      axisLabel: { color: tc("#b8c9c4") }, axisLine: { show: false }, axisTick: { show: false },
-    },
-    series: [
-      { name: "errors fixed", type: "bar", barWidth: 11,
-        data: candidates.map((item: any) => Number(item.n_fixed || 0)) },
-      { name: "new errors", type: "bar", barWidth: 11,
-        data: candidates.map((item: any) => Number(item.n_broken || 0)) },
-    ],
+    // Net change in the middle: the one number the whole ring is about.
+    graphic: [{
+      type: "group", left: "center", top: pairs ? "34%" : "38%",
+      children: [
+        { type: "text", style: { text: `${net > 0 ? "+" : ""}${net}`, fontSize: 30, fontFamily: "Newsreader",
+                                  fill: tc(net > 0 ? "#6bd8ad" : net < 0 ? "#f06d5f" : "#b8c9c4"), textAlign: "center" } },
+        ...(pairs ? [{ type: "text", top: 38, style: { text: `net of ${pairs} tested`, fontSize: 10, fontFamily: "DM Mono",
+                                                        fill: tc("#8da19b"), textAlign: "center" } }] : []),
+      ],
+    }],
+    series: [{
+      type: "pie", radius: ["56%", "78%"], center: ["50%", "44%"],
+      label: { show: false }, avoidLabelOverlap: false,
+      // A 2px surface gap between slices so adjacent fills never touch.
+      itemStyle: { borderColor: tc("#0d1a16"), borderWidth: 2 },
+      emphasis: { scale: false },
+      data: slices.map((slice) => ({ name: slice.name, value: slice.value })),
+    }],
   };
 
   const independent = Number(winner?.n_model_independent || 0);
@@ -702,17 +737,22 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
       // the confirmation stage, and most of them lost there.
       { label: "Repairs tested", value: candidates.length,
         note: "on cases held back from the search" },
-      { label: "Held up", value: held, note: held ? "cleared the gate" : "none cleared the gate" },
+      // The odds against luck ride on this tile rather than getting one of
+      // their own: the kicker, this count and the bullet under the chart all
+      // already say whether the repair held up, so a fifth tile repeating
+      // "not strong enough" added nothing. The number is what is new here —
+      // how far from the bar the best candidate ran.
+      { label: "Held up", value: held, note: heldNote },
       { label: "Errors fixed", value: fixed, note: pairs ? `out of ${pairs} cases tested` : undefined },
       { label: "New errors caused", value: broke,
         note: broke ? "cases that were right before" : "none" },
-      ...(odds ? [{ label: "Odds against luck", value: odds,
-                    note: winner?.reject ? "strong enough to count" : "not strong enough" }] : []),
     ],
-    figure: <ReactECharts option={option} notMerge style={{ height: Math.max(180, candidates.length * 44 + 60) }} />,
-    figureNote: "For each repair, how many cases it turned from wrong to right against "
-      + "how many it turned from right to wrong. Both bars matter — a repair that fixes "
-      + "ten and breaks nine has done almost nothing.",
+    figure: <ReactECharts option={option} notMerge style={{ height: 280 }} />,
+    figureNote: `The ${plural(pairs || fixed + broke, "case")} the best repair`
+      + `${winner?.ref ? ` (${winner.ref})` : ""} was tested on: how many it turned from `
+      + "wrong to right, how many from right to wrong, and how many it left where they "
+      + "were. Both coloured slices matter — a repair that fixes ten and breaks nine has "
+      + "done almost nothing.",
     points,
     caveat: independent
       ? `${plural(independent, "case")} ${independent === 1 ? "was" : "were"} solved by the added `

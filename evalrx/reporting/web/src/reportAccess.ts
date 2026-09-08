@@ -58,6 +58,21 @@ export function oddsPhrase(value: any): string {
 }
 
 /**
+ * The same odds as a figure for a stat tile: "1.5 : 1", "45 : 1", "> 1000 : 1".
+ *
+ * `oddsPhrase` is a clause for a sentence; set in a tile's 27px display face it
+ * wrapped as "about 1.5 to / 1", which reads as two numbers. The tile gets the
+ * ratio alone, held on one line, and the words go in the note under it.
+ */
+export function oddsValue(value: any): string {
+  const e = Number(value);
+  if (!Number.isFinite(e) || e <= 0) return "";
+  const nbsp = "\u00a0";
+  if (e >= 1000) return `>${nbsp}1000${nbsp}:${nbsp}1`;
+  return `${e >= 10 ? Math.round(e) : e.toFixed(1)}${nbsp}:${nbsp}1`;
+}
+
+/**
  * The first sentence of a paragraph, for use as a headline.
  *
  * Abbreviations ("e.g.", "i.e.", "vs.") and decimals ("+0.244") both put a dot

@@ -1194,16 +1194,21 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop")
             )
-            self.run_logger.log_cases(data)
+            # Each partition is logged under its own name: the records are the
+            # only place a reader can learn which cases M1-M3 mined and which
+            # were withheld for M4 / M5, so the tag has to be on the record.
+            self.run_logger.log_cases(
+                data, split="explore" if confirm is not None else None,
+            )
             if confirm is not None:
                 # `data` is the explore split by now, so logging only it left the
                 # held-out cases unrecorded — and those are the ones M4's verdict
                 # and M5's repair are measured on. A report then cannot show a
                 # single case behind its strongest evidence: the repair's own
                 # per-case outputs joined to nothing.
-                self.run_logger.log_cases(confirm)
+                self.run_logger.log_cases(confirm, split="confirm")
             if test is not None:
-                self.run_logger.log_cases(test)
+                self.run_logger.log_cases(test, split="test")
 
         for cycle in range(self.max_cycles):
             if self.token_budget > 0 and self._tokens_used >= self.token_budget:
@@ -1356,7 +1361,11 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop.analysis")
             )
-            self.run_logger.log_cases(data)
+            self.run_logger.log_cases(
+                data, split="explore" if confirm is not None else None,
+            )
+            if confirm is not None:
+                self.run_logger.log_cases(confirm, split="confirm")
 
         all_hypotheses: list[Any] = []
         final_stats_report = None
@@ -1445,7 +1454,11 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop.confirm")
             )
-            self.run_logger.log_cases(data)
+            self.run_logger.log_cases(
+                data, split="explore" if confirm is not None else None,
+            )
+            if confirm is not None:
+                self.run_logger.log_cases(confirm, split="confirm")
 
         # Regenerate the stats the tester needs only when not supplied. The M1/M2
         # events are NOT logged here — they were recorded in the analysis phase,

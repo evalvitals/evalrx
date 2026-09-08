@@ -16,8 +16,11 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
+# 18: `setting.partitions` + `case.split` — which band of the frozen batch
+#     each case sat in (explore / held-out / confirm), so the Case Studio can
+#     show the split the run was actually measured on.
 # 17: the case-study sheet - the whole run as one page.
 # 16: `setting.hero_image` — the run's own cover figure, embedded.
 # 15: `setting.diagnosed_by` — which agent drove the run.
@@ -27,7 +30,7 @@ from typing import Any, Iterable, Mapping
 #     makes an already-published run pick the change up — `report_is_current`
 #     only tracks new EVENTS, so without the bump every existing run would
 #     keep serving the labels its old compiler produced.
-REPORT_DATA_VERSION = 17
+REPORT_DATA_VERSION = 18
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalrx-report@2"
@@ -128,7 +131,15 @@ def build_report_data(
         case = event.get("case")
         if isinstance(case, dict):
             local = [p for p in (event.get("media_paths") or []) if isinstance(p, str)]
-            case_events.append({**case, "_media_paths": local} if local else case)
+            # The partition the loop logged the case under (see RunLogger
+            # .log_cases). Absent on runs from before it was recorded.
+            split = event.get("split")
+            extra: dict[str, Any] = {}
+            if local:
+                extra["_media_paths"] = local
+            if isinstance(split, str) and split:
+                extra["_split"] = split
+            case_events.append({**case, **extra} if extra else case)
     cases = [case for case in case_events if isinstance(case, dict)] or list(raw.get("cases") or [])
     run = dict(raw.get("run") or {})
     trace_id = str((events[-1] if events else {}).get("trace_id") or root.name)
@@ -150,12 +161,22 @@ def build_report_data(
         hit = repairs.get(case["id"])
         if hit:
             case["repair"] = hit
+    # Which partition each case sat in -- explore for M1-M3, the withheld
+    # confirm / test pools for M4 and M5 -- read off the records when the run
+    # tagged them, inferred from the record order when it did not.
+    partitions = _assign_partitions(
+        normalized_cases,
+        logged_ids=[str(c.get("id") or c.get("case_id") or "") for c in case_events],
+        n_explore=run.get("n_cases"),
+        final_ids=set(repairs),
+    )
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
     stages = _stages(raw, stage_detail.get("m5") if isinstance(stage_detail, dict) else None)
     setting = {
         "model": _contract_model_name(contract) or run.get("model") or "Target model",
         "dataset": run.get("benchmark_name") or "Evaluation dataset",
         "n_cases": int(run.get("n_cases") or len(normalized_cases)),
+        "partitions": partitions,
     }
     # The same run, assembled as one failure-to-repair sheet. None when the run
     # has no probe or stats artifacts to build it from -- the section is dropped
@@ -182,6 +203,10 @@ def build_report_data(
                 # The cover figure the run shipped, if any — see _hero_image.
                 "hero_image": _hero_image(root),
                 "n_cases": int(run.get("n_cases") or len(normalized_cases)),
+                # The frozen batch's partitions, in the order they are drawn:
+                # explore, then what was withheld. Empty when the run recorded
+                # no split and none can be inferred.
+                "partitions": partitions,
             },
             "summary": {
                 "headline": reader.get("headline") or "Failure analysis completed",
@@ -1277,6 +1302,7 @@ def _repair_candidate(value: Any) -> dict[str, Any]:
         "n_candidate_correct": value.get("n_candidate_correct"),
         "n_fixed": value.get("n_fixed", len(fixed_cases)), "n_broken": value.get("n_broken", len(broken_cases)),
         "effect": value.get("effect"), "e_value": value.get("e_value"),
+        "e_threshold": value.get("e_threshold"),
         "coverage": value.get("coverage"), "reject": value.get("reject"), "fixed": value.get("fixed"),
         "n_model_independent": value.get("n_model_independent"),
         "n_unstable": value.get("n_unstable"),
@@ -1576,7 +1602,94 @@ def _normalise_case(case: Mapping[str, Any], media: list[dict[str, Any]]) -> dic
         "task": case.get("task") or (case.get("metadata") or {}).get("category") or "",
         "media_ids": media_ids,
         "trajectory": case.get("trajectory"),
+        # explore / confirm / test, as the loop logged it; None until
+        # _assign_partitions has had a chance to infer it.
+        "split": case.get("_split") if isinstance(case.get("_split"), str) else None,
     }
+
+
+# What each partition was used for, in the words the loop figure draws them
+# with: D_E on top, D_H, D_C at the bottom. The code is the subscript.
+_EXPLORE_ROLE = ("M1-M3 mined patterns and hypotheses here. Anything measured on "
+                 "these cases is a lead, not a verdict.")
+_HELDOUT_ROLE = ("Withheld from M1-M3. M4 adjudicated the hypotheses here and M5 "
+                 "developed its repair candidates on the same cases.")
+_CONFIRM_ROLE = ("Withheld from every adaptive decision. The frozen repair was "
+                 "scored exactly once here.")
+_TWO_WAY_ROLE = ("Withheld from M1-M3. M4 adjudicated the hypotheses here and the "
+                 "repair was scored on these same cases: one withheld pool "
+                 "serving as both the held-out and the confirm set.")
+
+
+def _assign_partitions(
+    cases: list[dict[str, Any]],
+    *,
+    logged_ids: "Sequence[str]",
+    n_explore: Any,
+    final_ids: "set[str]",
+) -> list[dict[str, Any]]:
+    """Put every case in its partition and summarise the partitions.
+
+    ``case["split"]`` is filled in place (``explore`` / ``confirm`` / ``test``)
+    and the summary rows come back in drawing order, each with the subscript
+    the loop figure uses (E, H, C), its size and what the run used it for.
+
+    A run that tagged its case records is read as recorded. A run from before
+    the tag existed is inferred from what its log still says: ``run_start``'s
+    ``n_cases`` is the explore partition (the loop narrows ``data`` to it before
+    recording the start), and the loop logs explore first, then confirm, then
+    test -- so the first ``n_explore`` logged ids are explore and the rest were
+    withheld. Whether the withheld pool was further divided (train/val/test
+    mode) is recovered from M5's per-case scoring: the cases it scored the
+    frozen repair on are the test partition when they are a strict subset of
+    what was withheld, and the whole pool otherwise. Cases the report merged
+    in from a manifest rather than the log stay untagged -- their order says
+    nothing.
+
+    Returns ``[]`` when there is no split to show: no case carries one and none
+    can be inferred (a run without a confirm split, or a legacy manifest).
+    """
+    by_id = {str(case.get("id")): case for case in cases}
+    inferred = False
+    if not any(case.get("split") for case in cases):
+        ids = [cid for cid in logged_ids if cid and cid in by_id]
+        try:
+            n_head = int(n_explore or 0)
+        except (TypeError, ValueError):
+            n_head = 0
+        if not ids or n_head <= 0 or n_head >= len(ids):
+            return []
+        withheld = ids[n_head:]
+        final = {cid for cid in final_ids if cid in set(withheld)}
+        three_way = bool(final) and len(final) < len(withheld)
+        for cid in ids[:n_head]:
+            by_id[cid]["split"] = "explore"
+        for cid in withheld:
+            by_id[cid]["split"] = "test" if three_way and cid in final else "confirm"
+        inferred = True
+
+    present = {str(case.get("split")) for case in cases if case.get("split")}
+    if not present:
+        return []
+    three_way = "test" in present
+
+    def row(split: str, code: str, label: str, role: str) -> dict[str, Any]:
+        return {"split": split, "code": code, "label": label,
+                "n": sum(1 for case in cases if case.get("split") == split),
+                "role": role, "inferred": inferred}
+
+    rows = [row("explore", "E", "Explore", _EXPLORE_ROLE)]
+    if three_way:
+        rows.append(row("confirm", "H", "Held-out", _HELDOUT_ROLE))
+        rows.append(row("test", "C", "Confirm", _CONFIRM_ROLE))
+    elif "confirm" in present:
+        rows.append(row("confirm", "H/C", "Held-out", _TWO_WAY_ROLE))
+    n_unknown = sum(1 for case in cases if not case.get("split"))
+    if n_unknown:
+        rows.append({"split": "", "code": "?", "label": "Unrecorded", "n": n_unknown,
+                     "role": "The run did not record which partition these came from.",
+                     "inferred": False})
+    return rows
 
 
 def _merge_recorded_case_evidence(cases: list[dict[str, Any]], root: Path) -> list[dict[str, Any]]:

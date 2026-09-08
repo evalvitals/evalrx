@@ -189,7 +189,7 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .brief-verdict h2 { font:34px/1.28 Newsreader; margin:14px 0 0; }
 .brief-verdict .lead-small { margin:16px 0 0; font-size:13px; }
 
-.brief-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); border:1px solid var(--line); margin:34px 0; }
+.brief-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr)); border:1px solid var(--line); margin:34px 0; }
 .brief-kpis article { padding:18px; border-right:1px solid var(--line); display:grid; gap:6px; align-content:start; min-width:0; }
 .brief-kpis article:last-child { border-right:0; }
 .brief-kpis span { color:var(--c-71857f); font:9px DM Mono,monospace; letter-spacing:.09em; text-transform:uppercase; }
@@ -674,3 +674,38 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .call-io { padding: 0 10px 10px; display: grid; gap: 8px; }
 .call-io .detail-block pre { max-height: 320px; }
 .call-cases { font: 9px DM Mono, monospace; color: var(--muted); overflow-wrap: anywhere; }
+.lf-card .cs-hyp-id { font: 500 11px/1.4 "Inter", system-ui, sans-serif; letter-spacing: 0; color: var(--c-b7c7c2, #b7c7c2); }
+.lf-card .cs-hyp:hover .cs-hyp-id, .lf-card .cs-hyp.open .cs-hyp-id { color: var(--ink); }
+.lf-card .cs-hyp { padding: 8px 10px; }
+
+/* ── Case Studio: the frozen batch's partitions ──────────────────────────
+   The same three bands as the loop figure's cylinder (E explore, H held-out,
+   C confirm), so a case's chip and its band read as one thing. */
+.case-splits { display: flex; align-items: center; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.case-splits > small { color: var(--c-71857f); font: 9px DM Mono, monospace; letter-spacing: .11em; margin-right: 6px; }
+.case-splits button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--line); background: transparent; color: var(--c-b7c7c2); font-size: 10.5px; cursor: pointer; }
+.case-splits button span { font: 500 10px DM Mono, monospace; color: var(--c-9eb1aa); }
+.case-splits button span sub, .split-chip sub, .virtual-group span sub { font-size: 7px; }
+.case-splits button b { font: 500 10px DM Mono, monospace; color: var(--ink); }
+.case-splits button.active { color: var(--green); border-color: var(--c-37634f); }
+.case-splits button.split-explore.active span { color: var(--green); }
+.case-splits button.split-confirm span, .case-splits button.split-test span { color: var(--c-9eb1aa); }
+.case-splits button.split-test.active { border-color: var(--green); }
+.case-splits > em { margin-left: auto; color: var(--c-71857f); font-size: 9.5px; font-style: italic; cursor: help; }
+.virtual-group { display: grid; grid-template-columns: 38px 1fr auto; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--c-192820); background: var(--c-0d1a16); border-left: 3px solid var(--c-41534d); box-sizing: border-box; }
+.virtual-group.split-explore { border-left-color: var(--c-3b6c59); background: rgba(107, 216, 173, .06); }
+.virtual-group.split-test { border-left-color: var(--green); }
+.virtual-group.split-unrecorded { border-left-style: dashed; }
+.virtual-group > span { font: 500 12px DM Mono, monospace; color: var(--ink); }
+.virtual-group strong { font: 500 11px Manrope; letter-spacing: .04em; text-transform: uppercase; color: var(--c-b7c7c2); }
+.virtual-group p { margin: 3px 0 0; color: var(--muted); font-size: 9.5px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.virtual-group > b { font: 500 11px DM Mono, monospace; color: var(--ink); }
+.split-chip { display: inline-flex; align-items: baseline; gap: 5px; margin-left: 8px; padding: 2px 6px; border: 1px solid var(--c-41534d); color: var(--c-9eb1aa); font: 500 9px DM Mono, monospace; vertical-align: middle; }
+.split-chip em { font-style: normal; font-family: Manrope; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.split-chip.split-explore { color: var(--green); border-color: var(--c-346b56); }
+.split-chip.split-test { border-color: var(--green); }
+.case-detail-head .split-chip { margin-left: 6px; padding: 4px 7px; }
+.case-detail-head .split-note { margin: 10px 0 0; max-width: 560px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.lf-band.clickable, .lf-cyl li.clickable { cursor: pointer; }
+.lf-band.clickable:hover path { filter: brightness(1.35); }
+.lf-cyl li.clickable:hover span { color: var(--ink); text-decoration: underline; }

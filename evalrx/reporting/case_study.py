@@ -896,6 +896,8 @@ def build_case_study(
     if baseline is None:
         baseline = batch.get("accuracy")
     setting = setting or {}
+    partition_n = {str(p.get("split")): int(p.get("n") or 0)
+                   for p in (setting.get("partitions") or []) if isinstance(p, Mapping)}
 
     def prefer(key: str) -> Any:
         """The run's own summary wins over the report's generic placeholders.
@@ -919,8 +921,14 @@ def build_case_study(
             "dataset": prefer("dataset"),
             "n_cases": run.summary.get("n_cases") or setting.get("n_cases") or len(run.all_cases),
             "baseline_accuracy": baseline,
-            "n_explore": len(run.case_records),
-            "n_heldout": max(len(run.all_cases) - len(run.case_records), 0),
+            # From the report's partition table when the caller built one:
+            # ``case_records`` holds every partition the loop logged, so its
+            # length is the whole batch, not the explore split.
+            "n_explore": (partition_n.get("explore") if partition_n
+                          else len(run.case_records)),
+            "n_heldout": (sum(n for split, n in partition_n.items() if split and split != "explore")
+                          if partition_n
+                          else max(len(run.all_cases) - len(run.case_records), 0)),
             "judge": str(start.get("judge")) if start.get("judge") else None,
             "repair": (repair or {}).get("name"),
             "repair_tier": (repair or {}).get("tier"),
