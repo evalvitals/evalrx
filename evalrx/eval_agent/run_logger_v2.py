@@ -30,8 +30,6 @@ Known, deliberate scope cuts (see the design doc for why each is safe):
     finalization instead of becoming a forest of trial files.
   - No human-readable Markdown summaries (``record.md``, ``outcome.md``) —
     the same information is in the JSON for a renderer to build one from.
-  - No opt-in JSON-Schema self-validation (``EVALRX_VALIDATE_LOG``) — this is
-    a new structure with its own doc instead of ``log_schema.py``.
   - Verbose console narration is a plain one-line-per-event summary, not
     ``RunLogger``'s multi-line stage narration.
 Native Langfuse/OpenTelemetry mirroring (:class:`DiagnosticTracer`) IS kept,
@@ -56,6 +54,7 @@ from typing import TYPE_CHECKING, Any
 # them is the ONLY coupling to run_logger.py — nothing there is modified, and
 # these functions have no file-writing side effects of their own.
 from evalrx.eval_agent.run_logger import (
+    RUN_LOG_SCHEMA_VERSION,
     _artifact_to_numpy,
     _case_snapshot,
     _iter_cases,
@@ -138,6 +137,8 @@ def _atomic_write_json(path: Path, obj: Any) -> None:
 
 def _inline_workspace(
     workdir: "str | Path", media_dir: Path, *, run_dir: "Path | None" = None,
+    max_bytes: "int | None" = _INLINE_MAX_BYTES,
+    preserve_all: bool = False,
 ) -> "dict[str, Any] | None":
     """Read a sandbox working directory into a JSON-safe dict, inlining text.
 
@@ -156,19 +157,31 @@ def _inline_workspace(
         return None
     files: dict[str, Any] = {}
     media: list[str] = []
+    media_files: dict[str, str] = {}
     skipped = 0
     for f in sorted(src.rglob("*")):
         if not f.is_file():
             continue
         rel = str(f.relative_to(src))
         suffix = f.suffix.lower()
-        if suffix in _MEDIA_EXTS:
+        inline_content = None
+        binary = suffix in _MEDIA_EXTS
+        if preserve_all and suffix not in _INLINE_SUFFIXES and not binary:
+            try:
+                inline_content = f.read_text(encoding="utf-8")
+                if "\x00" in inline_content:
+                    binary = True
+            except UnicodeError:
+                binary = True
+        if binary:
             media_dir.mkdir(parents=True, exist_ok=True)
-            # A content/path digest, not Python's str hash() — hash() is
-            # salted per-process (PYTHONHASHSEED), so the same workspace file
-            # would get a different artifact name on every run, breaking the
-            # re-run diffing this file exists to support.
-            digest = hashlib.sha256(rel.encode("utf-8")).hexdigest()[:8]
+            # Path + content identify a snapshot: trials cannot collide, and
+            # later writes to the same source cannot replace earlier evidence.
+            hasher = hashlib.sha256(str(f.resolve()).encode("utf-8"))
+            with f.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()[:12]
             dest = media_dir / f"{f.stem}_{digest}{suffix}"
             try:
                 shutil.copy2(f, dest)
@@ -176,23 +189,28 @@ def _inline_workspace(
                     media.append(str(dest.relative_to(run_dir)) if run_dir else str(dest))
                 except ValueError:
                     media.append(str(dest))
+                media_files[rel] = media[-1]
             except Exception:  # noqa: BLE001
+                if preserve_all:
+                    raise  # do not let finalization delete unarchived evidence
                 skipped += 1
             continue
-        if suffix not in _INLINE_SUFFIXES:
+        if suffix not in _INLINE_SUFFIXES and inline_content is None:
             files[rel] = f"<skipped: {suffix or 'no extension'}, not a recognised text type>"
             skipped += 1
             continue
         try:
-            if f.stat().st_size > _INLINE_MAX_BYTES:
+            if max_bytes is not None and f.stat().st_size > max_bytes:
                 files[rel] = f"<skipped: {f.stat().st_size} bytes, over the inline cap>"
                 skipped += 1
                 continue
-            files[rel] = f.read_text(encoding="utf-8", errors="replace")
+            files[rel] = inline_content if inline_content is not None else f.read_text(encoding="utf-8", errors="replace")
         except Exception as exc:  # noqa: BLE001
+            if preserve_all:
+                raise
             files[rel] = f"<could not read: {exc}>"
             skipped += 1
-    return {"files": files, "media": media, "skipped": skipped}
+    return {"files": files, "media": media, "media_files": media_files, "skipped": skipped}
 
 
 class _V2JsonFormatter:
@@ -267,6 +285,9 @@ class RunLoggerV2:
         # appends to the relevant bucket(s), then atomically rewrites exactly
         # the doc(s) it touched — see _atomic_write_json.
         self._lock = threading.RLock()
+        self._event_seq = 0
+        self._validate_events = bool(os.environ.get("EVALRX_VALIDATE_LOG"))
+        self._event_validator = None
         self._run_doc: dict[str, Any] = {
             "trace_id": self.trace_id,
             "run_start": None,
@@ -325,6 +346,39 @@ class RunLoggerV2:
     def _bucket(self, stage: str, key: str) -> list:
         return self._stage_docs[stage].setdefault(key, [])
 
+    def _stamp_event(self, key: str, record: dict[str, Any], stage: str) -> None:
+        """Assign durable event identity under ``_lock``; no telemetry side effects."""
+        event = {
+            "cases": "case_record", "model_calls": "model_call",
+            "diagnose_reports": "diagnose_report", "agent_decisions": "agent_decision",
+            "agent_tool_calls": "agent_tool",
+        }.get(key, key)
+        self._event_seq += 1
+        cycle = record.get("cycle", -1)
+        span = {
+            "run_start": "run_start", "probe": f"c{cycle}.m1",
+            "analysis": f"c{cycle}.m2", "diagnosis": f"c{cycle}.m3",
+            "explore": f"c{cycle}.explore", "surgery": f"c{cycle}.{stage.lower()}",
+            "fix": "fix", "agent_decision": f"s{record.get('step')}.decision",
+            "agent_tool": f"s{record.get('step')}.tool",
+            "stage_skipped": f"{stage.lower()}.skipped",
+        }.get(event, f"{stage.lower()}.{event}.{self._event_seq}")
+        record.update(event=event, schema_version=RUN_LOG_SCHEMA_VERSION,
+                      trace_id=self.trace_id, event_seq=self._event_seq,
+                      stage=stage, span_id=span)
+        record.setdefault("ts", self._ts())
+        if self._validate_events:
+            try:
+                from evalrx.eval_agent.log_schema import _validator, build_v2_schema
+
+                if self._event_validator is None:
+                    self._event_validator = _validator(build_v2_schema())
+                self._event_validator.validate(record)
+            except ImportError:
+                pass
+            except Exception as exc:  # warn-only, matching V1
+                warnings.warn(f"RunLoggerV2: event {event!r} violates log schema: {exc}")
+
     def _append_stage(self, tag: "str | None", key: str, record: "dict[str, Any]") -> str:
         """Route *record* by *tag* into the right stage bucket; flush; return the stage."""
         stage = _resolve_stage(tag)
@@ -335,9 +389,12 @@ class RunLoggerV2:
                     "stage — filed under run.json['unrouted'] instead of being lost.",
                     stacklevel=3,
                 )
-                self._run_doc["unrouted"].append({"key": key, "tag": tag, **record})
+                record = {"key": key, "tag": tag, **record}
+                self._stamp_event("unrouted", record, "RUN")
+                self._run_doc["unrouted"].append(record)
                 self._flush_run()
                 return "unrouted"
+            self._stamp_event(key, record, stage)
             self._bucket(stage, key).append(record)
             self._flush_stage(stage)
         if self.verbose:
@@ -351,6 +408,7 @@ class RunLoggerV2:
         directly by ``log_run_start``, never through here.
         """
         with self._lock:
+            self._stamp_event(key, record, "RUN")
             self._run_doc[key].append(record)
             self._flush_run()
         if self.verbose:
@@ -434,6 +492,7 @@ class RunLoggerV2:
         if commit:
             entry.setdefault("git_commit", commit)
         with self._lock:
+            self._stamp_event("run_start", entry, "RUN")
             self._run_doc["run_start"] = entry
             self._flush_run()
         if self.verbose:
@@ -573,6 +632,16 @@ class RunLoggerV2:
             }
             self._flush_run()
 
+    def log_runtime_snapshot(self, root: Path) -> None:
+        """Preserve execution files, including discarded trials, before cleanup."""
+        snapshot = _inline_workspace(
+            root, self._stage_artifacts_dir("M5"), run_dir=self.run_dir,
+            max_bytes=None, preserve_all=True,
+        )
+        with self._lock:
+            self._run_doc["runtime_snapshot"] = snapshot
+            self._flush_run()
+
     def log_model_exchange(
         self,
         stage: str,
@@ -655,6 +724,7 @@ class RunLoggerV2:
         with self._lock:
             self._model_call_seq += 1
             record["seq"] = self._model_call_seq
+            self._stamp_event("model_calls", record, "M1")
             self._bucket("M1", "model_calls").append(record)
             self._flush_stage("M1")
             self._pending_model_calls.setdefault(cycle, []).append(record)
@@ -683,12 +753,17 @@ class RunLoggerV2:
         artifact_paths: dict[str, str] = {}
         overlay_pngs: list[Path] = []
         result_docs: dict[str, Any] = {}
+        inline_artifacts: dict[str, Any] = {}
         for name, result in results.items():
             for art_name, artifact in getattr(result, "artifacts", {}).items():
                 stem = f"c{cycle}_{name}_{art_name}"
                 rel = self._save_media("M1", stem, artifact)
                 if rel is not None:
                     artifact_paths[f"{name}/{art_name}"] = rel
+                elif isinstance(artifact, (dict, list)):
+                    inline_artifacts[f"{name}/{art_name}"] = json.loads(
+                        json.dumps(artifact, ensure_ascii=False, default=str)
+                    )
             image_overlays = getattr(result, "image_overlays", None)
             if image_overlays is not None:
                 try:
@@ -718,6 +793,7 @@ class RunLoggerV2:
             "findings": {name: r.findings for name, r in results.items()},
             "results": result_docs,
             "artifact_paths": artifact_paths,
+            "artifacts": inline_artifacts,
             "n_model_calls": len(pending_calls),
         }
         examples = _probe_examples(results, cases)
@@ -1111,6 +1187,7 @@ class RunLoggerV2:
         stage = "M4" if is_m4 else "M5"
         entry: dict[str, Any] = {
             "ts": self._ts(), "cycle": cycle,
+            "module": stage.lower(),
             "hypothesis": hypothesis.statement,
             "failure_mode": hypothesis.predicted_failure_mode,
             "status": iv.status.value, "fixed": iv.fixed,
@@ -1258,7 +1335,14 @@ class RunLoggerV2:
         each candidate's own ``"outputs"`` key. Fewer files was the whole
         point; a bulkier single JSON is the intended trade for that.
         """
-        d = outcome.to_dict()
+        d = json.loads(json.dumps(outcome.to_dict(), ensure_ascii=False, default=str))
+        for attempt in [*(d.get("attempted") or []), *(d.get("selection_attempted") or [])]:
+            trial_root = attempt.get("trial_root")
+            if trial_root:
+                attempt["workspace_snapshot"] = _inline_workspace(
+                    trial_root, self._stage_artifacts_dir("M5"),
+                    run_dir=self.run_dir, max_bytes=None, preserve_all=True,
+                )
         best_ref = d.get("best")
         if isinstance(best_ref, dict):
             best = best_ref
@@ -1266,7 +1350,7 @@ class RunLoggerV2:
             best = next((a for a in d.get("attempted") or [] if a.get("name") == best_ref), {})
         else:
             best = {}
-        entry: dict[str, Any] = {"ts": self._ts(), "cycle": -1}
+        entry: dict[str, Any] = {"ts": self._ts(), "cycle": -1, "module": "fix"}
         entry.update(d)
         entry["best"] = best
         self._append_stage("M5", "fix", entry)
@@ -1375,7 +1459,12 @@ class RunLoggerV2:
             entry["n_hypotheses"] = len(all_hyps)
             entry["n_verified"] = len(verified)
             entry["verified_hypotheses"] = [
-                {"statement": tr.hypothesis.statement, "verdict": getattr(tr, "verdict", None)}
+                {"statement": tr.hypothesis.statement,
+                 "failure_mode": tr.hypothesis.predicted_failure_mode,
+                 "status": tr.status.value,
+                 "confidence": tr.confidence,
+                 "protocol_consistent": tr.is_consistent_with_protocol,
+                 "verdict": getattr(tr, "verdict", None)}
                 for tr in verified
             ]
         self._append_run("loop_end", entry)

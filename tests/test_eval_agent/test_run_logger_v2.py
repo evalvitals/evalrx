@@ -512,3 +512,156 @@ def test_reporting_reader_and_server_discover_v2_run(tmp_path):
     backfill = backfill_run_to_langfuse(root.parent, dry_run=True)
     assert backfill["trace_id"] == events[0]["trace_id"]
     assert backfill["events"] == len(events)
+
+
+def test_non_numeric_probe_artifacts_survive_without_sidecar_files(tmp_path):
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+    artifacts = {"details": {"answer": "yes"}, "samples": ["yes", "no"],
+                 "rows": [{"case_id": "a", "score": 0.5}]}
+    with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
+        logger.log_probe(0, {"probe": Result(
+            analyzer="probe", model="stub", findings={}, artifacts=artifacts,
+        )})
+    probe = _load(tmp_path, "M1", "log.json")["probe"][0]
+    assert probe["artifacts"] == {f"probe/{key}": value for key, value in artifacts.items()}
+    assert not (tmp_path / "M1" / "artifacts").exists()
+
+
+def test_fix_trials_and_remaining_runtime_survive_cleanup(tmp_path):
+    from evalrx.eval_agent.run_context import RunContext
+
+    with RunContext(tmp_path, logger_version="v2", observability_mode="offline") as ctx:
+        trials = [ctx.new_trial("fixes", name) for name in ("first", "second")]
+        attempts = []
+        for index, trial in enumerate(trials):
+            (trial.workspace / "helper.py").write_text(f"VALUE = {index}")
+            (trial.workspace / "result.png").write_bytes(bytes([index, 2, 3]))
+            attempts.append({"name": str(index), "trial_root": str(trial.root), "outputs": {}})
+        ctx.logger.log_fix(SimpleNamespace(to_dict=lambda: {
+            "attempted": attempts, "selection_attempted": [], "best": "0",
+        }))
+        # Files created after log_fix and a discarded trial must also survive.
+        leftover = ctx.new_trial("fixes", "discarded")
+        leftover.write("run.sh", "echo retained")
+        leftover.write("opaque.bin", b"\x00\xff\x01")
+        leftover.write("large.txt", "x" * 2_000_001)
+        runtime = ctx.runtime_root
+    assert not runtime.exists()
+    fix = _load(tmp_path, "M5", "log.json")["fix"][0]
+    media = []
+    for index, attempt in enumerate(fix["attempted"]):
+        snapshot = attempt["workspace_snapshot"]
+        assert snapshot["files"]["workspace/helper.py"] == f"VALUE = {index}"
+        path = snapshot["media"][0]
+        assert snapshot["media_files"]["workspace/result.png"] == path
+        assert (tmp_path / path).read_bytes() == bytes([index, 2, 3])
+        media.append(path)
+    assert len(set(media)) == 2
+    snapshot = _load(tmp_path, "run.json")["runtime_snapshot"]
+    assert "echo retained" in snapshot["files"].values()
+    assert "x" * 2_000_001 in snapshot["files"].values()
+    assert any((tmp_path / path).read_bytes() == b"\x00\xff\x01" for path in snapshot["media"])
+    assert not any(path.suffix in {".py", ".sh", ".txt"} for path in tmp_path.rglob("*"))
+    assert "workspace_snapshot" not in attempts[0]  # no mutation of producer data
+
+
+def test_failed_runtime_archive_does_not_delete_source(tmp_path, monkeypatch):
+    import shutil
+
+    import pytest
+
+    from evalrx.eval_agent.run_context import RunContext
+
+    ctx = RunContext(tmp_path, logger_version="v2", observability_mode="offline")
+    ctx.logger.log_run_start({})
+    runtime = ctx.runtime_root
+    (runtime / "image.png").write_bytes(b"evidence")
+    def fail_copy(*args, **kwargs):
+        raise OSError("archive unavailable")
+    with monkeypatch.context() as patch:
+        patch.setattr(shutil, "copy2", fail_copy)
+        with pytest.raises(OSError, match="archive unavailable"):
+            ctx.finalize()
+    assert (runtime / "image.png").read_bytes() == b"evidence"
+    ctx.finalize()
+    assert not runtime.exists()
+
+
+def test_m4_case_study_accepts_new_and_legacy_v2_bundles(tmp_path):
+    from evalrx.reporting.case_study import _m4
+    from evalrx.reporting.run_events import read_v2_events
+
+    _emit_every_method(tmp_path)
+    for legacy in (False, True):
+        if legacy:
+            path = tmp_path / "M4" / "log.json"
+            doc = _load(tmp_path, "M4", "log.json")
+            for event in doc["surgery"]:
+                event.pop("module")
+            path.write_text(json.dumps(doc))
+        events = read_v2_events(tmp_path)
+        rows = _m4(SimpleNamespace(events_of=lambda name: [e for e in events if e["event"] == name]))
+        assert len(rows) == 1
+        assert rows[0]["status"] == "supported"
+        assert rows[0]["test_name"] == "paired_t_test"
+
+
+def test_loop_summary_keeps_verified_hypothesis_evidence(tmp_path):
+    from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+
+    hypothesis = Hypothesis(statement="why", target_model="stub", predicted_failure_mode="mode")
+    result = HypothesisTestResult(
+        hypothesis=hypothesis, status=HypothesisStatus.SUPPORTED, test_name="audit",
+        effect_size=0.2, is_consistent_with_protocol=True, confidence=0.9, verdict="supported",
+    )
+    with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
+        logger.log_loop_end(SimpleNamespace(
+            cycles=1, stopped_by="verified", all_hypotheses=[hypothesis], verified_hypotheses=[result],
+        ))
+    assert _load(tmp_path, "run.json")["loop_end"][0]["verified_hypotheses"] == [{
+        "statement": "why", "failure_mode": "mode", "status": "supported",
+        "confidence": 0.9, "protocol_consistent": True, "verdict": "supported",
+    }]
+
+
+def test_persisted_event_identity_orders_concurrent_calls_and_validates(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from evalrx.eval_agent.log_schema import _validator, build_v2_schema
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.run_events import read_v2_events
+
+    monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
+    _emit_every_method(tmp_path)
+    validator = _validator(build_v2_schema())
+    for event in read_v2_events(tmp_path):
+        validator.validate(event)
+    root = tmp_path / "concurrent"
+    with RunLoggerV2(root, observability_mode="offline") as logger:
+        monkeypatch.setattr(logger, "_ts", lambda: "2026-09-07T00:00:00+00:00")
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda index: logger.log_model_exchange(
+                f"M{index % 5 + 1}", role="test", operation="generate", inputs=index, output=index,
+            ), range(30)))
+    events = read_v2_events(root)
+    assert [event["event_seq"] for event in events] == list(range(1, 31))
+    assert len({event["span_id"] for event in events}) == 30
+    for event in events:
+        validator.validate(event)
+    assert [event["event_seq"] for event in read_v2_events(root)] == list(range(1, 31))
+
+
+def test_v2_schema_validation_warns_but_preserves_invalid_event(tmp_path, monkeypatch):
+    import pytest
+
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+    monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
+    with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
+        with pytest.warns(UserWarning, match="violates log schema"):
+            logger.log_stage_skipped("M4", "reason", cycle="invalid")
+    assert _load(tmp_path, "M4", "log.json")["stage_skipped"][0]["cycle"] == "invalid"

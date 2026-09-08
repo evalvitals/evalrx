@@ -387,6 +387,48 @@ def build_schema() -> dict[str, Any]:
     }
 
 
+def build_v2_schema() -> dict[str, Any]:
+    """V2 event schema: V1 fields plus inline evidence and V2-only events.
+
+    This validates individual records inside the bucketed JSON documents;
+    it does not change the published V1 JSONL schema.
+    """
+    schema = build_schema()
+    schema["$id"] = "https://evalrx.dev/schemas/run_logger_v2.event.schema.json"
+    schema["title"] = "EvalRX RunLoggerV2 event"
+    schema["description"] = "One persisted event in a V2 run or stage JSON document."
+    envelope = schema["$defs"]["envelope"]
+    envelope["required"] += ["event_seq", "stage", "span_id"]
+    envelope["properties"]["stage"] = {"enum": ["RUN", "M1", "M2", "M3", "M4", "M5"]}
+    extra_events = {
+        "model_call": {
+            "required": ["cycle", "inputs", "output"],
+            "properties": {
+                "duration_sec": {"type": "number"},
+                "error": {"type": ["string", "null"]},
+            },
+            "anyOf": [{"required": ["analyzer", "method", "call_index"]},
+                      {"required": ["role", "operation"]}],
+        },
+        "diagnose_report": {
+            "required": ["cycles", "hypotheses", "m4_results", "discovery"],
+            "properties": {key: {"type": "array"} for key in
+                           ("hypotheses", "m4_results", "discovery")},
+        },
+        "unrouted": {"required": ["key", "tag"]},
+    }
+    for name, spec in extra_events.items():
+        envelope["properties"]["event"]["enum"].append(name)
+        schema["$defs"][name] = {
+            "allOf": [{"$ref": "#/$defs/envelope"}, {
+                "type": "object", **spec,
+                "properties": {"event": {"const": name}, **spec.get("properties", {})},
+            }],
+        }
+        schema["oneOf"].append({"$ref": f"#/$defs/{name}"})
+    return schema
+
+
 def load_schema() -> dict[str, Any]:
     """Load the committed, rendered :data:`SCHEMA_PATH` (the shipped artifact)."""
     return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))

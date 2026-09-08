@@ -541,11 +541,14 @@ class RunContext:
         if self._finalized:
             return
         if self.is_v2:
-            if self._logger is not None:
-                self._logger.close()
+            if self._logger is not None or self._runtime_root is not None:
+                logger = self.logger
+                if self._runtime_root is not None:
+                    logger.log_runtime_snapshot(self._runtime_root)
+                logger.close()
                 # close() materializes the trace bundle and every M1-M5 log;
                 # index only afterwards so the manifest is complete.
-                self._logger.log_manifest(run_id=self.run_id, config=self.config)
+                logger.log_manifest(run_id=self.run_id, config=self.config)
             if self._runtime_root is not None:
                 shutil.rmtree(self._runtime_root, ignore_errors=True)
             self._finalized = True

@@ -242,11 +242,6 @@ ephemeral execution space for V2, and the logger captures its evidence before
 
 - **No Markdown summaries** (`record.md`, `outcome.md`). Same information,
   no separate file; a renderer builds a human view from the JSON on demand.
-- **No opt-in JSON-Schema self-validation** (`RunLogger`'s
-  `EVALRX_VALIDATE_LOG` / `log_schema.py` / `run_log.schema.json`). This is a
-  new structure with this markdown file as its spec instead of a machine
-  schema. (A JSON-Schema for this layout is a reasonable follow-up, not done
-  here.)
 - **Simplified verbose console output.** `RunLogger`'s `verbose=True` renders
   multi-line, stage-specific narration (`_VerboseFormatter`). `RunLoggerV2`'s
   `verbose=True` prints one line per event (`[M3] diagnosis cycle=0`) — this
@@ -254,6 +249,39 @@ ephemeral execution space for V2, and the logger captures its evidence before
   verbatim would have doubled the size of this module for no layout benefit.
 
 ## What "confirmed working" means so far
+
+### Non-Langfuse parity additions
+
+- Non-numeric dict/list probe artifacts are inlined under
+  `M1/log.json["probe"][i]["artifacts"]`, keyed by `analyzer/artifact`.
+  Numeric artifacts remain `.npy` files. `results` retains result metadata
+  and summaries independently from these artifacts.
+- Fix attempts (including EXPLORE selection attempts with a `trial_root`)
+  carry a `workspace_snapshot`. Before deleting its temporary execution tree,
+  `RunContext.finalize()` also captures the entire remaining tree in
+  `run.json["runtime_snapshot"]`, including discarded trials and late files.
+  These managed snapshots preserve text without the normal 2 MB cap, inline
+  other UTF-8 text such as shell scripts, and copy binary files into M5 artifacts.
+  Failed archival prevents cleanup so it can be retried. Media names include
+  source path and content hashes to preserve different trials and revisions.
+- M4/M5 surgery records include `module`; the reader supplies this field for
+  older V2 bundles too. Existing case-study M4 filtering works on both.
+- `loop_end.verified_hypotheses` retains `failure_mode`, `status`, `confidence`,
+  and `protocol_consistent`, alongside `statement` and `verdict`.
+- Every newly written event carries `event`, `schema_version`, `trace_id`,
+  `stage`, `span_id`, and a global `event_seq` assigned under the logger lock.
+  The reader preserves these identities and sorts new bundles by sequence;
+  historical bundles still use timestamp ordering. These local span IDs do
+  not add or change Langfuse delivery.
+- `EVALRX_VALIDATE_LOG=1` enables warn-only validation of persisted events
+  using `log_schema.build_v2_schema()`. It reuses V1's common event fields and
+  adds V2 model-call, diagnosis-report, and unrouted records. The published V1
+  schema is unchanged; validation requires the optional `jsonschema` package.
+
+Regression tests cover data retention after cleanup, retry after archival
+failure, M4 rendering of old/new bundles, verified-summary parity, concurrent
+event ordering, and valid/invalid schema inputs. These are local tests, not
+a new real-model benchmark or live Langfuse acceptance run.
 
 `tests/test_eval_agent/test_run_logger_v2.py`:
 
