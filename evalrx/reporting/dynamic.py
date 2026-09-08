@@ -591,6 +591,12 @@ def _stage_detail(
     explore = dict(m2.get("explore") or {})
     figure_dir = Path(raw.get("explore_dir") or logs_dir.parent / "explore") / "figures"
     figures = _explore_figures(explore, figure_dir, root)
+    if not figures:
+        # No explore/ directory beside the logs (a run copied as logs/ alone,
+        # or a V2 run): the explore and analysis events name their figures as
+        # paths under logs/, and RunLoggerV2 copied them into M2/artifacts/.
+        figures = _logged_figures(
+            [*(explore.get("figures") or []), *(m2.get("figures") or [])], logs_dir, root)
     takeaways = []
     for item in explore.get("takeaways") or []:
         if isinstance(item, dict):
@@ -1150,6 +1156,27 @@ def _plain_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
 
 def _visual_key(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", Path(str(value or "")).stem.lower())
+
+
+def _logged_figures(paths: Iterable[Any], logs_dir: Path, root: Path) -> list[dict[str, Any]]:
+    """Figures the run logged by path (relative to logs/), that exist on disk."""
+    result: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for item in paths:
+        if not isinstance(item, str) or not item.lower().endswith(".png"):
+            continue
+        candidate = (logs_dir / item).resolve()
+        if candidate in seen or not candidate.is_file():
+            continue
+        seen.add(candidate)
+        stem = re.sub(r"_[0-9a-f]{8}$", "", candidate.stem)   # the content-hash suffix V2 adds
+        result.append({
+            "id": candidate.stem, "title": stem.replace("_", " ").strip().title(),
+            "question": "", "path": os.path.relpath(candidate, root), "reading": "",
+            "do_not_infer": "No agent-authored interpretation was saved for this figure.",
+            "disposition": "supporting", "not_promoted_reason": "",
+        })
+    return result[:30]
 
 
 def _explore_figures(explore: Mapping[str, Any], figure_dir: Path, root: Path) -> list[dict[str, Any]]:

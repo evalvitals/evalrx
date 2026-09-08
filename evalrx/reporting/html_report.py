@@ -654,6 +654,10 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         raw_stats = json.loads(stats_path.read_text()) if stats_path.exists() else []
     except (OSError, json.JSONDecodeError):
         raw_stats = []
+    if not raw_stats and isinstance(stats_ref, list):
+        # RunLoggerV2 keeps the M2 rows inline on the analysis entry rather
+        # than externalising them to artifacts/.
+        raw_stats = [row for row in stats_ref if isinstance(row, dict)]
     stats = []
     for s in raw_stats:
         stats.append({
@@ -674,6 +678,31 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             explore_data = json.loads((explore_dir / "exploratory_report.json").read_text())
         except Exception:
             pass
+    if not explore_data:
+        # RunLoggerV2 records the explore step as an M2 event: observations and
+        # caveats as sentences, figures as paths under logs/. Shape it the way
+        # the explore report is shaped, so the M2 record renders either.
+        explores = by_event("explore")
+        e0 = explores[-1] if explores else {}
+        takeaways = []
+        for text in a0.get("findings") or []:
+            if isinstance(text, str) and text.strip():
+                takeaways.append({"title": "Screening finding", "plain_title": "Screening finding",
+                                  "analysis": text.strip(), "chart_names": [], "table_names": []})
+        for text in e0.get("observations") or []:
+            if isinstance(text, str) and text.strip():
+                head = text.strip().split(";")[0].split(". ")[0]
+                takeaways.append({"title": head[:90], "plain_title": head[:90],
+                                  "analysis": text.strip(), "chart_names": [], "table_names": []})
+        if takeaways or e0:
+            explore_data = {
+                "takeaways": takeaways,
+                "caveats": [c for c in e0.get("caveats") or [] if isinstance(c, str)],
+                "observations": [o for o in e0.get("observations") or [] if isinstance(o, str)],
+                "figures": [f for f in e0.get("figures") or [] if isinstance(f, str)],
+                "adjudication": e0.get("adjudication") or {},
+                "candidate_signals": [], "hypotheses": [],
+            }
 
     # M3: Hypotheses
     diagnoses = by_event("diagnosis")
@@ -903,6 +932,8 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "duration": m2_duration,
             "stats": stats,
             "explore": explore_data,
+            # The analysis step's own figures (V2 paths under logs/).
+            "figures": [f for f in a0.get("figures") or [] if isinstance(f, str)],
         },
         "m3": {
             "hypotheses": hypotheses,
