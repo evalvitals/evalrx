@@ -794,13 +794,18 @@ class RunLogger:
             metadata=entry,
         )
 
-    def log_cases(self, cases: "Any") -> None:
+    def log_cases(self, cases: "Any", *, split: "str | None" = None) -> None:
         """Persist complete case I/O and media references to JSONL + Langfuse.
 
         One event per case keeps observations independently queryable and avoids
         a single oversized Langfuse payload.  Media remains path-referenced in
         JSONL; ``media_paths`` makes the tracer upload every existing file as a
         Langfuse Media object with content hashing and deduplication.
+
+        ``split`` names the partition the loop put the case in (``"explore"``,
+        ``"confirm"``, ``"test"``). The loop logs every partition, so without
+        this a reader cannot tell the cases M1-M3 mined from the ones M4 and
+        M5 were measured on -- which is the whole point of splitting them.
         """
         for case in cases:
             case_id = str(getattr(case, "id", "") or "")
@@ -843,10 +848,12 @@ class RunLogger:
                     if not copied.exists():
                         shutil.copy2(path, copied)
                     media_paths.append(str(copied.relative_to(self.run_dir)))
-            self._log(
-                {"event": "case_record", "case_id": case_id, "case": payload, "media_paths": media_paths},
-                span_id=f"case.{case_id}",
-            )
+            record: dict[str, Any] = {
+                "event": "case_record", "case_id": case_id, "case": payload, "media_paths": media_paths,
+            }
+            if split:
+                record["split"] = str(split)
+            self._log(record, span_id=f"case.{case_id}")
             self._logged_case_ids.add(case_id)
 
     def log_report_published(self, envelope: "dict[str, Any]") -> None:

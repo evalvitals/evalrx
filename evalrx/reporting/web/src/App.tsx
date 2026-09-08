@@ -52,9 +52,12 @@ export function App() {
   const body = view === "evidence" || view.startsWith("evidence:")
     ? <EvidenceView data={payload.data} back={back} navigate={setView} initialStage={view.split(":")[1]} />
     // "cases:<id>" opens the studio focused on one case, which is how M5's
-    // repaired/broken chips link into it.
+    // repaired/broken chips link into it; "cases:split=<partition>" opens it
+    // filtered to one band of the batch cylinder.
     : view === "cases" || view.startsWith("cases:")
-      ? <CasesView data={payload.data} back={back} initialCaseId={view.split(":")[1]} />
+      ? <CasesView data={payload.data} back={back}
+          initialCaseId={view.split(":")[1]?.startsWith("split=") ? undefined : view.split(":")[1]}
+          initialSplit={view.split(":")[1]?.startsWith("split=") ? view.split(":")[1].slice("split=".length) : undefined} />
       : view === "debug"
         ? <DebugView data={payload.data} back={back} />
         : <>

@@ -15,15 +15,15 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { CaseStudy, CaseStudyPhase, CaseStudyVerdict } from "./types";
 
-const pct = (value: number | null | undefined, digits = 1) =>
+export const pct = (value: number | null | undefined, digits = 1) =>
   value === null || value === undefined ? "—" : `${(value * 100).toFixed(digits)}%`;
-const signed = (value: number | null | undefined, digits = 2) =>
+export const signed = (value: number | null | undefined, digits = 2) =>
   value === null || value === undefined ? "—" : `${value < 0 ? "−" : "+"}${Math.abs(value).toFixed(digits)}`;
 /** Never print p as 0: below the resolution of the test, say so instead. */
 const pValue = (value: number | null | undefined) =>
   value === null || value === undefined ? "" : value < 0.001 ? "p ≪ .001" : `p = ${value.toFixed(3)}`;
 /** `working_memory_capacity_limit` -> `Working memory capacity limit`. */
-const humanise = (value: string | null | undefined) => {
+export const humanise = (value: string | null | undefined) => {
   const text = String(value || "").replace(/[_`]+/g, " ").trim();
   return text ? text[0].toUpperCase() + text.slice(1) : "";
 };
@@ -80,13 +80,14 @@ function useDismiss<E extends HTMLElement>(open: boolean, close: () => void) {
   return box;
 }
 
-function Hypothesis({ hypothesis }: { hypothesis: CaseStudy["m3"][number] }) {
+export function Hypothesis({ hypothesis }: { hypothesis: CaseStudy["m3"][number] }) {
   const [open, setOpen] = useState(false);
   const box = useDismiss<HTMLDivElement>(open, () => setOpen(false));
   return <div className="cs-hyp-wrap" ref={box}>
     <button type="button" className={`cs-hyp${open ? " open" : ""}`} onClick={() => setOpen((was) => !was)}
       aria-expanded={open}>
-      <span className="cs-hyp-id">{hypothesis.id} · {humanise(hypothesis.failure_mode)}</span>
+      <span className="cs-hyp-id">{hypothesis.id}</span>
+      <span className="cs-hyp-name">{humanise(hypothesis.failure_mode)}</span>
       <ChevronDown size={13} />
     </button>
     {open && <div className="cs-hyp-pop" role="dialog">
@@ -99,7 +100,7 @@ function Hypothesis({ hypothesis }: { hypothesis: CaseStudy["m3"][number] }) {
 }
 
 
-function Verdict({ verdict }: { verdict: CaseStudyVerdict }) {
+export function Verdict({ verdict }: { verdict: CaseStudyVerdict }) {
   const [open, setOpen] = useState(false);
   const box = useDismiss<HTMLDivElement>(open, () => setOpen(false));
   const supported = verdict.status === "supported";

@@ -546,6 +546,9 @@ class FixValidation:
     # test. Baseline-correct cases are never dropped on this ground.
     n_model_independent: int = 0
     e_value: "float | None" = None
+    # The bar ``e_value`` was judged against (1/alpha). Recorded beside the
+    # number so a reader of "1.5 to 1" can see it needed 20 to 1, not guess.
+    e_threshold: "float | None" = None
     # Coarse verdict (defect 4): fixed | partial | unsafe | regressed |
     # no_effect | not_executed | model_independent.  Richer than the boolean
     # ``fixed`` for triage.
@@ -648,6 +651,7 @@ class FixOutcome:
                     "n_unstable": v.n_unstable,
                     "n_model_independent": v.n_model_independent,
                     "e_value": v.e_value,
+                    "e_threshold": v.e_threshold,
                     "verdict": v.verdict,
                     "n_truncated": v.n_truncated,
                     "noise_model": v.noise_model,
@@ -3638,7 +3642,7 @@ class FixAgent:
         baseline: "dict[str, Optional[bool]]",
         unstable: "set[str] | None" = None,
     ) -> FixValidation:
-        v = FixValidation(candidate=candidate)
+        v = FixValidation(candidate=candidate, e_threshold=1.0 / self._alpha)
         unstable = unstable or set()
         rates_mode = self._baseline_repeats > 1 or self._candidate_repeats > 1
         v.noise_model = "paired_rates" if rates_mode else "mcnemar"

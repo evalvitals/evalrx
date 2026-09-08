@@ -524,8 +524,13 @@ class RunLoggerV2:
             pass
         return os.environ.get("EVALRX_GIT_COMMIT") or None
 
-    def log_cases(self, cases: "Any") -> None:
-        """Persist complete case I/O; media is copied into ``media/`` (rule 4's exception)."""
+    def log_cases(self, cases: "Any", *, split: "str | None" = None) -> None:
+        """Persist complete case I/O; media is copied into ``media/`` (rule 4's exception).
+
+        ``split`` is the partition the loop assigned (``explore`` / ``confirm`` /
+        ``test``), recorded on the row so a report can group the cases the way
+        the run actually used them.
+        """
         for case in cases:
             case_id = str(getattr(case, "id", "") or "")
             if not case_id or case_id in self._logged_case_ids:
@@ -552,9 +557,12 @@ class RunLoggerV2:
                 saved = self._save_case_media(path)
                 if saved:
                     media_paths.append(saved)
-            self._append_run("cases", {
+            record: dict[str, Any] = {
                 "ts": self._ts(), "case_id": case_id, "case": payload, "media_paths": media_paths,
-            })
+            }
+            if split:
+                record["split"] = str(split)
+            self._append_run("cases", record)
             self._logged_case_ids.add(case_id)
 
     def log_report_published(self, envelope: "dict[str, Any]") -> None:

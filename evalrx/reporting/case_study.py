@@ -230,6 +230,10 @@ FAMILY_MENU = {
 
 
 def phrase_for(analyzer: str) -> str:
+    if analyzer.startswith("generated:"):
+        # Written by the agent during this run's M1 — nothing in the codebase
+        # can name it better than the run itself does.
+        return f"agent-written probe · {analyzer.split(':', 1)[1]}"
     return ANALYZER_PHRASE.get(analyzer, analyzer.replace("_", " "))
 
 
@@ -332,6 +336,22 @@ class _Run:
     def per_case(self, analyzer: str, cycle_prefix: str = "c0") -> "list[dict[str, Any]]":
         blob = _load(self.logs / "artifacts" / f"{cycle_prefix}_{analyzer}.result.json", {}) or {}
         rows = (blob.get("findings") or {}).get("per_case") or []
+        if not rows:
+            # V1 externalised each analyzer's result to artifacts/; RunLoggerV2
+            # keeps every analyzer's findings inline on the M1 probe entry,
+            # one entry per pass (cycle 0 = explore, -1 = the held-out re-run).
+            want = -1 if cycle_prefix in ("c-1", "post") else 0
+            for entry in self.events_of("probe"):
+                try:
+                    cycle = int(entry.get("cycle") or 0)
+                except (TypeError, ValueError):
+                    cycle = 0
+                if cycle != want:
+                    continue
+                findings = (entry.get("findings") or {}).get(analyzer)
+                if isinstance(findings, dict) and findings.get("per_case"):
+                    rows = findings["per_case"]
+                    break
         return [row for row in rows if isinstance(row, dict)]
 
     def m2_files(self) -> "list[tuple[str, Path]]":
@@ -547,13 +567,39 @@ def _signal_curve(run: _Run, signals: Sequence[str]) -> "dict[str, Any] | None":
     }
 
 
-def _m2(run: _Run) -> "dict[str, Any] | None":
+def _m2_sources(run: _Run) -> "list[tuple[str, list]]":
+    """[(phase, stats rows)], explore before held-out.
+
+    V1's RunLogger externalised each M2 pass to ``artifacts/<prefix>_m2_stats_results.json``;
+    RunLoggerV2 keeps the same rows inline as ``stats_results`` on the M2
+    ``analysis`` entry, with the pass told apart by cycle (0 = explore, -1 =
+    the held-out re-run). Same rows, same ``fdr_corrected`` flag — only where
+    they live differs.
+    """
     files = run.m2_files()
-    if not files:
+    if files:
+        return [(phase, _load(path, []) or []) for phase, path in files]
+    found = []
+    for entry in run.events_of("analysis"):
+        rows = entry.get("stats_results")
+        if not isinstance(rows, list) or not rows:
+            continue
+        cycle = entry.get("cycle")
+        try:
+            phase = "heldout" if cycle is not None and int(cycle) < 0 else "explore"
+        except (TypeError, ValueError):
+            phase = "explore"
+        found.append((phase, rows))
+    found.sort(key=lambda item: 0 if item[0] == "explore" else 1)
+    return found
+
+
+def _m2(run: _Run) -> "dict[str, Any] | None":
+    sources = _m2_sources(run)
+    if not sources:
         return None
     phases = {}
-    for phase, path in files:
-        results = _load(path, []) or []
+    for phase, results in sources:
         tests = []
         family_size = 0
         for row in results:
@@ -843,8 +889,15 @@ def build_case_study(
             for probe in family["probes"]:
                 probe["confirmed"] = bool(owner) and owner in probe["analyzers"]
     start = run.event("run_start") or {}
+    # The benchmark harness writes `baseline_accuracy`; llm_benchmark's
+    # summary.json nests the same number as `batch.accuracy`.
+    batch = run.summary.get("batch") if isinstance(run.summary.get("batch"), dict) else {}
     baseline = run.summary.get("baseline_accuracy")
+    if baseline is None:
+        baseline = batch.get("accuracy")
     setting = setting or {}
+    partition_n = {str(p.get("split")): int(p.get("n") or 0)
+                   for p in (setting.get("partitions") or []) if isinstance(p, Mapping)}
 
     def prefer(key: str) -> Any:
         """The run's own summary wins over the report's generic placeholders.
@@ -868,8 +921,14 @@ def build_case_study(
             "dataset": prefer("dataset"),
             "n_cases": run.summary.get("n_cases") or setting.get("n_cases") or len(run.all_cases),
             "baseline_accuracy": baseline,
-            "n_explore": len(run.case_records),
-            "n_heldout": max(len(run.all_cases) - len(run.case_records), 0),
+            # From the report's partition table when the caller built one:
+            # ``case_records`` holds every partition the loop logged, so its
+            # length is the whole batch, not the explore split.
+            "n_explore": (partition_n.get("explore") if partition_n
+                          else len(run.case_records)),
+            "n_heldout": (sum(n for split, n in partition_n.items() if split and split != "explore")
+                          if partition_n
+                          else max(len(run.all_cases) - len(run.case_records), 0)),
             "judge": str(start.get("judge")) if start.get("judge") else None,
             "repair": (repair or {}).get("name"),
             "repair_tier": (repair or {}).get("tier"),

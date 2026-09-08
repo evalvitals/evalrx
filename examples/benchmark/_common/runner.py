@@ -228,7 +228,15 @@ def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
     """
     from evalrx.eval_agent.label_quarantine import quarantine_run_dir
 
-    with quarantine_run_dir(run_dir, append_logs=[ctx.log_path]) as q:
+    # V1 appends to run_log.jsonl (merge old + new afterwards). V2 rewrites
+    # each M<n>/log.json and run.json atomically, and the rewritten document
+    # already contains everything from before the fix — declare those as
+    # rewrite logs, or the quarantine mistakes every one of them for a
+    # conflict and leaves a non-JSON `log.json.pre_fix` beside each.
+    managed = getattr(getattr(ctx, "logger", None), "managed_json_paths", None)
+    quarantine_kwargs = ({"rewrite_logs": list(managed)} if managed
+                         else {"append_logs": [ctx.log_path]})
+    with quarantine_run_dir(run_dir, **quarantine_kwargs) as q:
         print(f"[fix] label quarantine: {len(q.hidden)} run-dir file(s) held in memory "
               "for the fix stage (restored afterwards; see fix_quarantine.json)")
         return loop.run_fix(report, cases, **fix_kwargs)
@@ -334,7 +342,10 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     from evalrx.eval_agent.stages.repair_catalog import method_names
 
     tvt = args.split_mode == "tvt"
-    ctx = RunContext(run_dir / "logs", verbose=True, config={
+    # V2 layout — one logs/M<n>/log.json per stage with hypothesis_id lineage —
+    # the same tree llm_benchmark/run_pipeline.py writes, so the report UI
+    # reads a vision/audio cell exactly like a text one.
+    ctx = RunContext(run_dir / "logs", verbose=True, logger_version="v2", config={
         "benchmark": task.title, "dataset": task.name, "modality": task.modality,
         "model": args.model, "spec": spec.key, "hf_repo": spec.hf_repo, "backend": resolved.backend,
         "n_cases": len(cases), "manifest": str(manifest),

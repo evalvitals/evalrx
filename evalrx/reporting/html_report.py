@@ -142,6 +142,45 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, str, list[tuple[str, str, str]]]] =
             ("Majority Answer Agreement Rate", "consistency", "pct"),
         ],
     ),
+    "self_repair": (
+        "Self-Repair on Re-ask",
+        "When asked to check its own answer, does the model catch and fix its mistakes?",
+        "Asks the model to critique and revise its first answer. Reports how often it detects a real error, how often it raises a false alarm on a correct answer, and how often the revision actually repairs a failure.",
+        [
+            ("Error Detection Accuracy", "detection_accuracy", "pct"),
+            ("False Alarm Rate on Correct Answers", "false_alarm_rate", "pct"),
+            ("Repair Rate on Failures", "repair_rate", "pct"),
+        ],
+    ),
+    "cot_faithfulness": (
+        "Chain-of-Thought Faithfulness",
+        "Does the written reasoning actually drive the final answer, or is it decoration?",
+        "Compares the answer the model commits to early in its reasoning with the one it ends on: reasoning that drifts away from a correct early answer, or rescues a wrong one late, is unfaithful to the final output.",
+        [
+            ("Early Answer Matches Final", "mean_early_match_rate", "pct"),
+            ("Drift-Away Rate", "drift_away_rate", "pct"),
+            ("Late Rescue Rate", "late_rescue_rate", "pct"),
+        ],
+    ),
+    "perturbation_battery": (
+        "Perturbation Invariance",
+        "Do meaning-preserving edits to the prompt change the answer?",
+        "Rewrites each prompt in ways that should not change the answer (paraphrase, whitespace, ordering) and counts how often the answer breaks anyway; a no-op edit that breaks the answer points at memorisation or brittleness.",
+        [
+            ("Invariance Break Rate", "mean_invariance_break_rate", "pct"),
+            ("No-op Break Rate", "noop_break_rate", "pct"),
+        ],
+    ),
+    "step_rollout_value": (
+        "Step Rollout Value",
+        "At which reasoning step does the model's chance of finishing correctly collapse?",
+        "Rolls out completions from successive prefixes of the reasoning and scores each; the point where the success rate drops is where the reasoning went wrong.",
+        [
+            ("Success Rate from the First Step", "mean_initial_value", "pct"),
+            ("Success Rate from the Last Step", "mean_final_value", "pct"),
+            ("Mean Break Depth", "mean_break_depth", "num"),
+        ],
+    ),
     "logprob_entropy": (
         "Predictive Uncertainty (Output Entropy)",
         "Is the model confident or internally hesitating when generating key tokens?",
@@ -515,12 +554,27 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     analyzers = p0.get("analyzers") or p0.get("selected_analyzers") or []
     m1_duration = p0.get("duration_sec")
 
+    # An agent-written probe ("generated:probe1") has no glossary entry; the
+    # need it was written for is the only description that exists, and the
+    # codegen event carries it verbatim.
+    generated_need: dict[str, str] = {}
+    for event in by_event("tool_codegen"):
+        tool = str(event.get("tool_name") or "")
+        if tool and event.get("need"):
+            generated_need[tool] = str(event["need"])
     m1_results = []
     for name in analyzers:
         result_paths = p0.get("result_paths") or {}
         p = logs_dir / str(result_paths.get(name) or f"artifacts/c{m1_cycle}_{name}.result.json")
         findings, n = {}, None
         per_case_rows = []
+        # V1 externalised each analyzer's result to artifacts/; RunLoggerV2
+        # keeps the findings inline on the probe entry itself.
+        inline = (p0.get("findings") or {}).get(name)
+        if not p.exists() and isinstance(inline, dict):
+            findings = inline
+            n = findings.get("n_cases") or findings.get("n_scored")
+            per_case_rows = findings.get("per_case") or []
         if p.exists():
             try:
                 raw = json.loads(p.read_text())
@@ -545,6 +599,22 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         meta = ANALYZER_GLOSSARY.get(
             name, (name.replace("_", " ").title(), "Measures model behavior across this dimension", "Standard diagnostic probe.", [])
         )
+        if name.startswith("generated:"):
+            # No glossary can know a probe the agent wrote during this run: the
+            # need it was written for is its question (first sentence up front,
+            # the whole brief as the description), and its headline is whatever
+            # scalar findings it reported, under their own names.
+            need = generated_need.get(name.split(":", 1)[1], "")
+            first = re.split(r"(?<=[.;])\s+", need.strip(), maxsplit=1)[0] if need else "Agent-written probe"
+            if len(first) > 180:
+                first = first[:177].rstrip() + "…"
+            scalar = [
+                (key.replace("_", " "), key, "pct" if key.endswith(("_rate", "_frac")) else "num")
+                for key, value in findings.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                and key not in {"n_cases", "n_scored", "n_graded", "n_samples"}
+            ][:5]
+            meta = (f"Agent-written probe · {name.split(':', 1)[1]}", first, need or "Agent-written probe.", scalar)
         headline = []
         for label, path, fmt in meta[3]:
             v = _dig(findings, path)
@@ -584,6 +654,10 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         raw_stats = json.loads(stats_path.read_text()) if stats_path.exists() else []
     except (OSError, json.JSONDecodeError):
         raw_stats = []
+    if not raw_stats and isinstance(stats_ref, list):
+        # RunLoggerV2 keeps the M2 rows inline on the analysis entry rather
+        # than externalising them to artifacts/.
+        raw_stats = [row for row in stats_ref if isinstance(row, dict)]
     stats = []
     for s in raw_stats:
         stats.append({
@@ -604,6 +678,34 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             explore_data = json.loads((explore_dir / "exploratory_report.json").read_text())
         except Exception:
             pass
+    if not explore_data:
+        # RunLoggerV2 records the explore step as an M2 event: observations and
+        # caveats as sentences, figures as paths under logs/. Shape it the way
+        # the explore report is shaped, so the M2 record renders either.
+        explores = by_event("explore")
+        e0 = explores[-1] if explores else {}
+        takeaways = []
+        for text in a0.get("findings") or []:
+            if isinstance(text, str) and text.strip():
+                # "[MEDIUM] self_consistency.consistency=0.2 < 0.5: low self-consistency — …"
+                body = re.sub(r"^\[[A-Z]+\]\s*", "", text.strip())
+                head = body.split(": ", 1)[1] if ": " in body else body
+                takeaways.append({"title": head[:110], "plain_title": head[:110],
+                                  "analysis": body, "chart_names": [], "table_names": []})
+        for text in e0.get("observations") or []:
+            if isinstance(text, str) and text.strip():
+                head = text.strip().split(";")[0].split(". ")[0]
+                takeaways.append({"title": head[:90], "plain_title": head[:90],
+                                  "analysis": text.strip(), "chart_names": [], "table_names": []})
+        if takeaways or e0:
+            explore_data = {
+                "takeaways": takeaways,
+                "caveats": [c for c in e0.get("caveats") or [] if isinstance(c, str)],
+                "observations": [o for o in e0.get("observations") or [] if isinstance(o, str)],
+                "figures": [f for f in e0.get("figures") or [] if isinstance(f, str)],
+                "adjudication": e0.get("adjudication") or {},
+                "candidate_signals": [], "hypotheses": [],
+            }
 
     # M3: Hypotheses
     diagnoses = by_event("diagnosis")
@@ -833,6 +935,8 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "duration": m2_duration,
             "stats": stats,
             "explore": explore_data,
+            # The analysis step's own figures (V2 paths under logs/).
+            "figures": [f for f in a0.get("figures") or [] if isinstance(f, str)],
         },
         "m3": {
             "hypotheses": hypotheses,

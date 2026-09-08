@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { Chart, ReportData, Stage } from "./types";
 import { ZoomableImage } from "./lightbox";
 import { CaseStudySheet as CaseStudySection } from "./caseStudy";
+import { LoopFigureView } from "./loopFigure";
 import { chartValue, outcomeColors, stageCode } from "./reportAccess";
 
 const ids = z.array(z.string()).optional();
@@ -24,6 +25,7 @@ export const reportCatalog = defineCatalog(schema, {
     OutcomeCard: { props: z.object({}), description: "What was learned and whether repair worked" },
     CasePreview: { props: z.object({ caseIds: ids }), description: "Representative model I/O" },
     CaseStudySheet: { props: z.object({}), description: "The whole run as one failure-to-repair sheet" },
+    LoopFigure: { props: z.object({}), description: "Inputs → explore (M1·M2·M3) → held-out M4 → repair M5 → health card, one clickable figure" },
     EvidenceIndex: { props: z.object({}), description: "Progressive disclosure navigation" },
   },
   actions: {},
@@ -147,6 +149,11 @@ export const { registry } = defineRegistry(reportCatalog, {
     CaseStudySheet: () => {
       const data = useReport();
       return data.case_study ? <CaseStudySection sheet={data.case_study} /> : <></>;
+    },
+    LoopFigure: () => {
+      const data = useReport();
+      const navigate = useContext(NavContext);
+      return <LoopFigureView data={data} navigate={navigate} />;
     },
     EvidenceIndex: () => {
       const navigate = useContext(NavContext);
