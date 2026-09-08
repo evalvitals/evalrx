@@ -16,6 +16,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: evalrx/reporting/web/package-lock.json
+      - name: Build the report UI
+        # web_dist/ is gitignored and pyproject.toml declares it as package
+        # data ("evalrx.reporting" = ["web_dist/**/*"]) -- without building
+        # it first, the glob matches nothing and the published wheel ships
+        # with no index.html: `evalrx report`/`evalrx serve` silently have no
+        # UI to serve for every user who installs from this release.
+        run: |
+          cd evalrx/reporting/web
+          npm ci
+          npm run build
       - run: pip install build
       - run: python -m build
       - uses: actions/upload-artifact@v4
