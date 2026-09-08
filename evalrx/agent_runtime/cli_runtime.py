@@ -58,6 +58,12 @@ class SubprocessRunner:
 
         proc = subprocess.Popen(
             cmd,
+            # ``codex exec`` accepts a one-shot prompt on argv but keeps
+            # reading stdin for a possible follow-up turn.  The runner has no
+            # interactive continuation protocol, so leave stdin at EOF.  If
+            # inherited from the parent it remains open and Codex idles until
+            # the wall-clock timeout, withholding its generated artifacts.
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=workdir,
