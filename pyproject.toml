@@ -76,6 +76,10 @@ observability = ["langfuse>=4.7"]
 ui = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
+    # fastapi needs this for Form/File(...) params (POST /api/upload) but
+    # doesn't declare it as a hard dependency -- without it those routes
+    # 500 at request time (import succeeds, so this is easy to miss).
+    "python-multipart>=0.0.9",
 ]
 # Inferential stats for the outcome-driver-analysis agent skill's Python path
 # (logistic/GLM fits with real inference, VIF, calibration, ROC).
