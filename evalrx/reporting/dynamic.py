@@ -567,10 +567,15 @@ def _stage_detail(
         probes.append({
             "id": str(result.get("name") or "probe"),
             "title": _plain_label(result.get("name") or result.get("display_name") or "Probe"),
+            # The glossary's own name for the check ("Self-Repair on Re-ask"),
+            # as opposed to `title`, which is the plain question when one exists.
+            "display_name": str(result.get("display_name") or ""),
             "raw_name": str(result.get("name") or ""),
             "question": str(result.get("question") or ""),
             "description": str(result.get("description") or ""),
-            "n_cases": result.get("n") or len(rows),
+            # None when the analyzer reported no case count at all (a batch-level
+            # check such as self_consistency): "unknown" is not "zero".
+            "n_cases": result.get("n") if result.get("n") is not None else (len(rows) or None),
             "metrics": list(result.get("headline") or []),
             "finding_summary": _plain_mapping(_compact_mapping(result.get("findings"))),
             "raw_finding_summary": _compact_mapping(result.get("findings")),

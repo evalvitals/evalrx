@@ -651,3 +651,11 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .lf-probe-detail dt { color: var(--muted); }
 .lf-probe-detail dd { margin: 0; color: var(--green); }
 .lf-vitals > .lf-vitals-pop { max-height: 420px; overflow: auto; }
+
+.brief-points h3 + .brief-checks { margin-bottom: 26px; }
+.brief-checks { display: grid; gap: 8px !important; }
+.brief-checks li { padding: 9px 11px !important; border: 1px solid var(--line); background: var(--card); display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; align-items: baseline; }
+.brief-checks li:before { display: none; }
+.brief-checks li b { font-weight: 500; color: var(--ink); font-size: 12.5px; }
+.brief-checks li small { font: 9.5px DM Mono, monospace; color: var(--muted); }
+.brief-checks li span { grid-column: 1 / -1; font-size: 11.5px; line-height: 1.5; color: var(--c-9eb1aa, #9eb1aa); }

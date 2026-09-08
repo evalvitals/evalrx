@@ -51,6 +51,9 @@ export type Brief = {
   figureNote?: string;
   /** Three to five points the verdict rests on. */
   points: string[];
+  /** The checks this step ran, each with the question it asks. Rendered as a
+   *  list of its own rather than crammed into one bullet. */
+  checks?: Array<{ name: string; question?: string; n?: number | null }>;
   /** The boundary of the claim — rendered as a warning, not as a footnote. */
   caveat?: string;
 };
@@ -85,9 +88,18 @@ export function StageBrief({ brief, onDeepen }: { brief: Brief; onDeepen: () => 
         {brief.figure}
         {brief.figureNote && <figcaption><BarChart3 size={13} /> {brief.figureNote}</figcaption>}
       </figure>}
-      {points.length > 0 && <div className="brief-points">
-        <h3>What that rests on</h3>
-        <ul>{points.map((point, i) => <li key={i}>{point}</li>)}</ul>
+      {(points.length > 0 || (brief.checks && brief.checks.length > 0)) && <div className="brief-points">
+        {brief.checks && brief.checks.length > 0 && <>
+          <h3>Checks run</h3>
+          <ul className="brief-checks">{brief.checks.map((check) => <li key={check.name}>
+            <b>{check.name}</b>{typeof check.n === "number" && check.n > 0 && <small>{check.n} cases</small>}
+            {check.question && <span>{check.question}</span>}
+          </li>)}</ul>
+        </>}
+        {points.length > 0 && <>
+          <h3>What that rests on</h3>
+          <ul>{points.map((point, i) => <li key={i}>{point}</li>)}</ul>
+        </>}
       </div>}
     </div>
 
@@ -233,16 +245,15 @@ function briefM1(report: ReportData, detail: Record<string, any>): Brief {
       : `The checks read ${routed}, while the cases themselves carry ${probed} — `
         + "so the parts of the input outside that were never examined.");
   }
-  // Titles verbatim: several of them are questions ("Did the model give a
-  // usable answer?"), and lower-casing them into a comma list produced a
-  // sentence with question marks inside it that nobody could parse.
-  const names = probes.map((probe) => String(probe.title || probe.raw_name || "")).filter(Boolean);
-  if (names.length) {
-    const shown = names.slice(0, 5).join(" · ");
-    points.push(names.length > 5
-      ? `Checks run — ${shown} · and ${names.length - 5} more.`
-      : `Checks run — ${shown}`);
-  }
+  // The checks get a list of their own (`checks`): one bullet that joined
+  // five titles with " · and 3 more" mixed questions with Title-Cased ids and
+  // read as noise.
+  const generic = (text: string) => !text || text.startsWith("Measures model behavior");
+  const checks = probes.map((probe) => ({
+    name: String(probe.display_name || probe.title || probe.raw_name || ""),
+    question: generic(String(probe.question || "")) ? undefined : String(probe.question),
+    n: probe.n_cases === undefined || probe.n_cases === null ? null : Number(probe.n_cases),
+  })).filter((check) => check.name);
 
   // A check with `n_cases: 0` and a check that ran on 8 of 12 cases are
   // different facts, and lumping them into one filter once produced "Every
@@ -257,7 +268,7 @@ function briefM1(report: ReportData, detail: Record<string, any>): Brief {
     points.push(lowest === measured
       ? (coverage.length === probes.length
           ? `Every check ran on all ${plural(measured, "case")}.`
-          : `Every check that measured anything ran on all ${measured} cases.`)
+          : `${plural(coverage.length, "check")} reported a case count, and each ran on all ${measured} cases.`)
       : `Coverage ranged from ${lowest} to ${measured} cases per check — the shorter ones `
         + "were capped to keep the step inside its time budget.");
   }
@@ -283,6 +294,7 @@ function briefM1(report: ReportData, detail: Record<string, any>): Brief {
 
   return {
     verdict,
+    checks,
     lead: "This step only measures. It records what the model does differently on "
       + "the cases it gets right and the ones it gets wrong — it does not yet claim "
       + "to know why anything failed.",
