@@ -219,12 +219,19 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
                     {!family.selected && <em> · not used</em>}
                   </li>)}
                 </ul>
-                <div className="lf-vitals">
-                  <small>PROBES RUN · {usedProbes.length}{flagged ? ` · ${flagged} FLAG` : ""}</small>
-                  {usedProbes.map((probe) => <div key={probe.phrase} title={probe.analyzers.join(", ")}>
-                    <span>{probe.phrase}</span>{probe.confirmed && <b>FLAG</b>}
+                {/* Flagged probes stay visible — they are findings; the full
+                    list of what ran is one hover away. */}
+                <div className="lf-vitals" tabIndex={0}>
+                  <small>PROBES RUN · {usedProbes.length}{flagged ? ` · ${flagged} FLAG` : ""}{usedProbes.length > flagged ? <em>hover for the list</em> : null}</small>
+                  {usedProbes.filter((probe) => probe.confirmed).map((probe) => <div key={probe.phrase} title={probe.analyzers.join(", ")}>
+                    <span>{probe.phrase}</span><b>FLAG</b>
                   </div>)}
                   {!usedProbes.length && <em>none recorded</em>}
+                  {usedProbes.length > 0 && <div className="lf-vitals-pop">
+                    {usedProbes.map((probe) => <div key={probe.phrase}>
+                      <span>{probe.phrase}</span>{probe.confirmed ? <b>FLAG</b> : <i>{probe.analyzers.join(", ")}</i>}
+                    </div>)}
+                  </div>}
                 </div>
                 {m1.n_measured > 0 ? <div className="lf-meter" title={`${m1.n_measured} measurements, ${m1.n_forwarded ?? "—"} entered M2's correction family`}>
                   <div className="lf-meter-bar"><b style={{ width: `${Math.min(100, ((m1.n_forwarded ?? 0) / m1.n_measured) * 100)}%` }} /></div>
