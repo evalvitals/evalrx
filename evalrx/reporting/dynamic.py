@@ -566,7 +566,11 @@ def _stage_detail(
         rows = list(result.get("per_case") or [])
         probes.append({
             "id": str(result.get("name") or "probe"),
-            "title": _plain_label(result.get("name") or result.get("display_name") or "Probe"),
+            # The plain question when the label table has one; otherwise the
+            # glossary's name ("Self-Repair on Re-ask"), never a Title-Cased id.
+            "title": (PLAIN_LABELS.get(str(result.get("name") or ""))
+                      or str(result.get("display_name") or "")
+                      or _plain_label(result.get("name") or "Probe")),
             # The glossary's own name for the check ("Self-Repair on Re-ask"),
             # as opposed to `title`, which is the plain question when one exists.
             "display_name": str(result.get("display_name") or ""),
@@ -673,11 +677,16 @@ def _stage_detail(
     # executed one.
     operation_examples = _operation_examples(cases)
     repair_operation_previews = _repair_operation_previews(candidates, cases)
+    m1_calls, m1_n_calls = _m1_calls(events)
+
     return {
         "m1": {
             "duration": m1.get("duration"), "probes": probes,
             "n_probes": len(probes), "n_measured": max((int(p.get("n_cases") or 0) for p in probes), default=0),
             "examples": m1_examples, "operations": operation_examples,
+            # What each probe actually asked the model and what came back,
+            # grouped by analyzer: the audit trail behind the numbers above.
+            "calls": m1_calls, "n_calls": m1_n_calls,
         },
         "m2": {
             "mode": "descriptive", "conclusion": m2.get("conclusion") or "",
@@ -1609,6 +1618,44 @@ def _infer_example_dir(root: Path) -> Path | None:
     return None
 
 
+_CALL_TEXT_CAP = 3000
+_CALLS_PER_ANALYZER = 120
+
+
+def _call_text(value: Any) -> str:
+    """The prompt or the reply as text, cut so 500 calls stay a sane payload."""
+    if isinstance(value, Mapping):
+        value = value.get("prompt") if "prompt" in value else json.dumps(value, ensure_ascii=False)
+    text = "" if value is None else str(value)
+    return text if len(text) <= _CALL_TEXT_CAP else text[:_CALL_TEXT_CAP] + f"… [+{len(text) - _CALL_TEXT_CAP} chars]"
+
+
+def _m1_calls(events: Iterable[Mapping[str, Any]]) -> tuple[dict[str, list[dict[str, Any]]], int]:
+    """M1's model calls grouped by analyzer, oldest first, capped per analyzer."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    total = 0
+    for event in events:
+        if str(event.get("event") or "") != "model_call" or str(event.get("stage") or "") != "M1":
+            continue
+        total += 1
+        analyzer = str(event.get("analyzer") or event.get("role") or "model")
+        bucket = grouped.setdefault(analyzer, [])
+        if len(bucket) >= _CALLS_PER_ANALYZER:
+            continue
+        batch = event.get("batch_case_ids")
+        bucket.append({
+            "seq": event.get("event_seq"), "cycle": event.get("cycle"),
+            "method": event.get("method") or event.get("operation") or "",
+            "case_id": event.get("case_id"),
+            "batch_case_ids": [str(item) for item in batch] if isinstance(batch, list) else [],
+            "duration_sec": event.get("duration_sec"),
+            "prompt": _call_text(event.get("inputs")),
+            "output": _call_text(event.get("output")),
+            "error": str(event.get("error")) if event.get("error") else None,
+        })
+    return grouped, total
+
+
 def _debug_event(event: Mapping[str, Any]) -> dict[str, Any]:
     event_type = str(event.get("event") or "")
     inferred_stage = {
@@ -1625,6 +1672,19 @@ def _debug_event(event: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _event_summary(event: Mapping[str, Any]) -> str:
+    if str(event.get("event") or "") == "model_call":
+        # The model calls are most of the stream; "Recorded pipeline event"
+        # 500 times over says nothing. Name the probe, the operation, and the
+        # size of the call instead.
+        who = event.get("analyzer") or event.get("role") or "model"
+        op = event.get("method") or event.get("operation") or "call"
+        n_batch = event.get("n_batch_cases")
+        scope = (f"{n_batch} cases" if n_batch else (f"case {str(event.get('case_id'))[:12]}" if event.get("case_id") else ""))
+        took = event.get("duration_sec")
+        parts = [f"{who} · {op}"] + ([scope] if scope else []) + ([f"{float(took):.1f}s"] if isinstance(took, (int, float)) else [])
+        if event.get("error"):
+            parts.append(f"error: {str(event['error'])[:80]}")
+        return " · ".join(parts)
     for key in ("conclusion", "narrative", "selection_rationale", "status", "stopped_by"):
         value = event.get(key)
         if value not in (None, ""):

@@ -659,3 +659,18 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .brief-checks li b { font-weight: 500; color: var(--ink); font-size: 12.5px; }
 .brief-checks li small { font: 9.5px DM Mono, monospace; color: var(--muted); }
 .brief-checks li span { grid-column: 1 / -1; font-size: 11.5px; line-height: 1.5; color: var(--c-9eb1aa, #9eb1aa); }
+
+.raw-events-link { margin: 30px 0 0; padding: 14px 16px; border: 1px dashed var(--c-43524d); color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+.raw-events-link .text-button { display: inline; padding: 0; font-size: inherit; }
+.probe-calls .call-list { display: grid; gap: 6px; margin-top: 10px; }
+.call-row { border: 1px solid var(--line); background: var(--c-091411); }
+.call-row.failed { border-color: var(--c-75423c); }
+.call-row > summary { display: grid; grid-template-columns: 34px 70px 1fr auto; gap: 10px; align-items: baseline; padding: 8px 10px; cursor: pointer; list-style: none; font-size: 11px; color: var(--c-b7c7c2, #b7c7c2); }
+.call-row > summary::-webkit-details-marker { display: none; }
+.call-row > summary:hover { color: var(--ink); }
+.call-row > summary code { font: 9px DM Mono, monospace; color: var(--c-52655f); }
+.call-row > summary b { font: 500 10px DM Mono, monospace; color: var(--green); }
+.call-row > summary em { font: 9.5px DM Mono, monospace; color: var(--muted); font-style: normal; white-space: nowrap; }
+.call-io { padding: 0 10px 10px; display: grid; gap: 8px; }
+.call-io .detail-block pre { max-height: 320px; }
+.call-cases { font: 9px DM Mono, monospace; color: var(--muted); overflow-wrap: anywhere; }

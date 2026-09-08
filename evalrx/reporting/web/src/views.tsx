@@ -49,7 +49,10 @@ export function EvidenceView({ data, back, navigate, initialStage }: { data: Rep
         ? <StageBrief brief={brief} onDeepen={() => setFull(true)} />
         : <>
           <StageArtifact stage={selected || ""} detail={data.stage_detail || {}} report={data} navigate={navigate} />
-          <details className="raw-events"><summary>Raw agent events ({events.length})</summary>{events.length ? events.map((event, index) => <EventRow event={event} key={`${event.event_seq}-${index}`} />) : <p className="empty">No stage-level events were retained.</p>}</details>
+          {/* The raw event stream is Debug's job; each stage's record above
+              already carries the events that matter, in a shape a reader
+              can use. */}
+          <p className="raw-events-link">The raw event stream for this step ({events.length} events) is in <button type="button" className="text-button" onClick={() => navigate?.("debug")}>Debug</button>.</p>
         </>}
     </section></div>
   </DetailShell>;
@@ -112,9 +115,38 @@ function M1Detail({ data, report }: { data: any; report: ReportData }) {
     {data.operations?.length > 0 && <OperationExamples examples={data.operations} report={report} />}
     <div className="probe-grid">{probes.map((probe: any, index: number) => <details className="probe-card" key={probe.id} open={index === 0}>
       <summary><span className="section-kicker">PROBE {String(index + 1).padStart(2, "0")} · {probe.n_cases || "—"} CASES</span><h3>{probe.title}</h3><p>{probe.question}</p><div className="probe-metrics">{(probe.metrics || []).map((metric: any) => <span key={metric.label}><b>{metric.value ?? "—"}</b>{metric.label}</span>)}</div></summary>
-      <div className="probe-expanded"><p>{probe.description}</p>{Object.keys(probe.finding_summary || {}).length > 0 && <KeyValueGrid values={probe.finding_summary} />}{Object.keys(probe.raw_finding_summary || {}).length > 0 && <details className="nested-detail"><summary>Technical measurement names and raw values</summary><KeyValueGrid values={probe.raw_finding_summary} /></details>}{probe.sample_rows?.length > 0 && <details className="nested-detail"><summary>Inspect {probe.sample_rows.length} representative measurement rows</summary><RecordTable rows={probe.sample_rows} /></details>}</div>
+      <div className="probe-expanded"><p>{probe.description}</p>{Object.keys(probe.finding_summary || {}).length > 0 && <KeyValueGrid values={probe.finding_summary} />}{(probe.sample_rows || []).length > 0 && <details className="nested-detail"><summary>Per-case measurements ({probe.n_sample_rows || probe.sample_rows.length}{probe.n_sample_rows > probe.sample_rows.length ? `, first ${probe.sample_rows.length}` : ""})</summary><RecordTable rows={probe.sample_rows} /></details>}<ProbeCalls calls={(data.calls || {})[probe.raw_name] || []} />{Object.keys(probe.raw_finding_summary || {}).length > 0 && <details className="nested-detail"><summary>Technical measurement names and raw values</summary><KeyValueGrid values={probe.raw_finding_summary} /></details>}{probe.sample_rows?.length > 0 && <details className="nested-detail"><summary>Inspect {probe.sample_rows.length} representative measurement rows</summary><RecordTable rows={probe.sample_rows} /></details>}</div>
     </details>)}</div>
   </>;
+}
+
+/**
+ * What one probe asked the model and what came back — the audit trail behind
+ * its numbers. Collapsed by default: a probe can make hundreds of calls, and
+ * the list is for checking one, not reading all.
+ */
+function ProbeCalls({ calls }: { calls: any[] }) {
+  if (!calls.length) return null;
+  return <details className="nested-detail probe-calls">
+    <summary>Model calls ({calls.length}) — prompt and reply, one per call</summary>
+    <div className="call-list">{calls.map((call: any, index: number) => {
+      const scope = call.case_id ? `case ${String(call.case_id).slice(0, 12)}`
+        : call.batch_case_ids?.length ? `${call.batch_case_ids.length} cases` : "";
+      return <details className={`call-row${call.error ? " failed" : ""}`} key={`${call.seq}-${index}`}>
+        <summary>
+          <code>{String(call.seq ?? index + 1).padStart(3, "0")}</code>
+          <b>{call.method || "call"}</b>
+          <span>{scope}</span>
+          <em>{typeof call.duration_sec === "number" ? `${call.duration_sec.toFixed(2)}s` : ""}{call.output ? ` · ${String(call.output).length} chars out` : ""}{call.error ? " · error" : ""}</em>
+        </summary>
+        <div className="call-io">
+          <DetailBlock label="PROMPT" value={call.prompt} />
+          <DetailBlock label={call.error ? "ERROR" : "REPLY"} value={call.error || call.output} />
+          {call.batch_case_ids?.length > 0 && <small className="call-cases">cases: {call.batch_case_ids.join(", ")}</small>}
+        </div>
+      </details>;
+    })}</div>
+  </details>;
 }
 
 function ExampleSection({ eyebrow, title, note, children }: { eyebrow: string; title: string; note: string; children: React.ReactNode }) {
