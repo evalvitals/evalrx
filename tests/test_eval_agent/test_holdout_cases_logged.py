@@ -13,12 +13,11 @@ claim became the one nobody can inspect a single case of.
 
 from __future__ import annotations
 
-import json
-
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.reporting.run_events import read_v2_events
 from tests.conftest import FakeModel
 from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
 
@@ -36,8 +35,7 @@ def _batch(n: int = 20) -> CaseBatch:
 
 def _logged_ids(root) -> set[str]:
     ids = set()
-    for line in (root / "run_log.jsonl").read_text().splitlines():
-        e = json.loads(line)
+    for e in read_v2_events(root):
         if e.get("event") == "case_record":
             ids.add(e["case"]["id"])
     return ids
@@ -46,7 +44,7 @@ def _logged_ids(root) -> set[str]:
 def test_the_held_out_split_is_recorded_too(tmp_path):
     cases = _batch(20)
     all_ids = {c.id for c in cases}
-    with RunContext(tmp_path / "run", logger_version="v1") as ctx:
+    with RunContext(tmp_path / "run") as ctx:
         VLDiagnoseLoop(
             model=FakeModel(capabilities={Capability.GENERATE}, modalities={"text"}),
             protocol=ExperimentProtocol(description="does it answer?", task_domain="qa"),
@@ -69,13 +67,11 @@ def test_the_held_out_split_is_recorded_too(tmp_path):
 def test_logging_a_case_twice_does_not_duplicate_it(tmp_path):
     """run() now logs both splits; the logger must stay idempotent."""
     cases = _batch(8)
-    with RunContext(tmp_path / "run", logger_version="v1") as ctx:
+    with RunContext(tmp_path / "run") as ctx:
         ctx.logger.log_cases(cases)
         ctx.logger.log_cases(cases)
     ids = [
-        json.loads(line)["case"]["id"]
-        for line in (ctx.root / "run_log.jsonl").read_text().splitlines()
-        if json.loads(line).get("event") == "case_record"
+        e["case"]["id"] for e in read_v2_events(ctx.root) if e.get("event") == "case_record"
     ]
     assert len(ids) == len(set(ids)) == 8
 
@@ -88,7 +84,7 @@ def test_each_case_record_names_its_partition(tmp_path):
     distinction the split exists to make.
     """
     cases = _batch(20)
-    with RunContext(tmp_path / "run", logger_version="v1") as ctx:
+    with RunContext(tmp_path / "run") as ctx:
         VLDiagnoseLoop(
             model=FakeModel(capabilities={Capability.GENERATE}, modalities={"text"}),
             protocol=ExperimentProtocol(description="does it answer?", task_domain="qa"),
@@ -101,8 +97,7 @@ def test_each_case_record_names_its_partition(tmp_path):
 
     by_split: dict[str, set[str]] = {}
     run_start = None
-    for line in (ctx.root / "run_log.jsonl").read_text().splitlines():
-        e = json.loads(line)
+    for e in read_v2_events(ctx.root):
         if e.get("event") == "run_start":
             run_start = e
         if e.get("event") == "case_record":

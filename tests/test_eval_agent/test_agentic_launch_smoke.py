@@ -15,10 +15,11 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
 from evalrx.eval_agent import AgenticDiagnoseLoop, DiagnosisAgent, HypothesisTester
-from evalrx.eval_agent.log_schema import iter_log_errors
+from evalrx.eval_agent.log_schema import validate_event
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
+from evalrx.reporting.run_events import read_v2_events
 from tests.conftest import FakeModel
 
 
@@ -108,9 +109,7 @@ def _protocol() -> ExperimentProtocol:
 
 
 def _build_loop(tmp_path, action_judge, *, max_actions=10):
-    # Pinned: the happy-path test below validates raw ctx.log_path lines
-    # against the published V1 run_log schema.
-    ctx = RunContext(tmp_path / "run", verbose=False, logger_version="v1")
+    ctx = RunContext(tmp_path / "run", verbose=False)
     loop = AgenticDiagnoseLoop(
         model=FakeModel(
             capabilities={Capability.GENERATE, Capability.ATTENTION}, modalities={"text"},
@@ -144,9 +143,10 @@ def test_agentic_loop_reaches_a_supported_hypothesis_via_scripted_actions(tmp_pa
     # validate against the published run_log schema, alongside the reused
     # probe/analysis/diagnosis/surgery events from the wrapped M1-M4 stages,
     # bracketed by run_start/loop_end so the dashboard can show run provenance.
-    errors = list(iter_log_errors(ctx.log_path))
-    assert errors == []
-    lines = [json.loads(line) for line in ctx.log_path.read_text().splitlines()]
+    ctx.finalize()
+    lines = read_v2_events(ctx.root)
+    for event in lines:
+        validate_event(event)
     events = {line["event"] for line in lines}
     assert {
         "run_start", "loop_end", "agent_decision", "agent_tool",

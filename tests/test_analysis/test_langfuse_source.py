@@ -39,9 +39,13 @@ def test_langfuse_source_paginates_and_orders_events(tmp_path):
 
     assert [event["event"] for event in events] == ["run_start", "analysis"]
     assert calls[0]["trace_id"] == "00000000000000000000000000000001"
-    assert [json.loads(line)["event"] for line in (root / "run_log.jsonl").read_text().splitlines()] == [
-        "run_start", "analysis"
-    ]
+    # materialize() writes a V2-shaped bundle (run.json + M*/log.json), not a
+    # flat run_log.jsonl — recovered events with no "stage" tag route by their
+    # own event name to the canonical stage doc ("analysis" -> M2).
+    run = json.loads((root / "run.json").read_text())
+    assert run["run_start"]["event_seq"] == 1
+    m2 = json.loads((root / "M2" / "log.json").read_text())
+    assert [row["event_seq"] for row in m2["analysis"]] == [2]
 
 
 def test_langfuse_source_ignores_non_evalrx_observations():
@@ -81,16 +85,30 @@ def test_langfuse_source_materializes_media_only_inside_cache(tmp_path):
 def test_materialized_langfuse_run_builds_the_existing_html_report(tmp_path):
     from evalrx.reporting.html_report import build_html_report
     from evalrx.reporting.langfuse_source import LangfuseRunSource
+    from evalrx.reporting.run_events import read_v2_events
 
-    observation = SimpleNamespace(
-        input={"event": {"event": "run_start", "trace_id": "trace", "event_seq": 1, "protocol": {}}},
-        metadata={"event_seq": 1},
-    )
+    observations = [
+        SimpleNamespace(
+            input={"event": {"event": "run_start", "trace_id": "trace", "event_seq": 1, "protocol": {}}},
+            metadata={"event_seq": 1},
+        ),
+        SimpleNamespace(
+            input={"event": {"event": "probe", "cycle": 0, "event_seq": 2,
+                              "selected_analyzers": ["pope"], "findings": {}}},
+            metadata={"event_seq": 2},
+        ),
+    ]
     client = SimpleNamespace(api=SimpleNamespace(observations=SimpleNamespace(
-        get_many=lambda **_kwargs: SimpleNamespace(data=[observation], meta=SimpleNamespace(cursor=None))
+        get_many=lambda **_kwargs: SimpleNamespace(data=observations, meta=SimpleNamespace(cursor=None))
     )))
 
     root = LangfuseRunSource(client).materialize("trace", tmp_path / "cache")
+    # A real V2 root, not just a stray run.json: read_v2_events (the same
+    # read path build_html_report uses) must recover both events, not
+    # silently nothing — resolve_v2_root requires a real M<n>/log.json too.
+    events = read_v2_events(root)
+    assert {e["event"] for e in events} == {"run_start", "probe"}
+
     report = build_html_report(root, no_audio=True)
 
     assert report.exists()

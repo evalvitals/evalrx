@@ -298,23 +298,20 @@ class _Run:
     """The artifacts one run wrote, whichever level of it was zipped up.
 
     ``root`` is whatever the report was loaded from: the directory holding
-    ``run_log.jsonl`` (what the server finds in an archive) or the run directory
+    ``run.json`` (what the server finds in an archive) or the run directory
     above it. Both are accepted, because both are what people actually zip.
     """
 
     def __init__(self, root: Path, events: Sequence[Mapping[str, Any]]):
         root = Path(root)
-        if ((root / "run_log.jsonl").exists() or (root / "run.json").exists()
-                or (root / "artifacts").is_dir()):
+        if (root / "run.json").exists() or (root / "artifacts").is_dir():
             self.logs, self.run_dir = root, root.parent
         else:
             self.logs = next((p for p in sorted(root.glob("logs*")) if p.is_dir()), root)
             self.run_dir = root
         self.events = list(events)
         self.summary = _load(self.run_dir / "summary.json", {}) or {}
-        self.manifest = _load(self.logs / "manifest.json", {}) or {}
-        if not self.manifest and (self.logs / "run.json").is_file():
-            self.manifest = (_load(self.logs / "run.json", {}) or {}).get("manifest") or {}
+        self.manifest = (_load(self.logs / "run.json", {}) or {}).get("manifest") or {}
         self.config = self.manifest.get("config") or {}
         self.case_records = {
             event["case_id"]: event
@@ -467,10 +464,10 @@ def _m1(run: _Run) -> "dict[str, Any] | None":
 
 def _survivors(run: _Run) -> "list[str]":
     """Signals that survived correction, preferring the held-out pass."""
-    for _phase, path in reversed(run.m2_files()):
+    for _phase, rows in reversed(_m2_sources(run)):
         found = [
             (row.get("config") or {}).get("signal")
-            for row in (_load(path, []) or [])
+            for row in rows
             if row.get("fdr_corrected")
         ]
         if found:
@@ -481,8 +478,8 @@ def _survivors(run: _Run) -> "list[str]":
 def _signal_curve(run: _Run, signals: Sequence[str]) -> "dict[str, Any] | None":
     """Failure rate binned by the confirmed signal — M1's bar chart."""
     effects: dict[str, float] = {}
-    for _phase, path in run.m2_files():
-        for row in _load(path, []) or []:
+    for _phase, rows in _m2_sources(run):
+        for row in rows:
             if row.get("tool") == "signal_label_assoc" and row.get("effect") is not None:
                 signal = (row.get("config") or {}).get("signal")
                 if signal:
@@ -570,11 +567,13 @@ def _signal_curve(run: _Run, signals: Sequence[str]) -> "dict[str, Any] | None":
 def _m2_sources(run: _Run) -> "list[tuple[str, list]]":
     """[(phase, stats rows)], explore before held-out.
 
-    V1's RunLogger externalised each M2 pass to ``artifacts/<prefix>_m2_stats_results.json``;
-    RunLoggerV2 keeps the same rows inline as ``stats_results`` on the M2
+    RunLoggerV2 keeps these rows inline as ``stats_results`` on the M2
     ``analysis`` entry, with the pass told apart by cycle (0 = explore, -1 =
-    the held-out re-run). Same rows, same ``fdr_corrected`` flag — only where
-    they live differs.
+    the held-out re-run). ``run.m2_files()`` (an externalised
+    ``artifacts/<prefix>_m2_stats_results.json`` per pass) is a predecessor
+    format nothing currently produces; kept as a read path in case it's ever
+    reintroduced for oversized results, harmless since it degrades to the
+    inline fallback below when empty.
     """
     files = run.m2_files()
     if files:

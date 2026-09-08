@@ -34,25 +34,26 @@ def _write(path: Path, payload) -> None:
 
 
 def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported") -> Path:
-    """A run directory in the shape RunContext + the benchmark runner produce."""
+    """A run directory in the RunLoggerV2 shape RunContext + the benchmark
+    runner produce: run.json (run-wide events + manifest) plus one JSON
+    document per stage under M1..M5."""
     logs = root / "logs"
     _write(root / "summary.json", {
         "model": "qwen3.5-2b", "dataset": "bbh_word_sorting", "modality": "llm",
         "n_cases": 6, "baseline_accuracy": 0.436, "cycles": 1, "stopped_by": "max_cycles",
     })
-    _write(logs / "manifest.json", {"run_id": "logs", "config": {"fix_tier": "L2", "m1_selection": "pinned"}})
-    _write(logs / "report" / "discovery_cases.json", [
+
+    discovery = [
         {"id": cid, "prompt": f"sort {cid}", "expected": "a b", "observed": "b a" if label == "fail" else "a b",
          "label": label}
         for cid, label, _ in EXPLORE
-    ] + [{"id": "c-5", "prompt": "sort c-5", "expected": "a b", "observed": "a b", "label": "pass"}])
+    ] + [{"id": "c-5", "prompt": "sort c-5", "expected": "a b", "observed": "a b", "label": "pass"}]
+
     # one candidate signal, one field derived from the answer key, one constant
-    _write(logs / "artifacts" / "c0_coverage_verification_gap.result.json", {
-        "findings": {"per_case": [
-            {"sample_id": cid, "n_unique": value, "n_correct": 0 if label == "fail" else 1, "n_samples": 5}
-            for cid, label, value in EXPLORE
-        ]},
-    })
+    per_case = [
+        {"sample_id": cid, "n_unique": value, "n_correct": 0 if label == "fail" else 1, "n_samples": 5}
+        for cid, label, value in EXPLORE
+    ]
     stats = [
         {"tool": "signal_label_assoc", "config": {"signal": SIGNAL}, "effect": 0.65,
          "ci": [0.46, 0.82], "p_value": 2.4e-07, "fdr_corrected": True,
@@ -63,29 +64,46 @@ def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported"
         {"tool": "signal_label_assoc", "config": {"signal": "termination_audit.gave_up"}, "effect": None,
          "fdr_corrected": False, "correction_family": "m2_assoc", "summary": "degenerate: one level only"},
     ]
-    _write(logs / "artifacts" / "c0_m2_stats_results.json", stats)
-    _write(logs / "artifacts" / "post_m2_stats_results.json", stats)
-    events = [
-        {"event": "run_start", "judge": "claude", "label_distribution": {"fail": 2, "pass": 2}},
-        {"event": "probe", "cycle": 0,
-         "selected_analyzers": ["coverage_verification_gap", "logprob_entropy"]},
-    ]
-    events += [
-        {"event": "case_record", "case_id": cid,
+    cases = [
+        {"case_id": cid,
          "case": {"label": label, "inputs": {"prompt": f"sort {cid}"}}, "media_paths": []}
         for cid, label, _ in EXPLORE
     ]
-    events += [
-        {"event": "diagnosis", "hypotheses": [
+
+    _write(logs / "run.json", {
+        "run_start": {"judge": "claude", "label_distribution": {"fail": 2, "pass": 2}},
+        "manifest": {"run_id": "logs", "config": {"fix_tier": "L2", "m1_selection": "pinned"}},
+        "cases": cases,
+        "diagnose_reports": [{"discovery": discovery}],
+        "loop_end": [{"total_duration_sec": 10105.8}],
+    })
+    _write(logs / "M1" / "log.json", {"probe": [
+        {"cycle": 0,
+         "selected_analyzers": ["coverage_verification_gap", "logprob_entropy"],
+         # entry["findings"][analyzer] and entry["results"][analyzer]["findings"]
+         # are the SAME object in a real RunLoggerV2 probe entry (both derive
+         # from Result.findings) — populate both so every real reader finds it.
+         "findings": {"coverage_verification_gap": {"per_case": per_case}},
+         "results": {"coverage_verification_gap": {"findings": {"per_case": per_case}}}},
+    ]})
+    _write(logs / "M2" / "log.json", {"analysis": [
+        {"cycle": 0, "stats_results": stats},
+        {"cycle": -1, "stats_results": stats},
+    ]})
+    _write(logs / "M3" / "log.json", {"diagnosis": [
+        {"hypotheses": [
             {"failure_mode": "`list_integrity_drift", "statement": "words get dropped while re-copying"},
             {"failure_mode": "self_correction_failure", "statement": "re-verify passes corrupt the answer"},
         ]},
-        {"event": "surgery", "module": "m4", "failure_mode": "`list_integrity_drift",
+    ]})
+    _write(logs / "M4" / "log.json", {"surgery": [
+        {"module": "m4", "failure_mode": "`list_integrity_drift",
          "status": verdict_status, "hypothesis": "words get dropped while re-copying",
          "evidence": {"m4_test_name": "signal_label_assoc", "effect_size": 0.65, "ci": [0.46, 0.82],
                       "m4_evidence_grade": "observational"}},
-        {"event": "fix",
-         "max_tier": "L2",
+    ]})
+    _write(logs / "M5" / "log.json", {"fix": [
+        {"max_tier": "L2",
          "selection_attempted": [
              {"name": "bucket_then_commit", "tier": "L1", "effect": -0.048},
              {"name": "single_pass_no_revision", "tier": "L1", "effect": -0.2},
@@ -100,16 +118,14 @@ def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported"
                   "summary": "paired CI=+0.0914..+0.2151", "verdict": "fixed",
                   "payload": {"name": "self_consistency_5", "strategy": "direct", "n_samples": 5,
                               "generation_kwargs": {"temperature": 0.7}, "prompt_template": "{prompt}"}}},
-        {"event": "loop_end", "total_duration_sec": 10105.8},
-    ]
-    (logs / "run_log.jsonl").write_text(
-        "".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+    ]})
     return root
 
 
 def _events(root: Path) -> list[dict]:
-    path = root / "logs" / "run_log.jsonl"
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    from evalrx.reporting.run_events import read_v2_events
+
+    return read_v2_events(root)
 
 
 @pytest.fixture
@@ -132,7 +148,6 @@ def test_a_run_with_no_probes_has_no_sheet(tmp_path):
     """Better no section than a sheet of zeroes for a run that never probed."""
     root = tmp_path / "empty"
     (root / "logs").mkdir(parents=True)
-    (root / "logs" / "run_log.jsonl").write_text("", encoding="utf-8")
     assert build_case_study(root, []) is None
 
 

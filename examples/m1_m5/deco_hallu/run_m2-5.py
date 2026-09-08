@@ -68,17 +68,16 @@ def main() -> None:
           f"failed={state.get('failed_analyzers') or '{}'}")
 
     from evalrx import compose
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.core.capability import Capability
     from evalrx.eval_agent import (
-        CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
-        RunLogger,
+        RunLoggerV2,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
     from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
-    from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.models.backends.base import RuntimeConfig
 
     judge = run.build_judge(args.judge_model, args.judge_effort)
@@ -111,7 +110,7 @@ def main() -> None:
         n_obs = len(explore_report.get("observations") or [])
         print(f"feeding explore context to M3: {n_charts} chart(s), {n_obs} observation(s)")
 
-    run_logger = RunLogger(run_dir=OUT / "logs_m2_5", verbose=True)
+    run_logger = RunLoggerV2(run_dir=OUT / "logs_m2_5", verbose=True)
     loop = VLDiagnoseLoop(
         model=model,
         probe_agent=ReplayProbeAgent(state),          # M1 short-circuited

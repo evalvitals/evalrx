@@ -15,7 +15,7 @@ remain here as compatibility facades over that runtime.
 
 Top-level (shared / orchestration):
   loop.py              AutoDiagnoseLoop, VLDiagnoseLoop, SelfEvolveLoop
-  run_logger.py        RunLogger — per-cycle JSONL log + artifact sink
+  run_logger_v2.py     RunLoggerV2 — run.json + per-stage M<n>/log.json event log
   hypothesis.py        Hypothesis, HypothesisStatus, serialization helpers
   cli_agent.py         compatibility facade over agent_runtime CLI providers/judges
   cli_skills.py        compatibility facade over agent_runtime.skills.installer
@@ -141,6 +141,7 @@ from evalrx.eval_agent.hypothesis import (
 )
 from evalrx.eval_agent.legacy import AutoDiagnoseLoop, SelfEvolveLoop
 from evalrx.eval_agent.log_schema import (
+    RUN_LOG_SCHEMA_VERSION,
     SCHEMA_PATH,
     build_schema,
     iter_log_errors,
@@ -159,7 +160,6 @@ from evalrx.eval_agent.preregister import (
 )
 from evalrx.eval_agent.report import DiagnosticReport
 from evalrx.eval_agent.run_context import RunContext
-from evalrx.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION, RunLogger
 from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 from evalrx.eval_agent.stages.case_discovery import (
     CaseDiscoveryAgent,
@@ -302,9 +302,8 @@ __all__ = [
     "PreregistrationLog",
     "DiagnosticReport",
     "RunContext",
-    "RunLogger",
     "RunLoggerV2",
-    # run_log.jsonl published schema
+    # Published event schema
     "RUN_LOG_SCHEMA_VERSION",
     "build_schema",
     "load_schema",

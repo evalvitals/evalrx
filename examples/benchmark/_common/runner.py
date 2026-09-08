@@ -12,7 +12,6 @@ endpoint`` swaps in an OpenAI-compatible server for the black-box path and the
 from __future__ import annotations
 
 import json
-import os
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -229,15 +228,12 @@ def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
     """
     from evalrx.eval_agent.label_quarantine import quarantine_run_dir
 
-    # V1 appends to run_log.jsonl (merge old + new afterwards). V2 rewrites
-    # each M<n>/log.json and run.json atomically, and the rewritten document
-    # already contains everything from before the fix — declare those as
-    # rewrite logs, or the quarantine mistakes every one of them for a
-    # conflict and leaves a non-JSON `log.json.pre_fix` beside each.
-    managed = getattr(getattr(ctx, "logger", None), "managed_json_paths", None)
-    quarantine_kwargs = ({"rewrite_logs": list(managed)} if managed
-                         else {"append_logs": [ctx.log_path]})
-    with quarantine_run_dir(run_dir, **quarantine_kwargs) as q:
+    # The logger rewrites each M<n>/log.json and run.json atomically, and the
+    # rewritten document already contains everything from before the fix —
+    # declare those as rewrite logs, or the quarantine mistakes every one of
+    # them for a conflict and leaves a non-JSON `log.json.pre_fix` beside each.
+    managed = ctx.logger.managed_json_paths
+    with quarantine_run_dir(run_dir, rewrite_logs=list(managed)) as q:
         print(f"[fix] label quarantine: {len(q.hidden)} run-dir file(s) held in memory "
               "for the fix stage (restored afterwards; see fix_quarantine.json)")
         return loop.run_fix(report, cases, **fix_kwargs)
@@ -293,7 +289,6 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         # as it happens, including its real latency and any transport error.
         ctx = RunContext(
             run_dir / "logs", verbose=True,
-            logger_version=os.environ.get("EVALRX_RUN_LOGGER_VERSION", "v2"),
             config={
                 "benchmark": task.title, "dataset": task.name, "modality": task.modality,
                 "model": args.model, "spec": spec.key, "hf_repo": spec.hf_repo,

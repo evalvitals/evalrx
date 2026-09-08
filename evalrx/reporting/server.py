@@ -89,7 +89,7 @@ class ReportSession:
         if found is None:
             raise ValueError(
                 "this archive has no run in it: expected a directory holding "
-                "run.json + M1..M5 (or the legacy run_log.jsonl), or report/report_data.json"
+                "run.json + M1..M5, or report/report_data.json"
             )
         self.load(found)
         return found
@@ -102,25 +102,21 @@ def _run_label(root: Path) -> str:
 
 
 #: RunLoggerV2's per-stage documents (evalrx/eval_agent/run_logger_v2.py).
-#: V2 writes no run_log.jsonl at all — a run.json + at least one of these is
-#: its on-disk signature, matching find_run_root's rank-2 marker and
-#: reporting/run_events.py's resolve_v2_root.
-_V2_STAGES = ("M1", "M2", "M3", "M4", "M5")
+#: A run.json + at least one of these is its on-disk signature, matching
+#: find_run_root's marker and reporting/run_events.py's resolve_v2_root.
+_STAGES = ("M1", "M2", "M3", "M4", "M5")
 
 
 def _is_run_root(current: Path, filenames: list[str]) -> bool:
-    """Whether *current* is a run's own directory, V1 or V2 layout."""
-    if "run_log.jsonl" in filenames:
-        return True
+    """Whether *current* is a run's own directory."""
     return "run.json" in filenames and any(
-        (current / stage / "log.json").is_file() for stage in _V2_STAGES
+        (current / stage / "log.json").is_file() for stage in _STAGES
     )
 
 
 def _run_mtime(root: Path) -> float | None:
-    """Last-activity time for a run, V1 (one growing file) or V2 (several)."""
-    candidates = (root / "run_log.jsonl", root / "run.json",
-                  *(root / stage / "log.json" for stage in _V2_STAGES))
+    """Last-activity time for a run — the most recently rewritten document."""
+    candidates = (root / "run.json", *(root / stage / "log.json" for stage in _STAGES))
     stamps = []
     for candidate in candidates:
         try:
@@ -145,12 +141,12 @@ RUNS_DISPLAY_LIMIT = 200
 def discover_runs(scan_root: Path, *, max_depth: int = 8, max_results: int = 2000) -> list[Path]:
     """Find run directories under ``scan_root``, without walking into any of them.
 
-    A run directory is one written by either logger: V1's flat
-    ``run_log.jsonl``, or V2's ``run.json`` plus at least one ``M<n>/log.json``
-    (see ``_is_run_root``). Once a run is found its own subtree (data,
-    sandbox, report, the V2 stage folders, ...) is not searched further, and
-    directories named `outputs*`/`logs` are walked through since a run
-    commonly sits a few levels under an example's output directory.
+    A run directory is one holding ``run.json`` plus at least one
+    ``M<n>/log.json`` (see ``_is_run_root``). Once a run is found its own
+    subtree (data, sandbox, report, the stage folders, ...) is not searched
+    further, and directories named `outputs*`/`logs` are walked through
+    since a run commonly sits a few levels under an example's output
+    directory.
 
     ``max_results`` is a safety valve for a pathological tree, not the panel's
     display limit — hitting it means the *walk* stops, in whatever order
@@ -219,18 +215,14 @@ def find_run_root(base: Path) -> Path | None:
     """
     candidates: list[tuple[int, int, Path]] = []
     for rank, pattern in (
-        (0, "run_log.jsonl"), (1, "report/report_data.json"), (2, "run.json"),
+        (0, "report/report_data.json"), (1, "run.json"),
     ):
         for hit in base.rglob(pattern.rsplit("/", 1)[-1]):
-            if rank == 1 and hit.parent.name != "report":
+            if rank == 0 and hit.parent.name != "report":
                 continue
-            if rank == 0 or rank == 2:
-                run_root = hit.parent
-            else:
-                run_root = hit.parent.parent
-            if rank == 2 and not any(
-                (run_root / stage / "log.json").is_file()
-                for stage in ("M1", "M2", "M3", "M4", "M5")
+            run_root = hit.parent.parent if rank == 0 else hit.parent
+            if rank == 1 and not any(
+                (run_root / stage / "log.json").is_file() for stage in _STAGES
             ):
                 continue
             if any(part in _JUNK_DIRS for part in run_root.relative_to(base).parts):
@@ -463,20 +455,17 @@ def _resolve_report_root(requested_root: Path) -> Path:
 
     Agentic examples conventionally write their immutable event stream in an
     ``outputs_*/logs`` child.  The CLI takes the enclosing output directory so
-    that it also remains convenient for legacy flat runs; prefer the nested
-    directory whenever it contains a run log or a published report.
+    that it also remains convenient; prefer the nested directory whenever it
+    contains a run log or a published report.
     """
     # An explicit directory with its own event stream always wins.  Some
     # examples retain a later ``logs/`` sub-run beside an earlier successful
     # top-level run; silently preferring it makes the UI show the wrong repair.
-    if (requested_root / "run_log.jsonl").is_file():
-        return requested_root
     if (requested_root / "run.json").is_file():
         return requested_root
     nested_logs = requested_root / "logs"
     if nested_logs.is_dir() and (
-        (nested_logs / "run_log.jsonl").is_file()
-        or (nested_logs / "report" / "report_data.json").is_file()
+        (nested_logs / "report" / "report_data.json").is_file()
         or (nested_logs / "run.json").is_file()
     ):
         return nested_logs

@@ -21,7 +21,7 @@ from evalrx.agent_runtime.json_shape import validate_json_shape
 if TYPE_CHECKING:
     from evalrx.eval_agent.agentic.board import EvidenceBoard
     from evalrx.eval_agent.agentic.tools import ToolRegistry
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ def decide(
     board: "EvidenceBoard",
     registry: "ToolRegistry",
     *,
-    run_logger: "RunLogger | None" = None,
+    run_logger: "RunLoggerV2 | None" = None,
     step: int = 0,
     max_repairs: int = 1,
 ) -> Action:

@@ -4,8 +4,8 @@ Before InstrumentedModel existed, an analyzer like self_consistency could call
 ``model.generate()`` N times per case and reduce that to one derived score
 (``consistency``) with the N raw generations gone — no way to see what the
 model was actually asked or actually said at each of those calls. This is the
-gap RunLogger.log_model_call / model_instrumentation.InstrumentedModel closes;
-see run_logger.py's log_probe (drains + nests into Langfuse) and
+gap RunLoggerV2.log_model_call / model_instrumentation.InstrumentedModel
+closes; see run_logger_v2.py's log_probe (drains + nests into Langfuse) and
 model_instrumentation.py.
 """
 
@@ -15,9 +15,15 @@ import json
 
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs
-from evalrx.eval_agent.run_logger import RunLogger
+from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from tests.conftest import FakeModel
+
+
+def _load(run_dir, *parts: str) -> dict:
+    from pathlib import Path
+
+    return json.loads(Path(run_dir, *parts).read_text())
 
 
 class _CountingModel(FakeModel):
@@ -41,7 +47,7 @@ def _batch(n: int = 2) -> CaseBatch:
 
 def test_self_consistency_calls_are_recorded_and_survive_the_analyzer(tmp_path):
     model = _CountingModel(capabilities={Capability.GENERATE})
-    run_logger = RunLogger(run_dir=tmp_path / "run1")
+    run_logger = RunLoggerV2(run_dir=tmp_path / "run1")
     run_logger.current_cycle = 0
     agent = ProbeAgent(run_logger=run_logger)
     batch = _batch()
@@ -50,9 +56,10 @@ def test_self_consistency_calls_are_recorded_and_survive_the_analyzer(tmp_path):
     run_logger.log_probe(0, results)
     run_logger.close()
 
-    calls_path = tmp_path / "run1" / "model_calls.jsonl"
-    assert calls_path.exists()
-    records = [json.loads(line) for line in calls_path.read_text().splitlines()]
+    # RunLoggerV2 inlines model_call records into M1/log.json's "model_calls"
+    # array rather than a sibling model_calls.jsonl file.
+    m1 = _load(tmp_path / "run1", "M1", "log.json")
+    records = m1["model_calls"]
     assert records, "no model_call records were written"
     assert all(r["event"] == "model_call" for r in records)
     assert all(r["analyzer"] == "self_consistency" for r in records)
@@ -72,12 +79,8 @@ def test_self_consistency_calls_are_recorded_and_survive_the_analyzer(tmp_path):
     assert {r["inputs"]["prompt"] for r in records} == {"question 0"}
     assert {r["case_id"] for r in records} == {batch[0].id}
 
-    # The lean probe event references the sibling file instead of inlining it.
-    probe_line = json.loads(
-        (tmp_path / "run1" / "run_log.jsonl").read_text().splitlines()[0]
-    )
-    assert probe_line["n_model_calls"] == len(records)
-    assert probe_line["model_calls_path"] == "model_calls.jsonl"
+    # The probe entry references the count, not a sibling file (there is none).
+    assert m1["probe"][0]["n_model_calls"] == len(records)
 
 
 def test_perturbation_analyzer_calls_carry_the_rewritten_prompt(tmp_path):
@@ -86,7 +89,7 @@ def test_perturbation_analyzer_calls_carry_the_rewritten_prompt(tmp_path):
     exercise. A rewritten call won't exact-match the case's own prompt, so it
     should fall back to batch_case_ids (scoped) rather than case_id (exact)."""
     model = _CountingModel(capabilities={Capability.GENERATE})
-    run_logger = RunLogger(run_dir=tmp_path / "run3")
+    run_logger = RunLoggerV2(run_dir=tmp_path / "run3")
     run_logger.current_cycle = 0
     agent = ProbeAgent(run_logger=run_logger)
     batch = CaseBatch([FailureCase(
@@ -96,10 +99,7 @@ def test_perturbation_analyzer_calls_carry_the_rewritten_prompt(tmp_path):
     agent.probe(model, batch, analyzers=["format_sensitivity"])
     run_logger.close()
 
-    records = [
-        json.loads(line)
-        for line in (tmp_path / "run3" / "model_calls.jsonl").read_text().splitlines()
-    ]
+    records = _load(tmp_path / "run3", "M1", "log.json")["model_calls"]
     assert records
     assert all(r["analyzer"] == "format_sensitivity" for r in records)
     # Distinct rewritten prompts actually reached the log, not one repeated string.
@@ -114,7 +114,7 @@ def test_wrapping_does_not_change_result_model_repr(tmp_path):
     InstrumentedModel must forward it unchanged or every call fragments the
     experiment cache and mislabels its Result."""
     model = FakeModel(capabilities={Capability.GENERATE})
-    run_logger = RunLogger(run_dir=tmp_path / "run2")
+    run_logger = RunLoggerV2(run_dir=tmp_path / "run2")
     run_logger.current_cycle = 0
     agent = ProbeAgent(run_logger=run_logger)
 
@@ -125,7 +125,7 @@ def test_wrapping_does_not_change_result_model_repr(tmp_path):
 
 
 def test_probe_still_works_when_run_logger_is_absent(tmp_path):
-    """No RunLogger means no instrumentation, not a crash."""
+    """No run logger means no instrumentation, not a crash."""
     model = FakeModel(capabilities={Capability.GENERATE})
     agent = ProbeAgent()  # run_logger defaults to None
 
@@ -141,10 +141,10 @@ def test_log_probe_drains_calls_tagged_under_a_stale_cycle(tmp_path):
     one log_probe is about to be called with. log_probe must drain the whole
     buffer regardless, not `pop(cycle, [])` keyed to the number it was called
     with, or these calls silently never reach Langfuse and the buffer leaks
-    forever (they stay durably in model_calls.jsonl either way — this is
-    specifically about the buffer/Langfuse side)."""
+    forever (they stay durably in M1/log.json's model_calls either way — this
+    is specifically about the buffer/Langfuse side)."""
     model = _CountingModel(capabilities={Capability.GENERATE})
-    run_logger = RunLogger(run_dir=tmp_path / "run4")
+    run_logger = RunLoggerV2(run_dir=tmp_path / "run4")
     agent = ProbeAgent(run_logger=run_logger)
 
     run_logger.current_cycle = 7  # stale: set as if a PRIOR cycle never advanced
@@ -154,8 +154,6 @@ def test_log_probe_drains_calls_tagged_under_a_stale_cycle(tmp_path):
     run_logger.log_probe(-1, results)
     run_logger.close()
 
-    probe_line = json.loads(
-        (tmp_path / "run4" / "run_log.jsonl").read_text().splitlines()[0]
-    )
-    assert probe_line["n_model_calls"] > 0
+    probe_entry = _load(tmp_path / "run4", "M1", "log.json")["probe"][0]
+    assert probe_entry["n_model_calls"] > 0
     assert run_logger._pending_model_calls == {}

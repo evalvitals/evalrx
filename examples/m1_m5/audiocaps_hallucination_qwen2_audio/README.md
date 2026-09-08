@@ -75,8 +75,8 @@ hint.
 `docker compose up` with the defaults above (300 rows, judge `sonnet`/`high`,
 `--fix-max-tier L3a`, open pool). Fresh greedy baseline **67.0% (201/300)**;
 split 120 explore / 180 confirm. Outputs in the llm_benchmark layout:
-`outputs/logs/` (run_log.jsonl, artifacts, `figures/m2_effects.png`,
-`experiments/post_m5_*`, `fixes/outcome.md`) + `outputs/explore/` (12 PNGs).
+`outputs/logs/` (`run.json` + `M1/log.json`..`M5/log.json`, each stage's own
+`artifacts/`, e.g. `M2/artifacts/m2_effects.png`) + `outputs/explore/` (12 PNGs).
 
 | stage | what happened |
 |---|---|

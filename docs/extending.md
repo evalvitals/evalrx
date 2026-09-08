@@ -51,9 +51,9 @@ Guidelines:
 - If an artifact is a 2-D spatial map over a case's image (e.g. an attention
   heatmap), add `overlay()` / `image_overlays(fig_dir, stem_prefix)` methods to
   your `Result` subclass (see `RelativeAttentionResult` in
-  `analyzers/attention/relative_attn.py`). `RunLogger` calls `image_overlays()`
+  `analyzers/attention/relative_attn.py`). `RunLoggerV2` calls `image_overlays()`
   on any `Result` that defines it — no per-analyzer wiring needed to get the
-  overlay PNGs into `figures/` alongside the bare heatmap.
+  overlay PNGs into `M1/artifacts/` alongside the bare heatmap.
 
 ## Use a Custom or Fine-Tuned Model
 
@@ -288,111 +288,85 @@ analyzer off a batch with no audio in it.
 ## Log and persist a diagnosis run
 
 The recommended way to persist a run is `RunContext` — it owns the whole
-output directory and hands every producer its subdirectory, including a bound
-logger. Its default (`logger_version="v2"`) writes `run.json` plus one
-`M1/log.json`..`M5/log.json` per stage; pass `logger_version="v1"` for the
-legacy `report/`/`figures/`/`artifacts/`/`experiments/`/`fixes/`/
-`manifest.json` layout described below and in
-[Architecture](architecture.md)'s "RunContext" section.
+output directory and hands every producer its subdirectory, including a
+bound `RunLoggerV2`, always: `run.json` plus one `M1/log.json`..`M5/log.json`
+per stage. See [Architecture](architecture.md)'s "RunContext" section for the
+full layout.
 
 ```python
 from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunContext
 
-with RunContext("runs/exp_01") as ctx:  # V2 by default
+with RunContext("runs/exp_01") as ctx:
     loop = AutoDiagnoseLoop(
         model=model,
         diagnosis_agent=DiagnosisAgent(),
         run_logger=ctx.logger,
     )
     report = loop.run(cases)
-# V1: manifest.json + README.txt written, logger closed on exit.
-# V2: run.json/M*/log.json already flushed incrementally; finalize() just closes them.
+# run.json/M*/log.json are flushed incrementally throughout the run;
+# finalize() (called on exit) just closes them out and inlines the runtime tree.
 ```
 
-The rest of this section — the standalone `RunLogger`, the JSONL event
-schema, the published JSON Schema validator — documents V1 (`RunLogger`)
-specifically; it stays fully supported (`logger_version="v1"`, or construct
-`RunLogger` directly) but is no longer what a fresh default run produces.
-
-If you only want the JSONL event log and artifact sink — without `RunContext`'s
-`report/`/`figures/`/manifest layout — construct `RunLogger` standalone:
+If you only want the event log and artifact sink — without `RunContext`'s
+figures/contract/per-trial layout — construct `RunLoggerV2` standalone:
 
 ```python
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLogger
+from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLoggerV2
 
 loop = AutoDiagnoseLoop(
     model=model,
     diagnosis_agent=DiagnosisAgent(),
-    run_logger=RunLogger("runs/exp_01"),   # explicit path
-    # run_logger=RunLogger()              # auto: runs/<YYYYMMDD_HHMMSS>/
+    run_logger=RunLoggerV2("runs/exp_01"),   # explicit path
+    # run_logger=RunLoggerV2()              # auto: runs/<YYYYMMDD_HHMMSS>/
 )
 report = loop.run(cases)
 ```
 
-Output layout (standalone `RunLogger`, no `RunContext`):
+Output layout (standalone `RunLoggerV2`, no `RunContext`):
 
 ```text
 runs/exp_01/
-├── run_log.jsonl                         ← one JSON line per M1/M2/M3/M5 event
-└── artifacts/
-    ├── c0_attention_attn_weights.npy     ← attention tensor, cycle 0
-    ├── c0_cka_layer_similarities.npy     ← CKA similarity matrix, cycle 0
-    └── c1_attention_attn_weights.npy     ← cycle 1 after data refocus
+├── run.json           run-wide events: run_start, cases, diagnose_reports, manifest, …
+├── M1/log.json        M1 probe entries (per cycle), plus M1/artifacts/ for heavy arrays
+├── M2/log.json …      M2/M3/M5 the same way — one JSON document per stage
+└── M5/log.json
 ```
-
-Each line in `run_log.jsonl` contains `event` (one of `probe`, `explore`,
-`analysis`, `diagnosis`, `surgery`, `loop_end`, …), `cycle`, `ts` (ISO-8601), a
-`schema_version` (int — bumps only on a breaking field rename/removal, so a
-parser doesn't need to guess from `evalrx_version`), and stage-specific
-fields:
-
-| `event` | Key fields |
-|---|---|
-| `probe` | `analyzers`, `findings` (JSON), `artifact_paths` |
-| `explore` | (optional, `VLDiagnoseLoop(explorer=...)`) `ok`, `n_observations`/`n_charts`/`n_charts_rendered`/`n_tables`/`n_candidate_signals`, `observations`, `figures` (rendered PNGs M3 was shown), `out_dir`/`report_path` (`exploratory_report.json` + `tables/` + `figures/`). Descriptive only — the explorer's in-sample verdicts appear as counts under `adjudication`, never in the confirmatory M2 family |
-| `analysis` | `severity`, `findings` (human-readable), `narrative`, `stats_tool_results`/`stats_results`/`stats_plan`/`corrected_rejections` (externalized to `artifacts/` above 4 KB) |
-| `diagnosis` | `hypotheses`, `raw_judge_output` (full LLM response) |
-| `surgery` | `hypothesis`, `status`, `fixed`, `evidence`, `n_refocused_cases` |
-| `loop_end` | `cycles`, `resolved`, `final_hypotheses` |
-
-The full, authoritative field contract is the published JSON Schema
-(`evalrx/eval_agent/run_log.schema.json`, from `log_schema.py`); validate a
-log with `from evalrx.eval_agent import iter_log_errors` (needs the optional
-`jsonschema` dep). See `docs/architecture.md` for details.
-
-Standard shell tools work directly on the log:
 
 ```bash
-# Live-stream events as the loop runs
-tail -f runs/exp_01/run_log.jsonl
-
-# Extract all Gemini diagnosis outputs across cycles
-jq 'select(.event=="diagnosis") | .raw_judge_output' runs/exp_01/run_log.jsonl
-
-# See which analyzers ran and their findings per cycle
-jq 'select(.event=="probe") | {cycle, analyzers, findings}' runs/exp_01/run_log.jsonl
-
-# Load an attention tensor for manual inspection
-python -c "import numpy as np; a = np.load('runs/exp_01/artifacts/c0_attention_attn_weights.npy'); print(a.shape)"
+# Load an attention tensor for manual inspection (heavy M1 arrays live under
+# each stage's own artifacts/, not a run-global one)
+python -c "import numpy as np; a = np.load('runs/exp_01/M1/artifacts/c0_attention_attn_weights.npy'); print(a.shape)"
 ```
 
-`RunLogger` is also a context manager, which ensures the file is closed even if
-the loop raises:
+Each stage document's array entries carry `ts` (ISO-8601), a
+`schema_version` (int — bumps only on a breaking field rename/removal, so a
+parser doesn't need to guess from `evalrx_version`), `event_seq` (a global
+sequence assigned under the logger's lock), and stage-specific fields:
+
+| stage / key | Key fields |
+|---|---|
+| `M1/log.json["probe"]` | `analyzers`, `findings` (per-analyzer summary), `results` (each analyzer's complete document, inline), `artifact_paths` |
+| `M2/log.json["explore"]` | (optional, `VLDiagnoseLoop(explorer=...)`) `ok`, `n_observations`/`n_charts`/`n_charts_rendered`/`n_tables`/`n_candidate_signals`, `observations`, `figures` (rendered PNGs M3 was shown), `workspace_snapshot` (the ephemeral explore tree, inlined). Descriptive only — the explorer's in-sample verdicts appear as counts under `adjudication`, never in the confirmatory M2 family |
+| `M2/log.json["analysis"]` | `severity`, `findings` (human-readable), `narrative`, `stats_results`/`stats_plan`/`corrected_rejections` (inlined, never externalized) |
+| `M3/log.json["diagnosis"]` | `hypotheses`, `raw_judge_output` (full LLM response) |
+| `M4/log.json["surgery"]` | `hypothesis`, `status`, `fixed`, `evidence`, `n_refocused_cases` |
+| `run.json["loop_end"]` | `cycles`, `resolved`, `final_hypotheses` |
+
+The full, authoritative field contract is the published JSON Schema
+(`evalrx/eval_agent/run_log.schema.json`, from `log_schema.py`); validate one
+event with `from evalrx.eval_agent import validate_event` (needs the
+optional `jsonschema` dep). See `docs/architecture.md` for details, and
+`evalrx.reporting.run_events.read_v2_events(root)` for a flat, ordered view
+across every stage at once — the shape most downstream code wants instead of
+reading each `M<n>/log.json` file directly.
+
+`RunLoggerV2` is also a context manager, which ensures every document is
+closed even if the loop raises:
 
 ```python
-with RunLogger("runs/exp_01") as logger:
+with RunLoggerV2("runs/exp_01") as logger:
     loop = AutoDiagnoseLoop(model=model, run_logger=logger)
     loop.run(cases)
-```
-
-To add custom log entries (e.g. pre/post-run metadata), write directly to the
-logger:
-
-```python
-logger = RunLogger("runs/exp_01")
-logger._write({"event": "run_config", "model": repr(model), "n_cases": len(cases)})
-loop = AutoDiagnoseLoop(model=model, run_logger=logger)
-loop.run(cases)
 ```
 
 ## Add Statistical Evaluation

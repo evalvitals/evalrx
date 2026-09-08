@@ -6,6 +6,36 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Breaking — `RunLogger` (V1) removed; `RunLoggerV2` is the only run logger
+
+`RunContext` no longer takes a `logger_version` argument — there is nothing
+to select between. Removed outright: `evalrx/eval_agent/run_logger.py`
+(the `RunLogger` class), its own test suite, and every "try V1, fall back to
+V2" branch in the report/observability readers (`evalrx/reporting/dynamic.py`,
+`html_report.py`, `case_study.py`, `server.py`, `evalrx/observability/tracer.py`,
+`evalrx/analysis/dashboard.py`) and in
+`examples/dataset_selection/llm_benchmark/run_pipeline.py`'s own confirm-only
+reloader. A run written by V1 — `run_log.jsonl`, `manifest.json`,
+`README.txt`, `figures/`/`prompts/`/`experiments/`/`tools/`/`workspace/`/
+`fixes/` — is no longer readable by anything in this package; re-run it under
+`RunLoggerV2` (`run.json` + `M1/log.json`..`M5/log.json`) if you need it in a
+current report/dashboard. `log_schema.py`'s `build_schema`/`build_v2_schema`
+are merged into one `build_schema()`; `RUN_LOG_SCHEMA_VERSION` bumped **5 → 6**
+(the merged envelope now unconditionally requires `event_seq`/`stage`/
+`span_id`) and moved from `run_logger.py` to `log_schema.py`. See
+`evalrx/eval_agent/RUN_LOGGER_V2.md` for the full layout and migration
+history. `examples/benchmark/tools/extract_figure_data.py` (a standalone
+tool outside the `evalrx` package) got its own, independent V1→V2 conversion
+in the same pass, including two real reads it was still doing from a
+sibling-file convention V2 never produces (per-analyzer `.result.json`,
+per-phase `_m2_stats_results.json`) — now reads `M1/log.json`'s inlined
+per-analyzer results and `M2/log.json`'s inlined `stats_results` instead.
+Also fixed along the way: `evalrx/reporting/case_study.py`'s M1 signal-curve
+and multiplicity-survivor helpers were calling the V1-only artifact glob
+directly instead of the already-V2-aware `_m2_sources()` helper, so they
+silently returned nothing for any V2 run — every V2 run's M1 bar chart and
+survivor list, not just old-archive-reading.
+
 ### Changed — project renamed EvalVitals → EvalRX
 
 Breaking. The import/package name, console scripts, and every on-disk/data

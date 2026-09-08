@@ -1,9 +1,13 @@
-"""Published, machine-consumable schema for ``run_log.jsonl``.
+"""Published, machine-consumable schema for a run's logged events.
 
-``run_log.jsonl`` is the contract between a diagnosis run and everything
-downstream (dashboards, parsers, the agent's own memory).  Until now that
-contract lived only in docstrings + a table in ``docs/extending.md`` and an
-opaque ``schema_version`` int — a consumer had nothing to *validate* against.
+A run's events (``run_start``, ``probe``, ``diagnosis``, ...) are the
+contract between a diagnosis run and everything downstream (dashboards,
+parsers, the agent's own memory) — RunLoggerV2 stores them bucketed into
+``run.json`` + per-stage ``M<n>/log.json`` rather than a flat JSONL file, but
+each individual event has this same shape wherever it lives. Until this
+module existed that contract lived only in docstrings + a table in
+``docs/extending.md`` and an opaque ``schema_version`` int — a consumer had
+nothing to *validate* against.
 
 This module is that contract, as code:
 
@@ -34,9 +38,31 @@ import json
 from pathlib import Path
 from typing import Any
 
-from evalrx.eval_agent.run_logger import RUN_LOG_SCHEMA_VERSION
+# Bump when an existing event's fields are renamed, removed, or change meaning,
+# or when a new event TYPE is added (additive fields on an existing event don't
+# need a bump). A downstream parser can branch on this instead of guessing
+# from `evalrx_version`.
+# v2: `analysis`'s stats_tool_results/stats_results/stats_plan/
+#     corrected_rejections are now conditionally externalized (see
+#     _externalize_if_large) — a {path, n_items, bytes} summary instead of
+#     the raw value once it exceeds _INLINE_MAX_BYTES.
+# v3: two new event types for AgenticDiagnoseLoop — `agent_decision` (one judge
+#     decision turn: chosen tool + rationale, keyed by `step` not `cycle`) and
+#     `agent_tool` (the dispatch layer's accept/reject outcome for that tool
+#     call). VLDiagnoseLoop/AutoDiagnoseLoop's events are unchanged.
+# v5: the EvalVitals → EvalRX rename renamed the `evalvitals_version` field to
+#     `evalrx_version` on every event and moved the published schema's `$id`
+#     to https://evalrx.dev/schemas/run_log.schema.json. Old logs still parse
+#     (the schema is permissive on unknown fields) but a strict
+#     `evalrx_version`-keyed reader needs this bump to tell them apart from
+#     pre-rename logs.
+# v6: folded in the bucketed-storage events (`model_call`, `diagnose_report`,
+#     `unrouted`) and the `stage`/`event_seq`/`span_id` envelope fields that
+#     were previously a separate, RunLoggerV2-only schema layered on top of
+#     this one — there is now one event schema, not a base plus an overlay.
+RUN_LOG_SCHEMA_VERSION = 6
 
-#: The event types emitted to ``run_log.jsonl``.
+#: The event types a run logs.
 EVENT_TYPES: tuple[str, ...] = (
     "run_start",
     "probe",
@@ -54,6 +80,9 @@ EVENT_TYPES: tuple[str, ...] = (
     "case_record",
     "report_published",
     "stage_skipped",
+    "model_call",
+    "diagnose_report",
+    "unrouted",
 )
 
 #: Path to the committed, rendered schema shipped as package data.
@@ -116,7 +145,7 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "artifact_paths": {"type": "object"},
             # Additive M1 fields (permissive schema): result_paths (per-analyzer
             # complete result json), failed_analyzers (selected-but-errored),
-            # selected_analyzers — see RunLogger.log_probe.
+            # selected_analyzers — see RunLoggerV2.log_probe.
             "selection_rationale": {"type": "string"},
             "judge_io": _JUDGE_IO,
             "duration_sec": {"type": "number"},
@@ -325,19 +354,48 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "detail": {"type": "string"},
         },
     },
+    "model_call": {
+        # A single generate/forward/logprobs/chat call against the target
+        # model, recorded immediately (see model_instrumentation.py). Either
+        # an analyzer's direct call (analyzer/method/call_index) or a
+        # judge/coder exchange (role/operation).
+        "required": ["cycle", "inputs", "output"],
+        "properties": {
+            "duration_sec": {"type": "number"},
+            "error": {"type": ["string", "null"]},
+        },
+        "anyOf": [{"required": ["analyzer", "method", "call_index"]},
+                  {"required": ["role", "operation"]}],
+    },
+    "diagnose_report": {
+        "required": ["cycles", "hypotheses", "m4_results", "discovery"],
+        "properties": {key: {"type": "array"} for key in
+                       ("hypotheses", "m4_results", "discovery")},
+    },
+    "unrouted": {
+        # A caller passed a tag _resolve_stage couldn't map to M1-M5 — filed
+        # here instead of being lost.
+        "required": ["key", "tag"],
+        "properties": {
+            "key": {"type": "string"},
+            "tag": {"type": ["string", "null"]},
+        },
+    },
 }
 
 
 def build_schema() -> dict[str, Any]:
-    """Return the JSON Schema (Draft 2020-12) for ``run_log.jsonl`` events.
+    """Return the JSON Schema (Draft 2020-12) for a run's logged events.
 
     Built from the stdlib only — no third-party import — so this stays callable
     in the light install.  The single source of truth for the version pin is
-    :data:`~evalrx.eval_agent.run_logger.RUN_LOG_SCHEMA_VERSION`.
+    :data:`RUN_LOG_SCHEMA_VERSION`. Validates one event at a time regardless of
+    where it's stored — a line in a flat log, or a record inside a bucketed
+    ``run.json``/``M<n>/log.json`` array.
     """
     envelope = {
         "type": "object",
-        "required": ["event", "schema_version", "ts", "trace_id"],
+        "required": ["event", "schema_version", "ts", "trace_id", "event_seq", "stage", "span_id"],
         "properties": {
             "event": {"type": "string", "enum": list(EVENT_TYPES)},
             "schema_version": {"const": RUN_LOG_SCHEMA_VERSION},
@@ -353,6 +411,7 @@ def build_schema() -> dict[str, Any]:
             "trace_id": {"type": "string"},
             "event_seq": {"type": "integer", "minimum": 1},
             "span_id": {"type": "string"},
+            "stage": {"enum": ["RUN", "M1", "M2", "M3", "M4", "M5"]},
             "cycle": {"type": "integer"},
         },
     }
@@ -360,73 +419,30 @@ def build_schema() -> dict[str, Any]:
     defs: dict[str, Any] = {"envelope": envelope}
     branches: list[dict[str, Any]] = []
     for name, spec in _EVENTS.items():
-        branch = {
-            "allOf": [
-                {"$ref": "#/$defs/envelope"},
-                {
-                    "type": "object",
-                    "properties": {"event": {"const": name}, **spec["properties"]},
-                    "required": ["event", *spec["required"]],
-                },
-            ]
+        variant: dict[str, Any] = {
+            "type": "object",
+            "properties": {"event": {"const": name}, **spec["properties"]},
+            "required": ["event", *spec["required"]],
         }
+        if "anyOf" in spec:
+            variant["anyOf"] = spec["anyOf"]
+        branch = {"allOf": [{"$ref": "#/$defs/envelope"}, variant]}
         defs[name] = branch
         branches.append({"$ref": f"#/$defs/{name}"})
 
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://evalrx.dev/schemas/run_log.schema.json",
-        "title": "EvalRX run_log.jsonl event",
+        "title": "EvalRX run event",
         "description": (
-            "One event per line in run_log.jsonl. Discriminated on `event`; "
-            f"matches schema_version {RUN_LOG_SCHEMA_VERSION}. Permissive: extra "
-            "(additive) fields are allowed."
+            "One logged event, wherever a run stores it (run.json / "
+            "M<n>/log.json). Discriminated on `event`; matches schema_version "
+            f"{RUN_LOG_SCHEMA_VERSION}. Permissive: extra (additive) fields "
+            "are allowed."
         ),
         "$defs": defs,
         "oneOf": branches,
     }
-
-
-def build_v2_schema() -> dict[str, Any]:
-    """V2 event schema: V1 fields plus inline evidence and V2-only events.
-
-    This validates individual records inside the bucketed JSON documents;
-    it does not change the published V1 JSONL schema.
-    """
-    schema = build_schema()
-    schema["$id"] = "https://evalrx.dev/schemas/run_logger_v2.event.schema.json"
-    schema["title"] = "EvalRX RunLoggerV2 event"
-    schema["description"] = "One persisted event in a V2 run or stage JSON document."
-    envelope = schema["$defs"]["envelope"]
-    envelope["required"] += ["event_seq", "stage", "span_id"]
-    envelope["properties"]["stage"] = {"enum": ["RUN", "M1", "M2", "M3", "M4", "M5"]}
-    extra_events = {
-        "model_call": {
-            "required": ["cycle", "inputs", "output"],
-            "properties": {
-                "duration_sec": {"type": "number"},
-                "error": {"type": ["string", "null"]},
-            },
-            "anyOf": [{"required": ["analyzer", "method", "call_index"]},
-                      {"required": ["role", "operation"]}],
-        },
-        "diagnose_report": {
-            "required": ["cycles", "hypotheses", "m4_results", "discovery"],
-            "properties": {key: {"type": "array"} for key in
-                           ("hypotheses", "m4_results", "discovery")},
-        },
-        "unrouted": {"required": ["key", "tag"]},
-    }
-    for name, spec in extra_events.items():
-        envelope["properties"]["event"]["enum"].append(name)
-        schema["$defs"][name] = {
-            "allOf": [{"$ref": "#/$defs/envelope"}, {
-                "type": "object", **spec,
-                "properties": {"event": {"const": name}, **spec.get("properties", {})},
-            }],
-        }
-        schema["oneOf"].append({"$ref": f"#/$defs/{name}"})
-    return schema
 
 
 def load_schema() -> dict[str, Any]:

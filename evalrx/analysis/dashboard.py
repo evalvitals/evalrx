@@ -5,7 +5,7 @@ Two product shapes are recognised:
 
 - **explore output**: an ``exploratory_report.json`` (or ``fused_report.json``)
   directly in the directory, with ``figures/`` and ``tables/`` beside it.
-- **loop run**: a ``logs_*/run_log.jsonl`` (M2 stats / M3 hypotheses + chart
+- **loop run**: a ``logs_*/run.json`` (M2 stats / M3 hypotheses + chart
   references / M4 / Fix) plus an optional ``fused_report.json``.
 
 There is no multi-turn chat session anymore — ``load_run`` replaces the old
@@ -161,53 +161,28 @@ def load_case_studies(run_dir: str | Path) -> list[Any]:
 
 
 def load_loop_story(run_dir: str | Path) -> dict[str, Any] | None:
-    """Parse a loop run's ``run_log.jsonl`` into an ordered diagnostic story.
+    """Parse a loop run's logged events into an ordered diagnostic story.
 
-    Looks for ``run_log.jsonl`` directly or under any ``logs*`` subdirectory.
     Returns ``None`` when no loop log is present (i.e. this is explore output).
+
+    A single run can be split across several logs when several separate
+    stage passes ran against the same root (e.g. a descriptive analysis-phase
+    pass AND a stale all-in-one confirm pass) — merging both would mix a
+    descriptive run with surgeries/verdicts from another run, so among
+    multiple M2+ sources only the single most-recent arc is kept. In
+    practice this run has exactly one source (``run.json``); the merge below
+    stays general rather than assuming that.
     """
     root = Path(run_dir).resolve()
-    # A single run can be split across several logs (e.g. logs_m1/ for M1 and a
-    # logs_m2_5/ or logs_analysis/ for the M2+ arc). We MERGE the shared M1 probe
-    # with the M2+ arc — but a directory may hold SEVERAL M2+ arcs that are
-    # different runs (e.g. a descriptive analysis-phase pass AND a stale
-    # all-in-one confirm pass). Merging both mixes a descriptive run with
-    # surgeries/verdicts from another run. So: keep every M1-only log, but among
-    # the M2+ logs keep only the single most-recent arc.
-    candidate_paths = [
-        p for p in [root / "run_log.jsonl", *sorted(root.glob("logs*/run_log.jsonl"))]
-        if p.exists()
-    ]
-    v2_events: list[dict[str, Any]] = []
-    if not candidate_paths:
-        from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
+    from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
 
-        v2_root = resolve_v2_root(root)
-        if v2_root is None:
-            return None
-        candidate_paths = [v2_root / "run.json"]
-        v2_events = read_v2_events(v2_root)
+    v2_root = resolve_v2_root(root)
+    if v2_root is None:
+        return None
+    candidate_paths = [v2_root / "run.json"]
+    events_by_path: dict[Path, list[dict[str, Any]]] = {candidate_paths[0]: read_v2_events(v2_root)}
 
     _M2PLUS = {"analysis", "diagnosis", "surgery", "fix"}
-    events_by_path: dict[Path, list[dict[str, Any]]] = {}
-    for lp in candidate_paths:
-        if v2_events:
-            events_by_path[lp] = v2_events
-            continue
-        evs: list[dict[str, Any]] = []
-        try:
-            for line in lp.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    evs.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-        except OSError:
-            continue
-        events_by_path[lp] = evs
-
     m2plus_logs = [p for p, evs in events_by_path.items()
                    if any(str(e.get("event")) in _M2PLUS for e in evs)]
     if len(m2plus_logs) > 1:
@@ -297,7 +272,7 @@ def _read_proposed_hypotheses(root: Path) -> list[dict[str, Any]]:
 def _find_explore_report(root: Path, log_path: Path) -> tuple[dict[str, Any] | None, str | None]:
     """Locate the Step-1 explore/fused report for a loop run.
 
-    The loop writes ``run_log.jsonl`` under ``logs*/`` while the fused pipeline
+    The loop writes ``run.json`` under ``logs*/`` while the fused pipeline
     writes ``fused_report.json`` under a separate ``fused/`` dir. Search the run
     tree and its parents/siblings so the dashboard can show what M3 consulted."""
     bases = [root, log_path.parent, log_path.parent.parent]

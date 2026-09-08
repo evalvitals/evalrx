@@ -512,7 +512,7 @@ for the stage contracts, M1's two-tier analyzer selection, and what M2/M4 ask.
 ```python
 from evalrx import compose
 from evalrx.core.capability import Capability
-from evalrx.eval_agent import VLDiagnoseLoop, AgyModel, RunLogger
+from evalrx.eval_agent import VLDiagnoseLoop, AgyModel, RunLoggerV2
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.analysis.stats_agent import StatsAnalysisAgent
@@ -535,7 +535,7 @@ loop = VLDiagnoseLoop(
     diagnosis_agent=DiagnosisAgent(judge=judge),
     max_cycles=3,
     protocol=protocol,
-    run_logger=RunLogger(),
+    run_logger=RunLoggerV2(),
 )
 report = loop.run(failure_cases)
 
@@ -545,12 +545,11 @@ print(report.final_hypotheses)   # list[Hypothesis] — status SUPPORTED/REFUTED
 fix = loop.run_m5(report, failure_cases)   # post-loop fix proposal
 ```
 
-`RunLogger()` above is V1: it writes just the flat JSONL event log. For a full
-managed output directory, construct a `RunContext` and pass
-`run_logger=ctx.logger` instead — its default (`logger_version="v2"`) writes
-`run.json` + per-stage `M1/log.json`..`M5/log.json`; `logger_version="v1"`
-gets the legacy `report/`/`figures/`/`artifacts/`/per-trial
-`fixes/`/`experiments/`/`manifest.json` layout instead. See
+`RunLoggerV2()` above writes just its own `run.json` + `M<n>/log.json` files at
+the given (or auto-generated) path — no other producer's output directory.
+For a full managed output directory — figures, per-trial fix/experiment
+sandboxes, contract export — construct a `RunContext` and pass
+`run_logger=ctx.logger` instead. See
 [RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory).
 
 **`ExperimentProtocol`** is the human prior that anchors the loop. M1 uses it
@@ -590,20 +589,18 @@ loop = AgenticDiagnoseLoop(
     protocol=protocol,
     judge=ClaudeModel(),        # the decision judge — any CLI-backed Model
     max_actions=12,             # hard cap on judge decision turns
-    run_logger=RunLogger(),
+    run_logger=RunLoggerV2(),
 )
 report = loop.run(failure_cases)   # same VLDiagnoseReport shape as VLDiagnoseLoop
 ```
 
 `report.stopped_by` is one of `agent_stop` / `max_actions` / `budget` /
 `time_budget` / `invalid_actions` (three consecutive unparseable judge
-responses, even after a repair prompt). Two new event types —
-`agent_decision` (the chosen tool + rationale) and `agent_tool` (the dispatch
-layer's accept/reject outcome) — sit alongside the reused
-`probe`/`analysis`/`diagnosis`/`surgery` events from the wrapped stages, on
-both loggers: as `run_log.jsonl` lines under V1 (see
-`evalrx.eval_agent.log_schema`, schema version 3) or inside `run.json` under
-V2 (`log_agent_decision`/`log_agent_tool`, same fields).
+responses, even after a repair prompt). Two event types — `agent_decision`
+(the chosen tool + rationale) and `agent_tool` (the dispatch layer's
+accept/reject outcome) — sit inside `run.json`, alongside the reused
+`probe`/`analysis`/`diagnosis`/`surgery` events from the wrapped stages
+(`log_agent_decision`/`log_agent_tool`).
 
 ## Input Modes — Submitting a Diagnosis Run
 

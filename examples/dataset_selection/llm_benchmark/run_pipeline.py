@@ -52,6 +52,7 @@ sys.path.insert(0, str(PKG_ROOT))
 
 import band_locate as B  # noqa: E402
 import datasets as CATALOG  # noqa: E402
+
 from evalrx.core.model import Model  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
@@ -638,53 +639,6 @@ def _load_prior_run_v2(logs_dir: Path):
     return _stats_report_from(diagnosis, analysis, raw_results, logs_dir)
 
 
-def _load_prior_run_v1(logs_dir: Path):
-    """RunLogger (v1) layout: one append-only ``run_log.jsonl``, every stage
-    interleaved. Read from the segment after the final ``run_start`` so a
-    ``--confirm-only`` after several runs reloads the LAST one, not the
-    first. Large M2/M1 payloads may be externalized (``{"path": ...}``) —
-    v2 never does this, which is why this reader is kept separate rather
-    than folded into the v2 one."""
-    from evalrx.core.result import Result
-
-    log_path = logs_dir / "run_log.jsonl"
-    events = []
-    for line in log_path.read_text(encoding="utf-8").splitlines():
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    starts = [i for i, e in enumerate(events) if e.get("event") == "run_start"]
-    segment = events[starts[-1]:] if starts else events
-    by_event = {}
-    for e in segment:  # last of each kind wins inside the segment
-        by_event[e.get("event")] = e
-
-    diagnosis = by_event.get("diagnosis") or {}
-    analysis = dict(by_event.get("analysis") or {})
-
-    def _externalised(field):
-        v = analysis.get(field)
-        if isinstance(v, dict) and v.get("path"):
-            return json.loads((logs_dir / v["path"]).read_text(encoding="utf-8"))
-        return v or []
-
-    analysis["stats_results"] = _externalised("stats_results")
-
-    raw_results = {}
-    probe = by_event.get("probe") or {}
-    for name, rel in (probe.get("result_paths") or {}).items():
-        path = logs_dir / rel
-        if not path.exists():
-            continue
-        d = json.loads(path.read_text(encoding="utf-8"))
-        raw_results[name] = Result(analyzer=d.get("analyzer", name), model=d.get("model", ""),
-                                   findings=d.get("findings") or {},
-                                   metadata=d.get("metadata") or {})
-
-    return _stats_report_from(diagnosis, analysis, raw_results, logs_dir)
-
-
 def load_prior_run(logs_dir: Path):
     """Reload the LAST run's M2 stats + M3 hypotheses from ``logs_dir``.
 
@@ -695,18 +649,11 @@ def load_prior_run(logs_dir: Path):
     module read. Findings objects and figures are not rebuilt (nothing
     downstream needs them). Raises SystemExit with the missing piece named
     when the logs do not hold a completed M2->M3.
-
-    Dispatches on which layout is on disk: ``M3/log.json`` means RunLoggerV2
-    (the pipeline's current logger), a bare ``run_log.jsonl`` means an older
-    RunLoggerV1 run — both are supported so a run made before the v2 switch
-    can still be confirmed.
     """
     if (logs_dir / "M3" / "log.json").exists():
         return _load_prior_run_v2(logs_dir)
-    if (logs_dir / "run_log.jsonl").exists():
-        return _load_prior_run_v1(logs_dir)
     raise SystemExit(f"--confirm-only: no earlier run found under {logs_dir} "
-                     f"(looked for M3/log.json and run_log.jsonl)")
+                     f"(missing M3/log.json)")
 
 
 def make_scoring_note(dataset: str, cases: list) -> str:
@@ -902,11 +849,9 @@ def main() -> None:
                 explore_report = None
     overrides = (build_analyzer_overrides(args.analyzer_max_cases, model=model)
                  if args.analyzer_max_cases > 0 else {})
-    # A confirm-only pass logs beside the analysis it reuses, never over it —
-    # the reporting compatibility reader (evalrx.reporting.run_events) merges
-    # every logs*/ dir under the run dir. RunLoggerV2: one JSON per M-stage
-    # (M1/log.json .. M5/log.json) under this dir instead of v1's single
-    # interleaved run_log.jsonl — see evalrx/eval_agent/RUN_LOGGER_V2.md.
+    # A confirm-only pass logs beside the analysis it reuses, never over it.
+    # RunLoggerV2 writes run.json + one JSON per M-stage (M1/log.json ..
+    # M5/log.json) under this dir — see evalrx/eval_agent/RUN_LOGGER_V2.md.
     logger = RunLoggerV2(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
                          verbose=True)
 

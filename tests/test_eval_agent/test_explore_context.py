@@ -208,10 +208,10 @@ def test_loop_init_stores_coerced_explore_context():
 def test_log_diagnosis_records_explore_provenance(tmp_path):
     import json
 
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
-    logger = RunLogger(run_dir=tmp_path / "run1")
+    logger = RunLoggerV2(run_dir=tmp_path / "run1", observability_mode="offline")
     diag = DiagnosisResult(
         model_name="vlm",
         hypotheses=[],
@@ -221,8 +221,8 @@ def test_log_diagnosis_records_explore_provenance(tmp_path):
     )
     logger.log_diagnosis(1, diag, explore_figures=["/tmp/explore_size.png"])
 
-    lines = (tmp_path / "run1" / "run_log.jsonl").read_text().splitlines()
-    entry = next(json.loads(x) for x in lines if json.loads(x).get("event") == "diagnosis")
+    m3 = json.loads((tmp_path / "run1" / "M3" / "log.json").read_text())
+    entry = m3["diagnosis"][-1]
     assert entry["referenced_charts"] == ["ObjSize by label"]
     assert entry["explore_context_used"] is True
     assert entry["explore_figures"] == ["/tmp/explore_size.png"]
@@ -234,10 +234,10 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     import json
 
     from evalrx.eval_agent.hypothesis import Hypothesis
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
-    logger = RunLogger(run_dir=tmp_path / "run2")
+    logger = RunLoggerV2(run_dir=tmp_path / "run2", observability_mode="offline")
     h1 = Hypothesis(statement="h1", target_model="vlm", predicted_failure_mode="x")
     diag = DiagnosisResult(
         model_name="vlm", hypotheses=[h1], raw_judge_output="...",
@@ -248,12 +248,11 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
         review_decisions=[{"statement": "h1", "decision": "reject", "reason": "n=30"}],
     )
     logger.log_diagnosis(0, diag)
-    lines = (tmp_path / "run2" / "run_log.jsonl").read_text().splitlines()
-    entry = next(json.loads(x) for x in lines if json.loads(x).get("event") == "diagnosis")
-    # both record shapes travel together: the critic io and the review list
+    m3 = json.loads((tmp_path / "run2" / "M3" / "log.json").read_text())
+    entry = m3["diagnosis"][-1]
+    # both record shapes travel together: the critic prompt/response and the review list
     assert entry["proposed_hypotheses"][0]["statement"] == "h1"
     assert entry["review"]["n_rejected"] == 1 and entry["review"]["decisions"][0]["decision"] == "reject"
-    io = entry["critic_io"]
-    assert io["raw_path"].endswith("c0_m3_critic.response.txt")
-    assert io["prompt_path"].endswith("c0_m3_critic.prompt.txt")
-    assert "LABEL SUMMARY" in (tmp_path / "run2" / io["prompt_path"]).read_text()
+    # Inlined directly (no sibling .prompt.txt/.response.txt files under V2).
+    assert entry["critic_raw_output"] == "REJECT: h1\nREASON: n=30"
+    assert "LABEL SUMMARY" in entry["critic_prompt"]

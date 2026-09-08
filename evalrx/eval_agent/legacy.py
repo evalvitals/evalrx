@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from evalrx.eval_agent.evolution import EvolutionStore
     from evalrx.eval_agent.git_manager import ExperimentGitManager
     from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisGenerator
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
     from evalrx.eval_agent.stages.probe_agent import ProbeAgent
     from evalrx.eval_agent.stages.surgery import SurgeryAgent
@@ -129,8 +129,8 @@ class AutoDiagnoseLoop:
                           Defaults to ``SurgeryAgent()``.
         store:            Persistent memory.  Defaults to ``InMemoryStore()``.
         max_cycles:       Hard cap on M1→M5 iterations.
-        run_logger:       Optional :class:`~evalrx.eval_agent.run_logger.RunLogger`
-                          that writes a JSONL event log and saves analyzer artifacts.
+        run_logger:       Optional :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`
+                          that logs the run's events and saves analyzer artifacts.
         run_dir:          Optional root directory for run infrastructure.
                           When set, enables checkpoints, heartbeat, and the
                           ``EvolutionStore``.
@@ -150,7 +150,7 @@ class AutoDiagnoseLoop:
         surgery_agent: "SurgeryAgent | None" = None,
         store: Store | None = None,
         max_cycles: int = 5,
-        run_logger: "RunLogger | None" = None,
+        run_logger: "RunLoggerV2 | None" = None,
         # --- run-directory infrastructure (new) ---
         run_dir: "Path | None" = None,
         git_manager: "ExperimentGitManager | None" = None,

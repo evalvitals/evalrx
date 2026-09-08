@@ -352,7 +352,7 @@ class VLDiagnoseLoop:
                             tripled the wall-clock; raise it to keep
                             mining when a cycle's M4 designs feed the
                             next cycle's M1).
-        run_logger:         Optional :class:`~evalrx.eval_agent.run_logger.RunLogger`.
+        run_logger:         Optional :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`.
         token_budget:       Stop early when accumulated token usage reaches
                             this limit (0 = unlimited).
         analysis_only:      Run only M1→M2 and stop before hypothesis generation.
@@ -777,13 +777,11 @@ class VLDiagnoseLoop:
         dashboard's ``_find_explore_report`` looks (``<root>/*/exploratory_report.json``):
 
         - a :class:`~evalrx.eval_agent.run_context.RunContext`-backed logger
-          → ``ctx.explore_dir`` — ``<ctx.root>/explore`` for a V1 context
-          (the context owns the whole run directory; ``run_log.jsonl`` sits
-          directly under root), or an ephemeral tree under ``ctx.runtime_root``
-          for a V2 context (captured into ``M2/log.json`` and deleted at
-          ``finalize()``; writing straight to ``<ctx.root>/explore`` there
-          would leak real files outside V2's JSON-only run artifact);
-        - a standalone ``RunLogger("<run>/logs")`` / ``logs_confirm`` … →
+          → ``ctx.explore_dir``, an ephemeral tree under ``ctx.runtime_root``
+          (captured into ``M2/log.json`` and deleted at ``finalize()``;
+          writing straight to ``<ctx.root>/explore`` would leak real files
+          outside V2's JSON-only run artifact);
+        - a standalone ``RunLoggerV2("<run>/logs")`` / ``logs_confirm`` … →
           ``<run>/explore`` (a sibling of the ``logs*/`` dir, the llm_benchmark
           layout — under the log dir it would be two levels down for a
           ``logs_confirm/`` carrier log and the dashboard would miss it);

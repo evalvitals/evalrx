@@ -95,8 +95,7 @@ def test_vl_agent_launches_m1_to_m4_and_dashboard_loader_reads_run(tmp_path):
     """Launch the real M1->M2->M3->M4 loop and verify the UI data contract."""
     data = _cases()
     judge = _ScriptedJudge()
-    # Pinned: asserts write_diagnose_report's V1-only report/*.json output.
-    ctx = RunContext(tmp_path / "run", verbose=False, logger_version="v1")
+    ctx = RunContext(tmp_path / "run", verbose=False)
     loop = VLDiagnoseLoop(
         model=FakeModel(
             capabilities={Capability.GENERATE, Capability.ATTENTION},
@@ -133,6 +132,8 @@ def test_vl_agent_launches_m1_to_m4_and_dashboard_loader_reads_run(tmp_path):
     assert len(story["surgeries"]) >= 1
     assert story["diagnoses"][0]["hypotheses"][0]["failure_mode"] == "attention"
 
-    assert (ctx.root / "report" / "summary.json").exists()
-    assert (ctx.root / "report" / "hypotheses.json").exists()
-    assert (ctx.root / "report" / "m4_results.json").exists()
+    ctx.finalize()
+    run = json.loads((ctx.root / "run.json").read_text())
+    dr = run["diagnose_reports"][-1]
+    assert dr["n_hypotheses"] == 1 and dr["hypotheses"][0]["failure_mode"] == "attention"
+    assert dr["m4_results"][0]["status"] == "supported"

@@ -2102,22 +2102,20 @@ def test_broken_cases_counted_and_net_negative_not_fixed():
 
 
 def test_outcome_serializes_and_logs(tmp_path):
-    from evalrx.eval_agent import RunLogger
+    from evalrx.eval_agent import RunLoggerV2
 
     judge = ScriptedJudge(
         json.dumps([{"name": "careful", "prompt_template": "Look carefully. {prompt}"}])
     )
-    logger = RunLogger(tmp_path / "logs")
+    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(judge=judge, max_tier="L1", run_logger=logger)
     out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
     d = out.to_dict()
     json.dumps(d)  # fully serializable
     assert d["max_tier"] == "L1" and d["fixed"] is True
-    log_text = (tmp_path / "logs" / "run_log.jsonl").read_text(encoding="utf-8")
-    events = [json.loads(line) for line in log_text.splitlines()]
-    fix_events = [e for e in events if e.get("event") == "fix"]
-    assert len(fix_events) == 1
-    assert fix_events[0]["attempted"][0]["name"] == "careful"
+    m5 = json.loads((tmp_path / "logs" / "M5" / "log.json").read_text(encoding="utf-8"))
+    assert len(m5["fix"]) == 1
+    assert m5["fix"][0]["attempted"][0]["name"] == "careful"
 
 
 # ── loop integration ─────────────────────────────────────────────────────────
@@ -2442,9 +2440,9 @@ class CodeWritingJudge(Model):
 
 def test_fix_agent_coded_candidate_fixes_and_logs(tmp_path):
     pytest.importorskip("PIL")
-    from evalrx.eval_agent import RunLogger
+    from evalrx.eval_agent import RunLoggerV2
 
-    logger = RunLogger(tmp_path / "logs")
+    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(
         judge=CodeWritingJudge(), max_tier="L2", run_logger=logger, exec_timeout_sec=30
     )
@@ -2459,9 +2457,9 @@ def test_fix_agent_coded_candidate_fixes_and_logs(tmp_path):
     # The default upscale_sharpen spec also fixes this model with the same
     # effect; best is whichever validated first among the tied winners.
     assert out.best.candidate.name in {"coded_pipeline", "upscale_sharpen"}
-    log_text = (tmp_path / "logs" / "run_log.jsonl").read_text(encoding="utf-8")
-    events = [json.loads(line) for line in log_text.splitlines()]
-    cg = [e for e in events if e.get("event") == "tool_codegen"]
+    # "fix_pipeline" resolves to M5 via _STAGE_ALIASES (no "m<N>" substring).
+    m5 = json.loads((tmp_path / "logs" / "M5" / "log.json").read_text(encoding="utf-8"))
+    cg = m5["tool_codegen"]
     assert len(cg) == 1 and cg[0]["module"] == "fix_pipeline" and cg[0]["ok"] is True
 
 
@@ -3241,10 +3239,12 @@ def test_bridged_attend_enables_coded_l3a(tmp_path):
 
 def test_declarative_candidate_gets_record_and_result_but_no_workspace(tmp_path):
     """A template/spec candidate never touches a sandbox — its trial folder
-    should hold only record.md + result.json, no workspace/ subdir."""
+    never gets a workspace/ subdir. Under V2 there is no per-trial
+    record.md/result.json either (that was a V1-only artifact); the same
+    outcome data lives inline in M5/log.json's "fix" entry instead."""
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1", logger_version="v1")
+    ctx = RunContext(tmp_path / "run1")
     judge = ScriptedJudge(
         json.dumps(
             [
@@ -3261,21 +3261,29 @@ def test_declarative_candidate_gets_record_and_result_but_no_workspace(tmp_path)
     assert out.fixed is True
     trial = out.best.candidate.trial
     assert trial is not None
-    assert trial.root.parent == ctx.fixes_dir
-
-    ctx.finalize()
-    assert (trial.root / "record.md").exists()
-    assert (trial.root / "result.json").exists()
+    assert trial.root.parent == ctx.runtime_root / "fixes"
     assert not (trial.root / "workspace").exists()
+
+    runtime_root = ctx.runtime_root
+    ctx.finalize()
+    assert not runtime_root.exists()
+
+    fix = json.loads((tmp_path / "run1" / "M5" / "log.json").read_text())["fix"][-1]
+    assert fix["fixed"] is True
+    assert fix["best"]["kind"] in ("template", "spec")
 
 
 def test_deduped_candidate_in_round_two_leaves_no_trial_folder(tmp_path):
     """A judge that keeps proposing the SAME failing candidate is deduped
-    before a trial is ever allocated for it — round 2 must not leave behind
-    an empty (or duplicate) folder."""
+    before a trial is ever allocated for it — round 2 must not produce a
+    second (duplicate) attempt. A declarative candidate's trial is never
+    materialized on disk at all under V2 (lazy, and record.md/result.json
+    are V1-only artifacts), so the dedup guarantee is checked against the
+    returned attempt list and the inlined M5/log.json record instead of a
+    directory listing."""
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1", logger_version="v1")
+    ctx = RunContext(tmp_path / "run1")
     judge = ScriptedJudge(
         json.dumps([{"name": "polite", "prompt_template": "Please answer. {prompt}"}])
     )
@@ -3285,10 +3293,10 @@ def test_deduped_candidate_in_round_two_leaves_no_trial_folder(tmp_path):
     out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
     assert out.repair_rounds == 1
     assert sum(1 for v in out.attempted if v.candidate.name == "polite") == 1
-
     ctx.finalize()
-    trial_dirs = [p for p in ctx.fixes_dir.iterdir() if p.is_dir()]
-    assert len(trial_dirs) == 1  # exactly one — no orphan from the deduped re-proposal
+
+    fix = json.loads((tmp_path / "run1" / "M5" / "log.json").read_text())["fix"][-1]
+    assert sum(1 for a in fix["attempted"] if a["name"] == "polite") == 1
 
 
 class TwoVersionCodeJudge(Model):
@@ -3360,7 +3368,7 @@ def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     pytest.importorskip("PIL")
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1", logger_version="v1")
+    ctx = RunContext(tmp_path / "run1")
     agent = FixAgent(
         judge=TwoVersionCodeJudge(),
         max_tier="L2",
@@ -3390,12 +3398,18 @@ def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     assert "SECRET_MARKER" not in code1
     assert "SECRET_MARKER" in code2
 
+    runtime_root = ctx.runtime_root
     ctx.finalize()
-    # Each trial's own record + result — not a shared/overwritten one.
-    assert (t1.root / "record.md").exists()
-    assert (t2.root / "record.md").exists()
-    assert json.loads((t1.root / "result.json").read_text())["fixed"] is False
-    assert json.loads((t2.root / "result.json").read_text())["fixed"] is True
+    assert not runtime_root.exists()
+
+    # Each attempt's own outcome — not a shared/overwritten one. Under V2
+    # there's no per-trial record.md/result.json (V1-only); the same data is
+    # inlined per-candidate in M5/log.json's "fix" entry instead.
+    fix = json.loads((tmp_path / "run1" / "M5" / "log.json").read_text())["fix"][-1]
+    coded_entries = [a for a in fix["attempted"] if a["kind"] == "code"]
+    assert len(coded_entries) == 2
+    assert coded_entries[0]["fixed"] is False
+    assert coded_entries[1]["fixed"] is True
 
 
 # ── prompt templates live next to LaTeX ──────────────────────────────────────
@@ -3850,9 +3864,9 @@ def test_a_coded_pipeline_that_reads_baseline_output_needs_no_repair_round(tmp_p
     the first attempt, the host states the support threshold it enforces, the
     guard anchors every case on its record, the frozen control still holds,
     and no repair round is spent."""
-    from evalrx.eval_agent import RunLogger
+    from evalrx.eval_agent import RunLoggerV2
 
-    logger = RunLogger(tmp_path / "logs")
+    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
     judge = _BaselineOutputJudge()
     agent = FixAgent(
         judge=judge, max_tier="L2", run_logger=logger, exec_timeout_sec=30,
@@ -3871,9 +3885,8 @@ def test_a_coded_pipeline_that_reads_baseline_output_needs_no_repair_round(tmp_p
     assert v.candidate.payload["frozen_model_control"]["solved"] == []
     code_prompt = next(p for p in judge.prompts if "EXECUTION CONTRACT" in p)
     assert "at least 3 of your enhanced calls" in code_prompt
-    events = [json.loads(line)
-              for line in (tmp_path / "logs" / "run_log.jsonl").read_text(encoding="utf-8").splitlines()]
-    codegen = [e for e in events if e.get("event") == "tool_codegen"]
+    m5 = json.loads((tmp_path / "logs" / "M5" / "log.json").read_text(encoding="utf-8"))
+    codegen = m5["tool_codegen"]
     assert len(codegen) == 1 and codegen[0]["ok"] is True
     assert codegen[0]["tool_name"] == "coded_pipeline"      # never coded_pipeline_repair
 
@@ -3882,10 +3895,12 @@ def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
     """The selection-guard statistics and the frozen-model control land as JSON
     in the attempt's trial directory (the candidate payload is never logged, so
     without these files a reviewer cannot tell whether the guard anchored on the
-    record or reverted anything)."""
+    record or reverted anything). Checked before finalize(): these live under
+    RunContext's ephemeral runtime tree, which finalize() inlines and deletes,
+    not under the run root itself."""
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run", logger_version="v1")
+    ctx = RunContext(tmp_path / "run")
     agent = FixAgent(
         judge=_BaselineOutputJudge(), max_tier="L2", run_logger=ctx.logger, run_context=ctx,
         exec_timeout_sec=30, candidate_allowlist={"coded_pipeline"},
@@ -3894,8 +3909,8 @@ def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
     out = agent.propose_and_validate(BaselineFailsModel(), data, [_hyp("x")])
     assert out.fixed is True
 
-    guard_files = list((tmp_path / "run").rglob("coded_pipeline_result.json"))
-    control_files = list((tmp_path / "run").rglob("frozen_model_control.json"))
+    guard_files = list(ctx.runtime_root.rglob("coded_pipeline_result.json"))
+    control_files = list(ctx.runtime_root.rglob("frozen_model_control.json"))
     assert len(guard_files) == 1 and len(control_files) == 1
     assert guard_files[0].parent == control_files[0].parent       # same trial dir
     guard = json.loads(guard_files[0].read_text(encoding="utf-8"))
@@ -3904,6 +3919,7 @@ def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
     assert guard["unanchored_ids"] == [] and guard["n_guarded"] == 0 and guard["min_support"] == 3
     control = json.loads(control_files[0].read_text(encoding="utf-8"))
     assert control["ok"] is True and control["solved"] == []
+    ctx.finalize()
 
 
 # ── Candidates must arrive with a sentence a reader can use ──────────────────

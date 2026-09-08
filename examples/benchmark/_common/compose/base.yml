@@ -19,8 +19,6 @@ services:
       - HF_TOKEN=${HF_TOKEN:-}
       # Gemini API family (--backend gemini): the key is read from the environment.
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      # Match the benchmark runner default; allow an explicit V1 fallback.
-      - EVALRX_RUN_LOGGER_VERSION=${EVALRX_RUN_LOGGER_VERSION:-v2}
       # claude reads its OAuth state from $HOME; IS_SANDBOX lets it accept
       # --dangerously-skip-permissions as root.
       - HOME=/home/user

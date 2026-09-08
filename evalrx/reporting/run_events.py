@@ -102,4 +102,83 @@ def read_v2_events(root: str | Path) -> list[dict[str, Any]]:
     return events
 
 
-__all__ = ["read_v2_events", "resolve_v2_root"]
+# Inverse of the RUN-stage bucket mapping `read_v2_events` flattens — event
+# name -> run.json key. These names are always RUN-level regardless of any
+# "stage" tag on the recovered event.
+_RUN_EVENT_TO_KEY = {
+    "case_record": "cases",
+    "diagnose_report": "diagnose_reports",
+    "agent_decision": "agent_decisions",
+    "agent_tool": "agent_tool_calls",
+    "report_published": "report_published",
+    "loop_end": "loop_end",
+}
+
+# A source that recovers events out-of-band (e.g. Langfuse observations
+# reconstructed from a durable-outbox delivery, which predates per-event
+# "stage" tagging) may hand back events with no "stage" field at all. Route
+# by the event's own name to its canonical stage rather than dumping it into
+# run.json's "unrouted" bucket, where `resolve_v2_root` would never find it
+# (it requires at least one real M<n>/log.json to recognize a V2 root).
+_NAME_TO_STAGE = {
+    "probe": "M1",
+    "analysis": "M2", "explore": "M2",
+    "diagnosis": "M3",
+    "experiment": "M5",  # module=... on the row disambiguates M4 vs M5 below
+    "fix": "M5",
+}
+
+
+def _fallback_stage(name: "str | None", row: dict[str, Any]) -> "str | None":
+    """Best-effort stage for an event with no "stage" tag of its own."""
+    if name == "surgery" or name == "tool_codegen" or name == "experiment":
+        module = str(row.get("module") or "").lower()
+        if module.startswith("m") and module[1:].isdigit():
+            return f"M{module[1:]}"
+        return "M5" if name == "experiment" else "M4"
+    return _NAME_TO_STAGE.get(name or "")
+
+
+def write_v2_bundle(root: str | Path, events: list[dict[str, Any]]) -> None:
+    """Reconstruct ``run.json`` + ``M<n>/log.json`` from a flat event list.
+
+    The exact inverse of :func:`read_v2_events`'s bucketing, for callers that
+    recover events from an out-of-band source (e.g. Langfuse) and need to
+    write a V2-shaped cache directory back for the report/dashboard's
+    normal V2-only read path to find.
+    """
+    root = Path(root)
+    run_doc: dict[str, Any] = {}
+    stage_docs: dict[str, dict[str, list[dict[str, Any]]]] = {}
+
+    for event in events:
+        row = {k: v for k, v in event.items() if k not in ("event", "stage")}
+        stage = event.get("stage")
+        name = event.get("event")
+        if name == "run_start":
+            run_doc["run_start"] = row
+            continue
+        if name in _RUN_EVENT_TO_KEY:
+            run_doc.setdefault(_RUN_EVENT_TO_KEY[name], []).append(row)
+            continue
+        if stage not in _STAGES:
+            stage = _fallback_stage(name, row) or stage
+        if stage not in _STAGES:
+            run_doc.setdefault("unrouted", []).append(row)
+            continue
+        key = "model_calls" if name == "model_call" else (name or "unrouted")
+        stage_docs.setdefault(stage, {}).setdefault(key, []).append(row)
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "run.json").write_text(
+        json.dumps(run_doc, ensure_ascii=False, default=str), encoding="utf-8",
+    )
+    for stage, doc in stage_docs.items():
+        stage_dir = root / stage
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        (stage_dir / "log.json").write_text(
+            json.dumps(doc, ensure_ascii=False, default=str), encoding="utf-8",
+        )
+
+
+__all__ = ["read_v2_events", "resolve_v2_root", "write_v2_bundle"]

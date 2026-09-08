@@ -8,7 +8,7 @@ the analysis dashboard displayed, not a fresh re-proposal.
   reload {hypotheses, stats_report}  →  M4 confirm (HypothesisTester)  →  M5 + tiered Fix
 
 What it produces:
-  outputs/logs_confirm_fix/run_log.jsonl   M4 verdicts + M5 surgery + the fix attempts
+  outputs/logs_confirm_fix/run.json + M*/log.json   M4 verdicts + M5 surgery + the fix attempts
 
 After this, point the dashboard at outputs/ again: it now merges logs_analysis/
 (stats + charts + proposed hypotheses) with logs_confirm_fix/ (the M4/M5/Fix
@@ -26,9 +26,7 @@ M4 confirmation itself reuses the persisted M2 stats — no re-analysis needed.
 from __future__ import annotations
 
 import argparse
-import json
 import pickle
-from pathlib import Path
 
 import run  # reuse build_judge / build_protocol / build_codegen / CFG
 
@@ -81,16 +79,16 @@ def main() -> None:
         return
 
     from evalrx import compose
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.core.capability import Capability
     from evalrx.eval_agent import (
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
-        RunLogger,
+        RunLoggerV2,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.models.backends.base import RuntimeConfig
 
     judge = run.build_judge(args.judge_model, args.judge_effort)
@@ -100,7 +98,7 @@ def main() -> None:
                           Capability.ATTENTION})
     codegen: CliAgentConfig = run.build_codegen(args.backend)
 
-    run_logger = RunLogger(run_dir=OUT / "logs_confirm_fix", verbose=True)
+    run_logger = RunLoggerV2(run_dir=OUT / "logs_confirm_fix", verbose=True)
     loop = VLDiagnoseLoop(
         model=model,
         protocol=run.build_protocol(),

@@ -9,7 +9,7 @@ from ``run_start``'s explore count and the order the cases were logged in.
 from __future__ import annotations
 
 from evalrx.core import CaseBatch, FailureCase, Label
-from evalrx.eval_agent.run_logger import RunLogger
+from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 from evalrx.reporting.dynamic import build_report_data
 
 
@@ -21,7 +21,7 @@ def _case(i: int) -> FailureCase:
 
 
 def _write_run(root, *, n_explore: int, batches) -> None:
-    logger = RunLogger(root)
+    logger = RunLoggerV2(root)
     logger.log_run_start({"model": "m", "benchmark_name": "b", "n_cases": n_explore})
     for cases, split in batches:
         logger.log_cases(CaseBatch(cases), split=split)

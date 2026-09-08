@@ -74,7 +74,10 @@ def _write(path: Path, payload) -> None:
 
 
 def make_run(root: Path, *, signal_values=None, m4_effect=-0.42, n_broken=1) -> Path:
-    """Write a run directory in the shape _common/runner.py + RunContext produce."""
+    """Write a run directory in the RunLoggerV2 shape _common/runner.py +
+    RunContext produce: run.json (run-wide events + manifest) plus one JSON
+    document per stage under M1..M5, no run_log.jsonl / manifest.json /
+    report/*.json siblings."""
     rows = signal_values if signal_values is not None else EXPLORE
     logs = root / "logs"
 
@@ -84,29 +87,25 @@ def make_run(root: Path, *, signal_values=None, m4_effect=-0.42, n_broken=1) -> 
         "baseline_accuracy": 0.5, "cycles": 1, "stopped_by": "converged",
         "n_verified": 1, "fix": {"recommendation": "L2", "attempted": []},
     })
-    _write(logs / "manifest.json", {
-        "run_id": "logs",
-        "config": {"fix_tier": "L2", "m1_selection": "auto", "confirm_split": 0.33},
-    })
-    _write(logs / "report" / "discovery_cases.json", [
+
+    discovery = [
         {"id": cid, "prompt": f"question {cid}", "expected": "42",
          "observed": "43" if label == "fail" else "42", "label": label}
         for cid, label, _ in rows
     ] + [
         {"id": cid, "prompt": f"question {cid}", "expected": "42",
          "observed": "42", "label": "pass"} for cid in HELDOUT
-    ])
+    ]
+
     # four numeric fields, one per measurement-inventory verdict: the signal
     # itself varies (candidate), strict_match is a function of the answer key,
     # n_options never varies, conf_logprob covers only half the cases
-    _write(logs / "artifacts" / "c0_termination_audit.result.json", {
-        "findings": {"per_case": [
-            dict({"sample_id": cid, "continuation_chars": value,
-                  "strict_match": 0 if label == "fail" else 1, "n_options": 4},
-                 **({"conf_logprob": -0.1 * i} if i < len(rows) // 2 else {}))
-            for i, (cid, label, value) in enumerate(rows)
-        ]},
-    })
+    per_case = [
+        dict({"sample_id": cid, "continuation_chars": value,
+              "strict_match": 0 if label == "fail" else 1, "n_options": 4},
+             **({"conf_logprob": -0.1 * i} if i < len(rows) // 2 else {}))
+        for i, (cid, label, value) in enumerate(rows)
+    ]
 
     stats = [
         {"tool": "signal_label_assoc", "config": {"signal": SIGNAL}, "effect": m4_effect,
@@ -118,44 +117,57 @@ def make_run(root: Path, *, signal_values=None, m4_effect=-0.42, n_broken=1) -> 
          "p_value": 0.9, "fdr_corrected": False, "correction_method": "BH",
          "correction_family": "m2_assoc", "summary": "degenerate: one level only"},
     ]
-    _write(logs / "artifacts" / "c0_m2_stats_results.json", stats)
-    _write(logs / "artifacts" / "post_m2_stats_results.json", stats[:1])
 
-    events = [
-        {"event": "run_start", "judge": "claude", "data_fingerprint": "abc123",
-         "label_distribution": {"fail": 2, "pass": 2}},
-        {"event": "probe", "cycle": 0,
-         "selected_analyzers": ["termination_audit", "logit_lens"],
-         "selection_rationale": "text run: termination first",
-         "findings": {"termination_audit": {"continuation_rate": 0.5}}},
-    ]
-    events += [
-        {"event": "case_record", "case_id": cid,
+    cases = [
+        {"case_id": cid,
          "case": {"label": label, "inputs": {"prompt": f"question {cid}"}},
          "media_paths": ["artifacts/case_media/x.png"] if label == "fail" else []}
         for cid, label, _ in rows
     ]
-    events += [
-        {"event": "diagnosis", "hypotheses": [
+
+    _write(logs / "run.json", {
+        "run_start": {"judge": "claude", "data_fingerprint": "abc123",
+                      "label_distribution": {"fail": 2, "pass": 2}},
+        "manifest": {
+            "run_id": "logs",
+            "config": {"fix_tier": "L2", "m1_selection": "auto", "confirm_split": 0.33},
+        },
+        "cases": cases,
+        "diagnose_reports": [{"discovery": discovery}],
+        "loop_end": [{"total_duration_sec": 12.5}],
+    })
+    _write(logs / "M1" / "log.json", {"probe": [
+        {"cycle": 0,
+         "selected_analyzers": ["termination_audit", "logit_lens"],
+         "selection_rationale": "text run: termination first",
+         "findings": {"termination_audit": {"continuation_rate": 0.5}},
+         "results": {"termination_audit": {"findings": {"per_case": per_case}}}},
+    ]})
+    _write(logs / "M2" / "log.json", {"analysis": [
+        {"cycle": 0, "stats_results": stats},
+        {"cycle": -1, "stats_results": stats[:1]},
+    ]})
+    _write(logs / "M3" / "log.json", {"diagnosis": [
+        {"hypotheses": [
             {"failure_mode": "runaway_generation", "statement": "the model never stops",
              "test_design": "continuation_chars vs label", "expected_direction": "higher"}],
          "n_critic_kept": 1, "n_critic_rejected": 0, "review": {"objection": "confounded"}},
-        {"event": "surgery", "module": "m4", "failure_mode": "runaway_generation",
+    ]})
+    _write(logs / "M4" / "log.json", {"surgery": [
+        {"module": "m4", "failure_mode": "runaway_generation",
          "status": "supported", "hypothesis": "the model never stops",
          "evidence": {"m4_test_name": "signal_label_assoc", "expected_direction": "higher",
                       "effect_size": m4_effect, "ci": [-0.6, -0.2], "reject": True,
                       "m4_evidence_grade": "B"}},
-        {"event": "fix", "best": {
+    ]})
+    _write(logs / "M5" / "log.json", {"fix": [
+        {"best": {
             "name": "stop_sequences", "tier": "L2", "n_pairs": 10,
             "n_baseline_correct": 4, "n_candidate_correct": 6,
             "baseline_rate": 0.4, "candidate_rate": 0.6,
             "n_fixed": 3, "n_broken": n_broken, "effect": 0.2,
             "summary": "paired CI=+0.0500..+0.3500", "verdict": "accept"}},
-        {"event": "loop_end", "total_duration_sec": 12.5},
-    ]
-    (logs / "run_log.jsonl").write_text(
-        "".join(json.dumps(e) + "\n" for e in events), encoding="utf-8"
-    )
+    ]})
     return root
 
 
@@ -325,9 +337,9 @@ def test_forced_example_case_id_is_honoured_and_unknown_ids_are_skipped(efd, run
 
 
 def test_a_broken_block_does_not_lose_the_rest(efd, run_dir):
-    """Per-block failures are caught, so one bad artifact cannot empty the figure."""
-    (run_dir / "logs" / "artifacts" / "c0_m2_stats_results.json").write_text(
-        "{ not json", encoding="utf-8")
+    """Per-block failures are caught, so one bad stage document cannot empty
+    the figure."""
+    (run_dir / "logs" / "M2" / "log.json").write_text("{ not json", encoding="utf-8")
     records = efd.extract(str(run_dir))
     assert one(records, "run")["model"] == "gemma-4-e2b"
     assert blocks(records, "validation")
@@ -369,25 +381,24 @@ def test_trial_root_is_reanchored_on_the_run_root(efd, tmp_path):
     it walked up to / and emitted a ../../.. chain whose length depended on
     where the reader sat. The artifact lives inside the run dir: re-anchor."""
     root = make_run(tmp_path / "chartqa.chain1")
-    trial = root / "logs" / "fixes" / "05_L2_stop_sequences"
+    trial = root / "logs" / "M5" / "artifacts" / "05_L2_stop_sequences"
     trial.mkdir(parents=True)
-    lines = (root / "logs" / "run_log.jsonl").read_text().splitlines()
-    events = [json.loads(x) for x in lines]
-    for e in events:
-        if e.get("event") == "fix":
-            e["best"]["trial_root"] = "/app/work/outputs/chartqa.chain1/logs/fixes/05_L2_stop_sequences"
-            e["best"]["payload"] = {"name": "stop_sequences", "strategy": "single"}
-    (root / "logs" / "run_log.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    m5_path = root / "logs" / "M5" / "log.json"
+    doc = json.loads(m5_path.read_text())
+
+    def _set_trial_root(path: str) -> None:
+        doc["fix"][-1]["best"]["trial_root"] = path
+        doc["fix"][-1]["best"]["payload"] = {"name": "stop_sequences", "strategy": "single"}
+        m5_path.write_text(json.dumps(doc))
+
+    _set_trial_root("/app/work/outputs/chartqa.chain1/logs/M5/artifacts/05_L2_stop_sequences")
     recs = efd.extract(str(root))
     repair = next(r for r in recs if r["block"] == "repair")
-    assert repair["trial_root"] == "logs/fixes/05_L2_stop_sequences"
+    assert repair["trial_root"] == "logs/M5/artifacts/05_L2_stop_sequences"
 
     # a recorded path whose logs/ suffix does NOT exist under this root keeps
     # the old relpath fallback (it may genuinely live elsewhere)
-    for e in events:
-        if e.get("event") == "fix":
-            e["best"]["trial_root"] = "/somewhere/else/logs/fixes/99_missing"
-    (root / "logs" / "run_log.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
+    _set_trial_root("/somewhere/else/logs/fixes/99_missing")
     recs = efd.extract(str(root))
     repair = next(r for r in recs if r["block"] == "repair")
     assert "99_missing" in repair["trial_root"] and not repair["trial_root"].startswith("logs/")

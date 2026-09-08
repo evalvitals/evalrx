@@ -7,7 +7,7 @@ the analysis story onto the dashboard first:
   M1 (replayed)  →  M2 rigorous stats + charts  →  M3 proposes hypotheses  →  STOP
 
 What it produces:
-  outputs/logs_analysis/run_log.jsonl     M1 + M2 (stats/charts) + M3 (proposed hyps)
+  outputs/logs_analysis/run.json + M*/log.json   M1 + M2 (stats/charts) + M3 (proposed hyps)
   outputs/analysis/proposed_hypotheses.json   the hypotheses, human-readable
   outputs/analysis/analysis_state.pkl     {hypotheses, stats_report} for PHASE 2
 
@@ -68,14 +68,14 @@ def main() -> None:
     print(f"loaded frozen M1: analyzers={list(probe_results)} cases={len(list(cases))} "
           f"failed={state.get('failed_analyzers') or '{}'}")
 
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.eval_agent import (
         CliAgentConfig,
-        RunLogger,
+        RunLoggerV2,
         VLDiagnoseLoop,
     )
     from evalrx.eval_agent.hypothesis import hypothesis_to_dict
     from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
-    from evalrx.analysis.stats_agent import StatsAnalysisAgent
 
     judge = run.build_judge(args.judge_model, args.judge_effort)
     codegen: CliAgentConfig = run.build_codegen(args.backend)
@@ -101,7 +101,7 @@ def main() -> None:
               f"{len(explore_report.get('charts') or [])} chart(s), "
               f"{len(explore_report.get('observations') or [])} observation(s)")
 
-    run_logger = RunLogger(run_dir=OUT / "logs_analysis", verbose=True)
+    run_logger = RunLoggerV2(run_dir=OUT / "logs_analysis", verbose=True)
     loop = VLDiagnoseLoop(
         model=model,
         protocol=run.build_protocol(),

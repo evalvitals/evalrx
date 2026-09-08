@@ -468,11 +468,11 @@ def test_m5_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
     """The bug this feature exists to fix: M5 experiments used to share (and
     overwrite) one sandbox, and ExperimentSandbox deleted it on success —
     so a *successful* experiment left no runnable code behind at all."""
+    import json
+
     from evalrx.eval_agent.run_context import RunContext
 
-    # Pinned: asserts trial code survives past ctx.finalize(), which for V2
-    # deletes the ephemeral runtime tree trials live under.
-    ctx = RunContext(tmp_path / "run1", logger_version="v1")
+    ctx = RunContext(tmp_path / "run1")
     agent = SurgeryAgent(judge=FakeModel(), run_context=ctx)
     agent._writer = _FakeExperimentWriter()  # bypass the real LLM-driven writer
 
@@ -486,21 +486,32 @@ def test_m5_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
     t1, t2 = iv1.experiment["trial_root"], iv2.experiment["trial_root"]
     assert t1 is not None and t2 is not None and t1 != t2
 
-    ctx.logger.log_experiment(0, hyp1, iv1)
-    ctx.logger.log_experiment(0, hyp2, iv2)
-    ctx.finalize()
-
     from pathlib import Path
 
     p1, p2 = Path(t1), Path(t2)
     for p in (p1, p2):
-        assert (p / "main.py").exists()
-        assert (p / "record.md").exists()
         # cleanup=False: the script the fake writer ran via sandbox.run()
         # stays on disk even though it "succeeded" (verdict line, rc=0) —
-        # the whole point of giving the experiment its own durable folder.
+        # the whole point of giving the experiment its own durable folder,
+        # not one shared/overwritten sandbox. Checked before finalize(),
+        # which inlines and deletes the ephemeral runtime tree trials live
+        # under — V2 keeps no per-trial main.py/record.md on disk at all
+        # (that was a V1-only artifact); the generated code is captured
+        # inline into M5/log.json's "experiment" entry instead.
         assert list((p / "workspace").glob("exp_*.py")), \
             f"sandbox script should be kept in {p / 'workspace'}"
+
+    ctx.logger.log_experiment(0, hyp1, iv1)
+    ctx.logger.log_experiment(0, hyp2, iv2)
+    ctx.finalize()
+
+    m5 = json.loads((tmp_path / "run1" / "M5" / "log.json").read_text())
+    experiments = m5["experiment"]
+    assert len(experiments) == 2
+    for exp in experiments:
+        assert exp["code"]["main.py"].startswith("# experiment for")
+        assert exp["workspace_snapshot"] is not None
+        assert any(name.endswith(".py") for name in (exp["workspace_snapshot"].get("files") or {}))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

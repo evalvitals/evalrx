@@ -1,60 +1,49 @@
 """RunContext — single owner of one diagnosis run's output directory.
 
 Historically each ``examples/*/run.py`` glued together four independent output
-producers by hand: the example wrote report files at the run root, the
-:class:`~evalrx.eval_agent.run_logger.RunLogger` was buried under a
-``logs/`` subdir, :class:`StatsAnalysisAgent` figures went to a hand-built
-``logs/figures/`` path, and the sandbox wrote experiment code into an ephemeral
-temp dir.  ``RunContext`` replaces that gluing with one library-owned object
-that owns the whole run directory and hands every producer its subdirectory.
+producers by hand: the example wrote report files at the run root, the run
+logger was buried under a ``logs/`` subdir, :class:`StatsAnalysisAgent`
+figures went to a hand-built ``logs/figures/`` path, and the sandbox wrote
+experiment code into an ephemeral temp dir.  ``RunContext`` replaces that
+gluing with one library-owned object that owns the whole run directory and
+hands every producer its subdirectory.
 
-``logger_version="v2"`` is now the default (:class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`,
-see ``evalrx/eval_agent/RUN_LOGGER_V2.md``): one ``run.json`` plus one
-``M1/log.json``..``M5/log.json`` per stage, no ``run_log.jsonl``, no persisted
+The logger is :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2` (see
+``evalrx/eval_agent/RUN_LOGGER_V2.md``): one ``run.json`` plus one
+``M1/log.json``..``M5/log.json`` per stage, no flat event file, no persisted
 ``prompts/``/``experiments/``/``tools/``/``workspace/``/``fixes/`` — generated
 text/code is captured inline into the relevant stage's JSON via an ephemeral
-runtime tree that :meth:`finalize` deletes, and no ``manifest.json``/``README.txt``
-is written. The V1 layout below still exists (``logger_version="v1"``) and stays
-readable indefinitely for old runs; it is no longer what a fresh run produces.
+runtime tree that :meth:`finalize` deletes, and no ``manifest.json``/
+``README.txt`` is written (the manifest lives inside ``run.json`` instead).
 
-V1 layout (single root, no ``logs/`` nesting)::
+Layout::
 
     <root>/
-    ├── manifest.json     run config + index of every produced file
-    ├── run_log.jsonl     structured event stream (RunLogger)
-    ├── README.txt        auto-generated file guide (from manifest)
-    ├── contract/         one validated JSON per stage (see evalrx.contract)
-    ├── report/           human deliverables (summary.md, hypotheses.json, …)
-    ├── figures/          M1 heatmaps + M2 effect plots
-    ├── explore/          optional in-cycle explore step: exploratory_report.json,
-    │                     tables/*.csv, figures/*.png (VLDiagnoseLoop(explorer=...))
-    ├── artifacts/        M1 heavy numeric data (.npy / .json)
-    ├── prompts/          judge prompt / response
-    ├── experiments/      one self-contained folder per M5 experiment (see new_trial)
-    ├── tools/            synthesised probe / stats tool code (M1/M2, run-global)
-    ├── workspace/         sandbox working dirs outside any trial
-    └── fixes/            one self-contained folder per repair attempt + outcome.md
+    ├── run.json           run-wide events: run_start, cases, diagnose_reports, manifest, …
+    ├── M1/log.json …      one JSON document per stage, plus each stage's own artifacts/
+    │   M5/log.json
+    ├── contract/          one validated JSON per stage (see evalrx.contract), if emitted
+    ├── artifacts/         M1 heavy numeric data (.npy / .json) written outside any stage
+    └── langfuse_trace.json
 
-``fixes/`` and ``experiments/`` are further split into *trials*
-(:meth:`RunContext.new_trial`) — one numbered folder per attempt holding its
-generated code, the sandbox it ran in, judge prompt/output, and its
-record.md + result.json, so "what did attempt #14 do" is one folder, not a
-filename-slug hunt across ``tools/`` / ``workspace/`` / ``fixes/``. (V2 has no
-persisted trial folders — a trial's code/output is inlined into its stage's
-JSON instead; see ``artifacts_dir`` and ``figures_dir`` for the two on-disk
-categories V2 does still write directly.)
+``fixes/`` and ``experiments/`` attempts (:meth:`RunContext.new_trial`) — one
+numbered attempt per fix candidate or M5 experiment — live under an ephemeral
+:attr:`runtime_root` instead: generated code, the sandbox it ran in, and
+judge prompt/output are inlined into the owning stage's JSON, and the
+runtime tree is deleted at :meth:`finalize`, so "what did attempt #14 do" is
+one entry in that stage's log, not a filename-slug hunt across loose folders.
 
 Usage::
 
     from evalrx.eval_agent import RunContext, VLDiagnoseLoop
 
-    with RunContext("examples/foo/outputs", verbose=True) as ctx:  # V2 by default
+    with RunContext("examples/foo/outputs", verbose=True) as ctx:
         stats_agent = StatsAnalysisAgent(judge=judge, figure_dir=str(ctx.figures_dir))
         loop = VLDiagnoseLoop(..., run_logger=ctx.logger)
         report = loop.run(cases)
         ctx.write_diagnose_report(report, cases, discovery=discovery_rows)
-    # V1: manifest.json + README.txt also written on exit. V2: run.json/M*/log.json
-    # are flushed incrementally throughout the run; finalize() just closes them out.
+    # run.json/M*/log.json are flushed incrementally throughout the run;
+    # finalize() just closes them out and inlines the runtime tree.
 """
 
 from __future__ import annotations
@@ -63,42 +52,12 @@ import json
 import re
 import shutil
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
-
-
-# Human-readable descriptions for the auto-generated README, keyed by the
-# top-level subdirectory name.  Files that do not fall under a known category
-# are grouped under "other".
-_CATEGORY_DESCRIPTIONS: dict[str, str] = {
-    "contract": "one contract-validated JSON per stage (c<cycle>.m1 … m5_fix): the "
-                "typed shape a frontend decodes with docs/contract/contract.d.ts, "
-                "instead of re-deriving it from run_log.jsonl",
-    "report": "human-facing deliverables: run summary, hypotheses, M4 results",
-    "figures": "plots: M1 attention/spatial heatmaps and M2 effect-size charts",
-    "explore": "in-cycle explore step (VLDiagnoseLoop(explorer=...)): free-form EDA "
-               "beside the catalog M2 — exploratory_report.json, tables/*.csv, "
-               "figures/*.png; descriptive notes M3 was shown, never M2/M4 evidence",
-    "artifacts": "M1 heavy numeric data (.npy tensors, .json finding dumps)",
-    "prompts": "verbatim judge prompt + response for each M1/M2/M3 call",
-    "experiments": "one self-contained folder per M5 mechanism-verification "
-                   "experiment (code + sandbox + record.md), see new_trial()",
-    "tools": "code the agent synthesised for new probes / stats tools (M1/M2)",
-    "workspace": "sandbox working directories outside any trial",
-    "fixes": "one self-contained folder per repair attempt (code + sandbox + "
-             "record.md + result.json), see new_trial(); outcome.md summarises all",
-}
-
-# Order categories appear in the README / manifest.
-_CATEGORY_ORDER = [
-    "contract", "report", "figures", "explore", "artifacts", "prompts",
-    "experiments", "tools", "workspace", "fixes", "other",
-]
 
 
 class Trial:
@@ -108,6 +67,9 @@ class Trial:
     attempt (generated code, the sandbox it ran in, judge prompt/output, and
     its result/record) is written under :attr:`root`, so reviewing "what did
     attempt #14 do" never requires hopping across run-global category dirs.
+    :attr:`root` lives under :attr:`RunContext.runtime_root` — an ephemeral
+    tree captured into the owning stage's JSON and deleted at
+    :meth:`RunContext.finalize`, not a permanent directory.
 
     Directory creation is lazy: nothing is written to disk until the first
     call to :meth:`write` / :attr:`workspace`, so an attempt that is discarded
@@ -156,18 +118,13 @@ class RunContext:
                   ``runs/<YYYYMMDD_HHMMSS>/`` relative to cwd.
         run_id:   Optional identifier recorded in the manifest; defaults to the
                   root directory name.
-        verbose:  Forwarded to the :class:`RunLogger` (human-readable stdout).
+        verbose:  Forwarded to the logger (human-readable stdout).
         config:   Optional run-configuration dict recorded verbatim in the
                   manifest (model, judge, protocol, …).
-        logger_version: "v2" (default, :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`,
-                  the tidy M1..M5-folder layout described in
-                  ``evalrx/eval_agent/RUN_LOGGER_V2.md``) or "v1" (legacy
-                  :class:`RunLogger`, kept for reading/writing the old flat
-                  ``run_log.jsonl`` layout — pass this explicitly when that's
-                  what's wanted; new runs should not need to). V2 receives this
-                  context and allocates producer sandboxes in an external
-                  ephemeral runtime tree; their text is inlined into JSON and
-                  their media is copied before finalization removes the tree.
+
+    The logger allocates producer sandboxes in an external ephemeral runtime
+    tree; their text is inlined into JSON and their media is copied before
+    finalization removes the tree.
     """
 
     def __init__(
@@ -178,7 +135,6 @@ class RunContext:
         verbose: bool = False,
         config: "dict[str, Any] | None" = None,
         observability_mode: str | None = None,
-        logger_version: str = "v2",
     ) -> None:
         if root is None:
             root = Path("runs") / datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -193,24 +149,17 @@ class RunContext:
         self.config = dict(config or {})
         self._verbose = verbose
         self._observability_mode = observability_mode
-        if logger_version not in ("v1", "v2"):
-            raise ValueError(f"logger_version must be 'v1' or 'v2', got {logger_version!r}")
-        self._logger_version = logger_version
-        self._logger: "RunLogger | RunLoggerV2 | None" = None
+        self._logger: "RunLoggerV2 | None" = None
         self._workdir_seq = 0
         self._trial_seq: "dict[str, int]" = {}
         self._runtime_root: "Path | None" = None
         self._finalized = False
 
     @property
-    def is_v2(self) -> bool:
-        return self._logger_version == "v2"
-
-    @property
     def runtime_root(self) -> Path:
-        """Ephemeral execution workspace used by V2 producers.
+        """Ephemeral execution workspace used by producers.
 
-        Generated text/code is captured by RunLoggerV2 before this tree is
+        Generated text/code is captured by the logger before this tree is
         removed; it never becomes part of the portable run artifact.
         """
         if self._runtime_root is None:
@@ -227,84 +176,39 @@ class RunContext:
         return d
 
     @property
-    def report_dir(self) -> Path:
-        return self._sub("report")
-
-    @property
     def figures_dir(self) -> Path:
-        return self._sub("M2/artifacts") if self.is_v2 else self._sub("figures")
+        return self._sub("M2/artifacts")
 
     @property
     def explore_dir(self) -> Path:
-        """``explore/`` — the in-cycle explore step's report, tables and rendered
-        figures (``VLDiagnoseLoop(explorer=..., explore_dir=ctx.explore_dir)``;
-        the loop derives the same path from ``ctx.logger`` when not given)."""
-        if self.is_v2:
-            d = self.runtime_root / "explore"
-            d.mkdir(parents=True, exist_ok=True)
-            return d
-        return self._sub("explore")
+        """The in-cycle explore step's report, tables and rendered figures
+        (``VLDiagnoseLoop(explorer=..., explore_dir=ctx.explore_dir)``; the
+        loop derives the same path from ``ctx.logger`` when not given).
+        Ephemeral — captured into ``M2/log.json`` and deleted at
+        :meth:`finalize`, not a permanent directory."""
+        d = self.runtime_root / "explore"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
     @property
     def artifacts_dir(self) -> Path:
         return self._sub("artifacts")
-
-    @property
-    def prompts_dir(self) -> Path:
-        return self._sub("prompts")
-
-    @property
-    def experiments_dir(self) -> Path:
-        return self._sub("experiments")
-
-    @property
-    def tools_dir(self) -> Path:
-        return self._sub("tools")
-
-    @property
-    def workspace_dir(self) -> Path:
-        return self._sub("workspace")
-
-    @property
-    def fixes_dir(self) -> Path:
-        return self._sub("fixes")
-
-    @property
-    def log_path(self) -> Path:
-        return self.root / "run_log.jsonl"
-
-    @property
-    def manifest_path(self) -> Path:
-        return self.root / "manifest.json"
 
     # ------------------------------------------------------------------
     # Logging component
     # ------------------------------------------------------------------
 
     @property
-    def logger(self) -> "RunLogger | RunLoggerV2":
-        """The logger bound to this context (created on first use).
-
-        :class:`RunLoggerV2` (V2) unless constructed with
-        ``logger_version="v1"``, in which case this returns the legacy
-        ``RunLogger`` instead — see the constructor docstring.
-        """
+    def logger(self) -> "RunLoggerV2":
+        """The logger bound to this context (created on first use)."""
         if self._logger is None:
-            if self._logger_version == "v2":
-                from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+            from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
-                self._logger = RunLoggerV2(
-                    run_dir=self.root, verbose=self._verbose,
-                    observability_mode=self._observability_mode,
-                    context=self,
-                )
-            else:
-                from evalrx.eval_agent.run_logger import RunLogger
-
-                self._logger = RunLogger(
-                    context=self, verbose=self._verbose,
-                    observability_mode=self._observability_mode,
-                )
+            self._logger = RunLoggerV2(
+                run_dir=self.root, verbose=self._verbose,
+                observability_mode=self._observability_mode,
+                context=self,
+            )
         return self._logger
 
     # ------------------------------------------------------------------
@@ -312,28 +216,27 @@ class RunContext:
     # ------------------------------------------------------------------
 
     def new_workdir(self, label: str) -> Path:
-        """Return a fresh, durable sandbox working directory under ``workspace/``.
+        """Return a fresh sandbox working directory under the runtime tree.
 
-        Replaces ``tempfile.mkdtemp()`` so the experiment code the agent writes
-        is persisted with the rest of the run instead of being deleted.  *label*
-        is slugified; a monotonic counter guarantees uniqueness.
+        Replaces ``tempfile.mkdtemp()`` so the experiment code the agent
+        writes is captured with the rest of the run instead of vanishing
+        untracked. *label* is slugified; a monotonic counter guarantees
+        uniqueness.
         """
         self._workdir_seq += 1
         slug = re.sub(r"[^a-zA-Z0-9]+", "_", label).strip("_") or "work"
-        parent = self.runtime_root / "workspace" if self.is_v2 else self.workspace_dir
-        d = parent / f"{self._workdir_seq:02d}_{slug}"
+        d = self.runtime_root / "workspace" / f"{self._workdir_seq:02d}_{slug}"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
     def new_trial(self, category: str, label: str) -> "Trial":
-        """Allocate one self-contained attempt folder under ``<category>/``.
+        """Allocate one self-contained attempt folder under the runtime tree.
 
         A *trial* is one fix candidate or one M5 experiment: its generated
         code, the sandbox it actually ran in, judge prompt/output, and its
-        result/record all live together under one numbered folder, instead of
-        being scattered across ``tools/`` / ``workspace/`` / ``fixes/`` and
-        re-correlated by filename slug. *category* is ``"fixes"`` or
-        ``"experiments"``; numbering is monotonic per category.
+        result/record all live together under one numbered folder.
+        *category* is ``"fixes"`` or ``"experiments"``; numbering is
+        monotonic per category.
 
         The trial's own folder (and its ``workspace/``) is created lazily on
         first write — a candidate discarded before producing anything (e.g. a
@@ -341,13 +244,7 @@ class RunContext:
         still advances, so a gap in the sequence honestly means "proposed,
         then discarded," not a missing record.
         """
-        if self.is_v2:
-            parent = self.runtime_root / category
-        elif category == "fixes":
-            parent = self.fixes_dir
-        elif category == "experiments":
-            parent = self.experiments_dir
-        else:
+        if category not in ("fixes", "experiments"):
             raise ValueError(
                 f"new_trial: unknown category {category!r} "
                 "(expected 'fixes' or 'experiments')"
@@ -355,10 +252,10 @@ class RunContext:
         seq = self._trial_seq.get(category, 0) + 1
         self._trial_seq[category] = seq
         slug = re.sub(r"[^a-zA-Z0-9]+", "_", label).strip("_") or "trial"
-        return Trial(parent / f"{seq:02d}_{slug}")
+        return Trial(self.runtime_root / category / f"{seq:02d}_{slug}")
 
     def figure_path(self, name: str) -> Path:
-        """Return ``figures/<name>`` (figures dir created if needed)."""
+        """Return ``figures_dir/<name>`` (created if needed)."""
         if not name.lower().endswith((".png", ".jpg", ".jpeg", ".svg", ".pdf")):
             name = f"{name}.png"
         return self.figures_dir / name
@@ -367,111 +264,23 @@ class RunContext:
     # Report API — absorbs the per-example boilerplate.
     # ------------------------------------------------------------------
 
-    def write_report_file(self, name: str, content: "str | bytes") -> Path:
-        """Write *content* to ``report/<name>``; return the path."""
-        path = self.report_dir / name
-        if isinstance(content, bytes):
-            path.write_bytes(content)
-        else:
-            path.write_text(content, encoding="utf-8")
-        return path
-
     def write_diagnose_report(
         self,
         report: Any,
         cases: "list[Any]",
         *,
         discovery: "list[dict[str, Any]] | None" = None,
-    ) -> "dict[str, Path]":
-        """Write the standard ``report/`` deliverables from a diagnose report.
+    ) -> None:
+        """Inline the standard post-diagnosis report into ``run.json``.
 
         *report* is an :class:`AutoDiagnoseReport` (all three loops return
-        this one unified class — ``VLDiagnoseReport`` is an alias for it);
-        the ``getattr`` fallbacks below stay duck-typed so a hand-built
-        ``SimpleNamespace`` with only a subset of fields (e.g. in tests)
-        still writes cleanly. This is the single home for the flattening
-        logic previously copy-pasted into every example's
-        ``_write_report_artifacts``.
-
-        *discovery* (optional) is a list of already-serialised case rows written
-        verbatim to ``report/discovery_cases.json`` — examples that compute
-        task-specific columns (e.g. parsed yes/no) build the rows themselves.
+        this one unified class — ``VLDiagnoseReport`` is an alias for it).
+        *discovery* (optional) is a list of already-serialised case rows —
+        examples that compute task-specific columns (e.g. parsed yes/no)
+        build the rows themselves. Delegates to
+        :meth:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2.log_diagnose_report`.
         """
-        if self.is_v2:
-            self.logger.log_diagnose_report(report, cases, discovery=discovery)
-            return {}
-
-        hyps_src = getattr(report, "all_hypotheses", None)
-        if hyps_src is None:
-            hyps_src = getattr(report, "final_hypotheses", [])
-        hypotheses = [
-            {
-                "statement": h.statement,
-                "failure_mode": h.predicted_failure_mode,
-                "status": h.status.value if h.status else None,
-            }
-            for h in hyps_src
-        ]
-        m4_results = [
-            {
-                "hypothesis": tr.hypothesis.statement,
-                "failure_mode": tr.hypothesis.predicted_failure_mode,
-                "status": tr.status.value,
-                "effect_size": tr.effect_size,
-                "confidence": tr.confidence,
-                "protocol_consistent": tr.is_consistent_with_protocol,
-                "verdict": tr.verdict,
-                "evidence": tr.evidence,
-            }
-            for tr in getattr(report, "all_test_results", [])
-        ]
-        n_verified = len(getattr(report, "verified_hypotheses", []))
-        summary = {
-            "run_id": self.run_id,
-            "cycles": report.cycles,
-            "stopped_by": getattr(report, "stopped_by", None),
-            "resolved": getattr(report, "resolved", None),
-            "n_cases": len(cases),
-            "n_hypotheses": len(hypotheses),
-            "n_verified": n_verified,
-        }
-
-        written: dict[str, Path] = {}
-        written["hypotheses"] = self.write_report_file(
-            "hypotheses.json", json.dumps(hypotheses, indent=2, default=str)
-        )
-        written["m4_results"] = self.write_report_file(
-            "m4_results.json", json.dumps(m4_results, indent=2, default=str)
-        )
-        written["summary_json"] = self.write_report_file(
-            "summary.json", json.dumps(summary, indent=2, default=str)
-        )
-
-        lines = [
-            f"# {self.run_id} — Run Summary",
-            "",
-            f"- stopped_by: {summary['stopped_by']}",
-            f"- resolved: {summary['resolved']}",
-            f"- cycles: {summary['cycles']}",
-            f"- cases: {summary['n_cases']}",
-            f"- hypotheses: {summary['n_hypotheses']}",
-            f"- verified: {summary['n_verified']}",
-            "",
-            "## Hypotheses",
-        ]
-        for h in hypotheses or [
-            {"status": None, "failure_mode": "none", "statement": "none"}
-        ]:
-            lines.append(f"- [{h['status']}] {h['failure_mode']}: {h['statement']}")
-        written["summary_md"] = self.write_report_file(
-            "summary.md", "\n".join(lines) + "\n"
-        )
-
-        if discovery is not None:
-            written["discovery"] = self.write_report_file(
-                "discovery_cases.json", json.dumps(discovery, indent=2, default=str)
-            )
-        return written
+        self.logger.log_diagnose_report(report, cases, discovery=discovery)
 
     def publish_report(
         self,
@@ -487,98 +296,29 @@ class RunContext:
         )
 
     # ------------------------------------------------------------------
-    # Manifest + README — built by walking the tree at finalize().
-    # ------------------------------------------------------------------
-
-    def _scan(self) -> "dict[str, list[str]]":
-        """Group every file under root by its top-level category subdirectory."""
-        by_cat: dict[str, list[str]] = {}
-        for f in sorted(self.root.rglob("*")):
-            if not f.is_file():
-                continue
-            rel = f.relative_to(self.root)
-            if rel.name in ("manifest.json", "README.txt"):
-                continue
-            top = rel.parts[0] if len(rel.parts) > 1 else "other"
-            if top not in _CATEGORY_DESCRIPTIONS and top != "run_log.jsonl":
-                top = "other" if len(rel.parts) == 1 else top
-            cat = top if top in _CATEGORY_DESCRIPTIONS else "other"
-            by_cat.setdefault(cat, []).append(str(rel))
-        return by_cat
-
-    def write_manifest(self) -> Path:
-        """Write ``manifest.json`` — run config + categorised file registry."""
-        by_cat = self._scan()
-        manifest = {
-            "run_id": self.run_id,
-            "root": str(self.root),
-            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "config": self.config,
-            "files": {
-                cat: by_cat[cat]
-                for cat in _CATEGORY_ORDER
-                if by_cat.get(cat)
-            },
-        }
-        self.manifest_path.write_text(
-            json.dumps(manifest, indent=2, default=str), encoding="utf-8"
-        )
-        return self.manifest_path
-
-    def write_readme(self) -> Path:
-        """Generate ``README.txt`` from the on-disk layout (no hardcoded paths)."""
-        by_cat = self._scan()
-        lines = [f"{self.root.name}/  —  run output guide", ""]
-        if (self.root / "run_log.jsonl").exists():
-            lines += ["run_log.jsonl", "    one JSON line per M1/M2/M3/M4/M5 event", ""]
-        for cat in _CATEGORY_ORDER:
-            files = by_cat.get(cat)
-            if not files:
-                continue
-            lines.append(f"{cat}/")
-            lines.append(f"    {_CATEGORY_DESCRIPTIONS.get(cat, 'misc files')}")
-            for rel in files[:12]:
-                lines.append(f"      {rel}")
-            if len(files) > 12:
-                lines.append(f"      … (+{len(files) - 12} more)")
-            lines.append("")
-        path = self.root / "README.txt"
-        path.write_text("\n".join(lines), encoding="utf-8")
-        return path
-
-    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def finalize(self) -> None:
-        """Write the manifest + README and close the logger.  Idempotent."""
+        """Close the logger, inline the runtime tree, and delete it.  Idempotent."""
         if self._finalized:
             return
-        if self.is_v2:
-            if self._logger is not None or self._runtime_root is not None:
-                logger = self.logger
-                if self._runtime_root is not None:
-                    logger.log_runtime_snapshot(self._runtime_root)
-                logger.close()
-                # close() materializes the trace bundle and every M1-M5 log;
-                # index only afterwards so the manifest is complete.
-                logger.log_manifest(run_id=self.run_id, config=self.config)
-                # write_contract_index() only looks for an on-disk contract/
-                # dir and the logger's trace_id — neither is V1-specific, it
-                # was just never called from this branch. Without it, a run
-                # that emitted contract/ payloads (evalrx.contract.emit,
-                # independent of RunContext) never gets the index.json a
-                # reader opening the run without its producer needs.
-                self.write_contract_index()
+        if self._logger is not None or self._runtime_root is not None:
+            logger = self.logger
             if self._runtime_root is not None:
-                shutil.rmtree(self._runtime_root, ignore_errors=True)
-            self._finalized = True
-            return
-        if self._logger is not None:
-            self._logger.close()
-        self.write_contract_index()
-        self.write_manifest()
-        self.write_readme()
+                logger.log_runtime_snapshot(self._runtime_root)
+            logger.close()
+            # close() materializes the trace bundle and every M1-M5 log;
+            # index only afterwards so the manifest is complete.
+            logger.log_manifest(run_id=self.run_id, config=self.config)
+            # write_contract_index() only looks for an on-disk contract/ dir
+            # and the logger's trace_id. Without it, a run that emitted
+            # contract/ payloads (evalrx.contract.emit, independent of
+            # RunContext) never gets the index.json a reader opening the run
+            # without its producer needs.
+            self.write_contract_index()
+        if self._runtime_root is not None:
+            shutil.rmtree(self._runtime_root, ignore_errors=True)
         self._finalized = True
 
     def write_contract_index(self) -> "Path | None":

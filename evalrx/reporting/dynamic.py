@@ -131,8 +131,8 @@ def build_report_data(
         case = event.get("case")
         if isinstance(case, dict):
             local = [p for p in (event.get("media_paths") or []) if isinstance(p, str)]
-            # The partition the loop logged the case under (see RunLogger
-            # .log_cases). Absent on runs from before it was recorded.
+            # The partition the loop logged the case under (see
+            # RunLoggerV2.log_cases). Absent on runs from before it was recorded.
             split = event.get("split")
             extra: dict[str, Any] = {}
             if local:
@@ -1065,7 +1065,7 @@ def _m5_examples(
         if not case:
             return None
         # `case["observed"]` is the Stage-0 baseline, written once per case id
-        # (RunLogger.log_cases dedupes by id) and never updated — it is NOT
+        # (RunLoggerV2.log_cases dedupes by id) and never updated — it is NOT
         # this candidate's repaired answer, no matter which case_record last
         # touched it. The only place a candidate's own per-case output lives
         # is `case["repair"]`, which build_report_data attached from that
@@ -1729,25 +1729,9 @@ def _merge_recorded_case_evidence(cases: list[dict[str, Any]], root: Path) -> li
 
 
 def _read_events(root: Path) -> list[dict[str, Any]]:
-    candidates = [root / "run_log.jsonl", *sorted(root.glob("logs*/run_log.jsonl"))]
-    path = next((candidate for candidate in candidates if candidate.exists()), None)
-    if path is None:
-        from evalrx.reporting.run_events import read_v2_events
+    from evalrx.reporting.run_events import read_v2_events
 
-        return read_v2_events(root)
-    events = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            events.append(value)
-    if events:
-        trace = next((event.get("trace_id") for event in reversed(events) if event.get("event") == "run_start"), None)
-        if trace and sum(event.get("trace_id") == trace for event in events) > 1:
-            events = [event for event in events if event.get("trace_id") == trace]
-    return events
+    return read_v2_events(root)
 
 
 def _infer_example_dir(root: Path) -> Path | None:

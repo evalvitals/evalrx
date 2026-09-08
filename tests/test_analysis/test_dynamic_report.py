@@ -6,10 +6,10 @@ import os
 
 def test_publish_report_contract_and_case_records(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting.dynamic import load_published_report, publish_report
 
-    logger = RunLogger(tmp_path)
+    logger = RunLoggerV2(tmp_path)
     logger.log_run_start({
         "model": "demo-model", "benchmark_name": "demo-set", "n_cases": 1,
         "label_distribution": {"fail": 1},
@@ -61,10 +61,10 @@ def test_report_agent_repairs_once_then_validates():
 
 
 def test_invalid_agent_output_falls_back(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting.dynamic import load_published_report, publish_report
 
-    logger = RunLogger(tmp_path)
+    logger = RunLoggerV2(tmp_path)
     logger.log_run_start({"model": "demo", "n_cases": 0})
     logger.close()
 
@@ -83,11 +83,11 @@ def test_dynamic_api_filters_and_serves_spa(tmp_path):
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting.dynamic import publish_report
     from evalrx.reporting.server import create_app
 
-    logger = RunLogger(tmp_path)
+    logger = RunLoggerV2(tmp_path)
     logger.log_run_start({"model": "demo", "n_cases": 2})
     logger.log_cases(CaseBatch([
         FailureCase.from_prompt("alpha", id="a", label=Label.FAIL),
@@ -108,7 +108,7 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting.dynamic import publish_report
     from evalrx.reporting.server import create_app
 
@@ -117,9 +117,11 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
     run_a = tmp_path / "exp_a" / "outputs" / "logs"
     run_b = tmp_path / "exp_b" / "outputs" / "logs"
     for run, model in ((run_a, "model-a"), (run_b, "model-b")):
-        logger = RunLogger(run)
+        logger = RunLoggerV2(run)
         logger.log_run_start({"model": model, "benchmark_name": "demo", "n_cases": 1})
         logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
+        # discover_runs' marker is run.json + at least one M<n>/log.json.
+        logger.log_stage_skipped("M1", "no_signal")
         logger.close()
     publish_report(run_a)
 
@@ -142,38 +144,6 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
         assert client.post("/api/runs/not-a-real-id/open").status_code == 404
 
 
-def test_runs_panel_discovers_and_opens_a_v2_run(tmp_path):
-    """RunLoggerV2 writes no run_log.jsonl at all — a run.json plus at least
-    one M<n>/log.json is its entire on-disk signature (run_logger_v2.py's
-    module docstring: "few files", one JSON doc per stage). discover_runs
-    must recognize that layout too, not only V1's flat run_log.jsonl, or
-    every V2 run — the current logger — would be invisible to the panel."""
-    from fastapi.testclient import TestClient
-
-    from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
-    from evalrx.reporting.server import create_app, discover_runs
-
-    v2_run = tmp_path / "exp_v2" / "outputs" / "logs"
-    logger = RunLoggerV2(run_dir=v2_run)
-    logger.log_run_start({"model": "v2-model", "benchmark_name": "demo-v2", "n_cases": 1})
-    logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
-    logger.log_stage_skipped("M1", "no_signal")  # writes M1/log.json — the marker discover_runs looks for
-    logger.close()
-    assert not (v2_run / "run_log.jsonl").exists()  # the layout this test guards against regressing on
-
-    assert discover_runs(tmp_path) == [v2_run]
-
-    with TestClient(create_app(v2_run, runs_root=tmp_path)) as client:
-        items = client.get("/api/runs").json()["items"]
-        assert [item["path"] for item in items] == ["exp_v2/outputs/logs"]
-        opened = client.post(f"/api/runs/{items[0]['id']}/open")
-        assert opened.status_code == 200
-        assert opened.json()["data"]["setting"]["model"] == "v2-model"
-
-        assert client.post("/api/runs/not-a-real-id/open").status_code == 404
-
-
 def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, monkeypatch):
     """discover_runs' own cutoff is a traversal safety valve, not recency
     order — the endpoint must sort the full find before truncating to what
@@ -181,7 +151,7 @@ def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, mon
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting import server as server_mod
 
     monkeypatch.setattr(server_mod, "RUNS_DISPLAY_LIMIT", 2)
@@ -189,10 +159,18 @@ def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, mon
     runs = []
     for i, stamp in enumerate(stamps):
         run = tmp_path / f"exp_{i}" / "outputs" / "logs"
-        logger = RunLogger(run)
+        logger = RunLoggerV2(run)
         logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
+        # discover_runs' marker is run.json + at least one M<n>/log.json.
+        logger.log_stage_skipped("M1", "no_signal")
         logger.close()
-        os.utime(run / "run_log.jsonl", (stamp, stamp))
+        # _run_mtime takes the max mtime across run.json and every M<n>/log.json
+        # (RunLoggerV2 flushes an empty doc for every stage at close(), not
+        # just the one actually used) — stamp every file, or an untouched
+        # stage's real write time wins regardless.
+        for f in run.rglob("*"):
+            if f.is_file():
+                os.utime(f, (stamp, stamp))
         runs.append(run)
 
     with TestClient(server_mod.create_app(runs[0], runs_root=tmp_path)) as client:
@@ -205,39 +183,42 @@ def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, mon
 
 def test_runs_discovery_does_not_descend_into_a_found_runs_data_dir(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting.server import discover_runs
 
     run = tmp_path / "exp" / "outputs" / "logs"
-    logger = RunLogger(run)
+    logger = RunLoggerV2(run)
     logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
+    logger.log_stage_skipped("M1", "no_signal")
     logger.close()
     # A run's own data/sandbox subtree must never be scanned for more runs,
-    # even if it happens to contain another run_log.jsonl (e.g. a nested
-    # coder sandbox that itself invoked evalrx).
-    decoy = run / "explore" / "sandbox" / "data" / "run_log.jsonl"
-    decoy.parent.mkdir(parents=True)
-    decoy.write_text("{}\n", encoding="utf-8")
+    # even if it happens to contain another run.json + M<n>/log.json (e.g. a
+    # nested coder sandbox that itself invoked evalrx).
+    decoy_dir = run / "explore" / "sandbox" / "data"
+    (decoy_dir / "M1").mkdir(parents=True)
+    (decoy_dir / "run.json").write_text("{}\n", encoding="utf-8")
+    (decoy_dir / "M1" / "log.json").write_text("{}\n", encoding="utf-8")
 
     assert discover_runs(tmp_path) == [run]
 
 
 def test_external_case_media_is_copied_into_durable_run(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Inputs
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.run_events import read_v2_events
 
     media = tmp_path / "source.wav"
     media.write_bytes(b"RIFF-fake-audio")
     run = tmp_path / "run"
-    logger = RunLogger(run)
+    logger = RunLoggerV2(run)
     logger.log_cases(CaseBatch([
         FailureCase(inputs=Inputs(prompt="listen", audio=str(media)), id="audio-1"),
     ]))
     logger.close()
 
-    events = [json.loads(line) for line in (run / "run_log.jsonl").read_text().splitlines()]
+    events = [e for e in read_v2_events(run) if e.get("event") == "case_record"]
     path = run / events[0]["media_paths"][0]
-    assert path.parent == run / "artifacts" / "case_media"
+    assert path.parent == run / "media"
     assert path.read_bytes() == b"RIFF-fake-audio"
 
 
@@ -256,13 +237,13 @@ EXPECTED_ASSOCIATION: higher_on_failures"""
 
 def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label, Result
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting.dynamic import build_report_data
 
     case = FailureCase.from_prompt(
         "Choose the animal", id="case-1", expected="cat", observed="dog", label=Label.FAIL,
     )
-    logger = RunLogger(tmp_path)
+    logger = RunLoggerV2(tmp_path)
     logger.log_run_start({"model": "demo", "n_cases": 1})
     logger.log_cases(CaseBatch([case]))
     logger.log_probe(0, {"format_check": Result(
@@ -313,19 +294,19 @@ def test_indexed_media_can_be_served_from_the_adjacent_example_data_dir(tmp_path
 def test_explicit_run_log_wins_over_a_nested_logs_subrun(tmp_path):
     from evalrx.reporting.server import _resolve_report_root
 
-    (tmp_path / "run_log.jsonl").write_text("{}\n")
+    (tmp_path / "run.json").write_text("{}\n")
     (tmp_path / "logs").mkdir()
-    (tmp_path / "logs" / "run_log.jsonl").write_text("{}\n")
+    (tmp_path / "logs" / "run.json").write_text("{}\n")
     assert _resolve_report_root(tmp_path) == tmp_path
 
 
 def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting.server import create_app
 
-    logger = RunLogger(tmp_path)
+    logger = RunLoggerV2(tmp_path)
     logger.log_run_start({"model": "read-only-demo", "n_cases": 0})
     logger.close()
     monkeypatch.setattr("evalrx.reporting.server.report_is_current", lambda _root: False)

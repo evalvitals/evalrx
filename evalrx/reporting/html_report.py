@@ -263,12 +263,10 @@ def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
     """Return (logs_dir, explore_dir, fixes_dir)."""
     run_dir = run_dir.resolve()
     logs_dir = run_dir
-    if (run_dir / "logs" / "run_log.jsonl").exists():
+    if (run_dir / "logs" / "run.json").exists():
         logs_dir = run_dir / "logs"
-    elif (run_dir / "logs" / "run.json").exists():
-        logs_dir = run_dir / "logs"
-    elif not (run_dir / "run_log.jsonl").exists():
-        for child in run_dir.glob("*/run_log.jsonl"):
+    elif not (run_dir / "run.json").exists():
+        for child in run_dir.glob("*/run.json"):
             logs_dir = child.parent
             break
 
@@ -463,23 +461,9 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     logs_dir, explore_dir, fixes_dir = resolve_run_dirs(run_dir)
     manifest_path, manifest = find_manifest(example_dir or logs_dir.parent, logs_dir)
 
-    log_path = logs_dir / "run_log.jsonl"
-    if not log_path.exists() and (logs_dir.parent / "run_log.jsonl").exists():
-        log_path = logs_dir.parent / "run_log.jsonl"
+    from evalrx.reporting.run_events import read_v2_events
 
-    events: list[dict[str, Any]] = []
-    if log_path.exists():
-        for line in log_path.open(encoding="utf-8"):
-            line = line.strip()
-            if line:
-                try:
-                    events.append(json.loads(line))
-                except Exception:
-                    pass
-    elif (logs_dir / "run.json").exists():
-        from evalrx.reporting.run_events import read_v2_events
-
-        events = read_v2_events(logs_dir)
+    events: list[dict[str, Any]] = read_v2_events(logs_dir)
 
     all_run_starts = [e for e in events if e.get("event") == "run_start"]
     run_start = all_run_starts[-1] if all_run_starts else {}
@@ -1291,7 +1275,7 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
       <details class="collapsible-box" open>
         <summary>Langfuse Trace Bundle — {agent_langfuse.get('n_spans', 0)} spans · {agent_langfuse.get('n_generations', 0)} generations · {agent_langfuse.get('n_scores', 0)} scores</summary>
         <div class="content">
-          <p class="text-muted" style="font-size:12.5px;">Trace id <span class="mono">{esc(agent_langfuse.get('trace_id') or '')}</span> — the same id used by <span class="mono">run_log.jsonl</span> and (when live-synced) the Langfuse dashboard. Every span below is also mirrored there.</p>
+          <p class="text-muted" style="font-size:12.5px;">Trace id <span class="mono">{esc(agent_langfuse.get('trace_id') or '')}</span> — the same id used by <span class="mono">run.json</span> and (when live-synced) the Langfuse dashboard. Every span below is also mirrored there.</p>
           <div class="table-wrapper" style="max-height:300px; overflow-y:auto;">
             <table class="data-table"><thead><tr><th>Stage</th><th>Span</th><th>Status</th></tr></thead><tbody>{span_rows}</tbody></table>
           </div>
@@ -2221,7 +2205,7 @@ def build_html_report(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Render a finished EvalRX diagnostic run as an interactive HTML page.")
-    ap.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run_log.jsonl or logs/")
+    ap.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run.json or logs/")
     ap.add_argument("--example-dir", default=None, help="Root holding data/ (default: parent of run_dir)")
     ap.add_argument("--out", "-o", default=None, help="Output HTML file path (default: <run_dir>/report.html)")
     ap.add_argument("--no-audio", action="store_true", help="Skip audio clip compression and embedding")

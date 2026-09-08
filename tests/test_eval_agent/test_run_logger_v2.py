@@ -3,12 +3,10 @@ produce the tidy M1..M5 layout described in RUN_LOGGER_V2.md — few files,
 same-type-in-one-json, one folder per stage, nothing but JSON except real
 binary media.
 
-``_emit_every_method`` mirrors ``test_log_schema.py``'s
-``_emit_every_event_type`` almost line for line (same real domain objects:
-``StatsAnalysisReport``, ``DiagnosisResult``, ``InterventionResult``,
-``Hypothesis``, ``ExploratoryAnalysisReport``, ``Result``) so this is a
-faithful "does V2 handle the same real calls V1 does" check, not a test
-written against V2's own assumptions.
+``_emit_every_method`` drives every ``log_*`` method with real domain
+objects (``StatsAnalysisReport``, ``DiagnosisResult``, ``InterventionResult``,
+``Hypothesis``, ``ExploratoryAnalysisReport``, ``Result``) rather than
+bespoke fakes, so the events it produces are exactly what a real run writes.
 """
 
 from __future__ import annotations
@@ -414,10 +412,7 @@ def test_run_context_v2_keeps_only_json_and_media_and_inlines_reports(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
     root = tmp_path / "run"
-    ctx = RunContext(
-        root, logger_version="v2", config={"model": "fake"},
-        observability_mode="offline",
-    )
+    ctx = RunContext(root, config={"model": "fake"}, observability_mode="offline")
     runtime = ctx.runtime_root
     trial = ctx.new_trial("fixes", "candidate")
     trial.write("prompt.txt", "exact coder prompt")
@@ -467,7 +462,7 @@ def test_run_context_v2_snapshots_explore_text_and_media(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
     root = tmp_path / "run"
-    ctx = RunContext(root, logger_version="v2", observability_mode="offline")
+    ctx = RunContext(root, observability_mode="offline")
     explore = ctx.explore_dir
     (explore / "analysis.py").write_text("print('eda')")
     (explore / "table.csv").write_text("name,value\na,1\n")
@@ -491,23 +486,20 @@ def test_run_context_v2_snapshots_explore_text_and_media(tmp_path):
 
 
 def test_run_context_v2_root_holds_no_v1_named_directories(tmp_path):
-    """Root-purity check for the RunContext default flip (logger_version="v2"
-    is now RunContext's default — see run_context.py). The file-suffix check
-    in test_run_context_v2_keeps_only_json_and_media_and_inlines_reports would
-    not catch an *empty* directory created by a stray V1-style ``_sub()`` call
-    (mkdir happens regardless of whether anything is later written into it),
-    so this asserts directory names directly."""
+    """Root-purity check. The file-suffix check in
+    test_run_context_v2_keeps_only_json_and_media_and_inlines_reports would
+    not catch an *empty* directory created by a stray ``_sub()`` call (mkdir
+    happens regardless of whether anything is later written into it), so this
+    asserts directory names directly."""
     from types import SimpleNamespace
 
     from evalrx.eval_agent.run_context import RunContext
 
     root = tmp_path / "run"
-    ctx = RunContext(root, observability_mode="offline")  # default: v2
-    assert ctx.is_v2
+    ctx = RunContext(root, observability_mode="offline")
 
     # Touch every producer path a real run exercises: M2 artifacts, an
-    # explore pass, and a fix trial — the three that differ from V1 (item A
-    # in the migration plan).
+    # explore pass, and a fix trial.
     (ctx.figures_dir / "effect.png").write_bytes(b"png-bytes")
     (ctx.explore_dir / "table.csv").write_text("name,value\na,1\n")
     trial = ctx.new_trial("fixes", "candidate")
@@ -574,7 +566,7 @@ def test_non_numeric_probe_artifacts_survive_without_sidecar_files(tmp_path):
 def test_fix_trials_and_remaining_runtime_survive_cleanup(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    with RunContext(tmp_path, logger_version="v2", observability_mode="offline") as ctx:
+    with RunContext(tmp_path, observability_mode="offline") as ctx:
         trials = [ctx.new_trial("fixes", name) for name in ("first", "second")]
         attempts = []
         for index, trial in enumerate(trials):
@@ -616,7 +608,7 @@ def test_failed_runtime_archive_does_not_delete_source(tmp_path, monkeypatch):
 
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path, logger_version="v2", observability_mode="offline")
+    ctx = RunContext(tmp_path, observability_mode="offline")
     ctx.logger.log_run_start({})
     runtime = ctx.runtime_root
     (runtime / "image.png").write_bytes(b"evidence")
@@ -673,15 +665,25 @@ def test_loop_summary_keeps_verified_hypothesis_evidence(tmp_path):
 def test_persisted_event_identity_orders_concurrent_calls_and_validates(tmp_path, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
 
-    from evalrx.eval_agent.log_schema import _validator, build_v2_schema
+    from evalrx.eval_agent.log_schema import EVENT_TYPES, _validator, build_schema
     from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting.run_events import read_v2_events
 
     monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
     _emit_every_method(tmp_path)
-    validator = _validator(build_v2_schema())
-    for event in read_v2_events(tmp_path):
+    validator = _validator(build_schema())
+    emitted = read_v2_events(tmp_path)
+    for event in emitted:
         validator.validate(event)
+    # Every event type the schema knows about actually got exercised here —
+    # catches a type that's defined but never driven by this conformance check.
+    # diagnose_report and unrouted aren't part of _emit_every_method's mirror
+    # of RunLoggerV2's log_* API; they're validated in their own dedicated
+    # tests instead (test_run_context_v2_keeps_only_json_and_media_and_inlines_reports,
+    # test_unroutable_tag_with_no_alias_warns_and_lands_in_run_json).
+    covered = {e["event"] for e in emitted}
+    expected = set(EVENT_TYPES) - {"diagnose_report", "unrouted"}
+    assert covered == expected, f"uncovered event types: {expected - covered}"
     root = tmp_path / "concurrent"
     with RunLoggerV2(root, observability_mode="offline") as logger:
         monkeypatch.setattr(logger, "_ts", lambda: "2026-09-07T00:00:00+00:00")

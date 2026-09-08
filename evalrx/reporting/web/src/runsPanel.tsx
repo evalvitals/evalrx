@@ -2,10 +2,10 @@
  * Browsing experiments launched earlier, without a .zip in hand.
  *
  * The server scans the run's neighborhood for anything else that looks like
- * a run — V2's `run.json` + `M<n>/log.json`, or the legacy `run_log.jsonl`
- * (see `discover_runs`/`_is_run_root` in server.py) — and this panel lists
- * what it found. Picking one asks the server to open it by id — the panel
- * never sends a filesystem path back, only an id the server itself handed out.
+ * a run — `run.json` + at least one `M<n>/log.json` (see
+ * `discover_runs`/`_is_run_root` in server.py) — and this panel lists what
+ * it found. Picking one asks the server to open it by id — the panel never
+ * sends a filesystem path back, only an id the server itself handed out.
  */
 import { useCallback, useEffect, useState } from "react";
 import { FolderClock, RefreshCw, X } from "lucide-react";
