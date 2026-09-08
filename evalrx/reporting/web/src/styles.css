@@ -476,7 +476,7 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 
 .lf-loop { display: grid; grid-template-columns: minmax(0, 2.9fr) minmax(0, 1.15fr) minmax(0, 1.35fr); grid-template-rows: 1fr auto; gap: 10px; }
 .lf-lane { display: grid; grid-template-rows: auto 1fr; gap: 8px; min-width: 0; }
-.lf-lane-head { display: flex; align-items: baseline; gap: 9px; white-space: nowrap; overflow: hidden; padding: 8px 12px; border: 1px solid var(--line); }
+.lf-lane-head { display: flex; align-items: center; gap: 6px 9px; white-space: nowrap; overflow: hidden; padding: 6px 12px; min-height: 52px; box-sizing: border-box; border: 1px solid var(--line); }
 .lf-lane-head span { font: 500 10px DM Mono, monospace; letter-spacing: .16em; color: var(--green); }
 .lf-lane-head code { font: 500 11px DM Mono, monospace; color: var(--ink); }
 .lf-lane-head em { font-size: 10.5px; color: var(--muted); font-style: normal; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -609,3 +609,9 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .lf-card .cs-hyp-id, .lf-card .cs-verdict .cs-pill { font-size: 8px; letter-spacing: .06em; padding: 4px 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .lf-card .cs-hyp-name, .lf-card .cs-verdict-name { min-width: 0; overflow-wrap: anywhere; }
 .lf-card .cs-hyp svg, .lf-card .cs-verdict svg { flex: none; }
+
+/* The explore lane's subtitle is the long one: let it take a second line
+   instead of an ellipsis; the fixed head height keeps the cards aligned. */
+.lf-lane-explore .lf-lane-head { flex-wrap: wrap; white-space: normal; }
+.lf-lane-explore .lf-lane-head em { white-space: normal; overflow: visible; flex-basis: 100%; line-height: 1.35; }
+@media (min-width: 1500px) { .lf-lane-explore .lf-lane-head em { flex-basis: auto; } }
