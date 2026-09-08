@@ -86,7 +86,8 @@ export function Hypothesis({ hypothesis }: { hypothesis: CaseStudy["m3"][number]
   return <div className="cs-hyp-wrap" ref={box}>
     <button type="button" className={`cs-hyp${open ? " open" : ""}`} onClick={() => setOpen((was) => !was)}
       aria-expanded={open}>
-      <span className="cs-hyp-id">{hypothesis.id} · {humanise(hypothesis.failure_mode)}</span>
+      <span className="cs-hyp-id">{hypothesis.id}</span>
+      <span className="cs-hyp-name">{humanise(hypothesis.failure_mode)}</span>
       <ChevronDown size={13} />
     </button>
     {open && <div className="cs-hyp-pop" role="dialog">
