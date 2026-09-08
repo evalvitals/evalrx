@@ -228,8 +228,11 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
                   </div>)}
                   {!usedProbes.length && <em>none recorded</em>}
                   {usedProbes.length > 0 && <div className="lf-vitals-pop">
-                    {usedProbes.map((probe) => <div key={probe.phrase}>
-                      <span>{probe.phrase}</span>{probe.confirmed ? <b>FLAG</b> : <i>{probe.analyzers.join(", ")}</i>}
+                    <small>PROBES RUN · {usedProbes.length}</small>
+                    {usedProbes.map((probe) => <div key={probe.phrase} className={probe.confirmed ? "flag" : ""}>
+                      <span>{probe.phrase}</span>
+                      {probe.confirmed ? <b>FLAG</b> : <b className="ran">ran</b>}
+                      <i>{probe.analyzers.join(" · ")}</i>
                     </div>)}
                   </div>}
                 </div>
