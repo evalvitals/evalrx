@@ -220,18 +220,18 @@ def main() -> None:
         return
 
     from evalrx import compose
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.core.capability import Capability
     from evalrx.eval_agent import (
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
-        RunLogger,
+        RunLoggerV2,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
     from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
     from evalrx.eval_agent.stages.probe_agent import ProbeAgent
-    from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.models.backends.base import RuntimeConfig
 
     judge = build_judge(args.judge_model, args.judge_effort)
@@ -255,7 +255,7 @@ def main() -> None:
         extra_args=(("--effort", codegen_effort) if codegen_effort else ()),
     )
     print(f"codegen: claude_code model={codegen.model} effort={codegen_effort or 'default'}")
-    run_logger = RunLogger(run_dir=OUT / "logs", verbose=True)
+    run_logger = RunLoggerV2(run_dir=OUT / "logs", verbose=True)
     loop = VLDiagnoseLoop(
         model=model,
         probe_agent=ProbeAgent(judge=judge, max_analyzers=args.max_analyzers,

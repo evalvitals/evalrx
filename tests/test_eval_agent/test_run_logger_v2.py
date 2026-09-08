@@ -3,12 +3,10 @@ produce the tidy M1..M5 layout described in RUN_LOGGER_V2.md — few files,
 same-type-in-one-json, one folder per stage, nothing but JSON except real
 binary media.
 
-``_emit_every_method`` mirrors ``test_log_schema.py``'s
-``_emit_every_event_type`` almost line for line (same real domain objects:
-``StatsAnalysisReport``, ``DiagnosisResult``, ``InterventionResult``,
-``Hypothesis``, ``ExploratoryAnalysisReport``, ``Result``) so this is a
-faithful "does V2 handle the same real calls V1 does" check, not a test
-written against V2's own assumptions.
+``_emit_every_method`` drives every ``log_*`` method with real domain
+objects (``StatsAnalysisReport``, ``DiagnosisResult``, ``InterventionResult``,
+``Hypothesis``, ``ExploratoryAnalysisReport``, ``Result``) rather than
+bespoke fakes, so the events it produces are exactly what a real run writes.
 """
 
 from __future__ import annotations
@@ -414,10 +412,7 @@ def test_run_context_v2_keeps_only_json_and_media_and_inlines_reports(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
     root = tmp_path / "run"
-    ctx = RunContext(
-        root, logger_version="v2", config={"model": "fake"},
-        observability_mode="offline",
-    )
+    ctx = RunContext(root, config={"model": "fake"}, observability_mode="offline")
     runtime = ctx.runtime_root
     trial = ctx.new_trial("fixes", "candidate")
     trial.write("prompt.txt", "exact coder prompt")
@@ -467,7 +462,7 @@ def test_run_context_v2_snapshots_explore_text_and_media(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
     root = tmp_path / "run"
-    ctx = RunContext(root, logger_version="v2", observability_mode="offline")
+    ctx = RunContext(root, observability_mode="offline")
     explore = ctx.explore_dir
     (explore / "analysis.py").write_text("print('eda')")
     (explore / "table.csv").write_text("name,value\na,1\n")
@@ -488,6 +483,45 @@ def test_run_context_v2_snapshots_explore_text_and_media(tmp_path):
     assert m2["workspace_snapshot"]["files"]["table.csv"].startswith("name,value")
     assert len(m2["workspace_snapshot"]["media"]) == 1
     assert (root / m2["workspace_snapshot"]["media"][0]).is_file()
+
+
+def test_run_context_v2_root_holds_no_v1_named_directories(tmp_path):
+    """Root-purity check. The file-suffix check in
+    test_run_context_v2_keeps_only_json_and_media_and_inlines_reports would
+    not catch an *empty* directory created by a stray ``_sub()`` call (mkdir
+    happens regardless of whether anything is later written into it), so this
+    asserts directory names directly."""
+    from types import SimpleNamespace
+
+    from evalrx.eval_agent.run_context import RunContext
+
+    root = tmp_path / "run"
+    ctx = RunContext(root, observability_mode="offline")
+
+    # Touch every producer path a real run exercises: M2 artifacts, an
+    # explore pass, and a fix trial.
+    (ctx.figures_dir / "effect.png").write_bytes(b"png-bytes")
+    (ctx.explore_dir / "table.csv").write_text("name,value\na,1\n")
+    trial = ctx.new_trial("fixes", "candidate")
+    trial.write("pipeline.py", "print('candidate')")
+
+    ctx.logger.log_run_start({"model": "fake"})
+    report = SimpleNamespace(
+        cycles=1, stopped_by="done", resolved=False, all_hypotheses=[],
+        final_hypotheses=[], verified_hypotheses=[], all_test_results=[],
+    )
+    ctx.write_diagnose_report(report, [], discovery=[])
+    ctx.finalize()
+
+    top_level = {p.name for p in root.iterdir()}
+    v1_only = {"explore", "figures", "report", "tools", "workspace", "fixes",
+               "experiments", "run_log.jsonl", "manifest.json", "README.txt"}
+    assert not (top_level & v1_only), top_level
+    assert top_level <= {"run.json", "M1", "M2", "M3", "M4", "M5", "artifacts", "contract",
+                          "langfuse_trace.json"}
+    # figures_dir/artifacts_dir's file did land under the V2 mapping (M2/artifacts),
+    # not disappear — this isn't just an absence check.
+    assert (root / "M2" / "artifacts" / "effect.png").is_file()
 
 
 def test_reporting_reader_and_server_discover_v2_run(tmp_path):
@@ -512,3 +546,194 @@ def test_reporting_reader_and_server_discover_v2_run(tmp_path):
     backfill = backfill_run_to_langfuse(root.parent, dry_run=True)
     assert backfill["trace_id"] == events[0]["trace_id"]
     assert backfill["events"] == len(events)
+
+
+def test_non_numeric_probe_artifacts_survive_without_sidecar_files(tmp_path):
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+    artifacts = {"details": {"answer": "yes"}, "samples": ["yes", "no"],
+                 "rows": [{"case_id": "a", "score": 0.5}]}
+    with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
+        logger.log_probe(0, {"probe": Result(
+            analyzer="probe", model="stub", findings={}, artifacts=artifacts,
+        )})
+    probe = _load(tmp_path, "M1", "log.json")["probe"][0]
+    assert probe["artifacts"] == {f"probe/{key}": value for key, value in artifacts.items()}
+    assert not (tmp_path / "M1" / "artifacts").exists()
+
+
+def test_fix_trials_and_remaining_runtime_survive_cleanup(tmp_path):
+    from evalrx.eval_agent.run_context import RunContext
+
+    with RunContext(tmp_path, observability_mode="offline") as ctx:
+        trials = [ctx.new_trial("fixes", name) for name in ("first", "second")]
+        attempts = []
+        for index, trial in enumerate(trials):
+            (trial.workspace / "helper.py").write_text(f"VALUE = {index}")
+            (trial.workspace / "result.png").write_bytes(bytes([index, 2, 3]))
+            attempts.append({"name": str(index), "trial_root": str(trial.root), "outputs": {}})
+        ctx.logger.log_fix(SimpleNamespace(to_dict=lambda: {
+            "attempted": attempts, "selection_attempted": [], "best": "0",
+        }))
+        # Files created after log_fix and a discarded trial must also survive.
+        leftover = ctx.new_trial("fixes", "discarded")
+        leftover.write("run.sh", "echo retained")
+        leftover.write("opaque.bin", b"\x00\xff\x01")
+        leftover.write("large.txt", "x" * 2_000_001)
+        runtime = ctx.runtime_root
+    assert not runtime.exists()
+    fix = _load(tmp_path, "M5", "log.json")["fix"][0]
+    media = []
+    for index, attempt in enumerate(fix["attempted"]):
+        snapshot = attempt["workspace_snapshot"]
+        assert snapshot["files"]["workspace/helper.py"] == f"VALUE = {index}"
+        path = snapshot["media"][0]
+        assert snapshot["media_files"]["workspace/result.png"] == path
+        assert (tmp_path / path).read_bytes() == bytes([index, 2, 3])
+        media.append(path)
+    assert len(set(media)) == 2
+    snapshot = _load(tmp_path, "run.json")["runtime_snapshot"]
+    assert "echo retained" in snapshot["files"].values()
+    assert "x" * 2_000_001 in snapshot["files"].values()
+    assert any((tmp_path / path).read_bytes() == b"\x00\xff\x01" for path in snapshot["media"])
+    assert not any(path.suffix in {".py", ".sh", ".txt"} for path in tmp_path.rglob("*"))
+    assert "workspace_snapshot" not in attempts[0]  # no mutation of producer data
+
+
+def test_failed_runtime_archive_does_not_delete_source(tmp_path, monkeypatch):
+    import shutil
+
+    import pytest
+
+    from evalrx.eval_agent.run_context import RunContext
+
+    ctx = RunContext(tmp_path, observability_mode="offline")
+    ctx.logger.log_run_start({})
+    runtime = ctx.runtime_root
+    (runtime / "image.png").write_bytes(b"evidence")
+    def fail_copy(*args, **kwargs):
+        raise OSError("archive unavailable")
+    with monkeypatch.context() as patch:
+        patch.setattr(shutil, "copy2", fail_copy)
+        with pytest.raises(OSError, match="archive unavailable"):
+            ctx.finalize()
+    assert (runtime / "image.png").read_bytes() == b"evidence"
+    ctx.finalize()
+    assert not runtime.exists()
+
+
+def test_m4_case_study_accepts_new_and_legacy_v2_bundles(tmp_path):
+    from evalrx.reporting.case_study import _m4
+    from evalrx.reporting.run_events import read_v2_events
+
+    _emit_every_method(tmp_path)
+    for legacy in (False, True):
+        if legacy:
+            path = tmp_path / "M4" / "log.json"
+            doc = _load(tmp_path, "M4", "log.json")
+            for event in doc["surgery"]:
+                event.pop("module")
+            path.write_text(json.dumps(doc))
+        events = read_v2_events(tmp_path)
+        rows = _m4(SimpleNamespace(events_of=lambda name: [e for e in events if e["event"] == name]))
+        assert len(rows) == 1
+        assert rows[0]["status"] == "supported"
+        assert rows[0]["test_name"] == "paired_t_test"
+
+
+def test_loop_summary_keeps_verified_hypothesis_evidence(tmp_path):
+    from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
+
+    hypothesis = Hypothesis(statement="why", target_model="stub", predicted_failure_mode="mode")
+    result = HypothesisTestResult(
+        hypothesis=hypothesis, status=HypothesisStatus.SUPPORTED, test_name="audit",
+        effect_size=0.2, is_consistent_with_protocol=True, confidence=0.9, verdict="supported",
+    )
+    with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
+        logger.log_loop_end(SimpleNamespace(
+            cycles=1, stopped_by="verified", all_hypotheses=[hypothesis], verified_hypotheses=[result],
+        ))
+    assert _load(tmp_path, "run.json")["loop_end"][0]["verified_hypotheses"] == [{
+        "statement": "why", "failure_mode": "mode", "status": "supported",
+        "confidence": 0.9, "protocol_consistent": True, "verdict": "supported",
+    }]
+
+
+def test_persisted_event_identity_orders_concurrent_calls_and_validates(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from evalrx.eval_agent.log_schema import EVENT_TYPES, _validator, build_schema
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.run_events import read_v2_events
+
+    monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
+    _emit_every_method(tmp_path)
+    validator = _validator(build_schema())
+    emitted = read_v2_events(tmp_path)
+    for event in emitted:
+        validator.validate(event)
+    # Every event type the schema knows about actually got exercised here —
+    # catches a type that's defined but never driven by this conformance check.
+    # diagnose_report and unrouted aren't part of _emit_every_method's mirror
+    # of RunLoggerV2's log_* API; they're validated in their own dedicated
+    # tests instead (test_run_context_v2_keeps_only_json_and_media_and_inlines_reports,
+    # test_unroutable_tag_with_no_alias_warns_and_lands_in_run_json).
+    covered = {e["event"] for e in emitted}
+    expected = set(EVENT_TYPES) - {"diagnose_report", "unrouted"}
+    assert covered == expected, f"uncovered event types: {expected - covered}"
+    root = tmp_path / "concurrent"
+    with RunLoggerV2(root, observability_mode="offline") as logger:
+        monkeypatch.setattr(logger, "_ts", lambda: "2026-09-07T00:00:00+00:00")
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda index: logger.log_model_exchange(
+                f"M{index % 5 + 1}", role="test", operation="generate", inputs=index, output=index,
+            ), range(30)))
+    events = read_v2_events(root)
+    assert [event["event_seq"] for event in events] == list(range(1, 31))
+    assert len({event["span_id"] for event in events}) == 30
+    for event in events:
+        validator.validate(event)
+    assert [event["event_seq"] for event in read_v2_events(root)] == list(range(1, 31))
+
+
+def test_v2_schema_validation_warns_but_preserves_invalid_event(tmp_path, monkeypatch):
+    import pytest
+
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+    monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
+    with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
+        with pytest.warns(UserWarning, match="violates log schema"):
+            logger.log_stage_skipped("M4", "reason", cycle="invalid")
+    assert _load(tmp_path, "M4", "log.json")["stage_skipped"][0]["cycle"] == "invalid"
+
+def test_hypothesis_id_joins_m3_to_m4_and_m5(tmp_path):
+    """The lineage key a frontend needs to draw "M5 came from this M3
+    hypothesis, M4 verified it": the SAME Hypothesis object logged by
+    log_diagnosis (M3), log_surgery (M4-shaped and M5-shaped), and
+    log_experiment (M5) must carry one consistent id, computed the same way
+    evalrx.contract.emit.hypothesis_id does (delegates to the same function)."""
+    from evalrx.eval_agent.hypothesis import hypothesis_id
+
+    run_dir = tmp_path / "run1"
+    _emit_every_method(run_dir)
+
+    m3 = _load(run_dir, "M3", "log.json")["diagnosis"][0]
+    hyps = m3["hypotheses"]
+    assert len(hyps) == 1 and hyps[0]["id"]
+    hid = hyps[0]["id"]
+
+    surgeries = _load(run_dir, "M4", "log.json")["surgery"] + _load(run_dir, "M5", "log.json")["surgery"]
+    assert len(surgeries) == 2  # one M4-shaped, one M5-shaped (see _emit_every_method)
+    assert all(s["hypothesis_id"] == hid for s in surgeries)
+
+    experiment = _load(run_dir, "M5", "log.json")["experiment"][0]
+    assert experiment["hypothesis_id"] == hid
+
+    # And it's exactly what a consumer re-deriving the id from the same
+    # statement (id="", per _emit_every_method's `hyp`) would compute —
+    # no drift between the log and an independent join.
+    assert hid == hypothesis_id({"id": "", "statement": "s"})

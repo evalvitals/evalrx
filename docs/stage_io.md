@@ -410,7 +410,7 @@ concept for stay at their default (`None` / empty):
 
 See [RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory)
 for where each stage's artifacts land on disk when a run directory is
-attached, and [run_log.jsonl schema](architecture.md#eval_agent-automated-diagnosis-pipeline)
+attached, and the [event schema](architecture.md#eval_agent-automated-diagnosis-pipeline)
 for the structured event each stage emits per cycle.
 
 ---
@@ -446,61 +446,45 @@ Two things the contract will not do for you, both deliberate:
   means no case carried audio, and `0.0` means every case that did stayed
   grounded.
 
-The rest of this section describes the raw run directory, which remains
-readable and is what a run produced before contract emission existed offers.
+The rest of this section describes the raw run directory — `RunContext`'s
+only layout now (`evalrx/eval_agent/RUN_LOGGER_V2.md`; there is no other
+logger to select). `contract/` is unaffected by any of this.
 
 ### 1. Choose a source of truth
 
-A normal persisted loop run has this shape (some folders are optional):
+A normal persisted loop run has this shape (some parts are optional):
 
 ```text
 <run>/
-├── manifest.json
-├── run_log.jsonl
+├── run.json                  run-wide events: run_start, cases, manifest, diagnose_reports, …
+├── M1/log.json …             one JSON document per stage, plus each stage's own artifacts/
+│   M5/log.json
 ├── contract/                 ← typed, validated; prefer this
 │   ├── index.json
 │   ├── c0.m1.json … c0.m4.json
 │   └── m5_surgery.json, m5_fix.json
-├── report/
-│   ├── summary.json
-│   ├── summary.md
-│   ├── hypotheses.json
-│   ├── m4_results.json
-│   └── discovery_cases.json
-├── artifacts/
-│   ├── c0_<analyzer>.result.json
-│   ├── c0_<artifact>.npy|json|png
-│   └── c0_m2_<large-field>.json
-├── prompts/
-│   └── c0_m{1,2,3}_*.prompt.txt|response.txt
-├── explore/
-│   ├── exploratory_report.json
-│   ├── tables/
-│   └── figures/
-└── fixes/
-    ├── outcome.md
-    └── <trial>/
-        ├── record.md
-        ├── result.json
-        └── workspace/
+└── artifacts/                 M1 heavy numeric data (.npy/.json) written outside any stage
 ```
+
+There's no separate `manifest.json`/`report/`/`prompts/`/`explore/`/`fixes/`
+— generated text/code is inlined into the owning stage's JSON, and the
+manifest lives inside `run.json`.
 
 Use one of these two contracts; do not silently merge conflicting values from
 both:
 
 | UI use case | Primary source | Secondary source |
 |---|---|---|
-| Live progress / per-cycle story | append-only `run_log.jsonl` | linked artifacts as they appear |
-| Finished run / stable report | `manifest.json` + `report/` + `artifacts/` | `run_log.jsonl` for provenance and detail |
+| Live progress / per-cycle story | `run.json` + `M*/log.json`, both rewritten incrementally | linked artifacts as they appear |
+| Finished run / stable report | `run.json`'s `manifest` + `diagnose_reports` entries | `M*/log.json` for provenance and detail |
 | Standalone Explore upload | `exploratory_report.json` and optional sibling `confirm_report.json` / `fix_report.json` | the uploaded records |
 
-For a finished run, `manifest.json` is the file inventory. Its current shape is:
+For a finished run, `run.json["manifest"]` is the file inventory. Its shape is:
 
 ```json
 {
+  "ts": "2026-08-18T00:00:00+00:00",
   "run_id": "auto_fix_v12",
-  "root": "/app/example/outputs/auto_fix_v12",
-  "generated_at": "2026-08-18T00:00:00+00:00",
   "config": {
     "benchmark": "spatial457",
     "model": "Qwen/Qwen2.5-VL-7B-Instruct",
@@ -509,30 +493,26 @@ For a finished run, `manifest.json` is the file inventory. Its current shape is:
     "fix_tier": "L3a",
     "allow_codegen": true
   },
-  "files": {
-    "report": ["report/summary.json", "report/hypotheses.json"],
-    "artifacts": ["artifacts/c0_attention.result.json"],
-    "prompts": ["prompts/c0_m2_analysis.prompt.txt"],
-    "fixes": ["fixes/outcome.md"],
-    "other": ["run_log.jsonl"]
-  }
+  "files": ["M1/log.json", "M2/log.json", "M2/artifacts/c0_attention.png", "run.json"]
 }
 ```
 
 `config` is intentionally extensible: render recognized values as summary
-chips and preserve the remainder in a raw configuration view.
+chips and preserve the remainder in a raw configuration view. `files` is a
+flat, complete file index (not grouped by category the way V1's was) —
+render it as-is.
 
 #### Artifact path resolution
 
 Paths recorded by a container may be absolute inside that container, while the
 UI is serving an extracted/copy-mounted run elsewhere. Therefore:
 
-1. Treat the directory containing `manifest.json` as `runRoot`.
+1. Treat the directory containing `run.json` as `runRoot`.
 2. Resolve every relative path against `runRoot`.
-3. Do **not** use `manifest.root` as the server filesystem root; it is provenance
-   and may say `/app/example/...` even when the UI sees another path.
-4. For an absolute path in an event, first strip the recorded `manifest.root`
-   prefix and resolve the suffix below `runRoot`; otherwise match its longest
+3. Do **not** use a recorded absolute path as the server filesystem root; it is
+   provenance and may say `/app/example/...` even when the UI sees another path.
+4. For an absolute path in an event, first strip any recorded run-root prefix
+   and resolve the suffix below `runRoot`; otherwise match its longest
    unambiguous suffix against `manifest.files`.
 5. If no in-run match exists, show “artifact unavailable” and the recorded path
    as text. Never let a client-provided path escape `runRoot`.
@@ -639,31 +619,38 @@ event emits only `statement`, `failure_mode`, `status`, and `test_design`.
 Normalize `failure_mode` and `predicted_failure_mode` into one view-model field,
 but keep the original JSON untouched.
 
-### 3. `run_log.jsonl` envelope and event contract
+### 3. Event envelope and contract
 
-Each complete line is one independent JSON object. Every current event has:
+Each stage document (`M<n>/log.json`) is one JSON object whose keys are event
+names, each mapping to an array of entries for that stage; `run.json` is the
+same shape for run-wide events (`run_start`, `cases`, `manifest`,
+`diagnose_reports`, `loop_end`, …). `evalrx.reporting.run_events.read_v2_events(root)`
+flattens all of it into one ordered list of independent event objects — the
+shape this section (and every table below) describes; prefer it over reading
+each file directly. Every event has:
 
 ```ts
 interface RunEventBase {
   event: string;
-  schema_version: number; // currently 3; branch on it, do not hard-fail on newer
+  schema_version: number; // currently 6; branch on it, do not hard-fail on newer
   ts: string;             // ISO-8601 UTC
   trace_id: string;       // run-level correlation id
+  stage: string;          // "RUN" or "M1".."M5" — which document it came from
   span_id?: string;       // e.g. c0.m1, c0.m2, c0.m3, c0.m4, fix
+  event_seq: number;      // global sequence assigned under the logger's lock
   cycle?: number;         // normal cycles start at 0; post-loop fix uses -1
   [extra: string]: unknown;
 }
 ```
 
-Events are ordered by file position. `ts` is for display and cross-service
-correlation, not for re-sorting lines with equal or skewed timestamps. While
-tailing a live file, retain an incomplete final line and retry it after the next
-chunk; an incomplete line is not a run error.
+Events are ordered by `event_seq` (a real sequence counter, not wall-clock
+`ts` — concurrent calls can share or invert timestamps). `ts` is for display
+and cross-service correlation only.
 
 | Event | Stage | Required/important payload | UI interpretation |
 |---|---|---|---|
 | `run_start` | run | model/judge/config, `n_cases`, protocol, budgets, version/git/data fingerprint when available | create run header; missing optional provenance is “unknown,” not failure |
-| `probe` | M1 | `cycle`, `analyzers`, `findings`, `result_paths`, `artifact_paths`; optional `selected_analyzers`, rationale, `failed_analyzers`, `judge_io`, duration | one analyzer card per selected analyzer; a name in `failed_analyzers` is a local analyzer failure |
+| `probe` | M1 | `cycle`, `analyzers`, `findings`, `results` (each analyzer's complete document, inline), `artifact_paths`; optional `selected_analyzers`, rationale, `failed_analyzers`, `judge_io`, duration | one analyzer card per selected analyzer; a name in `failed_analyzers` is a local analyzer failure |
 | `explore` | descriptive side path | `cycle`, `ok`, counts, observations, caveats, figures; optional error/report path | `ok: false` fails this optional step, but does not by itself fail the diagnosis loop |
 | `analysis` | M2 | `cycle`, severity, findings, narrative, `descriptive_only`; optional stats outputs, conclusion, figures, `llm_fallback_reason`, `judge_io` | label descriptive and confirmatory analysis explicitly; a fallback can still be a successful M2 |
 | `diagnosis` | M3 | `cycle`, model, `n_hypotheses`, `hypotheses`, raw output; optional referenced charts/context flags, `judge_io` | zero parsed hypotheses is a completed empty/abstained M3 unless an explicit error exists elsewhere |
@@ -676,17 +663,10 @@ chunk; an incomplete line is not a run error.
 | `tool_codegen` | support | cycle/module/tool/need/source/`ok`, error/code paths | one tool-generation attempt, not a stage verdict |
 | `tool_registry` | support | cycle/module/tool inventory | diagnostic/debug inventory only |
 
-Large M2 fields (`stats_results`, `stats_tool_results`, `stats_plan`, or
-`corrected_rejections`) are inline until they exceed 4096 serialized bytes.
-Then their value becomes a pointer:
-
-```json
-{"path": "artifacts/c0_m2_stats_results.json", "n_items": 37, "bytes": 18942}
-```
-
-Detect an externalized value by shape (`path` plus `bytes`), lazy-load it, and
-keep the count visible while loading. Do not treat the pointer itself as one
-statistics result.
+Every field is inlined verbatim in its stage's JSON document — `stats_results`,
+`stats_plan`, `corrected_rejections`, per-analyzer probe results, generated
+experiment/fix code — nothing is externalized to a sibling file above a size
+threshold. A UI never needs to detect or lazy-load a pointer value here.
 
 ### 4. Stage and run state derivation
 

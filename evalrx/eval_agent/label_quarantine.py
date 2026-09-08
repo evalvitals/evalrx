@@ -13,7 +13,7 @@ stage starts, M1..M4 have written the same labels many times over:
 
 * ``baseline.json`` and ``logs/report/discovery_cases.json`` — every case with
   ``expected`` and ``label``, CONFIRM cases included;
-* ``logs/run_log.jsonl`` — ``case_record`` events with ``expected``, ``label``
+* ``logs/run.json`` — ``case_record`` events with ``expected``, ``label``
   and ``metadata.gold``;
 * ``logs/artifacts/*.result.json``, ``logs/contract/c*.m1.json``,
   ``explore/records.json`` — per-case analyzer signals, among them
@@ -111,10 +111,12 @@ def quarantine_run_dir(
 
     Args:
         run_dir:      The run directory (``baseline.json``, ``logs/``, ...).
-        append_logs:  Files that a live handler holds open in append mode
-                      (``RunContext.log_path``). They are truncated to zero
-                      length instead of unlinked and restored as
-                      ``old + new``.
+        append_logs:  Files that a live handler holds open in append mode.
+                      They are truncated to zero length instead of unlinked
+                      and restored as ``old + new``. RunLoggerV2 rewrites its
+                      documents atomically instead of appending, so its
+                      callers pass ``rewrite_logs`` (see
+                      ``RunLoggerV2.managed_json_paths``), not this.
         keep:         Relative path prefixes (POSIX style) to leave visible,
                       e.g. ``("logs/fixes",)`` when resuming a fix search.
         write_manifest: Write ``fix_quarantine.json`` into *run_dir* on exit.

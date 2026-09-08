@@ -72,15 +72,15 @@ def test_top_level_serve_dispatch(monkeypatch):
 
     captured = {}
 
-    def _fake_serve(run_dir, *, port, no_audio, open_browser, block=True):
+    def _fake_serve(run_dir, *, port, no_audio, open_browser, block=True, runs_root=None):
         captured.update(run_dir=run_dir, port=port, no_audio=no_audio,
-                        open_browser=open_browser, block=block)
+                        open_browser=open_browser, block=block, runs_root=runs_root)
         return 0
 
     monkeypatch.setattr(cli_mod, "serve_report", _fake_serve)
     assert main(["serve", "my_run", "--port", "8500", "--no-audio", "--no-browser"]) == 0
     assert captured == {"run_dir": "my_run", "port": 8500, "no_audio": True,
-                        "open_browser": False, "block": True}
+                        "open_browser": False, "block": True, "runs_root": None}
 
 
 def test_langfuse_report_source_materializes_a_cache(monkeypatch, tmp_path):

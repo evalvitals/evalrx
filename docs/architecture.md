@@ -228,8 +228,8 @@ eval_agent/
 ├── run_metadata.py       shared run-provenance + logging-wiring helpers
 ├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M4 (see below)
 ├── run_context.py        RunContext, Trial — single owner of a run's output directory
-├── run_logger.py         RunLogger — per-cycle JSONL log + artifact sink
-├── log_schema.py         published run_log.jsonl JSON Schema
+├── run_logger_v2.py       RunLoggerV2 — run.json + per-stage M<n>/log.json event log
+├── log_schema.py          published event JSON Schema
 ├── hypothesis.py         Hypothesis, HypothesisStatus — shared across M3/M4/M5
 ├── cli_agent.py          compatibility facade over agent_runtime's CLI providers/judges
 ├── store.py              Store / InMemoryStore / JsonlStore
@@ -357,7 +357,7 @@ loop = AutoDiagnoseLoop(
     diagnosis_agent=DiagnosisAgent(judge=judge),
     surgery_agent=SurgeryAgent(judge=judge),
     store=JsonlStore(run_dir / "store"),
-    run_logger=RunLogger(run_dir),
+    run_logger=RunLoggerV2(run_dir),
     run_dir=run_dir,
 )
 
@@ -537,75 +537,89 @@ result.image_overlays(fig_dir, stem_prefix)                 # -> list[Path]
 (CAM-style, intensity-weighted so the background stays visible); it resolves
 lazy `Inputs.image` paths/URLs the same way the model's forward pass did
 (`transformers.image_utils.load_image`), so the overlay matches what was
-actually fed to the model. `image_overlays()` is a duck-typed hook: `RunLogger`
-calls it on any `Result` that defines it and saves the PNGs into `figures/`
-alongside the bare heatmaps, so overlays flow into the same artifact list a
-multimodal judge already receives — no per-analyzer wiring required.
+actually fed to the model. `image_overlays()` is a duck-typed hook:
+`RunLoggerV2` calls it on any `Result` that defines it and saves the PNGs
+into `M1/artifacts/` alongside the bare heatmaps, so overlays flow into the
+same artifact list a multimodal judge already receives — no per-analyzer
+wiring required.
 
 ### RunContext — single owner of a run's output directory
 
 `RunContext` replaces the old per-example pattern of hand-written report
-files, `RunLogger` buried under a `logs/` subdir, hand-built figure-dir paths,
+files, a logger buried under a `logs/` subdir, hand-built figure-dir paths,
 and M5 sandboxes living in ephemeral temp dirs deleted on success.  One
 `RunContext` owns the whole run root and hands every producer its
-subdirectory:
+subdirectory, always through `RunLoggerV2` (`evalrx/eval_agent/RUN_LOGGER_V2.md`) —
+there is no other logger to select:
 
 ```text
 <root>/
-├── manifest.json     run config + index of every produced file
-├── run_log.jsonl     structured event stream (RunLogger)
-├── README.txt        auto-generated file guide (from manifest)
-├── report/           human deliverables (summary.md, hypotheses.json, m4_results.json, …)
-├── figures/          M1 heatmaps (+ overlay PNGs) and M2 effect plots
-├── artifacts/        M1 heavy numeric data (.npy / .json)
-├── prompts/          judge prompt / response
-├── experiments/      one self-contained folder per M5 ExperimentWriter trial
-├── tools/            synthesised probe / stats tool code (M1/M2, run-global)
-├── workspace/        sandbox working dirs outside any trial
-└── fixes/            one self-contained folder per FixAgent repair attempt
+├── run.json          run-wide events: run_start, cases, diagnose_reports, manifest, …
+├── M1/log.json …     one JSON document per stage, plus each stage's own artifacts/
+│   M5/log.json
+├── contract/         one validated JSON per stage (see evalrx.contract), if emitted
+├── artifacts/        M1 heavy numeric data (.npy / .json) written outside any stage
+└── langfuse_trace.json
 ```
 
-Each line in `run_log.jsonl` carries `event`, `cycle`, `ts` (ISO-8601), a
-`schema_version` (int, bumped only when an existing event's fields are
-renamed/removed/change meaning — additive fields don't bump it, so a
-downstream parser can detect breaking changes without guessing from
-`evalrx_version`), and stage-specific fields (findings, narrative, raw LLM
-output, intervention status …). The first `run_start` event records run
-provenance — `model`, `judge`, `git_commit` (falls back to the
+No `run_log.jsonl`, no persisted `prompts/`/`experiments/`/`tools/`/
+`workspace/`/`fixes/` (generated text/code is captured inline into the
+relevant stage's JSON instead), no `manifest.json`/`README.txt` (the manifest
+lives inside `run.json`).
+
+Each entry under a stage's array (e.g. `M3/log.json["diagnosis"]`) carries
+`ts` (ISO-8601), a `schema_version` (int, bumped only when an existing
+event's fields are renamed/removed/change meaning — additive fields don't
+bump it, so a downstream parser can detect breaking changes without guessing
+from `evalrx_version`), `event_seq` (a global sequence assigned under the
+logger's lock — never derived from wall-clock order, so concurrent calls
+stay correctly ordered), and stage-specific fields (findings, narrative, raw
+LLM output, intervention status …). `run.json`'s `run_start` entry records
+run provenance — `model`, `judge`, `git_commit` (falls back to the
 `EVALRX_GIT_COMMIT` env var when the `git` CLI is unavailable, e.g. inside
 the example Docker images), `data_fingerprint` (an order-independent hash of
 the case batch, so two runs can be confirmed to use the same data) and
 `label_distribution` (the base PASS/FAIL/UNKNOWN counts the diagnosis is
-conditioned on). The `analysis` event's stats fields
-(`stats_tool_results`, `stats_results`, `stats_plan`, `corrected_rejections`)
-are externalized to `artifacts/` the same way `probe`'s `artifact_paths` are
-once their JSON size exceeds 4 KB — the JSONL line then carries
-`{"path", "n_items", "bytes"}` instead of the raw value. Standard shell tools
-work directly on it:
+conditioned on). Nothing is externalized the way V1's `{"path", "n_items",
+"bytes"}` payload placeholder was — `stats_results`, `findings`, and every
+other per-event field are inlined verbatim in the stage's JSON document.
+`evalrx/reporting/run_events.py`'s `read_v2_events(root)` flattens `run.json`
++ every `M<n>/log.json` back into one ordered, flat event list (the same
+shape every downstream reader — dynamic report, HTML export, dashboard,
+Langfuse backfill — consumes), so most code never has to know about the
+per-stage bucketing directly:
+
+```python
+from evalrx.reporting.run_events import read_v2_events
+
+events = read_v2_events("run_dir")                          # run_dir or run_dir/logs
+diagnoses = [e for e in events if e["event"] == "diagnosis"]  # all judge outputs
+probes = [e for e in events if e["event"] == "probe"]          # M1 findings
+```
+
+or read one stage's document directly with any JSON tool:
 
 ```bash
-tail -f run_dir/run_log.jsonl                           # live stream
-jq 'select(.event=="diagnosis")' run_log.jsonl          # all judge outputs
-jq 'select(.event=="probe") | .findings' run_log.jsonl  # M1 findings
-jq 'select(.event=="surgery") | .evidence' run_log.jsonl
+jq '.diagnosis' run_dir/M3/log.json         # all M3 judge outputs
+jq '.probe[-1].findings' run_dir/M1/log.json  # latest M1 findings
 ```
 
 The event format is a **published JSON Schema** (Draft 2020-12), shipped as
 package data at `evalrx/eval_agent/run_log.schema.json` and built from
 `evalrx/eval_agent/log_schema.py` — so downstream parsers (in any language)
-can validate `run_log.jsonl` instead of guessing field shapes. It's permissive
-by design: it pins the common envelope (`event`, `schema_version`, `ts`,
-`trace_id`), the per-event required fields and core types, but allows additive
-fields (matching the `schema_version` rule above).
+can validate an event instead of guessing field shapes. It's permissive by
+design: it pins the common envelope (`event`, `schema_version`, `ts`,
+`trace_id`, `stage`, `span_id`, `event_seq`), the per-event required fields
+and core types, but allows additive fields (matching the `schema_version`
+rule above).
 
 ```python
-from evalrx.eval_agent import iter_log_errors, validate_event
+from evalrx.eval_agent import validate_event
 
-for line_no, msg in iter_log_errors("run_dir/run_log.jsonl"):  # empty == conforms
-    print(line_no, msg)
+validate_event(event)  # raises jsonschema.ValidationError on a violation
 ```
 
-Set `EVALRX_VALIDATE_LOG=1` to have `RunLogger` self-check every event it
+Set `EVALRX_VALIDATE_LOG=1` to have `RunLoggerV2` self-check every event it
 writes against the schema and warn (never raise) on a violation — a CI/dev aid
 to catch a producer drifting from the contract. Both paths need the optional
 `jsonschema` dependency (`pip install evalrx[dev]`).
@@ -618,7 +632,8 @@ with RunContext("examples/foo/outputs", verbose=True) as ctx:
     loop = VLDiagnoseLoop(..., run_logger=ctx.logger)
     report = loop.run(cases)
     ctx.write_diagnose_report(report, cases, discovery=discovery_rows)
-# manifest.json + README.txt written, logger closed on exit.
+# run.json/M*/log.json are flushed incrementally throughout the run;
+# finalize() (called on exit) just closes them out and inlines the runtime tree.
 ```
 
 `write_diagnose_report(report, cases, discovery=...)` writes the standard
@@ -637,7 +652,10 @@ on first write, so a candidate discarded before producing anything (e.g. a
 deduped proposal) leaves no empty folder — a gap in the numbering honestly
 means "proposed, then discarded," not a missing record.  `ctx.new_workdir(label)`
 is the non-trial equivalent for sandboxes that don't belong to a numbered
-attempt (e.g. M1/M2 tool codegen).
+attempt (e.g. M1/M2 tool codegen). Under V2 there are no persisted trial
+folders at all — a trial's generated code/output is inlined into its stage's
+JSON, and the sandbox it ran in lives under an ephemeral `ctx.runtime_root`
+tempdir that's deleted at `finalize()`, not `fixes/`/`experiments/`.
 
 **Not the same as `run_dir`** in the "Run-directory infrastructure" section
 above: `AutoDiagnoseLoop(run_dir=...)` owns *resume* mechanics (checkpoint,
@@ -705,7 +723,7 @@ evalrx.FailureCase
 evalrx.Result
 
 # Automated diagnosis — AutoDiagnoseLoop (legacy M1→M5 sweep)
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLogger, StrategyProbe, SurgeryAgent
+from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLoggerV2, StrategyProbe, SurgeryAgent
 
 # Protocol-guided diagnosis — VLDiagnoseLoop (M1→M2→M3→M4, M5 post-loop)
 from evalrx.eval_agent import (

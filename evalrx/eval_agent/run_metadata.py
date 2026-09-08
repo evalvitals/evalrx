@@ -89,6 +89,14 @@ def _run_config(loop: Any, data: Any, *, loop_name: str) -> dict[str, Any]:
     _data_prov = _data_provenance(data)
     if _data_prov:
         cfg.update(_data_prov)
+    # How the batch was partitioned before anything ran. ``n_cases`` above is
+    # the explore partition (``data`` has already been narrowed to it); these
+    # say whether a confirm / test partition was withheld and at what fraction,
+    # so a report can tell a two-way run from a train/val/test one.
+    for attr in ("confirm_split", "test_split", "confirm_split_seed"):
+        value = getattr(loop, attr, None)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            cfg[attr] = value
 
     protocol = getattr(loop, "protocol", None)
     if protocol is not None:

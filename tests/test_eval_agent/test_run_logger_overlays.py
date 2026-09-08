@@ -1,6 +1,6 @@
-"""RunLogger.log_probe <-> Result.image_overlays() wiring.
+"""RunLoggerV2.log_probe <-> Result.image_overlays() wiring.
 
-The bare attention heatmaps RunLogger saves have no spatial reference to the
+The bare attention heatmaps RunLoggerV2 saves have no spatial reference to the
 actual image; Result subclasses (e.g. RelativeAttentionResult) can define an
 ``image_overlays(fig_dir, stem_prefix) -> list[Path]`` hook to additionally
 save heatmap-on-image visualisations, which must flow into log_probe's
@@ -54,9 +54,9 @@ class _FakeResultNoOverlays:
 
 
 def test_log_probe_returns_overlay_png_from_result_hook(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
-    logger = RunLogger(run_dir=tmp_path / "run1")
+    logger = RunLoggerV2(run_dir=tmp_path / "run1")
     pngs = logger.log_probe(0, {"fake_analyzer": _FakeResultWithOverlays()})
     assert len(pngs) == 1
     assert pngs[0].name == "c0_fake_analyzer_fake_overlay.png"
@@ -65,18 +65,18 @@ def test_log_probe_returns_overlay_png_from_result_hook(tmp_path):
 
 
 def test_log_probe_survives_image_overlays_raising(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
-    logger = RunLogger(run_dir=tmp_path / "run1")
+    logger = RunLoggerV2(run_dir=tmp_path / "run1")
     pngs = logger.log_probe(0, {"broken_analyzer": _FakeResultOverlaysRaise()})
     assert pngs == []
     logger.close()
 
 
 def test_log_probe_without_image_overlays_hook_is_unaffected(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
-    logger = RunLogger(run_dir=tmp_path / "run1")
+    logger = RunLoggerV2(run_dir=tmp_path / "run1")
     pngs = logger.log_probe(0, {"plain_analyzer": _FakeResultNoOverlays()})
     assert pngs == []
     logger.close()
@@ -88,7 +88,7 @@ def test_log_probe_combines_overlay_and_npy_heatmap_pngs(tmp_path):
     pytest.importorskip("matplotlib")
     import numpy as np
 
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
     @dataclass
     class _Mixed:
@@ -106,7 +106,7 @@ def test_log_probe_combines_overlay_and_npy_heatmap_pngs(tmp_path):
             path.write_bytes(b"\x89PNG\r\n\x1a\n")
             return [path]
 
-    logger = RunLogger(run_dir=tmp_path / "run1")
+    logger = RunLoggerV2(run_dir=tmp_path / "run1")
     pngs = logger.log_probe(0, {"mixed_analyzer": _Mixed()})
     names = {p.name for p in pngs}
     assert "c0_mixed_analyzer_overlay.png" in names

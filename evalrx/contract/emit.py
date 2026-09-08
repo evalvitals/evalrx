@@ -25,7 +25,6 @@ producer can say "not measured" instead of inventing a defensible-looking value.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -437,23 +436,16 @@ def from_stats_report(
 def hypothesis_id(hypothesis: Any) -> str:
     """The join key for one hypothesis, derived the same way everywhere.
 
-    ``Hypothesis.id`` defaults to ``""`` and nothing in the M1-M5 loop fills it
-    in, so every stage that names a hypothesis has to derive one. Deriving it
-    per call site is how the first real run produced ``h0`` from M3 and
-    ``unknown`` from M4 for the *same* object: two names for one thing, and the
-    join between the claim and its verdict silently empty.
-
-    Falls back to a hash of the statement, mirroring what
-    ``eval_agent.loop._hyp_key`` matches on — deterministic, so two stages
-    holding the same hypothesis always agree.
+    Canonical implementation lives in ``evalrx.eval_agent.hypothesis`` — the
+    primary M3/M4/M5 log entries need this join key too, not only this sidecar
+    — see that docstring for why the fallback hash exists. Imported lazily so
+    this module stays importable without pulling in the whole eval_agent
+    package; by the time anything here actually calls it, eval_agent (the
+    caller of ``from_diagnosis``/``from_test_results``/``from_intervention``)
+    is already loaded, so the lazy import costs nothing in practice.
     """
-    hid = str(_val(hypothesis, "id", "") or "").strip()
-    if hid:
-        return hid
-    statement = str(_val(hypothesis, "statement", "") or "").strip()
-    if statement:
-        return "h-" + hashlib.sha1(statement.encode("utf-8")).hexdigest()[:12]
-    return "unknown"
+    from evalrx.eval_agent.hypothesis import hypothesis_id as _hypothesis_id
+    return _hypothesis_id(hypothesis)
 
 
 def from_diagnosis(

@@ -365,7 +365,7 @@ class VLDiagnoseLoop:
                             tripled the wall-clock; raise it to keep
                             mining when a cycle's M4 designs feed the
                             next cycle's M1).
-        run_logger:         Optional :class:`~evalrx.eval_agent.run_logger.RunLogger`.
+        run_logger:         Optional :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`.
         token_budget:       Stop early when accumulated token usage reaches
                             this limit (0 = unlimited).
         analysis_only:      Run only M1→M2 and stop before hypothesis generation.
@@ -802,9 +802,11 @@ class VLDiagnoseLoop:
         dashboard's ``_find_explore_report`` looks (``<root>/*/exploratory_report.json``):
 
         - a :class:`~evalrx.eval_agent.run_context.RunContext`-backed logger
-          → ``<ctx.root>/explore`` (the context owns the whole run directory;
-          ``run_log.jsonl`` sits directly under root);
-        - a standalone ``RunLogger("<run>/logs")`` / ``logs_confirm`` … →
+          → ``ctx.explore_dir``, an ephemeral tree under ``ctx.runtime_root``
+          (captured into ``M2/log.json`` and deleted at ``finalize()``;
+          writing straight to ``<ctx.root>/explore`` would leak real files
+          outside V2's JSON-only run artifact);
+        - a standalone ``RunLoggerV2("<run>/logs")`` / ``logs_confirm`` … →
           ``<run>/explore`` (a sibling of the ``logs*/`` dir, the llm_benchmark
           layout — under the log dir it would be two levels down for a
           ``logs_confirm/`` carrier log and the dashboard would miss it);
@@ -816,9 +818,8 @@ class VLDiagnoseLoop:
         if self.run_logger is None:
             return None
         ctx = getattr(self.run_logger, "_context", None)
-        ctx_root = getattr(ctx, "root", None) if ctx is not None else None
-        if ctx_root is not None:
-            return Path(ctx_root) / "explore"
+        if ctx is not None and hasattr(ctx, "explore_dir"):
+            return ctx.explore_dir
         run_dir = getattr(self.run_logger, "run_dir", None)
         if run_dir is None:
             return None
@@ -1230,18 +1231,23 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop")
             )
-            self.run_logger.log_cases(data)
+            # Each partition is logged under its own name: the records are the
+            # only place a reader can learn which cases M1-M3 mined and which
+            # were withheld for M4 / M5, so the tag has to be on the record.
+            self.run_logger.log_cases(
+                data, split="explore" if confirm is not None else None,
+            )
             if confirm is not None:
                 # `data` is the explore split by now, so logging only it left the
                 # held-out cases unrecorded — and those are the ones M4's verdict
                 # and M5's repair are measured on. A report then cannot show a
                 # single case behind its strongest evidence: the repair's own
                 # per-case outputs joined to nothing.
-                self.run_logger.log_cases(confirm)
+                self.run_logger.log_cases(confirm, split="confirm")
             if test is not None:
-                self.run_logger.log_cases(test)
+                self.run_logger.log_cases(test, split="test")
             if self.val_data is not None:
-                self.run_logger.log_cases(self.val_data)
+                self.run_logger.log_cases(self.val_data, split="val")
 
         for cycle in range(self.max_cycles):
             if self.token_budget > 0 and self._tokens_used >= self.token_budget:
@@ -1394,7 +1400,11 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop.analysis")
             )
-            self.run_logger.log_cases(data)
+            self.run_logger.log_cases(
+                data, split="explore" if confirm is not None else None,
+            )
+            if confirm is not None:
+                self.run_logger.log_cases(confirm, split="confirm")
 
         all_hypotheses: list[Any] = []
         final_stats_report = None
@@ -1483,7 +1493,11 @@ class VLDiagnoseLoop:
             self.run_logger.log_run_start(
                 _run_config(self, data, loop_name="VLDiagnoseLoop.confirm")
             )
-            self.run_logger.log_cases(data)
+            self.run_logger.log_cases(
+                data, split="explore" if confirm is not None else None,
+            )
+            if confirm is not None:
+                self.run_logger.log_cases(confirm, split="confirm")
 
         # Regenerate the stats the tester needs only when not supplied. The M1/M2
         # events are NOT logged here — they were recorded in the analysis phase,

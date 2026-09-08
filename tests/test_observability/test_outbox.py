@@ -41,17 +41,6 @@ def test_failed_delivery_remains_durable(tmp_path):
     assert outbox.pending_count() == 1
 
 
-def test_run_logger_queues_versioned_events(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
-
-    logger = RunLogger(tmp_path / "run")
-    logger.log_run_start({"model": "test"})
-    logger.close()
-
-    assert logger._event_seq == 1
-    assert logger.tracer.outbox.pending_count() == 1
-
-
 def test_artifact_manifest_is_content_addressed(tmp_path):
     from evalrx.observability.envelope import artifact_manifests_for_event
 
@@ -80,18 +69,14 @@ def test_skipped_stage_keeps_its_pipeline_stage_in_the_envelope():
 
 
 def test_backfill_dry_run_preserves_existing_trace_and_order(tmp_path):
-    import json
-
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.observability import backfill_run_to_langfuse
 
     trace_id = "00000000-0000-0000-0000-000000000001"
-    (tmp_path / "run_log.jsonl").write_text(
-        "\n".join([
-            json.dumps({"event": "run_start", "trace_id": trace_id, "event_seq": 7}),
-            json.dumps({"event": "analysis", "trace_id": trace_id, "event_seq": 8}),
-        ]),
-        encoding="utf-8",
-    )
+    logger = RunLoggerV2(tmp_path, trace_id=trace_id, observability_mode="offline")
+    logger.log_run_start({})
+    logger._append_stage("M2", "analysis", {})
+    logger.close()
 
     summary = backfill_run_to_langfuse(tmp_path, dry_run=True)
 

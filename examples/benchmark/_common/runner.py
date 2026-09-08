@@ -254,7 +254,12 @@ def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
     """
     from evalrx.eval_agent.label_quarantine import quarantine_run_dir
 
-    with quarantine_run_dir(run_dir, append_logs=[ctx.log_path]) as q:
+    # The logger rewrites each M<n>/log.json and run.json atomically, and the
+    # rewritten document already contains everything from before the fix —
+    # declare those as rewrite logs, or the quarantine mistakes every one of
+    # them for a conflict and leaves a non-JSON `log.json.pre_fix` beside each.
+    managed = ctx.logger.managed_json_paths
+    with quarantine_run_dir(run_dir, rewrite_logs=list(managed)) as q:
         print(f"[fix] label quarantine: {len(q.hidden)} run-dir file(s) held in memory "
               "for the fix stage (restored afterwards; see fix_quarantine.json)")
         return loop.run_fix(report, cases, **fix_kwargs)
@@ -304,14 +309,52 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
               f"(n_samples={model.spec.n_samples}, strategy={model.spec.strategy}); "
               "fix candidates run on the raw model and replace it")
 
-    from evalrx.eval_agent import CaseDiscoveryAgent
+    from evalrx.eval_agent import CaseDiscoveryAgent, RunContext
+
+    tvt = args.split_mode == "tvt"
+    ctx = None
+    if not args.baseline_only:
+        # Create the V2 sink before Stage-0 so each discovery request is durable
+        # as it happens, including its real latency and any transport error.
+        ctx = RunContext(
+            run_dir / "logs", verbose=True,
+            config={
+                "benchmark": task.title, "dataset": task.name, "modality": task.modality,
+                "model": args.model, "spec": spec.key, "hf_repo": spec.hf_repo,
+                "backend": resolved.backend, "n_cases": len(candidates),
+                "manifest": str(manifest),
+                "manifest_seed": rows[0].get("sample_seed") if rows else None,
+                "split_mode": args.split_mode,
+                "confirm_split": (1 / 3 if tvt else 0.5), "test_split": (1 / 3 if tvt else 0.0),
+                "held_out": bool(args.held_out),
+                "fix_tier": args.fix_tier,
+                "allow_codegen": args.allow_codegen, "auto_escalate": args.auto_escalate,
+                "m1_selection": args.m1_selection, "generation_kwargs": gen_kwargs,
+                "enable_thinking": bool(args.enable_thinking),
+                "judge_provider": args.judge_provider, "judge_model": args.judge_model,
+            },
+        )
+
+    discovery_model = model
+    if ctx is not None and ctx.is_v2:
+        from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+
+        candidate_list = list(candidates)
+        discovery_model = InstrumentedModel(
+            model, ctx.logger, cycle=-1, analyzer="case_discovery",
+            case_prompts={c.inputs.prompt: c.id for c in candidate_list},
+            batch_case_ids=[c.id for c in candidate_list],
+        )
+        candidates = candidate_list
 
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
         scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
         concurrency=getattr(args, "concurrency", 1),
-    ).discover(model, candidates, protocol=protocol)
+    ).discover(discovery_model, candidates, protocol=protocol)
     cases = discovery.cases
+    if ctx is not None:
+        ctx.config["n_cases"] = len(cases)
     elapsed = time.monotonic() - started
     accuracy = discovery.n_pass / max(1, len(cases))
     baseline = {
@@ -379,6 +422,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         if not val_discovery.has_m4_groups:
             print("  NOTE the validation set lacks a PASS or FAIL group; the holdout "
                   "M4 verification there will have nothing to contrast")
+        if ctx is not None:
+            ctx.config["val_manifest"] = str(val_manifest)
+            ctx.config["n_val_cases"] = len(val_cases)
 
     from evalrx.eval_agent import (
         CliAgentConfig,
@@ -386,7 +432,6 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         FixAgent,
         HypothesisTester,
         ProbeAgent,
-        RunContext,
         StatsAnalysisAgent,
         StrategyProbe,
         SurgeryAgent,
@@ -395,22 +440,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
     from evalrx.eval_agent.stages.repair_catalog import method_names
 
-    ctx = RunContext(run_dir / "logs", verbose=True, config={
-        "benchmark": task.title, "dataset": task.name, "modality": task.modality,
-        "model": args.model, "spec": spec.key, "hf_repo": spec.hf_repo, "backend": resolved.backend,
-        "n_cases": len(cases), "manifest": str(manifest),
-        "manifest_seed": rows[0].get("sample_seed") if rows else None,
-        "split_mode": ("held_out_val" if args.held_out else "explore_confirm"),
-        "held_out": bool(args.held_out),
-        "confirm_split": 0.5, "test_split": 0.0,
-        **({"val_manifest": str(val_manifest), "n_val_cases": len(val_cases)}
-           if val_cases is not None else {}),
-        "fix_tier": args.fix_tier, "allow_codegen": args.allow_codegen,
-        "auto_escalate": args.auto_escalate, "m1_selection": args.m1_selection,
-        "generation_kwargs": gen_kwargs,
-        "enable_thinking": bool(args.enable_thinking), "judge_provider": args.judge_provider,
-        "judge_model": args.judge_model,
-    })
+    # ctx already exists (constructed before Stage-0, above) with held_out/
+    # val_manifest/n_val_cases folded into its config as they became known.
+    assert ctx is not None
     coder_cfg = CliAgentConfig(provider=coder_provider, model=coder_model, timeout_sec=900,
                                extra_args=coder_extra)
     pinned = list(task.pinned_m1)
@@ -474,7 +506,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
 
         explorer = ExploratoryAnalysisAgent(
             cli_config=coder_cfg,
-            sandbox=ExperimentSandbox(workdir=run_dir / "explore" / "sandbox", cleanup=False),
+            sandbox=ExperimentSandbox(
+                workdir=(ctx.explore_dir / "sandbox" if ctx.is_v2
+                         else run_dir / "explore" / "sandbox"),
+                cleanup=False,
+            ),
             timeout_sec=900, max_attempts=3,
         )
     loop = VLDiagnoseLoop(
@@ -495,7 +531,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         m4_holdout=bool(args.held_out),
         val_data=val_cases,
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
-        explorer=explorer, explore_dir=run_dir / "explore", verbose=True,
+        explorer=explorer,
+        explore_dir=ctx.explore_dir if ctx.is_v2 else run_dir / "explore",
+        verbose=True,
     )
     report = loop.run(cases)
     discovery_rows = [{
@@ -552,5 +590,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                           "attempted": attempted}
     ctx.finalize()
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    print(f"Done. Full artifact guide: {(ctx.root / 'README.txt').resolve()}")
+    if ctx.is_v2:
+        print(f"Done. Tidy M1-M5 logs: {ctx.root.resolve()}")
+    else:
+        print(f"Done. Full artifact guide: {(ctx.root / 'README.txt').resolve()}")
     return 0

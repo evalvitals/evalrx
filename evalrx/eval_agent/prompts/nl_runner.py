@@ -27,7 +27,10 @@ REQUIREMENTS
 6. Accept CLI flags: --model, --device, --dtype, --max-cycles,
    --max-analyzers, --smoke-test, --run-dir.
 7. Write outputs via `RunContext(args.run_dir)` (from `evalrx.eval_agent`),
-   defaulting `--run-dir` to `Path(__file__).parent / "outputs"`.
+   defaulting `--run-dir` to `Path(__file__).parent / "outputs"`. This
+   defaults to the V2 logger (`run.json` + `M1..M5/log.json`, no flat
+   `run_log.jsonl`, no `README.txt`/`manifest.json`) — don't assume those
+   V1-only files exist when printing a completion summary.
 8. Include a `--smoke-test` path with a `_SmokeModel` stand-in so the
    script can be verified without a GPU.
 

@@ -91,9 +91,9 @@ loop.run_fix                  FixAgent's tiered candidates (default: only
 ```
 
 Outputs use the llm_benchmark layout under `--run-dir` (default `./outputs/`):
-the run log + artifacts under `logs/` (`run_log.jsonl`, `artifacts/`,
-`prompts/`, `experiments/`, `figures/` — matplotlib is in the image, so the M2
-forest plot renders) with `explore/` as its sibling.
+the run log under `logs/` (`run.json` + `M1/log.json`..`M5/log.json`, each
+stage's own `artifacts/` — matplotlib is in the image, so the M2 forest plot
+renders) with `explore/` as its sibling.
 
 ## Why M1 is pinned, not LLM-guided
 

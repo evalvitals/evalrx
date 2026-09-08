@@ -46,15 +46,30 @@ export function metric(report: ReportData, id: string): number | undefined {
  *
  * An e-value IS odds against the null: e=45 means the evidence runs about 45 to
  * 1 against this being luck. "Reject at 0.05" is the same statement in a
- * dialect nobody outside the field speaks. The console narration
- * (`run_logger._odds_phrase`) renders the same number the same way, so the two
- * surfaces can never quietly disagree about what one number means.
+ * dialect nobody outside the field speaks. RunLoggerV2's console narration is
+ * a simplified one-line summary with no equivalent phrasing helper, so this
+ * formatter is this report's own source of truth for that phrasing.
  */
 export function oddsPhrase(value: any): string {
   const e = Number(value);
   if (!Number.isFinite(e) || e <= 0) return "";
   if (e >= 1000) return "over 1000 to 1";
   return e >= 10 ? `about ${Math.round(e)} to 1` : `about ${e.toFixed(1)} to 1`;
+}
+
+/**
+ * The same odds as a figure for a stat tile: "1.5 : 1", "45 : 1", "> 1000 : 1".
+ *
+ * `oddsPhrase` is a clause for a sentence; set in a tile's 27px display face it
+ * wrapped as "about 1.5 to / 1", which reads as two numbers. The tile gets the
+ * ratio alone, held on one line, and the words go in the note under it.
+ */
+export function oddsValue(value: any): string {
+  const e = Number(value);
+  if (!Number.isFinite(e) || e <= 0) return "";
+  const nbsp = "\u00a0";
+  if (e >= 1000) return `>${nbsp}1000${nbsp}:${nbsp}1`;
+  return `${e >= 10 ? Math.round(e) : e.toFixed(1)}${nbsp}:${nbsp}1`;
 }
 
 /**

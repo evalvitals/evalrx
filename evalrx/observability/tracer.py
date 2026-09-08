@@ -17,8 +17,8 @@ Live-sync contract:
   LANGFUSE_SECRET_KEY (and LANGFUSE_HOST for self-hosted) for a user-facing
   run. Missing credentials then fail fast. ``auto`` retains compatibility for
   local development, and ``offline`` is an explicit no-upload choice.
-- The Langfuse trace id is the RunLogger trace_id (a UUID, dashes stripped) so the live trace,
-  the exported bundle and run_log.jsonl all agree on identity.
+- The Langfuse trace id is the logger's trace_id (a UUID, dashes stripped) so
+  the live trace, the exported bundle and run.json all agree on identity.
 - Every live failure is reported ONCE on stderr instead of being silently swallowed — an
   observability layer that fails quietly is worse than none.
 """
@@ -69,8 +69,8 @@ class DiagnosticTracer:
         self._live_obs: dict[str, Any] = {}  # our span_id -> live observation wrapper
         self._warned: set[str] = set()
         # Every structured run-log event enters this durable queue before live
-        # delivery.  It is intentionally kept separate from the human-readable
-        # JSONL log so delivery retries never mutate the run record.
+        # delivery.  It is intentionally kept separate from the run's own
+        # log documents so delivery retries never mutate the run record.
         default_outbox = (
             (self.run_dir / ".evalrx" / "langfuse_outbox.sqlite3")
             if self.run_dir is not None
@@ -110,7 +110,7 @@ class DiagnosticTracer:
 
     @property
     def langfuse_trace_id(self) -> str:
-        """Langfuse requires a 32-hex trace id; our RunLogger trace_id is a UUID."""
+        """Langfuse requires a 32-hex trace id; our trace_id is a UUID."""
         return self.trace_id.replace("-", "")
 
     def _apply_tags(self, tags: list[str]) -> None:
@@ -451,10 +451,10 @@ def _to_float(value: Any) -> "float | None":
 
 
 def _resolve_trace_id(run_dir: Path, fingerprint: str) -> str:
-    """The run's trace id — the SAME uuid used by run_log.jsonl and langfuse_trace.json.
+    """The run's trace id — the SAME uuid used by run.json and langfuse_trace.json.
 
-    Resolution order: langfuse_trace.json (written live by RunLogger) → the first
-    run_start event in run_log.jsonl → a deterministic 32-hex id derived from the
+    Resolution order: langfuse_trace.json (written live by the logger) → the
+    run_start event in run.json → a deterministic 32-hex id derived from the
     data fingerprint (Langfuse requires uuid-shaped trace ids).
     """
     import hashlib
@@ -468,19 +468,6 @@ def _resolve_trace_id(run_dir: Path, fingerprint: str) -> str:
                 return str(tid)
         except Exception:
             pass
-    for candidate in (run_dir / "run_log.jsonl", run_dir / "logs" / "run_log.jsonl"):
-        if candidate.exists():
-            try:
-                for line in candidate.read_text(encoding="utf-8").splitlines():
-                    if not line.strip():
-                        continue
-                    ev = json.loads(line)
-                    if ev.get("event") == "run_start" and ev.get("trace_id"):
-                        return str(ev["trace_id"])
-                    break  # only the first (pre-reload) run_start counts
-            except Exception:
-                pass
-            break
     try:
         from evalrx.reporting.run_events import read_v2_events
 
@@ -744,30 +731,20 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
 
 
 def backfill_run_to_langfuse(run_dir: str | Path, *, dry_run: bool = False) -> dict[str, int | str]:
-    """Queue an existing JSONL run for the same reliable Langfuse pipeline.
+    """Queue an existing run for the same reliable Langfuse pipeline.
 
     Existing ``event_seq`` values are preserved; older logs without one receive
     their line order.  Re-running the command is safe because envelope IDs are
     deterministic and the outbox primary key de-duplicates them.
     """
-    root = Path(run_dir)
-    log_path = root / "run_log.jsonl"
-    if not log_path.exists() and (root / "logs" / "run_log.jsonl").exists():
-        root = root / "logs"
-        log_path = root / "run_log.jsonl"
-    records: list[dict[str, Any]] = []
-    if log_path.exists():
-        for line in log_path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                records.append(json.loads(line))
-    else:
-        from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
+    from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
 
-        v2_root = resolve_v2_root(root)
-        if v2_root is None:
-            raise FileNotFoundError(f"No run_log.jsonl or RunLoggerV2 bundle found under {run_dir}")
-        root = v2_root
-        records = read_v2_events(root)
+    root = Path(run_dir)
+    v2_root = resolve_v2_root(root)
+    if v2_root is None:
+        raise FileNotFoundError(f"No run bundle (run.json) found under {run_dir}")
+    root = v2_root
+    records: list[dict[str, Any]] = read_v2_events(root)
     if not records:
         return {"trace_id": "", "events": 0, "pending": 0, "published": 0}
 
@@ -802,7 +779,7 @@ def backfill_run_to_langfuse(run_dir: str | Path, *, dry_run: bool = False) -> d
 def sync_to_langfuse_live(run_dir: str | Path) -> bool:
     """If langfuse SDK is installed and credentials exist, push live to Langfuse.
 
-    Uses the run's own trace id (from langfuse_trace.json / run_log.jsonl) so a
+    Uses the run's own trace id (from langfuse_trace.json / run.json) so a
     batch re-sync lands on the SAME trace the live mirroring wrote to, rather
     than creating a duplicate.
     """

@@ -376,10 +376,11 @@ def test_skip_m5_is_independent_of_fix_and_tier_search(common):
 
 def test_run_fix_isolated_hides_the_run_dir_from_the_fix_stage_and_restores_it(common, tmp_path):
     """The fix stage must not be able to read baseline.json / discovery_cases /
-    the event log from its workspace; afterwards everything is back and the
-    events the fix stage logged are appended after the pre-fix ones."""
+    the run-wide log from its workspace; afterwards everything is back, and
+    the managed JSON log the fix stage rewrote is kept as-is (RunLoggerV2
+    rewrites a whole document atomically, so the new one already carries
+    everything the old one had — no append, no `.pre_fix` sibling)."""
     import importlib
-    import logging
 
     runner = importlib.import_module("_common.runner")
 
@@ -387,49 +388,40 @@ def test_run_fix_isolated_hides_the_run_dir_from_the_fix_stage_and_restores_it(c
     (run_dir / "logs" / "report").mkdir(parents=True)
     (run_dir / "baseline.json").write_text('[{"id": "c-0", "expected": "Yes", "label": "fail"}]')
     (run_dir / "logs" / "report" / "discovery_cases.json").write_text('[{"expected": "Yes"}]')
-    log_path = run_dir / "logs" / "run_log.jsonl"
-    log_path.write_text('{"event": "case_record", "expected": "Yes"}\n')
+    run_json_path = run_dir / "logs" / "run.json"
+    run_json_path.write_text('{"cases": [{"expected": "Yes"}]}')
 
-    lg = logging.getLogger("bench-quarantine-wiring-test")
-    lg.propagate = False
-    handler = logging.FileHandler(log_path, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    lg.addHandler(handler)
-    lg.setLevel(logging.INFO)
+    class _Logger:
+        managed_json_paths = (run_json_path,)
 
     class Ctx:
         pass
 
     ctx = Ctx()
-    ctx.log_path = log_path
+    ctx.logger = _Logger()
 
     class Loop:
         def run_fix(self, report, cases, **kw):
             # what the coder/sandbox could reach from logs/fixes/<trial>/workspace
             assert not (run_dir / "baseline.json").exists()
             assert not (run_dir / "logs" / "report" / "discovery_cases.json").exists()
-            assert log_path.read_text() == ""
+            assert not run_json_path.exists()
             assert "expected" not in " ".join(
                 p.read_text(errors="replace") for p in run_dir.rglob("*") if p.is_file())
-            lg.info('{"event": "fix", "candidate": "x"}')
-            handler.flush()
+            run_json_path.parent.mkdir(parents=True, exist_ok=True)
+            run_json_path.write_text('{"cases": [{"expected": "Yes"}], "fix": [{"candidate": "x"}]}')
             (run_dir / "logs" / "fixes").mkdir()
             (run_dir / "logs" / "fixes" / "outcome.md").write_text("NOT FIXED")
             return {"kw": kw, "report": report, "cases": cases}
 
-    try:
-        outcome = runner.run_fix_isolated(Loop(), run_dir, ctx, "REPORT", ["c-0"],
-                                          max_tier="L3b", auto_escalate=True)
-    finally:
-        lg.removeHandler(handler)
-        handler.close()
+    outcome = runner.run_fix_isolated(Loop(), run_dir, ctx, "REPORT", ["c-0"],
+                                      max_tier="L3b", auto_escalate=True)
 
     assert outcome == {"kw": {"max_tier": "L3b", "auto_escalate": True},
                        "report": "REPORT", "cases": ["c-0"]}
     assert (run_dir / "baseline.json").read_text() == '[{"id": "c-0", "expected": "Yes", "label": "fail"}]'
     assert (run_dir / "logs" / "report" / "discovery_cases.json").read_text() == '[{"expected": "Yes"}]'
-    assert log_path.read_text() == ('{"event": "case_record", "expected": "Yes"}\n'
-                                    '{"event": "fix", "candidate": "x"}\n')
+    assert run_json_path.read_text() == '{"cases": [{"expected": "Yes"}], "fix": [{"candidate": "x"}]}'
     assert (run_dir / "logs" / "fixes" / "outcome.md").read_text() == "NOT FIXED"
     assert (run_dir / "fix_quarantine.json").exists()
 

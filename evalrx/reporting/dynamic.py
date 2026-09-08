@@ -16,8 +16,11 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
+# 18: `setting.partitions` + `case.split` — which band of the frozen batch
+#     each case sat in (explore / held-out / confirm), so the Case Studio can
+#     show the split the run was actually measured on.
 # 17: the case-study sheet - the whole run as one page.
 # 16: `setting.hero_image` — the run's own cover figure, embedded.
 # 15: `setting.diagnosed_by` — which agent drove the run.
@@ -27,7 +30,7 @@ from typing import Any, Iterable, Mapping
 #     makes an already-published run pick the change up — `report_is_current`
 #     only tracks new EVENTS, so without the bump every existing run would
 #     keep serving the labels its old compiler produced.
-REPORT_DATA_VERSION = 17
+REPORT_DATA_VERSION = 18
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalrx-report@2"
@@ -43,10 +46,14 @@ ALLOWED_COMPONENTS = frozenset(
         "OutcomeCard",
         "CasePreview",
         "CaseStudySheet",
+        "LoopFigure",
         "EvidenceIndex",
     }
 )
-REQUIRED_COMPONENTS = frozenset({"SettingHero", "Journey", "OutcomeCard"})
+REQUIRED_COMPONENTS = frozenset({"SettingHero", "OutcomeCard"})
+# The page needs one picture of the M1-M5 loop: the plain stage strip, or the
+# loop figure that folds the case-study sheet into it.
+PIPELINE_COMPONENTS = frozenset({"Journey", "LoopFigure"})
 MAX_ELEMENTS = 40
 MAX_DEPTH = 6
 
@@ -124,7 +131,15 @@ def build_report_data(
         case = event.get("case")
         if isinstance(case, dict):
             local = [p for p in (event.get("media_paths") or []) if isinstance(p, str)]
-            case_events.append({**case, "_media_paths": local} if local else case)
+            # The partition the loop logged the case under (see
+            # RunLoggerV2.log_cases). Absent on runs from before it was recorded.
+            split = event.get("split")
+            extra: dict[str, Any] = {}
+            if local:
+                extra["_media_paths"] = local
+            if isinstance(split, str) and split:
+                extra["_split"] = split
+            case_events.append({**case, **extra} if extra else case)
     cases = [case for case in case_events if isinstance(case, dict)] or list(raw.get("cases") or [])
     run = dict(raw.get("run") or {})
     trace_id = str((events[-1] if events else {}).get("trace_id") or root.name)
@@ -146,12 +161,22 @@ def build_report_data(
         hit = repairs.get(case["id"])
         if hit:
             case["repair"] = hit
+    # Which partition each case sat in -- explore for M1-M3, the withheld
+    # confirm / test pools for M4 and M5 -- read off the records when the run
+    # tagged them, inferred from the record order when it did not.
+    partitions = _assign_partitions(
+        normalized_cases,
+        logged_ids=[str(c.get("id") or c.get("case_id") or "") for c in case_events],
+        n_explore=run.get("n_cases"),
+        final_ids=set(repairs),
+    )
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
     stages = _stages(raw, stage_detail.get("m5") if isinstance(stage_detail, dict) else None)
     setting = {
         "model": _contract_model_name(contract) or run.get("model") or "Target model",
         "dataset": run.get("benchmark_name") or "Evaluation dataset",
         "n_cases": int(run.get("n_cases") or len(normalized_cases)),
+        "partitions": partitions,
     }
     # The same run, assembled as one failure-to-repair sheet. None when the run
     # has no probe or stats artifacts to build it from -- the section is dropped
@@ -178,6 +203,10 @@ def build_report_data(
                 # The cover figure the run shipped, if any — see _hero_image.
                 "hero_image": _hero_image(root),
                 "n_cases": int(run.get("n_cases") or len(normalized_cases)),
+                # The frozen batch's partitions, in the order they are drawn:
+                # explore, then what was withheld. Empty when the run recorded
+                # no split and none can be inferred.
+                "partitions": partitions,
             },
             "summary": {
                 "headline": reader.get("headline") or "Failure analysis completed",
@@ -250,9 +279,10 @@ the model. A passer-by must understand the setting and outcome without knowing E
 
 Return ONLY a json-render tree with shape {{"root":"id","elements":{{...}}}}.
 Allowed component types: {', '.join(sorted(ALLOWED_COMPONENTS))}.
-Required exactly once or more: SettingHero, Journey, OutcomeCard.
-Include CaseStudySheet exactly once when has_case_study is true: it is the whole
-run as one failure-to-repair sheet and belongs directly after Journey.
+Required exactly once or more: SettingHero, OutcomeCard, and one of Journey or LoopFigure.
+When has_case_study is true prefer LoopFigure (inputs → explore M1·M2·M3 → held-out
+M4 → repair M5 → health card, one clickable figure) in place of Journey; use
+CaseStudySheet only alongside Journey, directly after it.
 ReportPage may have children. Other elements use props only.
 Every element MUST include a JSON object `"props": {{}}`, even when it has no
 properties. This is required by the json-render runtime.
@@ -267,33 +297,35 @@ Available report data identifiers:
 
 
 def fallback_spec(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Deterministic, evidence-first layout used without or after a failed model."""
-    finding_ids = [str(item.get("id")) for item in data.get("findings", [])[:3]]
-    chart_ids = [str(item.get("id")) for item in data.get("charts", [])[:2]]
-    case_ids = [str(item.get("id")) for item in data.get("cases", [])[:4]]
-    children = ["setting", "metrics", "journey"]
+    """Deterministic, evidence-first layout used without or after a failed model.
+
+    Deliberately short: hero, metrics, the M1–M5 pipeline, the takeaway sheet,
+    the one-line outcome, and the audit index. The finding grid, the chart
+    grid and the representative-case preview were dropped from the landing
+    page — on a real run they repeated the metric strip (pass/fail donut) or
+    said "no finding" in a full-width card, and every one of them is still a
+    click away in the Evidence / Cases views. FindingGrid, ChartGrid and
+    CasePreview stay in the catalog for agent-composed layouts.
+    """
+    children = ["setting", "metrics"]
     has_sheet = bool(data.get("case_study"))
     elements: dict[str, Any] = {
         "page": {"type": "ReportPage", "props": {}, "children": children},
         "setting": {"type": "SettingHero", "props": {}},
         "metrics": {"type": "MetricStrip", "props": {}},
-        "journey": {"type": "Journey", "props": {}},
         "outcome": {"type": "OutcomeCard", "props": {}},
         "evidence": {"type": "EvidenceIndex", "props": {}},
     }
+    # With a case study the loop figure IS the pipeline strip and the sheet in
+    # one picture; without one there is nothing to fill its cards, so the plain
+    # stage strip stands in.
     if has_sheet:
-        elements["case_study"] = {"type": "CaseStudySheet", "props": {}}
-        children.append("case_study")
-    if finding_ids:
-        elements["findings"] = {"type": "FindingGrid", "props": {"findingIds": finding_ids}}
-        children.append("findings")
-    if chart_ids:
-        elements["charts"] = {"type": "ChartGrid", "props": {"chartIds": chart_ids}}
-        children.append("charts")
+        elements["loop"] = {"type": "LoopFigure", "props": {}}
+        children.append("loop")
+    else:
+        elements["journey"] = {"type": "Journey", "props": {}}
+        children.append("journey")
     children.append("outcome")
-    if case_ids:
-        elements["cases"] = {"type": "CasePreview", "props": {"caseIds": case_ids}}
-        children.append("cases")
     children.append("evidence")
     return elements and {"root": "page", "elements": elements}
 
@@ -345,6 +377,8 @@ def validate_spec(spec: Any, *, data: Mapping[str, Any] | None = None) -> dict[s
     missing = REQUIRED_COMPONENTS.difference(seen_types)
     if missing:
         raise ReportSpecError(f"missing required components: {', '.join(sorted(missing))}")
+    if not PIPELINE_COMPONENTS.intersection(seen_types):
+        raise ReportSpecError("missing required components: Journey or LoopFigure")
     _check_tree_depth(spec["root"], elements, set(), 1)
     return {"root": spec["root"], "elements": elements}
 
@@ -557,11 +591,20 @@ def _stage_detail(
         rows = list(result.get("per_case") or [])
         probes.append({
             "id": str(result.get("name") or "probe"),
-            "title": _plain_label(result.get("name") or result.get("display_name") or "Probe"),
+            # The plain question when the label table has one; otherwise the
+            # glossary's name ("Self-Repair on Re-ask"), never a Title-Cased id.
+            "title": (PLAIN_LABELS.get(str(result.get("name") or ""))
+                      or str(result.get("display_name") or "")
+                      or _plain_label(result.get("name") or "Probe")),
+            # The glossary's own name for the check ("Self-Repair on Re-ask"),
+            # as opposed to `title`, which is the plain question when one exists.
+            "display_name": str(result.get("display_name") or ""),
             "raw_name": str(result.get("name") or ""),
             "question": str(result.get("question") or ""),
             "description": str(result.get("description") or ""),
-            "n_cases": result.get("n") or len(rows),
+            # None when the analyzer reported no case count at all (a batch-level
+            # check such as self_consistency): "unknown" is not "zero".
+            "n_cases": result.get("n") if result.get("n") is not None else (len(rows) or None),
             "metrics": list(result.get("headline") or []),
             "finding_summary": _plain_mapping(_compact_mapping(result.get("findings"))),
             "raw_finding_summary": _compact_mapping(result.get("findings")),
@@ -573,6 +616,12 @@ def _stage_detail(
     explore = dict(m2.get("explore") or {})
     figure_dir = Path(raw.get("explore_dir") or logs_dir.parent / "explore") / "figures"
     figures = _explore_figures(explore, figure_dir, root)
+    if not figures:
+        # No explore/ directory beside the logs (a run copied as logs/ alone,
+        # or a V2 run): the explore and analysis events name their figures as
+        # paths under logs/, and RunLoggerV2 copied them into M2/artifacts/.
+        figures = _logged_figures(
+            [*(explore.get("figures") or []), *(m2.get("figures") or [])], logs_dir, root)
     takeaways = []
     for item in explore.get("takeaways") or []:
         if isinstance(item, dict):
@@ -659,11 +708,16 @@ def _stage_detail(
     # executed one.
     operation_examples = _operation_examples(cases)
     repair_operation_previews = _repair_operation_previews(candidates, cases)
+    m1_calls, m1_n_calls = _m1_calls(events)
+
     return {
         "m1": {
             "duration": m1.get("duration"), "probes": probes,
             "n_probes": len(probes), "n_measured": max((int(p.get("n_cases") or 0) for p in probes), default=0),
             "examples": m1_examples, "operations": operation_examples,
+            # What each probe actually asked the model and what came back,
+            # grouped by analyzer: the audit trail behind the numbers above.
+            "calls": m1_calls, "n_calls": m1_n_calls,
         },
         "m2": {
             "mode": "descriptive", "conclusion": m2.get("conclusion") or "",
@@ -693,6 +747,11 @@ def _stage_detail(
             "skip_detail": str(m5.get("skip_detail") or ""),
             "candidates": candidates, "confirmation": confirmation,
             "best": _repair_candidate(m5.get("best") or {}),
+            # The FixAgent's own verdict on the run — action + the sentence that
+            # justifies it ("underpowered: only 4 failing cases…"). This is the
+            # line the health card's promotion gate prints.
+            "recommendation": (dict(m5["recommendation"])
+                               if isinstance(m5.get("recommendation"), Mapping) else None),
             "examples": repair_examples,
             "operation_previews": repair_operation_previews,
             "surgeries": list((raw.get("m5_surgery") or {}).get("surgeries") or []),
@@ -1006,7 +1065,7 @@ def _m5_examples(
         if not case:
             return None
         # `case["observed"]` is the Stage-0 baseline, written once per case id
-        # (RunLogger.log_cases dedupes by id) and never updated — it is NOT
+        # (RunLoggerV2.log_cases dedupes by id) and never updated — it is NOT
         # this candidate's repaired answer, no matter which case_record last
         # touched it. The only place a candidate's own per-case output lives
         # is `case["repair"]`, which build_report_data attached from that
@@ -1124,6 +1183,27 @@ def _visual_key(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", Path(str(value or "")).stem.lower())
 
 
+def _logged_figures(paths: Iterable[Any], logs_dir: Path, root: Path) -> list[dict[str, Any]]:
+    """Figures the run logged by path (relative to logs/), that exist on disk."""
+    result: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for item in paths:
+        if not isinstance(item, str) or not item.lower().endswith(".png"):
+            continue
+        candidate = (logs_dir / item).resolve()
+        if candidate in seen or not candidate.is_file():
+            continue
+        seen.add(candidate)
+        stem = re.sub(r"_[0-9a-f]{8}$", "", candidate.stem)   # the content-hash suffix V2 adds
+        result.append({
+            "id": candidate.stem, "title": stem.replace("_", " ").strip().title(),
+            "question": "", "path": os.path.relpath(candidate, root), "reading": "",
+            "do_not_infer": "No agent-authored interpretation was saved for this figure.",
+            "disposition": "supporting", "not_promoted_reason": "",
+        })
+    return result[:30]
+
+
 def _explore_figures(explore: Mapping[str, Any], figure_dir: Path, root: Path) -> list[dict[str, Any]]:
     plans = [item for item in explore.get("visual_plan") or [] if isinstance(item, Mapping)]
     readings = [item for item in explore.get("chart_readings") or [] if isinstance(item, Mapping)]
@@ -1222,6 +1302,7 @@ def _repair_candidate(value: Any) -> dict[str, Any]:
         "n_candidate_correct": value.get("n_candidate_correct"),
         "n_fixed": value.get("n_fixed", len(fixed_cases)), "n_broken": value.get("n_broken", len(broken_cases)),
         "effect": value.get("effect"), "e_value": value.get("e_value"),
+        "e_threshold": value.get("e_threshold"),
         "coverage": value.get("coverage"), "reject": value.get("reject"), "fixed": value.get("fixed"),
         "n_model_independent": value.get("n_model_independent"),
         "n_unstable": value.get("n_unstable"),
@@ -1521,7 +1602,94 @@ def _normalise_case(case: Mapping[str, Any], media: list[dict[str, Any]]) -> dic
         "task": case.get("task") or (case.get("metadata") or {}).get("category") or "",
         "media_ids": media_ids,
         "trajectory": case.get("trajectory"),
+        # explore / confirm / test, as the loop logged it; None until
+        # _assign_partitions has had a chance to infer it.
+        "split": case.get("_split") if isinstance(case.get("_split"), str) else None,
     }
+
+
+# What each partition was used for, in the words the loop figure draws them
+# with: D_E on top, D_H, D_C at the bottom. The code is the subscript.
+_EXPLORE_ROLE = ("M1-M3 mined patterns and hypotheses here. Anything measured on "
+                 "these cases is a lead, not a verdict.")
+_HELDOUT_ROLE = ("Withheld from M1-M3. M4 adjudicated the hypotheses here and M5 "
+                 "developed its repair candidates on the same cases.")
+_CONFIRM_ROLE = ("Withheld from every adaptive decision. The frozen repair was "
+                 "scored exactly once here.")
+_TWO_WAY_ROLE = ("Withheld from M1-M3. M4 adjudicated the hypotheses here and the "
+                 "repair was scored on these same cases: one withheld pool "
+                 "serving as both the held-out and the confirm set.")
+
+
+def _assign_partitions(
+    cases: list[dict[str, Any]],
+    *,
+    logged_ids: "Sequence[str]",
+    n_explore: Any,
+    final_ids: "set[str]",
+) -> list[dict[str, Any]]:
+    """Put every case in its partition and summarise the partitions.
+
+    ``case["split"]`` is filled in place (``explore`` / ``confirm`` / ``test``)
+    and the summary rows come back in drawing order, each with the subscript
+    the loop figure uses (E, H, C), its size and what the run used it for.
+
+    A run that tagged its case records is read as recorded. A run from before
+    the tag existed is inferred from what its log still says: ``run_start``'s
+    ``n_cases`` is the explore partition (the loop narrows ``data`` to it before
+    recording the start), and the loop logs explore first, then confirm, then
+    test -- so the first ``n_explore`` logged ids are explore and the rest were
+    withheld. Whether the withheld pool was further divided (train/val/test
+    mode) is recovered from M5's per-case scoring: the cases it scored the
+    frozen repair on are the test partition when they are a strict subset of
+    what was withheld, and the whole pool otherwise. Cases the report merged
+    in from a manifest rather than the log stay untagged -- their order says
+    nothing.
+
+    Returns ``[]`` when there is no split to show: no case carries one and none
+    can be inferred (a run without a confirm split, or a legacy manifest).
+    """
+    by_id = {str(case.get("id")): case for case in cases}
+    inferred = False
+    if not any(case.get("split") for case in cases):
+        ids = [cid for cid in logged_ids if cid and cid in by_id]
+        try:
+            n_head = int(n_explore or 0)
+        except (TypeError, ValueError):
+            n_head = 0
+        if not ids or n_head <= 0 or n_head >= len(ids):
+            return []
+        withheld = ids[n_head:]
+        final = {cid for cid in final_ids if cid in set(withheld)}
+        three_way = bool(final) and len(final) < len(withheld)
+        for cid in ids[:n_head]:
+            by_id[cid]["split"] = "explore"
+        for cid in withheld:
+            by_id[cid]["split"] = "test" if three_way and cid in final else "confirm"
+        inferred = True
+
+    present = {str(case.get("split")) for case in cases if case.get("split")}
+    if not present:
+        return []
+    three_way = "test" in present
+
+    def row(split: str, code: str, label: str, role: str) -> dict[str, Any]:
+        return {"split": split, "code": code, "label": label,
+                "n": sum(1 for case in cases if case.get("split") == split),
+                "role": role, "inferred": inferred}
+
+    rows = [row("explore", "E", "Explore", _EXPLORE_ROLE)]
+    if three_way:
+        rows.append(row("confirm", "H", "Held-out", _HELDOUT_ROLE))
+        rows.append(row("test", "C", "Confirm", _CONFIRM_ROLE))
+    elif "confirm" in present:
+        rows.append(row("confirm", "H/C", "Held-out", _TWO_WAY_ROLE))
+    n_unknown = sum(1 for case in cases if not case.get("split"))
+    if n_unknown:
+        rows.append({"split": "", "code": "?", "label": "Unrecorded", "n": n_unknown,
+                     "role": "The run did not record which partition these came from.",
+                     "inferred": False})
+    return rows
 
 
 def _merge_recorded_case_evidence(cases: list[dict[str, Any]], root: Path) -> list[dict[str, Any]]:
@@ -1561,25 +1729,9 @@ def _merge_recorded_case_evidence(cases: list[dict[str, Any]], root: Path) -> li
 
 
 def _read_events(root: Path) -> list[dict[str, Any]]:
-    candidates = [root / "run_log.jsonl", *sorted(root.glob("logs*/run_log.jsonl"))]
-    path = next((candidate for candidate in candidates if candidate.exists()), None)
-    if path is None:
-        from evalrx.reporting.run_events import read_v2_events
+    from evalrx.reporting.run_events import read_v2_events
 
-        return read_v2_events(root)
-    events = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            events.append(value)
-    if events:
-        trace = next((event.get("trace_id") for event in reversed(events) if event.get("event") == "run_start"), None)
-        if trace and sum(event.get("trace_id") == trace for event in events) > 1:
-            events = [event for event in events if event.get("trace_id") == trace]
-    return events
+    return read_v2_events(root)
 
 
 def _infer_example_dir(root: Path) -> Path | None:
@@ -1588,6 +1740,44 @@ def _infer_example_dir(root: Path) -> Path | None:
         if any((candidate / "data").glob("*.jsonl")) or any((candidate / "data").glob("*.json")):
             return candidate
     return None
+
+
+_CALL_TEXT_CAP = 3000
+_CALLS_PER_ANALYZER = 120
+
+
+def _call_text(value: Any) -> str:
+    """The prompt or the reply as text, cut so 500 calls stay a sane payload."""
+    if isinstance(value, Mapping):
+        value = value.get("prompt") if "prompt" in value else json.dumps(value, ensure_ascii=False)
+    text = "" if value is None else str(value)
+    return text if len(text) <= _CALL_TEXT_CAP else text[:_CALL_TEXT_CAP] + f"… [+{len(text) - _CALL_TEXT_CAP} chars]"
+
+
+def _m1_calls(events: Iterable[Mapping[str, Any]]) -> tuple[dict[str, list[dict[str, Any]]], int]:
+    """M1's model calls grouped by analyzer, oldest first, capped per analyzer."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    total = 0
+    for event in events:
+        if str(event.get("event") or "") != "model_call" or str(event.get("stage") or "") != "M1":
+            continue
+        total += 1
+        analyzer = str(event.get("analyzer") or event.get("role") or "model")
+        bucket = grouped.setdefault(analyzer, [])
+        if len(bucket) >= _CALLS_PER_ANALYZER:
+            continue
+        batch = event.get("batch_case_ids")
+        bucket.append({
+            "seq": event.get("event_seq"), "cycle": event.get("cycle"),
+            "method": event.get("method") or event.get("operation") or "",
+            "case_id": event.get("case_id"),
+            "batch_case_ids": [str(item) for item in batch] if isinstance(batch, list) else [],
+            "duration_sec": event.get("duration_sec"),
+            "prompt": _call_text(event.get("inputs")),
+            "output": _call_text(event.get("output")),
+            "error": str(event.get("error")) if event.get("error") else None,
+        })
+    return grouped, total
 
 
 def _debug_event(event: Mapping[str, Any]) -> dict[str, Any]:
@@ -1606,6 +1796,19 @@ def _debug_event(event: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _event_summary(event: Mapping[str, Any]) -> str:
+    if str(event.get("event") or "") == "model_call":
+        # The model calls are most of the stream; "Recorded pipeline event"
+        # 500 times over says nothing. Name the probe, the operation, and the
+        # size of the call instead.
+        who = event.get("analyzer") or event.get("role") or "model"
+        op = event.get("method") or event.get("operation") or "call"
+        n_batch = event.get("n_batch_cases")
+        scope = (f"{n_batch} cases" if n_batch else (f"case {str(event.get('case_id'))[:12]}" if event.get("case_id") else ""))
+        took = event.get("duration_sec")
+        parts = [f"{who} · {op}"] + ([scope] if scope else []) + ([f"{float(took):.1f}s"] if isinstance(took, (int, float)) else [])
+        if event.get("error"):
+            parts.append(f"error: {str(event['error'])[:80]}")
+        return " · ".join(parts)
     for key in ("conclusion", "narrative", "selection_rationale", "status", "stopped_by"):
         value = event.get(key)
         if value not in (None, ""):

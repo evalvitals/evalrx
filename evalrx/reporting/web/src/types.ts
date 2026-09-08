@@ -83,6 +83,10 @@ export type Case = {
   task: string;
   media_ids: string[];
   trajectory?: unknown;
+  /** The partition the loop put this case in: "explore" (M1-M3), "confirm"
+   *  (withheld for M4 / M5), "test" (the frozen final gate in train/val/test
+   *  mode). Null when the run recorded none and none could be inferred. */
+  split?: string | null;
   /** What M5's confirmed repair answered on this case, when it was one of the
    *  held-out cases the repair was validated on. */
   repair?: {
@@ -214,13 +218,31 @@ export type CaseStudy = {
   qa_flags: Array<{ level: string; code: string; detail: string }>;
 };
 
+/** One partition of the frozen case batch, as the loop figure draws it. */
+export type Partition = {
+  /** Matches `Case.split`; "" for cases whose partition went unrecorded. */
+  split: string;
+  /** The subscript on the cylinder: E, H, C — or "H/C" on a two-way run where
+   *  one withheld pool served as both. */
+  code: string;
+  label: string;
+  n: number;
+  /** What the run used this partition for, one sentence. */
+  role: string;
+  /** True when read off the record order rather than a recorded tag. */
+  inferred?: boolean;
+};
+
 export type ReportData = {
   trace_id: string;
   /** `model` is what was diagnosed; `diagnosed_by` is the agent that did the
    *  diagnosing. Empty on a run that recorded neither a manifest nor a coder. */
   setting: { model: string; dataset: string; question: string; protocol: string; n_cases: number; diagnosed_by?: string;
     /** The cover figure the run shipped (`evalrx_main.*` at its root), as a data URI. */
-    hero_image?: string };
+    hero_image?: string;
+    /** The frozen batch's partitions in drawing order (explore, then what was
+     *  withheld). Empty when the run had no split. */
+    partitions?: Partition[] };
   summary: { headline: string; answer: string; confidence: string; stopped_by: string };
   metrics: Array<{ id: string; label: string; value: string | number }>;
   stages: Stage[];

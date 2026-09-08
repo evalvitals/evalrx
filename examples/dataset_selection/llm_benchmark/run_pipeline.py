@@ -52,6 +52,7 @@ sys.path.insert(0, str(PKG_ROOT))
 
 import band_locate as B  # noqa: E402
 import datasets as CATALOG  # noqa: E402
+
 from evalrx.core.model import Model  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
@@ -571,74 +572,30 @@ def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -
     return overrides
 
 
-def load_prior_run(logs_dir: Path):
-    """Reload the LAST run's M2 stats + M3 hypotheses from ``logs_dir``.
-
-    ``run_log.jsonl`` is append-only across runs, so everything is read from
-    the segment after the final ``run_start``. Returns
-    ``(hypotheses, stats_report)`` — the exact hypotheses that run proposed
-    and a StatsAnalysisReport carrying its per-signal tool results (with the
-    BH verdicts as serialised), its multiplicity summary, its conclusion, and
-    the M1 analyzer findings — everything M4, M5 and the fix module read.
-    Findings objects and figures are not rebuilt (nothing downstream needs
-    them). Raises SystemExit with the missing piece named when the logs do
-    not hold a completed M2->M3.
-    """
+def _stats_report_from(diagnosis: dict, analysis: dict, raw_results: dict, logs_dir: Path):
+    """Shared V1/V2 tail of :func:`load_prior_run`: rebuild the
+    ``StatsAnalysisReport`` once the per-version reader has produced plain
+    dicts for the last M3 diagnosis / M2 analysis / M1 probe events."""
     from evalrx.analysis.stats_agent import StatsAnalysisReport
     from evalrx.analysis.stats_tools import StatsToolResult
-    from evalrx.core.result import Result
     from evalrx.eval_agent.hypothesis import hypothesis_from_dict
 
-    log_path = logs_dir / "run_log.jsonl"
-    if not log_path.exists():
-        raise SystemExit(f"--confirm-only: {log_path} missing — no earlier run to reload")
-    events = []
-    for line in log_path.read_text(encoding="utf-8").splitlines():
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    starts = [i for i, e in enumerate(events) if e.get("event") == "run_start"]
-    segment = events[starts[-1]:] if starts else events
-    by_event = {}
-    for e in segment:  # last of each kind wins inside the segment
-        by_event[e.get("event")] = e
-
-    diagnosis = by_event.get("diagnosis")
     if not diagnosis or not diagnosis.get("hypotheses"):
         raise SystemExit("--confirm-only: the last run has no M3 diagnosis with "
                          "hypotheses — nothing to confirm")
     hypotheses = [hypothesis_from_dict(h) for h in diagnosis["hypotheses"]]
 
-    analysis = by_event.get("analysis")
     if not analysis:
         raise SystemExit("--confirm-only: the last run has no M2 analysis event")
 
-    def _externalised(field):
-        v = analysis.get(field)
-        if isinstance(v, dict) and v.get("path"):
-            return json.loads((logs_dir / v["path"]).read_text(encoding="utf-8"))
-        return v or []
-
     stats_results = []
-    for d in _externalised("stats_results"):
+    for d in (analysis.get("stats_results") or []):
         d = dict(d)
         if d.get("ci") is not None:
             d["ci"] = tuple(d["ci"])
         stats_results.append(StatsToolResult(**d))
     if not stats_results:
         raise SystemExit("--confirm-only: the last run's M2 stats_results are empty")
-
-    raw_results = {}
-    probe = by_event.get("probe") or {}
-    for name, rel in (probe.get("result_paths") or {}).items():
-        path = logs_dir / rel
-        if not path.exists():
-            continue
-        d = json.loads(path.read_text(encoding="utf-8"))
-        raw_results[name] = Result(analyzer=d.get("analyzer", name), model=d.get("model", ""),
-                                   findings=d.get("findings") or {},
-                                   metadata=d.get("metadata") or {})
 
     report = StatsAnalysisReport(
         model_name=diagnosis.get("model_name") or "",
@@ -652,6 +609,51 @@ def load_prior_run(logs_dir: Path):
         descriptive_only=bool(analysis.get("descriptive_only", False)),
     )
     return hypotheses, report
+
+
+def _load_prior_run_v2(logs_dir: Path):
+    """RunLoggerV2 layout: one JSON document per stage, same-event arrays.
+    M1/M2/M3 each keep every cycle's entry in an array under their own key
+    (``probe`` / ``analysis`` / ``diagnosis``); the last entry is the latest
+    cycle. Nothing here is externalized to a sibling file (v2 inlines
+    stats_results and per-analyzer results directly), so there is no
+    path-resolution step to mirror from the v1 reader."""
+    from evalrx.core.result import Result
+
+    def _last(stage: str, key: str) -> dict:
+        path = logs_dir / stage / "log.json"
+        if not path.exists():
+            return {}
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        entries = doc.get(key) or []
+        return entries[-1] if entries else {}
+
+    diagnosis = _last("M3", "diagnosis")
+    analysis = _last("M2", "analysis")
+    probe = _last("M1", "probe")
+    raw_results = {
+        name: Result(analyzer=d.get("analyzer", name), model=d.get("model", ""),
+                     findings=d.get("findings") or {}, metadata=d.get("metadata") or {})
+        for name, d in (probe.get("results") or {}).items()
+    }
+    return _stats_report_from(diagnosis, analysis, raw_results, logs_dir)
+
+
+def load_prior_run(logs_dir: Path):
+    """Reload the LAST run's M2 stats + M3 hypotheses from ``logs_dir``.
+
+    Returns ``(hypotheses, stats_report)`` — the exact hypotheses that run
+    proposed and a StatsAnalysisReport carrying its per-signal tool results
+    (with the BH verdicts as serialised), its multiplicity summary, its
+    conclusion, and the M1 analyzer findings — everything M4, M5 and the fix
+    module read. Findings objects and figures are not rebuilt (nothing
+    downstream needs them). Raises SystemExit with the missing piece named
+    when the logs do not hold a completed M2->M3.
+    """
+    if (logs_dir / "M3" / "log.json").exists():
+        return _load_prior_run_v2(logs_dir)
+    raise SystemExit(f"--confirm-only: no earlier run found under {logs_dir} "
+                     f"(missing M3/log.json)")
 
 
 def make_scoring_note(dataset: str, cases: list) -> str:
@@ -784,7 +786,7 @@ def main() -> None:
     from evalrx.eval_agent import (
         ExperimentWriterConfig,
         FixAgent,
-        RunLogger,
+        RunLoggerV2,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
@@ -847,10 +849,11 @@ def main() -> None:
                 explore_report = None
     overrides = (build_analyzer_overrides(args.analyzer_max_cases, model=model)
                  if args.analyzer_max_cases > 0 else {})
-    # A confirm-only pass logs beside the analysis it reuses, never over it —
-    # the dashboard merges every logs*/run_log.jsonl under the run dir.
-    logger = RunLogger(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
-                       verbose=True)
+    # A confirm-only pass logs beside the analysis it reuses, never over it.
+    # RunLoggerV2 writes run.json + one JSON per M-stage (M1/log.json ..
+    # M5/log.json) under this dir — see evalrx/eval_agent/RUN_LOGGER_V2.md.
+    logger = RunLoggerV2(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
+                         verbose=True)
 
     # max_cases_per_analyzer is the BACKSTOP for analyzer_overrides: the
     # overrides can only turn a `max_cases` constructor knob, and the five
@@ -1015,6 +1018,11 @@ def main() -> None:
     (out / summary_name).write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     print(f"\nwrote {out/summary_name}")
     print(f"dashboard: python -m evalrx.cli dashboard {out}")
+    # Flushes every M<n>/log.json one last time (so a stage that ran but never
+    # logged a trailing event still lands on disk) and persists the Langfuse
+    # trace bundle. Incremental writes during the run are already durable —
+    # this is finalization, not the only save.
+    logger.close()
 
 
 if __name__ == "__main__":

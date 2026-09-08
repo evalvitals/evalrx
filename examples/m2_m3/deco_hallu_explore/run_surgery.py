@@ -12,8 +12,8 @@ judged not_testable with needs_surgery=true (an interventional experiment is
 exactly what they need). "refuted" ones stay out.
 
 Writes:
-  <pipeline-root>/3_surgery/logs/run_log.jsonl   full M4/M5/Fix record
-  <pipeline-root>/1_explore/fix_report.json      distilled summary for the dashboard
+  <pipeline-root>/3_surgery/logs/run.json + M*/log.json   full M4/M5/Fix record
+  <pipeline-root>/1_explore/fix_report.json                distilled summary for the dashboard
 
     python run_surgery.py --pipeline-root outputs_pipeline --device cuda
 """
@@ -63,15 +63,10 @@ def _lean_fix(event: dict) -> dict:
 
 
 def _fix_event_from_logs(run_dir: Path) -> dict | None:
-    log = Path(run_dir) / "run_log.jsonl"
-    if not log.exists():
-        return None
+    from evalrx.reporting.run_events import read_v2_events
+
     event = None
-    for line in log.read_text(encoding="utf-8").splitlines():
-        try:
-            o = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for o in read_v2_events(run_dir):
         if o.get("event") == "fix":
             event = o  # keep the last fix event
     return event
@@ -114,7 +109,7 @@ def main() -> None:
                     help="cap fix-validation cases (0 = full batch)")
     ap.add_argument("--distill-only", action="store_true",
                     help="no GPU run: rebuild fix_report.json's fix section from "
-                         "an existing 3_surgery/logs/run_log.jsonl")
+                         "an existing 3_surgery/logs/ run")
     args = ap.parse_args()
 
     root = Path(args.pipeline_root)
@@ -124,7 +119,7 @@ def main() -> None:
         prior = json.loads(report_path.read_text()) if report_path.exists() else {}
         event = _fix_event_from_logs(root / "3_surgery" / "logs")
         if event is None:
-            raise SystemExit("no fix event found in 3_surgery/logs/run_log.jsonl")
+            raise SystemExit("no fix event found in 3_surgery/logs/")
         prior["fix"] = _lean_fix(event)
         report_path.write_text(json.dumps(prior, indent=1))
         print(f"re-distilled fix section -> {report_path}")
@@ -157,16 +152,16 @@ def main() -> None:
                          "nothing to repair (honest outcome).")
 
     from evalrx import compose
+    from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.core.capability import Capability
     from evalrx.eval_agent import (
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
-        RunLogger,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalrx.analysis.stats_agent import StatsAnalysisAgent
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.models.backends.base import RuntimeConfig
 
     judge = loop_run.build_judge(loop_run.CFG.get("judge_model", "claude-opus-4-8"),
@@ -177,7 +172,7 @@ def main() -> None:
                           Capability.ATTENTION})
     codegen: CliAgentConfig = loop_run.build_codegen(args.backend)
 
-    run_logger = RunLogger(run_dir=root / "3_surgery" / "logs", verbose=True)
+    run_logger = RunLoggerV2(run_dir=root / "3_surgery" / "logs", verbose=True)
     loop = VLDiagnoseLoop(
         model=model,
         protocol=loop_run.build_protocol(),

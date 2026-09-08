@@ -3,7 +3,7 @@ import { tc } from "./theme";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import ReactECharts from "echarts-for-react";
 import { AlertTriangle, ArrowLeft, BarChart3, Beaker, Bot, CheckCircle2, ChevronRight, Microscope, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
-import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixAttemptWire,
+import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixAttemptWire, Partition,
   FixOutput, HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
 import { buildBrief, StageBrief } from "./brief";
 import { ZoomableImage } from "./lightbox";
@@ -49,7 +49,10 @@ export function EvidenceView({ data, back, navigate, initialStage }: { data: Rep
         ? <StageBrief brief={brief} onDeepen={() => setFull(true)} />
         : <>
           <StageArtifact stage={selected || ""} detail={data.stage_detail || {}} report={data} navigate={navigate} />
-          <details className="raw-events"><summary>Raw agent events ({events.length})</summary>{events.length ? events.map((event, index) => <EventRow event={event} key={`${event.event_seq}-${index}`} />) : <p className="empty">No stage-level events were retained.</p>}</details>
+          {/* The raw event stream is Debug's job; each stage's record above
+              already carries the events that matter, in a shape a reader
+              can use. */}
+          <p className="raw-events-link">The raw event stream for this step ({events.length} events) is in <button type="button" className="text-button" onClick={() => navigate?.("debug")}>Debug</button>.</p>
         </>}
     </section></div>
   </DetailShell>;
@@ -112,9 +115,38 @@ function M1Detail({ data, report }: { data: any; report: ReportData }) {
     {data.operations?.length > 0 && <OperationExamples examples={data.operations} report={report} />}
     <div className="probe-grid">{probes.map((probe: any, index: number) => <details className="probe-card" key={probe.id} open={index === 0}>
       <summary><span className="section-kicker">PROBE {String(index + 1).padStart(2, "0")} · {probe.n_cases || "—"} CASES</span><h3>{probe.title}</h3><p>{probe.question}</p><div className="probe-metrics">{(probe.metrics || []).map((metric: any) => <span key={metric.label}><b>{metric.value ?? "—"}</b>{metric.label}</span>)}</div></summary>
-      <div className="probe-expanded"><p>{probe.description}</p>{Object.keys(probe.finding_summary || {}).length > 0 && <KeyValueGrid values={probe.finding_summary} />}{Object.keys(probe.raw_finding_summary || {}).length > 0 && <details className="nested-detail"><summary>Technical measurement names and raw values</summary><KeyValueGrid values={probe.raw_finding_summary} /></details>}{probe.sample_rows?.length > 0 && <details className="nested-detail"><summary>Inspect {probe.sample_rows.length} representative measurement rows</summary><RecordTable rows={probe.sample_rows} /></details>}</div>
+      <div className="probe-expanded"><p>{probe.description}</p>{Object.keys(probe.finding_summary || {}).length > 0 && <KeyValueGrid values={probe.finding_summary} />}{(probe.sample_rows || []).length > 0 && <details className="nested-detail"><summary>Per-case measurements ({probe.n_sample_rows || probe.sample_rows.length}{probe.n_sample_rows > probe.sample_rows.length ? `, first ${probe.sample_rows.length}` : ""})</summary><RecordTable rows={probe.sample_rows} /></details>}<ProbeCalls calls={(data.calls || {})[probe.raw_name] || []} />{Object.keys(probe.raw_finding_summary || {}).length > 0 && <details className="nested-detail"><summary>Technical measurement names and raw values</summary><KeyValueGrid values={probe.raw_finding_summary} /></details>}{probe.sample_rows?.length > 0 && <details className="nested-detail"><summary>Inspect {probe.sample_rows.length} representative measurement rows</summary><RecordTable rows={probe.sample_rows} /></details>}</div>
     </details>)}</div>
   </>;
+}
+
+/**
+ * What one probe asked the model and what came back — the audit trail behind
+ * its numbers. Collapsed by default: a probe can make hundreds of calls, and
+ * the list is for checking one, not reading all.
+ */
+function ProbeCalls({ calls }: { calls: any[] }) {
+  if (!calls.length) return null;
+  return <details className="nested-detail probe-calls">
+    <summary>Model calls ({calls.length}) — prompt and reply, one per call</summary>
+    <div className="call-list">{calls.map((call: any, index: number) => {
+      const scope = call.case_id ? `case ${String(call.case_id).slice(0, 12)}`
+        : call.batch_case_ids?.length ? `${call.batch_case_ids.length} cases` : "";
+      return <details className={`call-row${call.error ? " failed" : ""}`} key={`${call.seq}-${index}`}>
+        <summary>
+          <code>{String(call.seq ?? index + 1).padStart(3, "0")}</code>
+          <b>{call.method || "call"}</b>
+          <span>{scope}</span>
+          <em>{typeof call.duration_sec === "number" ? `${call.duration_sec.toFixed(2)}s` : ""}{call.output ? ` · ${String(call.output).length} chars out` : ""}{call.error ? " · error" : ""}</em>
+        </summary>
+        <div className="call-io">
+          <DetailBlock label="PROMPT" value={call.prompt} />
+          <DetailBlock label={call.error ? "ERROR" : "REPLY"} value={call.error || call.output} />
+          {call.batch_case_ids?.length > 0 && <small className="call-cases">cases: {call.batch_case_ids.join(", ")}</small>}
+        </div>
+      </details>;
+    })}</div>
+  </details>;
 }
 
 function ExampleSection({ eyebrow, title, note, children }: { eyebrow: string; title: string; note: string; children: React.ReactNode }) {
@@ -687,9 +719,30 @@ function formatInterval(value: any) { return Array.isArray(value) && value.lengt
 function formatCompact(value: any) { if (value === null || value === undefined || value === "") return "—"; if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, ""); if (typeof value === "object") return JSON.stringify(value).slice(0, 180); return String(value).slice(0, 220); }
 function displayValue(value: any) { return formatCompact(value); }
 
-export function CasesView({ data, back, initialCaseId }: { data: ReportData; back: () => void; initialCaseId?: string }) {
+/** One line of the studio's list: a partition heading or a case. */
+type StudioRow = { kind: "group"; partition: Partition } | { kind: "case"; item: Case };
+
+/** The partition a case belongs to, or the "unrecorded" row when none. */
+function partitionOf(item: Case, partitions: Partition[]): Partition | undefined {
+  return partitions.find((p) => p.split === (item.split ?? ""));
+}
+
+/** The E / H / C subscript beside a case, coloured like its band on the cylinder. */
+function SplitChip({ partition, title }: { partition?: Partition; title?: boolean }) {
+  if (!partition || !partition.split) return null;
+  return <span className={`split-chip split-${partition.split}`} title={`${partition.label} split — ${partition.role}`}>
+    D<sub>{partition.code}</sub>{title && <em>{partition.label}</em>}
+  </span>;
+}
+
+export function CasesView({ data, back, initialCaseId, initialSplit }: { data: ReportData; back: () => void; initialCaseId?: string; initialSplit?: string }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
+  const partitions = data.setting.partitions ?? [];
+  // Which band of the batch cylinder the list shows. "all" keeps every case
+  // and draws the bands as headed groups instead — the batch was split before
+  // anything ran, and a flat list hid that.
+  const [split, setSplit] = useState(initialSplit && partitions.some((p) => p.split === initialSplit) ? initialSplit : "all");
   const [selected, setSelected] = useState<Case | null>(
     initialCaseId ? data.cases.find((c) => c.id === initialCaseId) || null : null,
   );
@@ -697,17 +750,56 @@ export function CasesView({ data, back, initialCaseId }: { data: ReportData; bac
   // describe the original run. Filtering on the wrong one silently returns
   // nothing, so each button reads the field it names.
   const repairFilters = new Set(["fixed", "broken", "unchanged"]);
-  const rows = data.cases.filter((item) => {
+  // Status and search narrow every partition alike; the partition buttons
+  // count under that narrowing so switching between them never reads "0".
+  const narrowed = data.cases.filter((item) => {
     const matches = repairFilters.has(status)
       ? item.repair?.status === status
       : status === "all" || item.status === status;
     return matches && `${item.id} ${item.prompt} ${item.task}`.toLowerCase().includes(query.toLowerCase());
   });
+  const matching = split === "all" ? narrowed : narrowed.filter((item) => (item.split ?? "") === split);
+  // Grouped in the cylinder's order (explore on top, then what was withheld)
+  // whenever the run has more than one partition to show; a heading carries
+  // the group's count under the current filter, not the partition's size.
+  const rows: StudioRow[] = [];
+  if (split === "all" && partitions.length > 1) {
+    for (const partition of partitions) {
+      const members = matching.filter((item) => (item.split ?? "") === partition.split);
+      if (!members.length) continue;
+      rows.push({ kind: "group", partition });
+      for (const item of members) rows.push({ kind: "case", item });
+    }
+  } else {
+    for (const item of matching) rows.push({ kind: "case", item });
+  }
+  const firstCase = rows.find((row): row is Extract<StudioRow, { kind: "case" }> => row.kind === "case")?.item;
+  const countIn = (partition: Partition) => narrowed.filter((item) => (item.split ?? "") === partition.split).length;
   const parentRef = useRef<HTMLDivElement>(null);
-  const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: () => 92, overscan: 8 });
+  const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => parentRef.current, estimateSize: (index) => rows[index]?.kind === "group" ? 58 : 92, overscan: 8 });
   return <DetailShell title="Case Studio" subtitle="Inspect the actual input, expected answer, model output, and attached media." back={back} agent={data.setting.diagnosed_by}>
-    <div className="case-toolbar"><label><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search cases" /></label><div>{["all", "fail", "pass", "fixed", "broken", "unchanged"].map((value) => <button className={status === value ? "active" : ""} onClick={() => setStatus(value)} key={value}>{value}</button>)}</div><span>{rows.length} cases</span></div>
-    <div className="case-studio"><div className="virtual-list" ref={parentRef}><div style={{ height: virtual.getTotalSize(), position: "relative" }}>{virtual.getVirtualItems().map((row) => { const item = rows[row.index]; return <button className={`virtual-row ${selected?.id === item.id ? "active" : ""}`} key={item.id} onClick={() => setSelected(item)} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: row.size, transform: `translateY(${row.start}px)` }}><span className={`status status-${item.status}`}>{item.status}</span><div><strong>{item.id}</strong><p>{item.prompt || "No prompt retained"}</p></div><ChevronRight /></button>; })}</div></div><CaseDetail item={selected || rows[0]} data={data} /></div>
+    <div className="case-toolbar"><label><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search cases" /></label><div>{["all", "fail", "pass", "fixed", "broken", "unchanged"].map((value) => <button className={status === value ? "active" : ""} onClick={() => setStatus(value)} key={value}>{value}</button>)}</div><span>{matching.length} cases</span></div>
+    {partitions.length > 0 && <div className="case-splits" role="tablist" aria-label="Batch partition">
+      <small>FROZEN BATCH</small>
+      <button className={split === "all" ? "active" : ""} onClick={() => setSplit("all")}>All partitions<b>{narrowed.length}{narrowed.length !== data.cases.length ? ` / ${data.cases.length}` : ""}</b></button>
+      {partitions.map((partition) => <button key={partition.split || "unrecorded"} className={`split-${partition.split || "unrecorded"}${split === partition.split ? " active" : ""}`}
+        onClick={() => setSplit(partition.split)} title={partition.role}>
+        <span>D<sub>{partition.code}</sub></span>{partition.label}<b>{countIn(partition)}{countIn(partition) !== partition.n ? ` / ${partition.n}` : ""}</b>
+      </button>)}
+      {partitions.some((p) => p.inferred) && <em title="This run predates the split tag on case records; the partition is read from run_start's explore count and the order the cases were logged in.">split inferred from the record order</em>}
+    </div>}
+    <div className="case-studio"><div className="virtual-list" ref={parentRef}><div style={{ height: virtual.getTotalSize(), position: "relative" }}>{virtual.getVirtualItems().map((row) => {
+      const entry = rows[row.index];
+      const style = { position: "absolute" as const, top: 0, left: 0, width: "100%", height: row.size, transform: `translateY(${row.start}px)` };
+      if (entry.kind === "group") {
+        const { partition } = entry;
+        return <div className={`virtual-group split-${partition.split || "unrecorded"}`} key={`group-${partition.split}`} style={style} title={partition.role}>
+          <span>D<sub>{partition.code}</sub></span><div><strong>{partition.label}</strong><p>{partition.role}</p></div><b>{countIn(partition)}</b>
+        </div>;
+      }
+      const { item } = entry;
+      return <button className={`virtual-row ${selected?.id === item.id ? "active" : ""}`} key={item.id} onClick={() => setSelected(item)} style={style}><span className={`status status-${item.status}`}>{item.status}</span><div><strong>{item.id}{split === "all" && partitions.length > 1 ? null : <SplitChip partition={partitionOf(item, partitions)} />}</strong><p>{item.prompt || "No prompt retained"}</p></div><ChevronRight /></button>;
+    })}</div></div><CaseDetail item={selected || firstCase} data={data} /></div>
   </DetailShell>;
 }
 
@@ -743,7 +835,8 @@ function RepairStudy({ item }: { item: Case }) {
 
 function CaseDetail({ item, data }: { item?: Case; data: ReportData }) {
   if (!item) return <section className="case-detail empty">No cases match this filter.</section>;
-  return <section className="case-detail"><div className="case-detail-head"><div><span className={`status status-${item.status}`}>{item.status}</span>{item.repair?.status && item.repair.status !== "unchanged" && <span className={`status status-${item.repair.status}`}>{item.repair.status} by repair</span>}<h2>{item.id}</h2></div><small>{item.task}</small></div><RepairStudy item={item} /><DetailBlock label="MODEL INPUT" value={item.prompt} />{item.choices?.length > 0 && <DetailBlock label="CHOICES" value={item.choices.map(String).join("\n")} />}<div className="io-grid"><DetailBlock label="EXPECTED" value={format(item.expected)} /><DetailBlock label="MODEL OUTPUT" value={format(item.observed)} /></div>{item.media_ids.map((id) => { const media = data.media.find((entry) => entry.id === id); if (!media) return null; return <MediaPreview key={id} media={media} caseId={item.id} />; })}{Boolean(item.trajectory) && <TrajectoryPanel trajectory={item.trajectory} />}{item.tags.length > 0 && <div className="tag-row">{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}</section>;
+  const partition = partitionOf(item, data.setting.partitions ?? []);
+  return <section className="case-detail"><div className="case-detail-head"><div><span className={`status status-${item.status}`}>{item.status}</span>{item.repair?.status && item.repair.status !== "unchanged" && <span className={`status status-${item.repair.status}`}>{item.repair.status} by repair</span>}<SplitChip partition={partition} title /><h2>{item.id}</h2>{partition?.split && <p className="split-note">{partition.role}</p>}</div><small>{item.task}</small></div><RepairStudy item={item} /><DetailBlock label="MODEL INPUT" value={item.prompt} />{item.choices?.length > 0 && <DetailBlock label="CHOICES" value={item.choices.map(String).join("\n")} />}<div className="io-grid"><DetailBlock label="EXPECTED" value={format(item.expected)} /><DetailBlock label="MODEL OUTPUT" value={format(item.observed)} /></div>{item.media_ids.map((id) => { const media = data.media.find((entry) => entry.id === id); if (!media) return null; return <MediaPreview key={id} media={media} caseId={item.id} />; })}{Boolean(item.trajectory) && <TrajectoryPanel trajectory={item.trajectory} />}{item.tags.length > 0 && <div className="tag-row">{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}</section>;
 }
 
 function TrajectoryPanel({ trajectory }: { trajectory: any }) {

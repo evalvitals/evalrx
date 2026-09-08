@@ -1,23 +1,25 @@
 """InstrumentedModel — records every call an M1 analyzer makes to the target model.
 
-Before this existed, ``RunLogger`` gave verbatim prompt+response coverage to
+Before this existed, the logger gave verbatim prompt+response coverage to
 every *judge/coder* LLM call (M1 selection, M2 analysis, M3 diagnosis, M4/M5
-protocol judge, explore's coder agent) via ``_save_judge_io`` — but the model
-actually UNDER EVALUATION is called from inside analyzers too, and those calls
-went straight from ``Analyzer._run`` to the model and back with nothing in
-between. Most analyzers only keep a derived scalar (e.g. ``selfcheck.py``
-generates ``n_samples`` resamples to score self-consistency, then discards the
-raw text — only a 200-char fragment of the WORST sentence survives). For
-anything that calls ``model.generate/forward/logprobs/chat`` more than once
-per case — self-consistency resampling, counterfactual/ablation regeneration,
-rollout search, contrastive prompts — the intermediate calls were simply gone.
+protocol judge, explore's coder agent) via ``log_model_exchange`` — but the
+model actually UNDER EVALUATION is called from inside analyzers too, and
+those calls went straight from ``Analyzer._run`` to the model and back with
+nothing in between. Most analyzers only keep a derived scalar (e.g.
+``selfcheck.py`` generates ``n_samples`` resamples to score self-consistency,
+then discards the raw text — only a 200-char fragment of the WORST sentence
+survives). For anything that calls ``model.generate/forward/logprobs/chat``
+more than once per case — self-consistency resampling,
+counterfactual/ablation regeneration, rollout search, contrastive prompts —
+the intermediate calls were simply gone.
 
 ``InstrumentedModel`` closes that hole *without touching any analyzer*: wrap
 the model handed to ``analyzer.run(model, data)`` in this proxy and every call
-is durably logged via :meth:`RunLogger.log_model_call`, tagged with
+is durably logged via :meth:`RunLoggerV2.log_model_call`, tagged with
 ``(cycle, analyzer, method, call_index)`` — the primary key that was missing
-before. See ``run_logger.py``'s ``log_model_call`` docstring for where the
-record ends up (``model_calls.jsonl``) and how it is mirrored into Langfuse.
+before. See ``run_logger_v2.py``'s ``log_model_call`` docstring for where the
+record ends up (inlined into the owning stage's ``M<n>/log.json``, not a
+sibling file) and how it is mirrored into Langfuse.
 
 Scope — this covers the catalog analyzers that run in-process through
 ``ProbeAgent._run_direct``, which is most of the fan-out-heavy ones
@@ -38,11 +40,12 @@ this writing:
   ``_run_direct``, called from ``ProbeAgent._maybe_generate``.
 - M5 repair-candidate generation (``fix_agent.py``, ``fix_internals.py``,
   ``fix_tools.py``, ``fix_pipeline.py``) — but these already have a durable,
-  pre-existing home: per-candidate per-case outputs land in
-  ``fixes/<trial>/outputs.jsonl`` via ``RunLogger.log_fix``.
+  pre-existing home: per-candidate per-case outputs land inline under each
+  candidate's own ``"outputs"`` key in ``M5/log.json`` via
+  ``RunLoggerV2.log_fix``.
 - Pre-loop ``case_discovery.py`` harvesting in arbitrary callers. The common
-  benchmark runner now wraps this path when V2 is selected, so its exact
-  per-case input/output/error/latency is covered there as well.
+  benchmark runner wraps this path, so its exact per-case
+  input/output/error/latency is covered there as well.
 
 Each of those is a plausible next analyzer to wrap the same way; this pass
 targets the M1 catalog because that is where the derived-score-only,
@@ -60,7 +63,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from evalrx.core.capability import Capability
     from evalrx.core.model import CaptureSpec, Model, Trace
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
 #: Longest single string field kept verbatim before it is truncated. Generous
 #: enough for almost every prompt/response; a truncated field says so rather
@@ -97,7 +100,7 @@ def _snapshot_inputs(inputs: Any, *, full: bool = False) -> Any:
     ``Inputs``-like object (``.prompt`` + optional ``.image``/``.audio``/
     ``.video``), or anything else (falls back to ``str()``). Media slots are
     never inlined — a decoded ``PIL.Image``/waveform is far too large and a
-    path/URL is recorded as-is, the same convention ``RunLogger.log_cases``
+    path/URL is recorded as-is, the same convention ``RunLoggerV2.log_cases``
     uses for baseline case media.
     """
     if isinstance(inputs, str):
@@ -121,9 +124,9 @@ def _snapshot_trace(trace: "Trace") -> "dict[str, Any]":
 
     The heavy arrays (attentions/hidden_states/logits) already have a durable
     home: whichever ones an analyzer chooses to return via ``Result.artifacts``
-    are saved by ``RunLogger._save_probe_artifacts``. Duplicating them here
-    would multiply disk use for no new evidence, so this keeps only what a
-    reader needs to tell one ``forward()`` call apart from another.
+    are saved by ``RunLoggerV2._save_media``. Duplicating them here would
+    multiply disk use for no new evidence, so this keeps only what a reader
+    needs to tell one ``forward()`` call apart from another.
     """
     return {
         "tokens": list(trace.tokens),
@@ -132,21 +135,21 @@ def _snapshot_trace(trace: "Trace") -> "dict[str, Any]":
 
 
 class InstrumentedModel:
-    """Forwarding proxy around a ``Model`` that reports every call to a ``RunLogger``.
+    """Forwarding proxy around a ``Model`` that reports every call to a ``RunLoggerV2``.
 
     One instance per analyzer invocation — construct fresh in
     ``ProbeAgent._run_direct`` rather than sharing across analyzers, so
     ``call_index`` is scoped to exactly the (cycle, analyzer) pair it is
     tagged with. Safe to use from a ``ThreadPoolExecutor`` worker: each
     instance is only ever touched by the one thread running that analyzer,
-    and the underlying JSONL sink (``RunLogger``'s dedicated file handler)
-    is itself thread-safe.
+    and the underlying atomic-rewrite sink (guarded by ``RunLoggerV2``'s own
+    lock) is itself thread-safe.
     """
 
     def __init__(
         self,
         model: "Model",
-        run_logger: "RunLogger",
+        run_logger: "RunLoggerV2",
         *,
         cycle: int,
         analyzer: str,

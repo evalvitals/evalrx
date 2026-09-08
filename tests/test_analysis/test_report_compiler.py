@@ -90,15 +90,15 @@ def test_question_uses_generic_text_when_neither_source_is_available():
 
 
 def test_load_run_attaches_diagnostic_report(tmp_path):
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
     fused = tmp_path / "fused"
-    logs = tmp_path / "logs_m2_5"
+    logs = tmp_path / "logs"
     fused.mkdir()
-    logs.mkdir()
     (fused / "fused_report.json").write_text(json.dumps(_explore_report()), encoding="utf-8")
-    (logs / "run_log.jsonl").write_text(
-        json.dumps({"event": "analysis", "cycle": 1, "conclusion": "ok"}) + "\n",
-        encoding="utf-8",
-    )
+    logger = RunLoggerV2(logs, observability_mode="offline")
+    logger._append_stage("M2", "analysis", {"cycle": 1, "conclusion": "ok"})
+    logger.close()
 
     loaded = load_run(tmp_path)
 

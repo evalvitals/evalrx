@@ -13,7 +13,7 @@ reused:
 build_cases.py     data/cases/<model>.json        balanced FAIL/PASS batch (offline, once)
 run_m1.py          outputs/m1_state.pkl           M1 analyzers (GPU)
 run_fused.py       outputs/fused/...              Step 1: explore + held-out confirm (claude)
-run_m2-5.py        outputs/logs_m2_5/run_log.jsonl Step 2: M2→M3→M4→Fix (GPU + claude)
+run_m2-5.py        outputs/logs_m2_5/run.json + M<n>/log.json Step 2: M2→M3→M4→Fix (GPU + claude)
 evalrx serve outputs                           the report
 ```
 
@@ -66,11 +66,11 @@ cd <repo-root>/examples/m1_m5/deco_hallu
 
 - **`run_analysis.py`** runs `VLDiagnoseLoop.run_analysis()` — M1 (replayed) → M2
   (the *same* rigorous e-BH stats + charts) → M3 (propose) — and stops. It writes
-  `outputs/logs_analysis/run_log.jsonl` plus `outputs/analysis/{proposed_hypotheses.json,
+  `outputs/logs_analysis/run.json + M<n>/log.json` plus `outputs/analysis/{proposed_hypotheses.json,
   analysis_state.pkl}` (the proposed hypotheses + the exact M2 stats report).
 - **`run_confirm_fix.py`** reloads those artifacts and runs `VLDiagnoseLoop.run_confirm()`
   (M4) on the **same** hypotheses, then `run_m5` + `run_fix`, into
-  `outputs/logs_confirm_fix/run_log.jsonl`. The dashboard merges both log dirs, so
+  `outputs/logs_confirm_fix/run.json + M<n>/log.json`. The dashboard merges both log dirs, so
   after this each proposed hypothesis gains its M4/M5/Fix verdict.
 
 The one-shot `run_m2-5.py` (M2→M3→M4→Fix together) is still here for the
@@ -102,7 +102,7 @@ $PY run_m2-5.py \
      --recipes        outputs/fused/confirmed_recipes.json \
      --explore-report outputs/fused/fused_report.json \
      --device cuda
-#    -> outputs/logs_m2_5/run_log.jsonl        (M2 stats, M3 hypotheses, M4 tests, Fix)
+#    -> outputs/logs_m2_5/run.json + M<n>/log.json        (M2 stats, M3 hypotheses, M4 tests, Fix)
 
 # 4) View the report
 $PY -m evalrx.cli serve outputs             # or: evalrx serve outputs
@@ -141,18 +141,18 @@ The **🔬 Diagnosis flow** and **🗂 Tables** tabs hold the raw event timeline
 ```
 outputs/
   m1_state.pkl
-  logs_m1/run_log.jsonl                 # M1 probe events
+  logs_m1/run.json + M<n>/log.json                 # M1 probe events
   fused/
     fused_report.json                   # Step 1: observations, charts, signal verdicts
     confirmed_recipes.json              # signals fed to Step 2
     figures/*.png  sandbox/tables/*.csv # rendered charts + their data
-  logs_m2_5/run_log.jsonl               # one-shot Step 2: analysis / diagnosis / surgery / fix
+  logs_m2_5/run.json + M<n>/log.json               # one-shot Step 2: analysis / diagnosis / surgery / fix
 
   # decoupled flow (run_analysis.sh → run_confirm_fix.sh):
-  logs_analysis/run_log.jsonl           # PHASE 1: M1 + M2 stats/charts + M3 proposed hyps
+  logs_analysis/run.json + M<n>/log.json           # PHASE 1: M1 + M2 stats/charts + M3 proposed hyps
   analysis/proposed_hypotheses.json     # PHASE 1: the proposed hypotheses (human-readable)
   analysis/analysis_state.pkl           # PHASE 1: {hypotheses, M2 stats_report} → reused by PHASE 2
-  logs_confirm_fix/run_log.jsonl        # PHASE 2: M4 verdicts + M5 surgery + Fix
+  logs_confirm_fix/run.json + M<n>/log.json        # PHASE 2: M4 verdicts + M5 surgery + Fix
 ```
 
 ## Adapt to a new case

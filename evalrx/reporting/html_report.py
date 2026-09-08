@@ -142,6 +142,45 @@ ANALYZER_GLOSSARY: dict[str, tuple[str, str, str, list[tuple[str, str, str]]]] =
             ("Majority Answer Agreement Rate", "consistency", "pct"),
         ],
     ),
+    "self_repair": (
+        "Self-Repair on Re-ask",
+        "When asked to check its own answer, does the model catch and fix its mistakes?",
+        "Asks the model to critique and revise its first answer. Reports how often it detects a real error, how often it raises a false alarm on a correct answer, and how often the revision actually repairs a failure.",
+        [
+            ("Error Detection Accuracy", "detection_accuracy", "pct"),
+            ("False Alarm Rate on Correct Answers", "false_alarm_rate", "pct"),
+            ("Repair Rate on Failures", "repair_rate", "pct"),
+        ],
+    ),
+    "cot_faithfulness": (
+        "Chain-of-Thought Faithfulness",
+        "Does the written reasoning actually drive the final answer, or is it decoration?",
+        "Compares the answer the model commits to early in its reasoning with the one it ends on: reasoning that drifts away from a correct early answer, or rescues a wrong one late, is unfaithful to the final output.",
+        [
+            ("Early Answer Matches Final", "mean_early_match_rate", "pct"),
+            ("Drift-Away Rate", "drift_away_rate", "pct"),
+            ("Late Rescue Rate", "late_rescue_rate", "pct"),
+        ],
+    ),
+    "perturbation_battery": (
+        "Perturbation Invariance",
+        "Do meaning-preserving edits to the prompt change the answer?",
+        "Rewrites each prompt in ways that should not change the answer (paraphrase, whitespace, ordering) and counts how often the answer breaks anyway; a no-op edit that breaks the answer points at memorisation or brittleness.",
+        [
+            ("Invariance Break Rate", "mean_invariance_break_rate", "pct"),
+            ("No-op Break Rate", "noop_break_rate", "pct"),
+        ],
+    ),
+    "step_rollout_value": (
+        "Step Rollout Value",
+        "At which reasoning step does the model's chance of finishing correctly collapse?",
+        "Rolls out completions from successive prefixes of the reasoning and scores each; the point where the success rate drops is where the reasoning went wrong.",
+        [
+            ("Success Rate from the First Step", "mean_initial_value", "pct"),
+            ("Success Rate from the Last Step", "mean_final_value", "pct"),
+            ("Mean Break Depth", "mean_break_depth", "num"),
+        ],
+    ),
     "logprob_entropy": (
         "Predictive Uncertainty (Output Entropy)",
         "Is the model confident or internally hesitating when generating key tokens?",
@@ -187,7 +226,9 @@ def clean_model_display_name(raw: str) -> str:
         key = m.group(1)
         parts = [p.capitalize() if not p.isdigit() else p for p in key.split("-")]
         return "-".join(parts)
-    clean = re.sub(r"^HFLocalModel\((.*?)\)$", r"\1", raw).strip()
+    # Any Model subclass stringifies as ClassName(<name>) — EndpointModel(qwen3.5-2b)
+    # for the vLLM chain — and the class is not something a reader needs.
+    clean = re.sub(r"^[A-Za-z_]\w*\((.*)\)$", r"\1", raw.strip()).strip().strip("'\"")
     return clean or raw
 
 
@@ -222,12 +263,10 @@ def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
     """Return (logs_dir, explore_dir, fixes_dir)."""
     run_dir = run_dir.resolve()
     logs_dir = run_dir
-    if (run_dir / "logs" / "run_log.jsonl").exists():
+    if (run_dir / "logs" / "run.json").exists():
         logs_dir = run_dir / "logs"
-    elif (run_dir / "logs" / "run.json").exists():
-        logs_dir = run_dir / "logs"
-    elif not (run_dir / "run_log.jsonl").exists():
-        for child in run_dir.glob("*/run_log.jsonl"):
+    elif not (run_dir / "run.json").exists():
+        for child in run_dir.glob("*/run.json"):
             logs_dir = child.parent
             break
 
@@ -422,23 +461,9 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     logs_dir, explore_dir, fixes_dir = resolve_run_dirs(run_dir)
     manifest_path, manifest = find_manifest(example_dir or logs_dir.parent, logs_dir)
 
-    log_path = logs_dir / "run_log.jsonl"
-    if not log_path.exists() and (logs_dir.parent / "run_log.jsonl").exists():
-        log_path = logs_dir.parent / "run_log.jsonl"
+    from evalrx.reporting.run_events import read_v2_events
 
-    events: list[dict[str, Any]] = []
-    if log_path.exists():
-        for line in log_path.open(encoding="utf-8"):
-            line = line.strip()
-            if line:
-                try:
-                    events.append(json.loads(line))
-                except Exception:
-                    pass
-    elif (logs_dir / "run.json").exists():
-        from evalrx.reporting.run_events import read_v2_events
-
-        events = read_v2_events(logs_dir)
+    events: list[dict[str, Any]] = read_v2_events(logs_dir)
 
     all_run_starts = [e for e in events if e.get("event") == "run_start"]
     run_start = all_run_starts[-1] if all_run_starts else {}
@@ -475,6 +500,28 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         else str(protocol)
     )
     benchmark_name = clean_benchmark_name(protocol_desc, str(manifest_path or ""))
+    # The run's own summary.json (written by run_pipeline beside logs/) names
+    # the model and dataset the way the user typed them — "qwen3.5-2b",
+    # "bbh_word_sorting". It beats both a stringified Model repr and the
+    # keyword table above, which only knows a handful of benchmarks and
+    # otherwise says "Evaluation Benchmark". The run directory's own name is
+    # the last resort for the dataset, since run_all.sh names it after one.
+    run_summary: dict[str, Any] = {}
+    try:
+        summary_path = logs_dir.parent / "summary.json"
+        loaded = json.loads(summary_path.read_text()) if summary_path.exists() else {}
+        run_summary = loaded if isinstance(loaded, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        run_summary = {}
+    if run_summary.get("model"):
+        clean_model = str(run_summary["model"])
+    if benchmark_name == "Evaluation Benchmark":
+        folder = logs_dir.parent.name
+        benchmark_name = (
+            str(run_summary.get("dataset") or "")
+            or (folder if folder not in {"outputs", "logs", ""} else "")
+            or benchmark_name
+        )
 
     # Pre-M1
     probe_searches = by_event("probe_search")
@@ -491,12 +538,27 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     analyzers = p0.get("analyzers") or p0.get("selected_analyzers") or []
     m1_duration = p0.get("duration_sec")
 
+    # An agent-written probe ("generated:probe1") has no glossary entry; the
+    # need it was written for is the only description that exists, and the
+    # codegen event carries it verbatim.
+    generated_need: dict[str, str] = {}
+    for event in by_event("tool_codegen"):
+        tool = str(event.get("tool_name") or "")
+        if tool and event.get("need"):
+            generated_need[tool] = str(event["need"])
     m1_results = []
     for name in analyzers:
         result_paths = p0.get("result_paths") or {}
         p = logs_dir / str(result_paths.get(name) or f"artifacts/c{m1_cycle}_{name}.result.json")
         findings, n = {}, None
         per_case_rows = []
+        # V1 externalised each analyzer's result to artifacts/; RunLoggerV2
+        # keeps the findings inline on the probe entry itself.
+        inline = (p0.get("findings") or {}).get(name)
+        if not p.exists() and isinstance(inline, dict):
+            findings = inline
+            n = findings.get("n_cases") or findings.get("n_scored")
+            per_case_rows = findings.get("per_case") or []
         if p.exists():
             try:
                 raw = json.loads(p.read_text())
@@ -521,6 +583,22 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         meta = ANALYZER_GLOSSARY.get(
             name, (name.replace("_", " ").title(), "Measures model behavior across this dimension", "Standard diagnostic probe.", [])
         )
+        if name.startswith("generated:"):
+            # No glossary can know a probe the agent wrote during this run: the
+            # need it was written for is its question (first sentence up front,
+            # the whole brief as the description), and its headline is whatever
+            # scalar findings it reported, under their own names.
+            need = generated_need.get(name.split(":", 1)[1], "")
+            first = re.split(r"(?<=[.;])\s+", need.strip(), maxsplit=1)[0] if need else "Agent-written probe"
+            if len(first) > 180:
+                first = first[:177].rstrip() + "…"
+            scalar = [
+                (key.replace("_", " "), key, "pct" if key.endswith(("_rate", "_frac")) else "num")
+                for key, value in findings.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                and key not in {"n_cases", "n_scored", "n_graded", "n_samples"}
+            ][:5]
+            meta = (f"Agent-written probe · {name.split(':', 1)[1]}", first, need or "Agent-written probe.", scalar)
         headline = []
         for label, path, fmt in meta[3]:
             v = _dig(findings, path)
@@ -560,6 +638,10 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         raw_stats = json.loads(stats_path.read_text()) if stats_path.exists() else []
     except (OSError, json.JSONDecodeError):
         raw_stats = []
+    if not raw_stats and isinstance(stats_ref, list):
+        # RunLoggerV2 keeps the M2 rows inline on the analysis entry rather
+        # than externalising them to artifacts/.
+        raw_stats = [row for row in stats_ref if isinstance(row, dict)]
     stats = []
     for s in raw_stats:
         stats.append({
@@ -580,6 +662,34 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             explore_data = json.loads((explore_dir / "exploratory_report.json").read_text())
         except Exception:
             pass
+    if not explore_data:
+        # RunLoggerV2 records the explore step as an M2 event: observations and
+        # caveats as sentences, figures as paths under logs/. Shape it the way
+        # the explore report is shaped, so the M2 record renders either.
+        explores = by_event("explore")
+        e0 = explores[-1] if explores else {}
+        takeaways = []
+        for text in a0.get("findings") or []:
+            if isinstance(text, str) and text.strip():
+                # "[MEDIUM] self_consistency.consistency=0.2 < 0.5: low self-consistency — …"
+                body = re.sub(r"^\[[A-Z]+\]\s*", "", text.strip())
+                head = body.split(": ", 1)[1] if ": " in body else body
+                takeaways.append({"title": head[:110], "plain_title": head[:110],
+                                  "analysis": body, "chart_names": [], "table_names": []})
+        for text in e0.get("observations") or []:
+            if isinstance(text, str) and text.strip():
+                head = text.strip().split(";")[0].split(". ")[0]
+                takeaways.append({"title": head[:90], "plain_title": head[:90],
+                                  "analysis": text.strip(), "chart_names": [], "table_names": []})
+        if takeaways or e0:
+            explore_data = {
+                "takeaways": takeaways,
+                "caveats": [c for c in e0.get("caveats") or [] if isinstance(c, str)],
+                "observations": [o for o in e0.get("observations") or [] if isinstance(o, str)],
+                "figures": [f for f in e0.get("figures") or [] if isinstance(f, str)],
+                "adjudication": e0.get("adjudication") or {},
+                "candidate_signals": [], "hypotheses": [],
+            }
 
     # M3: Hypotheses
     diagnoses = by_event("diagnosis")
@@ -600,18 +710,22 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     except (OSError, json.JSONDecodeError):
         m4_results = []
     m4_event = m4_surgeries[-1] if m4_surgeries else {}
-    if m4_event:
-        evidence = m4_event.get("evidence") or {}
+    if m4_surgeries:
         # The JSONL event is trace-scoped; a report artifact can be stale when
-        # the same run directory is appended to later.
+        # the same run directory is appended to later. One hypothesis can be
+        # tested more than once across cycles — every hypothesis this run
+        # actually adjudicated belongs here, not just the most recent verdict,
+        # otherwise a 3-hypothesis M4 pass reports as if only 1 ran.
         m4_results = [{
-            "status": m4_event.get("status"),
-            "effect_size": evidence.get("m4_effect_size"),
-            "confidence": m4_event.get("confidence_score"),
-            "verdict": evidence.get("m4_verdict"),
-            "evidence_grade": evidence.get("m4_evidence_grade"),
-            "protocol_consistent": evidence.get("m4_protocol_consistent"),
-        }]
+            "hypothesis_id": event.get("hypothesis_id"),
+            "hypothesis": event.get("hypothesis"),
+            "status": event.get("status"),
+            "effect_size": (event.get("evidence") or {}).get("m4_effect_size"),
+            "confidence": event.get("confidence_score"),
+            "verdict": (event.get("evidence") or {}).get("m4_verdict"),
+            "evidence_grade": (event.get("evidence") or {}).get("m4_evidence_grade"),
+            "protocol_consistent": (event.get("evidence") or {}).get("m4_protocol_consistent"),
+        } for event in m4_surgeries]
 
     # M5-Surgery
     m5_surgeries = [s for s in surgeries if s.get("module") != "m4"]
@@ -805,6 +919,8 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "duration": m2_duration,
             "stats": stats,
             "explore": explore_data,
+            # The analysis step's own figures (V2 paths under logs/).
+            "figures": [f for f in a0.get("figures") or [] if isinstance(f, str)],
         },
         "m3": {
             "hypotheses": hypotheses,
@@ -853,8 +969,14 @@ def embed_figures(explore_dir: Path | None, logs_dir: Path) -> dict[str, str]:
     paths = []
     if explore_dir and (explore_dir / "figures").is_dir():
         paths += sorted((explore_dir / "figures").glob("*.png"))
-    if (logs_dir / "figures").is_dir():
-        paths += sorted((logs_dir / "figures").glob("*.png"))
+    # V1 writes M2 charts to logs_dir/figures; V2's RunContext.figures_dir
+    # maps the same role to logs_dir/M2/artifacts (see run_context.py). V2's
+    # explore-step figures are captured inline into M2/log.json rather than
+    # written as loose files, so the explore_dir branch above still finds
+    # nothing for a V2 run — a known follow-up, not covered here.
+    for candidate in (logs_dir / "figures", logs_dir / "M2" / "artifacts"):
+        if candidate.is_dir():
+            paths += sorted(candidate.glob("*.png"))
 
     for p in paths:
         key = p.stem
@@ -1153,7 +1275,7 @@ def generate_html_report(data: dict[str, Any], figures: dict[str, str], audio_ma
       <details class="collapsible-box" open>
         <summary>Langfuse Trace Bundle — {agent_langfuse.get('n_spans', 0)} spans · {agent_langfuse.get('n_generations', 0)} generations · {agent_langfuse.get('n_scores', 0)} scores</summary>
         <div class="content">
-          <p class="text-muted" style="font-size:12.5px;">Trace id <span class="mono">{esc(agent_langfuse.get('trace_id') or '')}</span> — the same id used by <span class="mono">run_log.jsonl</span> and (when live-synced) the Langfuse dashboard. Every span below is also mirrored there.</p>
+          <p class="text-muted" style="font-size:12.5px;">Trace id <span class="mono">{esc(agent_langfuse.get('trace_id') or '')}</span> — the same id used by <span class="mono">run.json</span> and (when live-synced) the Langfuse dashboard. Every span below is also mirrored there.</p>
           <div class="table-wrapper" style="max-height:300px; overflow-y:auto;">
             <table class="data-table"><thead><tr><th>Stage</th><th>Span</th><th>Status</th></tr></thead><tbody>{span_rows}</tbody></table>
           </div>
@@ -2083,7 +2205,7 @@ def build_html_report(
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Render a finished EvalRX diagnostic run as an interactive HTML page.")
-    ap.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run_log.jsonl or logs/")
+    ap.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run.json or logs/")
     ap.add_argument("--example-dir", default=None, help="Root holding data/ (default: parent of run_dir)")
     ap.add_argument("--out", "-o", default=None, help="Output HTML file path (default: <run_dir>/report.html)")
     ap.add_argument("--no-audio", action="store_true", help="Skip audio clip compression and embedding")

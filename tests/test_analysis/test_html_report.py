@@ -3,8 +3,35 @@
 import json
 from pathlib import Path
 
-from evalrx.reporting.html_report import build_html_report, extract_run_data
+from evalrx.reporting.html_report import build_html_report, embed_figures, extract_run_data
 from evalrx.reporting.langfuse_exporter import export_to_langfuse_bundle
+
+
+def _png(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"fake")
+
+
+def test_embed_figures_finds_v1_figures_dir(tmp_path: Path):
+    _png(tmp_path / "figures" / "m2_effects.png")
+    out = embed_figures(None, tmp_path)
+    assert "m2_effects" in out and out["m2_effects"].startswith("data:image/png;base64,")
+
+
+def test_embed_figures_finds_v2_m2_artifacts(tmp_path: Path):
+    """Regression test: embed_figures used to only glob logs_dir/figures, so
+    RunContext.figures_dir's V2 mapping (M2/artifacts, run_context.py) meant
+    every V2 run's static HTML export rendered zero embedded M2 charts."""
+    _png(tmp_path / "M2" / "artifacts" / "m2_effects.png")
+    out = embed_figures(None, tmp_path)
+    assert "m2_effects" in out and out["m2_effects"].startswith("data:image/png;base64,")
+
+
+def test_embed_figures_combines_v1_and_v2_sources_without_clobbering(tmp_path: Path):
+    _png(tmp_path / "figures" / "shared.png")
+    _png(tmp_path / "M2" / "artifacts" / "other.png")
+    out = embed_figures(None, tmp_path)
+    assert {"shared", "other"} <= set(out)
 
 
 def test_html_report_generation(tmp_path: Path):
@@ -52,37 +79,31 @@ def test_langfuse_bundle_export(tmp_path: Path):
         assert loaded["trace"]["name"].startswith("EvalRX:")
 
 
-def test_report_uses_latest_trace_and_m4_status(tmp_path: Path):
-    """An appended run must not inherit M1/M4 state from an earlier trace."""
-    events = [
-        {"event": "run_start", "trace_id": "old", "model": "old", "protocol": {}},
-        {"event": "probe", "trace_id": "old", "cycle": 0, "analyzers": ["old_probe"]},
-        {
-            "event": "run_start",
-            "trace_id": "new",
-            "model": "new",
-            "protocol": {},
-            "n_cases": 1,
+def test_report_reads_model_m1_and_m4_status(tmp_path: Path):
+    """extract_run_data surfaces the run's model, M1 analyzers, and M4 status.
+
+    V1's flat, append-only run_log.jsonl could accumulate two traces in one
+    file (a run re-launched into the same directory), which is what this
+    test used to guard against by injecting a stale "old" trace and checking
+    the reader picked the "new" one. RunLoggerV2 does full-document atomic
+    rewrites instead of appending — a second instance pointed at the same
+    run_dir overwrites run.json and any stage doc it touches wholesale, so
+    that scenario can't arise on disk in the first place; there's nothing
+    for a reader-side trace filter to do.
+    """
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger.log_run_start({"model": "new", "protocol": {}, "n_cases": 1})
+    logger._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["new_probe"]})
+    logger._append_stage("M4", "surgery", {
+        "module": "m4", "status": "supported", "fixed": False, "confidence_score": 0.8,
+        "evidence": {
+            "m4_test_name": "association", "m4_effect_size": 0.3,
+            "m4_verdict": "supported by held-out evidence", "m4_evidence_grade": "causal",
         },
-        {"event": "probe", "trace_id": "new", "cycle": 2, "analyzers": ["new_probe"]},
-        {
-            "event": "surgery",
-            "trace_id": "new",
-            "module": "m4",
-            "status": "supported",
-            "fixed": False,
-            "confidence_score": 0.8,
-            "evidence": {
-                "m4_test_name": "association",
-                "m4_effect_size": 0.3,
-                "m4_verdict": "supported by held-out evidence",
-                "m4_evidence_grade": "causal",
-            },
-        },
-    ]
-    (tmp_path / "run_log.jsonl").write_text(
-        "\n".join(json.dumps(event) for event in events), encoding="utf-8"
-    )
+    })
+    logger.close()
 
     data = extract_run_data(tmp_path)
 
@@ -93,11 +114,10 @@ def test_report_uses_latest_trace_and_m4_status(tmp_path: Path):
 
 def test_report_escapes_script_terminators_in_case_data(tmp_path: Path):
     """Manifest/model text must not be able to escape the CASES script block."""
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.reporting.html_report import generate_html_report
 
-    (tmp_path / "run_log.jsonl").write_text(
-        json.dumps({"event": "run_start", "trace_id": "t", "protocol": {}}), encoding="utf-8"
-    )
+    RunLoggerV2(tmp_path, observability_mode="offline").log_run_start({"protocol": {}})
     data = extract_run_data(tmp_path)
     payload = "</script><script>globalThis.pwned = true</script>"
     data["cases"] = [{

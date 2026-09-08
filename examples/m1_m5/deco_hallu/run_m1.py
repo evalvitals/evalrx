@@ -39,7 +39,7 @@ def main() -> None:
 
     from evalrx import compose
     from evalrx.core.capability import Capability
-    from evalrx.eval_agent import CliAgentConfig, RunLogger
+    from evalrx.eval_agent import CliAgentConfig, RunLoggerV2
     from evalrx.eval_agent.stages.probe_agent import ProbeAgent
     from evalrx.models.backends.base import RuntimeConfig
 
@@ -63,7 +63,7 @@ def main() -> None:
         extra_args=(("--effort", codegen_effort) if codegen_effort else ()),
     )
     protocol = run.build_protocol()
-    run_logger = RunLogger(run_dir=OUT / "logs_m1", verbose=True)
+    run_logger = RunLoggerV2(run_dir=OUT / "logs_m1", verbose=True)
     probe_agent = ProbeAgent(judge=judge, max_analyzers=args.max_analyzers,
                              allow_codegen=True, codegen_config=codegen,
                              run_logger=run_logger)

@@ -1,16 +1,20 @@
 # RunLoggerV2 — design notes
 
-Status: **coexists with `RunLogger`** (`run_logger.py`). Nothing in `RunLogger`
-was touched, modified, or deleted to build this. `RunLoggerV2` is an opt-in
-alternative. Use `RunContext(..., logger_version="v2")`, or construct it and
-pass it as `run_logger=` anywhere `RunLogger` is accepted. V1 remains the
-default and must not be removed until real-run parity and UI acceptance pass.
+Status: **the only run logger.** `RunLoggerV2` is `RunContext`'s unconditional
+logger — there is no `logger_version` argument, no V1 to opt into. `RunLogger`
+(the old `run_logger.py`, "V1") has been deleted outright: the file, its own
+test suite, and every "try V1 first, fall back to V2" branch in the
+report/observability readers (`dynamic.py`, `html_report.py`, `tracer.py`,
+`dashboard.py`, `case_study.py`, `server.py`). Reading an old V1-format
+archive (`run_log.jsonl`, `manifest.json`, `README.txt`) is no longer
+supported by anything in this package — that was a deliberate choice, not an
+oversight: see "History" below for how the migration got here.
 
 ## Why this exists
 
-`RunLogger` grew organically over many stages of the diagnose-loop project
-(see `evalrx/eval_agent/run_logger.py`'s own docstring and CLAUDE.md history)
-and its current output for one run looks like:
+`RunLogger` (the deleted "V1" logger) grew organically over many stages of
+the diagnose-loop project (see CLAUDE.md history) and its output for one run
+looked like:
 
 ```
 run_dir/
@@ -242,11 +246,6 @@ ephemeral execution space for V2, and the logger captures its evidence before
 
 - **No Markdown summaries** (`record.md`, `outcome.md`). Same information,
   no separate file; a renderer builds a human view from the JSON on demand.
-- **No opt-in JSON-Schema self-validation** (`RunLogger`'s
-  `EVALRX_VALIDATE_LOG` / `log_schema.py` / `run_log.schema.json`). This is a
-  new structure with this markdown file as its spec instead of a machine
-  schema. (A JSON-Schema for this layout is a reasonable follow-up, not done
-  here.)
 - **Simplified verbose console output.** `RunLogger`'s `verbose=True` renders
   multi-line, stage-specific narration (`_VerboseFormatter`). `RunLoggerV2`'s
   `verbose=True` prints one line per event (`[M3] diagnosis cycle=0`) — this
@@ -255,12 +254,44 @@ ephemeral execution space for V2, and the logger captures its evidence before
 
 ## What "confirmed working" means so far
 
+### Non-Langfuse parity additions
+
+- Non-numeric dict/list probe artifacts are inlined under
+  `M1/log.json["probe"][i]["artifacts"]`, keyed by `analyzer/artifact`.
+  Numeric artifacts remain `.npy` files. `results` retains result metadata
+  and summaries independently from these artifacts.
+- Fix attempts (including EXPLORE selection attempts with a `trial_root`)
+  carry a `workspace_snapshot`. Before deleting its temporary execution tree,
+  `RunContext.finalize()` also captures the entire remaining tree in
+  `run.json["runtime_snapshot"]`, including discarded trials and late files.
+  These managed snapshots preserve text without the normal 2 MB cap, inline
+  other UTF-8 text such as shell scripts, and copy binary files into M5 artifacts.
+  Failed archival prevents cleanup so it can be retried. Media names include
+  source path and content hashes to preserve different trials and revisions.
+- M4/M5 surgery records include `module`; the reader supplies this field for
+  older V2 bundles too. Existing case-study M4 filtering works on both.
+- `loop_end.verified_hypotheses` retains `failure_mode`, `status`, `confidence`,
+  and `protocol_consistent`, alongside `statement` and `verdict`.
+- Every newly written event carries `event`, `schema_version`, `trace_id`,
+  `stage`, `span_id`, and a global `event_seq` assigned under the logger lock.
+  The reader preserves these identities and sorts new bundles by sequence;
+  historical bundles still use timestamp ordering. These local span IDs do
+  not add or change Langfuse delivery.
+- `EVALRX_VALIDATE_LOG=1` enables warn-only validation of persisted events
+  using `log_schema.build_schema()` — the single, merged event schema (V1's
+  builder and V2's were folded into one when V1 was deleted; validation
+  requires the optional `jsonschema` package).
+
+Regression tests cover data retention after cleanup, retry after archival
+failure, M4 rendering of old/new bundles, verified-summary parity, concurrent
+event ordering, and valid/invalid schema inputs. These are local tests, not
+a new real-model benchmark or live Langfuse acceptance run.
+
 `tests/test_eval_agent/test_run_logger_v2.py`:
 
 1. Drives every single `log_*` method with the SAME real domain objects
-   `test_log_schema.py` uses to conformance-check `RunLogger` (`Result`,
-   `StatsAnalysisReport`, `DiagnosisResult`, `InterventionResult`,
-   `ExploratoryAnalysisReport`, `Hypothesis`) — not bespoke V2-shaped fakes.
+   (`Result`, `StatsAnalysisReport`, `DiagnosisResult`, `InterventionResult`,
+   `ExploratoryAnalysisReport`, `Hypothesis`) — not bespoke fakes.
 2. Asserts the layout rules directly: exactly one folder per stage, no
    non-JSON/non-media files anywhere under the complete RunContext root, same-type events
    share one array, an unroutable tag lands in `unrouted` rather than
@@ -269,22 +300,51 @@ ephemeral execution space for V2, and the logger captures its evidence before
 3. Runs a real `VLDiagnoseLoop.run()` end to end (the same scenario
    `test_holdout_cases_logged.py` uses to catch a real historical bug —
    the held-out confirm split's cases never getting logged) with
-   `RunLoggerV2` and also tests the actual `RunContext(logger_version="v2")`
-   boundary, ephemeral trial/explore cleanup, full model-call I/O, report
-   inlining, artifact copying, and quarantine rewrites.
+   `RunLoggerV2` and also tests the actual `RunContext(...)` boundary,
+   ephemeral trial/explore cleanup, full model-call I/O, report inlining,
+   artifact copying, and quarantine rewrites.
 
-The reporting compatibility reader in `evalrx/reporting/run_events.py` exposes
-V2 documents to the existing dynamic report, HTML report, server, dashboard,
-case-study loader, and Langfuse backfill paths without rewriting them.
+The reader in `evalrx/reporting/run_events.py` (`read_v2_events`) exposes V2
+documents to the dynamic report, HTML report, server, dashboard, case-study
+loader, and Langfuse backfill paths as one flat event list, so those readers
+don't each re-implement the bucket-flattening logic. It's the sole read
+path now — there's no other format for it to fall back to.
 
-## Next steps (explicitly not done here)
+## History — how the migration got here
 
-- Re-run a real `examples/benchmark/*` job after these integration changes and
-  check the entire output tree, per-stage/model-call counts, relative artifact
-  references, and rendered UI against its matched V1 run.
-- Add a published JSON Schema for V2 and measure write amplification on long
-  runs; atomic full-document rewrites favor crash readability over throughput.
-- Only after real-run and UI acceptance: swap `RunContext.logger` (or examples) to
-  default to `RunLoggerV2`, and remove `run_logger.py` + its sibling files
-  (`log_schema.py`, `run_log.schema.json`, `model_calls.jsonl` handling in
-  `model_instrumentation.py`'s call sites) — a separate, later change.
+**Phase 1** flipped `RunContext`'s default from V1 to V2 (`logger_version`
+went `"v1"` → `"v2"`, still an opt-out), fixed the two on-disk-layout bugs the
+flip exposed (`VLDiagnoseLoop._explore_out_dir()` was hand-deriving
+`<root>/explore` instead of calling `ctx.explore_dir`; `html_report.
+embed_figures()` was only checking V1's `figures/`, so every V2 run's static
+HTML export rendered zero embedded M2 charts), and triaged the test suite so
+V1-specific tests were pinned explicitly (`logger_version="v1"`) rather than
+silently inheriting the new default.
+
+**Phase 2** removed V1 outright, both writing and reading: deleted
+`run_logger.py`, its own test suite, the `logger_version` parameter itself
+(there is nothing to select between anymore), `run_log.schema.json`'s
+separate builder (merged into `log_schema.build_schema()`, schema version
+bumped 5→6 for the merged envelope), and every "try V1, fall back to V2"
+branch in the report/observability readers and in
+`examples/dataset_selection/llm_benchmark/run_pipeline.py`'s own confirm-only
+reloader. `evalrx/reporting/run_events.py`'s `read_v2_events` stayed as the
+one read path; it never had a V1 branch to remove. A pre-existing archive
+written by V1 is no longer readable by anything in this package — that
+includes `examples/benchmark/tools/extract_figure_data.py`, a standalone
+analysis tool outside the `evalrx` package proper, which got its own,
+independent V1→V2 conversion in the same pass.
+
+## Known gaps (not V1/V2 related, found along the way)
+
+- `RunLoggerV2` never pushes structured events through the outbox
+  (`tracer.record_event`) the way V1 did for every event — it relies on live
+  spans/generations (`start_span`/`log_generation`/`log_score`) instead. One
+  consequence: `evalrx/reporting/langfuse_source.py`'s `LangfuseRunSource`,
+  which recovers a run from Langfuse Observations shaped like V1's outbox
+  deliveries (`input={"event": {...}}`), gets back events with no `stage` tag
+  for a V2 run. `materialize()` routes those by event name to a best-guess
+  stage instead of losing them, but this is a workaround, not proof V2 runs
+  round-trip through Langfuse correctly — that needs RunLoggerV2 emitting
+  outbox-durable events itself, out of scope for the V1 removal this file
+  otherwise documents.

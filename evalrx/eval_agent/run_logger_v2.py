@@ -1,10 +1,9 @@
-"""RunLoggerV2 — a tidy, from-scratch redesign of the diagnose-loop logger.
+"""RunLoggerV2 — the diagnose-loop logger.
 
-Coexists with :mod:`~evalrx.eval_agent.run_logger` (``RunLogger``) — nothing
-there is touched, deleted, or reused destructively; a caller opts into this
-one explicitly by constructing it instead. See ``RUN_LOGGER_V2.md`` (next to
-this file) for the full design rationale, layout, and trade-offs; the four
-rules that shaped it:
+The only logger: an earlier flat ``run_log.jsonl`` design this one replaced
+coexisted with it for one migration window and has since been removed — see
+``RUN_LOGGER_V2.md`` (next to this file) for the full design rationale,
+layout, and trade-offs; the four rules that shaped it:
 
 1. Few files. One JSON document per pipeline stage, not a scattered pile of
    ``prompts/*.txt`` + ``artifacts/*.json`` + ``experiments/*.py`` + ...
@@ -17,23 +16,21 @@ rules that shaped it:
    stdout, prompts, markdown summaries — all of that is now a STRING VALUE
    inside the JSON, not a sibling ``.py``/``.txt``/``.md`` file.
 
-Public API mirrors ``RunLogger`` method-for-method (same names, same
-signatures, same call-site behavior for return values like ``log_probe``'s
-``list[Path]``) so an existing ``VLDiagnoseLoop(run_logger=...)`` /
-``ProbeAgent(run_logger=...)`` / ``AutoDiagnoseLoop(run_logger=...)`` can use
-this class by construction alone — no other code in ``loop.py``,
-``probe_agent.py``, or any ``stages/*.py`` needs to change to try it.
+Every ``log_*`` method keeps the same name, signature, and call-site
+behavior for return values (e.g. ``log_probe``'s ``list[Path]``) the flat
+JSONL logger it replaced had, so ``VLDiagnoseLoop(run_logger=...)`` /
+``ProbeAgent(run_logger=...)`` / ``AutoDiagnoseLoop(run_logger=...)`` never
+needed to change in ``loop.py``, ``probe_agent.py``, or any ``stages/*.py``
+across the switch.
 
-Known, deliberate scope cuts (see the design doc for why each is safe):
+Scope, by design:
   - RunContext integration uses an external ephemeral runtime tree. Generated
     text/code is captured into stage JSON and the runtime tree is removed at
     finalization instead of becoming a forest of trial files.
   - No human-readable Markdown summaries (``record.md``, ``outcome.md``) —
     the same information is in the JSON for a renderer to build one from.
-  - No opt-in JSON-Schema self-validation (``EVALRX_VALIDATE_LOG``) — this is
-    a new structure with its own doc instead of ``log_schema.py``.
-  - Verbose console narration is a plain one-line-per-event summary, not
-    ``RunLogger``'s multi-line stage narration.
+  - Verbose console narration is a plain one-line-per-event summary, not a
+    multi-line stage narration.
 Native Langfuse/OpenTelemetry mirroring (:class:`DiagnosticTracer`) IS kept,
 reused unchanged — it is orthogonal to file layout.
 """
@@ -51,17 +48,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-# Reused, not reimplemented: pure, stateless content-shaping helpers that
-# already produce exactly the values this module wants to embed. Importing
-# them is the ONLY coupling to run_logger.py — nothing there is modified, and
-# these functions have no file-writing side effects of their own.
-from evalrx.eval_agent.run_logger import (
-    _artifact_to_numpy,
-    _case_snapshot,
-    _iter_cases,
-    _probe_examples,
-    _save_artifact_figure,
-)
+from evalrx.eval_agent.hypothesis import hypothesis_id
+from evalrx.eval_agent.log_schema import RUN_LOG_SCHEMA_VERSION
 
 if TYPE_CHECKING:
     from evalrx.analysis.analysis_module import AnalysisReport
@@ -95,10 +83,8 @@ _MEDIA_EXTS = frozenset({
     ".wav", ".mp3", ".flac", ".ogg", ".mp4", ".avi", ".mov",
 })
 
-#: Text/code file suffixes worth inlining from a sandbox workspace snapshot.
-#: Mirrors RunLogger._SNAPSHOT_SUFFIXES's intent (skip weights/binaries) —
-#: redefined locally rather than imported so this module has no dependency
-#: on RunLogger's internals, only its free functions (see the imports above).
+#: Text/code file suffixes worth inlining from a sandbox workspace snapshot
+#: (skip weights/binaries — those go through the media/artifact path instead).
 _INLINE_SUFFIXES = frozenset(
     {".py", ".json", ".jsonl", ".md", ".txt", ".yaml", ".yml", ".csv", ".log", ".toml"}
 )
@@ -138,6 +124,8 @@ def _atomic_write_json(path: Path, obj: Any) -> None:
 
 def _inline_workspace(
     workdir: "str | Path", media_dir: Path, *, run_dir: "Path | None" = None,
+    max_bytes: "int | None" = _INLINE_MAX_BYTES,
+    preserve_all: bool = False,
 ) -> "dict[str, Any] | None":
     """Read a sandbox working directory into a JSON-safe dict, inlining text.
 
@@ -156,19 +144,31 @@ def _inline_workspace(
         return None
     files: dict[str, Any] = {}
     media: list[str] = []
+    media_files: dict[str, str] = {}
     skipped = 0
     for f in sorted(src.rglob("*")):
         if not f.is_file():
             continue
         rel = str(f.relative_to(src))
         suffix = f.suffix.lower()
-        if suffix in _MEDIA_EXTS:
+        inline_content = None
+        binary = suffix in _MEDIA_EXTS
+        if preserve_all and suffix not in _INLINE_SUFFIXES and not binary:
+            try:
+                inline_content = f.read_text(encoding="utf-8")
+                if "\x00" in inline_content:
+                    binary = True
+            except UnicodeError:
+                binary = True
+        if binary:
             media_dir.mkdir(parents=True, exist_ok=True)
-            # A content/path digest, not Python's str hash() — hash() is
-            # salted per-process (PYTHONHASHSEED), so the same workspace file
-            # would get a different artifact name on every run, breaking the
-            # re-run diffing this file exists to support.
-            digest = hashlib.sha256(rel.encode("utf-8")).hexdigest()[:8]
+            # Path + content identify a snapshot: trials cannot collide, and
+            # later writes to the same source cannot replace earlier evidence.
+            hasher = hashlib.sha256(str(f.resolve()).encode("utf-8"))
+            with f.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()[:12]
             dest = media_dir / f"{f.stem}_{digest}{suffix}"
             try:
                 shutil.copy2(f, dest)
@@ -176,30 +176,215 @@ def _inline_workspace(
                     media.append(str(dest.relative_to(run_dir)) if run_dir else str(dest))
                 except ValueError:
                     media.append(str(dest))
+                media_files[rel] = media[-1]
             except Exception:  # noqa: BLE001
+                if preserve_all:
+                    raise  # do not let finalization delete unarchived evidence
                 skipped += 1
             continue
-        if suffix not in _INLINE_SUFFIXES:
+        if suffix not in _INLINE_SUFFIXES and inline_content is None:
             files[rel] = f"<skipped: {suffix or 'no extension'}, not a recognised text type>"
             skipped += 1
             continue
         try:
-            if f.stat().st_size > _INLINE_MAX_BYTES:
+            if max_bytes is not None and f.stat().st_size > max_bytes:
                 files[rel] = f"<skipped: {f.stat().st_size} bytes, over the inline cap>"
                 skipped += 1
                 continue
-            files[rel] = f.read_text(encoding="utf-8", errors="replace")
+            files[rel] = inline_content if inline_content is not None else f.read_text(encoding="utf-8", errors="replace")
         except Exception as exc:  # noqa: BLE001
+            if preserve_all:
+                raise
             files[rel] = f"<could not read: {exc}>"
             skipped += 1
-    return {"files": files, "media": media, "skipped": skipped}
+    return {"files": files, "media": media, "media_files": media_files, "skipped": skipped}
+
+
+# Pure, stateless content-shaping helpers with no file-writing side effects.
+
+
+def _case_snapshot(case: Any) -> "dict[str, Any]":
+    """Make a small, renderer-safe baseline record for an evidence example."""
+    if hasattr(case, "to_dict"):
+        value = case.to_dict()
+    elif isinstance(case, dict):
+        value = dict(case)
+    else:
+        value = {"id": str(getattr(case, "id", ""))}
+    inputs = value.get("inputs") if isinstance(value.get("inputs"), dict) else {}
+    return {
+        "id": str(value.get("id") or value.get("case_id") or ""),
+        "input": inputs.get("prompt") or value.get("prompt") or value.get("instruction") or "",
+        "baseline_output": value.get("observed", value.get("output")),
+        "expected": value.get("expected"),
+        "outcome": value.get("label") or value.get("status") or "unknown",
+    }
+
+
+def _iter_cases(cases: Any) -> "list[Any]":
+    """Accept CaseBatch, a plain sequence, or a generator without assumptions."""
+    if cases is None:
+        return []
+    value = getattr(cases, "cases", cases)
+    try:
+        return list(value)
+    except TypeError:
+        return []
+
+
+def _probe_examples(results: "dict[str, Any]", cases: Any) -> "list[dict[str, Any]]":
+    """Persist two real, bounded M1 walkthroughs beside aggregate findings.
+
+    A probe only becomes a before/after comparison when its analyzer explicitly
+    records both outputs.  Otherwise this records an honest *baseline case +
+    check result* example; downstream UI must not call it an intervention.
+    """
+    snapshots: dict[str, dict[str, Any]] = {}
+    for case in _iter_cases(cases):
+        snapshot = _case_snapshot(case)
+        if snapshot["id"]:
+            snapshots[snapshot["id"]] = snapshot
+    output: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for name, result in results.items():
+        findings = getattr(result, "findings", {}) or {}
+        rows = findings.get("per_case") or []
+        if not isinstance(rows, list):
+            continue
+        rows = sorted(
+            (row for row in rows if isinstance(row, dict)),
+            key=lambda row: 0 if str(snapshots.get(str(row.get("sample_id") or row.get("case_id") or ""), {}).get("outcome", "")).lower() == "fail" else 1,
+        )
+        for row in rows:
+            case_id = str(row.get("sample_id") or row.get("case_id") or "")
+            snapshot = snapshots.get(case_id)
+            if not snapshot or case_id in used:
+                continue
+            checked = {
+                str(key).replace("_", " "): value for key, value in row.items()
+                if key not in {"sample_id", "case_id"} and isinstance(value, (str, int, float, bool))
+            }
+            if not checked:
+                continue
+            used.add(case_id)
+            output.append({
+                "id": f"m1-{name}-{case_id}", "kind": "case_measurement", "case_id": case_id,
+                "probe_title": str(name).replace("_", " ").title(),
+                **snapshot, "check_result": checked,
+                "plain_reading": "This one case illustrates the recorded check. The aggregate M1 result uses all measured cases.",
+                "evidence_scope": "one recorded case within M1",
+            })
+            break
+        if len(output) >= 2:
+            break
+    return output
+
+
+def _artifact_to_numpy(artifact: Any) -> "Any | None":
+    """Convert *artifact* to a numpy array, or return None if not possible.
+
+    Handles: torch.Tensor, list[torch.Tensor] (e.g. per-layer attentions),
+    and numpy arrays.  A list of tensors is stacked along a new first axis so
+    that ``attentions`` (list of ``(heads, seq, seq)``) becomes
+    ``(layers, heads, seq, seq)`` — a single array that retains all the data.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+
+    if hasattr(artifact, "detach"):  # torch.Tensor
+        return artifact.detach().cpu().float().numpy()
+    if isinstance(artifact, np.ndarray):
+        return artifact
+    if isinstance(artifact, list) and artifact and hasattr(artifact[0], "detach"):
+        try:
+            import torch
+            return torch.stack(artifact).detach().cpu().float().numpy()
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def _save_artifact_figure(artifact_dir: Path, stem: str, arr: Any) -> None:
+    """Save a matplotlib figure of *arr* when the shape and stem are recognised.
+
+    Dispatch table (first match wins):
+    - 4-D + ``attn`` in stem → mean over (layers, heads) → 2-D heatmap
+    - 3-D + ``attn`` in stem → mean over heads → 2-D heatmap
+    - 2-D + heatmap keyword  → direct heatmap (viridis)
+    - 1-D + curve keyword    → line plot
+    Skips silently when matplotlib is unavailable or the shape is unrecognised.
+    """
+    try:
+        import matplotlib.pyplot as plt
+        plt.ioff()
+    except ImportError:
+        return
+
+    key = stem.lower()
+    # Skip logit arrays — (seq, vocab) shape is too large for a useful figure
+    if "logit" in key:
+        return
+
+    _is_attn = any(k in key for k in ("attn", "attention"))
+
+    fig = None
+    try:
+        ndim = arr.ndim
+        if ndim == 4 and _is_attn:
+            mat = arr.mean(axis=(0, 1))  # (layers, heads, seq, seq) → (seq, seq)
+            n_layers, n_heads = arr.shape[0], arr.shape[1]
+            fig, ax = plt.subplots(figsize=(8, 7))
+            im = ax.imshow(mat, cmap="viridis", aspect="auto", vmin=0)
+            ax.set_title(f"{stem}  (mean over {n_layers}L × {n_heads}H)")
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            plt.tight_layout()
+        elif ndim == 3 and _is_attn:
+            mat = arr.mean(axis=0)  # (heads, seq, seq) → (seq, seq)
+            n_heads = arr.shape[0]
+            fig, ax = plt.subplots(figsize=(8, 7))
+            im = ax.imshow(mat, cmap="viridis", aspect="auto", vmin=0)
+            ax.set_title(f"{stem}  (mean over {n_heads} heads)")
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            plt.tight_layout()
+        elif ndim == 2 and "diff" in key:
+            # Signed difference map (e.g. FAIL-mean minus PASS-mean attention):
+            # diverging colormap with symmetric limits so the sign is readable.
+            bound = float(max(abs(arr.min()), abs(arr.max()))) or 1.0
+            fig, ax = plt.subplots(figsize=(8, 7))
+            im = ax.imshow(arr, cmap="coolwarm", aspect="auto", vmin=-bound, vmax=bound)
+            ax.set_title(stem)
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            plt.tight_layout()
+        elif ndim == 2 and (_is_attn or any(k in key for k in ("rollout", "spatial", "map"))):
+            fig, ax = plt.subplots(figsize=(8, 7))
+            im = ax.imshow(arr, cmap="viridis", aspect="auto")
+            ax.set_title(stem)
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            plt.tight_layout()
+        elif ndim == 1 and any(k in key for k in ("entropy", "score", "prob", "weight", "rollout")):
+            fig, ax = plt.subplots(figsize=(8, 3))
+            ax.plot(arr)
+            ax.set_xlabel("position")
+            ax.set_ylabel(stem)
+            ax.set_title(stem)
+            plt.tight_layout()
+
+        if fig is not None:
+            fig.savefig(artifact_dir / f"{stem}.png", dpi=100, bbox_inches="tight")
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        if fig is not None:
+            plt.close(fig)
 
 
 class _V2JsonFormatter:
     """Renders one plain one-line console summary per event, for ``verbose=True``.
 
-    Intentionally simple relative to ``RunLogger``'s multi-line narration —
-    this module's ask was file layout, not console UX; see the design doc.
+    Intentionally simple — file layout was this module's ask, not console UX;
+    see the design doc.
     """
 
     @staticmethod
@@ -259,7 +444,7 @@ class RunLoggerV2:
         self._context = context
         self._closed = False
         # Producers use this capability flag to keep text/code in log events
-        # instead of writing V1-style sibling files into trial directories.
+        # instead of writing sibling files into trial directories.
         self.inline_text_artifacts = True
         self.preserve_full_model_io = True
 
@@ -267,6 +452,9 @@ class RunLoggerV2:
         # appends to the relevant bucket(s), then atomically rewrites exactly
         # the doc(s) it touched — see _atomic_write_json.
         self._lock = threading.RLock()
+        self._event_seq = 0
+        self._validate_events = bool(os.environ.get("EVALRX_VALIDATE_LOG"))
+        self._event_validator = None
         self._run_doc: dict[str, Any] = {
             "trace_id": self.trace_id,
             "run_start": None,
@@ -325,6 +513,39 @@ class RunLoggerV2:
     def _bucket(self, stage: str, key: str) -> list:
         return self._stage_docs[stage].setdefault(key, [])
 
+    def _stamp_event(self, key: str, record: dict[str, Any], stage: str) -> None:
+        """Assign durable event identity under ``_lock``; no telemetry side effects."""
+        event = {
+            "cases": "case_record", "model_calls": "model_call",
+            "diagnose_reports": "diagnose_report", "agent_decisions": "agent_decision",
+            "agent_tool_calls": "agent_tool",
+        }.get(key, key)
+        self._event_seq += 1
+        cycle = record.get("cycle", -1)
+        span = {
+            "run_start": "run_start", "probe": f"c{cycle}.m1",
+            "analysis": f"c{cycle}.m2", "diagnosis": f"c{cycle}.m3",
+            "explore": f"c{cycle}.explore", "surgery": f"c{cycle}.{stage.lower()}",
+            "fix": "fix", "agent_decision": f"s{record.get('step')}.decision",
+            "agent_tool": f"s{record.get('step')}.tool",
+            "stage_skipped": f"{stage.lower()}.skipped",
+        }.get(event, f"{stage.lower()}.{event}.{self._event_seq}")
+        record.update(event=event, schema_version=RUN_LOG_SCHEMA_VERSION,
+                      trace_id=self.trace_id, event_seq=self._event_seq,
+                      stage=stage, span_id=span)
+        record.setdefault("ts", self._ts())
+        if self._validate_events:
+            try:
+                from evalrx.eval_agent.log_schema import _validator, build_schema
+
+                if self._event_validator is None:
+                    self._event_validator = _validator(build_schema())
+                self._event_validator.validate(record)
+            except ImportError:
+                pass
+            except Exception as exc:  # warn-only
+                warnings.warn(f"RunLoggerV2: event {event!r} violates log schema: {exc}")
+
     def _append_stage(self, tag: "str | None", key: str, record: "dict[str, Any]") -> str:
         """Route *record* by *tag* into the right stage bucket; flush; return the stage."""
         stage = _resolve_stage(tag)
@@ -335,9 +556,12 @@ class RunLoggerV2:
                     "stage — filed under run.json['unrouted'] instead of being lost.",
                     stacklevel=3,
                 )
-                self._run_doc["unrouted"].append({"key": key, "tag": tag, **record})
+                record = {"key": key, "tag": tag, **record}
+                self._stamp_event("unrouted", record, "RUN")
+                self._run_doc["unrouted"].append(record)
                 self._flush_run()
                 return "unrouted"
+            self._stamp_event(key, record, stage)
             self._bucket(stage, key).append(record)
             self._flush_stage(stage)
         if self.verbose:
@@ -351,6 +575,7 @@ class RunLoggerV2:
         directly by ``log_run_start``, never through here.
         """
         with self._lock:
+            self._stamp_event(key, record, "RUN")
             self._run_doc[key].append(record)
             self._flush_run()
         if self.verbose:
@@ -368,10 +593,9 @@ class RunLoggerV2:
     def _save_media(self, stage: str, stem: str, artifact: Any) -> "str | None":
         """Save a numeric artifact (tensor/array) + a rendered figure, if any.
 
-        Mirrors ``RunLogger._save_artifact`` in spirit but writes under this
-        stage's ``artifacts/`` dir. Returns the ``.npy`` path (run-relative)
-        or ``None`` when *artifact* isn't a recognised numeric type — the
-        one deliberate use of the reused, stateless helpers from run_logger.py.
+        Writes under this stage's ``artifacts/`` dir. Returns the ``.npy``
+        path (run-relative) or ``None`` when *artifact* isn't a recognised
+        numeric type.
         """
         try:
             import numpy as np
@@ -434,6 +658,7 @@ class RunLoggerV2:
         if commit:
             entry.setdefault("git_commit", commit)
         with self._lock:
+            self._stamp_event("run_start", entry, "RUN")
             self._run_doc["run_start"] = entry
             self._flush_run()
         if self.verbose:
@@ -464,8 +689,13 @@ class RunLoggerV2:
             pass
         return os.environ.get("EVALRX_GIT_COMMIT") or None
 
-    def log_cases(self, cases: "Any") -> None:
-        """Persist complete case I/O; media is copied into ``media/`` (rule 4's exception)."""
+    def log_cases(self, cases: "Any", *, split: "str | None" = None) -> None:
+        """Persist complete case I/O; media is copied into ``media/`` (rule 4's exception).
+
+        ``split`` is the partition the loop assigned (``explore`` / ``confirm`` /
+        ``test``), recorded on the row so a report can group the cases the way
+        the run actually used them.
+        """
         for case in cases:
             case_id = str(getattr(case, "id", "") or "")
             if not case_id or case_id in self._logged_case_ids:
@@ -492,9 +722,12 @@ class RunLoggerV2:
                 saved = self._save_case_media(path)
                 if saved:
                     media_paths.append(saved)
-            self._append_run("cases", {
+            record: dict[str, Any] = {
                 "ts": self._ts(), "case_id": case_id, "case": payload, "media_paths": media_paths,
-            })
+            }
+            if split:
+                record["split"] = str(split)
+            self._append_run("cases", record)
             self._logged_case_ids.add(case_id)
 
     def log_report_published(self, envelope: "dict[str, Any]") -> None:
@@ -517,11 +750,9 @@ class RunLoggerV2:
         *,
         discovery: "list[dict[str, Any]] | None" = None,
     ) -> None:
-        """Inline the standard post-diagnosis report into ``run.json``.
-
-        V1 renders several JSON and Markdown siblings.  V2 keeps one detailed
-        machine-readable record; a UI can render prose from this data.
-        """
+        """Inline the standard post-diagnosis report into ``run.json`` as one
+        detailed machine-readable record; a UI renders prose from this data
+        rather than reading separate JSON/Markdown siblings."""
         hyps_src = getattr(report, "all_hypotheses", None)
         if hyps_src is None:
             hyps_src = getattr(report, "final_hypotheses", [])
@@ -571,6 +802,16 @@ class RunLoggerV2:
             self._run_doc["manifest"] = {
                 "ts": self._ts(), "run_id": run_id, "config": dict(config), "files": files,
             }
+            self._flush_run()
+
+    def log_runtime_snapshot(self, root: Path) -> None:
+        """Preserve execution files, including discarded trials, before cleanup."""
+        snapshot = _inline_workspace(
+            root, self._stage_artifacts_dir("M5"), run_dir=self.run_dir,
+            max_bytes=None, preserve_all=True,
+        )
+        with self._lock:
+            self._run_doc["runtime_snapshot"] = snapshot
             self._flush_run()
 
     def log_model_exchange(
@@ -655,6 +896,7 @@ class RunLoggerV2:
         with self._lock:
             self._model_call_seq += 1
             record["seq"] = self._model_call_seq
+            self._stamp_event("model_calls", record, "M1")
             self._bucket("M1", "model_calls").append(record)
             self._flush_stage("M1")
             self._pending_model_calls.setdefault(cycle, []).append(record)
@@ -677,18 +919,23 @@ class RunLoggerV2:
         duration_sec: "float | None" = None,
         failed_analyzers: "dict[str, str] | None" = None,
     ) -> "list[Path]":
-        """M1: one entry in M1/log.json's "probe" list. See RunLogger.log_probe
-        for the field-level rationale this mirrors; ``artifact_paths``/results
-        are inlined here instead of living in separate ``.result.json`` files."""
+        """M1: one entry in M1/log.json's "probe" list. ``artifact_paths``/
+        results are inlined here instead of living in separate
+        ``.result.json`` files."""
         artifact_paths: dict[str, str] = {}
         overlay_pngs: list[Path] = []
         result_docs: dict[str, Any] = {}
+        inline_artifacts: dict[str, Any] = {}
         for name, result in results.items():
             for art_name, artifact in getattr(result, "artifacts", {}).items():
                 stem = f"c{cycle}_{name}_{art_name}"
                 rel = self._save_media("M1", stem, artifact)
                 if rel is not None:
                     artifact_paths[f"{name}/{art_name}"] = rel
+                elif isinstance(artifact, (dict, list)):
+                    inline_artifacts[f"{name}/{art_name}"] = json.loads(
+                        json.dumps(artifact, ensure_ascii=False, default=str)
+                    )
             image_overlays = getattr(result, "image_overlays", None)
             if image_overlays is not None:
                 try:
@@ -718,6 +965,7 @@ class RunLoggerV2:
             "findings": {name: r.findings for name, r in results.items()},
             "results": result_docs,
             "artifact_paths": artifact_paths,
+            "artifacts": inline_artifacts,
             "n_model_calls": len(pending_calls),
         }
         examples = _probe_examples(results, cases)
@@ -995,6 +1243,10 @@ class RunLoggerV2:
             "n_hypotheses": len(diag.hypotheses),
             "hypotheses": [
                 {
+                    # Join key for M4/M5 entries logged against this same
+                    # hypothesis later (log_surgery/log_experiment/log_fix) —
+                    # see evalrx.eval_agent.hypothesis.hypothesis_id.
+                    "id": hypothesis_id(h),
                     "statement": h.statement, "plain_statement": h.plain_statement,
                     "failure_mode": h.predicted_failure_mode,
                     "status": h.status.value if h.status else None,
@@ -1105,12 +1357,16 @@ class RunLoggerV2:
         validation_cases: "Any | None" = None, duration_sec: "float | None" = None,
         judge_prompt: "str | None" = None, judge_raw: "str | None" = None,
     ) -> None:
-        """M4 (hypothesis verification) or M5 (intervention) — split exactly as
-        RunLogger does: "m4_test_name" present in ``iv.evidence`` means M4."""
+        """M4 (hypothesis verification) or M5 (intervention) — split on
+        whether "m4_test_name" is present in ``iv.evidence``."""
         is_m4 = "m4_test_name" in (iv.evidence or {})
         stage = "M4" if is_m4 else "M5"
         entry: dict[str, Any] = {
             "ts": self._ts(), "cycle": cycle,
+            "module": stage.lower(),
+
+            # Joins this verdict back to its M3 hypotheses[] entry (same id).
+            "hypothesis_id": hypothesis_id(hypothesis),
             "hypothesis": hypothesis.statement,
             "failure_mode": hypothesis.predicted_failure_mode,
             "status": iv.status.value, "fixed": iv.fixed,
@@ -1172,12 +1428,11 @@ class RunLoggerV2:
     ) -> None:
         """The experiment the agent wrote and ran to test *hypothesis*.
 
-        Everything ``RunLogger`` writes to ``experiments/``/``workspace/`` as
-        separate files is inlined here as JSON string values instead: the
-        generated source (``exp["files"]``/``exp["code"]``), stdout/stderr,
-        the coder agent's raw narration, and the validation log are already
-        plain strings in *iv.experiment* — RunLogger's only job with them was
-        deciding a filename; here they go straight into the entry.
+        No separate ``experiments/``/``workspace/`` files: the generated
+        source (``exp["files"]``/``exp["code"]``), stdout/stderr, the coder
+        agent's raw narration, and the validation log are already plain
+        strings in *iv.experiment* and go straight into the entry as JSON
+        string values.
         """
         exp = getattr(iv, "experiment", None) or {}
         files = exp.get("files") or {}
@@ -1201,6 +1456,8 @@ class RunLoggerV2:
 
         entry: dict[str, Any] = {
             "ts": self._ts(), "cycle": cycle, "module": module,
+            # Joins this experiment back to its M3 hypotheses[] entry (same id).
+            "hypothesis_id": hypothesis_id(hypothesis),
             "hypothesis": hypothesis.statement,
             "failure_mode": hypothesis.predicted_failure_mode,
             "status": iv.status.value if iv.status else None,
@@ -1253,12 +1510,19 @@ class RunLoggerV2:
     def log_fix(self, outcome: "Any") -> None:
         """Post-loop fix module: the tiered repair attempt + recommendation.
 
-        Unlike ``RunLogger.log_fix``, per-case outputs are NOT popped out to a
-        sibling ``outputs.jsonl`` — they stay inline in ``M5/log.json`` under
-        each candidate's own ``"outputs"`` key. Fewer files was the whole
-        point; a bulkier single JSON is the intended trade for that.
+        Per-case outputs are NOT popped out to a sibling ``outputs.jsonl`` —
+        they stay inline in ``M5/log.json`` under each candidate's own
+        ``"outputs"`` key. Fewer files was the whole point; a bulkier single
+        JSON is the intended trade for that.
         """
-        d = outcome.to_dict()
+        d = json.loads(json.dumps(outcome.to_dict(), ensure_ascii=False, default=str))
+        for attempt in [*(d.get("attempted") or []), *(d.get("selection_attempted") or [])]:
+            trial_root = attempt.get("trial_root")
+            if trial_root:
+                attempt["workspace_snapshot"] = _inline_workspace(
+                    trial_root, self._stage_artifacts_dir("M5"),
+                    run_dir=self.run_dir, max_bytes=None, preserve_all=True,
+                )
         best_ref = d.get("best")
         if isinstance(best_ref, dict):
             best = best_ref
@@ -1266,7 +1530,7 @@ class RunLoggerV2:
             best = next((a for a in d.get("attempted") or [] if a.get("name") == best_ref), {})
         else:
             best = {}
-        entry: dict[str, Any] = {"ts": self._ts(), "cycle": -1}
+        entry: dict[str, Any] = {"ts": self._ts(), "cycle": -1, "module": "fix"}
         entry.update(d)
         entry["best"] = best
         self._append_stage("M5", "fix", entry)
@@ -1375,7 +1639,12 @@ class RunLoggerV2:
             entry["n_hypotheses"] = len(all_hyps)
             entry["n_verified"] = len(verified)
             entry["verified_hypotheses"] = [
-                {"statement": tr.hypothesis.statement, "verdict": getattr(tr, "verdict", None)}
+                {"statement": tr.hypothesis.statement,
+                 "failure_mode": tr.hypothesis.predicted_failure_mode,
+                 "status": tr.status.value,
+                 "confidence": tr.confidence,
+                 "protocol_consistent": tr.is_consistent_with_protocol,
+                 "verdict": getattr(tr, "verdict", None)}
                 for tr in verified
             ]
         self._append_run("loop_end", entry)

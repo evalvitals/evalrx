@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://evalrx.dev/schemas/run_log.schema.json",
-  "title": "EvalRX run_log.jsonl event",
-  "description": "One event per line in run_log.jsonl. Discriminated on `event`; matches schema_version 5. Permissive: extra (additive) fields are allowed.",
+  "title": "EvalRX run event",
+  "description": "One logged event, wherever a run stores it (run.json / M<n>/log.json). Discriminated on `event`; matches schema_version 6. Permissive: extra (additive) fields are allowed.",
   "$defs": {
     "envelope": {
       "type": "object",
@@ -10,7 +10,10 @@
         "event",
         "schema_version",
         "ts",
-        "trace_id"
+        "trace_id",
+        "event_seq",
+        "stage",
+        "span_id"
       ],
       "properties": {
         "event": {
@@ -31,11 +34,14 @@
             "agent_tool",
             "case_record",
             "report_published",
-            "stage_skipped"
+            "stage_skipped",
+            "model_call",
+            "diagnose_report",
+            "unrouted"
           ]
         },
         "schema_version": {
-          "const": 5
+          "const": 6
         },
         "ts": {
           "type": "string",
@@ -51,6 +57,16 @@
         },
         "span_id": {
           "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "RUN",
+            "M1",
+            "M2",
+            "M3",
+            "M4",
+            "M5"
+          ]
         },
         "cycle": {
           "type": "integer"
@@ -1030,6 +1046,111 @@
           ]
         }
       ]
+    },
+    "model_call": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "const": "model_call"
+            },
+            "duration_sec": {
+              "type": "number"
+            },
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "event",
+            "cycle",
+            "inputs",
+            "output"
+          ],
+          "anyOf": [
+            {
+              "required": [
+                "analyzer",
+                "method",
+                "call_index"
+              ]
+            },
+            {
+              "required": [
+                "role",
+                "operation"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "diagnose_report": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "const": "diagnose_report"
+            },
+            "hypotheses": {
+              "type": "array"
+            },
+            "m4_results": {
+              "type": "array"
+            },
+            "discovery": {
+              "type": "array"
+            }
+          },
+          "required": [
+            "event",
+            "cycles",
+            "hypotheses",
+            "m4_results",
+            "discovery"
+          ]
+        }
+      ]
+    },
+    "unrouted": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "const": "unrouted"
+            },
+            "key": {
+              "type": "string"
+            },
+            "tag": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "event",
+            "key",
+            "tag"
+          ]
+        }
+      ]
     }
   },
   "oneOf": [
@@ -1080,6 +1201,15 @@
     },
     {
       "$ref": "#/$defs/stage_skipped"
+    },
+    {
+      "$ref": "#/$defs/model_call"
+    },
+    {
+      "$ref": "#/$defs/diagnose_report"
+    },
+    {
+      "$ref": "#/$defs/unrouted"
     }
   ]
 }

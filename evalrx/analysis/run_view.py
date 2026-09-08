@@ -7,8 +7,8 @@ two incompatible information architectures.  This module is the compatibility
 boundary: readers turn either source into the small, stable model the UI uses.
 
 It deliberately does *not* replace the wire contract.  New producers should
-write the contract; these adapters keep existing report bundles and historical
-``run_log.jsonl`` directories readable during that migration.
+write the contract; these adapters keep existing report bundles and
+``run.json``/``M<n>/log.json`` run directories readable during that migration.
 """
 
 from __future__ import annotations

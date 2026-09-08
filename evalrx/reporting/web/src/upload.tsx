@@ -56,7 +56,7 @@ export function RunDrop({ onLoaded }: { onLoaded: (run: UploadedRun) => void }) 
       <h2>Drop a run archive</h2>
       <p>{busy
         ? "Unpacking the archive and composing the report…"
-        : "A .zip of a run directory — the folder holding run_log.jsonl, or the example folder around it."}</p>
+        : "A .zip of a run directory — the folder holding run.json + M1..M5, or the example folder around it."}</p>
       <span className="run-drop-cta">Choose a .zip</span>
       <input ref={input} type="file" accept=".zip,application/zip" hidden
         onChange={(event) => { take(event.target.files?.[0]); event.target.value = ""; }} />

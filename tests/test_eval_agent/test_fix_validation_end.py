@@ -253,7 +253,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
     class Truncating(CountingModel):
         def generate(self, inputs, **kwargs):
@@ -263,7 +263,7 @@ def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
     judge = ScriptedJudge(json.dumps([
         {"name": "rewrite", "prompt_template": "Think step by step. {prompt}"},
     ]))
-    logger = RunLogger(run_dir=tmp_path / "logs")
+    logger = RunLoggerV2(run_dir=tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(judge=judge, max_tier="L1", run_logger=logger)
     batch = _mc_batch(2, 2)
     out = agent.propose_and_validate(Truncating(), batch, [_hyp("h")])
@@ -272,25 +272,13 @@ def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
     assert all(o.endswith("Answer: (B)") for o in v.outputs.values())
     assert v.n_truncated == len(batch)
     assert "hit the decode cap" in v.summary
-    # persisted beside the record, not inline in the event
+    # RunLoggerV2 keeps per-case outputs inline under the candidate's own
+    # "outputs" key in M5/log.json — no sibling outputs.jsonl file.
     logger.close()
-    fix_events = [
-        json.loads(line)
-        for line in (tmp_path / "logs" / "run_log.jsonl").read_text().splitlines()
-        if '"event": "fix"' in line
-    ]
-    assert fix_events
-    att = fix_events[-1]["attempted"][0]
-    assert "outputs" not in att and att["n_outputs"] == len(batch)
+    m5 = json.loads((tmp_path / "logs" / "M5" / "log.json").read_text())
+    att = m5["fix"][-1]["attempted"][0]
+    assert set(att["outputs"]) == {c.id for c in batch}
     assert att["n_truncated"] == len(batch)
-    rows = [
-        json.loads(line)
-        for line in next(
-            (tmp_path / "logs" / "fixes").glob("*rewrite*/outputs.jsonl")
-        ).read_text().splitlines()
-    ]
-    assert {r["case_id"] for r in rows} == {c.id for c in batch}
-    assert {r["status"] for r in rows} <= {"fixed", "broken", "unchanged"}
     # the feedback block for a next round names truncation as the cause
     assert "hit the decode cap" in FixAgent._format_prior([v])
 

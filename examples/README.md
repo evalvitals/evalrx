@@ -135,16 +135,19 @@ with RunContext("examples/foo/outputs", verbose=True) as ctx:
     report = loop.run(cases)                      # or loop.run_analysis(cases) — explore runs in both
 ```
 
-What you get per run:
+What you get per run — the explorer writes real files under
+`ctx.explore_dir` (an ephemeral tree) while it runs, and `RunContext`
+captures that content into `M2/log.json`'s `workspace_snapshot` and deletes
+the sandbox at `finalize()`, so nothing loose is left at `<root>/explore/`:
 
-- `<root>/explore/exploratory_report.json`, `tables/*.csv`, `figures/*.png`,
-  `analysis.py`, `sandbox/` — the dashboard's loop view finds them by path
-  (`<root>/*/exploratory_report.json`) and stops saying "No explore report
-  was found"; the Analysis panel shows the explorer's candidate signals
-  (descriptive), charts and tables next to the catalog M2 verdicts.
-- `run_log.jsonl`: an `explore` event per cycle (counts, observations,
-  rendered figure paths, `report_path`); the `diagnosis` event records the
-  explore figures M3 was shown (`explore_figures`, `referenced_charts`).
+- `exploratory_report.json`, `tables/*.csv`, `figures/*.png`, `analysis.py`,
+  `sandbox/` — inlined into `M2/log.json["explore"][-1]["workspace_snapshot"]`;
+  the dashboard's loop view reads it from there and stops saying "No explore
+  report was found," and the Analysis panel shows the explorer's candidate
+  signals (descriptive), charts and tables next to the catalog M2 verdicts.
+- `M2/log.json["explore"]`: one entry per cycle (counts, observations,
+  rendered figure paths); `M3/log.json["diagnosis"]` records the explore
+  figures M3 was shown (`explore_figures`, `referenced_charts`).
 - M3's prompt carries an "EXPLORATORY MECHANISM NOTES … UNCONFIRMED" block
   with the observations/caveats, and the PNGs are attached as images.
 

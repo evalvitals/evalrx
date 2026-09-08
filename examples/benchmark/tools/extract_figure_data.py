@@ -70,20 +70,63 @@ def load_json(path: str, default: Any = None) -> Any:
         return default
 
 
-def load_jsonl(path: str) -> List[dict]:
-    rows: List[dict] = []
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line:
-                    try:
-                        rows.append(json.loads(line))
-                    except ValueError:
-                        continue
-    except OSError:
-        pass
-    return rows
+_STAGES = ("M1", "M2", "M3", "M4", "M5")
+
+# RUN-stage bucket name -> flattened event name (mirrors
+# evalrx.reporting.run_events.read_v2_events; duplicated here rather than
+# imported so this tool stays usable standalone, without the evalrx package
+# installed, against a bare run directory).
+_RUN_KEY_TO_EVENT = {
+    "cases": "case_record",
+    "report_published": "report_published",
+    "diagnose_reports": "diagnose_report",
+    "loop_end": "loop_end",
+    "agent_decisions": "agent_decision",
+    "agent_tool_calls": "agent_tool",
+    "unrouted": "unrouted",
+}
+
+
+def load_v2_events(logs_dir: str) -> List[dict]:
+    """Flatten RunLoggerV2's ``run.json`` + ``M<n>/log.json`` into the same
+    ordered, flat event-dict list this tool used to get from ``run_log.jsonl``."""
+    run = load_json(os.path.join(logs_dir, "run.json"), {}) or {}
+    events: List[dict] = []
+
+    def append(name: str, payload: Any, *, stage: str = "RUN") -> None:
+        if not isinstance(payload, dict):
+            return
+        row = dict(payload)
+        row.setdefault("event", name)
+        row.setdefault("stage", stage)
+        if name == "surgery":
+            row.setdefault("module", stage.lower())
+        elif name == "fix":
+            row.setdefault("module", "fix")
+        events.append(row)
+
+    run_start = run.get("run_start")
+    if isinstance(run_start, dict):
+        append("run_start", run_start)
+    for key, name in _RUN_KEY_TO_EVENT.items():
+        for row in run.get(key) or []:
+            append(name, row)
+
+    for stage in _STAGES:
+        doc = load_json(os.path.join(logs_dir, stage, "log.json"), {}) or {}
+        if not isinstance(doc, dict):
+            continue
+        for name, rows in doc.items():
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                append("model_call" if name == "model_calls" else name, row, stage=stage)
+
+    if all(isinstance(e.get("event_seq"), int) for e in events):
+        events.sort(key=lambda e: e["event_seq"])
+    else:
+        events.sort(key=lambda e: str(e.get("ts") or ""))
+    return events
 
 
 def parse_ci(summary: Optional[str]) -> Optional[List[float]]:
@@ -117,18 +160,25 @@ class Run:
             raise SystemExit(f"no logs/ directory under {self.root}")
 
         self.summary = load_json(os.path.join(self.root, "summary.json"), {}) or {}
-        self.manifest = load_json(os.path.join(self.logs, "manifest.json"), {}) or {}
+        run_doc = load_json(os.path.join(self.logs, "run.json"), {}) or {}
+        # manifest lives inline in run.json under RunLoggerV2 (no separate
+        # manifest.json file) — same {"run_id", "config", "files"} shape.
+        self.manifest = run_doc.get("manifest") or {}
         self.config = self.manifest.get("config", {}) or {}
-        self.events = load_jsonl(os.path.join(self.logs, "run_log.jsonl"))
+        self.events = load_v2_events(self.logs)
 
         # the manifest's run_id is sometimes just "logs"; prefer the directory name
         self.run_id = os.path.basename(self.root.rstrip(os.sep))
         self.manifest_run_id = self.manifest.get("run_id")
 
-        # every case in the batch, with prompt / gold / baseline output / label
+        # every case in the batch, with prompt / gold / baseline output / label.
+        # RunLoggerV2 inlines this into the diagnose_reports entry it wrote
+        # (no separate report/discovery_cases.json file).
+        diagnose_reports = run_doc.get("diagnose_reports") or []
+        discovery = diagnose_reports[-1].get("discovery") if diagnose_reports else []
         self.all_cases = {
             c["id"]: c
-            for c in (load_json(self.rel("report/discovery_cases.json"), []) or [])
+            for c in (discovery or [])
             if isinstance(c, dict) and "id" in c
         }
 
@@ -189,26 +239,25 @@ class Run:
 
     # -- phases -----------------------------------------------------------
 
-    def m2_files(self) -> List[tuple]:
-        """[(phase, abspath)] for every M2 stats-results file present.
+    def m2_phases(self) -> List[tuple]:
+        """[(phase, source_label, stats_results)] for every M2 analysis entry.
 
-        Convention in the run logs: ``c0_`` is the discovery cycle, ``post_``
-        (or ``c-1_``) is the held-out confirmation pass.
+        Convention: cycle 0 is the discovery cycle ("explore"), cycle -1 is
+        the held-out confirmation pass ("heldout"); any other cycle keeps its
+        own ``cN`` label. RunLoggerV2 inlines ``stats_results`` directly on
+        the ``analysis`` entry — no sibling ``*_m2_stats_results.json`` file.
         """
-        art = self.rel("artifacts")
         out = []
-        if not os.path.isdir(art):
-            return out
-        for fn in sorted(os.listdir(art)):
-            if not fn.endswith("_m2_stats_results.json"):
-                continue
-            if fn.startswith("post_") or fn.startswith("c-1_"):
-                phase = "heldout"
-            elif fn.startswith("c0_"):
+        for entry in self.events_of("analysis"):
+            cycle = entry.get("cycle")
+            if cycle == 0:
                 phase = "explore"
+            elif cycle == -1:
+                phase = "heldout"
             else:
-                phase = fn.split("_m2_")[0]
-            out.append((phase, os.path.join(art, fn)))
+                phase = f"c{cycle}"
+            src = f"M2/log.json:analysis[cycle={cycle}]"
+            out.append((phase, src, entry.get("stats_results") or []))
         # explore first, held-out second
         out.sort(key=lambda p: 0 if p[0] == "explore" else 1)
         return out
@@ -247,9 +296,27 @@ class Run:
         return out
 
     def analyzer_per_case(self, analyzer: str, cycle_prefix: str) -> List[dict]:
-        path = self.rel("artifacts", f"{cycle_prefix}_{analyzer}.result.json")
-        blob = load_json(path, {}) or {}
-        return (blob.get("findings") or {}).get("per_case", []) or []
+        """Per-case rows for *analyzer* at the probe cycle named by
+        *cycle_prefix* (``"c0"``, ``"c1"``, ..., ``"post"``/``"c-1"``).
+
+        RunLoggerV2 inlines every analyzer's complete result (including
+        ``findings.per_case``) into its ``M1/log.json`` probe entry — no
+        sibling ``<cycle>_<analyzer>.result.json`` file to read.
+        """
+        if cycle_prefix in ("post", "c-1"):
+            cycle = -1
+        elif cycle_prefix.startswith("c"):
+            try:
+                cycle = int(cycle_prefix[1:])
+            except ValueError:
+                return []
+        else:
+            return []
+        probe = next((e for e in self.events_of("probe") if e.get("cycle") == cycle), None)
+        if not probe:
+            return []
+        result = (probe.get("results") or {}).get(analyzer) or {}
+        return (result.get("findings") or {}).get("per_case", []) or []
 
 
 # --------------------------------------------------------------------------
@@ -400,7 +467,7 @@ def block_run(run: Run) -> List[dict]:
             "stopped_by": run.summary.get("stopped_by"),
             "timings_sec": end.get("timings_sec"),
             "total_duration_sec": end.get("total_duration_sec"),
-            "source": "summary.json + logs/manifest.json + logs/run_log.jsonl",
+            "source": "summary.json + logs/run.json (manifest + M<n>/log.json)",
         }
     ]
 
@@ -509,7 +576,7 @@ def block_m1_analyzers(run: Run) -> List[dict]:
             "n_probe_passes": len(probes),
             "probe_cycles": [p.get("cycle") for p in probes],
             "headline_metrics": headline,
-            "source": "logs/run_log.jsonl:probe",
+            "source": "logs/run.json + M<n>/log.json:probe",
         }
     ]
 
@@ -559,16 +626,16 @@ def block_m1_questions(run: Run, forwarded: Optional[int]) -> List[dict]:
         },
         "note": "each case is answered five times; the probes never see the answer key",
         "inventory": inv,
-        "source": "logs/artifacts/c0_<analyzer>.result.json per-case fields",
+        "source": "M1/log.json:probe[cycle=0].results.<analyzer>.findings.per_case",
     }]
 
 
 def survivor_signals(run: Run) -> List[str]:
     """Signals that survived multiplicity correction, preferring the held-out pass."""
-    for phase, path in reversed(run.m2_files()):
+    for phase, _src, results in reversed(run.m2_phases()):
         found = [
             (r.get("config") or {}).get("signal")
-            for r in (load_json(path, []) or [])
+            for r in results
             if r.get("fdr_corrected")
         ]
         if found:
@@ -579,8 +646,8 @@ def survivor_signals(run: Run) -> List[str]:
 def signal_effects(run: Run) -> Dict[str, float]:
     """Effect size per signal from the latest M2 pass, for ranking."""
     out: Dict[str, float] = {}
-    for _phase, path in run.m2_files():
-        for r in load_json(path, []) or []:
+    for _phase, _src, results in run.m2_phases():
+        for r in results:
             if r.get("tool") == "signal_label_assoc" and r.get("effect") is not None:
                 sig = (r.get("config") or {}).get("signal")
                 if sig:
@@ -706,7 +773,7 @@ def block_m1_signal_curve(run: Run, signal: Optional[str],
             "n_distinct_values": len(levels),
             "n_cases": sum(b["n_cases"] for b in bins),
             "bins": bins,
-            "source": f"logs/artifacts/c0_{analyzer}.result.json + run_log case_record labels",
+            "source": f"M1/log.json:probe[-1].results.{analyzer} + cases[case_record] labels",
         }
     ]
 
@@ -714,9 +781,7 @@ def block_m1_signal_curve(run: Run, signal: Optional[str],
 def block_m2(run: Run) -> List[dict]:
     """One record per statistical test, plus one family summary per phase."""
     out: List[dict] = []
-    for phase, path in run.m2_files():
-        results = load_json(path, []) or []
-        src = run.relpath(path)
+    for phase, src, results in run.m2_phases():
         tested = 0
         for r in results:
             tool = r.get("tool")
@@ -806,7 +871,7 @@ def block_m3(run: Run) -> List[dict]:
                 or h.get("expected_association")
                 or direction.get(h.get("failure_mode")),
                 "status_at_proposal": h.get("status"),
-                "source": "logs/run_log.jsonl:diagnosis",
+                "source": "logs/run.json + M<n>/log.json:diagnosis",
             }
         )
     out.append(
@@ -818,7 +883,7 @@ def block_m3(run: Run) -> List[dict]:
             "n_critic_rejected": diag.get("n_critic_rejected"),
             "review": review if isinstance(review, (dict, list)) else str(review),
             "note": "critic objections are recorded, not vetoes; adjudication is statistical",
-            "source": "logs/run_log.jsonl:diagnosis",
+            "source": "logs/run.json + M<n>/log.json:diagnosis",
         }
     )
     return out
@@ -858,7 +923,7 @@ def block_m4(run: Run) -> List[dict]:
                 "fdr": fdr,
                 "verdict_text": ev.get("m4_verdict"),
                 "split": "heldout",
-                "source": "logs/run_log.jsonl:surgery[module=m4] + logs/report/m4_results.json",
+                "source": "M4/log.json:surgery[module=m4] + run.json:diagnose_reports[-1].m4_results",
             }
         )
     return out
@@ -895,7 +960,7 @@ def block_m5(run: Run) -> List[dict]:
                 "effect": c.get("effect"),
                 "verdict": c.get("verdict"),
                 "selected": c.get("name") == (fix.get("best") or {}).get("name"),
-                "source": "logs/run_log.jsonl:fix.selection_attempted",
+                "source": "logs/run.json + M<n>/log.json:fix.selection_attempted",
             }
         )
 
@@ -917,7 +982,7 @@ def block_m5(run: Run) -> List[dict]:
                 "verdict": c.get("verdict"),
                 "coverage": c.get("coverage"),
                 "selected": bool(c.get("fixed")),
-                "source": "logs/run_log.jsonl:fix.attempted",
+                "source": "logs/run.json + M<n>/log.json:fix.attempted",
             }
         )
 
@@ -953,7 +1018,7 @@ def block_m5(run: Run) -> List[dict]:
                 "status": status,
                 "within_cap": bool(cap) and order.index(tier) <= order.index(str(cap)[:2]),
                 "tier_cap": cap,
-                "source": "logs/run_log.jsonl:fix",
+                "source": "logs/run.json + M<n>/log.json:fix",
             }
         )
     return out
@@ -1003,7 +1068,7 @@ def block_repair(run: Run) -> List[dict]:
             "trial_root": run.rooted(best.get("trial_root") or "")
             if best.get("trial_root")
             else None,
-            "source": "logs/run_log.jsonl:fix.best.payload",
+            "source": "logs/run.json + M<n>/log.json:fix.best.payload",
         }
     ]
 
@@ -1049,7 +1114,7 @@ def block_validation(run: Run) -> List[dict]:
             "verdict": best.get("verdict"),
             "ebh_survivors": fix.get("ebh_survivors"),
             "summary": best.get("summary"),
-            "source": "logs/run_log.jsonl:fix.best",
+            "source": "logs/run.json + M<n>/log.json:fix.best",
         }
     ]
 
@@ -1108,7 +1173,7 @@ def block_example_case(
             "media_paths": media,
             "note": "illustrative case drawn from the explore split; "
                     "held-out cases have no stored media in this run",
-            "source": "logs/report/discovery_cases.json + run_log case_record",
+            "source": "run.json:diagnose_reports[-1].discovery + cases[case_record]",
         }
     ]
 
@@ -1608,10 +1673,9 @@ def extract(root: str, example_case: Optional[str] = None) -> List[dict]:
     signal = pick_curve_signal(run, signals)
     records: List[dict] = []
     forwarded = None
-    for phase, path in run.m2_files():
+    for phase, _src, results in run.m2_phases():
         if phase == "explore":
-            assoc = [r for r in (load_json(path, []) or [])
-                     if r.get("tool") == "signal_label_assoc"]
+            assoc = [r for r in results if r.get("tool") == "signal_label_assoc"]
             forwarded = sum(1 for r in assoc
                             if r.get("correction_family")
                             and "degenerate" not in (r.get("summary") or "").lower())
