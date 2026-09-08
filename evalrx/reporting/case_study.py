@@ -230,6 +230,10 @@ FAMILY_MENU = {
 
 
 def phrase_for(analyzer: str) -> str:
+    if analyzer.startswith("generated:"):
+        # Written by the agent during this run's M1 — nothing in the codebase
+        # can name it better than the run itself does.
+        return f"agent-written probe · {analyzer.split(':', 1)[1]}"
     return ANALYZER_PHRASE.get(analyzer, analyzer.replace("_", " "))
 
 

@@ -599,9 +599,22 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         meta = ANALYZER_GLOSSARY.get(
             name, (name.replace("_", " ").title(), "Measures model behavior across this dimension", "Standard diagnostic probe.", [])
         )
-        if name.startswith("generated:") and name.split(":", 1)[1] in generated_need:
-            need = generated_need[name.split(":", 1)[1]]
-            meta = (f"Agent-written probe · {name.split(':', 1)[1]}", need, need, [])
+        if name.startswith("generated:"):
+            # No glossary can know a probe the agent wrote during this run: the
+            # need it was written for is its question (first sentence up front,
+            # the whole brief as the description), and its headline is whatever
+            # scalar findings it reported, under their own names.
+            need = generated_need.get(name.split(":", 1)[1], "")
+            first = re.split(r"(?<=[.;])\s+", need.strip(), maxsplit=1)[0] if need else "Agent-written probe"
+            if len(first) > 180:
+                first = first[:177].rstrip() + "…"
+            scalar = [
+                (key.replace("_", " "), key, "pct" if key.endswith(("_rate", "_frac")) else "num")
+                for key, value in findings.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                and key not in {"n_cases", "n_scored", "n_graded", "n_samples"}
+            ][:5]
+            meta = (f"Agent-written probe · {name.split(':', 1)[1]}", first, need or "Agent-written probe.", scalar)
         headline = []
         for label, path, fmt in meta[3]:
             v = _dig(findings, path)
