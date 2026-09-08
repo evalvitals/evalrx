@@ -3244,7 +3244,7 @@ def test_declarative_candidate_gets_record_and_result_but_no_workspace(tmp_path)
     should hold only record.md + result.json, no workspace/ subdir."""
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     judge = ScriptedJudge(
         json.dumps(
             [
@@ -3275,7 +3275,7 @@ def test_deduped_candidate_in_round_two_leaves_no_trial_folder(tmp_path):
     an empty (or duplicate) folder."""
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     judge = ScriptedJudge(
         json.dumps([{"name": "polite", "prompt_template": "Please answer. {prompt}"}])
     )
@@ -3360,7 +3360,7 @@ def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     pytest.importorskip("PIL")
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     agent = FixAgent(
         judge=TwoVersionCodeJudge(),
         max_tier="L2",
@@ -3885,7 +3885,7 @@ def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
     record or reverted anything)."""
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run")
+    ctx = RunContext(tmp_path / "run", logger_version="v1")
     agent = FixAgent(
         judge=_BaselineOutputJudge(), max_tier="L2", run_logger=ctx.logger, run_context=ctx,
         exec_timeout_sec=30, candidate_allowlist={"coded_pipeline"},

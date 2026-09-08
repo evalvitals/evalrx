@@ -89,7 +89,7 @@ class ReportSession:
         if found is None:
             raise ValueError(
                 "this archive has no run in it: expected a directory holding "
-                "run_log.jsonl or report/report_data.json"
+                "run.json + M1..M5 (or the legacy run_log.jsonl), or report/report_data.json"
             )
         self.load(found)
         return found

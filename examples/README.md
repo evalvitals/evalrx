@@ -135,7 +135,10 @@ with RunContext("examples/foo/outputs", verbose=True) as ctx:
     report = loop.run(cases)                      # or loop.run_analysis(cases) — explore runs in both
 ```
 
-What you get per run:
+What you get per run — V1 (`logger_version="v1"`) leaves these as real files;
+V2 (the default) captures the same content into `M2/log.json`'s
+`workspace_snapshot` instead and deletes the ephemeral sandbox they were
+written in, so nothing loose is left at `<root>/explore/`:
 
 - `<root>/explore/exploratory_report.json`, `tables/*.csv`, `figures/*.png`,
   `analysis.py`, `sandbox/` — the dashboard's loop view finds them by path
@@ -144,7 +147,8 @@ What you get per run:
   (descriptive), charts and tables next to the catalog M2 verdicts.
 - `run_log.jsonl`: an `explore` event per cycle (counts, observations,
   rendered figure paths, `report_path`); the `diagnosis` event records the
-  explore figures M3 was shown (`explore_figures`, `referenced_charts`).
+  explore figures M3 was shown (`explore_figures`, `referenced_charts`). V2
+  records the same fields under `M2/log.json["explore"]` / `M3/log.json["diagnosis"]`.
 - M3's prompt carries an "EXPLORATORY MECHANISM NOTES … UNCONFIRMED" block
   with the observations/caveats, and the PNGs are attached as images.
 

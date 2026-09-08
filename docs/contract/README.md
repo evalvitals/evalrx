@@ -25,6 +25,12 @@ changes — adding a field is additive and does not bump it, so a reader must
 └── figures/                  M1 heatmaps, M2 effect plots
 ```
 
+This is the V1 (`RunLogger`) layout — still readable, no longer written by
+default. `RunContext`'s default (`logger_version="v2"`) instead writes
+`run.json` + one `M1/log.json`..`M5/log.json` per stage, no `run_log.jsonl`,
+no separate `report/`/`figures/` (see `evalrx/eval_agent/RUN_LOGGER_V2.md`).
+`contract/` and `artifacts/` are unchanged either way.
+
 **The run carries its own data.** Media a case was evaluated on is copied
 into `artifacts/case_media/`, and every `MediaRef` path is relative to the
 run root. A run pointing at the dataset where the producing machine kept

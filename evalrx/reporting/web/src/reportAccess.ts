@@ -46,9 +46,11 @@ export function metric(report: ReportData, id: string): number | undefined {
  *
  * An e-value IS odds against the null: e=45 means the evidence runs about 45 to
  * 1 against this being luck. "Reject at 0.05" is the same statement in a
- * dialect nobody outside the field speaks. The console narration
- * (`run_logger._odds_phrase`) renders the same number the same way, so the two
- * surfaces can never quietly disagree about what one number means.
+ * dialect nobody outside the field speaks. V1's console narration
+ * (`run_logger._odds_phrase`) renders the same number the same way, so the
+ * two surfaces can never quietly disagree about what one number means; V2's
+ * simplified one-line console narration doesn't have an equivalent helper,
+ * so this formatter is this report's own source of truth for that phrasing.
  */
 export function oddsPhrase(value: any): string {
   const e = Number(value);

@@ -548,7 +548,17 @@ multimodal judge already receives — no per-analyzer wiring required.
 files, `RunLogger` buried under a `logs/` subdir, hand-built figure-dir paths,
 and M5 sandboxes living in ephemeral temp dirs deleted on success.  One
 `RunContext` owns the whole run root and hands every producer its
-subdirectory:
+subdirectory.
+
+`RunContext`'s **default** is now `logger_version="v2"`
+(`evalrx/eval_agent/RUN_LOGGER_V2.md`): one `run.json` plus one
+`M1/log.json`..`M5/log.json` per stage, no `run_log.jsonl`, no persisted
+`prompts/`/`experiments/`/`tools/`/`workspace/`/`fixes/` (generated text/code
+is captured inline into the relevant stage's JSON instead), no
+`manifest.json`/`README.txt`. The rest of this section — the layout below,
+`run_log.jsonl`'s event schema, and the trial-folder mechanics — describes the
+**V1** layout (`logger_version="v1"`), which still exists, stays readable for
+old runs, and is what to pass explicitly when that's what's wanted:
 
 ```text
 <root>/
@@ -613,12 +623,13 @@ to catch a producer drifting from the contract. Both paths need the optional
 ```python
 from evalrx.eval_agent import RunContext, VLDiagnoseLoop
 
-with RunContext("examples/foo/outputs", verbose=True) as ctx:
+with RunContext("examples/foo/outputs", verbose=True, logger_version="v1") as ctx:
     stats_agent = StatsAnalysisAgent(judge=judge, figure_dir=str(ctx.figures_dir))
     loop = VLDiagnoseLoop(..., run_logger=ctx.logger)
     report = loop.run(cases)
     ctx.write_diagnose_report(report, cases, discovery=discovery_rows)
-# manifest.json + README.txt written, logger closed on exit.
+# manifest.json + README.txt written, logger closed on exit. (V2's finalize()
+# just closes run.json/M*/log.json, already flushed incrementally throughout.)
 ```
 
 `write_diagnose_report(report, cases, discovery=...)` writes the standard
@@ -637,7 +648,10 @@ on first write, so a candidate discarded before producing anything (e.g. a
 deduped proposal) leaves no empty folder — a gap in the numbering honestly
 means "proposed, then discarded," not a missing record.  `ctx.new_workdir(label)`
 is the non-trial equivalent for sandboxes that don't belong to a numbered
-attempt (e.g. M1/M2 tool codegen).
+attempt (e.g. M1/M2 tool codegen). Under V2 there are no persisted trial
+folders at all — a trial's generated code/output is inlined into its stage's
+JSON, and the sandbox it ran in lives under an ephemeral `ctx.runtime_root`
+tempdir that's deleted at `finalize()`, not `fixes/`/`experiments/`.
 
 **Not the same as `run_dir`** in the "Run-directory infrastructure" section
 above: `AutoDiagnoseLoop(run_dir=...)` owns *resume* mechanics (checkpoint,

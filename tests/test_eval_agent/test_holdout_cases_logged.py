@@ -46,7 +46,7 @@ def _logged_ids(root) -> set[str]:
 def test_the_held_out_split_is_recorded_too(tmp_path):
     cases = _batch(20)
     all_ids = {c.id for c in cases}
-    with RunContext(tmp_path / "run") as ctx:
+    with RunContext(tmp_path / "run", logger_version="v1") as ctx:
         VLDiagnoseLoop(
             model=FakeModel(capabilities={Capability.GENERATE}, modalities={"text"}),
             protocol=ExperimentProtocol(description="does it answer?", task_domain="qa"),
@@ -69,7 +69,7 @@ def test_the_held_out_split_is_recorded_too(tmp_path):
 def test_logging_a_case_twice_does_not_duplicate_it(tmp_path):
     """run() now logs both splits; the logger must stay idempotent."""
     cases = _batch(8)
-    with RunContext(tmp_path / "run") as ctx:
+    with RunContext(tmp_path / "run", logger_version="v1") as ctx:
         ctx.logger.log_cases(cases)
         ctx.logger.log_cases(cases)
     ids = [
@@ -88,7 +88,7 @@ def test_each_case_record_names_its_partition(tmp_path):
     distinction the split exists to make.
     """
     cases = _batch(20)
-    with RunContext(tmp_path / "run") as ctx:
+    with RunContext(tmp_path / "run", logger_version="v1") as ctx:
         VLDiagnoseLoop(
             model=FakeModel(capabilities={Capability.GENERATE}, modalities={"text"}),
             protocol=ExperimentProtocol(description="does it answer?", task_domain="qa"),

@@ -985,8 +985,14 @@ def embed_figures(explore_dir: Path | None, logs_dir: Path) -> dict[str, str]:
     paths = []
     if explore_dir and (explore_dir / "figures").is_dir():
         paths += sorted((explore_dir / "figures").glob("*.png"))
-    if (logs_dir / "figures").is_dir():
-        paths += sorted((logs_dir / "figures").glob("*.png"))
+    # V1 writes M2 charts to logs_dir/figures; V2's RunContext.figures_dir
+    # maps the same role to logs_dir/M2/artifacts (see run_context.py). V2's
+    # explore-step figures are captured inline into M2/log.json rather than
+    # written as loose files, so the explore_dir branch above still finds
+    # nothing for a V2 run — a known follow-up, not covered here.
+    for candidate in (logs_dir / "figures", logs_dir / "M2" / "artifacts"):
+        if candidate.is_dir():
+            paths += sorted(candidate.glob("*.png"))
 
     for p in paths:
         key = p.stem

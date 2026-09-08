@@ -288,24 +288,31 @@ analyzer off a batch with no audio in it.
 ## Log and persist a diagnosis run
 
 The recommended way to persist a run is `RunContext` — it owns the whole
-output directory (`report/`, `figures/`, `artifacts/`, `experiments/`,
-`fixes/`, `manifest.json`, …) and hands every producer its subdirectory,
-including a bound `RunLogger`. See the "RunContext" section in
-[Architecture](architecture.md) for the full layout and the per-trial
-`fixes/` / `experiments/` folders.
+output directory and hands every producer its subdirectory, including a bound
+logger. Its default (`logger_version="v2"`) writes `run.json` plus one
+`M1/log.json`..`M5/log.json` per stage; pass `logger_version="v1"` for the
+legacy `report/`/`figures/`/`artifacts/`/`experiments/`/`fixes/`/
+`manifest.json` layout described below and in
+[Architecture](architecture.md)'s "RunContext" section.
 
 ```python
 from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunContext
 
-with RunContext("runs/exp_01") as ctx:
+with RunContext("runs/exp_01") as ctx:  # V2 by default
     loop = AutoDiagnoseLoop(
         model=model,
         diagnosis_agent=DiagnosisAgent(),
         run_logger=ctx.logger,
     )
     report = loop.run(cases)
-# manifest.json + README.txt written, logger closed on exit.
+# V1: manifest.json + README.txt written, logger closed on exit.
+# V2: run.json/M*/log.json already flushed incrementally; finalize() just closes them.
 ```
+
+The rest of this section — the standalone `RunLogger`, the JSONL event
+schema, the published JSON Schema validator — documents V1 (`RunLogger`)
+specifically; it stays fully supported (`logger_version="v1"`, or construct
+`RunLogger` directly) but is no longer what a fresh default run produces.
 
 If you only want the JSONL event log and artifact sink — without `RunContext`'s
 `report/`/`figures/`/manifest layout — construct `RunLogger` standalone:

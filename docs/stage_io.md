@@ -448,10 +448,14 @@ Two things the contract will not do for you, both deliberate:
 
 The rest of this section describes the raw run directory, which remains
 readable and is what a run produced before contract emission existed offers.
+It specifically describes `RunContext(logger_version="v1")`'s layout; the
+current default (`logger_version="v2"`) instead writes `run.json` + one
+`M1/log.json`..`M5/log.json` per stage — see
+`evalrx/eval_agent/RUN_LOGGER_V2.md`. `contract/` is unaffected either way.
 
 ### 1. Choose a source of truth
 
-A normal persisted loop run has this shape (some folders are optional):
+A normal persisted V1 loop run has this shape (some folders are optional):
 
 ```text
 <run>/
@@ -490,8 +494,8 @@ both:
 
 | UI use case | Primary source | Secondary source |
 |---|---|---|
-| Live progress / per-cycle story | append-only `run_log.jsonl` | linked artifacts as they appear |
-| Finished run / stable report | `manifest.json` + `report/` + `artifacts/` | `run_log.jsonl` for provenance and detail |
+| Live progress / per-cycle story | append-only `run_log.jsonl` (V1) / `run.json` + `M*/log.json`, both rewritten incrementally (V2) | linked artifacts as they appear |
+| Finished run / stable report | `manifest.json` + `report/` + `artifacts/` (V1) | `run_log.jsonl` for provenance and detail |
 | Standalone Explore upload | `exploratory_report.json` and optional sibling `confirm_report.json` / `fix_report.json` | the uploaded records |
 
 For a finished run, `manifest.json` is the file inventory. Its current shape is:

@@ -777,8 +777,12 @@ class VLDiagnoseLoop:
         dashboard's ``_find_explore_report`` looks (``<root>/*/exploratory_report.json``):
 
         - a :class:`~evalrx.eval_agent.run_context.RunContext`-backed logger
-          → ``<ctx.root>/explore`` (the context owns the whole run directory;
-          ``run_log.jsonl`` sits directly under root);
+          → ``ctx.explore_dir`` — ``<ctx.root>/explore`` for a V1 context
+          (the context owns the whole run directory; ``run_log.jsonl`` sits
+          directly under root), or an ephemeral tree under ``ctx.runtime_root``
+          for a V2 context (captured into ``M2/log.json`` and deleted at
+          ``finalize()``; writing straight to ``<ctx.root>/explore`` there
+          would leak real files outside V2's JSON-only run artifact);
         - a standalone ``RunLogger("<run>/logs")`` / ``logs_confirm`` … →
           ``<run>/explore`` (a sibling of the ``logs*/`` dir, the llm_benchmark
           layout — under the log dir it would be two levels down for a
@@ -791,9 +795,8 @@ class VLDiagnoseLoop:
         if self.run_logger is None:
             return None
         ctx = getattr(self.run_logger, "_context", None)
-        ctx_root = getattr(ctx, "root", None) if ctx is not None else None
-        if ctx_root is not None:
-            return Path(ctx_root) / "explore"
+        if ctx is not None and hasattr(ctx, "explore_dir"):
+            return ctx.explore_dir
         run_dir = getattr(self.run_logger, "run_dir", None)
         if run_dir is None:
             return None

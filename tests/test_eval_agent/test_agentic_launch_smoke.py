@@ -108,7 +108,9 @@ def _protocol() -> ExperimentProtocol:
 
 
 def _build_loop(tmp_path, action_judge, *, max_actions=10):
-    ctx = RunContext(tmp_path / "run", verbose=False)
+    # Pinned: the happy-path test below validates raw ctx.log_path lines
+    # against the published V1 run_log schema.
+    ctx = RunContext(tmp_path / "run", verbose=False, logger_version="v1")
     loop = AgenticDiagnoseLoop(
         model=FakeModel(
             capabilities={Capability.GENERATE, Capability.ATTENTION}, modalities={"text"},

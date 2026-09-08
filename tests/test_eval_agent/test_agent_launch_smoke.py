@@ -95,7 +95,8 @@ def test_vl_agent_launches_m1_to_m4_and_dashboard_loader_reads_run(tmp_path):
     """Launch the real M1->M2->M3->M4 loop and verify the UI data contract."""
     data = _cases()
     judge = _ScriptedJudge()
-    ctx = RunContext(tmp_path / "run", verbose=False)
+    # Pinned: asserts write_diagnose_report's V1-only report/*.json output.
+    ctx = RunContext(tmp_path / "run", verbose=False, logger_version="v1")
     loop = VLDiagnoseLoop(
         model=FakeModel(
             capabilities={Capability.GENERATE, Capability.ATTENTION},

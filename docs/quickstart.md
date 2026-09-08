@@ -545,10 +545,13 @@ print(report.final_hypotheses)   # list[Hypothesis] — status SUPPORTED/REFUTED
 fix = loop.run_m5(report, failure_cases)   # post-loop fix proposal
 ```
 
-`RunLogger()` above writes just the JSONL event log. For the full output
-directory — `report/`, `figures/`, `artifacts/`, per-trial `fixes/`/`experiments/`
-folders, `manifest.json` — construct a `RunContext` and pass `run_logger=ctx.logger`
-instead; see [RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory).
+`RunLogger()` above is V1: it writes just the flat JSONL event log. For a full
+managed output directory, construct a `RunContext` and pass
+`run_logger=ctx.logger` instead — its default (`logger_version="v2"`) writes
+`run.json` + per-stage `M1/log.json`..`M5/log.json`; `logger_version="v1"`
+gets the legacy `report/`/`figures/`/`artifacts/`/per-trial
+`fixes/`/`experiments/`/`manifest.json` layout instead. See
+[RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory).
 
 **`ExperimentProtocol`** is the human prior that anchors the loop. M1 uses it
 to select analyzers relevant to the task; M4 uses it to reject hypotheses that
@@ -594,11 +597,13 @@ report = loop.run(failure_cases)   # same VLDiagnoseReport shape as VLDiagnoseLo
 
 `report.stopped_by` is one of `agent_stop` / `max_actions` / `budget` /
 `time_budget` / `invalid_actions` (three consecutive unparseable judge
-responses, even after a repair prompt). Two new `run_log.jsonl` event types —
+responses, even after a repair prompt). Two new event types —
 `agent_decision` (the chosen tool + rationale) and `agent_tool` (the dispatch
 layer's accept/reject outcome) — sit alongside the reused
-`probe`/`analysis`/`diagnosis`/`surgery` events from the wrapped stages; see
-`evalrx.eval_agent.log_schema` (schema version 3).
+`probe`/`analysis`/`diagnosis`/`surgery` events from the wrapped stages, on
+both loggers: as `run_log.jsonl` lines under V1 (see
+`evalrx.eval_agent.log_schema`, schema version 3) or inside `run.json` under
+V2 (`log_agent_decision`/`log_agent_tool`, same fields).
 
 ## Input Modes — Submitting a Diagnosis Run
 

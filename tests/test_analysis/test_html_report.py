@@ -3,8 +3,35 @@
 import json
 from pathlib import Path
 
-from evalrx.reporting.html_report import build_html_report, extract_run_data
+from evalrx.reporting.html_report import build_html_report, embed_figures, extract_run_data
 from evalrx.reporting.langfuse_exporter import export_to_langfuse_bundle
+
+
+def _png(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"fake")
+
+
+def test_embed_figures_finds_v1_figures_dir(tmp_path: Path):
+    _png(tmp_path / "figures" / "m2_effects.png")
+    out = embed_figures(None, tmp_path)
+    assert "m2_effects" in out and out["m2_effects"].startswith("data:image/png;base64,")
+
+
+def test_embed_figures_finds_v2_m2_artifacts(tmp_path: Path):
+    """Regression test: embed_figures used to only glob logs_dir/figures, so
+    RunContext.figures_dir's V2 mapping (M2/artifacts, run_context.py) meant
+    every V2 run's static HTML export rendered zero embedded M2 charts."""
+    _png(tmp_path / "M2" / "artifacts" / "m2_effects.png")
+    out = embed_figures(None, tmp_path)
+    assert "m2_effects" in out and out["m2_effects"].startswith("data:image/png;base64,")
+
+
+def test_embed_figures_combines_v1_and_v2_sources_without_clobbering(tmp_path: Path):
+    _png(tmp_path / "figures" / "shared.png")
+    _png(tmp_path / "M2" / "artifacts" / "other.png")
+    out = embed_figures(None, tmp_path)
+    assert {"shared", "other"} <= set(out)
 
 
 def test_html_report_generation(tmp_path: Path):

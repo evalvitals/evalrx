@@ -1,4 +1,12 @@
-"""Tests for RunContext — single owner of a run's output directory.
+"""Tests for RunContext's V1 (``logger_version="v1"``) layout contract.
+
+Every ``RunContext(...)`` call here pins ``logger_version="v1"`` explicitly —
+this file asserts V1-specific paths (``figures_dir``, ``fixes_dir``,
+``run_log.jsonl``, ``manifest.json``, ``README.txt``) that V2 either places
+elsewhere or never writes. It stays the permanent regression suite for V1's
+layout regardless of what RunContext's own default is; V2's RunContext-level
+behavior (ephemeral trial/explore trees, ``run.json``, no manifest/README) is
+covered separately in ``test_run_logger_v2.py``.
 
 Covers:
   - directory layout creation (lazy mkdir per subdirectory)
@@ -55,7 +63,7 @@ def test_root_created_on_init(tmp_path):
 
     root = tmp_path / "run1"
     assert not root.exists()
-    ctx = RunContext(root)
+    ctx = RunContext(root, logger_version="v1")
     assert ctx.root == root
     assert root.is_dir()
 
@@ -70,7 +78,7 @@ def test_root_resolved_to_absolute_for_relative_input(tmp_path, monkeypatch):
     from evalrx.eval_agent.run_context import RunContext
 
     monkeypatch.chdir(tmp_path)
-    ctx = RunContext(Path("outputs/run1"))
+    ctx = RunContext(Path("outputs/run1"), logger_version="v1")
     assert ctx.root.is_absolute()
     assert ctx.root == (tmp_path / "outputs" / "run1").resolve()
 
@@ -78,7 +86,7 @@ def test_root_resolved_to_absolute_for_relative_input(tmp_path, monkeypatch):
 def test_subdirectories_lazily_created(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     # Nothing but the root should exist before first access.
     for name in ("report", "figures", "artifacts", "prompts",
                  "experiments", "tools", "workspace", "fixes"):
@@ -101,7 +109,7 @@ def test_subdirectories_lazily_created(tmp_path):
 def test_log_path_and_manifest_path(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     assert ctx.log_path == ctx.root / "run_log.jsonl"
     assert ctx.manifest_path == ctx.root / "manifest.json"
 
@@ -109,14 +117,14 @@ def test_log_path_and_manifest_path(tmp_path):
 def test_run_id_defaults_to_root_name(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "spatial")
+    ctx = RunContext(tmp_path / "spatial", logger_version="v1")
     assert ctx.run_id == "spatial"
 
 
 def test_run_id_override(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "spatial", run_id="custom_id")
+    ctx = RunContext(tmp_path / "spatial", run_id="custom_id", logger_version="v1")
     assert ctx.run_id == "custom_id"
 
 
@@ -129,7 +137,7 @@ def test_logger_property_builds_run_logger_bound_to_context(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
     from evalrx.eval_agent.run_logger import RunLogger
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     logger = ctx.logger
     assert isinstance(logger, RunLogger)
     assert logger.run_dir == ctx.root
@@ -141,7 +149,7 @@ def test_logger_property_builds_run_logger_bound_to_context(tmp_path):
 def test_logger_property_is_cached(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     first = ctx.logger
     second = ctx.logger
     assert first is second
@@ -156,7 +164,7 @@ def test_logger_property_is_cached(tmp_path):
 def test_new_workdir_unique_under_workspace(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     d1 = ctx.new_workdir("m5 surgery")
     d2 = ctx.new_workdir("m5 surgery")
     assert d1 != d2
@@ -171,14 +179,14 @@ def test_new_workdir_unique_under_workspace(tmp_path):
 def test_figure_path_appends_png_by_default(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     assert ctx.figure_path("m2_effects") == ctx.figures_dir / "m2_effects.png"
 
 
 def test_figure_path_preserves_known_extension(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     assert ctx.figure_path("heatmap.svg") == ctx.figures_dir / "heatmap.svg"
 
 
@@ -190,7 +198,7 @@ def test_figure_path_preserves_known_extension(tmp_path):
 def test_new_trial_root_not_created_until_first_write(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     trial = ctx.new_trial("fixes", "L1 attend carefully")
     # Lazy: a deduped/discarded candidate must leave nothing on disk.
     assert not trial.root.exists()
@@ -202,7 +210,7 @@ def test_new_trial_root_not_created_until_first_write(tmp_path):
 def test_new_trial_numbering_is_monotonic_per_category(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     f1 = ctx.new_trial("fixes", "a")
     f2 = ctx.new_trial("fixes", "b")
     e1 = ctx.new_trial("experiments", "x")
@@ -218,7 +226,7 @@ def test_new_trial_rejects_unknown_category(tmp_path):
 
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     with pytest.raises(ValueError, match="fixes.*experiments"):
         ctx.new_trial("bogus", "x")
 
@@ -226,7 +234,7 @@ def test_new_trial_rejects_unknown_category(tmp_path):
 def test_trial_write_creates_root_lazily(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     trial = ctx.new_trial("fixes", "coded_pipeline")
     path = trial.write("prompt.txt", "do the thing")
     assert trial.root.exists()
@@ -237,7 +245,7 @@ def test_trial_write_creates_root_lazily(tmp_path):
 def test_trial_workspace_created_lazily(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     trial = ctx.new_trial("fixes", "coded_pipeline")
     assert not trial.root.exists()
     ws = trial.workspace
@@ -250,7 +258,7 @@ def test_trial_workspace_created_lazily(tmp_path):
 def test_trial_write_record_and_result(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     trial = ctx.new_trial("fixes", "attend_carefully")
     record_path = trial.write_record("# Fix attempt 01\n")
     result_path = trial.write_result({"fixed": True, "effect": 0.3})
@@ -264,7 +272,7 @@ def test_two_trials_in_same_category_have_independent_workspaces(tmp_path):
     not share (and overwrite) one sandbox."""
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     t1 = ctx.new_trial("fixes", "coded_pipeline")
     t2 = ctx.new_trial("fixes", "coded_pipeline")
     (t1.workspace / "fix_pipeline_exec.py").write_text("v1")
@@ -282,7 +290,7 @@ def test_two_trials_in_same_category_have_independent_workspaces(tmp_path):
 def test_write_report_file_text(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     path = ctx.write_report_file("notes.txt", "hello world")
     assert path == ctx.report_dir / "notes.txt"
     assert path.read_text(encoding="utf-8") == "hello world"
@@ -304,7 +312,7 @@ def test_write_diagnose_report_vl_style(tmp_path):
     )
     discovery_rows = [{"id": "c0", "label": "fail"}, {"id": "c1", "label": "pass"}]
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     written = ctx.write_diagnose_report(report, cases=[1, 2, 3], discovery=discovery_rows)
 
     assert set(written) == {"hypotheses", "m4_results", "summary_json", "summary_md", "discovery"}
@@ -342,7 +350,7 @@ def test_write_diagnose_report_without_discovery_omits_file(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
     report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles")
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     written = ctx.write_diagnose_report(report, cases=[])
     assert "discovery" not in written
     assert not (ctx.report_dir / "discovery_cases.json").exists()
@@ -361,7 +369,7 @@ def test_write_diagnose_report_duck_typed_auto_diagnose_style(tmp_path):
         # verified_hypotheses — write_diagnose_report must fall back cleanly.
     )
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     written = ctx.write_diagnose_report(report, cases=["c0"])
 
     hypotheses = json.loads((ctx.report_dir / "hypotheses.json").read_text())
@@ -388,7 +396,7 @@ def test_write_diagnose_report_duck_typed_auto_diagnose_style(tmp_path):
 def test_finalize_writes_manifest_matching_disk(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1", config={"model": "qwen3-vl-4b-instruct"})
+    ctx = RunContext(tmp_path / "run1", config={"model": "qwen3-vl-4b-instruct"}, logger_version="v1")
     ctx.write_report_file("summary.md", "# hi\n")
     (ctx.figures_dir / "plot.png").write_bytes(b"\x89PNG")
     (ctx.artifacts_dir / "attn.npy").write_bytes(b"\x00")
@@ -416,7 +424,7 @@ def test_finalize_writes_manifest_matching_disk(tmp_path):
 def test_finalize_writes_readme_without_stale_logs_prefix(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     ctx.write_report_file("summary.md", "# hi\n")
     ctx.logger  # touch so run_log.jsonl exists, like a real run
     ctx.finalize()
@@ -430,7 +438,7 @@ def test_finalize_writes_readme_without_stale_logs_prefix(tmp_path):
 def test_finalize_closes_logger(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     logger = ctx.logger
     assert logger._file_handler is not None
     ctx.finalize()
@@ -441,7 +449,7 @@ def test_finalize_closes_logger(tmp_path):
 def test_finalize_idempotent_without_logger_access(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     # Never touched ctx.logger — finalize() must not require one.
     ctx.finalize()
     assert ctx.manifest_path.exists()
@@ -452,7 +460,7 @@ def test_context_manager_calls_finalize_on_exit(tmp_path):
     from evalrx.eval_agent.run_context import RunContext
 
     root = tmp_path / "run1"
-    with RunContext(root) as ctx:
+    with RunContext(root, logger_version="v1") as ctx:
         ctx.write_report_file("summary.md", "# hi\n")
         assert not ctx.manifest_path.exists()
 

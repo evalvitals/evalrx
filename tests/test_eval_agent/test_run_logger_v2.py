@@ -490,6 +490,48 @@ def test_run_context_v2_snapshots_explore_text_and_media(tmp_path):
     assert (root / m2["workspace_snapshot"]["media"][0]).is_file()
 
 
+def test_run_context_v2_root_holds_no_v1_named_directories(tmp_path):
+    """Root-purity check for the RunContext default flip (logger_version="v2"
+    is now RunContext's default — see run_context.py). The file-suffix check
+    in test_run_context_v2_keeps_only_json_and_media_and_inlines_reports would
+    not catch an *empty* directory created by a stray V1-style ``_sub()`` call
+    (mkdir happens regardless of whether anything is later written into it),
+    so this asserts directory names directly."""
+    from types import SimpleNamespace
+
+    from evalrx.eval_agent.run_context import RunContext
+
+    root = tmp_path / "run"
+    ctx = RunContext(root, observability_mode="offline")  # default: v2
+    assert ctx.is_v2
+
+    # Touch every producer path a real run exercises: M2 artifacts, an
+    # explore pass, and a fix trial — the three that differ from V1 (item A
+    # in the migration plan).
+    (ctx.figures_dir / "effect.png").write_bytes(b"png-bytes")
+    (ctx.explore_dir / "table.csv").write_text("name,value\na,1\n")
+    trial = ctx.new_trial("fixes", "candidate")
+    trial.write("pipeline.py", "print('candidate')")
+
+    ctx.logger.log_run_start({"model": "fake"})
+    report = SimpleNamespace(
+        cycles=1, stopped_by="done", resolved=False, all_hypotheses=[],
+        final_hypotheses=[], verified_hypotheses=[], all_test_results=[],
+    )
+    ctx.write_diagnose_report(report, [], discovery=[])
+    ctx.finalize()
+
+    top_level = {p.name for p in root.iterdir()}
+    v1_only = {"explore", "figures", "report", "tools", "workspace", "fixes",
+               "experiments", "run_log.jsonl", "manifest.json", "README.txt"}
+    assert not (top_level & v1_only), top_level
+    assert top_level <= {"run.json", "M1", "M2", "M3", "M4", "M5", "artifacts", "contract",
+                          "langfuse_trace.json"}
+    # figures_dir/artifacts_dir's file did land under the V2 mapping (M2/artifacts),
+    # not disappear — this isn't just an absence check.
+    assert (root / "M2" / "artifacts" / "effect.png").is_file()
+
+
 def test_reporting_reader_and_server_discover_v2_run(tmp_path):
     from evalrx.analysis.dashboard import load_loop_story
     from evalrx.observability.tracer import backfill_run_to_langfuse

@@ -470,7 +470,9 @@ def test_m5_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
     so a *successful* experiment left no runnable code behind at all."""
     from evalrx.eval_agent.run_context import RunContext
 
-    ctx = RunContext(tmp_path / "run1")
+    # Pinned: asserts trial code survives past ctx.finalize(), which for V2
+    # deletes the ephemeral runtime tree trials live under.
+    ctx = RunContext(tmp_path / "run1", logger_version="v1")
     agent = SurgeryAgent(judge=FakeModel(), run_context=ctx)
     agent._writer = _FakeExperimentWriter()  # bypass the real LLM-driven writer
 

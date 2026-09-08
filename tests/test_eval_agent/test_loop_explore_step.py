@@ -353,12 +353,16 @@ def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):
 
 
 def test_default_explore_dir_with_a_run_context_is_under_its_root(tmp_path):
+    """V1 layout: explore/ is a real, persisted directory under the run root,
+    named in manifest.json. Pinned to logger_version="v1" — the V2 contract
+    (ephemeral, under ctx.runtime_root, captured into M2/log.json rather than
+    left on disk) is asserted separately below."""
     from evalrx.eval_agent.run_context import RunContext
 
     calls: list[str] = []
     workdir = tmp_path / "sandbox"
     _seed_workdir(workdir)
-    with RunContext(tmp_path / "run") as ctx:
+    with RunContext(tmp_path / "run", logger_version="v1") as ctx:
         loop, _ = _loop(calls, _Explorer(calls, report=_report(workdir)), run_logger=ctx.logger)
         assert loop._explore_out_dir() == ctx.root / "explore" == ctx.explore_dir
         loop.run(_batch())
@@ -367,6 +371,29 @@ def test_default_explore_dir_with_a_run_context_is_under_its_root(tmp_path):
     # the manifest/README knows the directory
     manifest = json.loads((tmp_path / "run" / "manifest.json").read_text())
     assert any("explore/" in str(f) for f in json.dumps(manifest).split('"'))
+
+
+def test_default_explore_dir_with_a_v2_run_context_stays_off_the_run_root(tmp_path):
+    """Regression test for the bug where _explore_out_dir() hand-derived
+    ctx.root/"explore" instead of calling ctx.explore_dir, ignoring is_v2 —
+    which would have left real files outside V2's JSON-only run artifact,
+    never cleaned up by finalize()'s runtime_root rmtree."""
+    from evalrx.eval_agent.run_context import RunContext
+
+    calls: list[str] = []
+    workdir = tmp_path / "sandbox"
+    _seed_workdir(workdir)
+    with RunContext(tmp_path / "run", logger_version="v2") as ctx:
+        loop, _ = _loop(calls, _Explorer(calls, report=_report(workdir)), run_logger=ctx.logger)
+        out_dir = loop._explore_out_dir()
+        assert out_dir == ctx.explore_dir
+        assert ctx.runtime_root in out_dir.parents
+        assert out_dir != ctx.root / "explore"
+        loop.run(_batch())
+    # V2 never leaves real files at <root>/explore; the runtime tree that held
+    # them was captured into M2/log.json and then deleted by finalize().
+    assert not (tmp_path / "run" / "explore").exists()
+    assert (tmp_path / "run" / "M2" / "log.json").is_file()
 
 
 def test_default_explore_dir_beside_a_standalone_logs_dir_and_inside_other_dirs(tmp_path):

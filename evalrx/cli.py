@@ -224,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Explicitly export a portable self-contained HTML snapshot.",
         description="Uses the same React/json-render layout as `serve`; the dynamic UI remains the primary experience.",
     )
-    report_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run_log.jsonl or logs/")
+    report_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run.json/M1..M5 (or the legacy run_log.jsonl), or logs/")
     report_cmd.add_argument("--example-dir", default=None, help="Root holding data/ manifest.")
     report_cmd.add_argument("--out", "-o", default=None, help="Output HTML path (default: <run_dir>/report.html).")
     report_cmd.add_argument("--no-audio", action="store_true", help="Skip audio transcoding.")
@@ -252,9 +252,9 @@ def main(argv: list[str] | None = None) -> int:
 
     backfill_langfuse = sub.add_parser(
         "backfill-langfuse",
-        help="Queue an existing run_log.jsonl for reliable Langfuse ingestion.",
+        help="Queue an existing run (run.json/M1..M5, or the legacy run_log.jsonl) for reliable Langfuse ingestion.",
     )
-    backfill_langfuse.add_argument("run_dir", help="Run directory holding run_log.jsonl or logs/run_log.jsonl.")
+    backfill_langfuse.add_argument("run_dir", help="Run directory holding run.json/M1..M5 (or the legacy run_log.jsonl), or logs/.")
     backfill_langfuse.add_argument("--dry-run", action="store_true", help="Inspect the run without writing an outbox.")
 
     args = parser.parse_args(argv)

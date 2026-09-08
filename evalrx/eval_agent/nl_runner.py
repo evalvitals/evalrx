@@ -172,7 +172,8 @@ def main() -> None:
     for h in report.final_hypotheses:
         print(f"  hypothesis : {{h.statement}}")
         print(f"  status     : {{h.status}}")
-    print(f"\\nFull guide -> {{ctx.root / 'README.txt'}}")
+    readme = ctx.root / "README.txt"
+    print(f"\\nFull guide -> {{readme}}" if readme.exists() else f"\\nRun record -> {{ctx.root / 'run.json'}}")
 
 
 if __name__ == "__main__":

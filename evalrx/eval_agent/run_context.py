@@ -8,7 +8,16 @@ producers by hand: the example wrote report files at the run root, the
 temp dir.  ``RunContext`` replaces that gluing with one library-owned object
 that owns the whole run directory and hands every producer its subdirectory.
 
-Layout (single root, no ``logs/`` nesting)::
+``logger_version="v2"`` is now the default (:class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`,
+see ``evalrx/eval_agent/RUN_LOGGER_V2.md``): one ``run.json`` plus one
+``M1/log.json``..``M5/log.json`` per stage, no ``run_log.jsonl``, no persisted
+``prompts/``/``experiments/``/``tools/``/``workspace/``/``fixes/`` — generated
+text/code is captured inline into the relevant stage's JSON via an ephemeral
+runtime tree that :meth:`finalize` deletes, and no ``manifest.json``/``README.txt``
+is written. The V1 layout below still exists (``logger_version="v1"``) and stays
+readable indefinitely for old runs; it is no longer what a fresh run produces.
+
+V1 layout (single root, no ``logs/`` nesting)::
 
     <root>/
     ├── manifest.json     run config + index of every produced file
@@ -30,18 +39,22 @@ Layout (single root, no ``logs/`` nesting)::
 (:meth:`RunContext.new_trial`) — one numbered folder per attempt holding its
 generated code, the sandbox it ran in, judge prompt/output, and its
 record.md + result.json, so "what did attempt #14 do" is one folder, not a
-filename-slug hunt across ``tools/`` / ``workspace/`` / ``fixes/``.
+filename-slug hunt across ``tools/`` / ``workspace/`` / ``fixes/``. (V2 has no
+persisted trial folders — a trial's code/output is inlined into its stage's
+JSON instead; see ``artifacts_dir`` and ``figures_dir`` for the two on-disk
+categories V2 does still write directly.)
 
 Usage::
 
     from evalrx.eval_agent import RunContext, VLDiagnoseLoop
 
-    with RunContext("examples/foo/outputs", verbose=True) as ctx:
+    with RunContext("examples/foo/outputs", verbose=True) as ctx:  # V2 by default
         stats_agent = StatsAnalysisAgent(judge=judge, figure_dir=str(ctx.figures_dir))
         loop = VLDiagnoseLoop(..., run_logger=ctx.logger)
         report = loop.run(cases)
         ctx.write_diagnose_report(report, cases, discovery=discovery_rows)
-    # manifest.json + README.txt written, logger closed on exit.
+    # V1: manifest.json + README.txt also written on exit. V2: run.json/M*/log.json
+    # are flushed incrementally throughout the run; finalize() just closes them out.
 """
 
 from __future__ import annotations
@@ -146,14 +159,15 @@ class RunContext:
         verbose:  Forwarded to the :class:`RunLogger` (human-readable stdout).
         config:   Optional run-configuration dict recorded verbatim in the
                   manifest (model, judge, protocol, …).
-        logger_version: "v1" (default, :class:`RunLogger`) or "v2"
-                  (:class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`, the
-                  tidy M1..M5-folder layout described in
-                  ``evalrx/eval_agent/RUN_LOGGER_V2.md``). V2 receives this
+        logger_version: "v2" (default, :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`,
+                  the tidy M1..M5-folder layout described in
+                  ``evalrx/eval_agent/RUN_LOGGER_V2.md``) or "v1" (legacy
+                  :class:`RunLogger`, kept for reading/writing the old flat
+                  ``run_log.jsonl`` layout — pass this explicitly when that's
+                  what's wanted; new runs should not need to). V2 receives this
                   context and allocates producer sandboxes in an external
                   ephemeral runtime tree; their text is inlined into JSON and
                   their media is copied before finalization removes the tree.
-                  V1 remains the default until real-run and UI acceptance.
     """
 
     def __init__(
@@ -164,7 +178,7 @@ class RunContext:
         verbose: bool = False,
         config: "dict[str, Any] | None" = None,
         observability_mode: str | None = None,
-        logger_version: str = "v1",
+        logger_version: str = "v2",
     ) -> None:
         if root is None:
             root = Path("runs") / datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -271,9 +285,9 @@ class RunContext:
     def logger(self) -> "RunLogger | RunLoggerV2":
         """The logger bound to this context (created on first use).
 
-        ``RunLogger`` (V1) unless constructed with ``logger_version="v2"``,
-        in which case this returns a :class:`RunLoggerV2` rooted at
-        ``self.root`` instead — see the constructor docstring.
+        :class:`RunLoggerV2` (V2) unless constructed with
+        ``logger_version="v1"``, in which case this returns the legacy
+        ``RunLogger`` instead — see the constructor docstring.
         """
         if self._logger is None:
             if self._logger_version == "v2":
@@ -549,6 +563,13 @@ class RunContext:
                 # close() materializes the trace bundle and every M1-M5 log;
                 # index only afterwards so the manifest is complete.
                 logger.log_manifest(run_id=self.run_id, config=self.config)
+                # write_contract_index() only looks for an on-disk contract/
+                # dir and the logger's trace_id — neither is V1-specific, it
+                # was just never called from this branch. Without it, a run
+                # that emitted contract/ payloads (evalrx.contract.emit,
+                # independent of RunContext) never gets the index.json a
+                # reader opening the run without its producer needs.
+                self.write_contract_index()
             if self._runtime_root is not None:
                 shutil.rmtree(self._runtime_root, ignore_errors=True)
             self._finalized = True
