@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import mimetypes
+import os
 import re
 import tempfile
 from datetime import datetime, timezone
@@ -63,9 +66,7 @@ class ReportSession:
         self.data = data
         self.envelope = envelope
         self.media_by_id = {str(item.get("id")): item for item in data.get("media", [])}
-        # "logs" alone names nothing; a run written to <run>/logs is better
-        # identified by the directory the reader actually zipped up.
-        self.label = f"{root.parent.name}/{root.name}" if root.name == "logs" else root.name
+        self.label = _run_label(root)
 
     @property
     def payload(self) -> dict[str, Any]:
@@ -92,6 +93,95 @@ class ReportSession:
             )
         self.load(found)
         return found
+
+
+def _run_label(root: Path) -> str:
+    # "logs" alone names nothing; a run written to <run>/logs is better
+    # identified by the directory the reader actually zipped up.
+    return f"{root.parent.name}/{root.name}" if root.name == "logs" else root.name
+
+
+# Directories a run scan never descends into: version control and dependency
+# noise, plus a found run's own internals (raw case media, the coder's
+# sandbox, cached transcodes) — none of those hold a *further* run, and
+# `data/` in particular can be hundreds of megabytes of dataset files.
+_SCAN_SKIP_DIRS = _JUNK_DIRS | {"data", "sandbox", ".media_cache"}
+
+#: Runs panel display cap, applied after sorting by recency (see /api/runs) —
+#: distinct from discover_runs' own max_results, which is a much larger
+#: traversal safety valve, not a display limit.
+RUNS_DISPLAY_LIMIT = 200
+
+
+def discover_runs(scan_root: Path, *, max_depth: int = 8, max_results: int = 2000) -> list[Path]:
+    """Find run directories under ``scan_root``, without walking into any of them.
+
+    A run directory is one holding ``run_log.jsonl`` directly at its root —
+    the layout both the legacy logger and V2 ``RunContext`` write (matching
+    ``find_run_root``'s rank-0 marker). Once a run is found its own subtree
+    (data, sandbox, report, ...) is not searched further, and directories
+    named `outputs*`/`logs` are walked through since a run commonly sits a
+    few levels under an example's output directory.
+
+    ``max_results`` is a safety valve for a pathological tree, not the panel's
+    display limit — hitting it means the *walk* stops, in whatever order
+    ``os.walk`` reached matches, so a caller that wants "most recent N" must
+    sort the full result and slice afterward rather than rely on this cutoff
+    to have kept the newest ones.
+    """
+    scan_root = scan_root.resolve()
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(scan_root):
+        current = Path(dirpath)
+        dirnames[:] = sorted(d for d in dirnames if d not in _SCAN_SKIP_DIRS and not d.startswith("."))
+        if "run_log.jsonl" in filenames:
+            found.append(current)
+            dirnames[:] = []  # a run's own subtree holds no further runs
+            if len(found) >= max_results:
+                break
+            continue
+        if len(current.relative_to(scan_root).parts) >= max_depth:
+            dirnames[:] = []  # too deep to be worth descending further
+    return found
+
+
+def _run_summary(root: Path, run_id: str, scan_root: Path) -> dict[str, Any]:
+    """Cheap, read-only metadata for the runs panel — never compiles a report."""
+    log_path = root / "run_log.jsonl"
+    try:
+        mtime = log_path.stat().st_mtime
+    except OSError:
+        mtime = None
+    dataset = model = None
+    published = False
+    data_path = root / "report" / "report_data.json"
+    if data_path.is_file():
+        published = True
+        try:
+            setting = json.loads(data_path.read_text(encoding="utf-8")).get("setting") or {}
+            dataset, model = setting.get("dataset"), setting.get("model")
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+    try:
+        rel_path = str(root.relative_to(scan_root))
+    except ValueError:
+        rel_path = str(root)
+    return {
+        "id": run_id,
+        # Relative to the scan root, not `_run_label`'s "<parent>/logs": two
+        # sibling experiments both nest their run under an `outputs/logs`
+        # child, and the topbar's one-run label collapses them to identical,
+        # unidentifiable rows in a list that shows several at once.
+        "path": rel_path,
+        # The resolved absolute path, matching what /api/session reports for
+        # the run currently on screen — how the panel knows which entry to
+        # highlight as active.
+        "root": str(root),
+        "dataset": dataset,
+        "model": model,
+        "published": published,
+        "modified_at": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat() if mtime else None,
+    }
 
 
 def find_run_root(base: Path) -> Path | None:
@@ -150,12 +240,18 @@ def _compile_report(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def create_app(
-    run_dir: str | Path | None = None, *, frontend_dir: str | Path | None = None
+    run_dir: str | Path | None = None, *, frontend_dir: str | Path | None = None,
+    runs_root: str | Path | None = None,
 ) -> Any:
     """Create the loopback report API and serve the packaged React application.
 
     ``run_dir`` may be omitted: the app then starts empty and waits for a run
     archive to be dropped on the page.
+
+    ``runs_root`` is where the runs panel looks for sibling experiments to
+    list; it defaults to ``run_dir``'s parent (so opening one run in an
+    example's ``outputs/`` surfaces the others beside it) or, with no
+    ``run_dir``, the current directory.
     """
     try:
         from fastapi import FastAPI, HTTPException, Query
@@ -169,6 +265,16 @@ def create_app(
     session = ReportSession(run_dir)
     app = FastAPI(title="EvalRX Report", docs_url="/api/docs", redoc_url=None)
 
+    # State for the runs panel: which directory it scans, and the ids handed
+    # to the browser for the last listing (an id is a hash of a resolved
+    # path, so `open` needs this to map it back — the scan itself is not
+    # repeated on open).
+    scan_state: dict[str, Path] = {
+        "root": Path(runs_root).resolve() if runs_root is not None
+        else (Path(run_dir).resolve().parent if run_dir is not None else Path.cwd())
+    }
+    run_index: dict[str, Path] = {}
+
     def current() -> ReportSession:
         if not session.loaded:
             raise HTTPException(status_code=404, detail="No run is loaded; drop a run .zip to open one.")
@@ -181,7 +287,49 @@ def create_app(
             "label": session.label,
             "trace_id": session.data.get("trace_id") if session.loaded else None,
             "accepts_upload": True,
+            # Lets the runs panel highlight the run already on screen (e.g.
+            # one passed on the command line) against its own listing, which
+            # keys entries by this same resolved path.
+            "root": str(session.root) if session.loaded else None,
         }
+
+    @app.get("/api/runs")
+    def list_runs() -> dict[str, Any]:
+        """List experiments found on disk under the scan root, most recent first."""
+        scan_root = scan_state["root"]
+        if not scan_root.is_dir():
+            raise HTTPException(status_code=404, detail=f"{scan_root} is not a directory")
+        found = discover_runs(scan_root)
+        # Sort the full (safety-valve-capped, not display-capped) find before
+        # truncating to what the panel actually shows — discover_runs' own
+        # cutoff stops the walk in traversal order, which is not recency.
+        found.sort(
+            key=lambda path: (path / "run_log.jsonl").stat().st_mtime
+            if (path / "run_log.jsonl").is_file() else 0,
+            reverse=True,
+        )
+        items = []
+        for path in found[:RUNS_DISPLAY_LIMIT]:
+            run_id = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:16]
+            run_index[run_id] = path
+            items.append(_run_summary(path, run_id, scan_root))
+        return {"root": str(scan_root), "items": items, "truncated": len(found) > RUNS_DISPLAY_LIMIT}
+
+    @app.post("/api/runs/{run_id}/open")
+    def open_run(run_id: str) -> dict[str, Any]:
+        """Load a run found by /api/runs and make it the report on screen.
+
+        Opens by id rather than by a client-supplied path, so the browser can
+        only load a run this server itself already found on a prior listing.
+        """
+        path = run_index.get(run_id)
+        if path is None or not path.is_dir():
+            raise HTTPException(status_code=404, detail="Unknown run id; refresh the runs list and try again")
+        try:
+            session.load(path)
+        except Exception as exc:  # a run mid-write or otherwise unreadable
+            raise HTTPException(status_code=422, detail=f"could not open this run: {exc}") from exc
+        return {"label": session.label, **session.payload}
 
     @app.post("/api/upload")
     async def upload_run(file: UploadFile = File(...)) -> dict[str, Any]:
@@ -320,18 +468,20 @@ def serve_dynamic_report(
     host: str = "127.0.0.1",
     port: int = 8501,
     open_browser: bool = True,
+    runs_root: str | Path | None = None,
 ) -> int:
     """Publish if necessary and run the completed-report UI on loopback.
 
     With no ``run_dir`` the server comes up empty and waits for a zipped run to
     be dropped on the page, which is how a run that was produced on another
-    machine gets looked at here.
+    machine gets looked at here. ``runs_root`` overrides where the runs panel
+    looks for sibling experiments (see ``create_app``).
     """
     try:
         import uvicorn
     except ImportError as exc:
         raise ImportError("The dynamic UI needs `pip install evalrx[ui]`.") from exc
-    app = create_app(run_dir)
+    app = create_app(run_dir, runs_root=runs_root)
     if open_browser:
         import threading
         import webbrowser

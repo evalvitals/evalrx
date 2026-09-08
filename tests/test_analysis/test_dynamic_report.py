@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 
 def test_publish_report_contract_and_case_records(tmp_path):
@@ -101,6 +102,92 @@ def test_dynamic_api_filters_and_serves_spa(tmp_path):
         assert response.json()["total"] == 1
         assert response.json()["items"][0]["id"] == "a"
         assert client.get("/").headers["content-type"].startswith("text/html")
+
+
+def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.dynamic import publish_report
+    from evalrx.reporting.server import create_app
+
+    # Two sibling experiments under one root, as an example's outputs/ tree
+    # holds them; only one is published, to exercise the unpublished fallback.
+    run_a = tmp_path / "exp_a" / "outputs" / "logs"
+    run_b = tmp_path / "exp_b" / "outputs" / "logs"
+    for run, model in ((run_a, "model-a"), (run_b, "model-b")):
+        logger = RunLogger(run)
+        logger.log_run_start({"model": model, "benchmark_name": "demo", "n_cases": 1})
+        logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
+        logger.close()
+    publish_report(run_a)
+
+    with TestClient(create_app(run_a, runs_root=tmp_path)) as client:
+        listing = client.get("/api/runs")
+        assert listing.status_code == 200
+        items = listing.json()["items"]
+        assert {item["path"] for item in items} == {"exp_a/outputs/logs", "exp_b/outputs/logs"}
+        published = next(item for item in items if item["published"])
+        assert published["model"] == "model-a"
+        unpublished = next(item for item in items if not item["published"])
+        assert unpublished["model"] is None
+
+        opened = client.post(f"/api/runs/{unpublished['id']}/open")
+        assert opened.status_code == 200
+        assert opened.json()["data"]["setting"]["model"] == "model-b"
+        # The session actually swapped: /api/report now serves run_b too.
+        assert client.get("/api/report").json()["data"]["setting"]["model"] == "model-b"
+
+        assert client.post("/api/runs/not-a-real-id/open").status_code == 404
+
+
+def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, monkeypatch):
+    """discover_runs' own cutoff is a traversal safety valve, not recency
+    order — the endpoint must sort the full find before truncating to what
+    the panel shows, or a walk that reaches new runs late would drop them."""
+    from fastapi.testclient import TestClient
+
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting import server as server_mod
+
+    monkeypatch.setattr(server_mod, "RUNS_DISPLAY_LIMIT", 2)
+    stamps = [1_700_000_000, 1_700_000_100, 1_700_000_200]  # oldest to newest
+    runs = []
+    for i, stamp in enumerate(stamps):
+        run = tmp_path / f"exp_{i}" / "outputs" / "logs"
+        logger = RunLogger(run)
+        logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
+        logger.close()
+        os.utime(run / "run_log.jsonl", (stamp, stamp))
+        runs.append(run)
+
+    with TestClient(server_mod.create_app(runs[0], runs_root=tmp_path)) as client:
+        listing = client.get("/api/runs").json()
+        assert listing["truncated"] is True
+        # The two most recent (exp_1, exp_2), never the oldest (exp_0) —
+        # regardless of the walk's own traversal/alphabetical order.
+        assert {item["path"] for item in listing["items"]} == {"exp_1/outputs/logs", "exp_2/outputs/logs"}
+
+
+def test_runs_discovery_does_not_descend_into_a_found_runs_data_dir(tmp_path):
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.server import discover_runs
+
+    run = tmp_path / "exp" / "outputs" / "logs"
+    logger = RunLogger(run)
+    logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
+    logger.close()
+    # A run's own data/sandbox subtree must never be scanned for more runs,
+    # even if it happens to contain another run_log.jsonl (e.g. a nested
+    # coder sandbox that itself invoked evalrx).
+    decoy = run / "explore" / "sandbox" / "data" / "run_log.jsonl"
+    decoy.parent.mkdir(parents=True)
+    decoy.write_text("{}\n", encoding="utf-8")
+
+    assert discover_runs(tmp_path) == [run]
 
 
 def test_external_case_media_is_copied_into_durable_run(tmp_path):
