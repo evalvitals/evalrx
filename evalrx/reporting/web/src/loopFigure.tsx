@@ -148,7 +148,11 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
   const shown = (value: unknown) => { const text = String(value ?? "").trim(); return text ? text : null; };
   const exampleModel = shown(example?.baseline_answer) ?? shown(example?.baseline_output) ?? shown(exampleCase?.observed) ?? "—";
   const exampleGold = shown(example?.gold) ?? shown(exampleCase?.expected) ?? "—";
-  const repair = data.repairs[0];
+  const repair = Array.isArray(data.repairs) ? data.repairs[0] : undefined;
+  // The FixAgent's own verdict on the run: what to do next and why. This is
+  // the sentence that makes the gate auditable ("only 4 failing cases…").
+  const m5Detail = (data.stage_detail?.m5 ?? {}) as { recommendation?: { action?: string | null; reason?: string | null } | null };
+  const recommendation = m5Detail.recommendation && (m5Detail.recommendation.action || m5Detail.recommendation.reason) ? m5Detail.recommendation : null;
 
   const verdictCount = (status: string) => m4.filter((v) => String(v.status || "").toLowerCase() === status).length;
   const supported = verdictCount("supported"), refuted = verdictCount("refuted");
@@ -299,35 +303,41 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
       <div className="lf-arrow" aria-hidden="true" />
 
       {/* ── OUTPUT ─────────────────────────────────────────────────────── */}
-      <aside className={`lf-output${accepted ? " ok" : ""}`} onClick={() => navigate("evidence")} role="button" tabIndex={0}>
+      {/* The health card is the audit record: each line is the receipt for one
+          stage, so each line opens that stage. The card itself is not a target
+          — a click that only leads to the evidence index taught readers that
+          the card was broken. */}
+      <aside className={`lf-output${accepted ? " ok" : ""}`}>
         <span className="lf-lane-kicker">OUTPUT <Trophy size={13} /></span>
         <h3>Health card</h3>
         <p className="lf-sub">An auditable record, not merely a final score</p>
         <ol className="lf-health">
-          <li><b>1</b><span>baseline + failure slice</span><code>{pct(cs?.headline.baseline_accuracy)}{cs?.headline.n_cases ? ` · ${cs.headline.n_cases} cases` : ""}</code></li>
-          <li><b>2</b><span>frozen hypothesis contract</span><code>{m3.length ? `${m3.length} hypotheses` : "none"}</code></li>
-          <li><b>3</b><span>held-out verdict</span><code>{m4.length ? `${supported}/${m4.length} supported` : "—"}</code></li>
-          <li><b>4</b><span>repair + side effects</span><code>{validation ? `${validation.n_fixed} fixed · ${validation.n_broken} broken` : repair ? `${repair.fixed_cases} fixed · ${repair.broken_cases} broken` : "—"}</code></li>
+          <li><button type="button" onClick={() => navigate("cases")}
+            title={example ? `${example.case_id} · ${String(example.question || "").split("\n")[0].slice(0, 140)}\nmodel: ${exampleModel.slice(0, 100)}\ngold: ${exampleGold.slice(0, 60)}` : "open the case studio"}>
+            <b>1</b><span>baseline + failure slice</span><code>{pct(cs?.headline.baseline_accuracy)}{cs?.headline.n_cases ? ` · ${cs.headline.n_cases} cases` : ""}</code></button></li>
+          <li><button type="button" onClick={go("m3")} title="open M3: the frozen hypotheses">
+            <b>2</b><span>frozen hypothesis contract</span><code>{m3.length ? `${m3.length} hypotheses` : "none"}</code></button></li>
+          <li><button type="button" onClick={go("m4")} title="open M4: the held-out verdicts">
+            <b>3</b><span>held-out verdict</span><code>{m4.length ? `${supported}/${m4.length} supported` : "—"}</code></button></li>
+          <li><button type="button" onClick={go("m5")} title="open M5: the repair and its side effects">
+            <b>4</b><span>repair + side effects</span><code>{validation ? `${validation.n_fixed} fixed · ${validation.n_broken} broken` : repair ? `${repair.fixed_cases} fixed · ${repair.broken_cases} broken` : "—"}</code></button></li>
         </ol>
         <div className="lf-gate">
           <small>PROMOTION GATE</small>
           <code>paired Δ &gt; δ<sub>min</sub> &amp; regression ≤ ρ<sub>max</sub></code>
+          {validation && <dl className="lf-gate-facts">
+            <dt>Δ</dt><dd>{signed(validation.effect, 3)} on {validation.n_pairs} pairs{typeof validation.e_value === "number" ? ` · e = ${validation.e_value.toFixed(1)}` : ""}</dd>
+            <dt>side</dt><dd>{validation.n_fixed} fixed · {validation.n_broken} broken</dd>
+          </dl>}
           <div className="lf-version">
             <span>v<sub>t</sub></span>
             <i className={accepted ? "go" : "stop"}>{accepted ? <Check size={14} /> : <X size={14} />}</i>
             <span>v<sub>t+1</sub></span>
           </div>
           <strong className={accepted ? "ok" : "no"}>{accepted ? "Accepted → promote v" : "Not promoted · v"}<sub>{accepted ? "t+1" : "t"}</sub>{accepted ? "" : " kept"}</strong>
-        </div>
-        <div className="lf-tip">
-          {example ? <>
-            <div><b>IN</b><span>{example.case_id} · {String(example.question || "").split("\n")[0].slice(0, 160)}</span></div>
-            <div><b>OUT</b><span>model: {exampleModel.slice(0, 120)}</span><span>gold: {exampleGold.slice(0, 80)}</span></div>
-          </> : <>
-            <div><b>IN</b><span>{m3.length} hypotheses, {m4.length} verdicts</span></div>
-            <div><b>OUT</b><span>{data.summary.headline}</span></div>
-          </>}
-          <small>click to open the evidence index</small>
+          {recommendation && <p className="lf-why">
+            {recommendation.action && <b>{humanise(recommendation.action)}.</b>} {recommendation.reason}
+          </p>}
         </div>
       </aside>
     </div>

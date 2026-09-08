@@ -702,6 +702,11 @@ def _stage_detail(
             "skip_detail": str(m5.get("skip_detail") or ""),
             "candidates": candidates, "confirmation": confirmation,
             "best": _repair_candidate(m5.get("best") or {}),
+            # The FixAgent's own verdict on the run — action + the sentence that
+            # justifies it ("underpowered: only 4 failing cases…"). This is the
+            # line the health card's promotion gate prints.
+            "recommendation": (dict(m5["recommendation"])
+                               if isinstance(m5.get("recommendation"), Mapping) else None),
             "examples": repair_examples,
             "operation_previews": repair_operation_previews,
             "surgeries": list((raw.get("m5_surgery") or {}).get("surgeries") or []),
