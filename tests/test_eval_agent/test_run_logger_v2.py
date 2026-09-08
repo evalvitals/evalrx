@@ -665,3 +665,31 @@ def test_v2_schema_validation_warns_but_preserves_invalid_event(tmp_path, monkey
         with pytest.warns(UserWarning, match="violates log schema"):
             logger.log_stage_skipped("M4", "reason", cycle="invalid")
     assert _load(tmp_path, "M4", "log.json")["stage_skipped"][0]["cycle"] == "invalid"
+
+def test_hypothesis_id_joins_m3_to_m4_and_m5(tmp_path):
+    """The lineage key a frontend needs to draw "M5 came from this M3
+    hypothesis, M4 verified it": the SAME Hypothesis object logged by
+    log_diagnosis (M3), log_surgery (M4-shaped and M5-shaped), and
+    log_experiment (M5) must carry one consistent id, computed the same way
+    evalrx.contract.emit.hypothesis_id does (delegates to the same function)."""
+    from evalrx.eval_agent.hypothesis import hypothesis_id
+
+    run_dir = tmp_path / "run1"
+    _emit_every_method(run_dir)
+
+    m3 = _load(run_dir, "M3", "log.json")["diagnosis"][0]
+    hyps = m3["hypotheses"]
+    assert len(hyps) == 1 and hyps[0]["id"]
+    hid = hyps[0]["id"]
+
+    surgeries = _load(run_dir, "M4", "log.json")["surgery"] + _load(run_dir, "M5", "log.json")["surgery"]
+    assert len(surgeries) == 2  # one M4-shaped, one M5-shaped (see _emit_every_method)
+    assert all(s["hypothesis_id"] == hid for s in surgeries)
+
+    experiment = _load(run_dir, "M5", "log.json")["experiment"][0]
+    assert experiment["hypothesis_id"] == hid
+
+    # And it's exactly what a consumer re-deriving the id from the same
+    # statement (id="", per _emit_every_method's `hyp`) would compute —
+    # no drift between the log and an independent join.
+    assert hid == hypothesis_id({"id": "", "statement": "s"})

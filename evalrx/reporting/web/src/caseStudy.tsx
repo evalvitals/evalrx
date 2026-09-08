@@ -137,16 +137,15 @@ export function CaseStudySheet({ sheet }: { sheet: CaseStudy }) {
   return <section className="section cs">
     <header>
       <div>
-        <span className="section-kicker">THE RUN AS ONE SHEET</span>
-        <h2>From model failure to tested repair.</h2>
+        <h2>Takeaway</h2>
       </div>
     </header>
 
+    {/* Model and dataset are already named in the hero; repeating them here
+        only pushed the two numbers that matter off to the right. */}
     <div className="cs-facts">
-      <div><small>MODEL</small><strong>{headline.model}</strong></div>
-      <div><small>DATASET</small><strong>{headline.dataset}</strong>
-        {headline.n_cases ? <span>{headline.n_cases} cases</span> : null}</div>
-      <div><small>BASELINE</small><strong>{pct(headline.baseline_accuracy)}</strong></div>
+      <div><small>BASELINE</small><strong>{pct(headline.baseline_accuracy)}</strong>
+        {headline.n_cases ? <span>{headline.n_cases} explore cases</span> : null}</div>
       <div className="win"><small>AFTER REPAIR</small>
         <strong>{pct(validation?.candidate_rate)}</strong>
         {typeof headline.delta === "number" &&
