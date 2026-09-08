@@ -687,8 +687,11 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         takeaways = []
         for text in a0.get("findings") or []:
             if isinstance(text, str) and text.strip():
-                takeaways.append({"title": "Screening finding", "plain_title": "Screening finding",
-                                  "analysis": text.strip(), "chart_names": [], "table_names": []})
+                # "[MEDIUM] self_consistency.consistency=0.2 < 0.5: low self-consistency — …"
+                body = re.sub(r"^\[[A-Z]+\]\s*", "", text.strip())
+                head = body.split(": ", 1)[1] if ": " in body else body
+                takeaways.append({"title": head[:110], "plain_title": head[:110],
+                                  "analysis": body, "chart_names": [], "table_names": []})
         for text in e0.get("observations") or []:
             if isinstance(text, str) and text.strip():
                 head = text.strip().split(";")[0].split(". ")[0]
