@@ -476,7 +476,7 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 
 .lf-loop { display: grid; grid-template-columns: minmax(0, 2.9fr) minmax(0, 1.15fr) minmax(0, 1.35fr); grid-template-rows: 1fr auto; gap: 10px; }
 .lf-lane { display: grid; grid-template-rows: auto 1fr; gap: 8px; min-width: 0; }
-.lf-lane-head { display: flex; align-items: center; gap: 6px 9px; white-space: nowrap; overflow: hidden; padding: 6px 12px; min-height: 52px; box-sizing: border-box; border: 1px solid var(--line); }
+.lf-lane-head { display: flex; align-items: center; gap: 6px 9px; white-space: nowrap; overflow: hidden; padding: 8px 12px; min-height: 38px; box-sizing: border-box; border: 1px solid var(--line); }
 .lf-lane-head span { font: 500 10px DM Mono, monospace; letter-spacing: .16em; color: var(--green); }
 .lf-lane-head code { font: 500 11px DM Mono, monospace; color: var(--ink); }
 .lf-lane-head em { font-size: 10.5px; color: var(--muted); font-style: normal; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

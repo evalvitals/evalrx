@@ -200,7 +200,7 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
       {/* ── THE LOOP ───────────────────────────────────────────────────── */}
       <div className="lf-loop">
         <div className="lf-lane lf-lane-explore">
-          <div className="lf-lane-head"><span>EXPLORE / DISCOVERY</span><code>D<sub>E</sub></code><em>probe freely · inspect many signals · form hypotheses</em></div>
+          <div className="lf-lane-head"><span>EXPLORE / DISCOVERY</span><code>D<sub>E</sub></code></div>
           <div className="lf-lane-cards">
             <StageCard stage={stage.M1} code="M1" lane="explore" onClick={go("m1")}
               title={modules.M1?.name?.split(" ")[0] === "Suspicious" ? "Probe" : modules.M1?.name || "Probe"}
