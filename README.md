@@ -7,10 +7,10 @@
 [![PyPI version](https://img.shields.io/pypi/v/evalrx?color=0A7BBC)](https://pypi.org/project/evalrx/)
 [![Python versions](https://img.shields.io/pypi/pyversions/evalrx)](https://pypi.org/project/evalrx/)
 [![CI](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml/badge.svg)](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-live-6C63FF)](https://evalvitals.github.io/evalrx/)
+[![Docs](https://img.shields.io/badge/docs-live-6C63FF)](https://evalvitals.github.io/evalrx/overview/)
 [![License: CC0-1.0](https://img.shields.io/badge/license-CC0--1.0-green)](LICENSE)
 
-[Get started](#quickstart-analyze-your-eval-logs) · [Documentation](https://evalvitals.github.io/evalrx/) · [Examples](examples/README.md) · [PyPI](https://pypi.org/project/evalrx/)
+[Get started](#quickstart-analyze-your-eval-logs) · [Documentation](https://evalvitals.github.io/evalrx/overview/) · [Examples](examples/README.md) · [PyPI](https://pypi.org/project/evalrx/)
 
 </div>
 

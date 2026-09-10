@@ -4,6 +4,12 @@ site_url: https://evalvitals.github.io/evalrx
 repo_url: https://github.com/evalvitals/evalrx
 repo_name: evalvitals/evalrx
 
+# docs/index.html (the landing page) and docs/demo/ ride this same build as
+# static files outside the nav; site-src/ is the landing page's own source
+# (template.html + build.py + source fonts) and is excluded so it isn't
+# published alongside the built docs/index.html it produces.
+exclude_docs: site-src/
+
 theme:
   name: material
   palette:
@@ -25,7 +31,7 @@ theme:
     - content.code.copy
 
 nav:
-  - Home: index.md
+  - Overview: overview.md
   - Quickstart: quickstart.md
   - Exploratory Analysis (M2/M3): m2_analysis.md
   - Verification & Intervention (M4/M5): intervention.md

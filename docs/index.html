@@ -1,0 +1,1411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EvalRx — diagnose why a model fails, then verify the fix</title>
+<meta name="description" content="EvalRx is a self-improving loop that probes an open-weight model, diagnoses the mechanism behind its failures, verifies the diagnosis on held-out cases, and builds a repair validated against the unmodified baseline.">
+<meta name="robots" content="index, follow">
+<meta name="keywords" content="LLM evaluation, failure analysis, model diagnosis, interpretability, VLM, hallucination detection, model repair, open-weight models, evalrx">
+<link rel="canonical" href="https://evalvitals.github.io/evalrx/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A9%BA%3C/text%3E%3C/svg%3E">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="EvalRx">
+<meta property="og:title" content="EvalRx — diagnose why a model fails, then verify the fix">
+<meta property="og:description" content="EvalRx is a self-improving loop that probes an open-weight model, diagnoses the mechanism behind its failures, verifies the diagnosis on held-out cases, and builds a repair validated against the unmodified baseline.">
+<meta property="og:url" content="https://evalvitals.github.io/evalrx/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="EvalRx — diagnose why a model fails, then verify the fix">
+<meta name="twitter:description" content="EvalRx is a self-improving loop that probes an open-weight model, diagnoses the mechanism behind its failures, verifies the diagnosis on held-out cases, and builds a repair validated against the unmodified baseline.">
+</head>
+<body>
+<style>
+  /* ============ FONTS (self-hosted; OFL, see assets/fonts/OFL-*.txt) ============ */
+  @font-face { font-family:'Fraunces Hero'; font-style:normal; font-weight:900; font-display:swap; src: url(assets/fonts/fraunces_hero_900.woff2) format('woff2'); }
+  @font-face { font-family:'Fraunces Head'; font-style:normal; font-weight:600; font-display:swap; src: url(assets/fonts/fraunces_h2_600.woff2) format('woff2'); }
+  @font-face { font-family:'Fraunces Quote'; font-style:italic; font-weight:500; font-display:swap; src: url(assets/fonts/fraunces_italic_500.woff2) format('woff2'); }
+  @font-face { font-family:'Plex Sans'; font-style:normal; font-weight:400 700; font-display:swap; src: url(assets/fonts/plexsans_var.woff2) format('woff2'); }
+  @font-face { font-family:'Plex Mono'; font-style:normal; font-weight:400; font-display:swap; src: url(assets/fonts/plexmono_400.woff2) format('woff2'); }
+  @font-face { font-family:'Plex Mono'; font-style:normal; font-weight:500; font-display:swap; src: url(assets/fonts/plexmono_500.woff2) format('woff2'); }
+  @font-face { font-family:'Plex Mono'; font-style:normal; font-weight:600; font-display:swap; src: url(assets/fonts/plexmono_600.woff2) format('woff2'); }
+
+  /* ============ TOKENS — light (default) ============
+     Blue follows the paper-figure system: #3D8DFF is the method accent,
+     #EAF4FF carries grouped structure, and green/red are reserved for literal
+     held-out verdicts rather than decorative categories. */
+  :root{
+    --bg:#f7f8fa; --surface:#ffffff; --surface-2:#f4f4f4; --surface-3:#ecedef;
+    --border:#d9dce1; --border-strong:#c5cad1;
+    --text-primary:#0b0d0f; --text-secondary:#4f5863; --text-muted:#626b76;
+    --text-on-accent:#ffffff;
+
+    --brand:#3d8dff;         /* method / interaction / process */
+    --brand-ink:#1768c5;     /* accessible blue for small text */
+    --brand-soft:#eaf4ff;
+    --confirmed:#39a96b;     /* hypothesis held, tier built */
+    --confirmed-ink:#227a4b;
+    --confirmed-soft:#e7f4ec;
+    --refuted:#d45656;       /* hypothesis rejected */
+    --refuted-ink:#b33b3b;
+    --refuted-soft:#f9eaea;
+    --pending:#a96813;       /* inconclusive / escalate / in progress */
+    --pending-soft:#fff3df;
+
+    /* Ordinal ramp — single hue (brand), monotone lightness — for "position in
+       an ordered sequence" charts (repair-tier depth). Validated with
+       scripts/validate_palette.js --ordinal: monotone L, adjacent ΔL >= 0.06,
+       light end >= 2:1 on --surface. Do not eyeball a replacement; re-run it. */
+    --ramp-1:#c8e4ff; --ramp-2:#a9d5ff; --ramp-3:#82beff; --ramp-4:#5ca4ff; --ramp-5:#3d8dff;
+
+    --grid-line:#e1e4e8;
+    --shadow:0 20px 50px -30px rgba(11,13,15,.28);
+    --font-display:'Fraunces Hero', ui-serif, Georgia, serif;
+    --font-head:'Fraunces Head', ui-serif, Georgia, serif;
+    --font-quote:'Fraunces Quote', ui-serif, Georgia, serif;
+    --font-body:'Plex Sans', -apple-system, sans-serif;
+    --font-mono:'Plex Mono', ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0b0d0f; --surface:#11151b; --surface-2:#181e27; --surface-3:#222a35;
+      --border:#293342; --border-strong:#3b485a;
+      --text-primary:#f7f8fa; --text-secondary:#d9dce1; --text-muted:#9ca2aa;
+      --text-on-accent:#0b0d0f;
+      --brand:#6dcbf4; --brand-ink:#8edcff; --brand-soft:#3d8dff26;
+      --confirmed:#62c98d; --confirmed-ink:#75d99e; --confirmed-soft:#39a96b26;
+      --refuted:#ef7a7a; --refuted-ink:#ff9292; --refuted-soft:#d4565626;
+      --pending:#f0b85a; --pending-soft:#a9681326;
+      --ramp-1:#24466d; --ramp-2:#2b5b8f; --ramp-3:#3371b2; --ramp-4:#3a86d6; --ramp-5:#6dcbf4;
+      --grid-line:#202936; --shadow:0 20px 60px -25px rgba(0,0,0,.65);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b0d0f; --surface:#11151b; --surface-2:#181e27; --surface-3:#222a35;
+    --border:#293342; --border-strong:#3b485a;
+    --text-primary:#f7f8fa; --text-secondary:#d9dce1; --text-muted:#9ca2aa;
+    --text-on-accent:#0b0d0f;
+    --brand:#6dcbf4; --brand-ink:#8edcff; --brand-soft:#3d8dff26;
+    --confirmed:#62c98d; --confirmed-ink:#75d99e; --confirmed-soft:#39a96b26;
+    --refuted:#ef7a7a; --refuted-ink:#ff9292; --refuted-soft:#d4565626;
+    --pending:#f0b85a; --pending-soft:#a9681326;
+    --ramp-1:#24466d; --ramp-2:#2b5b8f; --ramp-3:#3371b2; --ramp-4:#3a86d6; --ramp-5:#6dcbf4;
+    --grid-line:#202936; --shadow:0 20px 60px -25px rgba(0,0,0,.65);
+  }
+
+  /* ============ RESET / BASE ============ */
+  *,*::before,*::after{box-sizing:border-box;}
+  html{font-size:18px;-webkit-text-size-adjust:100%;scroll-behavior:smooth;}
+  body{
+    margin:0; background:var(--bg); color:var(--text-primary);
+    font-family:var(--font-body); font-size:1rem; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  img,svg{max-width:100%;display:block;}
+  a{color:inherit;}
+  h1,h2,h3,h4{margin:0;text-wrap:balance;font-weight:600;}
+  p{margin:0;}
+  ul{margin:0;padding:0;list-style:none;}
+  button{font-family:inherit;}
+  code{font-family:var(--font-mono);}
+  :focus-visible{outline:2px solid var(--brand);outline-offset:3px;border-radius:3px;}
+  ::selection{background:var(--brand);color:var(--text-on-accent);}
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;}
+  }
+
+  .mono{font-family:var(--font-mono);}
+  .eyebrow{
+    font-family:var(--font-mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--text-muted);display:flex;align-items:center;gap:.6em;
+  }
+  .eyebrow::before{content:"";width:1.4em;height:1px;background:var(--border-strong);}
+
+  .wrap{max-width:1180px;margin-inline:auto;padding-inline:clamp(1.25rem,4vw,2.5rem);}
+  section{padding-block:clamp(3.5rem,7vw,6rem);}
+  section + section{border-top:1px solid var(--border);}
+  .section-head{max-width:660px;margin-bottom:clamp(2rem,4vw,3rem);}
+  .section-head h2{
+    font-family:var(--font-head);font-weight:600;font-size:clamp(1.9rem,3.4vw,2.6rem);
+    letter-spacing:-.01em;margin-block:.5rem .75rem;color:var(--text-primary);
+  }
+  .section-head p{color:var(--text-secondary);font-size:1.02rem;max-width:60ch;}
+  .section-head p + p{margin-top:.9rem;}
+
+  /* Section-arrival: transform+opacity only, disabled entirely under reduced motion. */
+  .reveal{opacity:0;transform:translateY(14px);transition:opacity .5s cubic-bezier(.32,.72,0,1),transform .5s cubic-bezier(.32,.72,0,1);will-change:opacity,transform;}
+  .reveal.in{opacity:1;transform:none;will-change:auto;}
+
+  /* ============ NAV ============ */
+  .nav{position:sticky;top:0;z-index:40;background:color-mix(in oklab, var(--bg) 86%, transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);}
+  .nav .wrap{display:flex;align-items:center;justify-content:space-between;gap:1.5rem;padding-block:.7rem;max-width:1180px;}
+  .brand{display:flex;align-items:baseline;gap:.15rem;text-decoration:none;font-family:var(--font-head);font-weight:600;letter-spacing:-.01em;font-size:1.12rem;color:var(--text-primary);}
+  .brand span{color:var(--brand);}
+  .navlinks{display:flex;align-items:center;gap:1.5rem;font-family:var(--font-mono);font-size:.78rem;letter-spacing:.03em;color:var(--text-secondary);}
+  .navlinks a{text-decoration:none;transition:color .15s;}
+  .navlinks a:hover{color:var(--text-primary);}
+  .navcta{display:flex;align-items:center;gap:.6rem;}
+  @media (max-width:860px){ .navlinks{display:none;} }
+
+  .btn{
+    display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1.05rem;border-radius:8px;
+    font-size:.86rem;font-weight:600;text-decoration:none;border:1px solid var(--border-strong);
+    color:var(--text-primary);background:var(--surface);transition:transform .15s,border-color .15s,background .15s;
+    white-space:nowrap;
+  }
+  .btn:hover{border-color:var(--text-muted);transform:translateY(-1px);}
+  .btn-primary{background:var(--brand);color:var(--text-on-accent);border-color:var(--brand);}
+  .btn-primary:hover{background:color-mix(in srgb,var(--brand) 88%,#0b0d0f);border-color:color-mix(in srgb,var(--brand) 88%,#0b0d0f);}
+  .btn-ghost{border-color:transparent;background:transparent;padding-inline:.3rem;}
+  .btn-demo{border-color:var(--brand);color:var(--brand-ink);background:var(--brand-soft);}
+  .btn-demo:hover{background:var(--brand);border-color:var(--brand);color:var(--text-on-accent);}
+  .btn-demo .demo-dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block;animation:pulse 2.4s ease-in-out infinite;}
+  .ctas{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.6rem;}
+
+  /* ============ HERO ============ */
+  .hero{padding-block:clamp(3rem,8vw,5.5rem) 0;}
+  .hero-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:3rem;align-items:start;}
+  @media (max-width:960px){ .hero-grid{grid-template-columns:1fr;} }
+  .hero h1{
+    font-family:var(--font-display);font-weight:900;font-size:clamp(2.1rem,4.6vw,3.6rem);
+    line-height:1.06;letter-spacing:-.015em;
+  }
+  .hero-lead{margin-top:1.25rem;max-width:56ch;font-size:1.06rem;color:var(--text-secondary);}
+  .hero-meta{margin-top:1.4rem;font-family:var(--font-mono);font-size:.78rem;color:var(--text-muted);}
+
+  /* ============ HERO TEASER ============ */
+  .teaser{margin:0;border:1px solid var(--border);border-radius:16px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden;}
+  .teaser-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.7rem 1rem;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);}
+  .teaser-head span:first-child{color:var(--brand);}
+  .teaser-visual{display:block;width:100%;height:auto;background:#fff;}
+  .teaser figcaption{margin:0;padding:.75rem 1rem;border-top:1px solid var(--border);font-family:var(--font-mono);font-size:.65rem;color:var(--text-muted);max-width:none;}
+  @media (max-width:960px){.teaser{max-width:680px;}}
+  @media (max-width:520px){.teaser-head{font-size:.61rem;}.teaser figcaption{font-size:.6rem;}}
+
+  .loop-card{border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden;}
+  .loop-card-head{display:flex;justify-content:space-between;align-items:center;padding:.7rem 1rem;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:.72rem;color:var(--text-muted);letter-spacing:.04em;}
+  .loop-card-head .dot{width:7px;height:7px;border-radius:50%;background:var(--brand);display:inline-block;margin-right:.5em;box-shadow:0 0 0 3px var(--brand-soft);animation:pulse 2.4s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.45;}}
+  .loop-chips{display:flex;flex-wrap:wrap;gap:.5rem;padding:1.2rem 1rem 1rem;}
+  .loop-chip{font-family:var(--font-mono);font-size:.74rem;padding:.4rem .7rem;border-radius:999px;border:1px solid var(--border-strong);color:var(--text-secondary);}
+  .loop-chip.key{color:var(--brand);border-color:var(--brand);background:var(--brand-soft);}
+  .loop-chip-arrow{color:var(--text-muted);align-self:center;font-size:.8rem;}
+  .loop-card-foot{padding:.9rem 1rem 1.1rem;border-top:1px solid var(--border);font-family:var(--font-mono);font-size:.76rem;color:var(--text-secondary);display:flex;flex-direction:column;gap:.4rem;}
+  .loop-card-foot b{color:var(--text-primary);}
+  .loop-card-foot .ok{color:var(--confirmed);}
+  .loop-card-foot .no{color:var(--refuted);}
+
+  /* ============ KPI ROW (stat tiles) ============ */
+  .kpi-band{padding-block:2.2rem;border-top:1px solid var(--border);}
+  .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  .kpi{background:var(--surface);padding:1.3rem 1.2rem;}
+  .kpi .n{font-family:var(--font-head);font-weight:600;font-size:2rem;letter-spacing:-.02em;color:var(--text-primary);}
+  .kpi .l{margin-top:.3rem;font-family:var(--font-mono);font-size:.72rem;color:var(--text-muted);line-height:1.4;}
+  @media (max-width:600px){ .kpi-row{grid-template-columns:1fr 1fr;} .kpi:last-child{grid-column:span 2;} }
+
+  /* ============ DIAGRAM (loop SVG) ============ */
+  .diagram-wrap{margin-top:2rem;overflow-x:auto;}
+  svg.diagram{width:100%;min-width:680px;height:auto;overflow:visible;}
+  svg.diagram .box{fill:var(--surface);stroke:var(--border-strong);stroke-width:1;}
+  svg.diagram .box-key{fill:var(--brand-soft);stroke:var(--brand);stroke-width:1.2;}
+  svg.diagram .box-out{fill:var(--confirmed-soft);stroke:var(--confirmed);stroke-width:1.2;}
+  svg.diagram .lbl{font-family:var(--font-body);font-weight:600;font-size:14px;fill:var(--text-primary);}
+  svg.diagram .sub{font-family:var(--font-mono);font-size:10.5px;fill:var(--text-muted);}
+  svg.diagram .edge{stroke:var(--border-strong);stroke-width:1.4;}
+  svg.diagram .edge-back{stroke:var(--pending);stroke-width:1.6;fill:none;stroke-dasharray:5 4;stroke-linecap:round;}
+  svg.diagram .edge-note{font-family:var(--font-mono);font-size:10.5px;}
+  svg.diagram .note-ok{fill:var(--confirmed);}
+  svg.diagram .note-back{fill:var(--pending);}
+  svg.diagram .note-back tspan{font-weight:700;}
+  svg.diagram .pill{fill:color-mix(in srgb,var(--pending) 12%,var(--surface));stroke:color-mix(in srgb,var(--pending) 35%,var(--border));stroke-width:1;}
+  figcaption{margin-top:1rem;font-size:.82rem;color:var(--text-muted);max-width:70ch;}
+
+  /* ============ STAGE DOSSIERS ============
+     The loop diagram is the index; these native disclosure rows are the next
+     reading depth. Native <details> keeps every stage usable without JS and
+     lets a reader open several stages side-by-side conceptually without a
+     tab control hiding the others. */
+  .stage-dossiers{margin-top:2.4rem;border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden;box-shadow:var(--shadow);}
+  .stage-dossiers-head{display:flex;justify-content:space-between;align-items:end;gap:2rem;padding:1.2rem 1.35rem;background:var(--surface-2);border-bottom:1px solid var(--border);}
+  .stage-dossiers-head h3{font-family:var(--font-head);font-size:1.23rem;}
+  .stage-dossiers-head p{max-width:52ch;color:var(--text-muted);font-size:.94rem;}
+  .stage-dossier + .stage-dossier{border-top:1px solid var(--border);}
+  .stage-dossier summary{display:grid;grid-template-columns:3.7rem minmax(130px,.72fr) minmax(220px,1.6fr) auto;gap:1rem;align-items:center;padding:1rem 1.35rem;cursor:pointer;list-style:none;transition:background .15s;}
+  .stage-dossier summary::-webkit-details-marker{display:none;}
+  .stage-dossier summary:hover{background:var(--brand-soft);}
+  .stage-dossier[open] summary{background:var(--brand-soft);}
+  .stage-id{width:2.85rem;height:2.85rem;display:grid;place-items:center;border:1px solid var(--brand);border-radius:8px;background:var(--brand-soft);color:var(--brand-ink);font-family:var(--font-mono);font-size:.91rem;font-weight:600;}
+  .stage-name{display:grid;gap:.12rem;}
+  .stage-name b{font-family:var(--font-head);font-size:1.12rem;}
+  .stage-name span,.stage-purpose{color:var(--text-muted);font-family:var(--font-mono);font-size:.87rem;}
+  .stage-purpose{font-family:var(--font-body);font-size:1.01rem;color:var(--text-secondary);}
+  .stage-open{display:flex;align-items:center;gap:.45rem;color:var(--brand-ink);font-family:var(--font-mono);font-size:.84rem;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;font-weight:500;}
+  .stage-open::after{content:"+";width:1.5rem;height:1.5rem;display:grid;place-items:center;border:1px solid var(--border-strong);border-radius:50%;font-size:1.12rem;line-height:1;}
+  .stage-dossier[open] .stage-open::after{content:"−";}
+  .stage-body{padding:1.35rem;border-top:1px dashed var(--border);background:var(--surface);}
+  .stage-story{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(220px,.7fr);gap:1rem;align-items:stretch;}
+  .stage-viz{min-height:220px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);padding:1rem;overflow:hidden;}
+  .viz-cap{font-family:var(--font-mono);font-size:.81rem;letter-spacing:.09em;text-transform:uppercase;color:var(--text-muted);margin-bottom:1rem;display:flex;justify-content:space-between;gap:1rem;}
+  .viz-cap b{color:var(--brand);font-weight:500;}
+  .stage-notes{border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden;}
+  .stage-note{padding:.9rem 1rem;}
+  .stage-note + .stage-note{border-top:1px dashed var(--border);}
+  .stage-note b{display:block;margin-bottom:.25rem;font-family:var(--font-mono);font-size:.79rem;letter-spacing:.08em;text-transform:uppercase;color:var(--brand);}
+  .stage-note span{display:block;font-size:.94rem;color:var(--text-secondary);line-height:1.45;}
+  .flow-row{display:flex;align-items:center;justify-content:center;gap:.55rem;min-height:145px;}
+  .flow-node{min-width:105px;padding:.75rem;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);text-align:center;}
+  .flow-node b{display:block;font-size:.91rem;}
+  .flow-node small{display:block;margin-top:.25rem;color:var(--text-muted);font-family:var(--font-mono);font-size:.77rem;}
+  .flow-node.accent{border-color:var(--brand);background:var(--brand-soft);}
+  .flow-arrow{color:var(--brand);font-family:var(--font-mono);font-size:1.12rem;}
+  .analyzer-stack{display:grid;gap:.35rem;min-width:130px;}
+  .analyzer-stack span{padding:.38rem .55rem;border:1px solid var(--border);border-radius:5px;background:var(--surface);font-family:var(--font-mono);font-size:.77rem;color:var(--text-secondary);}
+  .signal-matrix{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;width:112px;}
+  .signal-matrix i{height:18px;border-radius:2px;background:var(--surface-3);border:1px solid var(--border);}
+  .signal-matrix i.on{background:var(--brand);border-color:var(--brand);}
+  .forest-mini{display:grid;gap:.7rem;padding:.3rem 0;}
+  .forest-row{display:grid;grid-template-columns:5.4rem 1fr 4.4rem;gap:.7rem;align-items:center;}
+  .forest-row>span,.forest-row>em{font-family:var(--font-mono);font-size:.79rem;color:var(--text-muted);font-style:normal;}
+  .forest-row>em{text-align:right;}
+  .forest-track{position:relative;height:22px;background:linear-gradient(90deg,transparent 49.8%,var(--border-strong) 49.8%,var(--border-strong) 50.2%,transparent 50.2%);}
+  .forest-track i{position:absolute;left:var(--lo);right:calc(100% - var(--hi));top:10px;height:2px;background:var(--text-muted);}
+  .forest-track b{position:absolute;left:var(--dot);top:6px;width:9px;height:9px;margin-left:-4px;border-radius:50%;background:var(--surface);border:2px solid var(--text-muted);}
+  .forest-row.hit .forest-track i,.forest-row.hit .forest-track b{background:var(--brand);border-color:var(--brand);}
+  .forest-row.hit>em{color:var(--brand);}
+  .forest-axis{display:flex;justify-content:space-between;margin-left:6.1rem;color:var(--text-muted);font-family:var(--font-mono);font-size:.77rem;}
+  .hyp-lanes{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;}
+  .hyp-lane{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:.8rem;}
+  .hyp-lane>span{font-family:var(--font-mono);font-size:.79rem;color:var(--brand);}
+  .hyp-chain{display:flex;align-items:center;gap:.4rem;margin-top:.7rem;}
+  .hyp-box{flex:1;min-height:62px;padding:.55rem;border-radius:6px;background:var(--surface-2);font-size:.89rem;color:var(--text-secondary);display:grid;place-items:center;text-align:center;}
+  .hyp-box:last-child{border:1px dashed var(--brand);background:var(--brand-soft);}
+  .split-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:.7rem;align-items:center;}
+  .split-source{padding:1.1rem;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);text-align:center;}
+  .split-source b{font-family:var(--font-head);font-size:1.68rem;}
+  .split-source span{display:block;color:var(--text-muted);font-family:var(--font-mono);font-size:.78rem;}
+  .split-branches{display:grid;gap:.55rem;}
+  .split-branch{display:flex;justify-content:space-between;gap:1rem;padding:.65rem .75rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:var(--font-mono);font-size:.81rem;}
+  .split-branch.sealed{border-color:var(--confirmed);background:var(--confirmed-soft);color:var(--confirmed);}
+  .verdict-mini{display:flex;height:48px;border-radius:7px;overflow:hidden;margin-top:1rem;color:var(--text-on-accent);font-family:var(--font-mono);font-size:.82rem;font-weight:600;}
+  .verdict-mini span{display:grid;place-items:center;text-align:center;}
+  .verdict-mini .yes{flex:1;background:var(--confirmed);}
+  .verdict-mini .no{flex:3;background:var(--refuted);}
+  .repair-viz{display:grid;grid-template-columns:.9fr 1.35fr;gap:1rem;}
+  .mini-ladder{display:grid;gap:.38rem;}
+  .mini-rung{display:grid;grid-template-columns:2rem 1fr auto;gap:.5rem;align-items:center;padding:.48rem .6rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-size:.86rem;color:var(--text-secondary);}
+  .mini-rung b{font-family:var(--font-mono);color:var(--text-primary);}
+  .mini-rung em{font-family:var(--font-mono);font-size:.78rem;font-style:normal;color:var(--refuted);}
+  .mini-rung.next{border-color:var(--pending);background:var(--pending-soft);}
+  .mini-rung.next em{color:var(--pending);}
+  .freeze-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:.45rem;align-items:center;}
+  .freeze-col{display:grid;gap:.38rem;}
+  .freeze-col span{padding:.45rem;border:1px solid var(--border);border-radius:5px;background:var(--surface);font-family:var(--font-mono);font-size:.76rem;text-align:center;color:var(--text-muted);}
+  .freeze-col span.chosen{color:var(--pending);border-color:var(--pending);background:var(--pending-soft);}
+  .paired-box{padding:.75rem;border:1px solid var(--pending);border-radius:7px;background:var(--pending-soft);text-align:center;}
+  .paired-box b{display:block;font-size:.93rem;}
+  .paired-box small{display:block;margin-top:.25rem;color:var(--text-muted);font-family:var(--font-mono);font-size:.79rem;}
+  .stage-gate{display:grid;grid-template-columns:auto 1fr;gap:.75rem;align-items:start;margin-top:1rem;padding:.85rem 1rem;border-left:3px solid var(--brand);background:var(--brand-soft);}
+  .stage-gate b{font-family:var(--font-mono);font-size:.84rem;letter-spacing:.07em;text-transform:uppercase;color:var(--brand);}
+  .stage-gate p{font-size:.94rem;color:var(--text-secondary);}
+  .stage-deep{margin-top:1rem;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);}
+  .stage-question{display:grid;grid-template-columns:8.5rem 1fr;gap:1rem;align-items:center;padding:.8rem 1rem;border-bottom:1px solid var(--border);background:var(--surface-2);}
+  .stage-question span,.contract-k{font-family:var(--font-mono);font-size:.76rem;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);}
+  .stage-question b{font-size:.98rem;font-weight:600;}
+  .stage-controls{display:grid;grid-template-columns:repeat(4,1fr);gap:1.5rem;padding:1rem;background:var(--surface-2);border-bottom:1px solid var(--border);}
+  .stage-control{position:relative;min-height:112px;padding:.9rem 1rem .9rem 2.8rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);}
+  .stage-control:not(:last-child)::after{content:"→";position:absolute;right:-1.12rem;top:50%;transform:translateY(-50%);color:var(--brand);font-family:var(--font-mono);font-size:1.05rem;font-weight:600;}
+  .stage-control i{position:absolute;left:.9rem;top:.92rem;width:1.35rem;height:1.35rem;display:grid;place-items:center;border-radius:50%;background:var(--brand-soft);color:var(--brand);font-family:var(--font-mono);font-size:.75rem;font-style:normal;font-weight:600;}
+  .stage-control b{display:block;font-size:.89rem;margin-bottom:.28rem;}
+  .stage-control span{display:block;color:var(--text-muted);font-size:.87rem;line-height:1.4;}
+  .stage-contract{display:grid;grid-template-columns:1.15fr 2fr .9fr;}
+  .contract-cell{padding:.85rem 1rem;min-width:0;}
+  .contract-cell + .contract-cell{border-left:1px solid var(--border);}
+  .contract-cell b{display:block;margin-top:.3rem;font-size:.91rem;}
+  .contract-cell p{margin-top:.28rem;color:var(--text-muted);font-size:.87rem;line-height:1.4;}
+  .contract-fields{display:flex;flex-wrap:wrap;gap:.32rem;margin-top:.42rem;}
+  .contract-fields code{padding:.18rem .36rem;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);font-size:.78rem;color:var(--text-secondary);}
+  .contract-next{display:flex;flex-direction:column;justify-content:center;background:var(--brand-soft);}
+  .contract-next b{color:var(--brand);font-family:var(--font-mono);font-size:.86rem;}
+  .data-preview{margin-top:.8rem;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--surface);}
+  .data-row{display:grid;align-items:center;min-height:31px;border-top:1px solid var(--border);}
+  .data-row:first-child{border-top:0;background:var(--surface-3);}
+  .data-row span{padding:.38rem .48rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:.75rem;color:var(--text-secondary);}
+  .data-row span + span{border-left:1px solid var(--border);}
+  .data-row.header span{color:var(--text-muted);font-weight:600;}
+  .data-row .present{color:var(--brand);font-weight:600;}.data-row .missing{color:var(--refuted);}
+  .signal-preview .data-row{grid-template-columns:.8fr .65fr 1fr 1fr 1fr .72fr;}
+  .evidence-preview .data-row{grid-template-columns:1fr .55fr .9fr .75fr .8fr;}
+  .hyp-freeze{display:grid;grid-template-columns:repeat(4,1fr);margin-top:.8rem;border:1px solid var(--brand);border-radius:7px;overflow:hidden;background:var(--brand-soft);}
+  .hyp-freeze div{padding:.6rem .65rem;min-width:0;}.hyp-freeze div+div{border-left:1px solid color-mix(in srgb,var(--brand) 28%,var(--border));}
+  .hyp-freeze span{display:block;font-family:var(--font-mono);font-size:.73rem;letter-spacing:.05em;text-transform:uppercase;color:var(--brand);}
+  .hyp-freeze b{display:block;margin-top:.2rem;font-size:.83rem;}
+  .verdict-routes{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-top:.8rem;}
+  .verdict-route{padding:.62rem .7rem;border:1px solid var(--border);border-radius:7px;background:var(--surface);}
+  .verdict-route b{display:block;font-family:var(--font-mono);font-size:.78rem;}.verdict-route span{display:block;margin-top:.2rem;color:var(--text-muted);font-size:.81rem;}
+  .verdict-route.yes{border-color:var(--confirmed);background:var(--confirmed-soft);}.verdict-route.yes b{color:var(--confirmed);}
+  .verdict-route.no{border-color:var(--refuted);background:var(--refuted-soft);}.verdict-route.no b{color:var(--refuted);}
+  .verdict-route.maybe{border-color:var(--pending);background:var(--pending-soft);}.verdict-route.maybe b{color:var(--pending);}
+  .paired-ledger{display:grid;grid-template-columns:1fr auto 1fr;margin-top:.8rem;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--surface);}
+  .paired-side{padding:.65rem .75rem;}.paired-side span{display:block;font-family:var(--font-mono);font-size:.75rem;color:var(--text-muted);}.paired-side b{display:block;margin-top:.2rem;font-size:.89rem;}
+  .paired-outcomes{display:flex;align-items:center;gap:.35rem;padding:.55rem;border-inline:1px solid var(--border);background:var(--surface-2);}
+  .paired-outcomes span{padding:.25rem .38rem;border-radius:4px;font-family:var(--font-mono);font-size:.73rem;background:var(--surface);border:1px solid var(--border);}.paired-outcomes .rescue{color:var(--confirmed);border-color:var(--confirmed);}.paired-outcomes .harm{color:var(--refuted);border-color:var(--refuted);}
+  .stage-bridge{display:grid;grid-template-columns:1fr auto 1.15fr auto 1.15fr auto 1fr;gap:.45rem;align-items:center;margin-top:.8rem;padding:.75rem;border:1px dashed var(--brand);border-radius:8px;background:var(--brand-soft);}
+  .bridge-node{min-height:64px;padding:.55rem .6rem;border:1px solid color-mix(in srgb,var(--brand) 38%,var(--border));border-radius:6px;background:var(--surface);display:grid;align-content:center;text-align:center;}
+  .bridge-node span{font-family:var(--font-mono);font-size:.71rem;letter-spacing:.05em;text-transform:uppercase;color:var(--brand);}.bridge-node b{margin-top:.18rem;font-size:.82rem;line-height:1.3;}.bridge-arrow{color:var(--brand);font-family:var(--font-mono);font-size:.94rem;}
+  .stage-dossier.verify .stage-id{color:var(--confirmed);border-color:var(--confirmed);background:var(--confirmed-soft);}
+  .stage-dossier.verify .stage-note b,.stage-dossier.verify .stage-open{color:var(--confirmed);}
+  .stage-dossier.verify .stage-gate{border-left-color:var(--confirmed);background:var(--confirmed-soft);}
+  .stage-dossier.verify .stage-gate b{color:var(--confirmed);}
+  .stage-dossier.repair .stage-id{color:var(--pending);border-color:var(--pending);background:var(--pending-soft);}
+  .stage-dossier.repair .stage-note b,.stage-dossier.repair .stage-open{color:var(--pending);}
+  .stage-dossier.repair .stage-gate{border-left-color:var(--pending);background:var(--pending-soft);}
+  .stage-dossier.repair .stage-gate b{color:var(--pending);}
+  @media (max-width:960px){
+    .stage-dossiers-head{align-items:start;flex-direction:column;gap:.45rem;}
+    .stage-dossier summary{grid-template-columns:3.7rem 1fr auto;gap:.75rem;}
+    .stage-purpose{grid-column:2 / -1;}
+    .stage-story{grid-template-columns:1fr;}
+  }
+  @media (max-width:520px){
+    .stage-dossier summary{padding:.9rem 1rem;}
+    .stage-open{font-size:0;gap:0;}
+    .stage-open::after{font-size:1rem;}
+    .stage-body{padding:1rem;}
+    .flow-row{display:grid;grid-template-columns:1fr;justify-items:stretch;gap:.45rem;padding-bottom:.4rem;}
+    .flow-row>.flow-node,.flow-row>.analyzer-stack{width:100%;min-width:0;}
+    .flow-row>.flow-arrow{text-align:center;transform:rotate(90deg);}
+    .flow-row>div:last-child{width:100%;}
+    .flow-row .signal-matrix{width:100%;}
+    .hyp-lanes,.repair-viz{grid-template-columns:1fr;}
+    .forest-row{grid-template-columns:4.2rem 1fr 3.6rem;gap:.4rem;}
+    .forest-axis{margin-left:4.6rem;}
+    .stage-gate{grid-template-columns:1fr;gap:.35rem;}
+    .stage-question{grid-template-columns:1fr;gap:.25rem;}
+    .stage-controls{grid-template-columns:1fr;gap:1.5rem;}
+    .stage-control{min-height:0;}.stage-control:not(:last-child)::after{content:"↓";right:50%;top:auto;bottom:-1.18rem;transform:translateX(50%);}
+    .stage-contract{grid-template-columns:1fr;}.contract-cell + .contract-cell{border-left:0;border-top:1px solid var(--border);}
+    .signal-preview,.evidence-preview{overflow-x:auto;}.signal-preview .data-row{min-width:570px;}.evidence-preview .data-row{min-width:470px;}
+    .hyp-freeze{grid-template-columns:1fr 1fr;}.hyp-freeze div:nth-child(3){border-left:0;border-top:1px solid color-mix(in srgb,var(--brand) 28%,var(--border));}.hyp-freeze div:nth-child(4){border-top:1px solid color-mix(in srgb,var(--brand) 28%,var(--border));}
+    .verdict-routes{grid-template-columns:1fr;}.paired-ledger{grid-template-columns:1fr;}.paired-outcomes{border-inline:0;border-block:1px solid var(--border);justify-content:center;}
+    .stage-bridge{grid-template-columns:1fr;gap:.42rem;}.bridge-arrow{text-align:center;transform:rotate(90deg);}
+  }
+
+  /* ============ STAGE FLOWBOARDS (Claude Design artboards) ============
+     Each stage body embeds one 1560px-wide artboard exported from the design
+     canvas. The artboard is fully inline-styled; .flowboard-fit scales it to
+     the available width (JS sets transform + height, see bottom of page) so
+     the layout stays exactly as designed at every viewport. */
+  .stage-dossier.combo summary{grid-template-columns:5.3rem minmax(160px,.85fr) minmax(220px,1.6fr) auto;}
+  .stage-id.combo{width:4.6rem;}
+  .flowboard-fit{position:relative;width:100%;max-width:960px;margin-inline:auto;overflow:auto;color-scheme:light;border-radius:10px;}
+  .flowboard-fit.fitted{overflow:hidden;}
+  .flowboard-fit.fitted.scrolls{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;}
+  .flowboard-fit-inner{width:1560px;transform-origin:0 0;}
+  .flowboard-fit-inner *{box-sizing:border-box;}
+  @media (max-width:1040px){.stage-dossier.combo summary{grid-template-columns:5.3rem 1fr auto;}.stage-dossier.combo .stage-purpose{grid-column:2 / -1;}}
+
+  .io{display:grid;grid-template-columns:1fr 1fr;gap:2rem;margin-top:2.2rem;}
+  @media (max-width:760px){ .io{grid-template-columns:1fr;} }
+  .io > div{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:1.2rem 1.3rem;}
+  .io .k{font-family:var(--font-mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:.8rem;}
+  .io li{font-size:.9rem;color:var(--text-secondary);line-height:1.55;padding-left:1.1em;position:relative;margin-top:.6rem;}
+  .io li:first-child{margin-top:0;}
+  .io li::before{content:"—";position:absolute;left:0;color:var(--brand);}
+  .io li b{color:var(--text-primary);}
+  .io code{font-size:.85em;background:var(--surface-2);padding:.05em .35em;border-radius:4px;}
+
+  /* ============ TERMINAL (server-rendered; JS only reveals) ============ */
+  .term{border:1px solid var(--border);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden;}
+  .term-bar{display:flex;align-items:center;gap:.4rem;padding:.6rem .9rem;border-bottom:1px solid var(--border);background:var(--surface-2);}
+  .term-dot{width:9px;height:9px;border-radius:50%;background:var(--border-strong);}
+  .term-title{margin-left:.6rem;font-family:var(--font-mono);font-size:.72rem;color:var(--text-muted);}
+  .term-replay{margin-left:auto;font-family:var(--font-mono);font-size:.68rem;padding:.3rem .6rem;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text-secondary);cursor:pointer;}
+  .term-replay:hover{color:var(--text-primary);}
+  .term-body{margin:0;padding:1.1rem 1.2rem;font-family:var(--font-mono);font-size:.8rem;line-height:1.7;color:var(--text-secondary);overflow-x:auto;white-space:pre;}
+  .term-body .l{display:block;transition:opacity .2s;}
+  .term-body .l.pending{opacity:0;}
+  .term-body .caret{display:inline-block;width:.55em;height:1.05em;background:var(--brand);vertical-align:text-bottom;animation:blink 1s step-end infinite;}
+  @keyframes blink{50%{opacity:0;}}
+  .c-dim{color:var(--text-muted);}
+  .c-key{color:var(--brand);font-weight:600;}
+  .c-ok{color:var(--confirmed);}
+  .c-no{color:var(--refuted);}
+  .c-warn{color:var(--pending);}
+  .c-proj{color:#2e6fc7;}
+  .c-cmd{color:var(--text-primary);font-weight:600;}
+
+  /* ============ LADDER DEPTH CHART ============
+     Ordinal — 5 tiers, one hue, monotone lightness (--ramp-1..5). Bar length is
+     illustrative reach (qualitative), not a measured quantity, so it's drawn as
+     discrete filled/unfilled segments rather than a continuous scale that would
+     imply false precision. */
+  .depth-chart{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:1.3rem 1.4rem;margin-top:1.6rem;}
+  .depth-chart-cap{font-family:var(--font-mono);font-size:.72rem;color:var(--text-muted);margin-bottom:1rem;}
+  .dc-row{display:grid;grid-template-columns:2.6rem auto 1fr auto;align-items:center;gap:.9rem;padding-block:.55rem;}
+  .dc-row + .dc-row{border-top:1px dashed var(--border);}
+  .dc-row .tier{font-family:var(--font-mono);font-weight:700;font-size:.85rem;color:var(--text-primary);}
+  .dc-meter{display:flex;gap:3px;}
+  .dc-seg{width:15px;height:9px;border-radius:2px;background:var(--surface-3);border:1px solid var(--border);}
+  .dc-row .name{font-size:.86rem;color:var(--text-secondary);}
+  .dc-row .built{display:flex;align-items:center;gap:.35em;font-family:var(--font-mono);font-size:.72rem;color:var(--confirmed);white-space:nowrap;}
+  @media (max-width:560px){ .dc-row{grid-template-columns:2.2rem auto 1fr;} .dc-row .built{display:none;} }
+
+  /* ============ EFFECT-SIZE CHART (escalation rationale) ============
+     Emphasis form: gray context bars (not significant) + one accent bar (the
+     tier that moved the outcome). True linear scale — small bars stay small;
+     that gap is the point, not a rendering flaw. */
+  .effect-chart{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:1.3rem 1.4rem 1.5rem;margin-top:1.8rem;}
+  .ec-row{display:grid;grid-template-columns:3.4rem 1fr auto;align-items:center;gap:.9rem;padding-block:.65rem;}
+  .ec-row + .ec-row{border-top:1px dashed var(--border);}
+  .ec-row .tier{font-family:var(--font-mono);font-weight:700;font-size:.82rem;color:var(--text-primary);}
+  .ec-track{position:relative;height:14px;background:var(--surface-2);border-radius:3px;}
+  .ec-bar{position:absolute;left:0;top:0;height:100%;border-radius:3px;background:var(--border-strong);}
+  .ec-bar.hit{background:var(--confirmed);}
+  .ec-val{font-family:var(--font-mono);font-size:.78rem;color:var(--text-secondary);white-space:nowrap;text-align:right;}
+  .ec-val b{color:var(--text-primary);font-weight:600;}
+  .ec-val.hit b{color:var(--confirmed);}
+  .ec-val .tag{color:var(--text-muted);font-size:.7rem;}
+  .ec-legend{display:flex;gap:1.4rem;flex-wrap:wrap;margin-top:1.1rem;padding-top:1rem;border-top:1px solid var(--border);font-family:var(--font-mono);font-size:.72rem;color:var(--text-secondary);}
+  .ec-legend .lg{display:flex;align-items:center;gap:.5em;}
+  .ec-legend i{width:10px;height:10px;border-radius:2px;display:inline-block;}
+  .ec-legend i.ns{background:var(--border-strong);}
+  .ec-legend i.hit{background:var(--confirmed);}
+  @media (max-width:560px){ .ec-row{grid-template-columns:2.6rem 1fr;} .ec-val{grid-column:1 / -1;text-align:left;padding-left:2.6rem;margin-top:-.3rem;} }
+
+  /* ============ VERDICT BAR (confirmed vs refuted) ============
+     Status colors on a 2-segment bar — CVD-unsafe as color alone (confirmed
+     green / refuted red measure ΔE 3.6 under deutan), so every segment carries
+     an icon + text label, never color by itself. */
+  .verdict-bar{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:1.2rem 1.3rem;margin:1.6rem 0 2.2rem;}
+  .vb-track{display:flex;height:34px;border-radius:8px;overflow:hidden;background:var(--surface-2);}
+  .vb-seg{display:flex;align-items:center;justify-content:center;gap:.4em;font-family:var(--font-mono);font-size:.76rem;font-weight:600;color:var(--text-on-accent);}
+  .vb-seg.confirmed{background:var(--confirmed);}
+  .vb-seg.refuted{background:var(--refuted);}
+  .vb-cap{margin-top:.7rem;font-size:.82rem;color:var(--text-secondary);}
+  .vb-cap b{color:var(--text-primary);}
+
+  /* ============ GAINS CHART (before/after task accuracy, by model & modality) ============
+     Floating vertical bars (a range/candlestick encoding, not a from-zero bar)
+     on a shared 35-90 scale: the bar spans before->after, so its length IS the
+     gain and its position keeps the absolute score honest. A from-zero bar
+     would be misleading here (the interval matters, not the distance to 0),
+     so this is drawn as a range instead. One hue throughout (brand blue) since
+     every bar answers the same question, magnitude of gain — not identity.
+     All 12 pairs sit in one row of small multiples instead of 12 stacked rows. */
+  .gains-chart{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:1.3rem 1.4rem 1.5rem;margin-top:1.8rem;}
+  .gains-legend{display:flex;gap:1.4rem;flex-wrap:wrap;margin-bottom:1.4rem;padding-bottom:1.1rem;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:.72rem;color:var(--text-secondary);}
+  .gains-legend .lg{display:flex;align-items:center;gap:.5em;}
+  .gains-legend i{width:9px;height:9px;border-radius:50%;display:inline-block;}
+  .gains-legend i.before{background:var(--border-strong);}
+  .gains-legend i.after{background:var(--brand);}
+  .gains-scroll{overflow-x:auto;}
+  svg.gains{display:block;width:100%;min-width:640px;height:auto;overflow:visible;}
+  svg.gains .axis{stroke:var(--border-strong);stroke-width:1;}
+  svg.gains .axis-lbl{font-family:var(--font-mono);font-size:11px;fill:var(--text-muted);}
+  svg.gains .axis-title{font-family:var(--font-mono);font-size:11.5px;fill:var(--text-muted);letter-spacing:.04em;}
+  svg.gains .col-bg{fill:var(--surface-2);}
+  svg.gains .gc-link{stroke:var(--brand);stroke-width:9;stroke-linecap:round;}
+  svg.gains .gc-before{fill:var(--border-strong);stroke:var(--surface);stroke-width:2;}
+  svg.gains .gc-after{fill:var(--brand);stroke:var(--surface);stroke-width:2;}
+  svg.gains .gc-gain{font-family:var(--font-mono);font-size:15px;font-weight:600;fill:var(--text-primary);}
+  svg.gains .gc-type{font-family:var(--font-mono);font-size:12.5px;fill:var(--text-muted);}
+  svg.gains .gc-group{font-family:var(--font-head);font-size:19px;fill:var(--text-primary);}
+
+  /* ============ LADDER ============ */
+  .ladder{display:flex;flex-direction:column;gap:.6rem;margin-top:1.6rem;}
+  .rung{display:grid;grid-template-columns:3.2rem 1fr auto;gap:1rem;align-items:center;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:.9rem 1.1rem;}
+  @media (max-width:640px){ .rung{grid-template-columns:1fr auto;} .rung .lvl{display:none;} }
+  .rung .lvl{font-family:var(--font-mono);font-weight:700;font-size:.95rem;color:var(--text-primary);}
+  .rung .what{font-size:.88rem;color:var(--text-secondary);}
+  .rung .what b{color:var(--text-primary);font-weight:600;}
+  .rung .state{font-family:var(--font-mono);font-size:.7rem;padding:.3rem .6rem;border-radius:999px;white-space:nowrap;color:var(--text-muted);border:1px solid var(--border-strong);}
+  .rung .state.built{color:var(--confirmed);border-color:var(--confirmed);background:var(--confirmed-soft);}
+  .rung .state.gap{color:var(--pending);border-color:var(--pending);background:var(--pending-soft);}
+
+  /* ============ CMP TABLE ============ */
+  .table-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface);}
+  table.cmp{width:100%;border-collapse:collapse;font-size:.86rem;min-width:720px;}
+  table.cmp thead th{text-align:left;padding:.8rem 1.1rem;font-family:var(--font-mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);background:var(--surface-2);border-bottom:1px solid var(--border);}
+  table.cmp tbody td{padding:.85rem 1.1rem;border-top:1px dashed var(--border);color:var(--text-secondary);vertical-align:top;}
+  table.cmp tbody tr:first-child td{border-top:none;}
+  table.cmp tbody tr.us td{color:var(--text-primary);}
+  table.cmp tbody tr.us{background:var(--brand-soft);}
+  table.cmp td.basis-strong{font-weight:600;color:var(--confirmed);}
+  table.cmp td.basis-weak{color:var(--text-muted);}
+  .thesis{font-family:var(--font-quote);font-style:italic;font-size:1.15rem;line-height:1.55;color:var(--text-primary);margin-top:2rem;max-width:68ch;}
+
+  /* ============ SCENARIO CARDS (market) ============ */
+  .scen-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin-top:1.6rem;}
+  .scen-card{border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:1.2rem 1.3rem;border-top:3px solid var(--brand);}
+  .scen-card .who{font-family:var(--font-mono);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--brand);margin-bottom:.5rem;}
+  .scen-card h3{font-family:var(--font-head);font-size:1.02rem;font-weight:600;margin-bottom:.5rem;}
+  .scen-card p{font-size:.86rem;color:var(--text-secondary);}
+
+  /* ============ QUICKSTART ============ */
+  .code-block{position:relative;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;}
+  .code-block pre{margin:0;font-family:var(--font-mono);font-size:.82rem;line-height:1.7;color:var(--text-primary);}
+  .copy-btn{position:absolute;top:.6rem;right:.6rem;font-family:var(--font-mono);font-size:.68rem;padding:.3rem .6rem;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text-secondary);cursor:pointer;}
+  .copy-btn:hover{color:var(--text-primary);}
+  .qs-steps{display:grid;gap:1.2rem;margin-top:1.6rem;}
+  .qs-steps .cap{font-family:var(--font-mono);font-size:.74rem;color:var(--text-muted);margin-bottom:.5rem;}
+
+  /* ============ FOOTER ============ */
+  footer{border-top:1px solid var(--border);padding-block:2.5rem;}
+  .foot-grid{display:flex;justify-content:space-between;gap:2rem;flex-wrap:wrap;align-items:center;}
+  .foot-links{display:flex;gap:1.4rem;flex-wrap:wrap;font-size:.85rem;color:var(--text-secondary);}
+  .foot-links a{text-decoration:none;}
+  .foot-links a:hover{color:var(--text-primary);}
+  .foot-bottom{margin-top:1.6rem;padding-top:1.4rem;border-top:1px solid var(--border);font-size:.76rem;color:var(--text-muted);}
+</style>
+
+<div class="page">
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="#top">Eval<span>Rx</span></a>
+      <nav class="navlinks">
+        <a href="#loop">Loop</a>
+        <a href="#ladder">Ladder</a>
+        <a href="#trust">Trust</a>
+        <a href="#quickstart">Quickstart</a>
+      </nav>
+      <div class="navcta">
+        <a class="btn btn-demo" href="demo/"><span class="demo-dot"></span>Demo</a>
+        <a class="btn btn-ghost" href="overview/" target="_blank" rel="noopener">Docs</a>
+        <a class="btn btn-primary" href="https://github.com/evalvitals/evalrx" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+
+    <!-- ============ HERO ============ -->
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <span class="eyebrow">Failure diagnosis for open-weight models</span>
+          <h1>A self-improving loop that repairs open models automatically — and verifies every fix.</h1>
+          <p class="hero-lead">An eval score is a temperature reading. EvalRx runs the lab: probe failures, form mechanisms, test them on unseen cases, and climb the repair ladder. Only a held-out win updates the model; the healthier model becomes the next subject.</p>
+          <div class="ctas">
+            <a class="btn btn-primary" href="https://github.com/evalvitals/evalrx#two-runs-you-can-read-right-now" target="_blank" rel="noopener">Read a real run</a>
+            <a class="btn" href="overview/" target="_blank" rel="noopener">Documentation</a>
+            <a class="btn" href="https://pypi.org/project/evalrx/" target="_blank" rel="noopener">PyPI ↗</a>
+          </div>
+          <p class="hero-meta">pip install evalrx · CC0-1.0 · github.com/evalvitals/evalrx</p>
+        </div>
+
+        <figure class="teaser">
+          <div class="teaser-head"><span>from health signal to verified update</span></div>
+          <img class="teaser-visual" src="assets/figures/model-health-teaser.svg" alt="A model-health signal enters auto-research. Failed interventions return for revision without updating the model; only a held-out pass produces Model n plus one, which recurs as the next research subject.">
+          <figcaption>One signal, one evidence gate, one accountable update path.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ============ KPI ROW ============ -->
+    <section class="kpi-band">
+      <div class="wrap">
+        <div class="kpi-row">
+          <div class="kpi"><div class="n">26</div><div class="l">analyzers<br>implemented</div></div>
+          <div class="kpi"><div class="n">16</div><div class="l">model specs<br>in the registry</div></div>
+          <div class="kpi"><div class="n">554</div><div class="l">unit tests<br>over the analyzer suite</div></div>
+          <div class="kpi"><div class="n">5</div><div class="l">repair tiers<br>L1 → L4</div></div>
+          <div class="kpi"><div class="n">2</div><div class="l">reproducible runs<br>committed, no install needed</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LOOP ============ -->
+    <section id="loop">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">01 · How one pass works</span>
+          <h2>Five stages, and no hand-off between them.</h2>
+          <p>
+            The agent writes and runs its own analysis code, selects the
+            statistical tools, proposes the hypotheses, generates the repair
+            candidates, and works out which tier a given mechanism needs. Two
+            stages can send the loop backwards — a refuted hypothesis returns
+            to probing, and a repair candidate that fails moves to the next
+            tier within the ceiling you set. Once every tier up to that
+            ceiling is exhausted, the loop recommends raising it rather than
+            doing so itself.
+          </p>
+          <p>You supply the question and the ceiling. Everything between is unattended.</p>
+        </div>
+
+        <div class="diagram-wrap">
+          <svg class="diagram" viewBox="0 0 968 190" role="img" aria-labelledby="loopTitle loopDesc">
+            <title id="loopTitle">The EvalRx investigation loop</title>
+            <desc id="loopDesc">Probe, Explore, Diagnose, Verify and Repair run in sequence and end in a validated fix. Two optional loops: a refuted hypothesis returns to Probe, and a repair that fails against the baseline tries the next tier within the ceiling you set.</desc>
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--border-strong)"/></marker>
+              <marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--pending)"/></marker>
+            </defs>
+            <g>
+              <rect class="box" x="6" y="40" width="132" height="58" rx="8"/>
+              <text class="lbl" x="72" y="66" text-anchor="middle">Probe</text>
+              <text class="sub" x="72" y="84" text-anchor="middle">surface failures</text>
+
+              <rect class="box" x="172" y="40" width="132" height="58" rx="8"/>
+              <text class="lbl" x="238" y="66" text-anchor="middle">Explore</text>
+              <text class="sub" x="238" y="84" text-anchor="middle">statistical analysis</text>
+
+              <rect class="box" x="338" y="40" width="132" height="58" rx="8"/>
+              <text class="lbl" x="404" y="66" text-anchor="middle">Diagnose</text>
+              <text class="sub" x="404" y="84" text-anchor="middle">propose mechanism</text>
+
+              <rect class="box-key" x="504" y="40" width="132" height="58" rx="8"/>
+              <text class="lbl" x="570" y="66" text-anchor="middle">Verify</text>
+              <text class="sub" x="570" y="84" text-anchor="middle">on held-out cases</text>
+
+              <rect class="box-key" x="670" y="40" width="132" height="58" rx="8"/>
+              <text class="lbl" x="736" y="66" text-anchor="middle">Repair</text>
+              <text class="sub" x="736" y="84" text-anchor="middle">vs. baseline</text>
+
+              <rect class="box-out" x="836" y="40" width="132" height="58" rx="8"/>
+              <text class="lbl" x="902" y="74" text-anchor="middle">Validated fix</text>
+            </g>
+            <g>
+              <line class="edge" x1="140" y1="69" x2="166" y2="69" marker-end="url(#ah)"/>
+              <line class="edge" x1="306" y1="69" x2="332" y2="69" marker-end="url(#ah)"/>
+              <line class="edge" x1="472" y1="69" x2="498" y2="69" marker-end="url(#ah)"/>
+              <line class="edge" x1="638" y1="69" x2="664" y2="69" marker-end="url(#ah)"/>
+              <line class="edge" x1="804" y1="69" x2="830" y2="69" marker-end="url(#ah)"/>
+              <text class="edge-note note-ok" x="653" y="32" text-anchor="middle">supported</text>
+              <text class="edge-note note-ok" x="819" y="32" text-anchor="middle">beats baseline</text>
+            </g>
+            <g>
+              <path class="edge-back" d="M 570 98 V 132 Q 570 142 560 142 H 82 Q 72 142 72 132 V 110" marker-end="url(#ahb)"/>
+              <rect class="pill" x="211" y="132" width="220" height="20" rx="10"/>
+              <text class="edge-note note-back" x="321" y="146" text-anchor="middle"><tspan>optional</tspan> · refuted → probe again</text>
+            </g>
+            <g>
+              <path class="edge-back" d="M 772 98 V 160 Q 772 170 762 170 H 710 Q 700 170 700 160 V 110" marker-end="url(#ahb)"/>
+              <rect class="pill" x="586" y="160" width="300" height="20" rx="10"/>
+              <text class="edge-note note-back" x="736" y="174" text-anchor="middle"><tspan>optional</tspan> · fails → next tier, within ceiling</text>
+            </g>
+          </svg>
+          <figcaption>The held-out split is taken before Explore runs, so Verify always scores on rows the analysis never touched.</figcaption>
+        </div>
+
+        <div class="stage-dossiers">
+          <div class="stage-dossiers-head">
+            <h3>Inside the loop.</h3>
+            <p>Four flowboards, M1 through M5, run top to bottom in execution order — each one's input is the last one's output. Collapse any you don't need.</p>
+          </div>
+
+          <details class="stage-dossier" open>
+            <summary>
+              <span class="stage-id">M1</span>
+              <span class="stage-name"><b>Discover &amp; Probe</b><span>failure discovery · protocol-guided</span></span>
+              <span class="stage-purpose">Label which cases fail, then let the protocol choose what to measure on them.</span>
+              <span class="stage-open">Stage details</span>
+            </summary>
+            <div class="stage-body">
+              <div class="flowboard-fit" role="img" aria-label="M1 flowchart: run candidate prompts and label pass or fail, let an LLM judge read the protocol to pick analyzers, route to compatible analyzer families, assemble a typed signal matrix, and audit coverage before handing the per-case signal table to M2">
+                <div class="flowboard-fit-inner">
+<div style="background:#fff;border:1px solid #cfcfcb;border-radius:10px;font-family:'Plex Sans',Helvetica,Arial,sans-serif;color:#111;overflow:hidden;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:14px 20px;">
+    <div style="border:1px dashed #cfcfcb;background:#f3f3f1;border-radius:8px;padding:10px 14px;min-width:150px;max-width:190px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">INPUT</div><div style="font-size:22px;font-weight:600;line-height:1.3;">Model + task protocol</div></div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:12px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">M1 · FAILURE DISCOVERY &amp; PROTOCOL-GUIDED PROBING</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;line-height:1.25;">Which cases failed, and what's worth measuring on them?</div></div>
+    <div style="border:1px solid #1d6fd6;background:#eaf3fd;border-radius:8px;padding:10px 14px;min-width:150px;max-width:190px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">OUTPUT</div><div style="font-size:22px;font-weight:600;line-height:1.3;">Per-case signal + label table</div></div>
+  </div>
+  <div style="background:#f6f6f4;border-top:1px solid #cfcfcb;border-bottom:1px solid #cfcfcb;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+    
+    <div style="display:grid;grid-template-columns:1fr 22px 1.25fr 22px 1.25fr 22px 1.15fr;gap:0 6px;align-items:stretch;"><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">01 · DISCOVER</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Failure discovery</div><div style="font-size:21px;line-height:1.3;color:#555;">Run, score, label — pass or fail.</div><div style="display:flex;gap:4px;flex-wrap:wrap;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">case_id</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">label</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">provenance</span></div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">02 · SELECT</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Protocol-guided router</div><div style="display:flex;gap:4px;flex-wrap:wrap;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;border:1px solid #dcdcd8;border-radius:14px;padding:3px 9px;background:#fff;">attention</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;border:1px solid #dcdcd8;border-radius:14px;padding:3px 9px;background:#fff;">grounding</span></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:22px;"><div style="background:#f3f3f1;border:1px solid #dcdcd8;border-radius:6px;padding:8px;"><b>black-box</b><br><span style="color:#555;">outputs only</span></div><div style="background:#f3f3f1;border:1px solid #dcdcd8;border-radius:6px;padding:8px;"><b>white-box</b><br><span style="color:#555;">internals allowed</span></div></div><div style="font-size:21px;line-height:1.3;color:#555;">A judge reads the protocol, then routes.</div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#eaf3fd;border:1px solid #1d6fd6;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">03 · PROBE</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Analyzer library</div><div style="display:flex;flex-direction:column;gap:10px;font-size:22px;line-height:1.3;"><div style="display:flex;gap:8px;"><span style="color:#1d6fd6;font-size:21px;">◐</span><div><b>Behavior</b><br><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;">consistency · calibration</span></div></div><div style="display:flex;gap:8px;"><span style="color:#1d6fd6;font-size:21px;">↻</span><div><b>Reasoning</b><br><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;">termination · perturbation</span></div></div><div style="display:flex;gap:8px;"><span style="color:#1d6fd6;font-size:21px;">◈</span><div><b>Internals</b><br><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;">attention · logits</span></div></div><div style="display:flex;gap:8px;"><span style="color:#1d6fd6;font-size:21px;">⬡</span><div><b>Multimodal</b><br><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;">grounding · hallucination</span></div></div></div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">04 · ASSEMBLE</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Typed signal matrix</div><div style="font-size:21px;line-height:1.3;color:#555;">One measurement per case; missingness stays explicit.</div><div style="display:flex;flex-direction:column;gap:4px;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;"><div style="display:flex;gap:6px;"><span style="width:30px;"></span><span style="width:10px;text-align:center;">c</span><span style="width:10px;text-align:center;">s</span><span style="width:10px;text-align:center;">g</span><span style="width:10px;text-align:center;">u</span></div><div style="display:flex;gap:6px;align-items:center;"><span style="width:30px;">001</span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#dcdcd8;display:inline-block;"></span></div><div style="display:flex;gap:6px;align-items:center;"><span style="width:30px;">002</span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#dcdcd8;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span></div><div style="display:flex;gap:6px;align-items:center;"><span style="width:30px;">003</span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#dcdcd8;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span></div></div></div></div>
+    
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;padding:10px 22px;border-bottom:1px solid #cfcfcb;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;letter-spacing:.06em;"><span style="color:#555;font-weight:600;">QUALITY</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;color:#1d6fd6;background:#eaf3fd;border-radius:12px;padding:3px 10px;">● coverage tracked</span><span style="color:#555;">→</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;color:#1d6fd6;background:#eaf3fd;border-radius:12px;padding:3px 10px;">● no silent fill</span><span style="color:#555;">→</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;color:#1d6fd6;background:#eaf3fd;border-radius:12px;padding:3px 10px;">● provenance kept</span></div>
+  <div style="display:grid;grid-template-columns:1fr 1.4fr 1fr;">
+    <div style="padding:10px 20px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">BOUNDARY</div><div style="font-size:22px;font-weight:600;line-height:1.3;">Behavior observed, cause not yet claimed.</div></div>
+    <div style="padding:10px 14px;display:flex;flex-direction:column;gap:4px;border-left:1px solid #cfcfcb;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">HANDOFF FIELDS</div><div style="display:flex;gap:4px;flex-wrap:wrap;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">case_id</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">label</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">signal.*</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">coverage</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">missing_reason</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">provenance</span></div></div>
+    <div style="padding:10px 16px;background:#eaf3fd;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">NEXT</div><div style="font-size:22px;font-weight:600;color:#1d6fd6;">M2 · screen structure →</div></div>
+  </div>
+</div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="stage-dossier combo" open>
+            <summary>
+              <span class="stage-id combo">M2–M3</span>
+              <span class="stage-name"><b>Explore → Diagnose</b><span>exploratory data analysis · hypothesis + adversarial critique</span></span>
+              <span class="stage-purpose">Exploratory data analysis on M1's signals — writing and running real analysis code — then competing falsifiable hypotheses against what it finds.</span>
+              <span class="stage-open">Stage details</span>
+            </summary>
+            <div class="stage-body">
+              <div class="flowboard-fit" role="img" aria-label="Combined M2 and M3 flowchart: screen the M1 signal table with effect sizes and intervals, propose hypotheses grounded in those statistics, run a second adversarial LLM call that tries to reject each one, then freeze the surviving test specification for M4">
+                <div class="flowboard-fit-inner">
+<div style="background:#fff;border:1px solid #cfcfcb;border-radius:10px;font-family:'Plex Sans',Helvetica,Arial,sans-serif;color:#111;overflow:hidden;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:14px 20px;">
+    <div style="border:1px dashed #cfcfcb;background:#f3f3f1;border-radius:8px;padding:10px 14px;min-width:150px;max-width:190px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">INPUT</div><div style="font-size:22px;font-weight:600;line-height:1.3;">M1's signal + label table</div></div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:12px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">M2 EXPLORATORY DATA ANALYSIS → M3 HYPOTHESIS + CRITIQUE</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;line-height:1.25;">Which pattern deserves a test—and how could it lose?</div></div>
+    <div style="border:1px solid #1d6fd6;background:#eaf3fd;border-radius:8px;padding:10px 14px;min-width:150px;max-width:190px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">OUTPUT</div><div style="font-size:22px;font-weight:600;line-height:1.3;">Frozen hypothesis specifications</div></div>
+  </div>
+  <div style="background:#f6f6f4;border-top:1px solid #cfcfcb;border-bottom:1px solid #cfcfcb;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+    
+    <div style="display:grid;grid-template-columns:0.9fr 22px 1.1fr 22px 0.95fr 22px 1.5fr 22px 1fr;gap:0 6px;align-items:stretch;"><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">01 · FROM M1</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Signal + label table</div><div style="font-size:21px;line-height:1.3;color:#555;">M1's measurements, joined with pass/fail — the table both paths below share.</div><div style="display:flex;flex-direction:column;gap:4px;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;"><div style="display:flex;gap:6px;"><span style="width:30px;"></span><span style="width:10px;text-align:center;">a</span><span style="width:10px;text-align:center;">b</span><span style="width:10px;text-align:center;">c</span><span style="width:10px;text-align:center;">d</span></div><div style="display:flex;gap:6px;align-items:center;"><span style="width:30px;">001</span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#dcdcd8;display:inline-block;"></span></div><div style="display:flex;gap:6px;align-items:center;"><span style="width:30px;">002</span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span><span style="width:10px;height:14px;border-radius:2px;background:#1d6fd6;display:inline-block;"></span></div></div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">02 · EXPLORE</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Optional EDA</div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;color:#1d6fd6;border:1px solid #1d6fd6;background:#eaf3fd;border-radius:14px;padding:4px 10px;">peaked_attention</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;border:1px solid #dcdcd8;border-radius:14px;padding:4px 10px;background:#fff;">top1_share</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;border:1px solid #dcdcd8;border-radius:14px;padding:4px 10px;background:#fff;">peripheral_attn</span></div><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;display:flex;flex-direction:column;gap:4px;"><span><span style="color:#1d6fd6;">●</span> e-value → M3</span><span><span style="color:#bbb;">●</span> flagged only</span></div><div style="font-size:21px;line-height:1.3;color:#555;">Agent-written code proposes candidates, descriptive only.</div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#eaf3fd;border:1px solid #1d6fd6;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">03 · CONFIRM</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Stats engine</div><div style="font-size:21px;line-height:1.3;color:#555;">Select → run (effect + CI + e-value) → e-BH correct.</div><div style="display:flex;flex-direction:column;align-items:center;gap:3px;"><span style="width:70px;height:8px;background:#1d6fd6;opacity:.9;"></span><span style="width:52px;height:8px;background:#1d6fd6;opacity:.7;"></span><span style="width:22px;height:8px;background:#1d6fd6;opacity:.55;"></span><span style="width:16px;height:8px;background:#1d6fd6;opacity:.4;"></span><span style="width:8px;height:10px;background:#1d6fd6;opacity:.4;"></span></div><div style="font-size:21px;line-height:1.3;color:#555;font-style:italic;">Confound caught: a p=0.080 catalyst signal was really a 21° temperature gap.</div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">04 · HYPOTHESES</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Competing hypothesis contracts</div><div style="font-size:21px;line-height:1.3;color:#555;">Every hypothesis ships with its test — no test, no hypothesis.</div><div style="display:flex;flex-direction:column;gap:8px;"><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:5px 10px;display:flex;flex-direction:row;align-items:center;gap:8px;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;color:#1d6fd6;">H1</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:23px;">peaked_attention</span><span style="margin-left:auto;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;padding:3px 10px;border-radius:4px;color:#2f8a4f;background:#e3f2e8;">✓ keep</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:5px 10px;display:flex;flex-direction:row;align-items:center;gap:8px;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;color:#1d6fd6;">H2</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:23px;">top1_share_high</span><span style="margin-left:auto;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;padding:3px 10px;border-radius:4px;color:#c0392b;background:#fbe6e4;">✗ reject</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:5px 10px;display:flex;flex-direction:row;align-items:center;gap:8px;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;color:#1d6fd6;">H3</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:23px;">peripheral_attn</span><span style="margin-left:auto;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;padding:3px 10px;border-radius:4px;color:#c0392b;background:#fbe6e4;">✗ reject</span></div></div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">05 · FREEZE</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Test spec</div><div style="font-size:21px;line-height:1.3;color:#555;">Lock the claim before sealed evidence is visible.</div><div style="display:flex;gap:4px;flex-wrap:wrap;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">statement</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">prediction</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">control</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">falsifier</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">test_design</span></div><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;color:#fff;background:#111;padding:6px 10px;border-radius:4px;align-self:flex-start;line-height:1.3;">FROZEN<br>FOR M4</div></div></div>
+    
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;padding:10px 22px;border-bottom:1px solid #cfcfcb;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;letter-spacing:.06em;"><span style="color:#555;font-weight:600;">EVIDENCE</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;color:#1d6fd6;background:#eaf3fd;border-radius:12px;padding:3px 10px;">● writes its own code</span><span style="color:#555;">→</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;color:#1d6fd6;background:#eaf3fd;border-radius:12px;padding:3px 10px;">● e-BH corrected</span><span style="color:#555;">→</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;color:#1d6fd6;background:#eaf3fd;border-radius:12px;padding:3px 10px;">● flagged, not hidden</span></div>
+  <div style="display:grid;grid-template-columns:1fr 1.4fr 1fr;">
+    <div style="padding:10px 20px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">BOUNDARY</div><div style="font-size:22px;font-weight:600;line-height:1.3;">Picks the test, not the truth — an empty test spec returns INCONCLUSIVE forever.</div></div>
+    <div style="padding:10px 14px;display:flex;flex-direction:column;gap:4px;border-left:1px solid #cfcfcb;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">FROZEN FIELDS</div><div style="display:flex;gap:4px;flex-wrap:wrap;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">hypothesis_id</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">statement</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">prediction</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">test</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">control</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">threshold</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">falsifier</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">test_design</span></div></div>
+    <div style="padding:10px 16px;background:#eaf3fd;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">NEXT</div><div style="font-size:22px;font-weight:600;color:#1d6fd6;">M4 · held-out adjudication →</div></div>
+  </div>
+</div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="stage-dossier verify" open>
+            <summary>
+              <span class="stage-id">M4</span>
+              <span class="stage-name"><b>Verify</b><span>held-out hypothesis validation</span></span>
+              <span class="stage-purpose">Pass a statistical gate and a protocol-consistency gate on sealed cases — both, or it doesn't advance.</span>
+              <span class="stage-open">Stage details</span>
+            </summary>
+            <div class="stage-body">
+              <div class="flowboard-fit" role="img" aria-label="M4 flowchart: combine frozen hypothesis specifications with sealed case IDs, execute the test without revision, grade it against a statistical gate and a protocol-consistency gate, then route supported, refuted and inconclusive verdicts differently">
+                <div class="flowboard-fit-inner">
+<div style="background:#fff;border:1px solid #cfcfcb;border-radius:10px;font-family:'Plex Sans',Helvetica,Arial,sans-serif;color:#111;overflow:hidden;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:14px 20px;">
+    <div style="border:1px dashed #cfcfcb;background:#f3f3f1;border-radius:8px;padding:10px 14px;min-width:150px;max-width:190px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">INPUT</div><div style="font-size:22px;font-weight:600;line-height:1.3;">M3's frozen hypotheses</div></div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:12px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">M4 · ISOLATED CONFIRMATION</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;line-height:1.25;">What survives evidence that discovery never touched?</div></div>
+    <div style="border:1px solid #1d6fd6;background:#eaf3fd;border-radius:8px;padding:10px 14px;min-width:150px;max-width:190px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">OUTPUT</div><div style="font-size:22px;font-weight:600;line-height:1.3;">Held-out verdict records</div></div>
+  </div>
+  <div style="background:#f6f6f4;border-top:1px solid #cfcfcb;border-bottom:1px solid #cfcfcb;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+    
+    <div style="display:grid;grid-template-columns:1.1fr 22px 1fr 22px 1.1fr 22px 1.2fr;gap:0 6px;align-items:stretch;"><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">01 · TWO INPUTS</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Precommitted packet</div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:10px 12px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">FROM M3</div><div style="font-size:21px;font-weight:600;margin-top:4px;">Frozen test specs</div></div><div style="background:#f3f3f1;border:1px solid #dcdcd8;border-radius:6px;padding:10px 12px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">LOCKED VAULT</div><div style="font-size:21px;font-weight:600;margin-top:4px;">Sealed case IDs</div></div><div style="display:flex;gap:4px;flex-wrap:wrap;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">606 total</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">364 discovery</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">242 sealed</span></div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">02 · EXECUTE</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Frozen runner</div><div style="display:flex;flex-direction:column;gap:8px;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;color:#c0392b;background:#fbe6e4;border-radius:4px;padding:6px 10px;">✗ hypothesis edits</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;color:#c0392b;background:#fbe6e4;border-radius:4px;padding:6px 10px;">✗ test substitution</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;color:#c0392b;background:#fbe6e4;border-radius:4px;padding:6px 10px;">✗ case leakage</span></div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#eaf3fd;border:1px solid #1d6fd6;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">03 · TWO GATES</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Statistical + protocol</div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;letter-spacing:.06em;">STAT</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;color:#2f8a4f;background:#e3f2e8;padding:2px 8px;border-radius:4px;">e-BH ✓</span></div><span style="font-size:22px;color:#555;">effect + CI + e-value, e-BH corrected</span></div><div style="text-align:center;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;letter-spacing:.1em;">AND</div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;letter-spacing:.06em;">PROTOCOL</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;font-weight:600;color:#2f8a4f;background:#e3f2e8;padding:2px 8px;border-radius:4px;">consistent ✓</span></div><span style="font-size:22px;color:#555;">keyword check, or an LLM judge</span></div><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;color:#fff;background:#2f8a4f;padding:8px 14px;border-radius:4px;text-align:center;letter-spacing:.08em;">SUPPORTED</div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">04 · ROUTE</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Three verdict paths</div><div style="display:flex;flex-direction:column;gap:12px;"><div style="border-left:3px solid #2f8a4f;padding:4px 10px;display:flex;flex-direction:column;gap:2px;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;color:#2f8a4f;">✓ SUPPORTED</span><span style="font-size:22px;color:#555;">both gates passed → M5</span></div><div style="border-left:3px solid #c0392b;padding:4px 10px;display:flex;flex-direction:column;gap:2px;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;color:#c0392b;">× REFUTED</span><span style="font-size:22px;color:#555;">return to probing / diagnosis</span></div><div style="border-left:3px solid #555;padding:4px 10px;display:flex;flex-direction:column;gap:2px;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;font-weight:600;color:#555;">· INCONCLUSIVE</span><span style="font-size:22px;color:#555;">seek power; do not promote</span></div></div><div style="border-top:1px solid #cfcfcb;padding-top:10px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">COMMITTED EXAMPLE</div><div style="font-size:21px;font-weight:600;margin-top:4px;">1 of 4 confirmed</div></div></div></div>
+    
+  </div>
+  
+  <div style="display:grid;grid-template-columns:1fr 1.4fr 1fr;">
+    <div style="padding:10px 20px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">SEALED BOUNDARY</div><div style="font-size:22px;font-weight:600;line-height:1.3;">No hypothesis or test edits after held-out identities are opened.</div></div>
+    <div style="padding:10px 14px;display:flex;flex-direction:column;gap:4px;border-left:1px solid #cfcfcb;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">VERDICT FIELDS</div><div style="display:flex;gap:4px;flex-wrap:wrap;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">hypothesis_id</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">effect</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">uncertainty</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">multiplicity</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">protocol_consistent</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">verdict</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">reason</span></div></div>
+    <div style="padding:10px 16px;background:#eaf3fd;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">NEXT</div><div style="font-size:22px;font-weight:600;color:#1d6fd6;">Any hypothesis, both gates → stop loop, advance to M5</div></div>
+  </div>
+</div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="stage-dossier repair" open>
+            <summary>
+              <span class="stage-id">M5</span>
+              <span class="stage-name"><b>Intervene &amp; Repair</b><span>mechanism intervention · repair · verification</span></span>
+              <span class="stage-purpose">Test the mechanism with a real intervention, then search, freeze and paired-verify a repair.</span>
+              <span class="stage-open">Stage details</span>
+            </summary>
+            <div class="stage-body">
+              <div class="flowboard-fit" role="img" aria-label="M5 flowchart: change one variable to read the mechanism as causal evidence without repairing it, select the least invasive repair tier consistent with the verified mechanism, search candidates on discovery data, freeze one winner, compare it with an unchanged baseline on paired held-out cases, then ship, try the next tier, or feed filtered cases back to M1">
+                <div class="flowboard-fit-inner">
+<div style="background:#fff;border:1px solid #cfcfcb;border-radius:10px;font-family:'Plex Sans',Helvetica,Arial,sans-serif;color:#111;overflow:hidden;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:14px 20px;">
+    <div style="border:1px dashed #cfcfcb;background:#f3f3f1;border-radius:8px;padding:10px 14px;min-width:150px;max-width:190px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">INPUT</div><div style="font-size:22px;font-weight:600;line-height:1.3;">M4's SUPPORTED verdict</div></div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:12px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">M5 · INTERVENE → REPAIR → VERIFY</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;line-height:1.25;">Is the mechanism causal, and what's the cheapest repair that holds?</div></div>
+    <div style="border:1px solid #1d6fd6;background:#eaf3fd;border-radius:8px;padding:10px 14px;min-width:150px;max-width:190px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">OUTPUT</div><div style="font-size:22px;font-weight:600;line-height:1.3;">Intervention + repair ledger</div></div>
+  </div>
+  <div style="background:#f6f6f4;border-top:1px solid #cfcfcb;border-bottom:1px solid #cfcfcb;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;"><div style="background:#fff;border:1px solid #cfcfcb;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:2px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">L1 · INPUT</div><span style="font-size:23px;font-weight:600;">prompt / instructions</span><span style="font-size:20px;color:#555;font-style:italic;">cheapest · least invasive</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:2px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">L2 · SCAFFOLD</div><span style="font-size:23px;font-weight:600;">tools / multi-call</span><span style="font-size:20px;color:#555;font-style:italic;">unchanged model</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:2px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">L3 · INTERNALS</div><span style="font-size:23px;font-weight:600;">read / write state</span><span style="font-size:20px;color:#555;font-style:italic;">deeper intervention</span></div><div style="background:#eaf3fd;border:1px solid #1d6fd6;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:2px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">L4 · PARAMETERS</div><span style="font-size:23px;font-weight:600;">fine-tune / adapter</span><span style="font-size:20px;color:#555;font-style:italic;">highest allowed ceiling</span></div></div>
+    <div style="display:grid;grid-template-columns:1.1fr 22px 1fr 22px 1fr 22px 1.1fr;gap:0 6px;align-items:stretch;"><div style="background:#eaf3fd;border:1px solid #1d6fd6;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">01 · INTERVENE</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Causal probe</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:10px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#555;">absent</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:700;">20%</div></div><div style="background:#eaf3fd;border:1px solid #1d6fd6;border-radius:6px;padding:10px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;color:#1d6fd6;">present</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:700;color:#1d6fd6;">34%</div></div></div><div style="font-size:21px;line-height:1.3;color:#555;">Injected check, param sweep, or a 10% fail-gap split. Evidence, not a fix yet.</div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">02 · SEARCH</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Candidate lab</div><div style="font-size:21px;line-height:1.3;color:#555;">Discovery-side comparison only.</div><div style="display:flex;flex-direction:column;gap:8px;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;"><div style="display:flex;flex-direction:column;gap:3px;"><span style="color:#555;">candidate A</span><span style="height:8px;width:40%;background:#dcdcd8;border-radius:2px;"></span></div><div style="display:flex;flex-direction:column;gap:3px;"><span style="color:#1d6fd6;font-weight:600;">winner B</span><span style="height:8px;width:78%;background:#1d6fd6;border-radius:2px;"></span></div><div style="display:flex;flex-direction:column;gap:3px;"><span style="color:#555;">candidate C</span><span style="height:8px;width:30%;background:#dcdcd8;border-radius:2px;"></span></div></div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">03 · FREEZE</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Lock winner B</div><div style="font-size:21px;line-height:1.3;color:#555;">Candidate, baseline, evaluator and success rule become immutable.</div><div style="display:flex;gap:4px;flex-wrap:wrap;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">candidate</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">baseline</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">evaluator</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">success rule</span></div></div><div style="display:flex;align-items:center;justify-content:center;color:#1d6fd6;position:relative;"><div style="width:100%;height:2px;background:#9ec4ec;"></div><span style="position:absolute;font-size:20px;">▶</span></div><div style="background:#fff;border:1px solid #cfcfcb;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;font-weight:600;color:#1d6fd6;letter-spacing:.06em;">04 · PAIRED RE-TEST</div><div style="font-family:Georgia,'Times New Roman',serif;font-size:23px;font-weight:700;line-height:1.2;color:#111;">Same cases, two arms</div><div style="font-size:21px;line-height:1.3;color:#555;">Frozen candidate versus unchanged baseline.</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:20px;text-align:center;"><div style="background:#e3f2e8;color:#2f8a4f;padding:8px;border-radius:4px;font-weight:600;">rescue</div><div style="background:#fbe6e4;color:#c0392b;padding:8px;border-radius:4px;font-weight:600;">harm</div><div style="background:#f3f3f1;color:#555;padding:8px;border-radius:4px;">both correct</div><div style="background:#f3f3f1;color:#555;padding:8px;border-radius:4px;">both wrong</div></div></div></div>
+    
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;padding:10px 22px;border-bottom:1px solid #cfcfcb;font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:22px;letter-spacing:.06em;"><span style="color:#555;font-weight:600;">DECISION</span><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-family:'Plex Sans',Helvetica,Arial,sans-serif;font-size:23px;letter-spacing:0;"><span style="background:#eaf3fd;color:#1d6fd6;font-weight:600;padding:5px 12px;border-radius:14px;">beats baseline → ship</span><span style="color:#555;">|</span><span style="background:#eaf3fd;color:#1d6fd6;font-weight:600;padding:5px 12px;border-radius:14px;">flat/harmful → stop</span><span style="color:#555;">|</span><span style="background:#eaf3fd;color:#1d6fd6;font-weight:600;padding:5px 12px;border-radius:14px;">below ceiling → next tier</span><span style="color:#555;">|</span><span style="background:#eaf3fd;color:#1d6fd6;font-weight:600;padding:5px 12px;border-radius:14px;">at ceiling → recommend, don't auto-raise</span></div></div>
+  <div style="display:grid;grid-template-columns:1fr 1.4fr 1fr;">
+    <div style="padding:10px 20px;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">GATE</div><div style="font-size:22px;font-weight:600;line-height:1.3;">Cause found ≠ fix shipped.</div></div>
+    <div style="padding:10px 14px;display:flex;flex-direction:column;gap:4px;border-left:1px solid #cfcfcb;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">DECISION FIELDS</div><div style="display:flex;gap:4px;flex-wrap:wrap;"><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">intervention</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">tier</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">candidate</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">baseline</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">paired_delta</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">rescues</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">harms</span><span style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;background:#f3f3f1;border:1px solid #dcdcd8;border-radius:4px;padding:2px 6px;">decision</span></div></div>
+    <div style="padding:10px 16px;background:#eaf3fd;display:flex;flex-direction:column;gap:4px;"><div style="font-family:'Plex Mono',ui-monospace,Menlo,monospace;font-size:18px;letter-spacing:.06em;color:#555;">NEXT</div><div style="font-size:22px;font-weight:600;color:#1d6fd6;">Ship, next tier, or new_data → M1 ↺</div></div>
+  </div>
+</div>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <div class="io">
+          <div>
+            <div class="k">What you provide</div>
+            <ul>
+              <li><b>A model or its logs.</b> An open-weight checkpoint to probe, or existing eval output as JSON, JSONL, CSV or Parquet.</li>
+              <li><b>A question, in plain language.</b> "What predicts the failures here?"</li>
+              <li><b>A ceiling.</b> How invasive a repair may get, from <code>L1</code> to <code>L4</code>.</li>
+            </ul>
+          </div>
+          <div>
+            <div class="k">What comes back</div>
+            <ul>
+              <li><b>Verdicts, not vibes.</b> Each candidate signal marked confirmed or refuted on held-out cases, corrected for how many were tried.</li>
+              <li><b>An audit trail.</b> <code>analysis.py</code> as it ran, the normalized records, every figure and table, and the run's event log.</li>
+              <li><b>A repaired model, or the reason there isn't one.</b> A validated fix measured against the untouched baseline — or a recipe and the tier it needs.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ EXAMPLE (terminal) ============ -->
+    <section id="example">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">02 · What a full pass looks like</span>
+          <h2>Escalating through the repair ladder.</h2>
+          <p>The lines above the divider are the system's real control flow on the committed hallucination example. Below it, in violet, is a projection of one escalated fine-tune — strategy choice, cost at the published H200 rate, and the outcome a repair would have to demonstrate.</p>
+        </div>
+
+        <div class="effect-chart" role="img" aria-label="Effect size versus baseline by repair tier: L1 plus 0.4 percentage points, not significant; L2 plus 1.2 points, not significant; L3b plus 1.1 points, not significant; L4 plus 12.5 points, p equals 0.0007, projected">
+          <div class="ec-row">
+            <span class="tier">L1</span>
+            <div class="ec-track"><div class="ec-bar" style="width:3%"></div></div>
+            <span class="ec-val"><b>+0.4pp</b> <span class="tag">p=0.41</span></span>
+          </div>
+          <div class="ec-row">
+            <span class="tier">L2</span>
+            <div class="ec-track"><div class="ec-bar" style="width:10%"></div></div>
+            <span class="ec-val"><b>+1.2pp</b> <span class="tag">p=0.19</span></span>
+          </div>
+          <div class="ec-row">
+            <span class="tier">L3b</span>
+            <div class="ec-track"><div class="ec-bar" style="width:9%"></div></div>
+            <span class="ec-val"><b>+1.1pp</b> <span class="tag">p=0.22</span></span>
+          </div>
+          <div class="ec-row">
+            <span class="tier">L4</span>
+            <div class="ec-track"><div class="ec-bar hit" style="width:100%"></div></div>
+            <span class="ec-val hit"><b>+12.5pp</b> <span class="tag">p=0.0007</span></span>
+          </div>
+          <div class="ec-legend">
+            <span class="lg"><i class="ns"></i>measured on this run — not significant vs. baseline</span>
+            <span class="lg"><i class="hit"></i>projected — the outcome L4 would have to hold on re-test</span>
+          </div>
+        </div>
+        <p style="font-size:.82rem;color:var(--text-muted);margin-top:.7rem;max-width:70ch;">Bars are on a true linear scale — L1–L3b really are that close to flat. Δ is signed so "more improvement" always points right; L4's value mirrors the −12.5pp hallucination-rate drop from the walkthrough below.</p>
+
+        <figure style="margin-top:2.2rem;">
+          <div class="term">
+            <div class="term-bar">
+              <span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span>
+              <span class="term-title">simulated run</span>
+              <button class="term-replay" type="button" id="replay">Replay</button>
+            </div>
+            <pre class="term-body" id="term" aria-label="Simulated EvalRx run, escalating through the repair ladder"><span class="l" data-t="90"><span class="c-dim">$</span> <span class="c-cmd">evalrx investigate</span> qwen3-vl-8b-instruct <span class="c-dim">\</span></span><span class="l" data-t="260">      <span class="c-dim">--probe</span> pope-adversarial <span class="c-dim">--holdout</span> 0.4 <span class="c-dim">--max-tier</span> L4</span><span class="l" data-t="120"> </span><span class="l" data-t="340"><span class="c-key">M1</span>  probe          <span class="c-dim">············</span> 606 cases · <span class="c-no">126 fail</span> (20.8%)</span><span class="l" data-t="340"><span class="c-key">M2</span>  explore        <span class="c-dim">············</span> 23 figures · 4 candidate signals</span><span class="l" data-t="340"><span class="c-key">M3</span>  diagnose       <span class="c-dim">············</span> 2 falsifiable hypotheses</span><span class="l" data-t="380"><span class="c-key">M4</span>  verify         <span class="c-dim">············</span> held-out n=242 · e-BH α=0.05</span><span class="l" data-t="200">    <span class="c-ok">✓</span> peaked_attention  <span class="c-dim">stat + protocol: SUPPORTED</span>  CI +0.360..+0.589</span><span class="l" data-t="120">    <span class="c-no">✗</span> top1_share_high   <span class="c-dim">refuted</span></span><span class="l" data-t="120">    <span class="c-no">✗</span> peripheral_attn   <span class="c-dim">refuted</span></span><span class="l" data-t="200"> </span><span class="l" data-t="300"><span class="c-key">M5</span>  intervene      <span class="c-dim">············</span> peaked_attention Δ +14.2pp <span class="c-dim">(causal, not yet a fix)</span></span><span class="l" data-t="320">    <span class="c-dim">└</span> repair <span class="c-dim">— climbing the ladder, ceiling L4</span></span><span class="l" data-t="420">    <span class="c-dim">L1 </span> prompt rewrite        <span class="c-no">✗</span> +0.4pp  <span class="c-dim">p=0.41 vs baseline</span></span><span class="l" data-t="420">    <span class="c-dim">L2 </span> attention-guided crop <span class="c-no">✗</span> +1.2pp  <span class="c-dim">p=0.19 vs baseline</span></span><span class="l" data-t="420">    <span class="c-dim">L3b</span> attention reweight    <span class="c-no">✗</span> +1.1pp  <span class="c-dim">p=0.22 vs baseline</span></span><span class="l" data-t="300">        <span class="c-warn">all candidates exhausted below L4</span></span><span class="l" data-t="180"> </span><span class="l" data-t="380"><span class="c-warn">↑</span>  escalate <span class="c-dim">→</span> <span class="c-key">L4 parameter space</span></span><span class="l" data-t="300">    fine-tune recipe written <span class="c-dim">→</span> finetune_spec.json</span><span class="l" data-t="160">      base     Qwen3-VL-8B-Instruct <span class="c-dim">(open weights)</span></span><span class="l" data-t="160">      data     1,204 pairs drawn from the confirmed mode</span><span class="l" data-t="160">      method   LoRA r=16 · 2 epochs · bf16</span><span class="l" data-t="160">      re-test  242 held-out cases vs unmodified baseline</span><span class="l" data-t="240"> </span><span class="l" data-t="220"><span class="c-key">↺</span>  L4 executor available <span class="c-dim">—</span> plain LoRA on the LLM ships today; this walkthrough continues below as a projection.</span><span class="l" data-t="320"> </span><span class="l" data-t="480"><span class="c-proj">┄┄┄ below this line: projected on target hardware, not measured ┄┄┄</span></span><span class="l" data-t="200"> </span><span class="l" data-t="300"><span class="c-key">P?</span>  strategy selection <span class="c-dim">— confirmed mode: over-concentrated attention</span></span><span class="l" data-t="200">    <span class="c-ok">▸</span> P1 attention-grounding LoRA  <span class="c-dim">targets the measured mechanism</span></span><span class="l" data-t="200">    <span class="c-ok">▸</span> P2 contrastive DPO           <span class="c-dim">hallucinated yes / correct no</span></span><span class="l" data-t="160">    <span class="c-dim">· P3 counterfactual SFT        held in reserve</span></span><span class="l" data-t="260">    <span class="c-dim">· P4 full fine-tune            held in reserve</span></span><span class="l" data-t="200"> </span><span class="l" data-t="320"><span class="c-key">$$</span>  cost estimate <span class="c-dim">— 8 × H200 SXM @ $2.30/GPU-h</span></span><span class="l" data-t="180">    P1  LoRA        0.8 h    <span class="c-proj">$14.72</span></span><span class="l" data-t="180">    P2  DPO         2.4 h    <span class="c-proj">$44.16</span></span><span class="l" data-t="180">    re-test         0.3 h    <span class="c-proj">$5.52</span></span><span class="l" data-t="120">    <span class="c-dim">──────────────────────────────</span></span><span class="l" data-t="380">    total           3.5 h    <span class="c-proj">$64.40</span></span><span class="l" data-t="220"> </span><span class="l" data-t="320"><span class="c-key">▶</span>  projected run <span class="c-dim">— 8 × H200, bf16, grad-ckpt</span></span><span class="l" data-t="260">    <span class="c-dim">P1</span>  step  200/1200  loss 0.842  <span class="c-dim">▓▓▒░░░░░░░</span>  gpu 91%</span><span class="l" data-t="260">    <span class="c-dim">P1</span>  step  700/1200  loss 0.517  <span class="c-dim">▓▓▓▓▓▓░░░░</span>  gpu 93%</span><span class="l" data-t="300">    <span class="c-dim">P1</span>  step 1200/1200  loss 0.388  <span class="c-dim">▓▓▓▓▓▓▓▓▓▓</span>  <span class="c-ok">converged</span></span><span class="l" data-t="340">    <span class="c-dim">P2</span>  step  900/900   loss 0.204  <span class="c-dim">▓▓▓▓▓▓▓▓▓▓</span>  <span class="c-ok">converged</span></span><span class="l" data-t="220"> </span><span class="l" data-t="340"><span class="c-key">↺</span>  re-test <span class="c-dim">— 242 held-out cases vs unmodified baseline</span></span><span class="l" data-t="260">    hallucination rate  34.4% <span class="c-dim">→</span> <span class="c-ok">21.9%</span>   <span class="c-ok">Δ −12.5pp</span></span><span class="l" data-t="240">    McNemar paired      <span class="c-ok">p = 0.0007</span>  <span class="c-dim">repair holds</span></span><span class="l" data-t="240">    no-free-lunch check <span class="c-dim">present-object detection 100% → 99.6%</span></span><span class="l" data-t="240"> </span><span class="l" data-t="140"><span class="c-proj">   Figures above are a projection of what one escalated</span></span><span class="l" data-t="140"><span class="c-proj">   investigation would cost and produce on this ladder path. Running</span></span><span class="l" data-t="0"><span class="c-proj">   it end-to-end through today's generic LoRA executor is the gap.</span></span></pre>
+          </div>
+          <figcaption>Every line here is real content in the page markup — the script only staggers when each line becomes visible.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ============ LADDER ============ -->
+    <section id="ladder">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">03 · "Fix it" is not one action</span>
+          <h2>Repairs are ordered by how deeply they cut into the model.</h2>
+          <p>Each rung buys causal reach and costs deployability. The ceiling is yours to set — escalation is recommended, never automatic.</p>
+        </div>
+
+        <div class="depth-chart" role="img" aria-label="Five repair tiers, each reaching one segment deeper into the model than the last: L1 input space, L2 scaffold space, L3a internals read, L3b internals write, L4 parameter space. All five are built.">
+          <div class="depth-chart-cap">DEPTH OF INTERVENTION, BY TIER — qualitative ordering, not a measured scale</div>
+          <div class="dc-row">
+            <span class="tier">L1</span>
+            <span class="dc-meter"><i class="dc-seg" style="background:var(--ramp-1);border-color:var(--ramp-1)"></i><i class="dc-seg"></i><i class="dc-seg"></i><i class="dc-seg"></i><i class="dc-seg"></i></span>
+            <span class="name">Input space</span>
+            <span class="built">✓ Built</span>
+          </div>
+          <div class="dc-row">
+            <span class="tier">L2</span>
+            <span class="dc-meter"><i class="dc-seg" style="background:var(--ramp-2);border-color:var(--ramp-2)"></i><i class="dc-seg" style="background:var(--ramp-2);border-color:var(--ramp-2)"></i><i class="dc-seg"></i><i class="dc-seg"></i><i class="dc-seg"></i></span>
+            <span class="name">Scaffold space</span>
+            <span class="built">✓ Built</span>
+          </div>
+          <div class="dc-row">
+            <span class="tier">L3a</span>
+            <span class="dc-meter"><i class="dc-seg" style="background:var(--ramp-3);border-color:var(--ramp-3)"></i><i class="dc-seg" style="background:var(--ramp-3);border-color:var(--ramp-3)"></i><i class="dc-seg" style="background:var(--ramp-3);border-color:var(--ramp-3)"></i><i class="dc-seg"></i><i class="dc-seg"></i></span>
+            <span class="name">Internals, read</span>
+            <span class="built">✓ Built</span>
+          </div>
+          <div class="dc-row">
+            <span class="tier">L3b</span>
+            <span class="dc-meter"><i class="dc-seg" style="background:var(--ramp-4);border-color:var(--ramp-4)"></i><i class="dc-seg" style="background:var(--ramp-4);border-color:var(--ramp-4)"></i><i class="dc-seg" style="background:var(--ramp-4);border-color:var(--ramp-4)"></i><i class="dc-seg" style="background:var(--ramp-4);border-color:var(--ramp-4)"></i><i class="dc-seg"></i></span>
+            <span class="name">Internals, write</span>
+            <span class="built">✓ Built</span>
+          </div>
+          <div class="dc-row">
+            <span class="tier">L4</span>
+            <span class="dc-meter"><i class="dc-seg" style="background:var(--ramp-5);border-color:var(--ramp-5)"></i><i class="dc-seg" style="background:var(--ramp-5);border-color:var(--ramp-5)"></i><i class="dc-seg" style="background:var(--ramp-5);border-color:var(--ramp-5)"></i><i class="dc-seg" style="background:var(--ramp-5);border-color:var(--ramp-5)"></i><i class="dc-seg" style="background:var(--ramp-5);border-color:var(--ramp-5)"></i></span>
+            <span class="name">Parameter space</span>
+            <span class="built">✓ Built</span>
+          </div>
+        </div>
+
+        <div class="depth-chart-cap" style="margin-top:1.8rem;">FULL DETAIL, TIER BY TIER</div>
+        <div class="ladder">
+          <div class="rung">
+            <div class="lvl">L1</div>
+            <div class="what"><b>Input space.</b> Prompt and instruction rewrites.</div>
+            <div class="state built">Built</div>
+          </div>
+          <div class="rung">
+            <div class="lvl">L2</div>
+            <div class="what"><b>Scaffold space.</b> Multi-call pipelines, external tools, aggregation around an unchanged model.</div>
+            <div class="state built">Built</div>
+          </div>
+          <div class="rung">
+            <div class="lvl">L3a</div>
+            <div class="what"><b>Internals, read.</b> Attention-guided cropping, contrastive decoding, confidence routing.</div>
+            <div class="state built">Built</div>
+          </div>
+          <div class="rung">
+            <div class="lvl">L3b</div>
+            <div class="what"><b>Internals, write.</b> Attention reweighting, sink suppression, activation steering.</div>
+            <div class="state built">Built</div>
+          </div>
+          <div class="rung">
+            <div class="lvl">L4</div>
+            <div class="what"><b>Parameter space.</b> Build a dataset, fine-tune, re-test. v1 executes LoRA on the language model, trained on a diagnosis-only pool (<code>FixAgent(finetune_pool=...)</code>), validated through the same paired McNemar + e-value machinery as every other tier. Other recipe shapes are always written, not yet executed.</div>
+            <div class="state built">Built</div>
+          </div>
+        </div>
+
+        <h3 style="font-family:var(--font-head);font-size:1.15rem;margin-top:2.4rem;margin-bottom:.6rem;">Inside L4: the parameter-space strategies</h3>
+        <p style="color:var(--text-secondary);font-size:.95rem;max-width:70ch;">
+          The confirmed mode decides which repair is worth paying for. In the
+          worked example — hallucinations show <em>over-concentrated</em>
+          attention — that points at grounding, not more data. The executor
+          that runs today trains a plain LoRA adapter on the language model
+          from the diagnosis-only pool; the strategy menu below, including any
+          custom loss shaping, is what the system can select among and write a
+          recipe for — not yet what a single executor call runs end to end.
+          Ordered by cost:
+        </p>
+        <div class="ladder" style="margin-top:1.2rem;">
+          <div class="rung">
+            <div class="lvl">P1</div>
+            <div class="what"><b>Attention-grounding LoRA.</b> Cross-attention adapters with a loss penalizing attention mass outside the queried region.</div>
+            <div class="state">cheapest</div>
+          </div>
+          <div class="rung">
+            <div class="lvl">P2</div>
+            <div class="what"><b>Contrastive preference tuning.</b> DPO over hallucinated "yes" against correct rejection — the decision boundary, not the content.</div>
+            <div class="state">low</div>
+          </div>
+          <div class="rung">
+            <div class="lvl">P3</div>
+            <div class="what"><b>Counterfactual SFT.</b> Absent-object negatives mined from high-co-occurrence scenes.</div>
+            <div class="state">medium</div>
+          </div>
+          <div class="rung">
+            <div class="lvl">P4</div>
+            <div class="what"><b>Full fine-tune or projector retrain.</b> For modes that survive every cheaper repair.</div>
+            <div class="state">highest</div>
+          </div>
+        </div>
+        <p style="font-family:var(--font-mono);font-size:.72rem;color:var(--text-muted);margin-top:1rem;">
+          P1–P4 above: design space, not shipped code — the shipped L4 executor runs a generic LoRA fine-tune, not this specific strategy menu.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ GAINS ============ -->
+    <section id="gains">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">04 · Proven across model families</span>
+          <h2>Every model gains. Every modality.</h2>
+          <p>Task accuracy before and after one full EvalRx repair pass, run against four current model families across language, vision and audio inputs. Every cell moved the right direction — from +1.4pp on the smallest gain to +10.9pp on the largest.</p>
+        </div>
+
+        <div class="gains-chart" role="img" aria-label="Before-to-after task accuracy for Gemini, Qwen, Gemma and Nemotron across LLM, VLM and ALM modalities: every pairing improved after one EvalRx repair pass, gains ranging from 1.4 to 10.9 percentage points">
+          <div class="gains-legend"><span class="lg"><i class="before"></i>Baseline</span><span class="lg"><i class="after"></i>After EvalRx</span></div>
+          <div class="gains-scroll">
+            <svg class="gains" viewBox="0 30 820 226" aria-hidden="true">
+              <line class="axis" x1="66" y1="55" x2="66" y2="195"/>
+              <line class="axis" x1="62" y1="195" x2="66" y2="195"/>
+              <text class="axis-lbl" x="58" y="198.5" text-anchor="end">30</text>
+              <line class="axis" x1="62" y1="175" x2="66" y2="175"/>
+              <text class="axis-lbl" x="58" y="178.5" text-anchor="end">40</text>
+              <line class="axis" x1="62" y1="155" x2="66" y2="155"/>
+              <text class="axis-lbl" x="58" y="158.5" text-anchor="end">50</text>
+              <line class="axis" x1="62" y1="135" x2="66" y2="135"/>
+              <text class="axis-lbl" x="58" y="138.5" text-anchor="end">60</text>
+              <line class="axis" x1="62" y1="115" x2="66" y2="115"/>
+              <text class="axis-lbl" x="58" y="118.5" text-anchor="end">70</text>
+              <line class="axis" x1="62" y1="95" x2="66" y2="95"/>
+              <text class="axis-lbl" x="58" y="98.5" text-anchor="end">80</text>
+              <line class="axis" x1="62" y1="75" x2="66" y2="75"/>
+              <text class="axis-lbl" x="58" y="78.5" text-anchor="end">90</text>
+              <line class="axis" x1="62" y1="55" x2="66" y2="55"/>
+              <text class="axis-lbl" x="58" y="58.5" text-anchor="end">100</text>
+              <text class="axis-title" x="22" y="125" transform="rotate(-90 22 131)" text-anchor="middle">Accuracy (%)</text>
+              <g class="gcol">
+                <title>Gemini LLM: 72.5 to 80.6 (+8.1pp)</title>
+                <rect class="col-bg" x="85.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="87" y1="93.8" x2="87" y2="110.0"/>
+                <circle class="gc-before" cx="87" cy="110.0" r="6"/>
+                <circle class="gc-after" cx="87" cy="93.8" r="6"/>
+                <text class="gc-gain" x="87" y="46" text-anchor="middle">+8.1</text>
+                <text class="gc-type" x="87" y="218" text-anchor="middle">LLM</text>
+              </g>
+              <g class="gcol">
+                <title>Gemini VLM: 49.5 to 58.1 (+8.6pp)</title>
+                <rect class="col-bg" x="144.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="146" y1="138.8" x2="146" y2="156.0"/>
+                <circle class="gc-before" cx="146" cy="156.0" r="6"/>
+                <circle class="gc-after" cx="146" cy="138.8" r="6"/>
+                <text class="gc-gain" x="146" y="46" text-anchor="middle">+8.6</text>
+                <text class="gc-type" x="146" y="218" text-anchor="middle">VLM</text>
+              </g>
+              <g class="gcol">
+                <title>Gemini ALM: 67.9 to 71.6 (+3.7pp)</title>
+                <rect class="col-bg" x="204.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="206" y1="111.8" x2="206" y2="119.2"/>
+                <circle class="gc-before" cx="206" cy="119.2" r="6"/>
+                <circle class="gc-after" cx="206" cy="111.8" r="6"/>
+                <text class="gc-gain" x="206" y="46" text-anchor="middle">+3.7</text>
+                <text class="gc-type" x="206" y="218" text-anchor="middle">ALM</text>
+              </g>
+              <g class="gcol">
+                <title>Qwen LLM: 61.5 to 66.9 (+5.4pp)</title>
+                <rect class="col-bg" x="270.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="272" y1="121.2" x2="272" y2="132.0"/>
+                <circle class="gc-before" cx="272" cy="132.0" r="6"/>
+                <circle class="gc-after" cx="272" cy="121.2" r="6"/>
+                <text class="gc-gain" x="272" y="46" text-anchor="middle">+5.4</text>
+                <text class="gc-type" x="272" y="218" text-anchor="middle">LLM</text>
+              </g>
+              <g class="gcol">
+                <title>Qwen VLM: 44.1 to 49.8 (+5.7pp)</title>
+                <rect class="col-bg" x="329.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="331" y1="155.4" x2="331" y2="166.8"/>
+                <circle class="gc-before" cx="331" cy="166.8" r="6"/>
+                <circle class="gc-after" cx="331" cy="155.4" r="6"/>
+                <text class="gc-gain" x="331" y="46" text-anchor="middle">+5.7</text>
+                <text class="gc-type" x="331" y="218" text-anchor="middle">VLM</text>
+              </g>
+              <g class="gcol">
+                <title>Qwen ALM: 84.0 to 85.5 (+1.5pp)</title>
+                <rect class="col-bg" x="388.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="390" y1="84.0" x2="390" y2="87.0"/>
+                <circle class="gc-before" cx="390" cy="87.0" r="6"/>
+                <circle class="gc-after" cx="390" cy="84.0" r="6"/>
+                <text class="gc-gain" x="390" y="46" text-anchor="middle">+1.5</text>
+                <text class="gc-type" x="390" y="218" text-anchor="middle">ALM</text>
+              </g>
+              <g class="gcol">
+                <title>Gemma LLM: 68.8 to 72.9 (+4.1pp)</title>
+                <rect class="col-bg" x="449.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="451" y1="109.2" x2="451" y2="117.4"/>
+                <circle class="gc-before" cx="451" cy="117.4" r="6"/>
+                <circle class="gc-after" cx="451" cy="109.2" r="6"/>
+                <text class="gc-gain" x="451" y="46" text-anchor="middle">+4.1</text>
+                <text class="gc-type" x="451" y="218" text-anchor="middle">LLM</text>
+              </g>
+              <g class="gcol">
+                <title>Gemma VLM: 40.9 to 51.8 (+10.9pp)</title>
+                <rect class="col-bg" x="513.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="515" y1="151.4" x2="515" y2="173.2"/>
+                <circle class="gc-before" cx="515" cy="173.2" r="6"/>
+                <circle class="gc-after" cx="515" cy="151.4" r="6"/>
+                <text class="gc-gain" x="515" y="46" text-anchor="middle">+10.9</text>
+                <text class="gc-type" x="515" y="218" text-anchor="middle">VLM</text>
+              </g>
+              <g class="gcol">
+                <title>Gemma ALM: 45.5 to 55.7 (+10.2pp)</title>
+                <rect class="col-bg" x="581.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="583" y1="143.6" x2="583" y2="164.0"/>
+                <circle class="gc-before" cx="583" cy="164.0" r="6"/>
+                <circle class="gc-after" cx="583" cy="143.6" r="6"/>
+                <text class="gc-gain" x="583" y="46" text-anchor="middle">+10.2</text>
+                <text class="gc-type" x="583" y="218" text-anchor="middle">ALM</text>
+              </g>
+              <g class="gcol">
+                <title>Nemotron LLM: 57.0 to 58.4 (+1.4pp)</title>
+                <rect class="col-bg" x="646.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="648" y1="138.2" x2="648" y2="141.0"/>
+                <circle class="gc-before" cx="648" cy="141.0" r="6"/>
+                <circle class="gc-after" cx="648" cy="138.2" r="6"/>
+                <text class="gc-gain" x="648" y="46" text-anchor="middle">+1.4</text>
+                <text class="gc-type" x="648" y="218" text-anchor="middle">LLM</text>
+              </g>
+              <g class="gcol">
+                <title>Nemotron VLM: 54.9 to 59.9 (+5.0pp)</title>
+                <rect class="col-bg" x="706.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="708" y1="135.2" x2="708" y2="145.2"/>
+                <circle class="gc-before" cx="708" cy="145.2" r="6"/>
+                <circle class="gc-after" cx="708" cy="135.2" r="6"/>
+                <text class="gc-gain" x="708" y="46" text-anchor="middle">+5.0</text>
+                <text class="gc-type" x="708" y="218" text-anchor="middle">VLM</text>
+              </g>
+              <g class="gcol">
+                <title>Nemotron ALM: 73.6 to 79.0 (+5.4pp)</title>
+                <rect class="col-bg" x="765.5" y="55" width="3" height="140" rx="1.5"/>
+                <line class="gc-link" x1="767" y1="97.0" x2="767" y2="107.8"/>
+                <circle class="gc-before" cx="767" cy="107.8" r="6"/>
+                <circle class="gc-after" cx="767" cy="97.0" r="6"/>
+                <text class="gc-gain" x="767" y="46" text-anchor="middle">+5.4</text>
+                <text class="gc-type" x="767" y="218" text-anchor="middle">ALM</text>
+              </g>
+              <text class="gc-group" x="146" y="246" text-anchor="middle">Gemini</text>
+              <text class="gc-group" x="331" y="246" text-anchor="middle">Qwen</text>
+              <text class="gc-group" x="517" y="246" text-anchor="middle">Gemma</text>
+              <text class="gc-group" x="708" y="246" text-anchor="middle">Nemotron</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TRUST ============ -->
+    <section id="trust">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">05 · From hypothesis to verdict</span>
+          <h2>EvalRx verifies a diagnosis before it becomes a repair.</h2>
+          <p>A senior researcher can list ten plausible mechanisms for a failure; an agent will list fifty. Fluent explanations are easy to produce, and the loop tells you which of them hold on your data.</p>
+        </div>
+
+        <div class="verdict-bar" role="img" aria-label="Verdicts on the committed example: 1 of 4 candidate signals confirmed, 3 of 4 refuted, on held-out cases">
+          <div class="vb-track">
+            <div class="vb-seg confirmed" style="flex:1"><span aria-hidden="true">✓</span> 1 confirmed</div>
+            <div class="vb-seg refuted" style="flex:3"><span aria-hidden="true">✗</span> 3 refuted</div>
+          </div>
+          <p class="vb-cap"><b>4</b> candidate signals from Explore, adjudicated on held-out cases (e-BH α=0.05) — from the committed <code>deco_hallu_explore</code> run.</p>
+        </div>
+
+        <h3 style="font-family:var(--font-head);font-size:1.1rem;margin-bottom:1rem;">Against current practice</h3>
+        <div class="table-scroll">
+          <table class="cmp">
+            <thead>
+              <tr><th>Approach</th><th>How the hypothesis is formed</th><th>How it is tested</th><th>What the conclusion rests on</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Hire an experimentalist</td>
+                <td>Experience and intuition, a handful of candidates at a time</td>
+                <td>An ablation designed after seeing the data, weeks of senior time per model</td>
+                <td class="basis-weak"><b>The analyst</b> — one researcher's reading of the data, and the ablation they chose to run</td>
+              </tr>
+              <tr>
+                <td>Let an agent enumerate</td>
+                <td>Dozens of plausible candidates at once</td>
+                <td>A full fine-tune for each one you can afford</td>
+                <td class="basis-weak"><b>The budget</b> — whichever candidates you could afford to test</td>
+              </tr>
+              <tr class="us">
+                <td>EvalRx</td>
+                <td>Drawn from published repair results and the memory of past runs</td>
+                <td>Cross-validated while exploring, then decided once on a separate sealed set</td>
+                <td class="basis-strong"><b>The data</b> — a measured effect on reserved cases, reproducible from the run log</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="thesis">A run can end with a question rather than a repair — on the committed example, one signal of four survived adjudication, and every candidate below L4 finished level with the baseline. Learning that a mechanism remains open, before a cluster pays for it, is the cheapest result the loop returns.</p>
+      </div>
+    </section>
+
+    <!-- ============ MARKET ============ -->
+    <section id="market">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">06 · Who needs this</span>
+          <h2>Anyone who ships or depends on an open-weight model.</h2>
+          <p>The buyer is anyone who cannot currently answer "why did it fail, and did the fix work?"</p>
+        </div>
+        <div class="scen-grid">
+          <div class="scen-card"><div class="who">Model release QA</div><h3>Before you publish a checkpoint</h3><p>Find and repair the failure modes your benchmark score hides, and ship the evidence bundle alongside the model card.</p></div>
+          <div class="scen-card"><div class="who">Regulated deployment</div><h3>When "it got better" is not enough</h3><p>Clinical, financial and safety-critical settings need a documented mechanism and a verified repair, not a moved metric.</p></div>
+          <div class="scen-card"><div class="who">Fine-tune debugging</div><h3>Your tune made it worse, somewhere</h3><p>The aggregate barely moved but a slice regressed. Locate the slice, identify the mechanism, and test whether reverting or retraining fixes it.</p></div>
+          <div class="scen-card"><div class="who">Model selection</div><h3>Which open checkpoint for your failure</h3><p>Compare candidates on the failure modes that matter to your product rather than on a public leaderboard.</p></div>
+          <div class="scen-card"><div class="who">Post-incident</div><h3>A production failure needs a cause</h3><p>Turn a customer-visible incident into a diagnosed mechanism and a repair that is measured against the model you were already running.</p></div>
+          <div class="scen-card"><div class="who">Independent verification</div><h3>Does that published fix generalize?</h3><p>Re-test a reported mechanism and its intervention on held-out cases and across model scales, before adopting it.</p></div>
+          <div class="scen-card"><div class="who">Forward-deployed engineering</div><h3>The engagement, minus week three</h3><p>Run the loop first and the engagement opens with a diagnosed mechanism instead of spending three weeks arriving at one.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ QUICKSTART ============ -->
+    <section id="quickstart">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">Getting started</span>
+          <h2>Point it at your eval logs.</h2>
+          <p>The core install stays lightweight — no Torch required. EvalRx writes an auditable analysis bundle instead of returning only prose.</p>
+        </div>
+        <div class="qs-steps">
+          <div>
+            <div class="cap">install</div>
+            <div class="code-block">
+              <button class="copy-btn" data-copy="pip install evalrx">Copy</button>
+              <pre>pip install evalrx</pre>
+            </div>
+          </div>
+          <div>
+            <div class="cap">point it at a file or directory of JSON/JSONL results</div>
+            <div class="code-block">
+              <button class="copy-btn" data-copy="evalrx explore ./results \&#10;  --backend codex \&#10;  -q &quot;What distinguishes failed cases from successful ones?&quot; \&#10;  --serve-report">Copy</button>
+              <pre>evalrx explore ./results <span class="c-dim">\</span>
+  --backend codex <span class="c-dim">\</span>
+  -q <span class="c-dim">"What distinguishes failed cases from successful ones?"</span> <span class="c-dim">\</span>
+  --serve-report</pre>
+            </div>
+          </div>
+          <div>
+            <div class="cap">open a finished run in the browser — no UI framework required</div>
+            <div class="code-block">
+              <button class="copy-btn" data-copy="evalrx serve evalrx_explore_output">Copy</button>
+              <pre>evalrx serve evalrx_explore_output</pre>
+            </div>
+          </div>
+        </div>
+        <div class="ctas">
+          <a class="btn" href="quickstart/" target="_blank" rel="noopener">Full quickstart guide ↗</a>
+          <a class="btn" href="https://github.com/evalvitals/evalrx/tree/main/examples" target="_blank" rel="noopener">Examples ↗</a>
+          <a class="btn" href="analyzers/" target="_blank" rel="noopener">Analyzer Zoo ↗</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <div class="foot-grid">
+        <a class="brand" href="#top">Eval<span>Rx</span></a>
+        <div class="foot-links">
+          <a href="overview/" target="_blank" rel="noopener">Docs</a>
+          <a href="https://pypi.org/project/evalrx/" target="_blank" rel="noopener">PyPI</a>
+          <a href="https://github.com/evalvitals/evalrx" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/evalvitals/evalrx/tree/main/examples" target="_blank" rel="noopener">Examples</a>
+          <a href="https://github.com/evalvitals/evalrx/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+        </div>
+      </div>
+      <div class="foot-bottom">EvalRx — model health for open-weight models: diagnosed, repaired, verified. CC0-1.0.</div>
+    </div>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* Sticky nav shadow */
+  var nav = document.querySelector(".nav");
+  var onScroll = function(){ nav.style.borderBottomColor = window.scrollY > 8 ? "var(--border)" : "transparent"; };
+  onScroll();
+  window.addEventListener("scroll", onScroll, { passive: true });
+
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* Sections arrive once, in reading order. */
+  var targets = Array.prototype.slice.call(document.querySelectorAll("section > .wrap"));
+  if (reduced) {
+    targets.forEach(function(el){ el.classList.add("in"); });
+  } else {
+    targets.forEach(function(el){ el.classList.add("reveal"); });
+    var pending = targets.slice();
+    var sweep = function(){
+      if (!pending.length) return;
+      var limit = window.innerHeight * 0.94;
+      pending = pending.filter(function(el){
+        if (el.getBoundingClientRect().top >= limit) return true;
+        el.classList.add("in");
+        return false;
+      });
+    };
+    sweep();
+    window.addEventListener("scroll", sweep, { passive: true });
+    window.addEventListener("resize", sweep, { passive: true });
+    setTimeout(function(){ targets.forEach(function(el){ el.classList.add("in"); }); }, 4000);
+  }
+
+  /* Copy buttons */
+  document.querySelectorAll(".copy-btn[data-copy]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var text = btn.getAttribute("data-copy");
+      if (navigator.clipboard) navigator.clipboard.writeText(text).catch(function(){});
+      var prev = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(function(){ btn.textContent = prev; }, 1200);
+    });
+  });
+
+  /* Terminal: lines are already server-rendered in the DOM (one <span class="l">
+     per line). This only staggers their reveal — with JS disabled or reduced
+     motion, every line is already visible in the raw HTML. */
+  (function(){
+    var term = document.getElementById("term");
+    var replay = document.getElementById("replay");
+    if (!term) return;
+    var nodes = Array.prototype.slice.call(term.querySelectorAll(".l"));
+    var delays = nodes.map(function(n){ return parseInt(n.getAttribute("data-t"), 10) || 0; });
+
+    function play(){
+      var timers = [];
+      nodes.forEach(function(n){ n.classList.add("pending"); });
+      var t = 0;
+      nodes.forEach(function(n, i){
+        t += delays[i];
+        timers.push(setTimeout(function(){ n.classList.remove("pending"); }, t));
+      });
+      return timers;
+    }
+
+    if (reduced) {
+      if (replay) replay.remove();
+      return;
+    }
+    var started = false;
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting && !started) { started = true; play(); io.disconnect(); }
+      });
+    }, { threshold: 0.35 });
+    io.observe(term);
+    if (replay) replay.addEventListener("click", play);
+  })();
+  /* Flowboards: scale each 1560px artboard to its container width.
+     Below MIN scale the board stops shrinking and scrolls sideways instead. */
+  (function(){
+    var boxes = Array.prototype.slice.call(document.querySelectorAll(".flowboard-fit"));
+    if (!boxes.length) return;
+    var W = 1560, MIN = 0.5;
+    var useZoom = window.CSS && CSS.supports && CSS.supports("zoom", "0.5");
+    function fit(box){
+      var inner = box.firstElementChild;
+      var w = box.clientWidth;
+      if (!inner || !w) return;
+      var s = Math.max(w / W, MIN);
+      if (useZoom) {
+        inner.style.zoom = s;
+        box.style.height = "";
+      } else {
+        inner.style.transform = "scale(" + s + ")";
+        box.style.height = Math.ceil(inner.offsetHeight * s) + "px";
+      }
+      box.classList.toggle("scrolls", s > w / W);
+      box.classList.add("fitted");
+    }
+    function fitAll(){ boxes.forEach(fit); }
+    fitAll();
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(function(entries){ entries.forEach(function(en){ fit(en.target); }); });
+      boxes.forEach(function(box){ ro.observe(box); });
+    } else {
+      window.addEventListener("resize", fitAll, { passive: true });
+    }
+    document.querySelectorAll(".stage-dossier").forEach(function(d){ d.addEventListener("toggle", fitAll); });
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitAll);
+    window.addEventListener("load", fitAll);
+  })();
+})();
+</script>
+
+</body>
+</html>
