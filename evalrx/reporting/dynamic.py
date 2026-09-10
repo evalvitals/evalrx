@@ -50,7 +50,9 @@ ALLOWED_COMPONENTS = frozenset(
         "EvidenceIndex",
     }
 )
-REQUIRED_COMPONENTS = frozenset({"SettingHero", "OutcomeCard"})
+# OutcomeCard stays in ALLOWED_COMPONENTS so layouts published before it was
+# dropped from the page still validate; the renderer draws nothing for it.
+REQUIRED_COMPONENTS = frozenset({"SettingHero"})
 # The page needs one picture of the M1-M5 loop: the plain stage strip, or the
 # loop figure that folds the case-study sheet into it.
 PIPELINE_COMPONENTS = frozenset({"Journey", "LoopFigure"})
@@ -279,7 +281,7 @@ the model. A passer-by must understand the setting and outcome without knowing E
 
 Return ONLY a json-render tree with shape {{"root":"id","elements":{{...}}}}.
 Allowed component types: {', '.join(sorted(ALLOWED_COMPONENTS))}.
-Required exactly once or more: SettingHero, OutcomeCard, and one of Journey or LoopFigure.
+Required exactly once or more: SettingHero, and one of Journey or LoopFigure.
 When has_case_study is true prefer LoopFigure (inputs → explore M1·M2·M3 → held-out
 M4 → repair M5 → health card, one clickable figure) in place of Journey; use
 CaseStudySheet only alongside Journey, directly after it.
@@ -300,7 +302,8 @@ def fallback_spec(data: Mapping[str, Any]) -> dict[str, Any]:
     """Deterministic, evidence-first layout used without or after a failed model.
 
     Deliberately short: hero, metrics, the M1–M5 pipeline, the takeaway sheet,
-    the one-line outcome, and the audit index. The finding grid, the chart
+    and the audit index (the one-line outcome card was dropped 2026-09-10: it
+    restated the loop figure's health card). The finding grid, the chart
     grid and the representative-case preview were dropped from the landing
     page — on a real run they repeated the metric strip (pass/fail donut) or
     said "no finding" in a full-width card, and every one of them is still a
@@ -313,7 +316,6 @@ def fallback_spec(data: Mapping[str, Any]) -> dict[str, Any]:
         "page": {"type": "ReportPage", "props": {}, "children": children},
         "setting": {"type": "SettingHero", "props": {}},
         "metrics": {"type": "MetricStrip", "props": {}},
-        "outcome": {"type": "OutcomeCard", "props": {}},
         "evidence": {"type": "EvidenceIndex", "props": {}},
     }
     # With a case study the loop figure IS the pipeline strip and the sheet in
@@ -325,7 +327,6 @@ def fallback_spec(data: Mapping[str, Any]) -> dict[str, Any]:
     else:
         elements["journey"] = {"type": "Journey", "props": {}}
         children.append("journey")
-    children.append("outcome")
     children.append("evidence")
     return elements and {"root": "page", "elements": elements}
 
