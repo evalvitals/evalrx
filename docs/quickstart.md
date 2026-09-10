@@ -207,7 +207,9 @@ from the *interventional* probes (`reliability_probe`, `tool_shap`) must be
 reusing exploration-set values would test nothing. Budget for it: held-out
 confirmation of these columns costs the same per case as exploration did.
 
-Open the saved output as a local static report:
+Open the saved output in the local report UI (a server, not a static file —
+use `evalrx report` instead for a single portable `report.html`; see the
+[CLI reference](cli.md)):
 
 ```bash
 evalrx serve evalrx_explore_output
@@ -220,7 +222,7 @@ explore + hypothesis-generation workflow.
 
 Point the same command at an `examples/` bench run — a directory holding
 `outputs/<name>.json` beside the `data/` manifest the runner read — and the
-dashboard opens a **case book** instead of the explore layout:
+report UI opens a **case book** instead of the explore layout:
 
 ```bash
 evalrx serve examples/agent_loop/qwen2_audio_tcd_mmau
@@ -256,7 +258,7 @@ evalrx run-codebase ./my_eval_repo \
   --backend claude_code \
   -q "Where does the model fail and why?" \
   --out evalrx_run_codebase_output \
-  --dashboard          # optional
+  --serve-report       # optional
 ```
 
 Or from Python:

@@ -132,14 +132,22 @@ evalrx explore ./results \
 `kimi_cli`, or `antigravity`. The selected coding-agent CLI must be installed
 and authenticated separately.
 
-Open a finished run in the browser without a UI framework:
+Open a finished run in the browser:
 
 ```bash
 evalrx serve evalrx_explore_output
 ```
 
-The report is a self-contained HTML file (`report.html`), suitable for local
-viewing and sharing.  It is the only supported report UI.
+`serve` runs the report UI locally as a small server. For a single portable
+file — no server, suitable for sharing — export it instead:
+
+```bash
+evalrx report evalrx_explore_output --out report.html
+```
+
+Both read the same output directory and render the same UI; see the
+[CLI reference](https://evalvitals.github.io/evalrx/cli/) for the rest of the
+command set (Langfuse export, a runs panel over several experiments, …).
 
 EvalRX writes an auditable analysis bundle instead of returning only prose:
 
