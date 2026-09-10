@@ -76,18 +76,25 @@ def _entry(dataset: str):
     return mod.get(dataset), B
 
 
-def download(out_dir: Path, limit: int = 256, seed: int = 0, *, dataset: str) -> dict:
+def download(out_dir: Path, limit: int = 256, seed: int = 0, *, dataset: str,
+             val_limit: int = 0) -> dict:
+    """Freeze ``limit`` rows as manifest.json. ``val_limit`` > 0 keeps walking the
+    SAME seeded draw past the main slice and freezes the next ``val_limit`` rows as
+    manifest_val.json (disjoint held-out validation; empty when the slice is a
+    census smaller than limit + val_limit, e.g. bbh_word_sorting's 250 items)."""
     entry, B = _entry(dataset)
     spec = entry.spec
     n = limit if limit and limit > 0 else entry.items
+    val_limit = max(0, int(val_limit or 0))
+    want = n + val_limit
     fetch = "datasets-server"
     try:
-        rows = B.fetch_rows(spec, n, seed=seed)
+        rows = B.fetch_rows(spec, want, seed=seed)
     except RuntimeError as exc:
         # The /filter index behind a sliced spec can sit at HTTP 500 for hours;
         # the hub files are the same data, so freeze from them instead.
         print(f"[data] {exc}; freezing from the hub files instead (datasets.load_dataset)")
-        rows = B.fetch_rows_hub(spec, n, seed=seed)
+        rows = B.fetch_rows_hub(spec, want, seed=seed)
         fetch = "hub"
     adapter = spec.adapter or B._adapter_plain(spec.question_field, spec.answer_field)
     items = []
@@ -95,7 +102,7 @@ def download(out_dir: Path, limit: int = 256, seed: int = 0, *, dataset: str) ->
         pair = adapter(row)
         if pair:
             items.append(pair)
-        if len(items) >= n:
+        if len(items) >= want:
             break
     if not items:
         raise SystemExit(f"{dataset}: adapter produced no gradable items")
@@ -113,9 +120,19 @@ def download(out_dir: Path, limit: int = 256, seed: int = 0, *, dataset: str) ->
                          "reference_accuracy_qwen35_9b": entry.accuracy_9b},
         })
     out_dir = Path(out_dir)
-    write_manifest(out_dir / "manifest.json", out)
-    return {"kept": len(out), "slice_items": entry.items, "is_census": len(out) >= entry.items,
-            "fetch": fetch, "manifest": str(out_dir / "manifest.json")}
+    main_rows, val_rows = out[:n], out[n:n + val_limit]
+    write_manifest(out_dir / "manifest.json", main_rows)
+    summary = {"kept": len(main_rows), "slice_items": entry.items,
+               "is_census": len(out) >= entry.items,
+               "fetch": fetch, "manifest": str(out_dir / "manifest.json")}
+    if val_limit:
+        if val_rows:
+            write_manifest(out_dir / "manifest_val.json", val_rows)
+        else:
+            print(f"[data] {dataset}: no rows left for a validation slice "
+                  f"(slice has {len(out)} rows, main took {len(main_rows)})")
+        summary.update(kept_val=len(val_rows), manifest_val=str(out_dir / "manifest_val.json"))
+    return summary
 
 
 def grade(dataset: str, output: str, gold: Any) -> bool:
@@ -153,7 +170,7 @@ TASKS = tuple(
     Task(
         name=name, modality="llm", kind="llm_graded", title=name,
         download=partial(download, dataset=name), protocol=partial(protocol, dataset=name),
-        pinned_m1=PINNED_M1, default_limit=256, default_seed=0, max_new_tokens=2048,
+        pinned_m1=PINNED_M1, default_limit=256, val_limit=128, default_seed=0, max_new_tokens=2048,
         short_answer=False, source="examples/dataset_selection/llm_benchmark/datasets.py",
     )
     for name in DATASETS
