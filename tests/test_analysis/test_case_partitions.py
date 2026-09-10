@@ -65,8 +65,12 @@ def test_an_untagged_two_way_run_is_inferred_from_the_record_order(tmp_path):
     data = build_report_data(tmp_path)
     assert _by_split(data) == {"explore": ["c0", "c1"], "confirm": ["c2", "c3", "c4"]}
     rows = data["setting"]["partitions"]
-    # One withheld pool served as both the held-out and the confirm set.
-    assert [(r["code"], r["n"], r["inferred"]) for r in rows] == [("E", 2, True), ("H/C", 3, True)]
+    # One withheld pool served as both the held-out and the confirm set, and it
+    # is named for both: the batch figure draws this row once, so a label of
+    # just "Held-out" would leave the confirm set with no size anywhere.
+    assert [(r["code"], r["label"], r["n"], r["inferred"]) for r in rows] == [
+        ("E", "Explore", 2, True), ("H/C", "Held-out / Confirm", 3, True),
+    ]
 
 
 def test_a_run_without_a_split_shows_no_partitions(tmp_path):

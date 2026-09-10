@@ -229,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     report_cmd.add_argument("--out", "-o", default=None, help="Output HTML path (default: <run_dir>/report.html).")
     report_cmd.add_argument("--no-audio", action="store_true", help="Skip audio transcoding.")
     report_cmd.add_argument("--embed-media", choices=["representative", "all", "none"], default="representative", help="Media to inline in the portable export (default: representative).")
+    report_cmd.add_argument("--audio-bitrate", default="48k", help="Transcode inlined lossless audio to mono MP3 at this bitrate via ffmpeg (default: 48k; 'none' = inline the original bytes).")
     report_cmd.add_argument("--source", choices=["local", "langfuse"], default="local", help="Run data source.")
     report_cmd.add_argument("--trace-id", default=None, help="Langfuse trace id (required for --source langfuse).")
 
@@ -362,6 +363,7 @@ def main(argv: list[str] | None = None) -> int:
             example_dir=args.example_dir,
             out_path=args.out,
             embed_media="none" if args.no_audio else args.embed_media,
+            audio_bitrate=None if str(getattr(args, "audio_bitrate", "48k")).lower() == "none" else args.audio_bitrate,
         )
         return 0
     if args.command == "export-langfuse":

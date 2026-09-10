@@ -118,6 +118,31 @@ def load_model(resolved: Resolved, args, task: T.Task):
     return model, gen, spec
 
 
+#: M1 analyzers that RE-SAMPLE the model and are only informative at
+#: temperature > 0 (``coverage_verification_gap`` documents the requirement;
+#: ``self_consistency`` is trivially 1.0 under greedy decoding). ProbeAgent
+#: instantiates the pinned set with constructor defaults — empty gen_kwargs —
+#: and hf_local's generate() then runs greedy (the HF generation_config has no
+#: do_sample), so on every in-process run the coverage probe reported
+#: degenerate_sampling=true and M3 spent a hypothesis on the harness
+#: (qwen3.5-2b/chartqa, 2026-09-07). The API backends carry their sampling in
+#: the runtime and ignore per-call kwargs, so the overrides are hf_local-only.
+_SAMPLED_M1 = ("self_consistency", "coverage_verification_gap")
+
+
+def _sampling_analyzer_overrides(resolved: Resolved, args) -> dict:
+    if resolved.backend != "hf_local":
+        return {}
+    from evalrx.analyzers.uncertainty.coverage_gap import CoverageVerificationGap
+    from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
+
+    gen = {"temperature": 1.0, "top_p": args.top_p, "top_k": args.top_k}
+    return {
+        "self_consistency": SelfConsistencyAnalyzer(gen_kwargs=dict(gen)),
+        "coverage_verification_gap": CoverageVerificationGap(gen_kwargs=dict(gen)),
+    }
+
+
 def load_weights(model, resolved: Resolved, args, task: T.Task):
     """``model.load()`` with one fallback: model code without an SDPA dispatch
     (the remote NemotronH classes) raises ValueError on attn_implementation=sdpa;
@@ -311,7 +336,6 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
 
     from evalrx.eval_agent import CaseDiscoveryAgent, RunContext
 
-    tvt = args.split_mode == "tvt"
     ctx = None
     if not args.baseline_only:
         # Create the V2 sink before Stage-0 so each discovery request is durable
@@ -324,8 +348,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                 "backend": resolved.backend, "n_cases": len(candidates),
                 "manifest": str(manifest),
                 "manifest_seed": rows[0].get("sample_seed") if rows else None,
-                "split_mode": args.split_mode,
-                "confirm_split": (1 / 3 if tvt else 0.5), "test_split": (1 / 3 if tvt else 0.0),
+                "split_mode": ("held_out_val" if args.held_out else "explore_confirm"),
+                "confirm_split": float(args.confirm_split), "test_split": 0.0,
+                "val_limit": int(getattr(args, "val_limit", 0) or 0),
                 "held_out": bool(args.held_out),
                 "fix_tier": args.fix_tier,
                 "allow_codegen": args.allow_codegen, "auto_escalate": args.auto_escalate,
@@ -336,7 +361,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         )
 
     discovery_model = model
-    if ctx is not None and ctx.is_v2:
+    if ctx is not None:
         from evalrx.eval_agent.model_instrumentation import InstrumentedModel
 
         candidate_list = list(candidates)
@@ -396,7 +421,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     # the single frozen-winner gate.
     val_cases = None
     if val_manifest is not None:
-        val_candidates, _ = T.build_cases(task, val_manifest, 0)
+        val_candidates, _ = T.build_cases(task, val_manifest, int(getattr(args, "val_limit", 0) or 0))
         v0 = time.monotonic()
         val_discovery = CaseDiscoveryAgent(
             scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
@@ -446,6 +471,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     coder_cfg = CliAgentConfig(provider=coder_provider, model=coder_model, timeout_sec=900,
                                extra_args=coder_extra)
     pinned = list(task.pinned_m1)
+    overrides = _sampling_analyzer_overrides(resolved, args)
     if args.m1_selection == "pinned":
         probe_agent = ProbeAgent(
             # StrategyProbe dispatches by the model's detected kind.  Keep the
@@ -454,10 +480,12 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             probe=StrategyProbe(priority_override=_pinned_priority_override(pinned)),
             judge=None, max_analyzers=len(pinned),
             max_cases_per_analyzer=args.analyzer_max_cases,
+            analyzer_overrides=overrides,
         )
     else:
         probe_agent = ProbeAgent(judge=judge, allow_codegen=False,
-                                 max_cases_per_analyzer=args.analyzer_max_cases)
+                                 max_cases_per_analyzer=args.analyzer_max_cases,
+                                 analyzer_overrides=overrides)
     m2_codegen = args.m2_codegen if args.m2_codegen is not None else task.modality == "llm"
     stats_agent = StatsAnalysisAgent(
         judge=judge, figure_dir=str(ctx.figures_dir), max_signal_tools=16,
@@ -507,8 +535,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         explorer = ExploratoryAnalysisAgent(
             cli_config=coder_cfg,
             sandbox=ExperimentSandbox(
-                workdir=(ctx.explore_dir / "sandbox" if ctx.is_v2
-                         else run_dir / "explore" / "sandbox"),
+                workdir=ctx.explore_dir / "sandbox",
                 cleanup=False,
             ),
             timeout_sec=900, max_attempts=3,
@@ -518,7 +545,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         diagnosis_agent=DiagnosisAgent(judge=judge),
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
         fix_agent=fix_agent, max_cycles=args.max_cycles, run_logger=ctx.logger,
-        confirm_split=0.5, confirm_split_seed=20260818,
+        confirm_split=float(args.confirm_split), confirm_split_seed=20260818,
         # Default: the 50/50 explore/confirm design — M1-M4 work on EXPLORE
         # (M4 in-cycle), the fix ladder searches on EXPLORE, and CONFIRM is
         # reserved for the single frozen-winner validation.
@@ -532,7 +559,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         val_data=val_cases,
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer,
-        explore_dir=ctx.explore_dir if ctx.is_v2 else run_dir / "explore",
+        explore_dir=ctx.explore_dir,
         verbose=True,
     )
     report = loop.run(cases)
@@ -590,8 +617,5 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                           "attempted": attempted}
     ctx.finalize()
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    if ctx.is_v2:
-        print(f"Done. Tidy M1-M5 logs: {ctx.root.resolve()}")
-    else:
-        print(f"Done. Full artifact guide: {(ctx.root / 'README.txt').resolve()}")
+    print(f"Done. Tidy M1-M5 logs: {ctx.root.resolve()}")
     return 0

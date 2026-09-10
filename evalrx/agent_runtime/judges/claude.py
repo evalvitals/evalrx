@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
 import warnings
 from pathlib import Path
+
+#: The Claude Code CLI's limit notices (plan / session / spend / usage), which
+#: arrive on stdout with exit 0 exactly like a real answer.
+_LIMIT_RE = re.compile(
+    r"hit your (monthly |weekly |session )?(spend|usage|rate) limit|"
+    r"(spend|usage) limit (reached|exceeded)|out of (extra )?usage|"
+    r"limit resets", re.I)
 
 
 class ClaudeModel:
@@ -119,6 +127,14 @@ class ClaudeModel:
                 ) from exc
 
             output = (proc.stdout or "").strip()
+            # The CLI reports an exhausted plan/session/spend limit as a one-line
+            # *answer* on stdout with exit 0 ("You've hit your monthly spend
+            # limit ..."). Returned as a judge reply it parses to zero
+            # hypotheses and the run "finishes" with an empty diagnosis
+            # (qwen2-audio/mmau 2026-09-07, all three demo128 cells
+            # 2026-09-09). Fail loudly instead.
+            if len(output) < 400 and _LIMIT_RE.search(output):
+                raise RuntimeError(f"ClaudeModel: account limit reached, not a judge answer: {output!r}")
             if proc.returncode != 0 and not output:
                 reason = (proc.stderr or "").strip()[:240]
                 raise RuntimeError(

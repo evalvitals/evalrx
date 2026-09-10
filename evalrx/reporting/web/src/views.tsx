@@ -26,7 +26,6 @@ export function EvidenceView({ data, back, navigate, initialStage }: { data: Rep
   const [selected, setSelected] = useState(initialStage || data.stages[0]?.id);
   const [full, setFull] = useState(false);
   const stage = data.stages.find((item) => item.id === selected);
-  const events = data.debug.events.filter((event) => String(event.stage || "").toLowerCase().includes(selected));
   const brief = selected ? buildBrief(selected, data) : null;
   const show = (id: string) => { setSelected(id); setFull(false); };
   return <DetailShell
@@ -45,15 +44,12 @@ export function EvidenceView({ data, back, navigate, initialStage }: { data: Rep
           <button role="tab" aria-selected={full} className={full ? "active" : ""} onClick={() => setFull(true)}>Full record</button>
         </div>}
       </header>
+      {/* The full record is the stage's own artifact and nothing else: the raw
+          event stream is Debug's view, and each stage's record already carries
+          the events that matter in a shape a reader can use. */}
       {brief && !full
         ? <StageBrief brief={brief} onDeepen={() => setFull(true)} />
-        : <>
-          <StageArtifact stage={selected || ""} detail={data.stage_detail || {}} report={data} navigate={navigate} />
-          {/* The raw event stream is Debug's job; each stage's record above
-              already carries the events that matter, in a shape a reader
-              can use. */}
-          <p className="raw-events-link">The raw event stream for this step ({events.length} events) is in <button type="button" className="text-button" onClick={() => navigate?.("debug")}>Debug</button>.</p>
-        </>}
+        : <StageArtifact stage={selected || ""} detail={data.stage_detail || {}} report={data} navigate={navigate} />}
     </section></div>
   </DetailShell>;
 }

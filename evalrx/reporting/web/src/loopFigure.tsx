@@ -58,27 +58,32 @@ function StageCard({ stage, code, title, subtitle, into, out, onClick, lane, chi
 /**
  * The frozen case batch as a stacked cylinder: D_E on top, D_H, D_C at the
  * bottom, each band as tall as its share of the batch. A partition whose size
- * is not yet known (confirm pairs before a repair was validated) keeps a
- * minimum band, dashed, rather than being drawn as empty.
+ * is not yet known keeps a minimum band, dashed, rather than being drawn as
+ * empty. The bands are the run's own partitions, so a two-way run draws the
+ * one withheld pool once (D_H/C) instead of an empty confirm band.
  */
-function BatchCylinder({ explore, heldout, confirm, caption, onBand }: { explore: number | null; heldout: number | null; confirm: number | null; caption?: string; onBand?: (key: "E" | "H" | "C") => void }) {
-  const bands = [
-    { key: "E", label: "Explore", n: explore, icon: <Search size={12} />, cls: "explore" },
-    { key: "H", label: "Held-out", n: heldout, icon: <Lock size={12} />, cls: "heldout" },
-    { key: "C", label: "Confirm", n: confirm, icon: <Check size={12} />, cls: "confirm" },
-  ];
-  const known = bands.map((b) => b.n ?? 0);
-  const total = Math.max(1, known.reduce((a, b) => a + b, 0));
+type Band = { key: string; label: string; n: number | null; cls: "explore" | "heldout" | "confirm"; dim?: boolean; split?: string | null };
+
+/** Which look a partition gets, by the subscript the report codes it with. */
+const BAND_CLS: Record<string, Band["cls"]> = { E: "explore", H: "heldout", "H/C": "heldout", C: "confirm" };
+
+const BAND_ICON: Record<Band["cls"], React.ReactNode> = {
+  explore: <Search size={12} />, heldout: <Lock size={12} />, confirm: <Check size={12} />,
+};
+
+function BatchCylinder({ bands, caption, onBand }: { bands: Band[]; caption?: string; onBand?: (band: Band) => void }) {
+  const total = Math.max(1, bands.reduce((sum, band) => sum + (band.n ?? 0), 0));
   const width = 74, rx = 33, ry = 6, cx = width / 2, left = cx - rx, right = cx + rx;
   const usable = 92, minBand = 18;
   const heights = bands.map((b) => Math.max(minBand, ((b.n ?? 0) / total) * usable));
   let y = ry + 2;
   const drawn = bands.map((band, i) => { const top = y; y += heights[i]; return { ...band, top, bottom: y }; });
   const height = y + ry + 2;
+  const mods = (band: Band) => `${band.n === null || band.dim ? " unknown" : ""}${onBand ? " clickable" : ""}`;
   return <div className="lf-cyl">
     <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} aria-hidden="true">
-      {drawn.map((band) => <g key={band.key} className={`lf-band lf-band-${band.cls}${band.n === null ? " unknown" : ""}${onBand ? " clickable" : ""}`}
-        onClick={onBand ? (event) => { event.stopPropagation(); onBand(band.key as "E" | "H" | "C"); } : undefined}>
+      {drawn.map((band) => <g key={band.key} className={`lf-band lf-band-${band.cls}${mods(band)}`}
+        onClick={onBand ? (event) => { event.stopPropagation(); onBand(band); } : undefined}>
         {onBand && <title>{`open the ${band.label.toLowerCase()} cases`}</title>}
         <path d={`M${left} ${band.top} A${rx} ${ry} 0 0 0 ${right} ${band.top} L${right} ${band.bottom} A${rx} ${ry} 0 0 1 ${left} ${band.bottom} Z`} />
         <text x={cx} y={(band.top + band.bottom) / 2 + ry / 2 + 3} textAnchor="middle">D<tspan baselineShift="sub" fontSize="7">{band.key}</tspan></text>
@@ -87,9 +92,9 @@ function BatchCylinder({ explore, heldout, confirm, caption, onBand }: { explore
     </svg>
     {caption && <em className="lf-dataset" title={caption}>{caption}</em>}
     <ul>
-      {drawn.map((band) => <li key={band.key} className={`lf-band-${band.cls}${band.n === null ? " unknown" : ""}${onBand ? " clickable" : ""}`}
-        onClick={onBand ? (event) => { event.stopPropagation(); onBand(band.key as "E" | "H" | "C"); } : undefined}>
-        <i>{band.icon}</i><span>{band.label}</span><b>{band.n === null ? "—" : band.n}</b>
+      {drawn.map((band) => <li key={band.key} className={`lf-band-${band.cls}${mods(band)}`}
+        onClick={onBand ? (event) => { event.stopPropagation(); onBand(band); } : undefined}>
+        <i>{BAND_ICON[band.cls]}</i><span>{band.label}</span><b>{band.n === null ? "—" : band.n}</b>
       </li>)}
     </ul>
   </div>;
@@ -138,6 +143,20 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
   // confirm pairs the repair is scored on; the latter is known only after a
   // repair was validated, so until then the whole remainder is "held-out".
   const nHeldout = nWithheld === null ? null : nConfirm !== null && nConfirm < nWithheld ? nWithheld - nConfirm : nWithheld;
+  // The cylinder draws the run's recorded partitions when it has them -- their
+  // sizes are counted off the case records, so the confirm band shows its real
+  // size whether or not a repair ever got scored on it, and a two-way run draws
+  // its single withheld pool once (D_H/C) instead of an empty confirm band.
+  // Only a run with no recorded split falls back to the inference above.
+  const bands: Band[] = partitions.length
+    ? partitions.map((partition) => ({
+        key: partition.code, label: partition.label, n: partition.n,
+        cls: BAND_CLS[partition.code] ?? "heldout",
+        dim: !BAND_CLS[partition.code], split: partition.split || null,
+      }))
+    : [{ key: "E", label: "Explore", n: nExplore, cls: "explore" },
+       { key: "H", label: "Held-out", n: nHeldout, cls: "heldout" },
+       { key: "C", label: "Confirm", n: nConfirm, cls: "confirm" }];
   const m1 = cs?.m1 ?? null;
   const phase = cs?.m2?.heldout ? "heldout" : "explore";
   const stats = cs?.m2?.[phase] ?? null;
@@ -203,14 +222,9 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
         <div className="lf-box">
           <small>FROZEN CASE BATCH</small>
           <code className="lf-math">D = {"{"}(x, y, ŷ, z, m){"}"}</code>
-          <BatchCylinder explore={nExplore} heldout={nHeldout} confirm={nConfirm} caption={data.setting.dataset}
-            onBand={partitions.length ? (key) => {
-              // A band opens the studio on its own partition. The cylinder's
-              // three letters map onto whatever the run actually recorded: on
-              // a two-way run H and C are one pool, coded "H/C".
-              const hit = partitions.find((p) => p.code.split("/").includes(key));
-              navigate(hit ? `cases:split=${hit.split}` : "cases");
-            } : undefined} />
+          {/* A band opens the case studio on its own partition. */}
+          <BatchCylinder bands={bands} caption={data.setting.dataset}
+            onBand={partitions.length ? (band) => navigate(band.split ? `cases:split=${band.split}` : "cases") : undefined} />
         </div>
         <div className="lf-tip"><div><b>IN</b><span>{data.setting.dataset}</span></div><div><b>OUT</b><span>{data.setting.n_cases} cases, split before anything ran</span></div><small>click to open the case studio</small></div>
       </aside>

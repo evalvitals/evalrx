@@ -1683,7 +1683,7 @@ def _assign_partitions(
         rows.append(row("confirm", "H", "Held-out", _HELDOUT_ROLE))
         rows.append(row("test", "C", "Confirm", _CONFIRM_ROLE))
     elif "confirm" in present:
-        rows.append(row("confirm", "H/C", "Held-out", _TWO_WAY_ROLE))
+        rows.append(row("confirm", "H/C", "Held-out / Confirm", _TWO_WAY_ROLE))
     n_unknown = sum(1 for case in cases if not case.get("split"))
     if n_unknown:
         rows.append({"split": "", "code": "?", "label": "Unrecorded", "n": n_unknown,

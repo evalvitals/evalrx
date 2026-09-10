@@ -148,6 +148,20 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 @media (max-width: 850px) { .setting-hero:after { display:none; }.metric-strip { grid-template-columns: 1fr 1fr; }.finding-grid,.chart-grid { grid-template-columns: 1fr; }.case-preview { grid-template-columns: 1fr 1fr; }.outcome-card { grid-template-columns: 44px 1fr; }.outcome-proof { grid-column: 2; }.evidence-index { grid-template-columns: 30px 1fr; }.evidence-index button { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); padding-top: 10px; }.case-studio { grid-template-columns: 1fr; height: auto; }.virtual-list { height: 330px; border-right: 0; border-bottom: 1px solid var(--line); }.case-detail { min-height: 500px; }.evidence-layout { grid-template-columns: 1fr; }.stage-list { border-right: 0; padding-right: 0; }.case-toolbar { flex-wrap: wrap; }.case-toolbar > div { order: 3; overflow-x: auto; }.topbar code { display:none; } }
 @media (max-width: 540px) { .setting-route { display: grid; width: 100%; }.setting-route div { min-width: 0; }.metric-strip { grid-template-columns: 1fr 1fr; }.section > header { align-items: start; flex-direction: column; }.case-preview { grid-template-columns: 1fr; }.finding-grid { grid-template-columns: 1fr; }.io-grid { grid-template-columns: 1fr; }.event-row { grid-template-columns: 30px 80px 1fr; }.topbar { padding: 0 16px; }.report-page,.detail-page { padding-left: 16px; padding-right: 16px; } }
 
+/* The repair sweep table. It ran on browser defaults, which give a cell no
+   padding at all: a wrapped "what it changes" sentence lands on lines that
+   touch the row above and below, so eighteen repairs read as one block of
+   text. Real cell padding, a leading of 1.65 and a hairline between rows give
+   each repair its own band. The prose column keeps its natural width -- capping
+   it here only trades horizontal room for taller rows, which is the density
+   problem again. */
+.scroll { overflow-x:auto; }
+.phase table { width:100%; border-collapse:collapse; font-size:11.5px; }
+.phase thead th { padding:8px 12px 10px; border-bottom:1px solid var(--line); color:var(--c-91a69f); font:9px DM Mono,monospace; letter-spacing:.07em; text-transform:uppercase; text-align:left; vertical-align:bottom; }
+.phase tbody td { padding:13px 12px; border-top:1px solid var(--c-1b2b26); color:var(--c-b7c7c2); line-height:1.65; vertical-align:top; }
+.phase tbody td.txt { color:var(--ink); }
+.phase tbody tr:hover td { background:var(--c-10201b); }
+
 /* Repair identity. `R3` is what a reader points at; the slug is demoted to a
    caption under the headline, and the sweep table drops it entirely. */
 .repair-ref { font:11px DM Mono,monospace; color:var(--c-f4ca72); letter-spacing:.04em; white-space:nowrap; }
@@ -692,8 +706,6 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .brief-checks li small { font: 9.5px DM Mono, monospace; color: var(--muted); }
 .brief-checks li span { grid-column: 1 / -1; font-size: 11.5px; line-height: 1.5; color: var(--c-9eb1aa, #9eb1aa); }
 
-.raw-events-link { margin: 30px 0 0; padding: 14px 16px; border: 1px dashed var(--c-43524d); color: var(--muted); font-size: 11.5px; line-height: 1.6; }
-.raw-events-link .text-button { display: inline; padding: 0; font-size: inherit; }
 .probe-calls .call-list { display: grid; gap: 6px; margin-top: 10px; }
 .call-row { border: 1px solid var(--line); background: var(--c-091411); }
 .call-row.failed { border-color: var(--c-75423c); }
@@ -741,3 +753,17 @@ footer { max-width: 1180px; margin: auto; border-top: 1px solid var(--line); pad
 .lf-band.clickable, .lf-cyl li.clickable { cursor: pointer; }
 .lf-band.clickable:hover path { filter: brightness(1.35); }
 .lf-cyl li.clickable:hover span { color: var(--ink); text-decoration: underline; }
+
+/* Static (GitHub Pages) landing: the shipped demos and the drop zone. */
+.landing { min-height: 100vh; display: grid; align-content: start; justify-items: center; gap: 36px; padding: 72px 24px 80px; color: var(--muted); }
+.landing-head { display: grid; justify-items: center; gap: 14px; text-align: center; max-width: 640px; }
+.landing-brand { display: inline-flex; align-items: center; gap: 8px; font: 500 12px DM Mono, monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
+.landing-head h1 { margin: 0; font: 500 40px/1.05 Newsreader, serif; letter-spacing: -.02em; color: var(--ink); }
+.landing-head p { margin: 0; font-size: 14px; line-height: 1.65; }
+.demo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; width: min(820px, 92vw); }
+.demo-card { display: grid; gap: 8px; padding: 20px 22px; border: 1px solid var(--line); text-decoration: none; color: var(--muted); background: var(--c-drop-bg); transition: border-color .15s, background .15s; }
+.demo-card:hover { border-color: var(--green); background: var(--c-drop-hover); }
+.demo-card small { font: 500 10px DM Mono, monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--green); }
+.demo-card b { display: inline-flex; align-items: center; gap: 6px; font: 500 20px/1.15 Newsreader, serif; letter-spacing: -.01em; color: var(--ink); }
+.demo-card span { font-size: 12.5px; line-height: 1.55; }
+.landing-drop .load-state { min-height: 0; }
