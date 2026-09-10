@@ -91,7 +91,6 @@ export const { registry } = defineRegistry(reportCatalog, {
       const hero = data.setting.hero_image;
       return <section className={`setting-hero${hero ? " has-figure" : ""}`}>
         <div className="eyebrow eyebrow-title"><CircleDot size={14} /> {data.setting.model} model's diagnosis and fixing recipe report</div>
-        <h1>From model failure<br /><span>to tested repair.</span></h1>
         <p className="lead">{data.setting.question}</p>
         {hero && <div className="hero-figure">
           <ZoomableImage src={hero} alt="The figure this run shipped" caption="evalrx_main — the figure this run shipped" />
