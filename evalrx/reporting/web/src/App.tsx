@@ -5,7 +5,8 @@ import { applyTheme, initialTheme, type Theme } from "./theme";
 import { registry, ReportProviders } from "./reportCatalog";
 import type { LayoutEnvelope, ReportData } from "./types";
 import { Lightbox } from "./lightbox";
-import { RunDrop, RunSwitch, type UploadedRun } from "./upload";
+import { RunDrop, RunSwitch, STATIC_MODE, type UploadedRun } from "./upload";
+import { StaticLanding } from "./landing";
 import { RunsPanel } from "./runsPanel";
 import { CasesView, DebugView, EvidenceView } from "./views";
 
@@ -35,6 +36,8 @@ export function App() {
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => {
     if (embedded) return;
+    // The static build has no server: it opens on the landing page and reads archives itself.
+    if (STATIC_MODE) { setNeedsRun(true); return; }
     fetch("/api/report").then(async (res) => {
       // The server starts empty when `evalrx serve` was given no run.
       if (res.status === 404) { setNeedsRun(true); return; }
@@ -54,7 +57,7 @@ export function App() {
     setActiveRoot(root);
   };
   const body = needsRun
-    ? <RunDrop onLoaded={load} />
+    ? (STATIC_MODE ? <StaticLanding onLoaded={load} /> : <RunDrop onLoaded={load} />)
     : error
       ? <div className="load-state"><Activity /><h1>Could not load this report</h1><p>{error}</p></div>
       : !payload
@@ -67,7 +70,7 @@ export function App() {
         : renderReport(payload, view, setView, embedded, load);
   return <>
     <div key={theme}>{body}</div>
-    {!embedded && <>
+    {!embedded && !STATIC_MODE && <>
       <button
         type="button"
         className="runs-toggle"

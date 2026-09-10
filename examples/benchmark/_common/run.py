@@ -130,6 +130,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "CONFIRM. Default off = the 50/50 explore/confirm design (M4 screens on "
                         "explore, CONFIRM reserved for the frozen repair); the validation set "
                         "is then not used at all")
+    p.add_argument("--confirm-split", type=float, default=0.5,
+                   help="fraction of the main batch reserved as CONFIRM (label-stratified, seed "
+                        "20260818); the rest is EXPLORE where M1-M4 and the fix search run. "
+                        "0.5 = the 50/50 default; 1/3 with --limit 192 = 128 explore / 64 confirm")
+    p.add_argument("--val-limit", type=int, default=0,
+                   help="with --held-out: cases taken from the top of manifest_val.json "
+                        "(0 = the whole validation manifest)")
     p.add_argument("--m1-selection", choices=["pinned", "judge"], default="pinned",
                    help="pinned = the task's static analyzer set; judge = catalog selection "
                         "(modality-gated on the MODEL, so avoid on multimodal specs for text tasks)")

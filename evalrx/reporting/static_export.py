@@ -5,6 +5,9 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -25,6 +28,7 @@ def export_static_report(
     example_dir: str | Path | None = None,
     embed_media: EmbedMedia = "representative",
     model: object | None = None,
+    audio_bitrate: str | None = "48k",
 ) -> Path:
     """Write a portable HTML snapshot without introducing another renderer."""
     # `serve` accepts either a run directory or its logs/ child and resolves
@@ -36,7 +40,7 @@ def export_static_report(
     if model is not None or not report_is_current(root):
         publish_report(root, example_dir=example_dir, model=model)
     data, layout = load_published_report(root)
-    _embed_media(root, data, mode=embed_media)
+    _embed_media(root, data, mode=embed_media, audio_bitrate=audio_bitrate)
     _embed_stage_figures(root, data)
     template = Path(__file__).with_name("web_dist") / "index.html"
     if not template.exists():
@@ -51,7 +55,30 @@ def export_static_report(
     return destination
 
 
-def _embed_media(root: Path, data: dict, *, mode: EmbedMedia) -> None:
+#: Lossless audio the runs record (16 kHz mono WAV, ~380 KB per 10 s clip).
+#: Inlined as-is, an audio run's every-case export lands well past GitHub's
+#: 100 MB per-file limit (mmau/demo192: 256 clips, 97 MB, ~130 MB in base64);
+#: at 48 kbps mono MP3 the same clips fit in ~20 MB and play in every browser.
+_TRANSCODE_SUFFIXES = (".wav", ".flac", ".aiff", ".aif")
+
+
+def _transcode_audio(path: Path, bitrate: str, workdir: Path) -> "tuple[Path, str] | None":
+    """MP3 rendition of an audio file, or None when ffmpeg is unavailable/fails."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        return None
+    out = workdir / (path.stem + ".mp3")
+    cmd = [ffmpeg, "-v", "error", "-y", "-i", str(path), "-vn", "-ac", "1",
+           "-codec:a", "libmp3lame", "-b:a", bitrate, str(out)]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=120)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return (out, "audio/mpeg") if out.is_file() and out.stat().st_size > 0 else None
+
+
+def _embed_media(root: Path, data: dict, *, mode: EmbedMedia,
+                 audio_bitrate: str | None = "48k") -> None:
     if mode == "none":
         return
     allowed: set[str]
@@ -63,14 +90,20 @@ def _embed_media(root: Path, data: dict, *, mode: EmbedMedia) -> None:
             for case in data.get("cases", [])[:4]
             for media_id in case.get("media_ids", [])
         }
-    for item in data.get("media", []):
-        if str(item.get("id")) not in allowed:
-            continue
-        path = _resolve_media(root, str(item.get("path") or ""))
-        if path is None:
-            continue
-        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        item["data_uri"] = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+    with tempfile.TemporaryDirectory(prefix="evalrx_audio_") as tmp:
+        workdir = Path(tmp)
+        for item in data.get("media", []):
+            if str(item.get("id")) not in allowed:
+                continue
+            path = _resolve_media(root, str(item.get("path") or ""))
+            if path is None:
+                continue
+            mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            if audio_bitrate and path.suffix.lower() in _TRANSCODE_SUFFIXES:
+                rendition = _transcode_audio(path, audio_bitrate, workdir)
+                if rendition is not None:
+                    path, mime = rendition
+            item["data_uri"] = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
 
 
 _FIGURE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
