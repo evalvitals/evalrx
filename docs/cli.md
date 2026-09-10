@@ -52,6 +52,15 @@ evalrx explore ./results \
   --serve-report
 ```
 
+By default this prints one live, aligned line per stage as it actually
+happens — the same `M2  explore ············ …` style the landing page's
+"simulated run" walkthrough shows, except every count and duration here is
+real (figures rendered, candidate signals found, hypotheses proposed, a
+repair-retry when the coding agent's first attempt needs fixing). Pass
+`--no-narrate` for plain output (e.g. when piping to a file); color is
+already skipped automatically for a non-tty stream or when `NO_COLOR` is
+set.
+
 | Flag | Default | Purpose |
 |---|---|---|
 | `path` (positional) | — | File or directory of JSON/JSONL results. Required. |
@@ -70,6 +79,8 @@ evalrx explore ./results \
 | `--holdout-frac` | `0.0` | Fraction held out *before* exploration (outcome-stratified, deterministic). |
 | `--holdout-confirm` | off | Re-test frozen recipes/hypotheses on the held-out rows (`confirm_report.json`). Requires `--holdout-frac > 0`. |
 | `--judge-model` | `claude-opus-4-8` | Judge grading each hypothesis against the held-out table (only with `--holdout-confirm`). |
+| `--no-narrate` | off | Don't print live per-stage terminal narration (see above). |
+| `--progress-path PATH` | — | Also append durable JSONL progress events to `PATH`, for a separate workbench UI — independent of narration; both can run together. |
 
 `--dashboard` still exists as a deprecated alias for `--serve-report`.
 
@@ -97,6 +108,7 @@ evalrx run-codebase ./my_eval_repo \
 | `--timeout-sec` / `--max-attempts` | `1200` / `2` | Budget for running the codebase itself. |
 | `--no-explore` | off | Only run + harvest; skip the M2/M3 explore step. |
 | `--serve-report` / `--port` | off / auto | Same as `explore`. |
+| `--no-narrate` | off | Don't print live terminal narration (a `RUN codebase` line plus the `explore` narration above). |
 
 ## `evalrx serve`
 
