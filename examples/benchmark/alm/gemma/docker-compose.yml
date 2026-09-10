@@ -2,7 +2,7 @@
 #   DATASET=mmau LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name alm-gemma-4-e2b-mmau gemma-4-e2b
 # Datasets for this modality: mmau, mmsu, audiocaps_hallu, af_reasoning_mcq.
 # EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
-# Judge/coder are pinned to Codex gpt-5.6-terra at medium effort.
+# Judge/coder default to Claude claude-opus-5 at high effort (override via EXTRA_ARGS).
 name: bench-alm-gemma
 x-gemma: &gemma
   extends:

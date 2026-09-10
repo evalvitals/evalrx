@@ -4,7 +4,7 @@
 # GEMINI_API_KEY comes from examples/benchmark/.env (this leaf links to it); CONCURRENCY sets the
 # parallel discovery requests (default 4). EXTRA_ARGS passes more run.py flags (e.g.
 # EXTRA_ARGS='--baseline-only --limit 8', '--thinking-level low', '--request-retries 8').
-# Judge/coder are pinned to Codex gpt-5.6-terra at medium effort. --backend gemini is forced for
+# Judge/coder default to Claude claude-opus-5 at high effort (override via EXTRA_ARGS). --backend gemini is forced for
 # the family; the fix ladder is clamped to L2 (no internals, no logprobs).
 name: bench-alm-gemini
 x-gemini: &gemini
