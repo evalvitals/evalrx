@@ -5,7 +5,7 @@ import { defineRegistry } from "@json-render/react";
 import { schema } from "@json-render/react/schema";
 import { Background, Controls, Handle, Position, ReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import ReactECharts from "echarts-for-react";
-import { ArrowUpRight, Check, CircleDot, Database, Wrench } from "lucide-react";
+import { ArrowUpRight, CircleDot, Database } from "lucide-react";
 import { z } from "zod";
 import type { Chart, ReportData, Stage } from "./types";
 import { ZoomableImage } from "./lightbox";
@@ -91,7 +91,6 @@ export const { registry } = defineRegistry(reportCatalog, {
       const hero = data.setting.hero_image;
       return <section className={`setting-hero${hero ? " has-figure" : ""}`}>
         <div className="eyebrow eyebrow-title"><CircleDot size={14} /> {data.setting.model} model's diagnosis and fixing recipe report</div>
-        <h1>From model failure<br /><span>to tested repair.</span></h1>
         <p className="lead">{data.setting.question}</p>
         {hero && <div className="hero-figure">
           <ZoomableImage src={hero} alt="The figure this run shipped" caption="evalrx_main — the figure this run shipped" />
@@ -127,15 +126,10 @@ export const { registry } = defineRegistry(reportCatalog, {
       const selected = data.charts.filter((item) => !props.chartIds || props.chartIds.includes(item.id)).slice(0, 2);
       return <section className="chart-grid">{selected.map((chart) => <EvidenceChart key={chart.id} chart={chart} />)}</section>;
     },
-    OutcomeCard: () => {
-      const data = useReport();
-      const repair = data.repairs[0];
-      return <section className={`outcome-card ${repair?.fixed ? "success" : "neutral"}`}>
-        <div className="outcome-icon">{repair?.fixed ? <Check /> : <Wrench />}</div>
-        <div><span className="section-kicker">OUTCOME</span><h2>{data.summary.headline}</h2><p>{data.summary.answer}</p></div>
-        <div className="outcome-proof"><small>REPORT CONFIDENCE</small><strong>{data.summary.confidence}</strong>{repair && <span>{repair.fixed_cases} fixed · {repair.broken_cases} regressions</span>}</div>
-      </section>;
-    },
+    // Dropped from the page (2026-09-10): it restated the loop figure's health
+    // card. Layouts published before then still name it, so it renders nothing
+    // rather than failing as an unknown type.
+    OutcomeCard: () => null,
     CasePreview: ({ props }) => {
       const data = useReport();
       const navigate = useContext(NavContext);
