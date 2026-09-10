@@ -8,8 +8,12 @@
  */
 import { useRef, useState } from "react";
 import { FolderUp, Upload } from "lucide-react";
+import { readRunArchive } from "./staticRun";
 
 export type UploadedRun = { label?: string; data: any; layout: any };
+
+/** The GitHub Pages build: no server, archives are read in the browser (staticRun.ts). */
+export const STATIC_MODE = import.meta.env.VITE_STATIC === "1";
 
 async function postRun(file: File): Promise<UploadedRun> {
   const body = new FormData();
@@ -30,7 +34,7 @@ function useRunUpload(onLoaded: (run: UploadedRun) => void) {
     setBusy(true);
     setError("");
     try {
-      onLoaded(await postRun(file));
+      onLoaded(STATIC_MODE ? await readRunArchive(file) : await postRun(file));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -55,8 +59,10 @@ export function RunDrop({ onLoaded }: { onLoaded: (run: UploadedRun) => void }) 
       <Upload className={busy ? "pulse" : ""} />
       <h2>Drop a run archive</h2>
       <p>{busy
-        ? "Unpacking the archive and composing the report…"
-        : "A .zip of a run directory — the folder holding run.json + M1..M5, or the example folder around it."}</p>
+        ? (STATIC_MODE ? "Reading the archive in your browser…" : "Unpacking the archive and composing the report…")
+        : STATIC_MODE
+          ? "A .zip of a published run directory — one that holds report/report_data.json (evalrx publish, or a run opened once in evalrx serve). Nothing is uploaded; it is read here in your browser."
+          : "A .zip of a run directory — the folder holding run.json + M1..M5, or the example folder around it."}</p>
       <span className="run-drop-cta">Choose a .zip</span>
       <input ref={input} type="file" accept=".zip,application/zip" hidden
         onChange={(event) => { take(event.target.files?.[0]); event.target.value = ""; }} />
