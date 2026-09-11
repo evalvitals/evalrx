@@ -903,10 +903,17 @@ following against both a live and a persisted run:
 
 ## UI reference — building a viewer on this pipeline
 
-There is already a working viewer for this exact data: `evalrx report`
-generates `report.html`, and `evalrx serve <run-dir>` opens it locally.
-The source of truth is `evalrx/reporting/html_report.py`. Read this
-section as the contract the static report must preserve.
+There is already a working viewer for this exact data: `evalrx serve
+<run-dir>` runs it as a local dynamic UI, and `evalrx report <run-dir>`
+exports the same UI as one portable `report.html` — see the
+[CLI reference](cli.md) for the full command set. The source of truth is
+`evalrx/reporting/dynamic.py` (compiles `ReportData` + layout),
+`evalrx/reporting/server.py` (the `serve` FastAPI app) and
+`evalrx/reporting/static_export.py` (the `report` exporter); all three share
+the same React/json-render renderer. (`evalrx/reporting/html_report.py` is
+the older, pre-React renderer behind the now-deprecated `evalrx dashboard`
+command — not this contract.) Read this section as the contract that
+renderer must preserve.
 
 ### Requirements for the new UI
 
@@ -928,10 +935,10 @@ Two explicit requirements on top of what's documented below:
    on disk per run, see
    [RunContext](architecture.md#runcontext-single-owner-of-a-runs-output-directory)).
 
-**The current reference UI is one compiled HTML artifact.** Exploratory and
-full diagnostic runs use the same renderer and stage order. Missing optional
-M4/M5 artifacts retain their place and explain that the stage was not recorded;
-the tab list never changes with run completeness.
+**The current reference UI is one renderer, served live or exported static.**
+Exploratory and full diagnostic runs use the same renderer and stage order.
+Missing optional M4/M5 artifacts retain their place and explain that the
+stage was not recorded; the tab list never changes with run completeness.
 
 ### Page layout
 

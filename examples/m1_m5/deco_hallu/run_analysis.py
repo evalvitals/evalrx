@@ -101,7 +101,7 @@ def main() -> None:
               f"{len(explore_report.get('charts') or [])} chart(s), "
               f"{len(explore_report.get('observations') or [])} observation(s)")
 
-    run_logger = RunLoggerV2(run_dir=OUT / "logs_analysis", verbose=True)
+    run_logger = RunLoggerV2(run_dir=OUT / "logs_analysis", narrate=True)
     loop = VLDiagnoseLoop(
         model=model,
         protocol=run.build_protocol(),

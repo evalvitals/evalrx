@@ -513,7 +513,7 @@ def _run_smoke_test(args) -> None:
     if not discovery.has_m4_groups:
         raise SystemExit("Smoke test requires both PASS and FAIL cases.")
 
-    ctx = RunContext(args.run_dir, verbose=True, config={"smoke_test": True})
+    ctx = RunContext(args.run_dir, narrate=True, config={"smoke_test": True})
 
     loop = VLDiagnoseLoop(
         model=model,
@@ -686,7 +686,7 @@ def main() -> None:
 
     run_dir = Path(args.run_dir)
     ctx = RunContext(
-        run_dir, verbose=True,
+        run_dir, narrate=True,
         config={
             "model": args.model,
             "judge_provider": coder_provider,

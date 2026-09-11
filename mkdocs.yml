@@ -33,6 +33,7 @@ theme:
 nav:
   - Overview: overview.md
   - Quickstart: quickstart.md
+  - Command-Line Interface: cli.md
   - Exploratory Analysis (M2/M3): m2_analysis.md
   - Verification & Intervention (M4/M5): intervention.md
   - Stage Input/Output Reference: stage_io.md

@@ -152,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     explore.add_argument("--progress-path", default="",
                          help="Append durable workbench progress events to this JSONL path.")
+    explore.add_argument(
+        "--no-narrate", dest="narrate", action="store_false", default=True,
+        help="Do not print live per-stage narration (M2/M3/... lines) to the terminal.",
+    )
     explore.add_argument("--thread-id", default="", help=argparse.SUPPRESS)
     explore.add_argument("--turn-id", default="", help=argparse.SUPPRESS)
 
@@ -197,6 +201,10 @@ def main(argv: list[str] | None = None) -> int:
     run_codebase.add_argument("--serve-report", action="store_true",
                               help="Serve the generated static HTML report when done.")
     run_codebase.add_argument("--port", type=int, default=None, help="Optional report-server port.")
+    run_codebase.add_argument(
+        "--no-narrate", dest="narrate", action="store_false", default=True,
+        help="Do not print live per-stage narration (run/M2/M3/... lines) to the terminal.",
+    )
 
     dashboard = sub.add_parser(
         "dashboard",
@@ -266,16 +274,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "explore":
         if not args.path:
             parser.error("evalrx explore requires a results path")
-        progress_sink = None
+        from evalrx.analysis.narration import MultiSink, TerminalNarrator
+
+        event_sink = None
         if args.progress_path:
             from evalrx.analysis.workbench import EventSink
 
-            progress_sink = EventSink(
+            event_sink = EventSink(
                 args.progress_path,
                 thread_id=args.thread_id or "standalone",
                 turn_id=args.turn_id or "explore",
             )
-            progress_sink.emit("job", "started", "Analysis worker started")
+            event_sink.emit("job", "started", "Analysis worker started")
+        # "job" bookkeeping above/below stays workbench-only (event_sink), not
+        # narrated -- it wraps the whole process rather than one M-stage.
+        progress_sink = MultiSink(TerminalNarrator() if args.narrate else None, event_sink) or None
         code = run_explore(
             args.path,
             question=args.question,
@@ -301,14 +314,15 @@ def main(argv: list[str] | None = None) -> int:
             judge_model=args.judge_model,
             progress_sink=progress_sink,
         )
-        if progress_sink is not None:
-            progress_sink.emit(
+        if event_sink is not None:
+            event_sink.emit(
                 "job", "completed" if code == 0 else "failed",
                 "Analysis worker completed" if code == 0 else "Analysis worker failed",
             )
         return code
     if args.command == "run-codebase":
         from evalrx.analysis.explorer import RECORDS_FILENAME
+        from evalrx.analysis.narration import TerminalNarrator
 
         return run_codebase_cli(
             args.path,
@@ -324,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
             analyze=args.analyze,
             dashboard=args.dashboard or args.serve_report,
             dashboard_port=args.port,
+            progress_sink=TerminalNarrator() if args.narrate else None,
         )
     if args.command == "dashboard":
         return launch_dashboard(args.run_dir, port=args.port)
