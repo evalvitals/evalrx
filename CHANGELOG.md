@@ -6,6 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-09-11
+
+First release under the `evalrx` name (formerly published as `evalvitals`
+0.1.0/0.1.1) — see "Changed — project renamed EvalVitals → EvalRX" below.
+Versioning restarts at 0.1.0 for the new package identity rather than
+continuing `evalvitals`'s sequence.
+
 ### Breaking — `RunLogger` (V1) removed; `RunLoggerV2` is the only run logger
 
 `RunContext` no longer takes a `logger_version` argument — there is nothing
@@ -410,7 +417,14 @@ adapted in via `Trajectory.from_records`.
   identical zoom calls, flagged by the existing `LoopDetector` when fed the
   reloaded trajectory.
 
-## [0.1.1] — 2026-07-26
+---
+
+Everything below this line was published to PyPI as **`evalvitals`**, before
+the rename — see [0.1.0]'s "Changed" entry above. Version numbers restart at
+0.1.0 for `evalrx`, so `[0.1.0] — 2026-07-10` below is the *original*
+`evalvitals` 0.1.0, not this package's.
+
+## [0.1.1] — 2026-07-26 (evalvitals)
 
 ### Added — Plain-language headlines for M2 takeaways and M3 hypotheses
 
@@ -1104,6 +1118,6 @@ different implementation module. `evalrx.eval_agent.loop` now contains only
 - CI: GitHub Actions matrix (Python 3.10/3.11/3.12) with ruff + mypy + pytest.
 - PyPI trusted publishing (OIDC) release workflow.
 
-## [0.1.0] — 2026-07-10
+## [0.1.0] — 2026-07-10 (evalvitals)
 
 Initial alpha. Core contracts (`Model`, `Analyzer`, `Result`, `FailureCase`, registry, pipeline, experiment).
