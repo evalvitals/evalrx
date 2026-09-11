@@ -270,3 +270,7 @@ examples/**/outputs.*/
 # already-tracked examples/m1_m5/mmau_qwen2_audio/docker-compose.override.yml
 # stays versioned.
 docker-compose.override.yml
+
+# Dynamic-report serve cache (report_data.json / report_spec.json), dropped
+# next to wherever the report UI was served from; regenerated on every serve.
+examples/benchmark/**/report/
