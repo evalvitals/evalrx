@@ -2199,7 +2199,9 @@ def build_html_report(
         if tmp_path.exists():
             tmp_path.unlink()
     size_mb = out_path.stat().st_size / (1024 * 1024)
-    print(f"[✓] Wrote self-contained HTML report to: {out_path} ({size_mb:.2f} MB)")
+    from evalrx.term_links import hyperlink
+
+    print(f"[✓] Wrote self-contained HTML report to: {hyperlink(str(out_path))} ({size_mb:.2f} MB)")
     return out_path
 
 

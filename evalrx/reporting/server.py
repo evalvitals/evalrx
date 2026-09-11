@@ -497,7 +497,9 @@ def serve_dynamic_report(
         import webbrowser
 
         threading.Timer(0.8, lambda: webbrowser.open(f"http://{host}:{port}")).start()
-    print(f"Serving dynamic diagnostic report at http://{host}:{port}")
+    from evalrx.term_links import hyperlink
+
+    print(f"Serving dynamic diagnostic report at {hyperlink(f'http://{host}:{port}')}")
     if run_dir is None:
         print("No run loaded yet — drop a zipped run directory on the page to open one.")
     uvicorn.run(app, host=host, port=port, log_level="warning")
