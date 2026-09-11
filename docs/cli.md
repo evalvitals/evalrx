@@ -11,7 +11,31 @@ evalrx <command> --help
 ```
 
 `-v` / `--verbose` (before the subcommand) turns on EvalRX's internal
-stage-by-stage narration for any of them.
+stage-by-stage narration for any of them. Any command that prints a local UI
+address or a just-written report file (`serve`, `dashboard`, and the
+`report.html` every `explore` run writes) prints it as a clickable link in a
+terminal that supports OSC 8 hyperlinks (most modern ones do); it degrades
+to plain text automatically on a redirected/non-tty stream, or set
+`EVALRX_NO_HYPERLINKS=1` to force plain text.
+
+## What this CLI does — and doesn't — run
+
+`explore`/`run-codebase` only ever drive **M2 (explore) → M3 (propose
+hypotheses) → M4-as-`--holdout-confirm`** — see the live-narration note under
+[`evalrx explore`](#evalrx-explore) below for what that looks like. **There
+is no CLI command for M1 (targeted probing) or M5 (repair/intervention).**
+The full M1→M5 loop (`VLDiagnoseLoop`/`AutoDiagnoseLoop`) is Python-API only
+— see [Quickstart](quickstart.md#vldiagnoseloop-automated-failure-attribution-current)
+— or run as a complete example:
+
+- **Zero setup:** [evalvitals.github.io/evalrx/demo](https://evalvitals.github.io/evalrx/demo/) —
+  two committed, real M1→M5 runs (VLM/ChartQA, ALM/MMAU), viewable in the
+  browser with nothing installed.
+- **Run one yourself:** `examples/m1_m5/deco_hallu` runs the real chain
+  end-to-end against a live VLM — needs a CUDA GPU, cached model weights, and
+  a coding-agent CLI for the judge. Launch it with `docker compose up` from
+  that directory (this repo's examples are Docker-only — see the example's
+  own `README.md`), then `evalrx serve outputs` to view the result.
 
 ## The two jobs a subcommand does
 
