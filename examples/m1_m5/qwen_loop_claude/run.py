@@ -914,8 +914,18 @@ def main() -> None:
         elif outcome.recommendation is not None:
             rec = outcome.recommendation
             print(f"  VERDICT    : not fixed within {args.fix_tier}")
-            print(f"  RECOMMEND  : raise the intervention tier to {rec['recommend_tier']}")
-            print(f"               {rec['reason']}")
+            # Two distinct shapes: an escalation recommendation carries
+            # "recommend_tier" (may be None if already at the ceiling); the
+            # no-verified-hypothesis skip path (loop.py's `if not hypotheses`
+            # branch) carries only "reason"/"next_step" instead.
+            if "recommend_tier" in rec:
+                tier = rec["recommend_tier"] or "no higher tier available"
+                print(f"  RECOMMEND  : raise the intervention tier to {tier}")
+                print(f"               {rec.get('reason', '')}")
+            else:
+                print(f"  REASON     : {rec.get('reason', '(no reason recorded)')}")
+                if rec.get("next_step"):
+                    print(f"  NEXT STEP  : {rec['next_step']}")
         else:
             print(f"  VERDICT    : not fixed; already at the highest tier ({args.fix_tier})")
 
