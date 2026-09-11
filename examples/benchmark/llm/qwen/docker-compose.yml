@@ -4,7 +4,7 @@
 # EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
 # Backend: llm cells default to --backend endpoint (OpenAI-compatible server at --base-url,
 #   default http://host.docker.internal:8020/v1 = a vLLM server on the host); EXTRA_ARGS='--backend hf_local' runs in-process.
-# Judge/coder are pinned to Codex gpt-5.6-terra at medium effort.
+# Judge/coder default to Claude claude-opus-5 at high effort (override via EXTRA_ARGS).
 name: bench-llm-qwen
 x-qwen: &qwen
   extends:
