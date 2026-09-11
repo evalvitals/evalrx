@@ -6,12 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.0] — 2026-09-11
+## [0.1.2] — 2026-09-11
 
 First release under the `evalrx` name (formerly published as `evalvitals`
 0.1.0/0.1.1) — see "Changed — project renamed EvalVitals → EvalRX" below.
-Versioning restarts at 0.1.0 for the new package identity rather than
-continuing `evalvitals`'s sequence.
+Versioning continues `evalvitals`'s sequence (0.1.0, 0.1.1) rather than
+restarting, since `v0.1.0`/`v0.1.1` are already taken as git tags in this
+same repository's history.
 
 ### Breaking — `RunLogger` (V1) removed; `RunLoggerV2` is the only run logger
 
