@@ -30,6 +30,16 @@ The aim is a model that gets measurably better each time round — without a
 human guessing at the cause.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor": "#EAF4FF",
+  "primaryBorderColor": "#3D8DFF",
+  "primaryTextColor": "#0b0d0f",
+  "lineColor": "#3D8DFF",
+  "secondaryColor": "#E7F4EC",
+  "secondaryBorderColor": "#39A96B",
+  "tertiaryColor": "#F9EAEA",
+  "tertiaryBorderColor": "#D45656"
+}}}%%
 flowchart LR
     A[Open-weight model] --> B[Probe]
     B --> C[Explore]
@@ -41,6 +51,8 @@ flowchart LR
     G -->|yes| H[Validated fix]
     G -->|no| I[Escalate one tier]
     I --> F
+    class H success
+    classDef success fill:#E7F4EC,stroke:#39A96B,stroke-width:2px,color:#0b0d0f;
 ```
 
 ### The repair ladder
