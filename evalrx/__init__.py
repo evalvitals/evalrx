@@ -69,7 +69,7 @@ from evalrx.specs import get_spec, list_specs
 # logging_utils.py's module docstring for the full rationale.
 _logging.getLogger("evalrx").addHandler(_logging.NullHandler())
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 __all__ = [
     "load",
     "load_config",
