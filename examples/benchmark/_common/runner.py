@@ -341,7 +341,10 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         # Create the V2 sink before Stage-0 so each discovery request is durable
         # as it happens, including its real latency and any transport error.
         ctx = RunContext(
-            run_dir / "logs", verbose=True,
+            # narrate: aligned live M1-M5 lines ("M1  probe ···· cycle 0 · ..."),
+            # same style as examples/m1_m5/qwen_loop_claude, instead of verbose's
+            # raw "[M1] probe cycle=0" one-liners.
+            run_dir / "logs", narrate=True,
             config={
                 "benchmark": task.title, "dataset": task.name, "modality": task.modality,
                 "model": args.model, "spec": spec.key, "hf_repo": spec.hf_repo,
@@ -560,8 +563,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
         explorer=explorer,
         explore_dir=ctx.explore_dir,
-        verbose=True,
+        # RunContext(narrate=True) above owns the console; verbose would pipe
+        # the stages' logger.info() stream over the aligned narration.
+        verbose=False,
     )
+    print(f"\n{'=' * 64}\nVLDiagnoseLoop  model={args.model}  max_cycles={args.max_cycles}\n{'=' * 64}")
     report = loop.run(cases)
     discovery_rows = [{
         "id": c.id, "prompt": c.inputs.prompt, "expected": c.expected,
