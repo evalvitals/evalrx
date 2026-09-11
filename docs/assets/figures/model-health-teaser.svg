@@ -1,60 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="180mm" height="99mm" viewBox="0 0 1200 660" role="img" aria-labelledby="title desc">
-  <title id="title">Evidence-gated recursive model health</title>
-  <desc id="desc">A model-health signal enters an autonomous research loop. Candidate interventions are tested at a held-out evidence gate. Failed candidates return for revision without updating the model; a verified intervention produces the next model, which becomes the subject of the next research cycle.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="180mm" height="99mm" viewBox="0 0 1200 660" role="img" aria-labelledby="title desc"><title id="title">Evidence-gated recursive model health</title>
+  <desc id="desc">A model-health signal enters an autonomous research loop. Candidate interventions are tested at an evidence gate. Failed candidates return for revision without updating the model; a verified intervention produces the next model, which becomes the subject of the next research cycle.</desc>
   <defs>
-    <marker id="arrow-blue" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#3D8DFF"/></marker>
-    <marker id="arrow-green" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#39A96B"/></marker>
-    <marker id="arrow-red" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#D45656"/></marker>
-    <style>
-      .sans{font-family:Arial,Helvetica,sans-serif}.caps{font-family:Arial,Helvetica,sans-serif;font-size:23px;font-weight:700;letter-spacing:2.6px}.state{font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:700;letter-spacing:1px}.small{font-family:Arial,Helvetica,sans-serif;font-size:25px}.body{font-family:Arial,Helvetica,sans-serif;font-size:29px;font-weight:700}.model{font-family:Arial,Helvetica,sans-serif;font-size:48px;font-weight:700}.blue{fill:#3D8DFF}.green{fill:#39A96B}.red{fill:#D45656}.ink{fill:#0B0D0F}.muted{fill:#5B626B}
-    </style>
+    
+    <marker id="arrow-blue" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#3D8DFF"></path></marker>
+    <marker id="arrow-green" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#39A96B"></path></marker>
+    <marker id="arrow-red" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#D45656"></path></marker>
+    
   </defs>
 
-  <rect width="1200" height="660" fill="#ffffff"/>
+  <rect width="1200" height="660" fill="#ffffff"></rect>
 
-  <!-- The recursion is a single, quiet outer gesture rather than a second diagram. -->
-  <path d="M1048 240C1044 118 894 76 795 72" fill="none" stroke="#3D8DFF" stroke-width="4" stroke-dasharray="10 11"/>
-  <path d="M405 72C286 79 164 124 151 238" fill="none" stroke="#3D8DFF" stroke-width="4" stroke-dasharray="10 11" marker-end="url(#arrow-blue)"/>
-  <rect x="405" y="43" width="390" height="53" rx="26.5" fill="#EAF4FF"/>
-  <text class="caps blue" x="600" y="77" text-anchor="middle">VERIFIED UPDATE RECURS</text>
+  <path d="M1048 240C1044 118 894 76 795 72" fill="none" stroke="#3D8DFF" stroke-width="4" stroke-dasharray="10 11"></path>
+  <path d="M405 72C286 79 164 124 151 238" fill="none" stroke="#3D8DFF" stroke-width="4" stroke-dasharray="10 11" marker-end="url(#arrow-blue)"></path>
+  <rect x="460" y="43" width="280" height="53" rx="26.5" fill="#EAF4FF"></rect>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#3D8DFF" x="600" y="77" text-anchor="middle">VERIFIED UPDATE</text>
 
-  <!-- Model n: observed health, not a scalar score. -->
-  <circle cx="150" cy="355" r="112" fill="#FAFAFA" stroke="#D9DCE1" stroke-width="3"/>
-  <text class="caps muted" x="150" y="292" text-anchor="middle">MODEL</text>
-  <text class="model ink" x="150" y="340" text-anchor="middle">n</text>
-  <path d="M86 414h28l13-19 19 41 22-76 21 54h28" fill="none" stroke="#3D8DFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-  <text class="small muted" x="150" y="500" text-anchor="middle">health signals</text>
+  <circle cx="150" cy="355" r="112" fill="#FAFAFA" stroke="#D9DCE1" stroke-width="3"></circle>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#626b76" x="150" y="292" text-anchor="middle">MODEL</text>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="50" font-weight="700" fill="#0b0d0f" x="150" y="340" text-anchor="middle">n</text>
+  <path d="M86 414h28l13-19 19 41 22-76 21 54h28" fill="none" stroke="#3D8DFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="26" font-weight="400" fill="#626b76" x="150" y="500" text-anchor="middle">health signals</text>
 
-  <!-- One continuous health trace enters the research engine. -->
-  <path d="M262 355h38l13-25 20 55 23-100 22 70h35" fill="none" stroke="#3D8DFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M262 355h38l13-25 20 55 23-100 22 70h35" fill="none" stroke="#3D8DFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"></path>
 
-  <!-- Auto-research is the visual hero: a lens that turns symptoms into testable interventions. -->
-  <rect x="410" y="227" width="360" height="256" rx="128" fill="#EAF4FF" stroke="#3D8DFF" stroke-width="4"/>
-  <text class="caps blue" x="590" y="285" text-anchor="middle">AUTO-RESEARCH</text>
-  <text class="body ink" x="590" y="350" text-anchor="middle">Probe</text>
-  <path d="M542 379h96" stroke="#9CA2AA" stroke-width="3"/>
-  <text class="body ink" x="590" y="416" text-anchor="middle">Explain → Intervene</text>
-  <circle cx="473" cy="355" r="9" fill="#3D8DFF"/><circle cx="707" cy="355" r="9" fill="#3D8DFF"/>
-  <path d="M770 355h78" fill="none" stroke="#3D8DFF" stroke-width="7" stroke-linecap="round"/>
+  <rect x="410" y="227" width="360" height="256" rx="128" fill="#EAF4FF" stroke="#3D8DFF" stroke-width="4"></rect>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#3D8DFF" x="590" y="285" text-anchor="middle">AUTO-RESEARCH</text>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="30" font-weight="700" fill="#0b0d0f" x="590" y="350" text-anchor="middle">Probe</text>
+  <path d="M542 379h96" stroke="#9CA2AA" stroke-width="3"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="30" font-weight="700" fill="#0b0d0f" x="590" y="416" text-anchor="middle">Explain → Intervene</text>
+  <circle cx="473" cy="355" r="9" fill="#3D8DFF"></circle><circle cx="707" cy="355" r="9" fill="#3D8DFF"></circle>
+  <path d="M770 355h78" fill="none" stroke="#3D8DFF" stroke-width="7" stroke-linecap="round"></path>
 
-  <!-- Held-out verification is drawn as a physical gate in the signal path. -->
-  <text class="caps muted" x="858" y="231" text-anchor="middle">HELD-OUT</text>
-  <text class="caps ink" x="858" y="260" text-anchor="middle">GATE</text>
-  <line x1="858" y1="275" x2="858" y2="488" stroke="#16211f" stroke-width="7" stroke-linecap="round"/>
-  <rect x="838" y="333" width="40" height="44" rx="11" fill="#ffffff" stroke="#16211f" stroke-width="3"/>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#0b0d0f" x="858" y="260" text-anchor="middle">GATE</text>
+  <line x1="858" y1="275" x2="858" y2="488" stroke="#16211f" stroke-width="7" stroke-linecap="round"></line>
+  <rect x="838" y="333" width="40" height="44" rx="11" fill="#ffffff" stroke="#16211f" stroke-width="3"></rect>
 
-  <!-- A passing signal changes both color and model state. -->
-  <path d="M878 355h60" fill="none" stroke="#39A96B" stroke-width="7" stroke-linecap="round" marker-end="url(#arrow-green)"/>
-  <text class="state green" x="912" y="310" text-anchor="middle">✓ PASS</text>
-  <circle cx="1047" cy="355" r="99" fill="#E7F4EC" stroke="#39A96B" stroke-width="4"/>
-  <text class="caps green" x="1047" y="292" text-anchor="middle">MODEL</text>
-  <text class="model ink" x="1047" y="340" text-anchor="middle">n+1</text>
-  <path d="M993 414h25l12-18 17 38 20-70 19 50h23" fill="none" stroke="#39A96B" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-  <text class="small green" x="1047" y="486" text-anchor="middle">verified update</text>
+  <path d="M878 355h60" fill="none" stroke="#39A96B" stroke-width="7" stroke-linecap="round" marker-end="url(#arrow-green)"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="21" font-weight="700" letter-spacing="1.7" fill="#39A96B" x="912" y="310" text-anchor="middle">✓ PASS</text>
+  <circle cx="1047" cy="355" r="99" fill="#E7F4EC" stroke="#39A96B" stroke-width="4"></circle>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#39A96B" x="1047" y="292" text-anchor="middle">MODEL</text>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="50" font-weight="700" fill="#0b0d0f" x="1047" y="340" text-anchor="middle">n+1</text>
+  <path d="M993 414h25l12-18 17 38 20-70 19 50h23" fill="none" stroke="#39A96B" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="26" font-weight="400" fill="#39A96B" x="1047" y="486" text-anchor="middle">verified update</text>
 
-  <!-- Failure is deliberately subordinate and cannot cross the model-update gate. -->
-  <path d="M858 488v62c0 31 18 52 50 62" fill="none" stroke="#D45656" stroke-width="4" stroke-dasharray="9 10"/>
-  <path d="M480 612c-43-9-63-32-63-66v-38" fill="none" stroke="#D45656" stroke-width="4" stroke-dasharray="9 10" marker-end="url(#arrow-red)"/>
-  <rect x="515" y="575" width="350" height="47" rx="23.5" fill="#F9EAEA"/>
-  <text class="caps red" x="690" y="606" text-anchor="middle">× REVISE · NO UPDATE</text>
+  <path d="M858 488v82c0 16-12 28-28 28h-31" fill="none" stroke="#D45656" stroke-width="4" stroke-dasharray="9 10" marker-end="url(#arrow-red)"></path>
+  <path d="M515 598h-42c-16 0-28-12-28-28v-72" fill="none" stroke="#D45656" stroke-width="4" stroke-dasharray="9 10" marker-end="url(#arrow-red)"></path>
+  <rect x="515" y="575" width="350" height="47" rx="23.5" fill="#F9EAEA"></rect>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#D45656" x="690" y="606" text-anchor="middle">× REVISE · NO UPDATE</text>
 </svg>

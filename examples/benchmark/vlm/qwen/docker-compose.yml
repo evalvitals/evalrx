@@ -2,7 +2,7 @@
 #   DATASET=chartqa LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name vlm-qwen3.5-2b-chartqa qwen3.5-2b
 # Datasets for this modality: chartqa, spatial457, pope_random, pope_popular, pope_adversarial.
 # EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8').
-# Judge/coder are pinned to Codex gpt-5.6-terra at medium effort.
+# Judge/coder default to Claude claude-opus-5 at high effort (override via EXTRA_ARGS).
 name: bench-vlm-qwen
 x-qwen: &qwen
   extends:
