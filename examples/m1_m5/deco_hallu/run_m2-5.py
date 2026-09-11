@@ -110,7 +110,7 @@ def main() -> None:
         n_obs = len(explore_report.get("observations") or [])
         print(f"feeding explore context to M3: {n_charts} chart(s), {n_obs} observation(s)")
 
-    run_logger = RunLoggerV2(run_dir=OUT / "logs_m2_5", verbose=True)
+    run_logger = RunLoggerV2(run_dir=OUT / "logs_m2_5", narrate=True)
     loop = VLDiagnoseLoop(
         model=model,
         probe_agent=ReplayProbeAgent(state),          # M1 short-circuited

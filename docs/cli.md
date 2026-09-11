@@ -35,7 +35,11 @@ The full M1→M5 loop (`VLDiagnoseLoop`/`AutoDiagnoseLoop`) is Python-API only
   end-to-end against a live VLM — needs a CUDA GPU, cached model weights, and
   a coding-agent CLI for the judge. Launch it with `docker compose up` from
   that directory (this repo's examples are Docker-only — see the example's
-  own `README.md`), then `evalrx serve outputs` to view the result.
+  own `README.md`), then `evalrx serve outputs` to view the result. It
+  already runs with live M1-M5 terminal narration — same visual style as
+  `explore`'s, built from `RunLoggerV2(..., narrate=True)` — since its
+  `run.py` opts in; do the same in your own `RunLoggerV2(...)` call to get
+  it (see `evalrx.eval_agent.narration.LoopNarrator`).
 
 ## The two jobs a subcommand does
 

@@ -98,7 +98,7 @@ def main() -> None:
                           Capability.ATTENTION})
     codegen: CliAgentConfig = run.build_codegen(args.backend)
 
-    run_logger = RunLoggerV2(run_dir=OUT / "logs_confirm_fix", verbose=True)
+    run_logger = RunLoggerV2(run_dir=OUT / "logs_confirm_fix", narrate=True)
     loop = VLDiagnoseLoop(
         model=model,
         protocol=run.build_protocol(),
