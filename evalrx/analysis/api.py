@@ -126,7 +126,11 @@ def explore(
             "m2", "completed" if report.ok else "failed",
             "Exploratory analysis completed" if report.ok else (report.error or "Exploratory analysis failed"),
             artifact_refs=[out_dir / "partial_report.json"] if out_dir else (),
-            metrics={"attempts": report.attempts},
+            metrics={
+                "attempts": report.attempts,
+                "n_figures": len(report.charts),
+                "n_candidate_signals": len(report.candidate_signals),
+            },
         )
 
     # M3: propose falsifiable hypotheses from M2's takeaways — proposal only,
@@ -141,7 +145,10 @@ def explore(
         except Exception as exc:  # noqa: BLE001 — M3 is best-effort, never blocks the result
             logger.warning("hypothesis generation failed: %s", exc)
         if progress_sink is not None:
-            progress_sink.emit("m3", "completed", f"Proposed {len(report.hypotheses)} hypotheses")
+            progress_sink.emit(
+                "m3", "completed", f"Proposed {len(report.hypotheses)} hypotheses",
+                metrics={"n_hypotheses": len(report.hypotheses)},
+            )
 
     if out is not None:
         out_dir = Path(out).resolve()

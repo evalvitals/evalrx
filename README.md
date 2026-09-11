@@ -4,13 +4,16 @@
 
 ### Your eval tells you *what* failed. EvalRX investigates *why*—and tests what fixes it.
 
-[![PyPI version](https://img.shields.io/pypi/v/evalrx?color=0A7BBC)](https://pypi.org/project/evalrx/)
-[![Python versions](https://img.shields.io/pypi/pyversions/evalrx)](https://pypi.org/project/evalrx/)
-[![CI](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml/badge.svg)](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-live-6C63FF)](https://evalvitals.github.io/evalrx/overview/)
-[![License: CC0-1.0](https://img.shields.io/badge/license-CC0--1.0-green)](LICENSE)
+<img src="docs/assets/figures/model-health-teaser.svg" alt="A model-health signal enters an auto-research loop that probes, explains and intervenes; only a held-out verified pass updates the model to n+1, which recurs as the next research subject." width="640">
 
-[Get started](#quickstart-analyze-your-eval-logs) · [Documentation](https://evalvitals.github.io/evalrx/overview/) · [Examples](examples/README.md) · [PyPI](https://pypi.org/project/evalrx/)
+[![PyPI version](https://img.shields.io/pypi/v/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
+[![Python versions](https://img.shields.io/pypi/pyversions/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
+[![CI](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml/badge.svg)](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-live-3D8DFF)](https://evalvitals.github.io/evalrx/overview/)
+[![Demo](https://img.shields.io/badge/demo-live-39A96B)](https://evalvitals.github.io/evalrx/demo/)
+[![License: CC0-1.0](https://img.shields.io/badge/license-CC0--1.0-39A96B)](LICENSE)
+
+[Get started](#quickstart-analyze-your-eval-logs) · [Documentation](https://evalvitals.github.io/evalrx/overview/) · [Live demo](https://evalvitals.github.io/evalrx/demo/) · [Examples](examples/README.md) · [PyPI](https://pypi.org/project/evalrx/)
 
 </div>
 
@@ -132,14 +135,22 @@ evalrx explore ./results \
 `kimi_cli`, or `antigravity`. The selected coding-agent CLI must be installed
 and authenticated separately.
 
-Open a finished run in the browser without a UI framework:
+Open a finished run in the browser:
 
 ```bash
 evalrx serve evalrx_explore_output
 ```
 
-The report is a self-contained HTML file (`report.html`), suitable for local
-viewing and sharing.  It is the only supported report UI.
+`serve` runs the report UI locally as a small server. For a single portable
+file — no server, suitable for sharing — export it instead:
+
+```bash
+evalrx report evalrx_explore_output --out report.html
+```
+
+Both read the same output directory and render the same UI; see the
+[CLI reference](https://evalvitals.github.io/evalrx/cli/) for the rest of the
+command set (Langfuse export, a runs panel over several experiments, …).
 
 EvalRX writes an auditable analysis bundle instead of returning only prose:
 
@@ -295,13 +306,19 @@ installing anything, marked 📦 below.
 
 ## Documentation
 
-- [Quickstart](docs/quickstart.md)
-- [Exploratory Analysis](docs/m2_analysis.md)
-- [Intervention & Verification](docs/intervention.md)
-- [Analyzer Zoo](docs/analyzers.md)
-- [Architecture](docs/architecture.md)
-- [Extending EvalRX](docs/extending.md)
-- [Roadmap](docs/roadmap.md)
+| | |
+|---|---|
+| [Quickstart](docs/quickstart.md) | Runnable examples and common entry points |
+| [Command-Line Interface](docs/cli.md) | Every `evalrx` subcommand — `explore`, `serve`, `report`, and the rest |
+| [Exploratory Analysis](docs/m2_analysis.md) | Standalone `evalrx explore` — descriptive analysis + hypothesis proposal |
+| [Intervention & Verification](docs/intervention.md) | Held-out hypothesis tests and the tiered repair ladder |
+| [Analyzer Zoo](docs/analyzers.md) | Reference tables of implemented analyzers and registered models |
+| [Architecture](docs/architecture.md) | Package structure and design contracts |
+| [Extending EvalRX](docs/extending.md) | How to add analyzers, specs, and backends |
+| [Roadmap](docs/roadmap.md) | Current implementation status and planned surfaces |
+
+The full site — same pages, searchable — is live at
+[evalvitals.github.io/evalrx](https://evalvitals.github.io/evalrx/overview/).
 
 ## Project Status
 

@@ -61,7 +61,9 @@ def serve_report(
     handler = functools.partial(_QuietHandler, directory=str(report.parent))
     server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     url = f"http://127.0.0.1:{server.server_port}/{report.name}"
-    print(f"Serving diagnostic report at {url}")
+    from evalrx.term_links import hyperlink
+
+    print(f"Serving diagnostic report at {hyperlink(url)}")
     if open_browser:
         webbrowser.open(url)
     if not block:

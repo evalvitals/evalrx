@@ -191,6 +191,8 @@ def run_explore(
                 judge_meta = {"model": judge_model, "effort": "low"}
             except Exception as exc:  # noqa: BLE001 — verdicts degrade to not_judged
                 print(f"judge unavailable ({exc}) — hypotheses will be not_judged")
+            if progress_sink is not None:
+                progress_sink.emit("m4", "started", "Verifying hypotheses on the held-out split")
             confirm = run_holdout_confirm(
                 report.to_dict(), holdout_rows,
                 outcome_col=outcome_col or "label",
@@ -201,6 +203,15 @@ def run_explore(
                 json.dumps(confirm, indent=1, default=str), encoding="utf-8"
             )
             cadj = confirm.get("adjudication") or {}
+            if progress_sink is not None:
+                progress_sink.emit(
+                    "m4", "completed", "Held-out verification complete",
+                    metrics={
+                        "n_rows": confirm.get("n_validate_rows"),
+                        "n_rejected": cadj.get("n_rejected", 0),
+                        "n_adjudicated": cadj.get("n_host_adjudicated", 0),
+                    },
+                )
             print(
                 f"\nheld-out adjudication: {cadj.get('n_rejected', 0)}/"
                 f"{cadj.get('n_host_adjudicated', 0)} reject "

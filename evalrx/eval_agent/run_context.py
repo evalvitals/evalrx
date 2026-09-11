@@ -119,6 +119,10 @@ class RunContext:
         run_id:   Optional identifier recorded in the manifest; defaults to the
                   root directory name.
         verbose:  Forwarded to the logger (human-readable stdout).
+        narrate:  Forwarded to the logger — live, aligned M1-M5 terminal
+                  narration instead of `verbose`'s raw one-liner (see
+                  :class:`evalrx.eval_agent.narration.LoopNarrator`).
+                  Supersedes *verbose* rather than stacking with it.
         config:   Optional run-configuration dict recorded verbatim in the
                   manifest (model, judge, protocol, …).
 
@@ -133,6 +137,7 @@ class RunContext:
         *,
         run_id: "str | None" = None,
         verbose: bool = False,
+        narrate: bool = False,
         config: "dict[str, Any] | None" = None,
         observability_mode: str | None = None,
     ) -> None:
@@ -148,6 +153,7 @@ class RunContext:
         self.run_id = run_id or self.root.name
         self.config = dict(config or {})
         self._verbose = verbose
+        self._narrate = narrate
         self._observability_mode = observability_mode
         self._logger: "RunLoggerV2 | None" = None
         self._workdir_seq = 0
@@ -205,7 +211,7 @@ class RunContext:
             from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
             self._logger = RunLoggerV2(
-                run_dir=self.root, verbose=self._verbose,
+                run_dir=self.root, verbose=self._verbose, narrate=self._narrate,
                 observability_mode=self._observability_mode,
                 context=self,
             )

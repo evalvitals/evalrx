@@ -90,9 +90,11 @@ one bounded rewrite before the report is returned.
 evalrx serve evalrx_explore_output --port 8501
 ```
 
-Reads the saved artifacts (no re-run) in a portable static HTML report across **Problem Setting**,
-**Exploratory Analysis** (M2 charts/takeaways), and **Hypotheses** (M3,
-proposal-only — no verdict language).
+Reads the saved artifacts (no re-run) into the local report UI, across
+**Problem Setting**, **Exploratory Analysis** (M2 charts/takeaways), and
+**Hypotheses** (M3, proposal-only — no verdict language). Swap `serve` for
+`evalrx report` to export the same view as one portable `report.html` instead
+of a running server — see the [CLI reference](cli.md).
 
 ## Python API
 

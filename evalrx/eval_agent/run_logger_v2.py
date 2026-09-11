@@ -401,7 +401,12 @@ class RunLoggerV2:
     Args:
         run_dir:  Directory to write into. Created if missing. Defaults to
                   ``runs_v2/<YYYYMMDD_HHMMSS>/`` relative to cwd.
-        verbose:  Print a one-line summary of every event to stdout.
+        verbose:  Print a one-line raw summary of every event to stdout
+                  (``[M1] probe cycle=0``). Ignored when *narrate* is set.
+        narrate:  Print live, aligned M1-M5 narration instead — the same
+                  visual style as ``evalrx explore``'s terminal output (see
+                  :mod:`evalrx.eval_agent.narration.LoopNarrator`), built
+                  from real per-stage counts instead of a raw event dump.
         trace_id: Ties every event to one Langfuse trace; auto-generated if
                   omitted.
         observability_mode: Forwarded to :class:`DiagnosticTracer` unchanged.
@@ -428,6 +433,7 @@ class RunLoggerV2:
         run_dir: "str | Path | None" = None,
         *,
         verbose: bool = False,
+        narrate: bool = False,
         trace_id: "str | None" = None,
         observability_mode: "str | None" = None,
         context: "Any | None" = None,
@@ -440,6 +446,14 @@ class RunLoggerV2:
 
         self.trace_id: str = trace_id or str(uuid.uuid4())
         self.current_cycle: int = -1
+        # Live M1-M5 terminal narration (see evalrx.eval_agent.narration) --
+        # opt-in, takes over from the plain `verbose` one-liner below rather
+        # than stacking with it, so a run never prints each event twice.
+        self._narrator = None
+        if narrate:
+            from evalrx.eval_agent.narration import LoopNarrator
+
+            self._narrator = LoopNarrator()
         self.verbose = verbose
         self._context = context
         self._closed = False
@@ -564,7 +578,9 @@ class RunLoggerV2:
             self._stamp_event(key, record, stage)
             self._bucket(stage, key).append(record)
             self._flush_stage(stage)
-        if self.verbose:
+        if self._narrator is not None:
+            self._narrator.on_event(stage, key, record)
+        elif self.verbose:
             print(_V2JsonFormatter.line(stage, key, record))
         return stage
 
@@ -578,7 +594,9 @@ class RunLoggerV2:
             self._stamp_event(key, record, "RUN")
             self._run_doc[key].append(record)
             self._flush_run()
-        if self.verbose:
+        if self._narrator is not None:
+            self._narrator.on_run_event(key, record)
+        elif self.verbose:
             print(_V2JsonFormatter.line(None, key, record))
 
     @property
@@ -661,7 +679,9 @@ class RunLoggerV2:
             self._stamp_event("run_start", entry, "RUN")
             self._run_doc["run_start"] = entry
             self._flush_run()
-        if self.verbose:
+        if self._narrator is not None:
+            self._narrator.on_run_start(entry)
+        elif self.verbose:
             print(_V2JsonFormatter.line(None, "run_start", entry))
 
         model_name = str(entry.get("model") or "Target Model")
