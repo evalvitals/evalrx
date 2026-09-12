@@ -243,7 +243,7 @@ def render(board: dict[str, Any], *, commands: list[str], title: str | None = No
     # ---- result strip -----------------------------------------------------
     card = tl["card"]
     card_y = T.WIN_Y + T.WIN_H - T.FOOT_H - 104
-    tile_w = (T.WIN_W - 44) / 3
+    tile_w = (T.WIN_W - 44) / max(1, len(card["tiles"]))
     tiles: list[str] = []
     for i, tile in enumerate(card["tiles"]):
         x = T.WIN_X + 22 + i * tile_w

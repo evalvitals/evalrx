@@ -230,7 +230,7 @@ class Renderer:
         y0 = T.WIN_Y + T.WIN_H - T.FOOT_H - 104 + (1.0 - alpha) * 10
         d.line([T.WIN_X + 22, y0, T.WIN_X + T.WIN_W - 22, y0],
                fill=_mix(T.BORDER, T.WIN_BG, alpha))
-        tile_w = (T.WIN_W - 44) / 3
+        tile_w = (T.WIN_W - 44) / max(1, len(card["tiles"]))
         for i, tile in enumerate(card["tiles"]):
             x = T.WIN_X + 22 + i * tile_w
             d.text((x, y0 + 44), tile["value"], font=self.tile_value,

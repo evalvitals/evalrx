@@ -20,12 +20,13 @@
 
 <br>
 
-[![A real EvalRX run: M1 probe through M5 repair on Qwen3.5-2B × ChartQA](docs/assets/demo/evalrx-run.svg)](https://evalvitals.github.io/evalrx/demo/)
+[![A real EvalRX run: M1 probe through M5 repair on Gemma-4-E2B × MMAU](docs/assets/demo/evalrx-run.svg)](https://evalvitals.github.io/evalrx/demo/)
 
-<sub>One real run, replayed — 128 ChartQA cases, 47 failures, 5h44m compressed
-into 22s. Every line, count and verdict is this run's own; the clock in the
-gutter is its real elapsed time.
-[Open the full report →](https://evalvitals.github.io/evalrx/demo/)</sub>
+<sub>One real run, replayed — 256 MMAU cases, 162 failures, two of three
+mechanisms upheld on cases the analysis never saw, and an L2 repair that fixed
+25 of them while breaking none. 20 minutes of work compressed into 22 seconds;
+the clock in the gutter is the run's own elapsed time.
+[Browse two full reports →](https://evalvitals.github.io/evalrx/demo/)</sub>
 
 </div>
 

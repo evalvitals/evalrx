@@ -34,6 +34,10 @@ SANS = ("'Inter', ui-sans-serif, -apple-system, 'Helvetica Neue', "
 # spans inside a row without measuring text at render time.
 CH = FONT_SIZE * 0.6
 
+#: Widest line the body will draw before it ellipsises — keeps output clear of
+#: the elapsed-time gutter on the right.
+MAX_COLS = 126
+
 TEXT_X = WIN_X + RAIL_W + PAD_X
 TEXT_Y0 = WIN_Y + BAR_H + PAD_TOP + FONT_SIZE
 

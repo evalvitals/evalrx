@@ -17,17 +17,30 @@ render_mp4.py   → docs/assets/demo/evalrx-run.mp4      (+ optional GIF)
 
 ## Re-render what is committed
 
-```bash
-python tools/demo_video/render_svg.py \
-    tools/demo_video/storyboards/chartqa-qwen3.5-2b.json \
-    --out docs/assets/demo/evalrx-run.svg
+The README's hero is the Gemma-4-E2B × MMAU run; `chartqa-qwen3.5-2b.json` is
+the same pipeline on a run whose repair did **not** clear the bar, kept for
+when that is the story worth telling.
 
-python tools/demo_video/render_mp4.py \
-    tools/demo_video/storyboards/chartqa-qwen3.5-2b.json \
+```bash
+RUN=tools/demo_video/storyboards/mmau-gemma-4-e2b.json
+INSTALL='pip install "evalrx[ui,viz,stats]"'
+LAUNCH='python run.py --modality alm --model gemma-4-e2b --dataset mmau --held-out'
+
+python tools/demo_video/render_svg.py "$RUN" \
+    --out docs/assets/demo/evalrx-run.svg --command "$INSTALL" --command "$LAUNCH"
+
+python tools/demo_video/render_svg.py "$RUN" --at 22 \
+    --out docs/assets/demo/evalrx-run-poster.svg \
+    --command "$INSTALL" --command "$LAUNCH"
+
+python tools/demo_video/render_mp4.py "$RUN" \
     --out docs/assets/demo/evalrx-run.mp4 \
-    --ui-shot build/ui/01_hero.png --ui-shot build/ui/02_flowboard.png \
-    --end-card
+    --command "$INSTALL" --command "$LAUNCH" --end-card
 ```
+
+`--ui-shot FILE` (repeatable) appends report-UI screenshots before the title
+card. Only pass shots of **this** run's own report — a different run's UI
+behind this run's terminal would be a claim neither of them made.
 
 `--at SECONDS` on `render_svg.py` writes a still frame instead of the loop —
 that is the poster image, and the same code path the MP4 rasterises.
@@ -52,7 +65,16 @@ python tools/demo_video/storyboard.py --report docs/demo/vlm.html \
     --out tools/demo_video/storyboards/<name>.json
 ```
 
-Either way the storyboard records which path produced it in
+Third, a saved terminal transcript, when only the console output survives —
+lines are parsed straight back into beats:
+
+```bash
+python tools/demo_video/storyboard.py \
+    --transcript tools/demo_video/storyboards/mmau-gemma-4-e2b.txt \
+    --out tools/demo_video/storyboards/mmau-gemma-4-e2b.json
+```
+
+Whichever path produced it, the storyboard records which one in
 `meta.provenance`, and the committed JSON is small enough to review in a diff.
 
 ## Screenshots for the video's closing act

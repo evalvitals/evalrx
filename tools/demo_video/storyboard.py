@@ -18,6 +18,10 @@ Two input shapes, both real runs — nothing here invents numbers:
   report's own ``stages``/``stage_detail``. Same facts, reassembled — the
   storyboard records which path produced it in ``meta.provenance``.
 
+* ``--transcript FILE.txt`` — a saved terminal transcript of a narrated run,
+  parsed back into beats. The last resort, for when only the console output
+  survives; it cannot be cross-checked against a log, and says so.
+
 The output is a JSON storyboard consumed by ``render.py``; keeping the two
 apart means the visual pass can be re-run without touching a model, and a new
 run only has to be re-extracted, not re-designed.
@@ -185,6 +189,99 @@ def from_report(path: Path) -> dict[str, Any]:
     }
 
 
+#: A narrated stage line, as LoopNarrator prints it:
+#: ``M4  verify      ········ cycle 0 · ✓ … — supported (14.0s)``
+_ROW_RE = re.compile(r"^(?P<code>M[1-5]|RUN)\s+(?P<label>[a-z]+)\s+(?P<dots>·+)\s+"
+                     r"(?P<detail>.*)$")
+_SECONDS_RE = re.compile(r"\((\d+(?:\.\d+)?)s\)\s*$")
+
+
+def from_transcript(path: Path) -> dict[str, Any]:
+    """Storyboard from a saved terminal transcript of a narrated run.
+
+    The fallback when neither the run directory nor an exported report is at
+    hand but the run's console output is — a pasted log, or one recovered from
+    a screen recording. Lines are parsed back into the same beats
+    :func:`from_report` produces; anything that is not a narrated stage line
+    rides along as plain output.
+
+    This path cannot cross-check itself against a log, so the storyboard says
+    so in ``meta.provenance``: re-extract from ``--run-dir`` when the logs
+    surface.
+    """
+    beats: list[dict[str, Any]] = []
+    meta: dict[str, Any] = {"n_hypotheses": 0, "n_supported": 0, "fixed": False}
+    elapsed = 0.0
+
+    for raw in path.read_text().splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        match = _ROW_RE.match(line)
+        if not match:
+            cls = "banner" if line.startswith("VLDiagnoseLoop") else "dim"
+            beats.append({"kind": "plain", "text": line, "cls": cls})
+            if line.startswith("[model]"):
+                model = re.search(r"^\[model\]\s+([^,;]+)", line)
+                dataset = re.search(r"dataset=([\w.-]+)", line)
+                total = re.search(r"\bn=(\d+)", line)
+                if model:
+                    meta["model"] = model.group(1).strip()
+                if dataset:
+                    meta["dataset"] = dataset.group(1).upper()
+                if total:
+                    meta["n_cases"] = int(total.group(1))
+            elif line.startswith("Baseline:"):
+                fail = re.search(r"FAIL=(\d+)", line)
+                if fail:
+                    meta["n_failed"] = int(fail.group(1))
+            continue
+
+        detail = match.group("detail")
+        seconds = _SECONDS_RE.search(detail)
+        real_sec = float(seconds.group(1)) if seconds else None
+        mark = "ok" if "✓" in detail else ("bad" if "✗" in detail else None)
+        if mark:
+            detail = detail.replace("✓", "{mark}").replace("✗", "{mark}")
+        beat = {"kind": "row", "code": match.group("code").ljust(3),
+                "label": match.group("label").ljust(LABEL_WIDTH),
+                "dots": match.group("dots"), "detail": detail,
+                "real_sec": real_sec}
+        if mark:
+            beat["mark"] = mark
+        if real_sec:
+            elapsed += real_sec
+        # Only the stage rows carry a clock: the RUN bookends are the long
+        # lines, and a stamp in that gutter would collide with them.
+        if match.group("code").startswith("M"):
+            beat["elapsed_sec"] = elapsed
+        beats.append(beat)
+
+        if "falsifiable" in detail:
+            found = re.search(r"(\d+) falsifiable", detail)
+            if found:
+                meta["n_hypotheses"] = int(found.group(1))
+        if detail.rstrip().endswith("supported") or "— supported" in detail:
+            meta["n_supported"] += 1
+        fix = re.search(r"best: (?P<name>\S+) Δ=(?P<effect>[-+]?\d*\.?\d+)\s*"
+                        r"\(n_fixed=(?P<fixed>\d+), n_broken=(?P<broken>\d+)\)", detail)
+        if fix:
+            meta["fixed"] = True
+            meta["fix"] = {"name": fix.group("name"),
+                           "effect": float(fix.group("effect")),
+                           "n_fixed": int(fix.group("fixed")),
+                           "n_broken": int(fix.group("broken"))}
+
+    meta.setdefault("model", "model")
+    meta.setdefault("dataset", "dataset")
+    meta["dataset_full"] = meta["dataset"]
+    meta["wall_clock_sec"] = elapsed
+    meta["source"] = str(path)
+    meta["provenance"] = ("terminal transcript of a real narrated run "
+                          f"({path.name}); not cross-checked against its logs")
+    return {"meta": meta, "beats": beats}
+
+
 def from_run_dir(path: Path) -> dict[str, Any]:
     """Storyboard from a live run directory, via the real LoopNarrator."""
     import io
@@ -232,10 +329,17 @@ def main() -> int:
     source = ap.add_mutually_exclusive_group(required=True)
     source.add_argument("--report", type=Path, help="exported report .html")
     source.add_argument("--run-dir", type=Path, help="RunLoggerV2 run directory")
+    source.add_argument("--transcript", type=Path,
+                        help="saved terminal transcript of a narrated run")
     ap.add_argument("--out", type=Path, required=True, help="storyboard .json to write")
     args = ap.parse_args()
 
-    board = from_report(args.report) if args.report else from_run_dir(args.run_dir)
+    if args.report:
+        board = from_report(args.report)
+    elif args.transcript:
+        board = from_transcript(args.transcript)
+    else:
+        board = from_run_dir(args.run_dir)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(board, indent=2, ensure_ascii=False) + "\n")
     print(f"{args.out}  ({len(board['beats'])} beats, {board['meta']['provenance']})")

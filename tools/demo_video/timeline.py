@@ -47,6 +47,30 @@ def _spans_for_plain(beat: dict[str, Any]) -> list[tuple[str, str, str]]:
     return [(beat["text"], fill, weight)]
 
 
+def _clip(spans: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """Ellipsise a line at :data:`theme.MAX_COLS`, span by span.
+
+    The trailing "(14.0s)" goes first when a line is over budget: a verdict
+    word carries the meaning, a duration only decorates it.
+    """
+    if sum(len(text) for text, _, _ in spans) <= T.MAX_COLS:
+        return spans
+    if len(spans) > 1 and spans[-1][0].startswith(" ("):
+        spans = spans[:-1]
+        if sum(len(text) for text, _, _ in spans) <= T.MAX_COLS:
+            return spans
+    out: list[tuple[str, str, str]] = []
+    budget = T.MAX_COLS - 1
+    for text, fill, weight in spans:
+        if budget <= 0:
+            break
+        out.append((text[:budget], fill, weight))
+        budget -= len(text)
+    last, fill, weight = out[-1]
+    out[-1] = (last + "…", fill, weight)
+    return out
+
+
 def build(board: dict[str, Any], *, commands: list[str]) -> dict[str, Any]:
     """Lay the storyboard out on a clock.
 
@@ -81,7 +105,7 @@ def build(board: dict[str, Any], *, commands: list[str]) -> dict[str, Any]:
         lines.append({
             "t": t,
             "row": len(lines),
-            "spans": spans,
+            "spans": _clip(spans),
             "stage": beat.get("code", "").strip() or None,
             "elapsed_sec": beat.get("elapsed_sec"),
         })
@@ -93,12 +117,23 @@ def build(board: dict[str, Any], *, commands: list[str]) -> dict[str, Any]:
     n_cases = meta.get("n_cases") or 0
     n_failed = meta.get("n_failed") or 0
     tiles = [
-        {"value": str(n_cases), "label": "cases diagnosed"},
+        {"value": str(n_cases), "label": "cases evaluated"},
         {"value": str(n_failed), "label": "failures investigated"},
         {"value": f"{meta.get('n_supported', 0)}/{meta.get('n_hypotheses', 0)}",
          "label": "mechanisms held up on unseen cases"},
     ]
-    if meta.get("fixed"):
+    fix = meta.get("fix") or {}
+    if meta.get("fixed") and fix:
+        verdict = (f"REPAIR VALIDATED · {str(fix.get('name', '')).upper()} · "
+                   f"{fix.get('n_fixed', 0)} FIXED / {fix.get('n_broken', 0)} BROKEN",
+                   T.GREEN)
+        tiles[-1:] = [
+            {"value": f"{meta.get('n_supported', 0)}/{meta.get('n_hypotheses', 0)}",
+             "label": "mechanisms held up on unseen cases"},
+            {"value": f"{fix.get('effect', 0):+.2f}",
+             "label": f"paired effect of the {fix.get('tier', 'L2')} repair"},
+        ]
+    elif meta.get("fixed"):
         verdict = ("REPAIR VALIDATED", T.GREEN)
     else:
         verdict = ("NO REPAIR CLEARED THE BAR — REPORTED, NOT HIDDEN", T.AMBER)
