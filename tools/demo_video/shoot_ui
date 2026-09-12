@@ -1,0 +1,127 @@
+#!/usr/bin/env node
+/** Capture report-UI screenshots for the demo video.
+ *
+ *   evalrx serve path/to/run --port 8520 &
+ *   node tools/demo_video/shoot_ui --url http://localhost:8520 \
+ *        --out build/ui/overview.png
+ *
+ * Also opens a static export directly (an exported report.html carries its own
+ * payload, no server needed):
+ *
+ *   node tools/demo_video/shoot_ui --url file:///abs/path/report.html
+ *
+ * Uses the playwright-core already installed for the web build
+ * (evalrx/reporting/web/node_modules) with a system Chrome, so there is
+ * nothing to npm-install. The theme is pinned to dark — the video's palette —
+ * whatever the browser's localStorage happens to remember.
+ *
+ * Options:
+ *   --url URL        page to open (http:// or file://)              [required]
+ *   --out FILE       where the PNG goes        [build/ui/overview.png]
+ *   --view NAME      overview | evidence | cases | debug  [overview]
+ *   --stage CODE     with --view evidence: open this stage's page (M1..M5)
+ *   --width PX       viewport width; 1228 matches the video's window [1228]
+ *   --height PX      viewport height; 626 matches it 1:1        [900]
+ *   --viewport       shoot only the viewport instead of the full page
+ *   --dsf N          deviceScaleFactor, 2 keeps the scroll crisp [2]
+ *   --chrome PATH    Chrome/Chromium executable to use
+ */
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+
+const pw = require(path.resolve(__dirname, "..", "..", "evalrx", "reporting",
+                                "web", "node_modules", "playwright-core"));
+
+const CHROMES = ["/usr/bin/google-chrome", "/snap/bin/chromium",
+                 "/usr/bin/chromium", "/usr/bin/chromium-browser"];
+
+function parseArgs(argv) {
+  const args = { url: null, out: "build/ui/overview.png", view: "overview",
+                 stage: null, width: 1228, height: 900, viewport: false,
+                 dsf: 2, chrome: null };
+  const flags = new Set(["viewport"]);
+  for (let i = 0; i < argv.length; i++) {
+    const key = argv[i].replace(/^--/, "");
+    if (!(key in args)) {
+      console.error(`unknown option: ${argv[i]}`);
+      process.exit(2);
+    }
+    if (flags.has(key)) {
+      args[key] = true;
+      continue;
+    }
+    const value = argv[i + 1];
+    if (value === undefined) {
+      console.error(`incomplete option: ${argv[i]}`);
+      process.exit(2);
+    }
+    args[key] = (key === "width" || key === "height" || key === "dsf")
+      ? parseInt(value, 10) : value;
+    i++;
+  }
+  if (!args.url) {
+    console.error("missing --url (http://localhost:PORT or file:///path/report.html)");
+    process.exit(2);
+  }
+  return args;
+}
+
+(async () => {
+  const args = parseArgs(process.argv.slice(2));
+  const executablePath = args.chrome || CHROMES.find((p) => fs.existsSync(p));
+  if (!executablePath) {
+    console.error("no Chrome/Chromium found; pass --chrome /path/to/chrome");
+    process.exit(1);
+  }
+  const browser = await pw.chromium.launch({ executablePath });
+  try {
+    const context = await browser.newContext({
+      viewport: { width: args.width, height: args.height },
+      deviceScaleFactor: args.dsf,
+    });
+    const page = await context.newPage();
+    // The video is dark; make sure the page is too (theme.ts STORAGE_KEY).
+    await page.addInitScript(() => localStorage.setItem("evalrx-theme", "dark"));
+    await page.goto(args.url, { waitUntil: "networkidle", timeout: 60000 });
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForSelector("footer", { timeout: 30000 });
+    await page.evaluate(() => new Promise((resolve) =>   // charts have painted
+      requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.waitForTimeout(600);                      // ECharts entrance margin
+
+    if (args.view !== "overview" || args.stage) {
+      const view = args.stage ? "evidence" : args.view;
+      if (view === "evidence") {
+        // The overview page ends with the evidence/cases/debug index buttons.
+        await page.locator(".evidence-index button", { hasText: "evidence" }).first().click();
+        await page.waitForSelector(".stage-list", { timeout: 30000 });
+        if (args.stage) {               // the stage pages inside evidence view
+          await page.locator(".stage-list button", { hasText: args.stage }).first().click();
+        }
+      } else {
+        await page.locator(".evidence-index button", { hasText: view }).first().click();
+      }
+      await page.waitForTimeout(600);   // view transition + charts
+      // A click in the footer (or, for --stage, on the sticky stage-list)
+      // leaves the viewport scrolled away from the top; the new view's header
+      // would be cropped. The page uses scroll-behavior: smooth, so window
+      // scrollTo is animated and would still be in flight when the screenshot
+      // fires — force it to instant and wait for the next paint.
+      await page.evaluate(() => {
+        document.documentElement.style.scrollBehavior = "auto";
+        window.scrollTo(0, 0);
+      });
+      await page.waitForTimeout(150);
+      await page.evaluate(() => new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    }
+    fs.mkdirSync(path.dirname(args.out), { recursive: true });
+    await page.screenshot({ path: args.out, fullPage: !args.viewport });
+    const what = args.stage ? `evidence/${args.stage}` : args.view;
+    console.log(`${args.out}  (${what}, ${args.width * args.dsf}px wide)`);
+  } finally {
+    await browser.close();
+  }
+})().catch((err) => { console.error(err); process.exit(1); });

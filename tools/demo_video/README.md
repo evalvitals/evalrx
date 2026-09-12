@@ -35,11 +35,22 @@ python tools/demo_video/render_svg.py "$RUN" --at 22 \
 
 python tools/demo_video/render_mp4.py "$RUN" \
     --out docs/assets/demo/evalrx-run.mp4 \
-    --command "$INSTALL" --command "$LAUNCH" --end-card
+    --command "$INSTALL" --command "$LAUNCH" \
+    --ui-page build/ui/overview.png --ui-url http://localhost:8520 \
+    --serve-cmd "evalrx serve path/to/run --port 8520" \
+    --serve-out "Serving dynamic diagnostic report at http://127.0.0.1:8520" \
+    --end-card
 ```
 
-`--ui-shot FILE` (repeatable) appends report-UI screenshots before the title
-card. Only pass shots of **this** run's own report — a different run's UI
+`--ui-page FILE` is what turns the report into part of the story: the terminal
+types the `evalrx serve` hand-off (`--serve-cmd`, `--serve-out`; the real
+command and its real output line), then a browser window cross-fades in and
+scrolls the full-page overview shot top to bottom. The scroll duration adapts
+to the page height; `--ui-scroll-seconds` overrides it.
+
+`--ui-shot FILE` (repeatable) appends further report-UI screenshots after the
+browser act — other views of the same report, shown in the same browser
+window. Only pass shots of **this** run's own report — a different run's UI
 behind this run's terminal would be a claim neither of them made.
 
 `--at SECONDS` on `render_svg.py` writes a still frame instead of the loop —
@@ -77,17 +88,27 @@ python tools/demo_video/storyboard.py \
 Whichever path produced it, the storyboard records which one in
 `meta.provenance`, and the committed JSON is small enough to review in a diff.
 
-## Screenshots for the video's closing act
+## Screenshots for the video's UI act
 
-The MP4's last act is the real report UI. Serve a finished run and capture it:
+The MP4's closing acts are the real report UI. Serve a finished run and shoot
+it — `shoot_ui` uses the playwright-core the web build already carries, with a
+system Chrome, so there is nothing to install:
 
 ```bash
-evalrx serve path/to/run --port 8520
-# then screenshot the overview and the M1-M5 flowboard into build/ui/
+evalrx serve path/to/run --port 8520 &
+node tools/demo_video/shoot_ui --url http://localhost:8520 --out build/ui/overview.png
+```
+
+An exported `report.html` works too (no server needed), and `--view
+evidence|cases|debug` captures the other views for `--ui-shot`:
+
+```bash
+node tools/demo_video/shoot_ui --url file:///abs/path/report.html
 ```
 
 The SVG deliberately stays terminal-only — an inline README image should not
-carry a megabyte of screenshots.
+carry a megabyte of screenshots, and `timeline.build`'s serve segment is
+opt-in, which the SVG renderer never takes.
 
 ## Requirements
 

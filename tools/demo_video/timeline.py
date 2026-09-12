@@ -71,11 +71,17 @@ def _clip(spans: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
     return out
 
 
-def build(board: dict[str, Any], *, commands: list[str]) -> dict[str, Any]:
+def build(board: dict[str, Any], *, commands: list[str],
+          serve: dict[str, Any] | None = None) -> dict[str, Any]:
     """Lay the storyboard out on a clock.
 
     *commands* are the shell lines typed before the output starts — the real
     install and run commands, typed at :data:`theme.TYPE_CPS`.
+
+    *serve* optionally extends the clock past the result card with one more
+    typed command (``serve["cmd"]``) and its output lines (``serve["out"]``) —
+    the ``evalrx serve`` hand-off that motivates the MP4's browser act. The
+    SVG renderer passes nothing, so its timeline is unchanged.
     """
     meta = board["meta"]
     lines: list[dict[str, Any]] = []
@@ -114,6 +120,20 @@ def build(board: dict[str, Any], *, commands: list[str]) -> dict[str, Any]:
     card_t = t + 0.35
     total = card_t + T.CARD_IN + T.HOLD_END
 
+    serve_seg: dict[str, Any] | None = None
+    if serve is not None:
+        serve_t0 = total                  # the card has had its HOLD_END by now
+        cmd = serve["cmd"]
+        typed.append({"t0": serve_t0, "text": cmd, "row": len(lines)})
+        lines.append({"t": serve_t0, "row": len(lines), "typing": len(typed) - 1,
+                      "spans": [("$ ", T.BLUE, "600"), (cmd, T.BRIGHT, "500")]})
+        t = serve_t0 + len(cmd) / T.TYPE_CPS + T.AFTER_ENTER
+        for out in serve.get("out", ()):
+            lines.append({"t": t, "row": len(lines), "spans": [(out, T.FG, "400")]})
+            t += 0.3
+        total = t + T.SERVE_HOLD
+        serve_seg = {"t0": serve_t0}
+
     n_cases = meta.get("n_cases") or 0
     n_failed = meta.get("n_failed") or 0
     tiles = [
@@ -145,4 +165,5 @@ def build(board: dict[str, Any], *, commands: list[str]) -> dict[str, Any]:
         "card": {"t": card_t, "tiles": tiles, "verdict": verdict},
         "total": total,
         "commands": commands,
+        "serve": serve_seg,
     }

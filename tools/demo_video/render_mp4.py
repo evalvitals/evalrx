@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Rasterise a storyboard into an MP4 (and optionally a GIF).
 
-Same storyboard, same :mod:`theme` geometry and the same
-:func:`timeline.build` cut as the README's animated SVG — this renderer only
-differs in that it draws with Pillow and hands the frames to ffmpeg, so the
-video can carry things an inline SVG should not: real screenshots of the report
-UI after the run, and a closing title.
+    Same storyboard, same :mod:`theme` geometry and the same
+    :func:`timeline.build` cut as the README's animated SVG — this renderer only
+    differs in that it draws with Pillow and hands the frames to ffmpeg, so the
+    video can carry things an inline SVG should not: an ``evalrx serve``
+    hand-off, a browser act that scrolls a full-page screenshot of the report
+    UI, real screenshots of its other views, and a closing title.
 
     python tools/demo_video/render_mp4.py build/board.json \
-        --out build/evalrx-run.mp4 --ui-shot build/ui/*.png
+        --out build/evalrx-run.mp4 \
+        --ui-page build/ui/overview.png --ui-shot build/ui/*.png
 
 Needs Pillow and ffmpeg on PATH. Fonts: any monospace TTF found on the box,
 falling back to the DejaVu faces matplotlib ships, so a render is reproducible
@@ -114,6 +116,7 @@ class Renderer:
         self.tile_label = _font("sans", 12)
         self.verdict = _font("sans", 12.5, bold=True)
         self.backdrop = _glow(centre=-0.05, spread=0.42, strength=0.55)
+        self.serve_t0 = tl["serve"]["t0"] if tl.get("serve") else None
         self.first_seen: dict[str, float] = {}
         for line in tl["lines"]:
             stage = line.get("stage")
@@ -228,6 +231,12 @@ class Renderer:
             return
         alpha = min(1.0, (t - card["t"]) / T.CARD_IN)
         y0 = T.WIN_Y + T.WIN_H - T.FOOT_H - 104 + (1.0 - alpha) * 10
+        if self.serve_t0 is not None and t > self.serve_t0:
+            # The serve command takes the stage: the verdict has had its hold,
+            # and on a long log the new prompt needs the bottom rows back.
+            out_a = max(0.0, 1.0 - (t - self.serve_t0) / 0.4)
+            alpha *= out_a
+            y0 += (1.0 - out_a) * 14.0
         d.line([T.WIN_X + 22, y0, T.WIN_X + T.WIN_W - 22, y0],
                fill=_mix(T.BORDER, T.WIN_BG, alpha))
         tile_w = (T.WIN_W - 44) / max(1, len(card["tiles"]))
@@ -254,24 +263,114 @@ class Renderer:
         return img
 
 
-def _ui_act(shots: list[Path], *, seconds_each: float, fps: int,
-            fade: float = 0.35) -> Iterable[Image.Image]:
-    """Real report-UI screenshots, cross-faded, as the closing act."""
+def _ease_io_cubic(x: float) -> float:
+    """easeInOutCubic — the browser act's scroll curve."""
+    return 4 * x ** 3 if x < 0.5 else 1 - (-2 * x + 2) ** 3 / 2
+
+
+def _browser_chrome(d: ImageDraw.ImageDraw, url: str,
+                    font: ImageFont.FreeTypeFont) -> None:
+    """The browser twin of :meth:`Renderer._window`: the same frame, corner
+    radius and traffic lights, but a URL field where the terminal keeps its
+    heading, and no status bar."""
+    d.rounded_rectangle([T.WIN_X, T.WIN_Y, T.WIN_X + T.WIN_W, T.WIN_Y + T.WIN_H],
+                        radius=T.WIN_R, fill=_rgb(T.WIN_BG), outline=_rgb(T.BORDER))
+    d.rounded_rectangle([T.WIN_X, T.WIN_Y, T.WIN_X + T.WIN_W, T.WIN_Y + T.BAR_H],
+                        radius=T.WIN_R, fill=_rgb(T.WIN_BG2))
+    d.rectangle([T.WIN_X, T.WIN_Y + T.BAR_H - T.WIN_R,
+                 T.WIN_X + T.WIN_W, T.WIN_Y + T.BAR_H], fill=_rgb(T.WIN_BG2))
+    d.line([T.WIN_X, T.WIN_Y + T.BAR_H, T.WIN_X + T.WIN_W, T.WIN_Y + T.BAR_H],
+           fill=_rgb(T.BORDER))
+    mid = T.WIN_Y + T.BAR_H / 2
+    for i, colour in enumerate(T.LIGHTS):
+        cx = T.WIN_X + 22 + i * 18
+        d.ellipse([cx - 5.5, mid - 5.5, cx + 5.5, mid + 5.5], fill=_rgb(colour))
+    d.rounded_rectangle([T.URL_X0, mid - T.URL_FIELD_H / 2,
+                         T.URL_X1, mid + T.URL_FIELD_H / 2],
+                        radius=T.URL_FIELD_R, fill=_rgb(T.GRID))
+    d.ellipse([T.URL_X0 + 10, mid - 2.5, T.URL_X0 + 15, mid + 2.5], fill=_rgb(T.DIM))
+    d.text((T.URL_X0 + 22, mid), url, font=font, fill=_rgb(T.FG), anchor="lm")
+    for i in range(3):                      # the "menu" dots
+        cx = T.URL_X1 - 46 + i * 10
+        d.ellipse([cx - 2, mid - 2, cx + 2, mid + 2], fill=_rgb(T.GRID))
+
+
+def _browser_base(url: str, font: ImageFont.FreeTypeFont) -> Image.Image:
+    """Backdrop + browser chrome, viewport empty — the shared canvas of the
+    UI acts. The glow matches the terminal act's, so their cross-fade is
+    only the window that changes."""
+    base = _glow(centre=-0.05, spread=0.42, strength=0.55)
+    _browser_chrome(ImageDraw.Draw(base), url, font)
+    return base
+
+
+def _browser_act(page: Path, url: str, *, scroll_seconds: float, fps: int,
+                 fade_from: Image.Image | None = None,
+                 fade: float = T.XFADE) -> Iterable[Image.Image]:
+    """The report's overview: a browser window scrolling a full-page shot.
+
+    One tall screenshot, eased top to bottom — a guided tour of the report
+    the run just produced. Yields every frame; the last is the natural
+    fade-from source for whatever act follows it.
+    """
+    base = _browser_base(url, _font("mono", 11))
+    content = Image.open(page).convert("RGB")
+    if content.width != T.WIN_W:
+        content = content.resize(
+            (T.WIN_W, max(1, round(content.height * T.WIN_W / content.width))),
+            Image.LANCZOS)
+    dist = max(0, content.height - T.BROWSE_VH)
+    if scroll_seconds > 0:
+        duration = scroll_seconds
+    else:
+        duration = min(T.SCROLL_MAX, max(T.SCROLL_MIN, dist / T.SCROLL_PPS))
+    vx, vy = T.WIN_X, T.WIN_Y + T.BAR_H
+
+    def shot(off: float) -> Image.Image:
+        frame = base.copy()
+        if content.height >= T.BROWSE_VH:
+            off = min(round(off), dist)
+            frame.paste(content.crop((0, off, T.WIN_W, off + T.BROWSE_VH)), (vx, vy))
+        else:                       # page shorter than the viewport: top-align
+            frame.paste(content, (vx, vy))
+        return frame
+
+    first = shot(0.0)
+    if fade_from is not None and fade > 0:
+        for frame_no in range(int(fade * fps)):
+            yield Image.blend(fade_from, first, (frame_no / fps) / fade)
+    for frame_no in range(max(1, int(duration * fps))):
+        t = frame_no / fps
+        yield shot(dist * _ease_io_cubic(min(1.0, t / duration)))
+    end = shot(float(dist))
+    yield end
+    for _ in range(int(T.BROWSE_HOLD * fps)):
+        yield end
+
+
+def _ui_act(shots: list[Path], *, url: str, seconds_each: float, fps: int,
+            fade_from: Image.Image | None = None,
+            fade: float = T.XFADE) -> Iterable[Image.Image]:
+    """Real report-UI screenshots in the browser window, cross-faded."""
+    base = _browser_base(url, _font("mono", 11))
+    vx, vy = T.WIN_X, T.WIN_Y + T.BAR_H
     prepared = []
     for shot in shots:
         image = Image.open(shot).convert("RGB")
-        canvas = Image.new("RGB", (T.W, T.H), _rgb(T.BG))
-        scale = min(T.W / image.width, T.H / image.height)
-        resized = image.resize((int(image.width * scale), int(image.height * scale)),
-                               Image.LANCZOS)
-        canvas.paste(resized, ((T.W - resized.width) // 2,
-                               (T.H - resized.height) // 2))
+        scale = min(T.WIN_W / image.width, T.BROWSE_VH / image.height)
+        resized = image.resize((max(1, round(image.width * scale)),
+                                max(1, round(image.height * scale))), Image.LANCZOS)
+        canvas = base.copy()
+        canvas.paste(resized, (vx + (T.WIN_W - resized.width) // 2,
+                               vy + (T.BROWSE_VH - resized.height) // 2))
         prepared.append(canvas)
     for index, canvas in enumerate(prepared):
         for frame_no in range(int(seconds_each * fps)):
             t = frame_no / fps
             if index and t < fade:
                 yield Image.blend(prepared[index - 1], canvas, t / fade)
+            elif index == 0 and fade_from is not None and t < fade:
+                yield Image.blend(fade_from, canvas, t / fade)
             else:
                 yield canvas
 
@@ -314,8 +413,21 @@ def main() -> int:
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--command", action="append", default=None)
     ap.add_argument("--title", default=None)
+    ap.add_argument("--ui-page", type=Path, default=None,
+                    help="full-page report-UI screenshot: adds the serve "
+                         "hand-off and a scrolling browser act")
+    ap.add_argument("--ui-url", default="http://localhost:8501",
+                    help="URL text for the browser window's address field")
+    ap.add_argument("--ui-scroll-seconds", type=float, default=0.0,
+                    help="browser scroll duration; 0 = adapt to the page height")
+    ap.add_argument("--serve-cmd", default=None,
+                    help="command typed after the result card "
+                         "(default: evalrx serve . --port 8501)")
+    ap.add_argument("--serve-out", default=None,
+                    help="serve output line (default: the real server message)")
     ap.add_argument("--ui-shot", type=Path, action="append", default=None,
-                    help="report-UI screenshot to show after the run (repeatable)")
+                    help="report-UI screenshot to show after the browser act "
+                         "(repeatable)")
     ap.add_argument("--ui-seconds", type=float, default=2.6)
     ap.add_argument("--end-card", action="store_true",
                     help="append the closing title frame")
@@ -330,7 +442,14 @@ def main() -> int:
     board = json.loads(args.storyboard.read_text())
     meta = board["meta"]
     commands = args.command or default_commands(meta)
-    tl = TL.build(board, commands=commands)
+    serve = None
+    if args.ui_page or args.serve_cmd:
+        serve = {
+            "cmd": args.serve_cmd or "evalrx serve . --port 8501",
+            "out": [args.serve_out or
+                    "Serving dynamic diagnostic report at http://127.0.0.1:8501"],
+        }
+    tl = TL.build(board, commands=commands, serve=serve)
     heading = args.title or f"evalrx · {meta.get('model')} × {meta.get('dataset')}"
     renderer = Renderer(tl, heading=heading)
 
@@ -338,15 +457,27 @@ def main() -> int:
     frames_dir = args.keep_frames or work / "frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
 
+    def emit(image: Image.Image) -> None:
+        nonlocal count
+        image.save(frames_dir / f"f{count:05d}.png")
+        count += 1
+
     count = 0
     total_frames = int(tl["total"] * args.fps)
     for frame_no in range(total_frames):
-        renderer.frame(frame_no / args.fps).save(frames_dir / f"f{count:05d}.png")
-        count += 1
+        emit(renderer.frame(frame_no / args.fps))
+    last = renderer.frame((total_frames - 1) / args.fps) if total_frames else None
+    if args.ui_page:
+        for image in _browser_act(args.ui_page, args.ui_url,
+                                  scroll_seconds=args.ui_scroll_seconds,
+                                  fps=args.fps, fade_from=last):
+            emit(image)
+            last = image
     if args.ui_shot:
-        for image in _ui_act(args.ui_shot, seconds_each=args.ui_seconds, fps=args.fps):
-            image.save(frames_dir / f"f{count:05d}.png")
-            count += 1
+        for image in _ui_act(args.ui_shot, url=args.ui_url,
+                             seconds_each=args.ui_seconds, fps=args.fps,
+                             fade_from=last):
+            emit(image)
 
     if args.end_card:
         for image in _end_card(seconds=args.end_seconds, fps=args.fps):
