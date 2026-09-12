@@ -1,0 +1,149 @@
+{
+  "meta": {
+    "n_hypotheses": 3,
+    "n_supported": 2,
+    "fixed": true,
+    "model": "gemma-4-e2b",
+    "dataset": "MMAU",
+    "n_cases": 256,
+    "n_failed": 162,
+    "fix": {
+      "name": "malformed_choice_consensus",
+      "effect": 0.5,
+      "n_fixed": 25,
+      "n_broken": 0
+    },
+    "dataset_full": "MMAU",
+    "wall_clock_sec": 1212.4,
+    "source": "tools/demo_video/storyboards/mmau-gemma-4-e2b.txt",
+    "provenance": "terminal transcript of a real narrated run (mmau-gemma-4-e2b.txt); not cross-checked against its logs"
+  },
+  "beats": [
+    {
+      "kind": "plain",
+      "text": "[model] gemma-4-e2b, spec gemma-4-e2b-it; backend=endpoint; dataset=mmau; n=256",
+      "cls": "dim"
+    },
+    {
+      "kind": "plain",
+      "text": "Baseline: PASS=94, FAIL=162, accuracy=0.3672",
+      "cls": "dim"
+    },
+    {
+      "kind": "plain",
+      "text": "VLDiagnoseLoop  model=gemma-4-e2b  max_cycles=1",
+      "cls": "banner"
+    },
+    {
+      "kind": "row",
+      "code": "RUN",
+      "label": "loop        ",
+      "dots": "··········",
+      "detail": "starting · model=APIModel(key='gemma-4-e2b-it', caps=['generate', 'logprobs', 'tool_calls']) · n_cases=128",
+      "real_sec": null
+    },
+    {
+      "kind": "row",
+      "code": "M1 ",
+      "label": "probe       ",
+      "dots": "·········",
+      "detail": "cycle 0 · 8 analyzers run (338.4s)",
+      "real_sec": 338.4,
+      "elapsed_sec": 338.4
+    },
+    {
+      "kind": "row",
+      "code": "M2 ",
+      "label": "explore     ",
+      "dots": "·······",
+      "detail": "cycle 0 · explore report ready (627.7s)",
+      "real_sec": 627.7,
+      "elapsed_sec": 966.1
+    },
+    {
+      "kind": "row",
+      "code": "M2 ",
+      "label": "explore     ",
+      "dots": "·······",
+      "detail": "cycle 0 · 0 finding(s) · severity=none · 1 figure(s) (74.9s)",
+      "real_sec": 74.9,
+      "elapsed_sec": 1041.0
+    },
+    {
+      "kind": "row",
+      "code": "M3 ",
+      "label": "diagnose    ",
+      "dots": "······",
+      "detail": "cycle 0 · 3 falsifiable hypotheses proposed (129.4s)",
+      "real_sec": 129.4,
+      "elapsed_sec": 1170.4
+    },
+    {
+      "kind": "row",
+      "code": "M4 ",
+      "label": "verify      ",
+      "dots": "········",
+      "detail": "cycle 0 · {mark} A large share of failures are output-contract collapse rather than ... — supported (14.0s)",
+      "real_sec": 14.0,
+      "mark": "ok",
+      "elapsed_sec": 1184.4
+    },
+    {
+      "kind": "row",
+      "code": "M4 ",
+      "label": "verify      ",
+      "dots": "········",
+      "detail": "cycle 0 · {mark} Even in the well-formed subgroup, the emitted letter is driven by o... — supported (14.0s)",
+      "real_sec": 14.0,
+      "mark": "ok",
+      "elapsed_sec": 1198.4
+    },
+    {
+      "kind": "row",
+      "code": "M4 ",
+      "label": "verify      ",
+      "dots": "········",
+      "detail": "cycle 0 · {mark} The audio channel is not influencing the model's answer at all — th... — inconclusive (14.0s)",
+      "real_sec": 14.0,
+      "mark": "bad",
+      "elapsed_sec": 1212.4
+    },
+    {
+      "kind": "row",
+      "code": "RUN",
+      "label": "loop        ",
+      "dots": "··········",
+      "detail": "done · 1 cycle(s) · resolved=True · stopped_by=criteria_met · 3 hypotheses",
+      "real_sec": null
+    },
+    {
+      "kind": "row",
+      "code": "M5 ",
+      "label": "intervene   ",
+      "dots": "·····",
+      "detail": "{mark} repair experiment — inconclusive",
+      "real_sec": null,
+      "mark": "bad",
+      "elapsed_sec": 1212.4
+    },
+    {
+      "kind": "row",
+      "code": "M5 ",
+      "label": "intervene   ",
+      "dots": "·····",
+      "detail": "L2 malformed_choice_consensus {mark} +0.500 (n_fixed=25, n_broken=0)",
+      "real_sec": null,
+      "mark": "ok",
+      "elapsed_sec": 1212.4
+    },
+    {
+      "kind": "row",
+      "code": "M5 ",
+      "label": "intervene   ",
+      "dots": "·····",
+      "detail": "best: malformed_choice_consensus Δ=+0.500 (n_fixed=25, n_broken=0)",
+      "real_sec": null,
+      "elapsed_sec": 1212.4
+    }
+  ]
+}

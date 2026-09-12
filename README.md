@@ -18,6 +18,16 @@
 
 [Loop](#the-loop) · [Ladder](#the-repair-ladder) · [Trust](#why-the-loop-is-trustworthy) · [Quickstart](#quickstart) · [Docs](https://evalvitals.github.io/evalrx/overview/) · [Demo](https://evalvitals.github.io/evalrx/demo/) · [GitHub](https://github.com/evalvitals/evalrx)
 
+<br>
+
+[![A real EvalRX run: M1 probe through M5 repair on Gemma-4-E2B × MMAU](docs/assets/demo/evalrx-run.svg)](https://evalvitals.github.io/evalrx/demo/)
+
+<sub>One real run, replayed — 256 MMAU cases, 162 failures, two of three
+mechanisms upheld on cases the analysis never saw, and an L2 repair that fixed
+25 of them while breaking none. 20 minutes of work compressed into 22 seconds;
+the clock in the gutter is the run's own elapsed time.
+[Browse two full reports →](https://evalvitals.github.io/evalrx/demo/)</sub>
+
 </div>
 
 An eval score is a temperature reading. EvalRX runs the lab: probe a model for
