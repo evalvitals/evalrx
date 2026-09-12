@@ -25,14 +25,6 @@ failures, form a mechanism, test it on cases the analysis never saw, then
 climb a repair ladder until a fix beats the unmodified baseline. Only a
 held-out win updates the model — the healthier model becomes the next subject.
 
-<div align="center">
-
-| 46 | 56 | 744 | 5 |
-|:---:|:---:|:---:|:---:|
-| analyzers | model specs | unit tests | repair tiers, L1 → L4 |
-
-</div>
-
 ## The loop
 
 Five stages, no hand-off between them: one agent writes and runs its own
