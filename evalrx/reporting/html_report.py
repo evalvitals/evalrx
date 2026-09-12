@@ -456,6 +456,53 @@ def _extract_agent_layer(logs_dir: Path, explore_dir: "Path | None") -> dict[str
     return agents
 
 
+def _snapshot_explore_report(explore_event: dict[str, Any]) -> dict[str, Any]:
+    """The explore step's own report, read back out of a V2 explore event.
+
+    RunLoggerV2 keeps no explore/ directory beside the logs. It inlines the
+    coder-agent's whole working directory on the explore event
+    (``workspace_snapshot.files``) and copies every figure into M2/artifacts/
+    under a content-hashed name, recording the original -> copied path pairs
+    as ``media_files``. The inlined ``exploratory_report.json`` is the very
+    document V1 wrote to explore/: the ranked takeaways with the charts each
+    one cites, the visual plan, the chart readings. Without it the M2 record
+    fell back to the event's observation sentences, which cite nothing, and
+    every finding rendered as "referenced visual evidence was not found" with
+    all of its charts filed under supporting material.
+
+    Returns {} when the event carries no parseable report (a run recorded
+    before the snapshot existed, or a report over the inline cap), leaving the
+    caller to that sentence-level fallback.
+    """
+    snapshot = explore_event.get("workspace_snapshot")
+    if not isinstance(snapshot, dict):
+        return {}
+    files = snapshot.get("files")
+    text = files.get("exploratory_report.json") if isinstance(files, dict) else None
+    if not isinstance(text, str) or not text.lstrip().startswith("{"):
+        return {}
+    try:
+        report = json.loads(text)
+    except ValueError:
+        return {}
+    if not isinstance(report, dict) or not (report.get("takeaways") or report.get("observations")):
+        return {}
+    report = dict(report)
+    # The report names its figures at sandbox paths that no longer exist; the
+    # copies under logs/ are what the event lists, and ``media_files`` is the
+    # join between the two.
+    report["figures"] = [f for f in explore_event.get("figures") or [] if isinstance(f, str)]
+    media_files = snapshot.get("media_files")
+    report["media_files"] = {
+        str(name): str(copied)
+        for name, copied in (media_files.items() if isinstance(media_files, dict) else [])
+        if isinstance(name, str) and isinstance(copied, str)
+    }
+    if not report.get("adjudication") and isinstance(explore_event.get("adjudication"), dict):
+        report["adjudication"] = explore_event["adjudication"]
+    return report
+
+
 def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str, Any]:
     """Parse all run artifacts dynamically into a unified dictionary."""
     logs_dir, explore_dir, fixes_dir = resolve_run_dirs(run_dir)
@@ -662,12 +709,19 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             explore_data = json.loads((explore_dir / "exploratory_report.json").read_text())
         except Exception:
             pass
+    # RunLoggerV2 records the explore step as an M2 event; both fallbacks
+    # below read from it.
+    explores = by_event("explore")
+    e0 = explores[-1] if explores else {}
     if not explore_data:
-        # RunLoggerV2 records the explore step as an M2 event: observations and
-        # caveats as sentences, figures as paths under logs/. Shape it the way
+        # The explorer's own report -- takeaways and the charts they cite --
+        # rides along inlined in the event's workspace snapshot; read that
+        # back first.
+        explore_data = _snapshot_explore_report(e0)
+    if not explore_data:
+        # No snapshot report: the event still carries observations and caveats
+        # as sentences and figures as paths under logs/. Shape those the way
         # the explore report is shaped, so the M2 record renders either.
-        explores = by_event("explore")
-        e0 = explores[-1] if explores else {}
         takeaways = []
         for text in a0.get("findings") or []:
             if isinstance(text, str) and text.strip():
