@@ -1,14 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="180mm" height="64mm" viewBox="0 0 1300 460" role="img" aria-labelledby="title desc"><title id="title">The EvalRX loop</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="190mm" height="55.4mm" viewBox="0 0 1440 420" role="img" aria-labelledby="title desc"><title id="title">The EvalRX loop</title>
   <desc id="desc">Probe, Explore and Diagnose feed a held-out verification gate. A refuted hypothesis returns to Probe. A supported hypothesis reaches Repair; a repair that beats the baseline becomes a validated fix, one that fails escalates one tier and tries Repair again.</desc>
   <defs>
-    <marker id="ldd-arrow-blue" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#58a6ff"></path></marker>
-    <marker id="ldd-arrow-green" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#3fb950"></path></marker>
-    <marker id="ldd-arrow-red" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#f85149"></path></marker>
+    <marker id="ldd-arrow-blue" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1l10 5-10 5z" fill="#58a6ff"></path></marker>
+    <marker id="ldd-arrow-green" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1l10 5-10 5z" fill="#3fb950"></path></marker>
+    <marker id="ldd-arrow-red" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="9" markerHeight="9" orient="auto"><path d="M1 1l10 5-10 5z" fill="#f85149"></path></marker>
   </defs>
 
-  <rect width="1300" height="460" fill="#0d1117"></rect>
+  <rect width="1440" height="420" fill="#0d1117"></rect>
 
-  <path d="M880 126C700 20 300 20 120 140" fill="none" stroke="#f85149" stroke-width="3.5" stroke-dasharray="9 10" marker-end="url(#ldd-arrow-red)"></path>
+  <path d="M880 126C700 20 300 20 120 136" fill="none" stroke="#f85149" stroke-width="3.5" stroke-dasharray="9 10" marker-end="url(#ldd-arrow-red)"></path>
   <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="1.4" fill="#f85149" x="500" y="26" text-anchor="middle">REFUTED</text>
 
   <g font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" text-anchor="middle">
@@ -35,19 +35,22 @@
 
   <path d="M780 194L880 126L980 194L880 262Z" fill="#0d1117" stroke="#e6edf3" stroke-width="3.5"></path>
   <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#e6edf3" x="880" y="201" text-anchor="middle">VERIFY</text>
-  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#8b949e" x="880" y="300" text-anchor="middle">held-out gate, M4</text>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#8b949e" x="880" y="298" text-anchor="middle">held-out gate, M4</text>
 
-  <path d="M220 194h60" fill="none" stroke="#58a6ff" stroke-width="6" stroke-linecap="round" marker-end="url(#ldd-arrow-blue)"></path>
-  <path d="M480 194h60" fill="none" stroke="#58a6ff" stroke-width="6" stroke-linecap="round" marker-end="url(#ldd-arrow-blue)"></path>
-  <path d="M740 194h40" fill="none" stroke="#58a6ff" stroke-width="6" stroke-linecap="round" marker-end="url(#ldd-arrow-blue)"></path>
-  <path d="M980 194h60" fill="none" stroke="#3fb950" stroke-width="6" stroke-linecap="round" marker-end="url(#ldd-arrow-green)"></path>
-  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.4" fill="#3fb950" x="1010" y="168" text-anchor="middle">SUPPORTED</text>
+  <path d="M220 194h56" fill="none" stroke="#58a6ff" stroke-width="5" stroke-linecap="round" marker-end="url(#ldd-arrow-blue)"></path>
+  <path d="M480 194h56" fill="none" stroke="#58a6ff" stroke-width="5" stroke-linecap="round" marker-end="url(#ldd-arrow-blue)"></path>
+  <path d="M740 194h36" fill="none" stroke="#58a6ff" stroke-width="5" stroke-linecap="round" marker-end="url(#ldd-arrow-blue)"></path>
+  <path d="M980 194h56" fill="none" stroke="#3fb950" stroke-width="5" stroke-linecap="round" marker-end="url(#ldd-arrow-green)"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.4" fill="#3fb950" x="1010" y="120" text-anchor="middle">SUPPORTED</text>
 
-  <path d="M1140 248v60" fill="none" stroke="#3fb950" stroke-width="6" stroke-linecap="round" marker-end="url(#ldd-arrow-green)"></path>
-  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="15" fill="#8b949e" x="1160" y="295" text-anchor="start">beats baseline?</text>
+  <path d="M1140 248v62" fill="none" stroke="#3fb950" stroke-width="5" stroke-linecap="round" marker-end="url(#ldd-arrow-green)"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="15" fill="#8b949e" x="1162" y="295" text-anchor="start">beats baseline</text>
   <rect x="1040" y="330" width="200" height="60" rx="30" fill="#0d2818" stroke="#3fb950" stroke-width="3.5"></rect>
   <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="20" font-weight="700" letter-spacing="1.2" fill="#3fb950" x="1140" y="367" text-anchor="middle">VALIDATED FIX</text>
 
-  <path d="M1240 220C1300 220 1300 168 1240 168" fill="none" stroke="#f85149" stroke-width="3.5" stroke-dasharray="8 9" marker-end="url(#ldd-arrow-red)"></path>
-  <text transform="rotate(90 1282 194)" font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="1" fill="#f85149" x="1282" y="194" text-anchor="middle">ESCALATE TIER</text>
+  <path d="M1240 226C1322 226 1322 162 1244 162" fill="none" stroke="#f85149" stroke-width="3.5" stroke-dasharray="8 9" marker-end="url(#ldd-arrow-red)"></path>
+  <g font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="1" fill="#f85149" text-anchor="start">
+    <text x="1340" y="188">ESCALATE</text>
+    <text x="1340" y="210">ONE TIER</text>
+  </g>
 </svg>
