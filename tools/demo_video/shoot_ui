@@ -20,6 +20,8 @@
  *   --out FILE       where the PNG goes        [build/ui/overview.png]
  *   --view NAME      overview | evidence | cases | debug  [overview]
  *   --stage CODE     with --view evidence: open this stage's page (M1..M5)
+ *   --full           with --stage: open the stage's Full record page — what
+ *                    "See everything this step recorded" leads to
  *   --width PX       viewport width; 1228 matches the video's window [1228]
  *   --height PX      viewport height; 626 matches it 1:1        [900]
  *   --viewport       shoot only the viewport instead of the full page
@@ -39,9 +41,9 @@ const CHROMES = ["/usr/bin/google-chrome", "/snap/bin/chromium",
 
 function parseArgs(argv) {
   const args = { url: null, out: "build/ui/overview.png", view: "overview",
-                 stage: null, width: 1228, height: 900, viewport: false,
-                 dsf: 2, chrome: null };
-  const flags = new Set(["viewport"]);
+                 stage: null, full: false, width: 1228, height: 900,
+                 viewport: false, dsf: 2, chrome: null };
+  const flags = new Set(["viewport", "full"]);
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i].replace(/^--/, "");
     if (!(key in args)) {
@@ -99,6 +101,10 @@ function parseArgs(argv) {
         await page.waitForSelector(".stage-list", { timeout: 30000 });
         if (args.stage) {               // the stage pages inside evidence view
           await page.locator(".stage-list button", { hasText: args.stage }).first().click();
+          if (args.full) {              // the record behind the summary
+            await page.waitForSelector(".depth-switch", { timeout: 10000 });
+            await page.locator(".depth-switch button", { hasText: "Full record" }).click();
+          }
         }
       } else {
         await page.locator(".evidence-index button", { hasText: view }).first().click();
@@ -119,7 +125,8 @@ function parseArgs(argv) {
     }
     fs.mkdirSync(path.dirname(args.out), { recursive: true });
     await page.screenshot({ path: args.out, fullPage: !args.viewport });
-    const what = args.stage ? `evidence/${args.stage}` : args.view;
+    const what = args.stage
+      ? `evidence/${args.stage}${args.full ? " full record" : ""}` : args.view;
     console.log(`${args.out}  (${what}, ${args.width * args.dsf}px wide)`);
   } finally {
     await browser.close();
