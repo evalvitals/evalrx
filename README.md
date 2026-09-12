@@ -18,6 +18,15 @@
 
 [Get started](#quickstart-analyze-your-eval-logs) · [Documentation](https://evalvitals.github.io/evalrx/overview/) · [Live demo](https://evalvitals.github.io/evalrx/demo/) · [Examples](examples/README.md) · [PyPI](https://pypi.org/project/evalrx/)
 
+<br>
+
+[![A real EvalRX run: M1 probe through M5 repair on Qwen3.5-2B × ChartQA](docs/assets/demo/evalrx-run.svg)](https://evalvitals.github.io/evalrx/demo/)
+
+<sub>One real run, replayed — 128 ChartQA cases, 47 failures, 5h44m compressed
+into 22s. Every line, count and verdict is this run's own; the clock in the
+gutter is its real elapsed time.
+[Open the full report →](https://evalvitals.github.io/evalrx/demo/)</sub>
+
 </div>
 
 Every eval stack ends at a score. EvalRX starts there and closes the loop:

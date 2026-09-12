@@ -1,0 +1,155 @@
+{
+  "meta": {
+    "model": "qwen3.5-2b-vl",
+    "dataset": "ChartQA",
+    "dataset_full": "ChartQA (Chart Visual Reasoning)",
+    "n_cases": 128,
+    "n_failed": 47,
+    "trace_id": "006c18cb-7de7-4069-8d28-281f130b427f",
+    "source": "/private/tmp/claude-501/-Users-yitongta-Desktop-Research----benchmark-evalvitals/e17b6b82-1ab8-4a11-b76b-296f25b38de4/scratchpad/vlm_demo.html",
+    "provenance": "exported report page (window.__EVALRX_REPORT__); stage durations are event-timestamp deltas, counts from the report's own stage data",
+    "fixed": false,
+    "n_supported": 2,
+    "n_hypotheses": 3,
+    "wall_clock_sec": 20622.80684
+  },
+  "beats": [
+    {
+      "kind": "plain",
+      "text": "[model] qwen3.5-2b-vl; dataset=chartqa; n=128",
+      "cls": "dim"
+    },
+    {
+      "kind": "plain",
+      "cls": "dim",
+      "text": "Baseline: PASS=81, FAIL=47, accuracy=0.6328"
+    },
+    {
+      "kind": "plain",
+      "text": "VLDiagnoseLoop  model=qwen3.5-2b-vl  held-out confirmation ON",
+      "cls": "banner"
+    },
+    {
+      "kind": "row",
+      "code": "RUN",
+      "label": "loop        ",
+      "dots": "··········",
+      "detail": "starting · model=qwen3.5-2b-vl · n_cases=128",
+      "real_sec": 0.0,
+      "elapsed_sec": 0.0
+    },
+    {
+      "kind": "row",
+      "code": "M1 ",
+      "label": "probe       ",
+      "dots": "·········",
+      "detail": "cycle 0 · 3 analyzers run (190.9s)",
+      "real_sec": 190.870782,
+      "elapsed_sec": 190.870782
+    },
+    {
+      "kind": "row",
+      "code": "M2 ",
+      "label": "explore     ",
+      "dots": "·······",
+      "detail": "cycle 0 · explore report ready (571.4s)",
+      "real_sec": 571.424683,
+      "elapsed_sec": 762.295465
+    },
+    {
+      "kind": "row",
+      "code": "M2 ",
+      "label": "explore     ",
+      "dots": "·······",
+      "detail": "cycle 0 · 16 finding(s) (75.7s)",
+      "real_sec": 75.719861,
+      "elapsed_sec": 838.015326
+    },
+    {
+      "kind": "row",
+      "code": "M3 ",
+      "label": "diagnose    ",
+      "dots": "······",
+      "detail": "cycle 0 · 3 falsifiable hypotheses proposed (169.4s)",
+      "real_sec": 169.384272,
+      "elapsed_sec": 1007.399598
+    },
+    {
+      "kind": "row",
+      "code": "M1 ",
+      "label": "probe       ",
+      "dots": "·········",
+      "detail": "3 analyzers run (95.8s)",
+      "real_sec": 95.771339,
+      "elapsed_sec": 1103.170937
+    },
+    {
+      "kind": "row",
+      "code": "M2 ",
+      "label": "explore     ",
+      "dots": "·······",
+      "detail": "16 finding(s) (67.1s)",
+      "real_sec": 67.133777,
+      "elapsed_sec": 1170.304714
+    },
+    {
+      "kind": "row",
+      "code": "M4 ",
+      "label": "verify      ",
+      "dots": "········",
+      "detail": "{mark} When the number the question asks for is written next to t… — supported (11.2s)",
+      "mark": "ok",
+      "real_sec": 11.164868,
+      "elapsed_sec": 1181.469582
+    },
+    {
+      "kind": "row",
+      "code": "M4 ",
+      "label": "verify      ",
+      "dots": "········",
+      "detail": "{mark} The model can usually read a number straight off a chart, … — supported (0.0s)",
+      "mark": "ok",
+      "real_sec": 0.000973,
+      "elapsed_sec": 1181.470555
+    },
+    {
+      "kind": "row",
+      "code": "M4 ",
+      "label": "verify      ",
+      "dots": "········",
+      "detail": "{mark} On the yes-or-no questions the model says \"yes\" almost eve… — refuted (0.0s)",
+      "mark": "bad",
+      "real_sec": 0.000754,
+      "elapsed_sec": 1181.471309
+    },
+    {
+      "kind": "row",
+      "code": "RUN",
+      "label": "loop        ",
+      "dots": "··········",
+      "detail": "done · resolved=True · stopped_by=max_cycles · 2 supported",
+      "real_sec": 0.001173,
+      "elapsed_sec": 1181.472482
+    },
+    {
+      "kind": "row",
+      "code": "M5 ",
+      "label": "intervene   ",
+      "dots": "·····",
+      "detail": "{mark} repair experiment — refuted (122.7s)",
+      "mark": "bad",
+      "real_sec": 122.658668,
+      "elapsed_sec": 1304.13115
+    },
+    {
+      "kind": "row",
+      "code": "M5 ",
+      "label": "intervene   ",
+      "dots": "·····",
+      "detail": "{mark} coded_pipeline did not validate — recommend L3b",
+      "mark": "bad",
+      "real_sec": 19318.67569,
+      "elapsed_sec": 20622.80684
+    }
+  ]
+}
