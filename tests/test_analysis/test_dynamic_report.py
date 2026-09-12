@@ -389,3 +389,115 @@ def test_stage_figures_embed_everywhere_they_are_cited(tmp_path):
     m3_uri = data["stage_detail"]["m3"]["evidence_figures"][0].get("data_uri")
     assert m2_uri and m2_uri.startswith("data:image/png;base64,")
     assert m3_uri == m2_uri
+
+
+def _v2_run_with_explore_snapshot(tmp_path, report: dict, figure_names: list[str]):
+    """A V2 run whose explore step left its workdir to be inlined on the event."""
+    from types import SimpleNamespace
+
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+    # Not beside logs/: a sibling explore/ would be read as a V1 layout.
+    workdir = tmp_path / "sandbox" / "explore"
+    (workdir / "figures").mkdir(parents=True)
+    for name in figure_names:
+        (workdir / "figures" / name).write_bytes(b"\x89PNG fake " + name.encode())
+    (workdir / "exploratory_report.json").write_text(json.dumps(report), encoding="utf-8")
+    run_dir = tmp_path / "logs"
+    logger = RunLoggerV2(run_dir, observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "benchmark_name": "demo-set", "n_cases": 1, "protocol": {}})
+    explorer_report = SimpleNamespace(
+        ok=True, charts=[], observations=list(report.get("observations") or []),
+        caveats=list(report.get("caveats") or []), candidate_signals=[], hypotheses=[],
+        tables={}, adjudication={}, attempts=1, error="", code="", raw_outputs=[], model_calls=[],
+    )
+    logger.log_explore(0, explorer_report, out_dir=workdir, duration_sec=1.0)
+    logger.close()
+    return run_dir
+
+
+def test_v2_explore_snapshot_links_takeaways_to_the_charts_they_cite(tmp_path):
+    # RunLoggerV2 writes no explore/ directory: the explorer's report is inlined
+    # on the explore event and its figures are copied into M2/artifacts/ under
+    # hashed names. The published M2 record used to be built from the event's
+    # observation sentences (which cite nothing) over figures named by their
+    # hashed stems, so every finding rendered "referenced visual evidence was
+    # not found" with all its charts filed under supporting material.
+    from evalrx.reporting.dynamic import build_report_data
+
+    report = {
+        "ok": True,
+        "observations": ["128 cases, 65 FAIL and 63 PASS."],
+        "takeaways": [
+            {"title": "Long replies fail", "plain_title": "Long replies are usually wrong",
+             "analysis": "6 of 7 replies over 15 characters failed.", "caveat": "Seven cases.",
+             "chart_names": ["failrate_by_answer_length", "answer_length_ecdf"],
+             "table_names": ["per_signal_screening"]},
+            {"title": "Balanced set", "plain_title": "The set is balanced",
+             "analysis": "65 to 63.", "chart_names": ["class_balance"], "table_names": []},
+        ],
+        "visual_plan": [
+            {"name": "class_balance", "display_name": "How many cases failed and how many passed",
+             "question": "How is the set split?", "disposition": "primary"},
+            # Sorts before its own file's neighbour ``..._band``: the exact
+            # name must win over the containing one.
+            {"name": "failrate_by_answer_length", "display_name": "Failure rate by answer length",
+             "question": "Do long answers fail more?", "disposition": "primary"},
+            {"name": "failrate_by_answer_length_band", "display_name": "Failure rate by length band",
+             "question": "", "disposition": "supporting"},
+        ],
+        "chart_readings": [{"chart": "class_balance", "reading": "65 wrong, 63 right.",
+                            "do_not_infer": "Says nothing about which cases fail."}],
+        "caveats": ["Thresholds were chosen in-sample."],
+    }
+    run_dir = _v2_run_with_explore_snapshot(tmp_path, report, [
+        "00_class_balance.png", "01_failrate_by_answer_length.png",
+        "02_failrate_by_answer_length_band.png", "answer_length_ecdf.png",
+    ])
+
+    m2 = build_report_data(run_dir)["stage_detail"]["m2"]
+
+    assert [item["chart_names"] for item in m2["takeaways"]] == [
+        ["failrate_by_answer_length", "answer_length_ecdf"], ["class_balance"]]
+    assert m2["takeaways"][0]["plain_title"] == "Long replies are usually wrong"
+    assert m2["takeaways"][0]["caveat"] == "Seven cases."
+    assert m2["observations"] == ["128 cases, 65 FAIL and 63 PASS."]
+    assert m2["caveats"] == ["Thresholds were chosen in-sample."]
+
+    by_id = {figure["id"]: figure for figure in m2["figures"]}
+    # Ids are the names the takeaways cite -- never the hashed copy's stem.
+    assert set(by_id) == {"class_balance", "failrate_by_answer_length",
+                          "failrate_by_answer_length_band", "answer_length_ecdf"}
+    assert by_id["failrate_by_answer_length"]["path"].startswith("M2/artifacts/01_failrate_by_answer_length_")
+    assert by_id["failrate_by_answer_length_band"]["path"].startswith("M2/artifacts/02_failrate_by_answer_length_band_")
+    assert by_id["class_balance"]["title"] == "How many cases failed and how many passed"
+    assert by_id["class_balance"]["question"] == "How is the set split?"
+    assert by_id["class_balance"]["reading"] == "65 wrong, 63 right."
+    assert by_id["class_balance"]["disposition"] == "primary"
+    assert by_id["answer_length_ecdf"]["disposition"] == "audit"
+    for figure in m2["figures"]:
+        assert (run_dir / figure["path"]).is_file(), figure["path"]
+
+
+def test_v2_explore_event_without_a_snapshot_report_still_renders_its_sentences(tmp_path):
+    # A run recorded before the snapshot carried the report (or one whose
+    # report was over the inline cap) keeps the sentence-level fallback.
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.dynamic import build_report_data
+
+    run_dir = tmp_path / "logs"
+    logger = RunLoggerV2(run_dir, observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "benchmark_name": "demo-set", "n_cases": 1, "protocol": {}})
+    logger._append_stage("M2", "explore", {
+        "cycle": 0, "ok": True, "observations": ["Every long reply failed; short ones were mixed."],
+        "caveats": [], "figures": [], "workspace_snapshot": {"files": {
+            "exploratory_report.json": "<skipped: 999999 bytes, over the inline cap>"}, "media": [],
+            "media_files": {}, "skipped": 1},
+    })
+    logger.close()
+
+    m2 = build_report_data(run_dir)["stage_detail"]["m2"]
+
+    assert [item["title"] for item in m2["takeaways"]] == ["Every long reply failed"]
+    assert m2["takeaways"][0]["chart_names"] == []
+    assert m2["figures"] == []
