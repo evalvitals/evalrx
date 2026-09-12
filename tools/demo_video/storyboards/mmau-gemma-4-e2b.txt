@@ -1,0 +1,15 @@
+[model] gemma-4-e2b, spec gemma-4-e2b-it; backend=endpoint; dataset=mmau; n=256
+Baseline: PASS=94, FAIL=162, accuracy=0.3672
+VLDiagnoseLoop  model=gemma-4-e2b  max_cycles=1
+RUN loop        ·········· starting · model=APIModel(key='gemma-4-e2b-it', caps=['generate', 'logprobs', 'tool_calls']) · n_cases=128
+M1  probe       ········· cycle 0 · 8 analyzers run (338.4s)
+M2  explore     ······· cycle 0 · explore report ready (627.7s)
+M2  explore     ······· cycle 0 · 0 finding(s) · severity=none · 1 figure(s) (74.9s)
+M3  diagnose    ······ cycle 0 · 3 falsifiable hypotheses proposed (129.4s)
+M4  verify      ········ cycle 0 · ✓ A large share of failures are output-contract collapse rather than ... — supported (14.0s)
+M4  verify      ········ cycle 0 · ✓ Even in the well-formed subgroup, the emitted letter is driven by o... — supported (14.0s)
+M4  verify      ········ cycle 0 · ✗ The audio channel is not influencing the model's answer at all — th... — inconclusive (14.0s)
+RUN loop        ·········· done · 1 cycle(s) · resolved=True · stopped_by=criteria_met · 3 hypotheses
+M5  intervene   ····· ✗ repair experiment — inconclusive
+M5  intervene   ····· L2 malformed_choice_consensus ✓ +0.500 (n_fixed=25, n_broken=0)
+M5  intervene   ····· best: malformed_choice_consensus Δ=+0.500 (n_fixed=25, n_broken=0)
