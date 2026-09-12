@@ -27,9 +27,9 @@ held-out win updates the model — the healthier model becomes the next subject.
 
 <div align="center">
 
-| 46 | 56 | 744 | 5 | 2 |
-|:---:|:---:|:---:|:---:|:---:|
-| analyzers | model specs | unit tests | repair tiers, L1 → L4 | reproducible runs |
+| 46 | 56 | 744 | 5 |
+|:---:|:---:|:---:|:---:|
+| analyzers | model specs | unit tests | repair tiers, L1 → L4 |
 
 </div>
 
@@ -41,31 +41,10 @@ which tier a mechanism needs. A refuted hypothesis returns to probing; a
 repair that fails moves to the next tier within the ceiling you set. You
 supply the question and the ceiling — everything between is unattended.
 
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {
-  "primaryColor": "#EAF4FF",
-  "primaryBorderColor": "#3D8DFF",
-  "primaryTextColor": "#0b0d0f",
-  "lineColor": "#3D8DFF",
-  "secondaryColor": "#E7F4EC",
-  "secondaryBorderColor": "#39A96B",
-  "tertiaryColor": "#F9EAEA",
-  "tertiaryBorderColor": "#D45656"
-}}}%%
-flowchart LR
-    A[Open-weight model] --> B[Probe]
-    B --> C[Explore]
-    C --> D[Diagnose]
-    D --> E{Held-out<br/>verification}
-    E -->|refuted| B
-    E -->|supported| F[Repair]
-    F --> G{Beats<br/>baseline?}
-    G -->|yes| H[Validated fix]
-    G -->|no| I[Escalate one tier]
-    I --> F
-    class H success
-    classDef success fill:#E7F4EC,stroke:#39A96B,stroke-width:2px,color:#0b0d0f;
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/figures/loop-diagram-dark.svg">
+  <img src="docs/assets/figures/loop-diagram.svg" alt="Probe, Explore and Diagnose feed a held-out Verify gate. A refuted hypothesis returns to Probe. A supported one reaches Repair; a repair that beats the baseline becomes a validated fix, one that fails escalates one tier and tries Repair again.">
+</picture>
 
 The held-out split is taken *before* Explore runs, so Verify always scores on
 rows the analysis never touched. [Full-loop quickstart →](docs/quickstart.md#vldiagnoseloop--automated-failure-attribution-current) · [Intervention guide →](docs/intervention.md)

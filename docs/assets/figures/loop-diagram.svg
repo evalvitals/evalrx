@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180mm" height="64mm" viewBox="0 0 1300 460" role="img" aria-labelledby="title desc"><title id="title">The EvalRX loop</title>
+  <desc id="desc">Probe, Explore and Diagnose feed a held-out verification gate. A refuted hypothesis returns to Probe. A supported hypothesis reaches Repair; a repair that beats the baseline becomes a validated fix, one that fails escalates one tier and tries Repair again.</desc>
+  <defs>
+    <marker id="ld-arrow-blue" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#3D8DFF"></path></marker>
+    <marker id="ld-arrow-green" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#39A96B"></path></marker>
+    <marker id="ld-arrow-red" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#D45656"></path></marker>
+  </defs>
+
+  <rect width="1300" height="460" fill="#ffffff"></rect>
+
+  <path d="M880 126C700 20 300 20 120 140" fill="none" stroke="#D45656" stroke-width="3.5" stroke-dasharray="9 10" marker-end="url(#ld-arrow-red)"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="1.4" fill="#D45656" x="500" y="26" text-anchor="middle">REFUTED</text>
+
+  <g font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" text-anchor="middle">
+    <rect x="20" y="140" width="200" height="108" rx="20" fill="#EAF4FF" stroke="#3D8DFF" stroke-width="3"></rect>
+    <text x="120" y="168" font-size="15" font-weight="700" letter-spacing="2" fill="#3D8DFF">M1</text>
+    <text x="120" y="201" font-size="26" font-weight="700" fill="#0b0d0f">Probe</text>
+    <text x="120" y="228" font-size="15" fill="#626b76">failure discovery</text>
+
+    <rect x="280" y="140" width="200" height="108" rx="20" fill="#EAF4FF" stroke="#3D8DFF" stroke-width="3"></rect>
+    <text x="380" y="168" font-size="15" font-weight="700" letter-spacing="2" fill="#3D8DFF">M2</text>
+    <text x="380" y="201" font-size="26" font-weight="700" fill="#0b0d0f">Explore</text>
+    <text x="380" y="228" font-size="15" fill="#626b76">agent-written EDA</text>
+
+    <rect x="540" y="140" width="200" height="108" rx="20" fill="#EAF4FF" stroke="#3D8DFF" stroke-width="3"></rect>
+    <text x="640" y="168" font-size="15" font-weight="700" letter-spacing="2" fill="#3D8DFF">M3</text>
+    <text x="640" y="201" font-size="26" font-weight="700" fill="#0b0d0f">Diagnose</text>
+    <text x="640" y="228" font-size="15" fill="#626b76">falsifiable hypotheses</text>
+
+    <rect x="1040" y="140" width="200" height="108" rx="20" fill="#EAF4FF" stroke="#3D8DFF" stroke-width="3"></rect>
+    <text x="1140" y="168" font-size="15" font-weight="700" letter-spacing="2" fill="#3D8DFF">M5</text>
+    <text x="1140" y="201" font-size="26" font-weight="700" fill="#0b0d0f">Repair</text>
+    <text x="1140" y="228" font-size="15" fill="#626b76">tiered intervention</text>
+  </g>
+
+  <path d="M780 194L880 126L980 194L880 262Z" fill="#ffffff" stroke="#0b0d0f" stroke-width="3.5"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#0b0d0f" x="880" y="201" text-anchor="middle">VERIFY</text>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="15" font-weight="400" fill="#626b76" x="880" y="300" text-anchor="middle">held-out gate, M4</text>
+
+  <path d="M220 194h60" fill="none" stroke="#3D8DFF" stroke-width="6" stroke-linecap="round" marker-end="url(#ld-arrow-blue)"></path>
+  <path d="M480 194h60" fill="none" stroke="#3D8DFF" stroke-width="6" stroke-linecap="round" marker-end="url(#ld-arrow-blue)"></path>
+  <path d="M740 194h40" fill="none" stroke="#3D8DFF" stroke-width="6" stroke-linecap="round" marker-end="url(#ld-arrow-blue)"></path>
+  <path d="M980 194h60" fill="none" stroke="#39A96B" stroke-width="6" stroke-linecap="round" marker-end="url(#ld-arrow-green)"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="1.4" fill="#39A96B" x="1010" y="168" text-anchor="middle">SUPPORTED</text>
+
+  <path d="M1140 248v60" fill="none" stroke="#39A96B" stroke-width="6" stroke-linecap="round" marker-end="url(#ld-arrow-green)"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="15" fill="#626b76" x="1160" y="295" text-anchor="start">beats baseline?</text>
+  <rect x="1040" y="330" width="200" height="60" rx="30" fill="#E7F4EC" stroke="#39A96B" stroke-width="3.5"></rect>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="20" font-weight="700" letter-spacing="1.2" fill="#39A96B" x="1140" y="367" text-anchor="middle">VALIDATED FIX</text>
+
+  <path d="M1240 220C1300 220 1300 168 1240 168" fill="none" stroke="#D45656" stroke-width="3.5" stroke-dasharray="8 9" marker-end="url(#ld-arrow-red)"></path>
+  <text transform="rotate(90 1282 194)" font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="1" fill="#D45656" x="1282" y="194" text-anchor="middle">ESCALATE TIER</text>
+</svg>
