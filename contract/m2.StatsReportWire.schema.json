@@ -1,0 +1,743 @@
+{
+  "$defs": {
+    "AnalysisFindingWire": {
+      "additionalProperties": false,
+      "description": "One threshold-rule violation. The no-judge baseline signal.",
+      "properties": {
+        "analyzer": {
+          "title": "Analyzer",
+          "type": "string"
+        },
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        },
+        "direction": {
+          "enum": [
+            "above",
+            "below"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "analyzer",
+        "metric",
+        "value",
+        "threshold",
+        "direction",
+        "severity",
+        "message"
+      ],
+      "title": "AnalysisFindingWire",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "A heavy artifact (``.npy``, ``.png``, workspace dir) left on disk.\n\nHeavy arrays never go inline: a browser must not parse a ``.npy``, and a\nJSONL event must not carry an attention map.",
+      "properties": {
+        "path": {
+          "description": "Relative to runRoot.",
+          "title": "Path",
+          "type": "string"
+        },
+        "media_type": {
+          "default": "other",
+          "enum": [
+            "npy",
+            "png",
+            "jpg",
+            "json",
+            "text",
+            "dir",
+            "other"
+          ],
+          "title": "Media Type",
+          "type": "string"
+        },
+        "bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bytes"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "CorrectedRejections": {
+      "additionalProperties": false,
+      "description": "Family-level multiplicity control across every tested signal.\n\nTesting 40 signals at alpha=0.05 yields ~2 \"significant\" results from luck\nalone. Without this the screen is not a screen.\n\n``mixed-BH/e-BH`` is its own member rather than being folded into either\nneighbour: it says the family contained both p-values and e-values, which\ncarry different validity guarantees, and a reader weighing the verdict needs\nto know that the guarantee is the weaker of the two.",
+      "properties": {
+        "method": {
+          "default": "none",
+          "enum": [
+            "e-BH",
+            "BH",
+            "mixed-BH/e-BH",
+            "none"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "alpha": {
+          "default": 0.05,
+          "title": "Alpha",
+          "type": "number"
+        },
+        "deferred": {
+          "default": false,
+          "description": "True while the analysis phase withholds the verdict.",
+          "title": "Deferred",
+          "type": "boolean"
+        },
+        "n_tested": {
+          "default": 0,
+          "title": "N Tested",
+          "type": "integer"
+        },
+        "rejected_result_keys": {
+          "description": "analysis_key values that survived. The source of truth.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Rejected Result Keys",
+          "type": "array"
+        }
+      },
+      "title": "CorrectedRejections",
+      "type": "object"
+    },
+    "ExternalRef": {
+      "additionalProperties": false,
+      "description": "Pointer replacing an inline value that exceeded the size budget.\n\nDetect by shape (``kind == \"external_ref\"``), lazy-load ``path``, and keep\n``n_items`` visible while loading. Never render the pointer as one item.",
+      "properties": {
+        "kind": {
+          "const": "external_ref",
+          "default": "external_ref",
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "description": "Relative to runRoot. Never an absolute host path.",
+          "title": "Path",
+          "type": "string"
+        },
+        "n_items": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Item count in the target, when countable.",
+          "title": "N Items"
+        },
+        "bytes": {
+          "description": "Serialized size of the externalized value.",
+          "title": "Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "bytes"
+      ],
+      "title": "ExternalRef",
+      "type": "object"
+    },
+    "JoinReport": {
+      "additionalProperties": false,
+      "description": "Health of one ``sample_id`` <-> ``FailureCase.id`` join.\n\nThis exists because a broken join and a real null result are indistinguishable\ndownstream: unmatched ids are skipped, both groups come out empty, and the\ntool reports \"no significant association\" — the same output as a model with\nno defect. Emitting coverage makes \"the pipeline is broken\" a separate,\nvisible state from \"the model is fine\".",
+      "properties": {
+        "left": {
+          "description": "e.g. 'attention.findings.per_case'",
+          "title": "Left",
+          "type": "string"
+        },
+        "right": {
+          "description": "e.g. 'CaseBatch(explore)'",
+          "title": "Right",
+          "type": "string"
+        },
+        "n_left": {
+          "title": "N Left",
+          "type": "integer"
+        },
+        "n_right": {
+          "title": "N Right",
+          "type": "integer"
+        },
+        "n_matched": {
+          "title": "N Matched",
+          "type": "integer"
+        },
+        "coverage": {
+          "description": "n_matched / n_left",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Coverage",
+          "type": "number"
+        },
+        "unmatched_sample": {
+          "description": "First few unmatched ids, for triage.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Unmatched Sample",
+          "type": "array"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "n_left",
+        "n_right",
+        "n_matched",
+        "coverage"
+      ],
+      "title": "JoinReport",
+      "type": "object"
+    },
+    "StageState": {
+      "description": "Per-stage UI state. A single generic \"N/A\" loses information the reader\nneeds — in particular ``EMPTY`` (ran, produced nothing) and ``FAILED``\n(did not run correctly) must never render the same.",
+      "enum": [
+        "not_started",
+        "running",
+        "succeeded",
+        "empty",
+        "abstained",
+        "partial",
+        "failed",
+        "skipped",
+        "unavailable"
+      ],
+      "title": "StageState",
+      "type": "string"
+    },
+    "StageStatus": {
+      "additionalProperties": false,
+      "description": "Terminal state of one stage in one cycle.\n\n``EMPTY`` and ``ABSTAINED`` are successes with nothing to show; ``FAILED``\nand ``UNAVAILABLE`` are not. Collapsing them loses the only signal a reader\nhas for whether to trust the absence of a result.",
+      "properties": {
+        "stage": {
+          "enum": [
+            "pre_m1",
+            "m1",
+            "explore",
+            "m2",
+            "m3",
+            "m5_surgery",
+            "m5_fix",
+            "m4"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/StageState"
+        },
+        "cycle": {
+          "description": "Normal cycles start at 0; the post-loop fix uses -1.",
+          "title": "Cycle",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why, for any state that is not plain success — the skip rule, the error, the reason for abstaining. One field, because a reader wants one answer.",
+          "title": "Reason"
+        },
+        "duration_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Sec"
+        },
+        "joins": {
+          "items": {
+            "$ref": "#/$defs/JoinReport"
+          },
+          "title": "Joins",
+          "type": "array"
+        }
+      },
+      "required": [
+        "stage",
+        "state",
+        "cycle"
+      ],
+      "title": "StageStatus",
+      "type": "object"
+    },
+    "StatsToolResultWire": {
+      "additionalProperties": false,
+      "description": "One statistical test's verdict.\n\n``reject`` is the RAW, uncorrected decision and must never drive a verdict on\nits own. ``fdr_corrected`` is the family-level decision after multiplicity\ncontrol and is the only field a downstream verdict may read. They are kept as\nseparate fields precisely because collapsing them once let a p=0.14 result on\nn=3 \"support\" a hypothesis.",
+      "properties": {
+        "tool": {
+          "description": "e.g. signal_label_assoc / mcnemar_evalue / bootstrap_diff / rank_corr",
+          "title": "Tool",
+          "type": "string"
+        },
+        "measured": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "WHAT this result is about, in words, and unique within the report — the label a chart axis or a table row should carry.\n\n`tool` is the procedure, not the subject, and using it as a label put two rows reading 'Mcnemar evalue' on a chart with no way to tell them apart. `config['signal']` is the subject but is a machine name, and is absent on paired tools entirely. Neither can label a row on its own, so the producer states the label here.",
+          "title": "Measured"
+        },
+        "means": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the measured quantity IS, in one sentence, taken from the producing analyzer's `signal_docs`. Null means the analyzer did not document that metric — render it as undocumented rather than inventing a gloss, because a plausible wrong explanation of a statistic is worse than an admitted missing one.",
+          "title": "Means"
+        },
+        "config": {
+          "additionalProperties": true,
+          "description": "Includes 'signal' — the routing key.",
+          "title": "Config",
+          "type": "object"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect"
+        },
+        "ci": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci"
+        },
+        "p_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P Value"
+        },
+        "e_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "E Value"
+        },
+        "underpowered": {
+          "default": false,
+          "title": "Underpowered",
+          "type": "boolean"
+        },
+        "reject": {
+          "default": false,
+          "description": "RAW per-test decision. Not a verdict.",
+          "title": "Reject",
+          "type": "boolean"
+        },
+        "fdr_corrected": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Family-level decision after correction. None = correction not yet run (deferred descriptive phase) — which is NOT the same as False.",
+          "title": "Fdr Corrected"
+        },
+        "correction_method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g. 'bh' / 'ebh'.",
+          "title": "Correction Method"
+        },
+        "correction_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Correction Family"
+        },
+        "analysis_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stable per-result key, e.g. 'signal_label_assoc:attention.entropy'. Required for correction: one tool NAME covers many tests.",
+          "title": "Analysis Key"
+        },
+        "raw_reject": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pre-correction decision, kept for audit alongside `reject`.",
+          "title": "Raw Reject"
+        },
+        "figure_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Figure Path"
+        },
+        "n_signal": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cases in the signal-present group.",
+          "title": "N Signal"
+        },
+        "n_control": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cases in the signal-absent group.",
+          "title": "N Control"
+        },
+        "n_measured": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cases the producing analyzer actually measured. Analyzers measure every case unless capped (an analyzer's max_cases or the probe agent's max_cases_per_analyzer), so compare this with the batch size.",
+          "title": "N Measured"
+        },
+        "n_imputed_absent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Labeled cases with no measurement that were counted as signal-ABSENT. Valid for a genuinely sparse flag that only lists where it fired; invalid when the analyzer simply never looked. Nothing in the value distinguishes the two, so the count must travel with the result.",
+          "title": "N Imputed Absent"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "description": "fail rates / permutation_p / CI internals / ...",
+          "title": "Details",
+          "type": "object"
+        }
+      },
+      "required": [
+        "tool",
+        "ok"
+      ],
+      "title": "StatsToolResultWire",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "M2's serialized report.\n\nTwo field groups with different authority: everything above\n``descriptive_only`` is computed by code and is authoritative; ``conclusion``\nand ``evidence_chain`` are written by the judge and are presentation only.\nEmpty narrative is valid and must never be backfilled with an invented\nsummary. The LLM may not write a number, and keeping the groups visibly\napart is what makes that reviewable.\n\nAbsent by design: the judge's prompt and raw response (already\n``prompts/c<cycle>_m2_analysis.{prompt,response}.txt``), the tool-selection\nplan (already ``artifacts/c<cycle>_m2_stats_plan.json``), the model name and\nprotocol (both in the run config and in :class:`AnalysisInput`), and the\nthreshold-rule narrative (a rendering of ``findings``).",
+  "properties": {
+    "schema_version": {
+      "default": 5,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "trace_id": {
+      "description": "Run-level correlation id.",
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "span_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "e.g. 'c0.m1'.",
+      "title": "Span Id"
+    },
+    "cycle": {
+      "default": 0,
+      "title": "Cycle",
+      "type": "integer"
+    },
+    "produced_at": {
+      "description": "ISO-8601 UTC.",
+      "title": "Produced At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/StageStatus"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/AnalysisFindingWire"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "stats_tool": {
+      "default": "threshold_rules",
+      "enum": [
+        "threshold_rules",
+        "llm_guided",
+        "selected_tools",
+        "generated"
+      ],
+      "title": "Stats Tool",
+      "type": "string"
+    },
+    "stats_results": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/StatsToolResultWire"
+          },
+          "type": "array"
+        },
+        {
+          "$ref": "#/$defs/ExternalRef"
+        }
+      ],
+      "title": "Stats Results"
+    },
+    "corrected_rejections": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CorrectedRejections"
+        },
+        {
+          "$ref": "#/$defs/ExternalRef"
+        }
+      ],
+      "title": "Corrected Rejections"
+    },
+    "figures": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Figures",
+      "type": "array"
+    },
+    "descriptive_only": {
+      "default": false,
+      "description": "True = effect sizes and charts only, e-BH deferred. A reader MUST NOT render supported/rejected language while this is true.",
+      "title": "Descriptive Only",
+      "type": "boolean"
+    },
+    "conclusion": {
+      "default": "",
+      "description": "Judge-written. Presentation only.",
+      "title": "Conclusion",
+      "type": "string"
+    },
+    "evidence_chain": {
+      "description": "Judge-written derivation.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Chain",
+      "type": "array"
+    },
+    "llm_fallback_reason": {
+      "default": "",
+      "description": "Non-empty only when the judge path was attempted AND raised. Not recoverable from the prompt files: a fallback still writes both of them.",
+      "title": "Llm Fallback Reason",
+      "type": "string"
+    },
+    "raw_results_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Path to the M1 ProbeOutput. The in-memory report carries the Result objects themselves, but to_dict() drops them — M4/M5 still need per-case signals, so the serialized contract carries a reference instead of pretending they survive.",
+      "title": "Raw Results Ref"
+    },
+    "joins": {
+      "description": "Signal<->label join health. Zero coverage is a plumbing failure.",
+      "items": {
+        "$ref": "#/$defs/JoinReport"
+      },
+      "title": "Joins",
+      "type": "array"
+    }
+  },
+  "required": [
+    "trace_id",
+    "produced_at",
+    "status"
+  ],
+  "title": "StatsReportWire",
+  "type": "object",
+  "$id": "https://evalrx.dev/contract/m2.StatsReportWire.json",
+  "x-stage": "m2",
+  "x-role": "output",
+  "x-schema-version": 5,
+  "x-optional-stage": false
+}
