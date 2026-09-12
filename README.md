@@ -42,10 +42,14 @@ The held-out split is taken *before* Explore runs, so Verify always scores on
 rows the analysis never touched. [Full-loop quickstart →](docs/quickstart.md#vldiagnoseloop--automated-failure-attribution-current) · [Intervention guide →](docs/intervention.md)
 
 <p align="center">
-  <img src="docs/assets/demo/evalrx-run.svg" alt="Terminal replay of a real EvalRx M1-M5 run: Gemma-4-E2B-it probed on MMAU, 8 analyzers, 3 hypotheses proposed, 2 supported on the M4 held-out gate, and an L2 repair that fixes 25 cases and breaks 0." width="640">
+  <img src="docs/assets/demo/evalrx-run.svg" alt="Terminal replay of a real EvalRx M1-M5 run: Gemma-4-E2B-it probed on MMAU, 8 analyzers, 3 hypotheses proposed, 2 supported on the M4 held-out gate, and an L2 repair that fixes 25 cases and breaks 0." width="760">
 </p>
 
-<p align="center"><sub>A real run, replayed from its own log — not scripted. Gemma-4-E2B-it on MMAU (test-mini, n=256): 3 hypotheses proposed, 2 supported on the M4 held-out gate, L2 repair <code>malformed_choice_consensus</code> — 25 fixed, 0 broken, +0.500 accuracy. (<a href="docs/assets/demo/evalrx-run.mp4">full-quality mp4 →</a>)</sub></p>
+<p align="center"><sub>One real run, replayed — 256 MMAU cases, 162 failures, two of three
+mechanisms upheld on cases the analysis never saw, and an L2 repair that fixed
+25 of them while breaking none. 20 minutes of work compressed into 22 seconds;
+the clock in the gutter is the run's own elapsed time.
+<a href="https://evalvitals.github.io/evalrx/demo/">Browse two full reports →</a></sub></p>
 
 ## The repair ladder
 
