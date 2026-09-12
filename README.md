@@ -16,7 +16,7 @@
 [![Demo](https://img.shields.io/badge/demo-live-39A96B)](https://evalvitals.github.io/evalrx/demo/)
 [![License: CC0-1.0](https://img.shields.io/badge/license-CC0--1.0-39A96B)](LICENSE)
 
-[Loop](#the-loop) · [Ladder](#the-repair-ladder) · [Trust](#why-the-loop-is-trustworthy) · [Quickstart](#quickstart) · [Docs](https://evalvitals.github.io/evalrx/overview/) · [Demo](https://evalvitals.github.io/evalrx/demo/) · [GitHub](https://github.com/evalvitals/evalrx)
+[Loop](#the-loop) · [Quickstart](#quickstart) · [Trust](#why-the-loop-is-trustworthy) · [Ladder](#the-repair-ladder) · [Docs](https://evalvitals.github.io/evalrx/overview/) · [Demo](https://evalvitals.github.io/evalrx/demo/) · [GitHub](https://github.com/evalvitals/evalrx)
 
 <br>
 
@@ -50,46 +50,6 @@ supply the question and the ceiling — everything between is unattended.
 
 The held-out split is taken *before* Explore runs, so Verify always scores on
 rows the analysis never touched. [Full-loop quickstart →](docs/quickstart.md#vldiagnoseloop--automated-failure-attribution-current) · [Intervention guide →](docs/intervention.md)
-
-## The repair ladder
-
-"Fix it" is not one action — repairs are ordered by how deeply they cut into
-the model. Escalation is never automatic: the ceiling is yours to set (default
-L2), and once every candidate at that ceiling fails, the loop *recommends*
-raising it rather than climbing on its own.
-
-| | Intervention space | Status |
-|---|---|---|
-| **L1** | Prompt and instruction rewrites | ✅ |
-| **L2** | Scaffolds around an unchanged model — multi-call, tools, aggregation | ✅ |
-| **L3a** | Read internals — attention-guided cropping, contrastive decoding | ✅ |
-| **L3b** | Write internals — attention reweighting, activation steering | ✅ |
-| **L4** | **Parameter space — build a dataset, fine-tune, re-test** | ✅ LoRA on the LLM ([`fix_internals.py`](evalrx/eval_agent/stages/fix_internals.py)); other recipe shapes recorded, not yet executed |
-
-**L3b and L4 only exist for open weights** — you cannot modify a forward pass
-or fine-tune through somebody's API.
-
-## Why the loop is trustworthy
-
-An agent can enumerate fifty plausible mechanisms as easily as one — fluency
-is cheap. What matters is which of them hold on your data.
-
-| | How the hypothesis is formed | How it's tested | What the conclusion rests on |
-|---|---|---|---|
-| Hire an experimentalist | Intuition, a few candidates at a time | An ablation designed after seeing the data | One researcher's reading, and the ablation they chose to run |
-| Let an agent brainstorm | Dozens of candidates at once | A full fine-tune for each one you can afford | Whichever candidates fit the budget |
-| **EvalRX** | Candidates from agent-written EDA | Cross-validated while exploring, decided once on a sealed held-out split | A measured effect, corrected for how many were tried, reproducible from the run log |
-
-Two committed runs back that up — no install required:
-
-| Run | What it shows |
-|---|---|
-| [**Attention & hallucination**](examples/m2_m3/deco_hallu_explore/reference_output/) | 606 real VLM cases, 3 checkpoints. Finds attention focus share separates hallucinations at AUC 0.82 — then flags, unprompted, that the verdict is in-sample, that its next-strongest signal is collinear (max VIF 20.7), and that a peaked attention map could be a readout of the answer rather than a cause of it. |
-| [**The confound catch**](examples/m2_m3/synthetic_yield_explore/reference_output/) | Catalyst looks significant (ANOVA p = 0.080) until the run notices the groups differ by 21° in temperature. **0 of 4 signals confirmed** — the correct answer. |
-
-Held-out splits are taken *before* exploration, multiplicity is controlled
-with e-BH, and every fix is compared against the unchanged baseline. A run may
-end **inconclusive** — and frequently should.
 
 ## Quickstart
 
@@ -175,6 +135,46 @@ searchable, at [evalvitals.github.io/evalrx](https://evalvitals.github.io/evalrx
 More runnable examples, including a full multimodal M1–M5 loop
 (`deco_hallu`) and white-box attention analysis (`qwen_attention`):
 [examples/README.md →](examples/README.md)
+
+## Why the loop is trustworthy
+
+An agent can enumerate fifty plausible mechanisms as easily as one — fluency
+is cheap. What matters is which of them hold on your data.
+
+| | How the hypothesis is formed | How it's tested | What the conclusion rests on |
+|---|---|---|---|
+| Hire an experimentalist | Intuition, a few candidates at a time | An ablation designed after seeing the data | One researcher's reading, and the ablation they chose to run |
+| Let an agent brainstorm | Dozens of candidates at once | A full fine-tune for each one you can afford | Whichever candidates fit the budget |
+| **EvalRX** | Candidates from agent-written EDA | Cross-validated while exploring, decided once on a sealed held-out split | A measured effect, corrected for how many were tried, reproducible from the run log |
+
+Two committed runs back that up — no install required:
+
+| Run | What it shows |
+|---|---|
+| [**Attention & hallucination**](examples/m2_m3/deco_hallu_explore/reference_output/) | 606 real VLM cases, 3 checkpoints. Finds attention focus share separates hallucinations at AUC 0.82 — then flags, unprompted, that the verdict is in-sample, that its next-strongest signal is collinear (max VIF 20.7), and that a peaked attention map could be a readout of the answer rather than a cause of it. |
+| [**The confound catch**](examples/m2_m3/synthetic_yield_explore/reference_output/) | Catalyst looks significant (ANOVA p = 0.080) until the run notices the groups differ by 21° in temperature. **0 of 4 signals confirmed** — the correct answer. |
+
+Held-out splits are taken *before* exploration, multiplicity is controlled
+with e-BH, and every fix is compared against the unchanged baseline. A run may
+end **inconclusive** — and frequently should.
+
+## The repair ladder
+
+"Fix it" is not one action — repairs are ordered by how deeply they cut into
+the model. Escalation is never automatic: the ceiling is yours to set (default
+L2), and once every candidate at that ceiling fails, the loop *recommends*
+raising it rather than climbing on its own.
+
+| | Intervention space | Status |
+|---|---|---|
+| **L1** | Prompt and instruction rewrites | ✅ |
+| **L2** | Scaffolds around an unchanged model — multi-call, tools, aggregation | ✅ |
+| **L3a** | Read internals — attention-guided cropping, contrastive decoding | ✅ |
+| **L3b** | Write internals — attention reweighting, activation steering | ✅ |
+| **L4** | **Parameter space — build a dataset, fine-tune, re-test** | ✅ LoRA on the LLM ([`fix_internals.py`](evalrx/eval_agent/stages/fix_internals.py)); other recipe shapes recorded, not yet executed |
+
+**L3b and L4 only exist for open weights** — you cannot modify a forward pass
+or fine-tune through somebody's API.
 
 ## Project Status
 
