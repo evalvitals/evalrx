@@ -22,6 +22,10 @@
  *   --stage CODE     with --view evidence: open this stage's page (M1..M5)
  *   --full           with --stage: open the stage's Full record page — what
  *                    "See everything this step recorded" leads to
+ *   --scrollset      capture for the video's scroll acts: the full page, plus
+ *                    (where a sticky stage-list would scroll away inside a
+ *                    full-page shot) a pinned-sidebar viewport reference and
+ *                    a .json sidecar with the geometry the renderer overlays
  *   --width PX       viewport width; 1228 matches the video's window [1228]
  *   --height PX      viewport height; 626 matches it 1:1        [900]
  *   --viewport       shoot only the viewport instead of the full page
@@ -41,9 +45,9 @@ const CHROMES = ["/usr/bin/google-chrome", "/snap/bin/chromium",
 
 function parseArgs(argv) {
   const args = { url: null, out: "build/ui/overview.png", view: "overview",
-                 stage: null, full: false, width: 1228, height: 900,
-                 viewport: false, dsf: 2, chrome: null };
-  const flags = new Set(["viewport", "full"]);
+                 stage: null, full: false, scrollset: false, width: 1228,
+                 height: 900, viewport: false, dsf: 2, chrome: null };
+  const flags = new Set(["viewport", "full", "scrollset"]);
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i].replace(/^--/, "");
     if (!(key in args)) {
@@ -124,7 +128,42 @@ function parseArgs(argv) {
         requestAnimationFrame(() => requestAnimationFrame(resolve))));
     }
     fs.mkdirSync(path.dirname(args.out), { recursive: true });
-    await page.screenshot({ path: args.out, fullPage: !args.viewport });
+    if (args.scrollset) {
+      // The video scrolls the full-page capture like a real browser. A
+      // position:sticky stage-list renders once at its natural offset inside
+      // a full-page shot, so it would scroll away mid-act. Measure where
+      // sticking engages and capture the pinned sidebar once, so the
+      // renderer can overlay it from that moment on.
+      const geo = await page.evaluate(() => {
+        const el = document.querySelector(".stage-list");
+        if (!el) return null;
+        const restore = el.style.position;
+        el.style.position = "static";       // natural document offset, wherever we are
+        const box = el.getBoundingClientRect();
+        const top = box.top + window.scrollY;
+        el.style.position = restore;
+        return { engageY: top, pinW: Math.round(box.width),
+                 maxScroll: document.documentElement.scrollHeight - window.innerHeight };
+      });
+      await page.screenshot({ path: args.out, fullPage: true });
+      if (geo && geo.maxScroll >= geo.engageY) {
+        await page.evaluate((y) => {
+          document.documentElement.style.scrollBehavior = "auto";
+          window.scrollTo(0, Math.ceil(y));
+        }, geo.engageY + 40);
+        await page.waitForTimeout(250);
+        await page.evaluate(() => new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const pinPath = args.out.replace(/\.png$/, "-pin.png");
+        await page.screenshot({ path: pinPath });     // viewport, sidebar pinned
+        fs.writeFileSync(args.out.replace(/\.png$/, ".json"), JSON.stringify({
+          pin: path.basename(pinPath), pinW: geo.pinW, engageY: geo.engageY,
+        }));
+        console.log(`${pinPath}  (pinned sidebar, engageY=${Math.round(geo.engageY)}px)`);
+      }
+    } else {
+      await page.screenshot({ path: args.out, fullPage: !args.viewport });
+    }
     const what = args.stage
       ? `evidence/${args.stage}${args.full ? " full record" : ""}` : args.view;
     console.log(`${args.out}  (${what}, ${args.width * args.dsf}px wide)`);

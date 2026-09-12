@@ -306,12 +306,17 @@ def _browser_base(url: str, font: ImageFont.FreeTypeFont) -> Image.Image:
 
 def _browser_act(page: Path, url: str, *, scroll_seconds: float, fps: int,
                  fade_from: Image.Image | None = None,
-                 fade: float = T.XFADE) -> Iterable[Image.Image]:
-    """The report's overview: a browser window scrolling a full-page shot.
+                 fade: float = T.XFADE,
+                 pin: tuple[Image.Image, int, float] | None = None,
+                 ) -> Iterable[Image.Image]:
+    """A browser window scrolling a full-page capture — the UI tour acts.
 
-    One tall screenshot, eased top to bottom — a guided tour of the report
-    the run just produced. Yields every frame; the last is the natural
-    fade-from source for whatever act follows it.
+    One tall screenshot, eased top to bottom. *pin*, when shoot_ui recorded
+    one, is ``(viewport_image, width, engage_y)`` for a sticky sidebar: the
+    full-page capture shows it once at its natural offset, so from the moment
+    the scroll reaches it the pinned capture is overlaid, exactly where a
+    real browser would keep it stuck. Yields every frame; the last is the
+    natural fade-from source for whatever act follows it.
     """
     base = _browser_base(url, _font("mono", 11))
     content = Image.open(page).convert("RGB")
@@ -333,6 +338,9 @@ def _browser_act(page: Path, url: str, *, scroll_seconds: float, fps: int,
             frame.paste(content.crop((0, off, T.WIN_W, off + T.BROWSE_VH)), (vx, vy))
         else:                       # page shorter than the viewport: top-align
             frame.paste(content, (vx, vy))
+        if pin is not None and off >= pin[2]:
+            pinned, pin_w = pin[0], pin[1]
+            frame.paste(pinned.crop((0, 0, pin_w, T.BROWSE_VH)), (vx, vy))
         return frame
 
     first = shot(0.0)
@@ -346,6 +354,31 @@ def _browser_act(page: Path, url: str, *, scroll_seconds: float, fps: int,
     yield end
     for _ in range(int(T.BROWSE_HOLD * fps)):
         yield end
+
+
+def _scroll_pin(page: Path) -> tuple[Image.Image, int, float] | None:
+    """shoot_ui's sidecar for a scroll act: the pinned-sidebar overlay.
+
+    Written by ``shoot_ui --scrollset`` next to the full-page capture: the
+    pinned viewport image, the sidebar's width, and the scroll offset at
+    which sticking engages. Absent sidecar → no overlay (nothing sticky).
+
+    The pin is captured at the run's viewport (any height). We crop the top
+    BROWSE_VH CSS pixels at the run's pixel scale, then resize to the video's
+    browser viewport — no sidebar gets squashed by a mismatched viewport.
+    """
+    meta_path = page.with_suffix(".json")
+    if not meta_path.exists():
+        return None
+    meta = json.loads(meta_path.read_text())
+    pin = Image.open(page.parent / meta["pin"]).convert("RGB")
+    dsf = pin.width / T.WIN_W
+    crop_h = round(T.BROWSE_VH * dsf)
+    if pin.size != (T.WIN_W, crop_h):
+        pin = pin.crop((0, 0, pin.width, crop_h))
+    if pin.size != (T.WIN_W, T.BROWSE_VH):
+        pin = pin.resize((T.WIN_W, T.BROWSE_VH), Image.LANCZOS)
+    return pin, int(meta["pinW"]), float(meta["engageY"])
 
 
 def _ui_act(shots: list[Path], *, url: str, seconds_each: float, fps: int,
@@ -416,6 +449,10 @@ def main() -> int:
     ap.add_argument("--ui-page", type=Path, default=None,
                     help="full-page report-UI screenshot: adds the serve "
                          "hand-off and a scrolling browser act")
+    ap.add_argument("--ui-scroll", type=Path, action="append", default=None,
+                    help="further full-page capture to scroll through, in "
+                         "order (repeatable) — e.g. each stage's summary "
+                         "then its Full record page; cross-fades between acts")
     ap.add_argument("--ui-url", default="http://localhost:8501",
                     help="URL text for the browser window's address field")
     ap.add_argument("--ui-scroll-seconds", type=float, default=0.0,
@@ -443,7 +480,7 @@ def main() -> int:
     meta = board["meta"]
     commands = args.command or default_commands(meta)
     serve = None
-    if args.ui_page or args.serve_cmd:
+    if args.ui_page or args.ui_scroll or args.serve_cmd:
         serve = {
             "cmd": args.serve_cmd or "evalrx serve . --port 8501",
             "out": [args.serve_out or
@@ -471,6 +508,13 @@ def main() -> int:
         for image in _browser_act(args.ui_page, args.ui_url,
                                   scroll_seconds=args.ui_scroll_seconds,
                                   fps=args.fps, fade_from=last):
+            emit(image)
+            last = image
+    for scroll_page in args.ui_scroll or ():
+        for image in _browser_act(scroll_page, args.ui_url,
+                                  scroll_seconds=args.ui_scroll_seconds,
+                                  fps=args.fps, fade_from=last,
+                                  pin=_scroll_pin(scroll_page)):
             emit(image)
             last = image
     if args.ui_shot:

@@ -48,10 +48,20 @@ command and its real output line), then a browser window cross-fades in and
 scrolls the full-page overview shot top to bottom. The scroll duration adapts
 to the page height; `--ui-scroll-seconds` overrides it.
 
-`--ui-shot FILE` (repeatable) appends further report-UI screenshots after the
-browser act — other views of the same report, shown in the same browser
-window. Only pass shots of **this** run's own report — a different run's UI
-behind this run's terminal would be a claim neither of them made.
+`--ui-scroll FILE` (repeatable, in order) chains more browser acts after the
+overview: each capture is scrolled top to bottom, and consecutive acts
+cross-fade. Use this for every stage's summary page and its Full record page
+— the scroll lands on the "See everything this step recorded" CTA at the
+bottom, the cross-fade reads as clicking it, then the next act scrolls the
+Full record page the same way. The shot must be a full-page capture made with
+`shoot_ui --scrollset` (see below); otherwise a sticky stage-list would scroll
+away inside it.
+
+`--ui-shot FILE` (repeatable) appends further report-UI screenshots after
+the browser acts — views that don't need scrolling, like the agent audit log.
+Each is shown in the same browser window, cross-faded. Only pass shots of
+**this** run's own report — a different run's UI behind this run's terminal
+would be a claim neither of them made.
 
 `--at SECONDS` on `render_svg.py` writes a still frame instead of the loop —
 that is the poster image, and the same code path the MP4 rasterises.
@@ -88,7 +98,7 @@ python tools/demo_video/storyboard.py \
 Whichever path produced it, the storyboard records which one in
 `meta.provenance`, and the committed JSON is small enough to review in a diff.
 
-## Screenshots for the video's UI act
+## Screenshots for the video's UI acts
 
 The MP4's closing acts are the real report UI. Serve a finished run and shoot
 it — `shoot_ui` uses the playwright-core the web build already carries, with a
@@ -99,12 +109,32 @@ evalrx serve path/to/run --port 8520 &
 node tools/demo_video/shoot_ui --url http://localhost:8520 --out build/ui/overview.png
 ```
 
-An exported `report.html` works too (no server needed), and `--view
-evidence|cases|debug` captures the other views for `--ui-shot`:
+An exported `report.html` works too (no server needed). The video scrolls each
+page like a real browser, so `--scrollset` is what the per-stage captures
+want: it writes the full page plus a pinned-sidebar viewport reference and a
+small JSON sidecar that the renderer reads to keep the stage-list stuck while
+the rest scrolls:
 
 ```bash
-node tools/demo_video/shoot_ui --url file:///abs/path/report.html
+for s in M1 M2 M3 M4 M5; do
+  node tools/demo_video/shoot_ui --url "$URL" --view evidence --stage "$s" \
+      --scrollset --out "build/ui/evidence-${s}.png" --height 626
+  node tools/demo_video/shoot_ui --url "$URL" --view evidence --stage "$s" --full \
+      --scrollset --out "build/ui/full-${s}.png" --height 626
+done
+node tools/demo_video/shoot_ui --url "$URL" --view cases --out build/ui/cases.png
+node tools/demo_video/shoot_ui --url "$URL" --view debug --out build/ui/debug.png \
+    --height 626 --viewport
 ```
+
+`--view NAME` is overview (default), evidence, cases, debug. `--stage CODE`
+on the evidence view opens that stage's page; `--full` clicks the "Full
+record" tab. `--viewport` keeps it to the viewport; without it the capture
+is the full page (what the scroll acts want).
+
+The SVG deliberately stays terminal-only — an inline README image should not
+carry a megabyte of screenshots, and `timeline.build`'s serve segment is
+opt-in, which the SVG renderer never takes.
 
 The SVG deliberately stays terminal-only — an inline README image should not
 carry a megabyte of screenshots, and `timeline.build`'s serve segment is

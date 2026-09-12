@@ -84,7 +84,7 @@ SERVE_HOLD = 1.2                 # hold on the serve output before the UI fades 
 XFADE = 0.5                      # terminal → browser act cross-fade
 BROWSE_HOLD = 0.9                # freeze on the page bottom after the scroll
 SCROLL_PPS = 520.0               # adaptive scroll speed (content px per second)
-SCROLL_MIN, SCROLL_MAX = 3.5, 14.0   # adaptive scroll duration clamp (seconds)
+SCROLL_MIN, SCROLL_MAX = 2.2, 14.0   # adaptive scroll duration clamp (seconds)
 
 
 def display_gap(real_seconds: float | None) -> float:
