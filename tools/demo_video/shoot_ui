@@ -1,0 +1,218 @@
+#!/usr/bin/env node
+/** Capture report-UI screenshots for the demo video.
+ *
+ *   evalrx serve path/to/run --port 8520 &
+ *   node tools/demo_video/shoot_ui --url http://localhost:8520 \
+ *        --out build/ui/overview.png
+ *
+ * Also opens a static export directly (an exported report.html carries its own
+ * payload, no server needed):
+ *
+ *   node tools/demo_video/shoot_ui --url file:///abs/path/report.html
+ *
+ * Uses the playwright-core already installed for the web build
+ * (evalrx/reporting/web/node_modules) with a system Chrome, so there is
+ * nothing to npm-install. The theme is pinned to dark — the video's palette —
+ * whatever the browser's localStorage happens to remember.
+ *
+ * Options:
+ *   --url URL        page to open (http:// or file://)              [required]
+ *   --out FILE       where the PNG goes        [build/ui/overview.png]
+ *   --view NAME      overview | evidence | cases | debug  [overview]
+ *   --stage CODE     with --view evidence: open this stage's page (M1..M5)
+ *   --full           with --stage: open the stage's Full record page — what
+ *                    "See everything this step recorded" leads to
+ *   --scrollset      capture for the video's scroll acts: the full page, plus
+ *                    (where a sticky stage-list would scroll away inside a
+ *                    full-page shot) a pinned-sidebar viewport reference and
+ *                    a .json sidecar with the geometry the renderer overlays
+ *   --width PX       viewport width; 1228 matches the video's window [1228]
+ *   --height PX      viewport height; 626 matches it 1:1        [900]
+ *   --viewport       shoot only the viewport instead of the full page
+ *   --dsf N          deviceScaleFactor, 2 keeps the scroll crisp [2]
+ *   --chrome PATH    Chrome/Chromium executable to use
+ */
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+
+const pw = require(path.resolve(__dirname, "..", "..", "evalrx", "reporting",
+                                "web", "node_modules", "playwright-core"));
+
+const CHROMES = ["/usr/bin/google-chrome", "/snap/bin/chromium",
+                 "/usr/bin/chromium", "/usr/bin/chromium-browser"];
+
+function parseArgs(argv) {
+  const args = { url: null, out: "build/ui/overview.png", view: "overview",
+                 stage: null, full: false, scrollset: false, width: 1228,
+                 height: 900, viewport: false, dsf: 2, chrome: null };
+  const flags = new Set(["viewport", "full", "scrollset"]);
+  for (let i = 0; i < argv.length; i++) {
+    const key = argv[i].replace(/^--/, "");
+    if (!(key in args)) {
+      console.error(`unknown option: ${argv[i]}`);
+      process.exit(2);
+    }
+    if (flags.has(key)) {
+      args[key] = true;
+      continue;
+    }
+    const value = argv[i + 1];
+    if (value === undefined) {
+      console.error(`incomplete option: ${argv[i]}`);
+      process.exit(2);
+    }
+    args[key] = (key === "width" || key === "height" || key === "dsf")
+      ? parseInt(value, 10) : value;
+    i++;
+  }
+  if (!args.url) {
+    console.error("missing --url (http://localhost:PORT or file:///path/report.html)");
+    process.exit(2);
+  }
+  return args;
+}
+
+(async () => {
+  const args = parseArgs(process.argv.slice(2));
+  const executablePath = args.chrome || CHROMES.find((p) => fs.existsSync(p));
+  if (!executablePath) {
+    console.error("no Chrome/Chromium found; pass --chrome /path/to/chrome");
+    process.exit(1);
+  }
+  const browser = await pw.chromium.launch({ executablePath });
+  try {
+    const context = await browser.newContext({
+      viewport: { width: args.width, height: args.height },
+      deviceScaleFactor: args.dsf,
+    });
+    const page = await context.newPage();
+    // The video is dark; make sure the page is too (theme.ts STORAGE_KEY).
+    await page.addInitScript(() => localStorage.setItem("evalrx-theme", "dark"));
+    await page.goto(args.url, { waitUntil: "networkidle", timeout: 60000 });
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForSelector("footer", { timeout: 30000 });
+    await page.evaluate(() => new Promise((resolve) =>   // charts have painted
+      requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.waitForTimeout(600);                      // ECharts entrance margin
+
+    if (args.view !== "overview" || args.stage) {
+      const view = args.stage ? "evidence" : args.view;
+      if (view === "evidence") {
+        // The overview page ends with the evidence/cases/debug index buttons.
+        await page.locator(".evidence-index button", { hasText: "evidence" }).first().click();
+        await page.waitForSelector(".stage-list", { timeout: 30000 });
+        if (args.stage) {               // the stage pages inside evidence view
+          await page.locator(".stage-list button", { hasText: args.stage }).first().click();
+          if (args.full) {              // the record behind the summary
+            await page.waitForSelector(".depth-switch", { timeout: 10000 });
+            await page.locator(".depth-switch button", { hasText: "Full record" }).click();
+          }
+        }
+      } else {
+        await page.locator(".evidence-index button", { hasText: view }).first().click();
+      }
+      await page.waitForTimeout(600);   // view transition + charts
+      // A click in the footer (or, for --stage, on the sticky stage-list)
+      // leaves the viewport scrolled away from the top; the new view's header
+      // would be cropped. The page uses scroll-behavior: smooth, so window
+      // scrollTo is animated and would still be in flight when the screenshot
+      // fires — force it to instant and wait for the next paint.
+      await page.evaluate(() => {
+        document.documentElement.style.scrollBehavior = "auto";
+        window.scrollTo(0, 0);
+      });
+      await page.waitForTimeout(150);
+      await page.evaluate(() => new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    }
+    fs.mkdirSync(path.dirname(args.out), { recursive: true });
+    if (args.scrollset) {
+      // The video scrolls the full-page capture like a real browser, and
+      // points a cursor at what it "clicks" to move on. A position:sticky
+      // stage-list renders once at its natural offset inside a full-page
+      // shot, so it would scroll away mid-act: measure where sticking
+      // engages and capture the pinned sidebar once for the renderer to
+      // overlay. The deepen CTA (evidence summaries) and the overview's
+      // evidence/cases/debug index live at the page bottom, so their
+      // viewport positions are recorded there, where the scroll ends.
+      const meta = { view: args.stage ? "evidence" : args.view,
+                     stage: args.stage || null, full: args.full,
+                     viewport: [args.width, args.height] };
+      const geo = await page.evaluate(() => {
+        const el = document.querySelector(".stage-list");
+        const out = { engageY: null, pinW: null,
+                     maxScroll: document.documentElement.scrollHeight - window.innerHeight };
+        if (el) {
+          const restore = el.style.position;
+          el.style.position = "static";     // natural document offset, wherever we are
+          const box = el.getBoundingClientRect();
+          out.engageY = box.top + window.scrollY;
+          out.pinW = Math.round(box.width);
+          el.style.position = restore;
+        }
+        return out;
+      });
+      await page.screenshot({ path: args.out, fullPage: true });
+      if (geo.engageY !== null && geo.maxScroll >= geo.engageY) {
+        await page.evaluate((y) => {
+          document.documentElement.style.scrollBehavior = "auto";
+          window.scrollTo(0, Math.ceil(y));
+        }, geo.engageY + 40);
+        await page.waitForTimeout(250);
+        await page.evaluate(() => new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        meta.stage_buttons = await page.evaluate(() => {
+          const out = {};
+          for (const btn of document.querySelectorAll(".stage-list button")) {
+            const code = btn.querySelector("span")?.textContent.trim();
+            const r = btn.getBoundingClientRect();
+            if (code) out[code] = [Math.round(r.left + r.width / 2),
+                                   Math.round(r.top + r.height / 2)];
+          }
+          return out;
+        });
+        const pinPath = args.out.replace(/\.png$/, "-pin.png");
+        await page.screenshot({ path: pinPath });   // viewport, sidebar pinned
+        Object.assign(meta, { pin: path.basename(pinPath), pinW: geo.pinW,
+                              engageY: geo.engageY });
+        console.log(`${pinPath}  (pinned sidebar, engageY=${Math.round(geo.engageY)}px)`);
+      }
+      await page.evaluate((y) => {
+        document.documentElement.style.scrollBehavior = "auto";
+        window.scrollTo(0, Math.ceil(y));
+      }, geo.maxScroll);
+      await page.waitForTimeout(250);
+      await page.evaluate(() => new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const bottom = await page.evaluate(() => {
+        const out = {};
+        const cta = document.querySelector(".brief-deepen");
+        if (cta) {
+          const r = cta.getBoundingClientRect();
+          out.cta = [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)];
+        }
+        const index = {};
+        for (const btn of document.querySelectorAll(".evidence-index button")) {
+          // the buttons carry a <span>0N</span> prefix; the name is the letters
+          const label = (btn.textContent || "").toLowerCase().replace(/[^a-z]/g, "");
+          const r = btn.getBoundingClientRect();
+          if (label) index[label] = [Math.round(r.left + r.width / 2),
+                                     Math.round(r.top + r.height / 2)];
+        }
+        if (Object.keys(index).length) out.buttons = index;
+        return out;
+      });
+      Object.assign(meta, bottom);
+      fs.writeFileSync(args.out.replace(/\.png$/, ".json"), JSON.stringify(meta));
+    } else {
+      await page.screenshot({ path: args.out, fullPage: !args.viewport });
+    }
+    const what = args.stage
+      ? `evidence/${args.stage}${args.full ? " full record" : ""}` : args.view;
+    console.log(`${args.out}  (${what}, ${args.width * args.dsf}px wide)`);
+  } finally {
+    await browser.close();
+  }
+})().catch((err) => { console.error(err); process.exit(1); });
