@@ -268,6 +268,11 @@ def _ease_io_cubic(x: float) -> float:
     return 4 * x ** 3 if x < 0.5 else 1 - (-2 * x + 2) ** 3 / 2
 
 
+def _ease_out_cubic(x: float) -> float:
+    """easeOutCubic — the cursor's approach: fast, then settling on target."""
+    return 1 - (1 - x) ** 3
+
+
 def _browser_chrome(d: ImageDraw.ImageDraw, url: str,
                     font: ImageFont.FreeTypeFont) -> None:
     """The browser twin of :meth:`Renderer._window`: the same frame, corner
@@ -308,6 +313,7 @@ def _browser_act(page: Path, url: str, *, scroll_seconds: float, fps: int,
                  fade_from: Image.Image | None = None,
                  fade: float = T.XFADE,
                  pin: tuple[Image.Image, int, float] | None = None,
+                 hold: float = T.BROWSE_HOLD,
                  ) -> Iterable[Image.Image]:
     """A browser window scrolling a full-page capture — the UI tour acts.
 
@@ -352,8 +358,93 @@ def _browser_act(page: Path, url: str, *, scroll_seconds: float, fps: int,
         yield shot(dist * _ease_io_cubic(min(1.0, t / duration)))
     end = shot(float(dist))
     yield end
-    for _ in range(int(T.BROWSE_HOLD * fps)):
+    for _ in range(int(hold * fps)):
         yield end
+
+
+def _scroll_meta(page: Path) -> dict[str, Any] | None:
+    """shoot_ui's sidecar for a scroll act, if one was recorded."""
+    meta_path = page.with_suffix(".json")
+    if not meta_path.exists():
+        return None
+    return json.loads(meta_path.read_text())
+
+
+#: A pointer arrow, tip at the origin, in the classic left-leaning shape.
+_CURSOR_POINTS = ((0, 0), (0, 16.9), (4.5, 13.1), (7.6, 19.6),
+                  (10.0, 18.5), (6.9, 12.0), (11.9, 11.6))
+
+
+def _cursor_layer(at: tuple[float, float], *, ring: float = 0.0,
+                  ring_alpha: int = 0) -> Image.Image:
+    """RGBA overlay: the pointer with its tip at *at*, plus a click ring."""
+    layer = Image.new("RGBA", (T.W, T.H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    x, y = at
+    s = 1.2
+    d.polygon([(x + px * s, y + py * s) for px, py in _CURSOR_POINTS],
+              fill=(245, 252, 248, 232), outline=(16, 26, 23, 255))
+    if ring > 0 and ring_alpha > 0:
+        d.ellipse([x - ring, y - ring, x + ring, y + ring],
+                  outline=(61, 141, 255, ring_alpha), width=2)
+    return layer
+
+
+def _click_frames(base: Image.Image, target: tuple[int, int], *, fps: int,
+                  entry: tuple[int, int] | None = None,
+                  glide: float = 0.45, press: float = 0.2,
+                  ) -> Iterable[Image.Image]:
+    """The cursor's approach and click on a held frame — its own mini-act.
+
+    The page has just finished scrolling; the cursor glides in from *entry*
+    (the previous click, or from off-frame bottom-right the first time),
+    settles on *target*, and clicks: a ring pulses out from the tip while the
+    pointer nudges into the press. The final frame is the fade-from source
+    for the act the click opens.
+    """
+    start = entry or (T.W - 70, T.H + 26)
+
+    def frame_with(at: tuple[float, float], ring: float = 0.0,
+                   ring_alpha: int = 0) -> Image.Image:
+        layer = _cursor_layer(at, ring=ring, ring_alpha=ring_alpha)
+        return Image.alpha_composite(base.copy().convert("RGBA"), layer).convert("RGB")
+
+    n = max(2, int(glide * fps))
+    for i in range(n):
+        e = _ease_out_cubic((i + 1) / n)
+        at = (start[0] + (target[0] - start[0]) * e,
+              start[1] + (target[1] - start[1]) * e)
+        yield frame_with(at)
+    n = max(2, int(press * fps))
+    for i in range(n):
+        t = (i + 1) / n
+        at = (target[0] + 1.5 * t, target[1] + 1.5 * t)
+        yield frame_with(at, ring=3 + 14 * t, ring_alpha=round(215 * (1 - 0.4 * t)))
+
+
+def _click_target(a: dict[str, Any] | None, b: dict[str, Any] | None,
+                  ) -> tuple[int, int, bool] | None:
+    """Where the cursor clicks to get from act *a* to act *b*, if shoot_ui
+    recorded the position: the next stage's sidebar button, the deepen CTA
+    for the same stage's Full record, or a footer index button.
+
+    The third element says whether the position was measured at the bottom
+    of the capture viewport (CTA, index buttons) — those need rebasing when
+    the capture viewport was taller than the video's. Sidebar buttons are
+    top-anchored by the sticky pin and need nothing.
+    """
+    if not a or not b:
+        return None
+    if b.get("stage") == a.get("stage"):            # deepening the same stage
+        if b.get("full") and not a.get("full") and a.get("cta"):
+            return (*a["cta"], True)
+        return None
+    if b.get("stage") and b["stage"] in (a.get("stage_buttons") or {}):
+        return (*a["stage_buttons"][b["stage"]], False)
+    view = b.get("view") or ("evidence" if b.get("stage") else None)
+    if view in (a.get("buttons") or {}):
+        return (*a["buttons"][view], True)
+    return None
 
 
 def _scroll_pin(page: Path) -> tuple[Image.Image, int, float] | None:
@@ -371,6 +462,8 @@ def _scroll_pin(page: Path) -> tuple[Image.Image, int, float] | None:
     if not meta_path.exists():
         return None
     meta = json.loads(meta_path.read_text())
+    if "pin" not in meta:            # nothing sticky on this page (overview)
+        return None
     pin = Image.open(page.parent / meta["pin"]).convert("RGB")
     dsf = pin.width / T.WIN_W
     crop_h = round(T.BROWSE_VH * dsf)
@@ -504,19 +597,38 @@ def main() -> int:
     for frame_no in range(total_frames):
         emit(renderer.frame(frame_no / args.fps))
     last = renderer.frame((total_frames - 1) / args.fps) if total_frames else None
+    # The UI tour: every scroll act in order, and between two acts a cursor
+    # click wherever shoot_ui recorded the button that opens the next one —
+    # the sidebar's next stage, the deepen CTA, the footer index.
+    acts: list[tuple[Path, dict[str, Any] | None]] = []
     if args.ui_page:
-        for image in _browser_act(args.ui_page, args.ui_url,
-                                  scroll_seconds=args.ui_scroll_seconds,
-                                  fps=args.fps, fade_from=last):
-            emit(image)
-            last = image
-    for scroll_page in args.ui_scroll or ():
-        for image in _browser_act(scroll_page, args.ui_url,
+        acts.append((args.ui_page, _scroll_meta(args.ui_page)))
+    acts += [(p, _scroll_meta(p)) for p in args.ui_scroll or ()]
+    last_click: tuple[int, int] | None = None
+    for index, (act_path, meta) in enumerate(acts):
+        target = (_click_target(meta, acts[index + 1][1])
+                  if index + 1 < len(acts) else None)
+        hold = 0.3 if target is not None else T.BROWSE_HOLD
+        for image in _browser_act(act_path, args.ui_url,
                                   scroll_seconds=args.ui_scroll_seconds,
                                   fps=args.fps, fade_from=last,
-                                  pin=_scroll_pin(scroll_page)):
+                                  pin=_scroll_pin(act_path), hold=hold):
             emit(image)
             last = image
+        if target is None:
+            continue
+        x, y, bottom_anchored = target
+        if bottom_anchored and meta:
+            vh = (meta.get("viewport") or (T.WIN_W, T.BROWSE_VH))[1]
+            y += T.BROWSE_VH - vh
+        x = max(8, min(T.WIN_W - 8, int(x)))
+        y = max(8, min(T.BROWSE_VH - 8, int(y)))
+        click_at = (T.WIN_X + x, T.WIN_Y + T.BAR_H + y)
+        for image in _click_frames(last, click_at, fps=args.fps,
+                                   entry=last_click):
+            emit(image)
+            last = image
+        last_click = click_at
     if args.ui_shot:
         for image in _ui_act(args.ui_shot, url=args.ui_url,
                              seconds_each=args.ui_seconds, fps=args.fps,

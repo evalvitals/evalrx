@@ -129,24 +129,33 @@ function parseArgs(argv) {
     }
     fs.mkdirSync(path.dirname(args.out), { recursive: true });
     if (args.scrollset) {
-      // The video scrolls the full-page capture like a real browser. A
-      // position:sticky stage-list renders once at its natural offset inside
-      // a full-page shot, so it would scroll away mid-act. Measure where
-      // sticking engages and capture the pinned sidebar once, so the
-      // renderer can overlay it from that moment on.
+      // The video scrolls the full-page capture like a real browser, and
+      // points a cursor at what it "clicks" to move on. A position:sticky
+      // stage-list renders once at its natural offset inside a full-page
+      // shot, so it would scroll away mid-act: measure where sticking
+      // engages and capture the pinned sidebar once for the renderer to
+      // overlay. The deepen CTA (evidence summaries) and the overview's
+      // evidence/cases/debug index live at the page bottom, so their
+      // viewport positions are recorded there, where the scroll ends.
+      const meta = { view: args.stage ? "evidence" : args.view,
+                     stage: args.stage || null, full: args.full,
+                     viewport: [args.width, args.height] };
       const geo = await page.evaluate(() => {
         const el = document.querySelector(".stage-list");
-        if (!el) return null;
-        const restore = el.style.position;
-        el.style.position = "static";       // natural document offset, wherever we are
-        const box = el.getBoundingClientRect();
-        const top = box.top + window.scrollY;
-        el.style.position = restore;
-        return { engageY: top, pinW: Math.round(box.width),
-                 maxScroll: document.documentElement.scrollHeight - window.innerHeight };
+        const out = { engageY: null, pinW: null,
+                     maxScroll: document.documentElement.scrollHeight - window.innerHeight };
+        if (el) {
+          const restore = el.style.position;
+          el.style.position = "static";     // natural document offset, wherever we are
+          const box = el.getBoundingClientRect();
+          out.engageY = box.top + window.scrollY;
+          out.pinW = Math.round(box.width);
+          el.style.position = restore;
+        }
+        return out;
       });
       await page.screenshot({ path: args.out, fullPage: true });
-      if (geo && geo.maxScroll >= geo.engageY) {
+      if (geo.engageY !== null && geo.maxScroll >= geo.engageY) {
         await page.evaluate((y) => {
           document.documentElement.style.scrollBehavior = "auto";
           window.scrollTo(0, Math.ceil(y));
@@ -154,13 +163,49 @@ function parseArgs(argv) {
         await page.waitForTimeout(250);
         await page.evaluate(() => new Promise((resolve) =>
           requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        meta.stage_buttons = await page.evaluate(() => {
+          const out = {};
+          for (const btn of document.querySelectorAll(".stage-list button")) {
+            const code = btn.querySelector("span")?.textContent.trim();
+            const r = btn.getBoundingClientRect();
+            if (code) out[code] = [Math.round(r.left + r.width / 2),
+                                   Math.round(r.top + r.height / 2)];
+          }
+          return out;
+        });
         const pinPath = args.out.replace(/\.png$/, "-pin.png");
-        await page.screenshot({ path: pinPath });     // viewport, sidebar pinned
-        fs.writeFileSync(args.out.replace(/\.png$/, ".json"), JSON.stringify({
-          pin: path.basename(pinPath), pinW: geo.pinW, engageY: geo.engageY,
-        }));
+        await page.screenshot({ path: pinPath });   // viewport, sidebar pinned
+        Object.assign(meta, { pin: path.basename(pinPath), pinW: geo.pinW,
+                              engageY: geo.engageY });
         console.log(`${pinPath}  (pinned sidebar, engageY=${Math.round(geo.engageY)}px)`);
       }
+      await page.evaluate((y) => {
+        document.documentElement.style.scrollBehavior = "auto";
+        window.scrollTo(0, Math.ceil(y));
+      }, geo.maxScroll);
+      await page.waitForTimeout(250);
+      await page.evaluate(() => new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const bottom = await page.evaluate(() => {
+        const out = {};
+        const cta = document.querySelector(".brief-deepen");
+        if (cta) {
+          const r = cta.getBoundingClientRect();
+          out.cta = [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)];
+        }
+        const index = {};
+        for (const btn of document.querySelectorAll(".evidence-index button")) {
+          // the buttons carry a <span>0N</span> prefix; the name is the letters
+          const label = (btn.textContent || "").toLowerCase().replace(/[^a-z]/g, "");
+          const r = btn.getBoundingClientRect();
+          if (label) index[label] = [Math.round(r.left + r.width / 2),
+                                     Math.round(r.top + r.height / 2)];
+        }
+        if (Object.keys(index).length) out.buttons = index;
+        return out;
+      });
+      Object.assign(meta, bottom);
+      fs.writeFileSync(args.out.replace(/\.png$/, ".json"), JSON.stringify(meta));
     } else {
       await page.screenshot({ path: args.out, fullPage: !args.viewport });
     }

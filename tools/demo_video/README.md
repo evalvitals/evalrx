@@ -49,13 +49,15 @@ scrolls the full-page overview shot top to bottom. The scroll duration adapts
 to the page height; `--ui-scroll-seconds` overrides it.
 
 `--ui-scroll FILE` (repeatable, in order) chains more browser acts after the
-overview: each capture is scrolled top to bottom, and consecutive acts
-cross-fade. Use this for every stage's summary page and its Full record page
-— the scroll lands on the "See everything this step recorded" CTA at the
-bottom, the cross-fade reads as clicking it, then the next act scrolls the
-Full record page the same way. The shot must be a full-page capture made with
-`shoot_ui --scrollset` (see below); otherwise a sticky stage-list would scroll
-away inside it.
+overview: each capture is scrolled top to bottom, and the hand-off to the
+next act is a cursor — it glides in, clicks the button that opens the next
+page (the sidebar's next stage, the "See everything this step recorded" CTA
+at the summary's bottom, or the footer index), and the click's target page
+cross-fades in. Which Full record pages to include is an editorial call:
+the shipped video deepens only M2 and M5, the two stages whose records
+carry the story. The captures must be full-page shots made with
+`shoot_ui --scrollset` (see below); the sidecar records where the sticky
+stage-list pins and where the clickable buttons sit.
 
 `--ui-shot FILE` (repeatable) appends further report-UI screenshots after
 the browser acts — views that don't need scrolling, like the agent audit log.
@@ -118,9 +120,12 @@ the rest scrolls:
 ```bash
 for s in M1 M2 M3 M4 M5; do
   node tools/demo_video/shoot_ui --url "$URL" --view evidence --stage "$s" \
-      --scrollset --out "build/ui/evidence-${s}.png" --height 626
+      --scrollset --height 626 --out "build/ui/evidence-${s}.png"
+done
+# deepen only the stages whose records carry the story — M2 and M5 here
+for s in M2 M5; do
   node tools/demo_video/shoot_ui --url "$URL" --view evidence --stage "$s" --full \
-      --scrollset --out "build/ui/full-${s}.png" --height 626
+      --scrollset --height 626 --out "build/ui/full-${s}.png"
 done
 node tools/demo_video/shoot_ui --url "$URL" --view cases --out build/ui/cases.png
 node tools/demo_video/shoot_ui --url "$URL" --view debug --out build/ui/debug.png \
@@ -130,7 +135,9 @@ node tools/demo_video/shoot_ui --url "$URL" --view debug --out build/ui/debug.pn
 `--view NAME` is overview (default), evidence, cases, debug. `--stage CODE`
 on the evidence view opens that stage's page; `--full` clicks the "Full
 record" tab. `--viewport` keeps it to the viewport; without it the capture
-is the full page (what the scroll acts want).
+is the full page (what the scroll acts want). `--height 626` matters for
+`--scrollset`: the sidecar's button positions are viewport coordinates, and
+626 is the video's browser viewport.
 
 The SVG deliberately stays terminal-only — an inline README image should not
 carry a megabyte of screenshots, and `timeline.build`'s serve segment is
