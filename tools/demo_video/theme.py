@@ -41,6 +41,14 @@ MAX_COLS = 126
 TEXT_X = WIN_X + RAIL_W + PAD_X
 TEXT_Y0 = WIN_Y + BAR_H + PAD_TOP + FONT_SIZE
 
+# The browser act's title bar: a URL field sits where the terminal keeps its
+# heading, and the content viewport takes everything below it (no status bar).
+URL_FIELD_H = 24                    # URL field height, centred in BAR_H
+URL_FIELD_R = 7                     # URL field corner radius
+URL_X0 = WIN_X + 82                 # right of the traffic lights
+URL_X1 = WIN_X + WIN_W - 22
+BROWSE_VH = WIN_H - BAR_H           # browser content viewport height
+
 # ----------------------------------------------------------------- palette ---
 BG = "#05100e"                   # page backdrop, just under the window
 WIN_BG = "#07110f"               # terminal ground
@@ -70,6 +78,13 @@ TYPE_CPS = 26.0                  # typed characters per second
 AFTER_ENTER = 0.55               # beat between Enter and the first output
 HOLD_END = 2.6                   # freeze on the result strip before looping
 CARD_IN = 0.7                    # result strip fade-in
+
+# The browser act that follows the terminal when the report UI is shown.
+SERVE_HOLD = 1.2                 # hold on the serve output before the UI fades in
+XFADE = 0.5                      # terminal → browser act cross-fade
+BROWSE_HOLD = 0.9                # freeze on the page bottom after the scroll
+SCROLL_PPS = 520.0               # adaptive scroll speed (content px per second)
+SCROLL_MIN, SCROLL_MAX = 2.2, 14.0   # adaptive scroll duration clamp (seconds)
 
 
 def display_gap(real_seconds: float | None) -> float:
