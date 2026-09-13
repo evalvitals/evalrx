@@ -9,24 +9,25 @@
   <img src="docs/assets/figures/model-health-teaser.svg" alt="A model-health signal enters an auto-research loop that probes, explains and intervenes; only a held-out verified pass updates the model to n+1, which recurs as the next research subject." width="640">
 </picture>
 
+[![Paper](https://img.shields.io/badge/Paper-PDF-3D8DFF)](https://github.com/evalvitals/evalvitals-pages/blob/main/docs/assets/Evalvitals.pdf)
 [![PyPI version](https://img.shields.io/pypi/v/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
 [![Python versions](https://img.shields.io/pypi/pyversions/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
 [![CI](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml/badge.svg)](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-live-3D8DFF)](https://evalvitals.github.io/evalrx/overview/)
 [![Demo](https://img.shields.io/badge/demo-live-39A96B)](https://evalvitals.github.io/evalrx/demo/)
-[![License: CC0-1.0](https://img.shields.io/badge/license-CC0--1.0-39A96B)](LICENSE)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-39A96B)](LICENSE)
 
 [Loop](#the-loop) · [Quickstart](#quickstart) · [Trust](#why-the-loop-is-trustworthy) · [Ladder](#the-repair-ladder) · [Docs](https://evalvitals.github.io/evalrx/overview/) · [Demo](https://evalvitals.github.io/evalrx/demo/) · [GitHub](https://github.com/evalvitals/evalrx)
 
 <br>
 
-[![A real EvalRX run: M1 probe through M5 repair on Gemma-4-E2B × MMAU](docs/assets/demo/evalrx-run.svg)](https://evalvitals.github.io/evalrx/demo/)
+[![A real EvalRX run: M1 probe through M5 repair on Gemma-4-E2B × MMAU](https://raw.githubusercontent.com/evalvitals/evalvitals-pages/main/docs/assets/videos/evalrx-final.gif)](https://evalvitals.github.io/evalrx/demo/)
 
 <sub>One real run, replayed — 256 MMAU cases, 162 failures, two of three
 mechanisms upheld on cases the analysis never saw, and an L2 repair that fixed
-25 of them while breaking none. 20 minutes of work compressed into 22 seconds;
+25 of them while breaking none. 20 minutes of work compressed into 81 seconds;
 the clock in the gutter is the run's own elapsed time.
-[Browse two full reports →](https://evalvitals.github.io/evalrx/demo/)</sub>
+[Browse two full reports →](https://evalvitals.github.io/evalrx/demo/) · [Watch full video ↗](https://github.com/evalvitals/evalvitals-pages/blob/main/docs/assets/videos/final.mp4)</sub>
 
 </div>
 
@@ -182,3 +183,13 @@ EvalRX is an early-stage research toolkit; interfaces may evolve, and some
 full-loop examples need model weights, a GPU, or an external coding-agent
 CLI. Bug reports, reproducible failure cases, analyzer contributions, and
 evaluation integrations are welcome.
+
+
+## License
+
+This project is licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE).
+
+Noncommercial use is permitted under the terms of the license.
+
+Third-party components remain subject to their respective licenses.
