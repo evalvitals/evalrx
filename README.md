@@ -17,7 +17,7 @@
 [![Demo](https://img.shields.io/badge/demo-live-39A96B)](https://evalvitals.github.io/evalrx/demo/)
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-39A96B)](LICENSE)
 
-[Loop](#the-loop) · [Quickstart](#quickstart) · [Trust](#why-the-loop-is-trustworthy) · [Ladder](#the-repair-ladder) · [Docs](https://evalvitals.github.io/evalrx/overview/) · [Demo](https://evalvitals.github.io/evalrx/demo/) · [GitHub](https://github.com/evalvitals/evalrx)
+[Loop](#the-loop) · [Quickstart](#quickstart) · [Models](#supported-models) · [Trust](#why-the-loop-is-trustworthy) · [Ladder](#the-repair-ladder) · [Docs](https://evalvitals.github.io/evalrx/overview/) · [Demo](https://evalvitals.github.io/evalrx/demo/) · [GitHub](https://github.com/evalvitals/evalrx)
 
 <br>
 
@@ -105,6 +105,31 @@ pip install "evalrx[viz,stats]"   # plots + inferential statistics
 Full extras list (`interp`, `data`, `observability`, `ui`, `cluster`,
 `gemini`, `contract`, `all`, `dev`) in [`pyproject.toml`](pyproject.toml). For
 development: `pip install -e ".[dev]"` then `pytest -m "not gpu"`.
+
+## Supported models
+
+EvalRX currently provides benchmark configurations for the following models.
+The names below are the benchmark's `--model` keys. LLM = text only,
+VLM = image + text, and ALM = audio + text; ✓ marks a configured modality.
+
+| Family | Models (`--model`) | LLM | VLM | ALM |
+|---|---|---|---|---|
+| Qwen 3.5 | `qwen3.5-2b`, `qwen3.5-4b`, `qwen3.5-9b` | ✓ | ✓ | — |
+| Qwen 3 Omni | `qwen3-omni-30b-a3b` | — | — | ✓ |
+| Gemma 4 | `gemma-4-e2b`, `gemma-4-e4b`, `gemma-4-12b` | ✓ | ✓ | ✓ |
+| Nemotron 3 Nano | `nemotron-3-nano-4b` | ✓ | — | — |
+| Nemotron 3 Nano Omni | `nemotron-3-nano-omni-30b-a3b` | — | ✓ | ✓ |
+| Gemini 3.x (API) | `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite` | ✓ | ✓ | ✓ |
+| Gemini 2.5 (API) | `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro` | ✓ | ✓ | ✓ |
+
+Open-weight models use an OpenAI-compatible server (`--backend endpoint`,
+the benchmark default) or run locally with `--backend hf_local` for access to
+model internals. Gemini uses `--backend gemini` with `GEMINI_API_KEY` and
+requires no local GPU. API backends limit the benchmark's repair ladder to L2.
+
+See [examples/benchmark](examples/benchmark/README.md) for setup and run
+commands, datasets, GPU requirements, registered model specs, and per-cell
+validation status.
 
 ## Use it as a library
 
