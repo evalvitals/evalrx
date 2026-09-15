@@ -119,7 +119,7 @@ VLM = image + text, and ALM = audio + text; ✓ marks a configured modality.
 | Gemma 4 | `gemma-4-e2b`, `gemma-4-e4b`, `gemma-4-12b` | ✓ | ✓ | ✓ |
 | Nemotron 3 Nano | `nemotron-3-nano-4b` | ✓ | — | — |
 | Nemotron 3 Nano Omni | `nemotron-3-nano-omni-30b-a3b` | — | ✓ | ✓ |
-| Gemini 3.x (API) | `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite` | ✓ | ✓ | ✓ |
+| Gemini 3.x (API) | `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.1-pro-preview` | ✓ | ✓ | ✓ |
 | Gemini 2.5 (API) | `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro` | ✓ | ✓ | ✓ |
 
 Open-weight models use an OpenAI-compatible server (`--backend endpoint`,

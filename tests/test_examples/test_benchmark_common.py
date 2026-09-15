@@ -26,7 +26,7 @@ def test_every_matrix_cell_resolves_to_a_registered_spec_of_the_right_modality(c
 
     models, *_ = common
     cells = list(models.cells())
-    assert len(cells) == 43   # 19 open-weight cells + 8 Gemini models x 3 modalities
+    assert len(cells) == 46   # 19 open-weight cells + 9 Gemini models x 3 modalities
     for modality, family, size in cells:
         resolved = models.resolve(size.key, modality)
         spec = get_spec(resolved.spec_key)
@@ -67,7 +67,7 @@ def test_the_matrix_is_the_one_specified(common):
     for modality, family, size in models.cells():
         by_modality.setdefault(modality, {}).setdefault(family.key, []).append(size.key)
     gemini = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite",
-              "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
+              "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
     assert by_modality == {
         "vlm": {"qwen": ["qwen3.5-2b", "qwen3.5-4b", "qwen3.5-9b"],
                 "gemma": ["gemma-4-e2b", "gemma-4-e4b", "gemma-4-12b"],
@@ -314,7 +314,7 @@ def test_leaf_compose_files_cover_every_cell_and_leave_judge_to_cli_default(comm
         assert svc["build"]["target"] == family.docker_target and svc["image"] == family.image
         assert (leaf / "README.md").is_file() and (leaf / ".env").is_symlink()
         seen.add((modality, family.key, size.key))
-    assert len(seen) == 43
+    assert len(seen) == 46
 
 
 def test_dockerfile_has_one_stage_per_family(common):

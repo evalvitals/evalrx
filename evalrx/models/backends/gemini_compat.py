@@ -14,8 +14,8 @@ What the wrapper adds over the raw SDK, in the order it matters for a
 diagnosis run:
 
 * **Thinking floor.** The benchmark runs every model with thinking as far OFF
-  as the model allows. 3.x models take ``thinking_level`` (3.7-flash bottoms
-  out at ``low``, the others at ``minimal``); 2.5 models take
+  as the model allows. 3.x models take ``thinking_level`` (3.7-flash and
+  3.1-pro-preview bottom out at ``low``, the others at ``minimal``); 2.5 models take
   ``thinking_budget`` (``0`` on flash / flash-lite; 2.5-pro cannot switch it
   off, floor 128). :func:`thinking_config` resolves the floor per model id,
   ``ThinkingPolicy(level=..., budget=...)`` overrides it, and a model that
@@ -74,6 +74,7 @@ LEVEL_FLOOR: dict[str, str] = {
     "gemini-3.5-flash": "minimal",
     "gemini-3.5-flash-lite": "minimal",
     "gemini-3.1-flash-lite": "minimal",
+    "gemini-3.1-pro-preview": "low",     # thinking cannot be disabled
 }
 #: Lowest ``thinking_budget`` each 2.5 model accepts (0 = thinking off).
 BUDGET_FLOOR: dict[str, int] = {

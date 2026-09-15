@@ -39,11 +39,17 @@ differs (Qwen3.5 text tower vs vision tower); Gemma 4 is one spec for all three.
 | `gemini-3.5-flash` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.5-flash` |
 | `gemini-3.5-flash-lite` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.5-flash-lite` |
 | `gemini-3.1-flash-lite` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.1-flash-lite` |
+| `gemini-3.1-pro-preview` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.1-pro-preview` (thinking floor `low`) |
 | `gemini-2.5-flash` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-2.5-flash` (`thinking_budget` 0) |
 | `gemini-2.5-flash-lite` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-2.5-flash-lite` (`thinking_budget` 0) |
 | `gemini-2.5-pro` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-2.5-pro` (thinking cannot be disabled; budget 128) |
 
 `python -m _common.run --list` prints the same table from the code.
+
+Gemini 3.1 Pro uses the official API id
+[`gemini-3.1-pro-preview`](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview).
+Its minimum thinking level is `low`; thinking cannot be disabled. This model
+is configured for all three modalities; live benchmark validation is pending.
 
 Gemma 4 12B **does** take audio (the model card lists audio on E2B, E4B and 12B;
 the 12B is the encoder-free "Unified" variant), so it sits in the ALM row; drop
@@ -133,8 +139,9 @@ the final significance gate, and the validation data costs no confirm power.
   all default ON otherwise); `--enable-thinking` flips it for one run. Gemini
   cannot always switch thinking off, so the runtime sends each model's
   **floor**: `thinking_level=minimal` on 3.6/3.5/3.5-lite/3.1-lite, `low` on
-  3.7-flash (its lowest), `thinking_budget=0` on 2.5-flash / flash-lite and 128
-  on 2.5-pro. `--thinking-level {minimal,low,medium,high}` / `--thinking-budget N`
+  3.7-flash and 3.1-pro-preview (their lowest), `thinking_budget=0` on
+  2.5-flash / flash-lite and 128 on 2.5-pro.
+  `--thinking-level {minimal,low,medium,high}` / `--thinking-budget N`
   name a setting explicitly; `--enable-thinking` leaves the API default. A model
   that rejects the config falls back to the default once, logged, and the
   served `model_version` is written to `baseline.json` because a stable id is

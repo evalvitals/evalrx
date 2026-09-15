@@ -67,7 +67,8 @@ _GEMMA = ("e2b", "e4b", "12b")
 #: image, video and audio, so each size fills all three modality cells.
 _GEMINI = (
     "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
+    "gemini-3.1-flash-lite", "gemini-3.1-pro-preview",
+    "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
 )
 
 SIZES: dict[str, Size] = {
