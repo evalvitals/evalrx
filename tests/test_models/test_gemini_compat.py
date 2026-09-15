@@ -210,6 +210,7 @@ def test_thinking_floor_per_model_family():
     assert thinking_config("gemini-3.6-flash") == {"thinking_level": "minimal"}
     assert thinking_config("gemini-3.5-flash-lite") == {"thinking_level": "minimal"}
     assert thinking_config("gemini-3.1-flash-lite") == {"thinking_level": "minimal"}
+    assert thinking_config("gemini-3.1-pro-preview") == {"thinking_level": "low"}
     assert thinking_config("gemini-2.5-flash") == {"thinking_budget": 0}
     assert thinking_config("gemini-2.5-flash-lite") == {"thinking_budget": 0}
     assert thinking_config("gemini-2.5-pro") == {"thinking_budget": 128}
@@ -223,6 +224,7 @@ def test_explicit_level_is_honoured_but_never_below_the_floor():
     assert thinking_config("gemini-3.6-flash", ThinkingPolicy(level="high")) == {"thinking_level": "high"}
     # 3.7-flash has no minimal: the floor is sent instead
     assert thinking_config("gemini-3.7-flash", ThinkingPolicy(level="minimal")) == {"thinking_level": "low"}
+    assert thinking_config("gemini-3.1-pro-preview", ThinkingPolicy(level="minimal")) == {"thinking_level": "low"}
     # a level asked of a budget model maps to a budget, floored
     assert thinking_config("gemini-2.5-flash", ThinkingPolicy(level="medium")) == {"thinking_budget": 8192}
     assert thinking_config("gemini-2.5-pro", ThinkingPolicy(level="minimal")) == {"thinking_budget": 128}
@@ -480,7 +482,7 @@ def test_gemini_specs_are_api_only_omni_and_named_by_model_id():
     from evalrx.specs import get_spec
 
     for key in ("gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite",
-                "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"):
+                "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-2.5-flash-lite"):
         spec = get_spec(key)
         assert spec.api_only and spec.hf_repo == "" and spec.family == "gemini"
         assert spec.modalities == frozenset({"text", "image", "audio", "video"})

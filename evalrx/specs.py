@@ -698,8 +698,8 @@ __all__ = ["REGISTRY", "get_spec", "list_specs"]
 # empty, ``APIModel`` sends ``spec.hf_repo or spec.key``). Every model below
 # lists text, image, video, audio and PDF as inputs on its model card, so one
 # spec serves the llm / vlm / alm cells. Thinking: the 3.x models expose
-# ``thinking_level`` (3.7-flash bottoms out at ``low``, the rest at
-# ``minimal``); the 2.5 models expose ``thinking_budget`` (0 = off on flash /
+# ``thinking_level`` (3.7-flash and 3.1-pro-preview bottom out at ``low``,
+# the rest at ``minimal``); the 2.5 models expose ``thinking_budget`` (0 = off on flash /
 # flash-lite; 2.5-pro cannot switch it off, floor 128) — the runtime sends the
 # floor unless told otherwise. Logprobs: none for 3.x ("working as intended",
 # Google forum 2026-08-05) and withdrawn on 2.5, so the backend is GENERATE-only
@@ -710,6 +710,7 @@ for _key, _thinking in (
     ("gemini-3.5-flash", "thinking_level floor 'minimal'"),
     ("gemini-3.5-flash-lite", "thinking_level floor 'minimal' (its default)"),
     ("gemini-3.1-flash-lite", "thinking_level floor 'minimal' (levels per the card; floor unverified)"),
+    ("gemini-3.1-pro-preview", "thinking_level floor 'low' (thinking cannot be disabled)"),
     ("gemini-2.5-flash", "thinking_budget 0 turns thinking off (default on)"),
     ("gemini-2.5-flash-lite", "thinking_budget 0 (its default)"),
     ("gemini-2.5-pro", "thinking cannot be disabled (budget floor 128)"),
