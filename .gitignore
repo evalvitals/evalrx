@@ -151,6 +151,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv-jax/
 env/
 venv/
 ENV/

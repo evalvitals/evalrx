@@ -104,6 +104,16 @@ def load_model(resolved: Resolved, args, task: T.Task):
         return compose(spec, "api", runtime, set()), {}, spec
     from evalrx.models.backends.base import RuntimeConfig
 
+    if resolved.backend == "jax_local":
+        # The JAX twin: same spec (template kwargs, modalities, caveats), the
+        # gemma library underneath. apply_chat_template as on hf_local. A
+        # --model-path is a local Orbax mirror of the spec's gs:// checkpoint
+        # (18 GB for E2B; see docs/design_jax_backend.md section 4).
+        engine_kwargs = {"checkpoint": str(args.model_path)} if getattr(args, "model_path", None) else {}
+        runtime = RuntimeConfig(device=args.device or "auto", dtype=args.dtype, max_new_tokens=max_new,
+                                apply_chat_template=True, engine_kwargs=engine_kwargs)
+        return compose(spec, "jax_local", runtime, set()), gen, spec
+
     device = args.device or (resolved.size.default_device if resolved.size is not None else "cuda")
     attn_choice = args.attn_impl or (resolved.size.attn_impl if resolved.size is not None else "sdpa")
     attn = None if attn_choice == "auto" else attn_choice
@@ -131,7 +141,7 @@ _SAMPLED_M1 = ("self_consistency", "coverage_verification_gap")
 
 
 def _sampling_analyzer_overrides(resolved: Resolved, args) -> dict:
-    if resolved.backend != "hf_local":
+    if resolved.backend not in ("hf_local", "jax_local"):
         return {}
     from evalrx.analyzers.uncertainty.coverage_gap import CoverageVerificationGap
     from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
@@ -244,7 +254,9 @@ API_FIX_CEILING = "L2"
 
 def effective_fix_tier(backend: str, requested: str) -> str:
     """``--fix-tier`` as the run can honour it: unchanged on hf_local, clamped to
-    :data:`API_FIX_CEILING` on the endpoint / gemini backends."""
+    :data:`API_FIX_CEILING` on the endpoint / gemini backends — and, for now, on
+    jax_local too: it reads internals but the L3a executors and L3b hooks are
+    still hf_local methods (phases 2-3 of docs/design_jax_backend.md)."""
     from evalrx.eval_agent.stages.fix_tiers import parse_tier
 
     if backend == "hf_local" or parse_tier(requested) <= parse_tier(API_FIX_CEILING):

@@ -47,6 +47,17 @@ local = [
 finetune = [
     "peft>=0.10",
 ]
+# JAX white-box backend (jax_local, docs/design_jax_backend.md). Google DeepMind's
+# gemma library drives the Gemma 4 reference adapter (Flax Linen; Python >= 3.12
+# upstream). CUDA wheels are a separate choice: `pip install "jax[cuda12]"`.
+# Captured arrays cross into the analyzers as torch tensors, so a CPU torch is
+# enough here (`--extra-index-url https://download.pytorch.org/whl/cpu`).
+jax = [
+    "jax>=0.7",
+    "flax>=0.10",
+    "gemma>=4.0.1; python_version >= '3.12'",
+    "torch>=2.0.0",
+]
 # API / black-box models. The OpenAI-compatible client is optional; you can also
 # inject an existing call_vision_api via RuntimeConfig(generate_fn=...).
 api = [

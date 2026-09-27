@@ -24,6 +24,17 @@ def test_gemma4_specs_are_omni_with_thinking_off(key):
     assert spec.min_transformers == "5.15.0"
 
 
+def test_gemma4_e2b_e4b_carry_a_jax_twin_but_12b_does_not():
+    """jax_local runs the gemma library's Gemma4_E2B / Gemma4_E4B from the public
+    gs://gemma-data checkpoints; the library has no 12B Unified class (2026-09-26)."""
+    for key, cls in (("gemma-4-e2b-it", "Gemma4_E2B"), ("gemma-4-e4b-it", "Gemma4_E4B")):
+        js = get_spec(key).jax
+        assert js is not None and js.framework == "gemma" and js.model_class == cls
+        assert js.checkpoint.startswith("gs://gemma-data/checkpoints/gemma4-")
+        assert js.adapter == "evalrx.models.jax.gemma:make_adapter" and js.reference_attention
+    assert get_spec("gemma-4-12b-it").jax is None
+
+
 def test_gemma4_12b_is_the_encoder_free_unified_variant():
     small, unified = get_spec("gemma-4-e4b-it"), get_spec("gemma-4-12b-it")
     assert small.model_type == "gemma4" and unified.model_type == "gemma4_unified"

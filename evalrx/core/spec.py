@@ -103,6 +103,28 @@ class AudioSpec:
 
 
 @dataclass(frozen=True)
+class JaxSpec:
+    """How a spec's weights run under the ``jax_local`` backend.
+
+    Identity stays on :class:`ModelSpec` (family, modalities, chat-template
+    kwargs, caveats); this block only says where the JAX weights live and which
+    adapter drives them, mirroring the :class:`VisionSpec` / :class:`AudioSpec`
+    pattern. ``adapter`` is an import string ``"pkg.module:factory"``; the
+    factory is called as ``factory(spec, runtime)`` and returns an object that
+    satisfies :class:`evalrx.models.jax.protocol.JaxModelAdapter`. Design notes:
+    ``docs/design_jax_backend.md``.
+    """
+
+    framework: str                          # "gemma" | "flax_linen" | "flax_nnx" | "maxtext" | "custom"
+    checkpoint: str                         # Orbax dir (gs:// or local), Kaggle handle, or safetensors path
+    tokenizer: str                          # SentencePiece model (gs:// or local) or an HF tokenizer id
+    adapter: str                            # e.g. "evalrx.models.jax.gemma:make_adapter"
+    model_class: str = ""                   # framework class, e.g. "Gemma4_E2B" (gemma library)
+    reference_attention: bool = True        # materialise (H,S,S) probabilities -> ATTENTION; False = fused kernels
+    sharding: dict = field(default_factory=dict)   # mesh axes; empty = single device
+
+
+@dataclass(frozen=True)
 class ModelSpec:
     """Per-model identity, reused across every backend.
 
@@ -131,6 +153,7 @@ class ModelSpec:
     vision: Optional[VisionSpec] = None        # not None -> "image" modality
     audio: Optional[AudioSpec] = None          # not None -> "audio" modality (omni)
     video: bool = False                         # True -> "video" modality (omni)
+    jax: Optional["JaxSpec"] = None            # not None -> runnable on the jax_local backend
     api_only: bool = False                      # closed weights -> only the api backend
     caveats: tuple[str, ...] = ()               # honest, human-readable gotchas
 
