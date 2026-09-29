@@ -11,7 +11,7 @@ from evalrx.models.backends.api import APIModel, call_vision_api_generate_fn
 
 
 def test_backends_registered():
-    assert set(BACKENDS) == {"api", "hf_local", "vllm_offline"}
+    assert set(BACKENDS) == {"api", "hf_local", "vllm_offline", "jax_local"}
 
 
 def test_capability_from_backend_not_spec():

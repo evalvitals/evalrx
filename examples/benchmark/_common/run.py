@@ -31,8 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="endpoint = OpenAI-compatible server at --base-url (vLLM in practice; "
                         "black-box, fix ladder clamped to L2; the default for every modality); "
                         "hf_local = in-process transformers (white-box + paper methods, opens "
-                        "L3a/L3b); gemini = Google Gen AI API through google-genai "
-                        "(forced for the gemini family)")
+                        "L3a/L3b); jax_local = in-process JAX through the gemma library (Gemma "
+                        "E2B/E4B, white-box reads, fix ladder clamped to L2 for now); gemini = "
+                        "Google Gen AI API through google-genai (forced for the gemini family)")
     p.add_argument("--concurrency", type=int, default=1,
                    help="Cases generated at once during baseline discovery. Honoured only for "
                         "--backend endpoint (a local backend shares one GPU and is not "

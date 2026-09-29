@@ -165,6 +165,29 @@ Guidelines:
 - Fail early when the backend cannot support a requested spec.
 - Let capabilities describe runtime behavior, not model identity.
 
+### Bring a JAX model
+
+`jax_local` is the JAX twin of `hf_local`. It drives a small adapter contract
+(`evalrx.models.jax.protocol.JaxModelAdapter`: encode, forward with capture
+flags, generate, unembed, final-norm parameters) and converts the captured
+arrays to CPU torch tensors at the `Trace` boundary, so the analyzers that run
+on `hf_local` models run unchanged. `Inputs.image` / `audio` / `video` go
+through the adapter's `encode`; the masks it returns become the same
+`image_token_mask`, `audio_token_mask`, `image_spatial_shape` and
+`TokenTypeMap` fields `hf_local` fills (the Gemma adapter serves text, image
+and audio; `engine_kwargs={"text_only": True}` skips the towers). Two on-ramps:
+
+```python
+# registry route: a spec with a JaxSpec (Gemma 4 E2B / E4B ship one)
+model = compose("gemma-4-e2b-it", "jax_local", RuntimeConfig(apply_chat_template=True))
+
+# bring-your-own: any object implementing JaxModelAdapter (Flax, MaxText, Penzai, ...)
+wrapped = evalrx.wrap_jax(MyAdapter(model, params, tokenizer), key="my-jax-model")
+```
+
+`evalrx/models/jax/gemma.py` is the reference adapter and
+`docs/design_jax_backend.md` the design (phases, capture mechanics, the traps).
+
 ## Add a Dataset Loader
 
 Dataset loaders should produce `FailureCase` or `CaseBatch`. This keeps raw

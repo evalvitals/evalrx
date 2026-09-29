@@ -39,6 +39,7 @@ from evalrx.core.result import Result
 from evalrx.core.spec import (
     AttnSemantics,
     AudioSpec,
+    JaxSpec,
     ModelSpec,
     ModulePaths,
     VisionSpec,
@@ -67,6 +68,7 @@ __all__ = [
     "ModelSpec",
     "VisionSpec",
     "AudioSpec",
+    "JaxSpec",
     "ModulePaths",
     "AttnSemantics",
     "Tool",

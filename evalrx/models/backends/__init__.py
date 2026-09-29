@@ -1,6 +1,6 @@
 """Backends — runtimes that turn a ModelSpec into a Model.
 
-Capabilities come from the backend; identity from the spec.  All three import
+Capabilities come from the backend; identity from the spec.  All of them import
 torch-free (heavy deps are lazy inside ``build``/``load``), so the registry and
 ``compose()`` work on the light install.
 """
@@ -21,6 +21,7 @@ from evalrx.models.backends.gemini_compat import (
     gemini_runtime,
 )
 from evalrx.models.backends.hf_local import HFLocalBackend, HFLocalModel
+from evalrx.models.backends.jax_local import JaxLocalBackend, JaxLocalModel
 from evalrx.models.backends.openai_compat import (
     openai_chat_fn,
     openai_generate_fn,
@@ -33,6 +34,7 @@ BACKENDS: dict[str, type[Backend]] = {
     "api": APIBackend,
     "hf_local": HFLocalBackend,
     "vllm_offline": VLLMOfflineBackend,
+    "jax_local": JaxLocalBackend,
 }
 
 __all__ = [
@@ -42,6 +44,8 @@ __all__ = [
     "APIModel",
     "HFLocalBackend",
     "HFLocalModel",
+    "JaxLocalBackend",
+    "JaxLocalModel",
     "VLLMOfflineBackend",
     "call_vision_api_generate_fn",
     "call_vision_api_chat_fn",

@@ -30,7 +30,7 @@ from typing import Any, Iterable, Mapping, Sequence
 #     makes an already-published run pick the change up — `report_is_current`
 #     only tracks new EVENTS, so without the bump every existing run would
 #     keep serving the labels its old compiler produced.
-REPORT_DATA_VERSION = 18
+REPORT_DATA_VERSION = 19
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalrx-report@2"
@@ -216,7 +216,10 @@ def build_report_data(
                 "confidence": reader.get("confidence") or "unknown",
                 "stopped_by": run.get("stopped_by") or "completed",
             },
-            "metrics": _metrics(run, raw, normalized_cases),
+            "metrics": _metrics(
+                run, raw, normalized_cases,
+                stage_detail.get("m5") if isinstance(stage_detail, dict) else None,
+            ),
             "stages": stages,
             "findings": findings,
             "charts": charts,
@@ -678,8 +681,13 @@ def _stage_detail(
     ), {})
     if fix_event:
         attempted = [item for item in fix_event.get("attempted") or [] if isinstance(item, Mapping)]
-        best_name = fix_event.get("best")
-        best = next((item for item in attempted if item.get("name") == best_name), {})
+        # RunLoggerV2 records `best` as the whole winning candidate (older
+        # producers wrote its bare name); comparing that dict to a name never
+        # matched, so the confirmation stayed empty on every v2 run.
+        best_name = _repair_name(fix_event.get("best"))
+        best = next((item for item in attempted if item.get("name") == best_name), {}) if best_name else {}
+        if not best and best_name and isinstance(fix_event.get("best"), Mapping):
+            best = dict(fix_event["best"])
         m5.update({
             "ran": True, "fixed": bool(fix_event.get("fixed")), "selection": attempted,
             "best": best, "confirm": best, "recommendation": fix_event.get("recommendation"),
@@ -1366,6 +1374,17 @@ def _repair_headline(value: Mapping[str, Any]) -> str:
     return _BUILTIN_DESCRIPTIONS.get(str(value.get("name") or ""), "")
 
 
+def _repair_name(value: Any) -> str:
+    """A repair candidate's name from either shape a run records it in.
+
+    Early runs wrote the winning candidate as its bare name; RunLoggerV2 and
+    the contract payloads write the whole candidate. Both name the same repair.
+    """
+    if isinstance(value, Mapping):
+        return str(value.get("name") or "")
+    return str(value or "")
+
+
 def _repair_candidate(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         return {}
@@ -1463,8 +1482,7 @@ def _repairs(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
     confirm = fix.get("confirm") if isinstance(fix.get("confirm"), Mapping) else {}
     # Early runs recorded the winning candidate as its bare name; later ones
     # record the whole candidate. Both name the same repair.
-    best = fix.get("best")
-    best_name = str(best.get("name") or "") if isinstance(best, Mapping) else str(best or "")
+    best_name = _repair_name(fix.get("best"))
     return [{
         "id": "repair-1", "fixed": bool(fix.get("fixed")),
         "title": best_name or confirm.get("name") or "Targeted repair",
@@ -1474,11 +1492,55 @@ def _repairs(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
     }]
 
 
-def _metrics(run: Mapping[str, Any], raw: Mapping[str, Any], cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _cases_repaired(cases: list[dict[str, Any]], m5_detail: Mapping[str, Any] | None) -> int:
+    """How many withheld cases the M5 repair turned from wrong to right.
+
+    The stage's own confirmation -- the best candidate re-scored on the
+    confirm pool -- is what M5 prints as "21 repaired, 6 broken", and the
+    header tile has to say the same 21 whether or not that candidate cleared
+    the certification bar. Case status never carries a "fixed" value (it is
+    pass / fail), so counting it left the tile at 0 on every run that repaired
+    anything. Runs that recorded no confirmation fall back to the per-case
+    repair outcomes, then to the old status count.
+    """
+    def _count(value: Any) -> int | None:
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    detail = m5_detail if isinstance(m5_detail, Mapping) else {}
+    confirmation = detail.get("confirmation")
+    if isinstance(confirmation, Mapping) and confirmation.get("name"):
+        n_fixed = _count(confirmation.get("n_fixed"))
+        if n_fixed is not None:
+            return n_fixed
+    # No named winner (the candidate missed the certification bar, so the fix
+    # event names none): the stage still scored its confirm-phase candidates on
+    # the withheld cases, and the strongest of those is the number it prints.
+    scored = [
+        item for item in detail.get("candidates") or []
+        if isinstance(item, Mapping) and _count(item.get("n_fixed")) is not None
+    ]
+    if scored:
+        top = max(scored, key=lambda item: (float(item.get("effect") or 0.0), float(item["n_fixed"])))
+        return int(top["n_fixed"])
+    per_case = sum(
+        1 for case in cases
+        if isinstance(case.get("repair"), Mapping) and str(case["repair"].get("status")) == "fixed"
+    )
+    if per_case:
+        return per_case
+    return sum(1 for case in cases if case.get("status") == "fixed")
+
+
+def _metrics(
+    run: Mapping[str, Any],
+    raw: Mapping[str, Any],
+    cases: list[dict[str, Any]],
+    m5_detail: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     labels = run.get("label_distribution") or {}
     failed = labels.get("fail", labels.get("FAIL", 0)) if isinstance(labels, dict) else 0
     verified = len((raw.get("m4") or {}).get("results") or [])
-    fixed = sum(1 for case in cases if case.get("status") == "fixed")
+    fixed = _cases_repaired(cases, m5_detail)
     return [
         {"id": "evaluated", "label": "Cases evaluated", "value": int(run.get("n_cases") or len(cases))},
         {"id": "failed", "label": "Initial failures", "value": int(failed or 0)},
