@@ -61,7 +61,7 @@ FAMILIES: dict[str, Family] = {
 }
 
 #: jax_local = the JAX twin of hf_local (Google DeepMind's gemma library; Gemma
-#: E2B / E4B only, text cells in phase 1 — docs/design_jax_backend.md). Same spec
+#: E2B / E4B only; llm, vlm and alm cells — docs/design_jax_backend.md). Same spec
 #: keys as hf_local, so the size table needs no extra column.
 BACKENDS = ("hf_local", "jax_local", "endpoint", "gemini")
 

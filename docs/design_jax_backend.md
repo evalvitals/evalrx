@@ -246,10 +246,14 @@ feeds `build_token_type_map` directly. The adapter is responsible for:
   per encoded frame group;
 - image grids: the torch path leaves `grids=[]` for Gemma 4 because the
   variable-resolution tiling is not rebuilt (`grid_source="fixed"` with no
-  tile size, see `_GEMMA4_CAVEATS`). If the JAX vision encoder emits a fixed
-  token count per image, the adapter can fill `grids` and unlock the spatial
-  attention overlays the torch path currently forgoes. Verify before
-  promising it.
+  tile size, see `_GEMMA4_CAVEATS`). The JAX adapter fills them (verified
+  2026-09-28): the gemma vision encoder resizes every image to multiples of
+  `patch_size * pooling_kernel_size` = 48 px per side, keeping the aspect
+  ratio under a patch budget, then average-pools 3 x 3 patches row-major, so
+  an image yields exactly `(H/48) * (W/48)` soft tokens in row-major order.
+  `Encoding.grids = [(1, H/48, W/48)]` and `extras["image_spatial_shape"]`
+  come out exact (a 850 x 600 ChartQA image is 19 x 14 = 266 tokens), which
+  unlocks the spatial attention overlays the torch path forgoes.
 
 ### 3.6 Interventions through named sites, not hooks (L3b)
 
@@ -329,8 +333,8 @@ reproduce; the table maps spec facts to adapter responsibilities.
 | `chat_template_kwargs={"enable_thinking": False}`; thought-channel leaks are model behaviour | render the same template with the same kwarg; a leaked `thought` preamble is graded by `scoring.py` exactly as on torch |
 | `AttnSemantics.STANDARD`, sliding / full interleave, all layers attention | reference attention returns `(H, S, S)` per layer with the window mask applied; `n_layers` counts every block |
 | per-layer embeddings (PLE), ~10 GB BF16 | hidden state `l` is the residual stream after block `l`, after the PLE add; PLE weights stay out of `unembed()` |
-| `VisionSpec(image_token_id_attr="image_token_id", grid_source="fixed", fixed_tokens_per_tile=None)` | `image_token_mask` from the placeholder id or `mm_token_type_ids`; `grids` filled only if the encoder's token count per image is fixed (3.5) |
-| `AudioSpec(audio_token_id_attr="audio_token_id", audio_tower="model.audio_tower")` | `audio_token_mask` from the placeholder id; `encode_variants("tcd_blur")` blurs the waveform before the audio encoder |
+| `VisionSpec(image_token_id_attr="image_token_id", grid_source="fixed", fixed_tokens_per_tile=None)` | `image_token_mask` marks the soft-token positions (reported as `<|image|>` = 258880, the id hf_local's `image_token_id` plays); `grids` and `image_spatial_shape` are exact on JAX (3.5) |
+| `AudioSpec(audio_token_id_attr="audio_token_id", audio_tower="model.audio_tower")` | `audio_token_mask` marks the soft-token positions (`<|audio|>` = 258881); `encode_variants("tcd_blur")` (still open) would blur the waveform before the audio encoder |
 | `is_reasoning=True` | nothing extra; thinking stays off |
 | 12B is encoder-free "Unified" | same adapter, `modalities` still all three; embed projections replace towers, so `attn`/`hidden` shapes are unchanged |
 
@@ -358,7 +362,9 @@ between releases; re-check when bumping):
 | chat format | `dialog.Format.GEMMA4`: `<|turn>user\n...<turn|>\n<|turn>model\n`; thinking is a `<|think|>` control token, so `enable_thinking=False` renders none. Where the HF `chat_template.jinja` puts it for `enable_thinking=True` could not be checked (gated repo, no HF token on the host): the adapter raises for that setting | prompt parity with hf_local |
 | sampler | `gm.text.Gemma4Sampler(model, params, tokenizer, sampling, cache_length, max_out_length, pad_length).sample(text, max_new_tokens, rng, return_state=True)`; `Greedy` / `TopPSampling(p, temperature)` / `TopkSampling(k, temperature)` / `RandomSampling(temperature)`; ends on EOS, `<turn|>`, tool-response | `generate` |
 | soft-cap and head-side norm | `final_logit_softcap=30.0` (`tanh(x/30)*30`), `attn_logits_soft_cap=None`; logits `x @ embedder.input_embedding.T` (tied, `(V, D)`); `final_norm` is `x * rsqrt(mean(x^2)+1e-6) * scale` (plain scale, not 1+scale) | `unembed`, `final_norm_params`, lens faithfulness |
-| multimodal (phase 3) | vision: 16-px patches, `max_soft_tokens=1120`, pooling 3, variable aspect ratio, `<|image|>` expanded to per-image token counts; audio: 16 kHz, 20 ms frame / 10 ms hop, `audio_seq_length=750`; `text_only=False` loads the towers | `Encoding.media`, masks |
+| vision (verified 2026-09-28) | `text_only=False` builds the 167 M-param `vision_encoder` (16 layers, d 768, float32). 16-px patches, aspect-ratio-preserving resize to multiples of 48 px, 3 x 3 average pooling row-major, **at most `num_mm_tokens_per_image` = 280 soft tokens per image** on E2B / E4B (`config.vision_encoder`). The library's `Gemma4Sampler` DEFAULT `max_soft_tokens=1120` does not match this encoder: with it the text side reserves ~1090 slots while the encoder emits ~270 pooled tokens, and the remaining slots are filled by gathering token 0 (checked on a random-init encoder: 266 valid pooled tokens for a 266-token reservation at 280, 267 for a 1092-token reservation at 1120). The adapter therefore reads `patch_size`, `num_mm_tokens_per_image`, `pooling_kernel_size` from the model config and passes them to the sampler too. Text-side expansion: `<|image|>` -> `\n\n <|image> P*n <image|> \n\n` (`P` = internal -2, replaced by the merged embedding) | `Encoding`, `grids`, `generate` |
+| audio (verified 2026-09-28) | `text_only=False` builds the 305 M-param conformer `audio_encoder` (12 layers, d 1024 -> 1536, float32) on the raw 16 kHz waveform: 128-mel filterbank, 20 ms frames / 10 ms hop (+1-sample unfold quirk), two stride-2 subsamplings, so a clip of `n` samples gives `((n-321)//160 + 1 - 1)//2 + 1` then once more, capped at `audio_seq_length=750` (~30 s; longer clips raise in the adapter as `hf_local._check_audio_duration` does). Text-side expansion: `<|audio|>` -> `<|audio> A*m <audio|>` (no `\n\n`; `A` = internal -4). `audio_soft_token_counts` is a STATIC argument of the forward, so every distinct clip length recompiles | `Encoding`, `audio_token_mask`, `generate` |
+| multimodal forward | `Transformer.__call__` with images and `return_last_only=False` applies `remove_mm_logits`, a Gemma-3-era step assuming a fixed count per image, which garbles the sequence axis on Gemma 4's variable counts (the sampler never hits it: prefill uses `return_last_only=True`). The adapter's media forward calls `_encode_and_get_inputs` + `_apply_attention` + `embedder.decode` + soft-cap directly (Flax `apply(method=fn)`), the same code minus that step; `_encode_and_get_inputs.embeddings` (captured, Flax wraps private methods too) is the merged block-0 input, i.e. HF's `hidden_states[0]`. Media towers and their projections stay float32 (`initialize_param_with_dtype` excludes them); the bf16 cast skips the same paths | `forward`, `hidden[0]` |
 | LoRA (phase 3) | `gm.nn.LoRA(rank=..., model=...)` wraps every Dense / Einsum with kauldron `peft` layers; the checkpoint loader knows how to reconcile LoRA trees | L4 |
 
 ## 5. Phases
@@ -376,8 +382,9 @@ on both backends, `visual_embedding_boost` rewritten on sites,
 `fix_internals` tests green.
 
 **Phase 3, multimodal and the rest.** Image and audio `Encoding`,
-`TokenTypeMap` and masks, `encode_variants` for VCD and TCD/AAD, the
-`WhiteBoxRepairsMixin`, `input_gradient` for the `GRADIENTS` analyzers, LoRA.
+`TokenTypeMap` and masks (landed 2026-09-28, section 9), then
+`encode_variants` for VCD and TCD/AAD, the `WhiteBoxRepairsMixin`,
+`input_gradient` for the `GRADIENTS` analyzers, LoRA (open).
 Acceptance: the `vlm/gemma` and `alm/gemma` smoke rows above and a full
 M1-to-fix chain on one cell per modality with `--backend jax_local`.
 
@@ -429,7 +436,7 @@ Serving a JAX model behind an OpenAI-compatible endpoint (already works via
 move to a shared mixin regardless of JAX), and removing torch from the
 analyzer code.
 
-## 9. Status (2026-09-26): phase 1 landed
+## 9. Status (2026-09-28): phase 1 and the multimodal half of phase 3 landed
 
 What exists in the repo:
 
@@ -437,16 +444,22 @@ What exists in the repo:
   `gemma-4-e2b-it` and `gemma-4-e4b-it` their JAX twin.
 - `evalrx/models/jax/`: `protocol.py` (the contract above), `_boundary.py`
   (jax -> CPU torch, bf16 bit-exact; a torch RMSNorm rebuilt from the JAX
-  norm), `gemma.py` (the reference adapter).
+  norm), `gemma.py` (the reference adapter: text, image and audio inputs).
+- `evalrx/models/_media.py`: image / audio resolution shared by `hf_local`
+  and `jax_local` (moved out of `hf_local.py`, whose private names stay bound).
 - `evalrx/models/backends/jax_local.py`: `JaxLocalModel` / `JaxLocalBackend`,
   registered as `BACKENDS["jax_local"]`; `evalrx.wrap_jax(adapter)` mirrors
   `wrap()`.
 - Benchmark: `--backend jax_local` on the Gemma sizes (`_common/models.py`,
-  `run.py`, `runner.py`), fix ladder clamped to L2.
-- Tests: `tests/test_models/test_jax_local.py` (toy adapter on CPU, no
+  `run.py`, `runner.py`) for the llm, vlm and alm cells (the llm cells pass
+  `text_only=True` and skip the towers), fix ladder clamped to L2.
+- Tests: `tests/test_models/test_jax_local.py` (toy adapters on CPU, no
   downloads: Trace layout, subsetting, logprobs consistency, logit lens, the
-  bf16 boundary; one `gpu`-marked real-weights test), plus the spec / registry
-  assertions in `test_compose.py` and `test_benchmark_family_specs.py`.
+  bf16 boundary, media masks -> `TokenTypeMap` / `image_spatial_shape`, the
+  audio token formula against the library sampler, the image grid against the
+  library's count, placeholder round-trips; two `gpu`-marked real-weights
+  tests), plus the spec / registry assertions in `test_compose.py` and
+  `test_benchmark_family_specs.py`.
 
 Environment used (the repo `.venv` keeps its torch 2.6 / transformers 4.57
 stack; the JAX stack lives beside it):
@@ -488,15 +501,41 @@ float32 gave the same 7 s per captured forward and a faster cached greedy
 generate (3 s versus 7 s) on this CPU; on a GPU the bf16 default halves the
 resident weights, so it stands.
 
+Image and audio inputs, measured on the same CPU host on 2026-09-28 with the
+full checkpoint (`text_only=False`: 20.5 GB float32 read, LM cast to bf16,
+towers kept float32; 32.6 GB peak RSS; the load took 257 s with two other
+loads sharing the NFS link, 111 s alone for `load_params`):
+
+| step | result |
+|---|---|
+| text `forward` after the change | unchanged: 36 hidden, 35 attention, `hidden[0]` bit-identical to `embedder.encode` (max abs diff 0.0) |
+| ChartQA image 850 x 600 + question, `encode` | 0.7 s; 297 ids, 266 image tokens, `grids=[(1, 14, 19)]`; tokens read `<bos> <|turn> user \n \n\n <|image> <|image|> x266 <image|> \n\n ...` |
+| image `forward` with ATTENTION + HIDDEN_STATES + LOGITS | 17 s first call (compile), 7 s cached; all finite; `image_token_mask` sum 266, `image_spatial_shape` (14, 19), `TokenTypeMap` with 266 image positions; the last position puts 27 % of its attention mass on the image tokens (mean over heads and layers) |
+| image `generate` greedy | 26 s (sampler compile included); "10" for a bar-chart count whose gold is 14 (a wrong answer, not a format failure); "Describe this image in one sentence." gives a fluent description of the chart |
+| image `logprobs` | 31 s; teacher-forced pass with the masks carried through |
+| MMAU speech clip 28.2 s + 4-way question, `encode` | 0.6 s; 821 ids, 705 audio tokens (= the sampler's own count), waveform `(1, 1, 451520)` |
+| audio `forward` (all three captures) | 21 s first call; all finite; `audio_token_mask` sum 705; the last position puts 35 % of its attention mass on the audio tokens |
+| audio `generate` greedy | 29 s; "A" = gold; "Transcribe the speech in this audio." returns the call-centre dialogue verbatim ("Thank you for calling Sprint. We care about everybody. ..."); the same question WITHOUT the clip answers "Please provide the audio so I can answer your question." |
+
 Through the benchmark harness (`python -m _common.run --modality llm --model
 gemma-4-e2b --backend jax_local --dataset bbh_causal_judgement --limit 8
 --baseline-only --device cpu --model-path <mirror>`): weights loaded in 98 s,
 Stage 0 ran all 8 rows through the chat template at 44 s per case with a
 128-token greedy cap. Every answer was coherent, on-topic causal reasoning
-that the cap cut off before the Yes/No line, so that run graded 0/8; the
-accuracy figure belongs to the run with the task's own cap (see the open
-items). The point of the smoke, the harness driving `jax_local` end to end,
-holds.
+that the cap cut off before the Yes/No line, so that run graded 0/8. Rerun
+with a 1024-token cap: all 8 answers end in an `Answer: Yes/No` line, 5/8
+correct (accuracy 0.625, inside the usable band), 140 s per case on CPU; the
+three misses are genuine wrong answers, not parse failures. The torch arm of
+the same 8 rows is what the parity item below still needs.
+
+The vlm and alm cells through the same harness on 2026-09-28 (CPU, `--limit 4
+--baseline-only --temperature 0`, the tasks' own 64-token caps, the checkpoint
+already in the page cache): `vlm/gemma chartqa` loaded the weights with towers
+in 52 s and graded 2/4 at 21.8 s per case, every answer short and
+chart-grounded ("1.8" for 1.577, "U.S.", "19.7%", "77 and 77" for 77);
+`alm/gemma mmau` loaded in 38 s and graded 2/4 at 33.1 s per case (each clip
+length recompiles, open item 7), the two misses being a wrong letter and a
+leaked `thought` preamble, the same Gemma behaviour the torch cells show.
 
 Open items, in the order they block the acceptance table of section 4:
 
@@ -511,6 +550,15 @@ Open items, in the order they block the acceptance table of section 4:
 4. **GPU run** of the adapter itself: verified on CPU only in this session
    (`XLA_PYTHON_CLIENT_PREALLOCATE=false` is set by the backend so a shared
    card is not grabbed wholesale).
-5. Phase 2 (sites, `Model.intervene`, L3b) and phase 3 (image / audio
-   `Encoding`, VCD / TCD variants, `GRADIENTS`, LoRA), the Docker `jax` stage,
-   and the mkdocs nav entry for this page.
+5. Phase 2 (sites, `Model.intervene`, L3b) and the rest of phase 3
+   (`encode_variants` for VCD / TCD / AAD, the `WhiteBoxRepairsMixin`,
+   `GRADIENTS`, LoRA), the Docker `jax` stage, and the mkdocs nav entry for
+   this page.
+6. **Multimodal parity against hf_local** (image / audio rows: same
+   `image_token_mask` count, same labels) waits on the same GPU + transformers
+   >= 5.15 environment as item 1; the reservation-vs-encoder check was done
+   against the library's own encoder, not against the HF processor.
+7. **Recompiles per audio length**: `audio_soft_token_counts` is static in the
+   library's forward and prefill, so every distinct clip duration recompiles
+   both (about 20 s each on this CPU); a dynamic-count merge would remove it.
+8. Tool rendering (`render_chat` with `tools`) still raises on jax_local.

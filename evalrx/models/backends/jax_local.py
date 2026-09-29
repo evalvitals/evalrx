@@ -11,8 +11,11 @@ runs on ``hf_local`` text models runs here unchanged.
 Capabilities: ``GENERATE`` / ``LOGITS`` / ``LOGPROBS`` / ``HIDDEN_STATES``
 always; ``ATTENTION`` only when the adapter runs reference (materialised
 softmax) attention; ``TOOL_CALLS`` when the spec's template renders tools.
-Not yet: ``GRADIENTS``, the L3a executors and L3b interventions (phases 2 and 3
-of ``docs/design_jax_backend.md``).
+Modalities come from the adapter (``Inputs.image`` / ``audio`` / ``video`` go
+through ``adapter.encode``; the ``Encoding`` masks become ``image_token_mask``,
+``audio_token_mask``, ``image_spatial_shape`` and the ``TokenTypeMap`` on the
+Trace, the same fields hf_local fills). Not yet: ``GRADIENTS``, the L3a
+executors and L3b interventions (``docs/design_jax_backend.md``).
 
 jax and torch are imported lazily inside ``load()`` / the boundary, so this
 module imports on the light install and the registry stays torch-free.
@@ -254,6 +257,10 @@ class JaxLocalModel(Model):
             extras["image_token_mask"] = torch.tensor(enc.image_token_mask, dtype=torch.bool)
         if enc.audio_token_mask is not None:
             extras["audio_token_mask"] = torch.tensor(enc.audio_token_mask, dtype=torch.bool)
+        # hf_local's image_spatial_shape (post-merge (H, W) grid) when the adapter
+        # knows one grid for every image; relative-attention overlays reshape by it
+        if "image_spatial_shape" not in extras and enc.grids and len({(g[1], g[2]) for g in enc.grids}) == 1:
+            extras["image_spatial_shape"] = (int(enc.grids[0][1]), int(enc.grids[0][2]))
         ttm = None
         if enc.image_token_mask is not None and any(enc.image_token_mask):
             image_pos = [i for i, v in enumerate(enc.image_token_mask) if v]

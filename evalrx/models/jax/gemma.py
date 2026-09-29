@@ -2,13 +2,13 @@
 
 Runs the Gemma 4 E2B / E4B checkpoints through Google DeepMind's ``gemma``
 library (Flax Linen) behind the :class:`~evalrx.models.jax.protocol.JaxModelAdapter`
-contract. Phase 1 of ``docs/design_jax_backend.md``: text prompts, read access
-(logits, hidden states, attention probabilities), greedy / sampled generation,
-teacher-forced logprobs. Image and audio inputs raise ``NotImplementedError``
-until phase 3.
+contract: text, image and audio inputs, read access (logits, hidden states,
+attention probabilities), greedy / sampled generation, teacher-forced logprobs
+(phases 1 and 3 of ``docs/design_jax_backend.md``; the L3a executors, sites and
+LoRA are still open).
 
 Facts this file depends on, verified against gemma 4.0.1 / flax 0.12.10 on
-2026-09-26 (design doc, section 4):
+2026-09-26 (text) and 2026-09-28 (image, audio); design doc, section 4:
 
 * blocks are ``layer_{i}`` (35 on E2B); ``final_norm`` is a plain RMSNorm,
   ``x * rsqrt(mean(x^2) + 1e-6) * scale``; logits are
@@ -16,25 +16,58 @@ Facts this file depends on, verified against gemma 4.0.1 / flax 0.12.10 on
 * attention is a materialised softmax whose probabilities pass through an
   identity module named ``attention_weights`` inside each block's ``attn``, so
   Flax ``capture_intermediates`` reads them without touching the model code;
-  ``return_hidden_states`` returns exactly the ``final_norm`` output;
+  the same mechanism captures the root's ``_encode_and_get_inputs`` (Flax wraps
+  private methods too), whose ``embeddings`` are the block-0 input WITH the
+  image / audio embeddings merged in, i.e. HF's ``hidden_states[0]``;
 * the library's ``Transformer.__call__`` is wrapped in ``nn.jit``, whose cached
   trace bakes in the FIRST capture filter it sees (a second call with another
   filter silently returns the first filter's intermediates). This adapter
   therefore calls the layer beneath that wrapper through its own
   per-configuration ``jax.jit``;
+* with images, ``__call__`` (``return_last_only=False``) additionally runs a
+  legacy ``remove_mm_logits`` step written for fixed-count Gemma 3 images; on
+  the variable-count Gemma 4 tokens it garbles the sequence axis, so the media
+  forward here calls the library's ``_encode_and_get_inputs`` +
+  ``_apply_attention`` + ``embedder.decode`` + soft-cap directly (the same
+  code path, minus that step);
+* images: the text carries one ``<|image|>`` (id 258880) per image; before the
+  forward it is expanded to ``\\n\\n <|image> P*n <image|> \\n\\n`` with ``n``
+  soft tokens per image (``P`` = the library's internal -2 placeholder). The
+  vision encoder resizes each image to a multiple of 48 px per side keeping
+  the aspect ratio, so ``n = (H/48) * (W/48)`` exactly and the pooled tokens
+  come out row-major, which gives ``TokenTypeMap.grids`` for free. ``n`` is
+  bounded by ``config.vision_encoder.num_mm_tokens_per_image`` (280 on E2B / E4B):
+  the library's ``Gemma4Sampler`` DEFAULTS (``max_soft_tokens=1120``) do not
+  match that encoder (it then reserves ~1100 slots for ~270 pooled tokens), so
+  every image constant here is read from the model config;
+* audio: 16 kHz mono float32; one ``<|audio|>`` (id 258881) per clip, expanded
+  to ``<|audio> A*m <audio|>`` with ``m`` = mel frames (20 ms / 10 ms hop) after
+  two stride-2 subsamplings, capped at 750 tokens (~30 s; longer clips raise
+  here like hf_local's ``_check_audio_duration``). The conformer runs on the raw
+  waveform (``audio_encoder``); ``audio_lengths`` masks padding;
+* the multimodal towers and their projections are kept float32 by the library
+  (``initialize_param_with_dtype`` excludes them); the bf16 cast below skips the
+  same paths;
 * right-padding with PAD (0) leaves valid positions' outputs unchanged (max
   abs diff 1e-7 on a random model), so lengths are bucketed to bound recompiles;
-* chat format (``dialog.Format.GEMMA4``): ``<|turn>user\\n...<turn|>\\n<|turn>model\\n``.
-  Thinking is switched on by the ``<|think|>`` control token (id 98); the
-  specs' ``enable_thinking=False`` therefore renders none of it. The exact
-  placement the HF ``chat_template.jinja`` uses for ``enable_thinking=True`` was
-  not verifiable here (gated repo), so that setting raises for now;
+* chat format (``dialog.Format.GEMMA4``): ``<|turn>user\\n...<turn|>\\n<|turn>model\\n``,
+  media placeholders precede the text inside the user turn (hf_local's block
+  order: audio, images, text). Thinking is switched on by the ``<|think|>``
+  control token (id 98); the specs' ``enable_thinking=False`` therefore renders
+  none of it. The exact placement the HF ``chat_template.jinja`` uses for
+  ``enable_thinking=True`` was not verifiable here (gated repo), so that
+  setting raises for now;
 * checkpoints: public ``gs://gemma-data/checkpoints/gemma4-{e2b,e4b}-it``
-  (Orbax; 18 GB for E2B including the vision and audio towers, which
-  ``text_only=True`` skips); tokenizer ``gs://gemma-data/tokenizers/tokenizer_gemma4.model``
-  (SentencePiece, 4.5 MB). Both read anonymously; a local mirror is picked up
-  through ``RuntimeConfig.engine_kwargs["checkpoint"]`` (a ``tokenizer_gemma4.model``
+  (Orbax; 17 GB for E2B including the 167 M-param vision and 305 M-param audio
+  towers, which ``text_only=True`` skips); tokenizer
+  ``gs://gemma-data/tokenizers/tokenizer_gemma4.model`` (SentencePiece, 4.5 MB).
+  Both read anonymously; a local mirror is picked up through
+  ``RuntimeConfig.engine_kwargs["checkpoint"]`` (a ``tokenizer_gemma4.model``
   next to it, or in it, is used automatically).
+
+``engine_kwargs`` understood: ``checkpoint``, ``tokenizer``, ``model_class``,
+``pad_buckets``, ``text_only`` (default: False when the spec declares vision or
+audio, True otherwise), ``audio_seq_length`` (750).
 
 jax and gemma are imported lazily inside ``load()``.
 """
@@ -45,9 +78,11 @@ import logging
 import math
 import os
 import time
+import warnings
 from typing import Any
 
 from evalrx.core.case import Inputs
+from evalrx.models._media import AUDIO_SAMPLE_RATE, media_lists
 from evalrx.models.jax.protocol import (
     CAPTURE_ATTN,
     CAPTURE_HIDDEN,
@@ -64,11 +99,27 @@ logger = logging.getLogger(__name__)
 PAD_ID = 0
 DEFAULT_BUCKETS = (128, 256, 512, 1024, 2048, 4096)
 TOKENIZER_FILENAME = "tokenizer_gemma4.model"
+#: the library's internal placeholders for merged media embeddings (never real ids)
+IMAGE_SOFT_PLACEHOLDER = -2
+AUDIO_SOFT_PLACEHOLDER = -4
+#: what the tokenizer emits for one image / one clip in the text; also the id the
+#: Trace reports at every soft-token position (hf_local's image_token_id role)
+IMAGE_PLACEHOLDER_ID = 258880      # <|image|>
+AUDIO_PLACEHOLDER_ID = 258881      # <|audio|>
+DEFAULT_AUDIO_SEQ_LENGTH = 750     # soft tokens; ~30 s at 16 kHz (Gemma4Sampler default)
+#: parameter sub-trees the library keeps float32 even under a bf16 model dtype
+_MM_FLOAT32_PREFIXES = (
+    "vision_encoder", "audio_encoder",
+    "embedder/mm_input_projection", "embedder/mm_pre_projection_norm",
+    "embedder/audio_input_projection", "embedder/audio_soft_embedding_norm",
+)
 _DTYPES = {
     "bfloat16": "bfloat16", "bf16": "bfloat16",
     "float32": "float32", "fp32": "float32",
     "float16": "float16", "fp16": "float16",
 }
+_IMAGE_BLOCKS = ("image", "image_url", "video")
+_AUDIO_BLOCKS = ("audio", "input_audio")
 
 
 def make_adapter(spec, runtime) -> "GemmaJaxAdapter":
@@ -85,21 +136,75 @@ def bucket_length(n: int, buckets=DEFAULT_BUCKETS) -> int:
     return int(math.ceil(n / step) * step)
 
 
-def _content_text(content: Any) -> str:
-    """The text of an OpenAI / transformers-style message content."""
+def audio_soft_token_count(n_samples: int, *, sample_rate: int = AUDIO_SAMPLE_RATE) -> int:
+    """Soft tokens the audio tower emits for a clip of *n_samples* (uncapped).
+
+    Mirrors ``Gemma4Sampler.sample``: 20 ms frames on a 10 ms hop (the extra
+    +1 sample is the library's unfold quirk), then two stride-2 subsampling
+    stages (kernel 3, padding 1).
+    """
+    frame = int(round(sample_rate * 20.0 / 1000.0))
+    hop = int(round(sample_rate * 10.0 / 1000.0))
+    t = (int(n_samples) - (frame + 1)) // hop + 1
+    for _ in range(2):
+        t = (t + 2 - 3) // 2 + 1
+    return int(t)
+
+
+def image_grid(height: int, width: int, *, patch_size: int, max_soft_tokens: int,
+               pooling_kernel_size: int) -> tuple[int, int]:
+    """``(rows, cols)`` of pooled soft tokens for an image of *height* x *width*.
+
+    The encoder resizes to multiples of ``patch_size * pooling_kernel_size`` per
+    side (aspect ratio kept, total patches <= budget), then pools k x k patches
+    row-major, so the soft-token count is exactly ``rows * cols``.
+    """
+    from gemma.gm.nn.gemma4.vision import _preprocessing as vp
+
+    th, tw = vp.get_target_dimensions(
+        int(height), int(width), patch_size=patch_size,
+        max_patches=max_soft_tokens * pooling_kernel_size**2,
+        pooling_kernel_size=pooling_kernel_size,
+    )
+    side = patch_size * pooling_kernel_size
+    return int(th // side), int(tw // side)
+
+
+def _content_blocks(content: Any) -> tuple[str, list, list]:
+    """``(text, images, audios)`` of an OpenAI / transformers-style message content.
+
+    Media blocks render as the Gemma 4 placeholders in the order they appear;
+    ``{"type": "image", "image": <PIL | path>}`` / ``{"type": "audio", "audio": ...}``
+    blocks also hand back their payloads (``None`` payloads are placeholders
+    only, the way hf_local's ``_encode_vlm`` builds its content).
+    """
     if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict):
-                if block.get("type") in ("image", "audio", "video", "image_url", "input_audio"):
-                    continue
-                parts.append(str(block.get("text", "")))
-            else:
-                parts.append(str(block))
-        return "".join(parts)
-    return "" if content is None else str(content)
+        return content, [], []
+    if content is None:
+        return "", [], []
+    if not isinstance(content, list):
+        return str(content), [], []
+    parts: list[str] = []
+    images: list = []
+    audios: list = []
+    for block in content:
+        if not isinstance(block, dict):
+            parts.append(str(block))
+            continue
+        kind = block.get("type")
+        if kind in _IMAGE_BLOCKS:
+            parts.append("<|image|>")
+            payload = block.get("image", block.get("image_url", block.get("video")))
+            if payload is not None and not isinstance(payload, dict):
+                images.append(payload)
+        elif kind in _AUDIO_BLOCKS:
+            parts.append("<|audio|>")
+            payload = block.get("audio", block.get("input_audio"))
+            if payload is not None and not isinstance(payload, dict):
+                audios.append(payload)
+        else:
+            parts.append(str(block.get("text", "")))
+    return "".join(parts), images, audios
 
 
 def _below_flax(fn):
@@ -118,10 +223,26 @@ def _below_flax(fn):
     raise RuntimeError("could not find the un-jitted Transformer.__call__ beneath flax's wrapper")
 
 
-class GemmaJaxAdapter:
-    """Gemma 4 E2B / E4B through the ``gemma`` library, text modality (phase 1)."""
+def _media_forward(mdl, tokens, images, audio, audio_lengths, audio_soft_token_counts):
+    """``Transformer.__call__`` for expanded multimodal tokens, minus the legacy
+    ``remove_mm_logits`` step (see the module docstring). Returns the full-sequence
+    soft-capped logits and the merged block-0 input embeddings."""
+    import jax.numpy as jnp
 
-    modalities = frozenset({"text"})
+    inputs = mdl._encode_and_get_inputs(  # noqa: SLF001 - the library's own building blocks
+        tokens=tokens, images=images, audio=audio, audio_lengths=audio_lengths,
+        audio_soft_token_counts=audio_soft_token_counts,
+    )
+    x, _ = mdl._apply_attention(inputs, None)  # noqa: SLF001
+    logits = mdl.embedder.decode(x)
+    cap = mdl.config.final_logit_softcap
+    if cap is not None:
+        logits = jnp.tanh(logits / cap) * cap
+    return logits, inputs.embeddings
+
+
+class GemmaJaxAdapter:
+    """Gemma 4 E2B / E4B through the ``gemma`` library: text, image and audio."""
 
     def __init__(self, spec, runtime) -> None:
         js = getattr(spec, "jax", None)
@@ -138,7 +259,14 @@ class GemmaJaxAdapter:
         )
         self.model_class = str(kw.pop("model_class", None) or js.model_class or "Gemma4_E2B")
         self.buckets = tuple(sorted(int(b) for b in kw.pop("pad_buckets", DEFAULT_BUCKETS)))
-        self.text_only = bool(kw.pop("text_only", True))
+        self.audio_seq_length = int(kw.pop("audio_seq_length", DEFAULT_AUDIO_SEQ_LENGTH))
+        spec_mods = set(getattr(spec, "modalities", None) or {"text"})
+        has_media = bool(spec_mods - {"text"})
+        text_only = kw.pop("text_only", None)
+        # the towers load unless the spec is text-only or the caller opts out
+        # (the llm benchmark cells do: ~2 GB float32 and load time saved)
+        self.text_only = bool(text_only) if text_only is not None else not has_media
+        self.modalities = frozenset({"text"}) if self.text_only else frozenset(spec_mods | {"text"})
         # fused kernels never materialise probabilities; the library's softmax path
         # does, so ATTENTION is on unless the spec or attn_impl says otherwise
         self.reference_attention = bool(js.reference_attention) and (
@@ -194,6 +322,7 @@ class GemmaJaxAdapter:
     def load(self) -> None:
         import jax
         import jax.numpy as jnp
+        from flax.traverse_util import flatten_dict, unflatten_dict
         from gemma import gm
 
         t0 = time.monotonic()
@@ -207,21 +336,36 @@ class GemmaJaxAdapter:
         self._pieces = list(self._tok.tokens)
         self._special_ids = self._collect_special_ids(self._tok, self._pieces)
         params = gm.ckpts.load_params(self.checkpoint, text_only=self.text_only)
+        if not self.text_only:
+            # the library scatters float32 tower outputs into the bf16 text
+            # embeddings (merge_flat_embeddings); jax warns about the implicit
+            # cast on every media forward. The cast is the library's design
+            # (towers float32, residual stream in the model dtype), so silence it.
+            warnings.filterwarnings(
+                "ignore", message="scatter inputs have incompatible types", category=FutureWarning,
+            )
         # the public checkpoints store float32 (19.8 GB for text-only E2B); honour
-        # RuntimeConfig.dtype the way hf_local's torch_dtype does (bf16 = 9.9 GB)
-        params = jax.tree.map(
-            lambda a: a.astype(dtype)
-            if jnp.issubdtype(a.dtype, jnp.floating) and a.dtype != dtype else a,
-            params,
-        )
+        # RuntimeConfig.dtype the way hf_local's torch_dtype does (bf16 = 9.9 GB),
+        # except for the media towers and projections the library keeps float32
+        flat = flatten_dict(params)
+        kept = 0
+        for path, a in flat.items():
+            if not (jnp.issubdtype(a.dtype, jnp.floating) and a.dtype != dtype):
+                continue
+            joined = "/".join(str(p) for p in path)
+            if joined.startswith(_MM_FLOAT32_PREFIXES):
+                kept += 1
+                continue
+            flat[path] = a.astype(dtype)
+        params = unflatten_dict(flat)
         self._params = params
         self._forward_cache.clear()
         n_bytes = sum(int(a.nbytes) for a in jax.tree.leaves(params))
         logger.info(
             "GemmaJaxAdapter: %s loaded from %s in %.0fs (%.1f GB params, %s, %d layers, "
-            "reference_attention=%s, jax backend=%s)",
+            "modalities=%s, %d float32 media arrays, reference_attention=%s, jax backend=%s)",
             self.model_class, self.checkpoint, time.monotonic() - t0, n_bytes / 1e9, dtype_name,
-            self._n_layers, self.reference_attention, jax.default_backend(),
+            self._n_layers, sorted(self.modalities), kept, self.reference_attention, jax.default_backend(),
         )
 
     @staticmethod
@@ -235,6 +379,39 @@ class GemmaJaxAdapter:
                 ids.add(i)
         return ids
 
+    # -- media constants (from the model config, never the sampler defaults) ----
+    def _vision_settings(self) -> dict:
+        ve = self._model.config.vision_encoder
+        if ve is None:
+            raise ValueError(
+                f"{self.model_class} was loaded text_only (no vision tower); pass "
+                "RuntimeConfig(engine_kwargs={'text_only': False}) for image inputs"
+            )
+        return {
+            "patch_size": int(ve.patch_size),
+            "max_soft_tokens": int(ve.num_mm_tokens_per_image),
+            "pooling_kernel_size": int(ve.pooling_kernel_size),
+        }
+
+    def _require_audio_tower(self) -> None:
+        if self._model.config.audio_encoder is None:
+            raise ValueError(
+                f"{self.model_class} was loaded text_only (no audio tower); pass "
+                "RuntimeConfig(engine_kwargs={'text_only': False}) for audio inputs"
+            )
+
+    def _audio_soft_tokens(self, wav) -> int:
+        n = int(len(wav))
+        count = audio_soft_token_count(n)
+        if count > self.audio_seq_length:
+            window_s = self.audio_seq_length * 4 * (AUDIO_SAMPLE_RATE // 100) / AUDIO_SAMPLE_RATE
+            raise ValueError(
+                f"{self.spec.key}: audio is {n / AUDIO_SAMPLE_RATE:.1f}s, longer than this "
+                f"checkpoint's ~{window_s:.0f}s encoder window ({self.audio_seq_length} soft tokens) — "
+                "it would be silently truncated. Chunk the audio yourself before calling."
+            )
+        return max(1, count)
+
     # -- text rendering ---------------------------------------------------
     def _thinking_requested(self) -> bool:
         kwargs = dict(getattr(self.spec, "chat_template_kwargs", None) or {})
@@ -242,11 +419,12 @@ class GemmaJaxAdapter:
 
     def render_messages(self, messages: list, *, tools: list | None = None) -> str:
         """Gemma 4 turn format via the ``dialog`` package (``Format.GEMMA4``),
-        ending with an open ``<|turn>model\\n`` for the model to fill."""
+        ending with an open ``<|turn>model\\n`` for the model to fill. Media
+        blocks render as ``<|image|>`` / ``<|audio|>`` placeholders."""
         import dialog
 
         if tools:
-            raise NotImplementedError("GemmaJaxAdapter: tool rendering is not implemented (phase 3)")
+            raise NotImplementedError("GemmaJaxAdapter: tool rendering is not implemented")
         if self._thinking_requested():
             raise NotImplementedError(
                 "GemmaJaxAdapter renders thinking OFF only: where Gemma 4's official template "
@@ -256,7 +434,7 @@ class GemmaJaxAdapter:
         turns = []
         for m in messages:
             role = str(m.get("role", "user")).lower()
-            text = _content_text(m.get("content"))
+            text, _images, _audios = _content_blocks(m.get("content"))
             if role == "system":
                 turns.append(dialog.System(text))
             elif role in ("assistant", "model"):
@@ -272,28 +450,120 @@ class GemmaJaxAdapter:
     def _text(self, ids: list[int]) -> str:
         return self._tok.decode([int(i) for i in ids if int(i) not in self._special_ids])
 
-    def _encode_text(self, text: str) -> Encoding:
-        ids = [int(i) for i in self._tok.encode(text, add_bos=True)]
-        return Encoding(ids=ids, tokens=[self._token_str(i) for i in ids], text=text)
+    # -- encoding -----------------------------------------------------------
+    def _preprocess_images(self, images: list):
+        """``(PreprocessedVisionInput, soft_token_counts, grids)`` the library way,
+        with the image budget read from the vision encoder."""
+        import jax.numpy as jnp
+        import numpy as np
+        from gemma.gm.nn.gemma4 import _transformer as g4
+        from gemma.gm.nn.gemma4.vision import _preprocessing as vp
+
+        settings = self._vision_settings()
+        arrays = [np.asarray(im.convert("RGB")) if hasattr(im, "convert") else np.asarray(im) for im in images]
+        patches, positions_xy, counts = vp.preprocess_and_patchify(arrays, **settings)
+        n_images, max_patches = patches.shape[0], patches.shape[1]
+        vision_input = g4.PreprocessedVisionInput(
+            patches=jnp.reshape(patches, (1, n_images * max_patches, patches.shape[2])),
+            positions_xy=jnp.reshape(positions_xy, (1, n_images * max_patches, positions_xy.shape[2])),
+            soft_token_counts=tuple(int(c) for c in counts),
+        )
+        grids = []
+        for a, c in zip(arrays, counts):
+            rows, cols = image_grid(a.shape[0], a.shape[1], **settings)
+            if rows * cols != int(c):  # the encoder changed its pooling rule: fall back to "unknown"
+                logger.warning("GemmaJaxAdapter: image grid %dx%d != %d soft tokens; grids left empty",
+                               rows, cols, c)
+                grids = []
+                break
+            grids.append((1, rows, cols))
+        return vision_input, [int(c) for c in counts], grids, arrays
+
+    def _encode_text(self, text: str, images: list | None = None, audios: list | None = None) -> Encoding:
+        import numpy as np
+        from gemma.gm.vision import _token_utils as tu
+
+        row = np.asarray([int(i) for i in self._tok.encode(text, add_bos=True)], dtype=np.int32)
+        media: dict[str, Any] = {}
+        grids: list[tuple[int, int, int]] = []
+        if images:
+            vision_input, counts, grids, arrays = self._preprocess_images(images)
+            row = tu.add_variable_extra_tokens_for_images(row[None], soft_token_counts=counts)[0]
+            media["vision"] = vision_input
+            media["images"] = arrays
+        if audios:
+            import jax.numpy as jnp
+
+            self._require_audio_tower()
+            wavs = [np.asarray(a, dtype=np.float32).reshape(-1) for a in audios]
+            counts_a = [self._audio_soft_tokens(w) for w in wavs]
+            row = tu.add_variable_extra_tokens_for_audio(row[None], soft_token_counts=counts_a)[0]
+            longest = max(len(w) for w in wavs)
+            padded = np.zeros((len(wavs), longest), dtype=np.float32)
+            for i, w in enumerate(wavs):
+                padded[i, : len(w)] = w
+            media["audio"] = jnp.asarray(padded)[None]                                  # (1, N, S)
+            media["audio_lengths"] = jnp.asarray([len(w) for w in wavs], dtype=jnp.int32)[None]  # (1, N)
+            media["audio_soft_token_counts"] = tuple(counts_a)
+            media["audios"] = wavs
+        image_mask = row == IMAGE_SOFT_PLACEHOLDER
+        audio_mask = row == AUDIO_SOFT_PLACEHOLDER
+        public = row.copy()
+        public[image_mask] = IMAGE_PLACEHOLDER_ID
+        public[audio_mask] = AUDIO_PLACEHOLDER_ID
+        ids = [int(i) for i in public.tolist()]
+        return Encoding(
+            ids=ids,
+            tokens=[self._token_str(i) for i in ids],
+            text=text,
+            media=media,
+            image_token_mask=[bool(v) for v in image_mask] if images else None,
+            audio_token_mask=[bool(v) for v in audio_mask] if audios else None,
+            grids=grids,
+            image_token_id=IMAGE_PLACEHOLDER_ID if images else None,
+        )
+
+    def _check_modalities(self, images: list, audios: list) -> None:
+        if images and "image" not in self.modalities:
+            raise ValueError(
+                f"{self.spec.key}: image inputs need the vision tower; this adapter was built "
+                f"with modalities={sorted(self.modalities)} (text_only={self.text_only})"
+            )
+        if audios and "audio" not in self.modalities:
+            raise ValueError(
+                f"{self.spec.key}: audio inputs need the audio tower; this adapter was built "
+                f"with modalities={sorted(self.modalities)} (text_only={self.text_only})"
+            )
 
     # -- protocol: encoding ---------------------------------------------------
     def encode(self, inputs: Any, *, chat_template: bool) -> Encoding:
         self._ensure_loaded()
         inputs = inputs if isinstance(inputs, Inputs) else Inputs(prompt=str(inputs))
-        if inputs.image is not None or inputs.audio is not None or inputs.video is not None:
-            raise NotImplementedError(
-                "GemmaJaxAdapter (phase 1) is text-only: image / audio / video inputs arrive with "
-                "phase 3 of docs/design_jax_backend.md"
-            )
-        text = (
-            self.render_messages([{"role": "user", "content": inputs.prompt}])
-            if chat_template else inputs.prompt
+        images, audios = media_lists(inputs)
+        self._check_modalities(images, audios)
+        # hf_local's block order inside the one user turn: audio, images, text
+        content: list = (
+            [{"type": "audio"} for _ in audios] + [{"type": "image"} for _ in images]
+            + [{"type": "text", "text": inputs.prompt}]
         )
-        return self._encode_text(text)
+        if chat_template:
+            text = self.render_messages([{"role": "user", "content": content}])
+        else:
+            text, _, _ = _content_blocks(content)
+        return self._encode_text(text, images=images, audios=audios)
 
     def render_chat(self, messages: list, tools: list | None = None) -> Encoding:
         self._ensure_loaded()
-        return self._encode_text(self.render_messages(messages, tools=tools))
+        from evalrx.models._media import resolve_audio, resolve_image
+
+        images: list = []
+        audios: list = []
+        for m in messages:
+            _t, ims, auds = _content_blocks(m.get("content"))
+            images.extend(resolve_image(i) for i in ims)
+            audios.extend(resolve_audio(a) for a in auds)
+        self._check_modalities(images, audios)
+        return self._encode_text(self.render_messages(messages, tools=tools), images=images, audios=audios)
 
     def decode(self, ids: list[int]) -> str:
         """One id -> its surface form (specials kept visible, for token labels);
@@ -305,48 +575,75 @@ class GemmaJaxAdapter:
         return self._text(ids)
 
     # -- protocol: read internals ----------------------------------------------
-    def _forward_fn(self, want_h: bool, want_a: bool, layer_ids: tuple, hidden_ids: tuple):
+    def _capture_filter(self, want_h: bool, want_a: bool, layer_ids: tuple, hidden_ids: tuple):
+        n = self.n_layers
+        layer_set, hidden_set = set(layer_ids), set(hidden_ids)
+
+        def filt(mdl, method: str) -> bool:
+            path = tuple(mdl.path)
+            if method == "_encode_and_get_inputs":          # root: merged block-0 input = hidden[0]
+                return want_h and path == () and 0 in hidden_set
+            if method != "__call__":
+                return False
+            if len(path) == 1:
+                name = path[0]
+                if name.startswith("layer_"):
+                    return want_h and (int(name[6:]) + 1) in hidden_set
+                if name == "final_norm":
+                    return want_h and n in hidden_set
+                return False
+            return (
+                want_a and len(path) == 3 and path[2] == "attention_weights" and path[1] == "attn"
+                and path[0].startswith("layer_") and int(path[0][6:]) in layer_set
+            )
+
+        return filt
+
+    def _forward_fn(self, want_h: bool, want_a: bool, layer_ids: tuple, hidden_ids: tuple, media: bool):
         """A ``jax.jit``-ed forward for one capture configuration (cached)."""
-        key = (want_h, want_a, layer_ids if want_a else (), hidden_ids if want_h else ())
+        key = (want_h, want_a, layer_ids if want_a else (), hidden_ids if want_h else (), media)
         fn = self._forward_cache.get(key)
         if fn is not None:
             return fn
         import jax
 
-        model, raw, n = self._model, self._raw_call, self.n_layers
-        layer_set, hidden_set = set(layer_ids), set(hidden_ids)
+        model, raw = self._model, self._raw_call
+        filt = self._capture_filter(want_h, want_a, layer_ids, hidden_ids)
+        capture = {"capture_intermediates": filt, "mutable": ["intermediates"]} if (want_h or want_a) else {}
 
-        def filt(mdl, method: str) -> bool:
-            name = mdl.name or ""
-            if method == "encode":
-                return want_h and name == "embedder" and 0 in hidden_set
-            if method != "__call__":
-                return False
-            if name.startswith("layer_"):
-                return want_h and (int(name[6:]) + 1) in hidden_set
-            if name == "final_norm":
-                return want_h and n in hidden_set
-            if name == "attention_weights" and want_a:
-                block = getattr(getattr(mdl, "parent", None), "parent", None)   # attention_weights -> attn -> layer_i
-                bname = getattr(block, "name", "") or ""
-                return bname.startswith("layer_") and int(bname[6:]) in layer_set
-            return False
-
-        if want_h or want_a:
-            def fwd(params, tokens):
-                out, state = model.apply(
-                    {"params": params}, tokens, return_last_only=False, method=raw,
-                    capture_intermediates=filt, mutable=["intermediates"],
+        if media:
+            def fwd(params, tokens, images, audio, audio_lengths, audio_soft_token_counts):
+                out = model.apply(
+                    {"params": params}, tokens, images, audio, audio_lengths, audio_soft_token_counts,
+                    method=_media_forward, **capture,
                 )
-                return out.logits, state["intermediates"]
+                (logits, embeddings), state = out if capture else (out, {})
+                return logits, embeddings, state.get("intermediates", {}) if state else {}
+
+            fn = jax.jit(fwd, static_argnames=("audio_soft_token_counts",))
         else:
             def fwd(params, tokens):
-                out = model.apply({"params": params}, tokens, return_last_only=False, method=raw)
-                return out.logits, {}
+                out = model.apply({"params": params}, tokens, return_last_only=False, method=raw, **capture)
+                out, state = out if capture else (out, {})
+                return out.logits, None, state.get("intermediates", {}) if state else {}
 
-        fn = jax.jit(fwd)
+            fn = jax.jit(fwd)
         self._forward_cache[key] = fn
         return fn
+
+    def _model_tokens(self, enc: Encoding, length: int):
+        """The library's token row: public ids with the soft positions set back to
+        the internal placeholders, right-padded with PAD to *length*."""
+        import numpy as np
+
+        seq = len(enc.ids)
+        tokens = np.full((1, length), PAD_ID, dtype=np.int32)
+        tokens[0, :seq] = np.asarray(enc.ids, dtype=np.int32)
+        if enc.image_token_mask is not None:
+            tokens[0, :seq][np.asarray(enc.image_token_mask, dtype=bool)] = IMAGE_SOFT_PLACEHOLDER
+        if enc.audio_token_mask is not None:
+            tokens[0, :seq][np.asarray(enc.audio_token_mask, dtype=bool)] = AUDIO_SOFT_PLACEHOLDER
+        return tokens
 
     def forward(
         self,
@@ -356,15 +653,13 @@ class GemmaJaxAdapter:
         layers: tuple[int, ...] | None = None,
     ) -> ForwardOut:
         import jax.numpy as jnp
-        import numpy as np
         from flax.traverse_util import flatten_dict
 
         self._ensure_loaded()
         n = self.n_layers
         seq = len(enc.ids)
         length = bucket_length(seq, self.buckets)
-        tokens = np.full((1, length), PAD_ID, dtype=np.int32)
-        tokens[0, :seq] = np.asarray(enc.ids, dtype=np.int32)
+        tokens = jnp.asarray(self._model_tokens(enc, length))
         want_h = CAPTURE_HIDDEN in capture
         want_a = CAPTURE_ATTN in capture and self.reference_attention
         if layers is None:
@@ -372,9 +667,16 @@ class GemmaJaxAdapter:
         else:
             layer_ids = tuple(sorted({int(i) for i in layers if 0 <= int(i) < n}))
             hidden_ids = tuple(sorted({int(i) for i in layers if 0 <= int(i) <= n}))
-        logits_all, inter = self._forward_fn(want_h, want_a, layer_ids, hidden_ids)(
-            self._params, jnp.asarray(tokens)
-        )
+        media = enc.media or {}
+        has_media = "vision" in media or "audio" in media
+        fn = self._forward_fn(want_h, want_a, layer_ids, hidden_ids, has_media)
+        if has_media:
+            logits_all, embeddings, inter = fn(
+                self._params, tokens, media.get("vision"), media.get("audio"), media.get("audio_lengths"),
+                media.get("audio_soft_token_counts"),
+            )
+        else:
+            logits_all, embeddings, inter = fn(self._params, tokens)
         inter = flatten_dict(inter) if inter else {}
 
         def pick(key):
@@ -385,9 +687,11 @@ class GemmaJaxAdapter:
         hidden = attn = None
         if want_h:
             hidden = [None] * (n + 1)
-            emb = pick(("embedder", "encode"))
+            emb = pick(("_encode_and_get_inputs",))
             if emb is not None:
-                hidden[0] = emb[0, :seq]
+                hidden[0] = emb.embeddings[0, :seq]
+            elif embeddings is not None and 0 in hidden_ids:
+                hidden[0] = embeddings[0, :seq]
             for i in range(n):
                 v = pick((f"layer_{i}", "__call__"))          # (cache, x)
                 if v is not None:
@@ -401,7 +705,10 @@ class GemmaJaxAdapter:
                 p = pick((f"layer_{i}", "attn", "attention_weights", "__call__"))   # (1, T, H, S)
                 if p is not None:
                     attn[i] = jnp.transpose(p[0, :seq, :, :seq], (1, 0, 2))       # -> (H, S, S)
-        return ForwardOut(logits=logits, hidden=hidden, attn=attn, extras={})
+        extras: dict[str, Any] = {}
+        if enc.grids and len({(g[1], g[2]) for g in enc.grids}) == 1:
+            extras["image_spatial_shape"] = (int(enc.grids[0][1]), int(enc.grids[0][2]))
+        return ForwardOut(logits=logits, hidden=hidden, attn=attn, extras=extras)
 
     def unembed(self):
         self._ensure_loaded()
@@ -439,19 +746,28 @@ class GemmaJaxAdapter:
         from gemma import gm
 
         self._ensure_loaded()
-        # the sampler tokenises text itself (add_bos=True, like encode), so feed it
-        # the very string the forward pass saw
+        # the sampler tokenises text itself (add_bos=True, like encode) and expands
+        # the media placeholders with the same functions, so feed it the very
+        # string and media the forward pass saw; enc.ids is already expanded
         text = enc.text if enc.text is not None else self._tok.decode(enc.ids)
+        media = enc.media or {}
         max_new = max(1, int(params.max_new_tokens))
         pad_len = bucket_length(len(enc.ids), self.buckets)
         cache_len = bucket_length(pad_len + max_new + 1, self.buckets)
+        extra: dict[str, Any] = {}
+        if "vision" in media:
+            extra.update(self._vision_settings())
         sampler = gm.text.Gemma4Sampler(
             model=self._model, params=self._params, tokenizer=self._tok,
             sampling=self._sampling_method(params),
             cache_length=cache_len, max_out_length=max_new, pad_length=pad_len,
+            audio_seq_length=self.audio_seq_length, **extra,
         )
         rng = int(params.seed) if params.seed is not None else 0
-        out = sampler.sample(text, max_new_tokens=max_new, rng=rng, return_state=True)
+        out = sampler.sample(
+            text, images=media.get("images") or None, audio=media.get("audios") or None,
+            max_new_tokens=max_new, rng=rng, return_state=True,
+        )
         predicted = [int(t) for t in np.asarray(out.state.predicted_tokens[0]).tolist()]
         ids = self._strip_generated(predicted)
         return GenerateOut(ids=ids, text=self._text(ids) if ids else "")

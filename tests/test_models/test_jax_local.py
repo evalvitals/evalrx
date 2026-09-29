@@ -135,8 +135,12 @@ def test_compose_gemma_e2b_builds_lazily_without_loading():
     m = compose("gemma-4-e2b-it", "jax_local", RuntimeConfig(max_new_tokens=8))
     assert isinstance(m, JaxLocalModel) and not m._loaded
     assert {Capability.ATTENTION, Capability.HIDDEN_STATES, Capability.LOGPROBS} <= m.capabilities
-    assert m.modalities == frozenset({"text"})        # phase 1: text
+    # the spec declares vision + audio, so the towers load by default (phase 3)...
+    assert m.modalities == frozenset({"text", "image", "audio"})
     assert "GemmaJaxAdapter" in repr(m)
+    # ...and a text cell opts out of them (what the benchmark runner does for llm tasks)
+    text_only = compose("gemma-4-e2b-it", "jax_local", RuntimeConfig(engine_kwargs={"text_only": True}))
+    assert text_only.modalities == frozenset({"text"}) and text_only.adapter.text_only is True
 
 
 def test_compose_refuses_spec_without_jax_twin():
@@ -294,12 +298,173 @@ def test_torch_rmsnorm_matches_plus_one_convention():
 
 
 # ----------------------------------------------------------------------
+# media: masks / grids from the adapter become hf_local's Trace fields
+# ----------------------------------------------------------------------
+class MediaToyAdapter(ToyAdapter):
+    """ToyAdapter that reserves 4 soft tokens (a 2x2 grid) per image and 3 per
+    audio clip, the way the Gemma adapter expands <|image|> / <|audio|>."""
+
+    modalities = frozenset({"text", "image", "audio"})
+    IMAGE_ID, AUDIO_ID = 14, 15
+
+    def encode(self, inputs, *, chat_template):
+        ids = self._ids(inputs.prompt)
+        image_mask = audio_mask = None
+        grids = []
+        if getattr(inputs, "audio", None) is not None:
+            ids = [self.AUDIO_ID] * 3 + ids
+            audio_mask = [True] * 3 + [False] * (len(ids) - 3)
+        if getattr(inputs, "image", None) is not None:
+            n = len(ids)
+            ids = [self.IMAGE_ID] * 4 + ids
+            image_mask = [True] * 4 + [False] * n
+            audio_mask = None if audio_mask is None else [False] * 4 + audio_mask
+            grids = [(1, 2, 2)]
+        return Encoding(
+            ids=ids, tokens=[f"t{i}" for i in ids], text=inputs.prompt,
+            image_token_mask=image_mask, audio_token_mask=audio_mask, grids=grids,
+            image_token_id=self.IMAGE_ID if image_mask else None,
+        )
+
+
+def test_media_encoding_fills_token_type_map_and_extras():
+    m = evalrx.wrap_jax(MediaToyAdapter(n_layers=2, dim=8, vocab=16, heads=2))
+    assert m.modalities == frozenset({"text", "image", "audio"})
+    trace = m.forward(Inputs(prompt="a b", image="img.png", audio=np.zeros(8, np.float32)),
+                      capture={Capability.ATTENTION, Capability.HIDDEN_STATES, Capability.LOGITS})
+    S = len(trace.token_ids)
+    assert S == 4 + 3 + 2
+    ttm = trace.token_type_map
+    assert ttm is not None and ttm.n_images == 1 and ttm.grids == [(1, 2, 2)]
+    assert ttm.image_pos == [0, 1, 2, 3] and ttm.text_pos == list(range(4, S))
+    assert ttm.image_token_id == MediaToyAdapter.IMAGE_ID
+    assert trace.extras["image_token_mask"].dtype == torch.bool and int(trace.extras["image_token_mask"].sum()) == 4
+    assert int(trace.extras["audio_token_mask"].sum()) == 3
+    assert trace.extras["image_spatial_shape"] == (2, 2)   # hf_local's reshape hint, exact on jax_local
+    assert tuple(trace.hidden_states[0].shape) == (S, 8) and tuple(trace.attentions[0].shape) == (2, S, S)
+
+
+def test_text_only_encoding_leaves_media_fields_empty():
+    trace = evalrx.wrap_jax(MediaToyAdapter()).forward("a b", capture={Capability.LOGITS})
+    assert trace.token_type_map is None
+    assert "image_token_mask" not in trace.extras and "image_spatial_shape" not in trace.extras
+
+
+def test_logprobs_keep_media_masks_through_teacher_forcing():
+    ad = MediaToyAdapter(n_layers=2, dim=8, vocab=16, heads=2)
+    m = evalrx.wrap_jax(ad)
+    lp = m.logprobs(Inputs(prompt="a b", image="img.png"), max_new_tokens=3, top_k=2)
+    assert lp                                          # generated something
+    enc = ad.encode(Inputs(prompt="a b", image="img.png"), chat_template=False)
+    ext = enc.extended([5, 6], ["t5", "t6"])
+    assert ext.image_token_mask == enc.image_token_mask + [False, False]
+    assert ext.grids == enc.grids and ext.image_token_id == enc.image_token_id and ext.text is None
+
+
+# ----------------------------------------------------------------------
+# Gemma adapter helpers (no weights): token budgets, grids, rendering
+# ----------------------------------------------------------------------
+def _sampler_audio_count(length, sample_rate=16000):
+    """Verbatim copy of Gemma4Sampler.sample's per-clip soft-token arithmetic."""
+    frame_length = int(round(sample_rate * 20.0 / 1000.0))
+    hop_length = int(round(sample_rate * 10.0 / 1000.0))
+    t = (length - (frame_length + 1)) // hop_length + 1
+    for _ in range(2):
+        t = ((t + 2) - 3) // 2 + 1
+    return t
+
+
+def test_audio_soft_token_count_matches_the_library_sampler():
+    from evalrx.models.jax.gemma import audio_soft_token_count
+
+    for n in (16000, 16001, 16321, 160000, int(28.22 * 16000), 30 * 16000, 31 * 16000):
+        assert audio_soft_token_count(n) == _sampler_audio_count(n)
+    assert audio_soft_token_count(30 * 16000) == 750      # the sampler's audio_seq_length cap
+
+
+def test_image_grid_product_equals_library_soft_token_count():
+    pytest.importorskip("gemma")
+    from gemma.gm.nn.gemma4.vision import _preprocessing as vp
+
+    from evalrx.models.jax.gemma import image_grid
+
+    for settings in ({"patch_size": 16, "max_soft_tokens": 280, "pooling_kernel_size": 3},
+                     {"patch_size": 16, "max_soft_tokens": 1120, "pooling_kernel_size": 3}):
+        for h, w in ((600, 850), (404, 310), (788, 840), (48, 48), (20, 3000), (1, 1), (4000, 30)):
+            rows, cols = image_grid(h, w, **settings)
+            assert rows * cols == vp.predict_soft_token_count(
+                h, w, settings["patch_size"], settings["max_soft_tokens"], settings["pooling_kernel_size"])
+
+
+def test_content_blocks_render_placeholders_in_order_and_collect_payloads():
+    from evalrx.models.jax.gemma import _content_blocks
+
+    text, images, audios = _content_blocks([
+        {"type": "audio", "audio": "clip.wav"}, {"type": "image", "image": "a.png"},
+        {"type": "image"}, {"type": "text", "text": "Describe."},
+    ])
+    assert text == "<|audio|><|image|><|image|>Describe."
+    assert images == ["a.png"] and audios == ["clip.wav"]        # payload-less blocks are placeholders only
+    assert _content_blocks("plain") == ("plain", [], [])
+
+
+def test_gemma_adapter_model_tokens_restore_internal_placeholders():
+    from evalrx.models.jax.gemma import (
+        AUDIO_PLACEHOLDER_ID,
+        AUDIO_SOFT_PLACEHOLDER,
+        IMAGE_PLACEHOLDER_ID,
+        IMAGE_SOFT_PLACEHOLDER,
+        GemmaJaxAdapter,
+    )
+    from evalrx.specs import get_spec
+
+    ad = GemmaJaxAdapter(get_spec("gemma-4-e2b-it"), RuntimeConfig())     # lazy: no jax / gemma import
+    assert ad.modalities == frozenset({"text", "image", "audio"}) and ad.text_only is False
+    enc = Encoding(ids=[2, IMAGE_PLACEHOLDER_ID, IMAGE_PLACEHOLDER_ID, 7, AUDIO_PLACEHOLDER_ID, 9],
+                   tokens=["<bos>", "<|image|>", "<|image|>", "x", "<|audio|>", "y"],
+                   image_token_mask=[False, True, True, False, False, False],
+                   audio_token_mask=[False, False, False, False, True, False])
+    row = ad._model_tokens(enc, 8)
+    assert row.shape == (1, 8)
+    assert row[0].tolist() == [2, IMAGE_SOFT_PLACEHOLDER, IMAGE_SOFT_PLACEHOLDER, 7, AUDIO_SOFT_PLACEHOLDER, 9, 0, 0]
+    text_only = GemmaJaxAdapter(get_spec("gemma-4-e2b-it"), RuntimeConfig(engine_kwargs={"text_only": True}))
+    assert text_only.modalities == frozenset({"text"})
+    with pytest.raises(ValueError, match="vision tower"):
+        text_only._check_modalities(["img"], [])
+
+
+# ----------------------------------------------------------------------
 # real weights (opt-in): Gemma 4 E2B through the gemma library
 # ----------------------------------------------------------------------
 @pytest.mark.gpu
 def test_gemma4_e2b_real_forward_shapes():
     pytest.importorskip("gemma")
-    m = compose("gemma-4-e2b-it", "jax_local", RuntimeConfig(max_new_tokens=4, apply_chat_template=True))
+    m = compose("gemma-4-e2b-it", "jax_local", RuntimeConfig(max_new_tokens=4, apply_chat_template=True,
+                                                             engine_kwargs={"text_only": True}))
     trace = m.forward("What is the capital of France?", capture={Capability.HIDDEN_STATES, Capability.LOGITS})
     assert len(trace.hidden_states) == 36 and trace.logits.shape[-1] == 262144
     assert m.generate("What is the capital of France?").strip()
+
+
+@pytest.mark.gpu
+def test_gemma4_e2b_real_image_and_audio_inputs():
+    """Image and audio rows through the towers: the soft-token reservation equals
+    the encoder's pooled grid, masks and TokenTypeMap land on the Trace, and
+    generation answers."""
+    pytest.importorskip("gemma")
+    from PIL import Image
+
+    m = compose("gemma-4-e2b-it", "jax_local", RuntimeConfig(max_new_tokens=8, apply_chat_template=True))
+    img = Image.new("RGB", (850, 600), (200, 30, 30))
+    trace = m.forward(Inputs(prompt="What colour is this? Answer with one word.", image=img),
+                      capture={Capability.HIDDEN_STATES, Capability.LOGITS})
+    ttm = trace.token_type_map
+    assert ttm.grids == [(1, 14, 19)] and len(ttm.image_pos) == 14 * 19       # 672 x 912 px, 48 px per token
+    assert trace.extras["image_spatial_shape"] == (14, 19)
+    assert int(trace.extras["image_token_mask"].sum()) == 14 * 19 and len(trace.hidden_states) == 36
+    assert "red" in m.generate(Inputs(prompt="What colour is this? Answer with one word.", image=img)).lower()
+    wav = np.zeros(16000 * 2, dtype=np.float32)                               # 2 s of silence
+    trace = m.forward(Inputs(prompt="Is there speech in this clip? Answer yes or no.", audio=wav),
+                      capture={Capability.LOGITS})
+    assert int(trace.extras["audio_token_mask"].sum()) == 49 and trace.token_type_map is None
+    assert m.generate(Inputs(prompt="Is there speech in this clip? Answer yes or no.", audio=wav)).strip()

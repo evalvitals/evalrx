@@ -171,7 +171,11 @@ Guidelines:
 (`evalrx.models.jax.protocol.JaxModelAdapter`: encode, forward with capture
 flags, generate, unembed, final-norm parameters) and converts the captured
 arrays to CPU torch tensors at the `Trace` boundary, so the analyzers that run
-on `hf_local` text models run unchanged. Two on-ramps:
+on `hf_local` models run unchanged. `Inputs.image` / `audio` / `video` go
+through the adapter's `encode`; the masks it returns become the same
+`image_token_mask`, `audio_token_mask`, `image_spatial_shape` and
+`TokenTypeMap` fields `hf_local` fills (the Gemma adapter serves text, image
+and audio; `engine_kwargs={"text_only": True}` skips the towers). Two on-ramps:
 
 ```python
 # registry route: a spec with a JaxSpec (Gemma 4 E2B / E4B ship one)

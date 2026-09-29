@@ -106,10 +106,14 @@ def load_model(resolved: Resolved, args, task: T.Task):
 
     if resolved.backend == "jax_local":
         # The JAX twin: same spec (template kwargs, modalities, caveats), the
-        # gemma library underneath. apply_chat_template as on hf_local. A
-        # --model-path is a local Orbax mirror of the spec's gs:// checkpoint
-        # (18 GB for E2B; see docs/design_jax_backend.md section 4).
+        # gemma library underneath; text, image and audio inputs. apply_chat_template
+        # as on hf_local. A --model-path is a local Orbax mirror of the spec's
+        # gs:// checkpoint (17 GB for E2B; see docs/design_jax_backend.md section 4).
         engine_kwargs = {"checkpoint": str(args.model_path)} if getattr(args, "model_path", None) else {}
+        # text cells skip the vision / audio towers (~2 GB float32 and their load
+        # time); the vlm / alm cells need them, and the adapter reports the
+        # modalities it can serve accordingly
+        engine_kwargs["text_only"] = task.modality == "llm"
         runtime = RuntimeConfig(device=args.device or "auto", dtype=args.dtype, max_new_tokens=max_new,
                                 apply_chat_template=True, engine_kwargs=engine_kwargs)
         return compose(spec, "jax_local", runtime, set()), gen, spec
