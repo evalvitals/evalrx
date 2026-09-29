@@ -501,3 +501,60 @@ def test_v2_explore_event_without_a_snapshot_report_still_renders_its_sentences(
     assert [item["title"] for item in m2["takeaways"]] == ["Every long reply failed"]
     assert m2["takeaways"][0]["chart_names"] == []
     assert m2["figures"] == []
+
+
+def test_cases_repaired_metric_reads_the_m5_confirmation():
+    from evalrx.reporting.dynamic import _metrics
+
+    run = {"n_cases": 128, "label_distribution": {"fail": 38}}
+    raw = {"m4": {"results": [{}, {}, {}]}}
+    cases = [{"id": f"c{i}", "status": "fail"} for i in range(3)]
+    # M5 prints its confirmation as "21 repaired, 6 broken"; the header tile
+    # must say the same 21 even when the candidate missed the certification bar.
+    m5 = {"ran": True, "fixed": False,
+          "confirmation": {"name": "read_off_marks", "n_fixed": 21, "n_broken": 6}}
+    by_id = {m["id"]: m["value"] for m in _metrics(run, raw, cases, m5)}
+    assert by_id == {"evaluated": 128, "failed": 38, "verified": 3, "fixed": 21}
+    # No confirmation recorded: the per-case repair outcomes count instead.
+    cases[0]["repair"] = {"status": "fixed"}
+    cases[1]["repair"] = {"status": "broken"}
+    assert {m["id"]: m["value"] for m in _metrics(run, raw, cases, None)}["fixed"] == 1
+    # The candidate missed the bar, so the fix event names no winner and the
+    # confirmation is empty; the confirm-phase candidate M5 scored still counts.
+    unwon = {"ran": True, "fixed": False, "confirmation": {},
+             "candidates": [{"name": "read_off_marks", "n_fixed": 21, "n_broken": 6, "effect": 0.117}]}
+    assert {m["id"]: m["value"] for m in _metrics(run, raw, [{"status": "fail"}], unwon)}["fixed"] == 21
+    # A run whose M5 never ran repaired nothing.
+    idle = {"ran": False, "confirmation": {}}
+    assert {m["id"]: m["value"] for m in _metrics(run, raw, [{"status": "fail"}], idle)}["fixed"] == 0
+
+
+def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_path):
+    from types import SimpleNamespace
+
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.dynamic import build_report_data
+
+    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger.log_run_start({
+        "model": "demo-model", "benchmark_name": "demo-set", "n_cases": 2,
+        "label_distribution": {"fail": 2},
+        "protocol": {"description": "Answer the question correctly."},
+    })
+    logger.log_cases(CaseBatch([
+        FailureCase.from_prompt("Q1", id="c1", expected="a", observed="b", label=Label.FAIL),
+        FailureCase.from_prompt("Q2", id="c2", expected="a", observed="c", label=Label.FAIL),
+    ]))
+    winner = {"name": "malformed_choice_consensus", "tier": "L2", "n_pairs": 128,
+              "n_fixed": 25, "n_broken": 0, "effect": 0.5, "fixed": True, "verdict": "fixed"}
+    # RunLoggerV2 writes `best` as the whole candidate, not its name.
+    logger.log_fix(SimpleNamespace(to_dict=lambda: {"attempted": [winner], "best": dict(winner), "fixed": True}))
+    logger.close()
+
+    data = build_report_data(tmp_path)
+    m5 = data["stage_detail"]["m5"]
+    assert m5["confirmation"]["name"] == "malformed_choice_consensus"
+    assert (m5["confirmation"]["n_fixed"], m5["confirmation"]["n_broken"]) == (25, 0)
+    assert m5["best"]["name"] == "malformed_choice_consensus"
+    assert {m["id"]: m["value"] for m in data["metrics"]}["fixed"] == 25
