@@ -328,6 +328,41 @@ def test_dockerfile_has_one_stage_per_family(common):
     assert "transformers==5.15.0" in text
 
 
+def test_gemma_jax_leaves_run_the_gemma_sizes_on_jax_local(common):
+    """<modality>/gemma_jax is the JAX twin of <modality>/gemma: not a family of
+    its own (same sizes and specs), but its own image stage and outputs."""
+    import yaml
+
+    from evalrx.specs import get_spec
+
+    models, *_ = common
+    text = (BENCH / "docker" / "Dockerfile").read_text(encoding="utf-8")
+    # the gemma library needs python >= 3.12, so the stage cannot extend base
+    assert "FROM python:3.12-slim AS gemma_jax\n" in text and '"gemma==4.0.1"' in text
+    build = yaml.safe_load((BENCH / "docker" / "docker-compose.build.yml").read_text(encoding="utf-8"))
+    assert build["services"]["gemma_jax"]["build"]["target"] == "gemma_jax"
+    for modality in models.MODALITIES:
+        leaf = BENCH / modality / "gemma_jax"
+        compose = yaml.safe_load((leaf / "docker-compose.yml").read_text(encoding="utf-8"))
+        services = compose["services"]
+        # exactly the gemma sizes whose spec has a JAX twin (no 12B class upstream)
+        want = {s.key for s in models.SIZES.values()
+                if s.family == "gemma" and get_spec(s.specs[modality]).jax is not None}
+        assert set(services) == want == {"gemma-4-e2b", "gemma-4-e4b"}
+        for key, svc in services.items():
+            cmd = svc["command"]
+            assert f"--model {key}" in cmd and f"--modality {modality}" in cmd
+            assert "--backend jax_local" in cmd and "--judge-provider" not in cmd
+            assert models.resolve(key, modality, "jax_local").backend == "jax_local"
+            # the mirror is optional: without it the spec's gs:// checkpoint is read
+            size = key.removeprefix("gemma-4-")
+            assert f"[ -d /ckpt/gemma4-{size}-it ] && echo --model-path /ckpt/gemma4-{size}-it" in cmd
+            assert any(str(v).endswith(":/ckpt:ro") for v in svc["volumes"])
+            assert svc["extends"]["file"] == "../../_common/compose/base.yml"
+            assert svc["build"]["target"] == "gemma_jax" and svc["image"] == "evalrx-bench-gemma-jax"
+        assert (leaf / "README.md").is_file() and (leaf / ".env").is_symlink()
+
+
 def test_generation_settings_sample_only_for_llm_tasks(common):
     """Greedy Qwen3.5 (thinking off too) loops to the cap on free-form reasoning
     prompts (8/8 causal-judgement items, 2026-08-21): llm tasks sample like

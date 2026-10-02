@@ -15,3 +15,6 @@ services:
   gemini:
     image: evalrx-bench-gemini
     build: {context: ../../.., dockerfile: examples/benchmark/docker/Dockerfile, target: gemini}
+  gemma_jax:
+    image: evalrx-bench-gemma-jax
+    build: {context: ../../.., dockerfile: examples/benchmark/docker/Dockerfile, target: gemma_jax}

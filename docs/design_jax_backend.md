@@ -316,11 +316,15 @@ architecture-adapted, exactly as it does for decoder-only VLMs on torch.
   separate install choice (`jax[cuda12]`); the gemma library brings orbax,
   kauldron and the `dialog` formatter; no `transformers` is needed, the
   tokenizer is SentencePiece.
-- `examples/benchmark/docker/Dockerfile`: a `jax` stage from
+- `examples/benchmark/docker/Dockerfile`: a `gemma_jax` stage from
   `python:3.12-slim` with the CUDA 12 jax wheels (the cluster driver is 12.4,
-  which the cu12 wheels support), not `FROM base`, because base carries the
-  cu129 torch stack. The leaf compose files gain a `gemma-4-e2b-jax` service.
-  Not done yet; section 9 has the venv recipe used instead.
+  which the cu12 wheels support), not `FROM base`, because base is python 3.11
+  with the cu129 torch stack (done 2026-10-01; image `evalrx-bench-gemma-jax`,
+  11.2 GB). The JAX services live in their own leaves,
+  `examples/benchmark/{llm,vlm,alm}/gemma_jax/`, not in the gemma leaves: both
+  backends use the same `--model` key, so a shared leaf would write both into
+  one `outputs/<model>/<dataset>/`. A local Orbax mirror is mounted at `/ckpt`
+  through `EVALRX_JAX_CKPT`.
 
 ## 4. Gemma-4-E2B reference adapter
 
@@ -547,12 +551,19 @@ Open items, in the order they block the acceptance table of section 4:
 2. **Chat-template parity** with the HF `chat_template.jinja` (thinking off) is
    inferred from the `dialog` package, not diffed against the HF render.
 3. **Thinking on** (`--enable-thinking`) raises on jax_local.
-4. **GPU run** of the adapter itself: verified on CPU only in this session
-   (`XLA_PYTHON_CLIENT_PREALLOCATE=false` is set by the backend so a shared
-   card is not grabbed wholesale).
+4. **GPU run** of the adapter: done 2026-10-01 inside the `gemma_jax` image on
+   one A100 that another job was sharing (`XLA_PYTHON_CLIENT_PREALLOCATE=false`,
+   so memory grows on demand; the card showed about 17 GB more than before
+   while the vlm run was loading). Four-row Stage 0 smokes through the leaf compose files:
+   chartqa 2/4 at 11.9 s/case (the same four answers as the CPU run), mmau 3/4
+   at 29.5 s/case (every clip length recompiles, item 7), gsm8k 4/4 at
+   12.8 s/case. One mmau row differs from the CPU run: on CPU it opened a
+   `thought` preamble and failed, on GPU it answered the letter; greedy
+   decoding in bf16 is not device-identical on a near-tie. Nothing past the
+   baseline stage has been run on this backend yet.
 5. Phase 2 (sites, `Model.intervene`, L3b) and the rest of phase 3
    (`encode_variants` for VCD / TCD / AAD, the `WhiteBoxRepairsMixin`,
-   `GRADIENTS`, LoRA), the Docker `jax` stage, and the mkdocs nav entry for
+   `GRADIENTS`, LoRA) and the mkdocs nav entry for
    this page.
 6. **Multimodal parity against hf_local** (image / audio rows: same
    `image_token_mask` count, same labels) waits on the same GPU + transformers
