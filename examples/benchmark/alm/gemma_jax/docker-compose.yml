@@ -1,0 +1,36 @@
+# ALM (audio + text) x Gemma 4 on JAX (--backend jax_local): one service per size, dataset/limit via env.
+#   DATASET=mmau LIMIT=256 CUDA_VISIBLE_DEVICES=0 docker compose run -d --name alm-gemma-jax-4-e2b-mmau gemma-4-e2b
+# Datasets for this modality: mmau, mmsu, audiocaps_hallu, af_reasoning_mcq.
+# EXTRA_ARGS passes more run.py flags (e.g. EXTRA_ARGS='--baseline-only --limit 8'; '--device cpu' runs without a card).
+# Sizes: E2B and E4B only (the gemma library has no 12B class). The fix ladder stops at L2 on this backend.
+# Weights: EVALRX_JAX_CKPT (examples/benchmark/.env) is a host directory holding gemma4-<size>-it/
+#   and tokenizer_gemma4.model, mounted at /ckpt; a size without a mirror there is read from the
+#   public gs://gemma-data bucket on every load.
+# Judge/coder default to Claude claude-opus-5 at high effort (override via EXTRA_ARGS).
+name: bench-alm-gemma-jax
+x-gemma-jax: &gemma_jax
+  extends:
+    file: ../../_common/compose/base.yml
+    service: bench
+  image: evalrx-bench-gemma-jax
+  build:
+    context: ../../../..
+    dockerfile: examples/benchmark/docker/Dockerfile
+    target: gemma_jax
+  volumes:
+    - ../_data:/app/work/data        # frozen manifests + media, shared by every family of the modality
+    - ./outputs:/app/work/outputs    # <model>/<dataset>[.<tag>]/{baseline.json,logs,explore,summary.json}
+    - ${EVALRX_JAX_CKPT:-~/.cache/evalrx/jax}:/ckpt:ro   # Orbax mirrors + tokenizer (optional)
+services:
+  gemma-4-e2b:
+    <<: *gemma_jax
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemma-4-e2b --backend jax_local
+      $$([ -d /ckpt/gemma4-e2b-it ] && echo --model-path /ckpt/gemma4-e2b-it)
+      --dataset ${DATASET:-mmau} --limit ${LIMIT:-0} ${EXTRA_ARGS:-}"
+  gemma-4-e4b:
+    <<: *gemma_jax
+    command: >
+      sh -c "python -m _common.run --modality alm --model gemma-4-e4b --backend jax_local
+      $$([ -d /ckpt/gemma4-e4b-it ] && echo --model-path /ckpt/gemma4-e4b-it)
+      --dataset ${DATASET:-mmau} --limit ${LIMIT:-0} ${EXTRA_ARGS:-}"
