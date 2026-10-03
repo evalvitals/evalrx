@@ -496,23 +496,17 @@ def test_placement_device_honours_an_index():
         placement_device(devs, "cuda:2")
 
 
-def test_gemma_adapter_load_restores_on_host_and_casts_before_placing(monkeypatch):
-    """The float32 checkpoint never reaches the accelerator: load_params gets a
-    host sharding, the text weights are cast to the runtime dtype (the media
-    towers stay float32) and the cast tree is placed on the default device."""
-    pytest.importorskip("gemma")
+_CKPT_SHAPES = {"layer_0": {"w": (4, 4)}, "final_norm": {"scale": (4,)},
+                "vision_encoder": {"w": (2, 2)}, "embedder": {"input_embedding": (8, 4)}}
+
+
+def _fake_gemma_load(monkeypatch, *, fake_load_params, runtime):
+    """A GemmaJaxAdapter whose model class, tokenizer and checkpoint IO are fakes."""
     from gemma import gm
+    from gemma.gm.ckpts import _checkpoint as ck
 
     import evalrx.models.jax.gemma as gj
     from evalrx.specs import get_spec
-
-    seen = {}
-
-    def fake_load_params(path, *, text_only, sharding):
-        seen.update(path=path, text_only=text_only, sharding=sharding)
-        put = lambda a: jax.device_put(jnp.asarray(a, jnp.float32), sharding)  # noqa: E731
-        return {"layer_0": {"w": put(np.ones((4, 4)))}, "final_norm": {"scale": put(np.ones(4))},
-                "vision_encoder": {"w": put(np.ones((2, 2)))}, "embedder": {"input_embedding": put(np.ones((8, 4)))}}
 
     class FakeModel:
         config = type("C", (), {"num_layers": 1})()
@@ -527,17 +521,87 @@ def test_gemma_adapter_load_restores_on_host_and_casts_before_placing(monkeypatc
         def __init__(self, path):
             pass
 
+    meta = jax.tree.map(lambda shape: jax.ShapeDtypeStruct(shape, jnp.float32), _CKPT_SHAPES,
+                        is_leaf=lambda x: isinstance(x, tuple))
+    monkeypatch.setattr(ck, "_get_metadata_and_path", lambda checkpointer, path: (meta, path))
     monkeypatch.setattr(gm.ckpts, "load_params", fake_load_params)
     monkeypatch.setattr(gm.text, "Gemma4Tokenizer", FakeTok)
     monkeypatch.setattr(gj, "_below_flax", lambda fn: fn)
-    ad = gj.GemmaJaxAdapter(get_spec("gemma-4-e2b-it"), RuntimeConfig(dtype="bfloat16"))
+    ad = gj.GemmaJaxAdapter(get_spec("gemma-4-e2b-it"), runtime)
     monkeypatch.setattr(ad, "_model_cls", lambda: FakeModel)
+    return ad
+
+
+def test_gemma_adapter_load_restores_straight_into_the_target_dtype_and_device(monkeypatch):
+    """Orbax gets a typed, placed target: text weights in the runtime dtype,
+    media towers float32, every leaf on the chosen device, so the float32
+    checkpoint never materialises on the host or the accelerator."""
+    pytest.importorskip("gemma")
+    seen = {}
+
+    def fake_load_params(path, *, params, text_only):
+        seen.update(target=params, text_only=text_only)
+        return jax.tree.map(lambda s: jax.device_put(jnp.zeros(s.shape, s.dtype), s.sharding), params)
+
+    ad = _fake_gemma_load(monkeypatch, fake_load_params=fake_load_params, runtime=RuntimeConfig(dtype="bfloat16"))
+    ad.load()
+    t = seen["target"]
+    assert t["layer_0"]["w"].dtype == jnp.bfloat16 and t["final_norm"]["scale"].dtype == jnp.bfloat16
+    assert t["vision_encoder"]["w"].dtype == jnp.float32                   # towers keep float32
+    assert all(s.sharding.device_set == {jax.devices()[0]} for s in jax.tree.leaves(t))
+    assert ad._params["layer_0"]["w"].dtype == jnp.bfloat16
+
+
+def test_gemma_adapter_text_only_target_drops_the_towers(monkeypatch):
+    pytest.importorskip("gemma")
+    seen = {}
+
+    def fake_load_params(path, *, params, text_only):
+        seen.update(target=params, text_only=text_only)
+        return jax.tree.map(lambda s: jnp.zeros(s.shape, s.dtype), params)
+
+    ad = _fake_gemma_load(monkeypatch, fake_load_params=fake_load_params,
+                          runtime=RuntimeConfig(engine_kwargs={"text_only": True}))
+    ad.load()
+    assert "vision_encoder" not in seen["target"] and seen["text_only"] is True
+
+
+def test_gemma_adapter_load_falls_back_to_host_cast_when_the_private_api_moves(monkeypatch):
+    """If gemma's checkpoint helpers change, restore float32 on the host, cast
+    with numpy there and place the cast tree (same dtypes, same device)."""
+    pytest.importorskip("gemma")
+    seen = {}
+
+    def fake_load_params(path, *, text_only, sharding):
+        seen.update(sharding=sharding)
+        return jax.tree.map(lambda shape: jax.device_put(jnp.ones(shape, jnp.float32), sharding), _CKPT_SHAPES,
+                            is_leaf=lambda x: isinstance(x, tuple))
+
+    ad = _fake_gemma_load(monkeypatch, fake_load_params=fake_load_params, runtime=RuntimeConfig(dtype="bfloat16"))
+
+    def moved(*a, **k):
+        raise AttributeError("_CheckpointTree")
+
+    monkeypatch.setattr(ad, "_restore_target", moved)
     ad.load()
     assert seen["sharding"].device_set == {jax.local_devices(backend="cpu")[0]}
     p = ad._params
-    assert p["layer_0"]["w"].dtype == jnp.bfloat16 and p["final_norm"]["scale"].dtype == jnp.bfloat16
-    assert p["vision_encoder"]["w"].dtype == jnp.float32                   # towers keep float32
+    assert p["layer_0"]["w"].dtype == jnp.bfloat16 and p["vision_encoder"]["w"].dtype == jnp.float32
     assert all(a.devices() == {jax.devices()[0]} for a in jax.tree.leaves(p))
+
+
+def test_gemma_adapter_sharding_knob_validates_and_picks_fsdp(monkeypatch):
+    from evalrx.models.jax.gemma import GemmaJaxAdapter
+    from evalrx.specs import get_spec
+
+    spec = get_spec("gemma-4-e2b-it")
+    with pytest.raises(ValueError, match="sharding"):
+        GemmaJaxAdapter(spec, RuntimeConfig(engine_kwargs={"sharding": "zero3"}))
+    pytest.importorskip("gemma")
+    ad = GemmaJaxAdapter(spec, RuntimeConfig(engine_kwargs={"sharding": "fsdp"}))
+    assert type(ad._param_sharding(jax)).__name__ == "FSDPSharding"
+    one = GemmaJaxAdapter(spec, RuntimeConfig())._param_sharding(jax)     # one CPU device here
+    assert one.device_set == {jax.devices()[0]}
 
 
 def test_gemma_adapter_generate_buckets_the_static_output_length(monkeypatch):

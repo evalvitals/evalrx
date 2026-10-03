@@ -121,7 +121,7 @@ class JaxSpec:
     adapter: str                            # e.g. "evalrx.models.jax.gemma:make_adapter"
     model_class: str = ""                   # framework class, e.g. "Gemma4_E2B" (gemma library)
     reference_attention: bool = True        # materialise (H,S,S) probabilities -> ATTENTION; False = fused kernels
-    sharding: dict = field(default_factory=dict)   # mesh axes; empty = single device
+    sharding: dict = field(default_factory=dict)   # {"strategy": "auto" | "fsdp" | "single"}; empty = "auto"
 
 
 @dataclass(frozen=True)
