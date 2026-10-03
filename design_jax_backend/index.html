@@ -1,0 +1,1857 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Failure case analysis for LLMs and VLMs">
+      
+      
+      
+        <link rel="canonical" href="https://evalvitals.github.io/evalrx/design_jax_backend/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Design: a JAX white-box backend (jax_local), reference model Gemma-4-E2B - EvalRX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#design-a-jax-white-box-backend-jax_local-reference-model-gemma-4-e2b" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="EvalRX" class="md-header__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EvalRX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Design: a JAX white-box backend (jax_local), reference model Gemma-4-E2B
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Overview
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quickstart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quickstart
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Command-Line Interface
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../m2_analysis/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Exploratory Analysis (M2/M3)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../intervention/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Verification & Intervention (M4/M5)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../stage_io/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Stage Input/Output Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../analyzers/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Analyzer Zoo
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../extending/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Extending
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="EvalRX" class="md-nav__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EvalRX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-Line Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../m2_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exploratory Analysis (M2/M3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intervention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verification & Intervention (M4/M5)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage_io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Input/Output Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analyzers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyzer Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-goals-and-non-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Goals and non-goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-what-exists-today-and-where-pytorch-leaks-through" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. What exists today, and where PyTorch leaks through
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-jax_local-backend-over-a-thin-adapter-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 jax_local backend over a thin adapter protocol
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-identity-a-jaxspec-on-modelspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Identity: a JaxSpec on ModelSpec
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-trace-boundary-convert-to-torch-on-the-cpu-path-inside-the-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Trace boundary: convert to torch on the CPU path, inside the backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-capture-mechanics-inside-the-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Capture mechanics inside the adapter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-multimodal-capture-image-and-audio-token-maps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 Multimodal capture: image and audio token maps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#36-interventions-through-named-sites-not-hooks-l3b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.6 Interventions through named sites, not hooks (L3b)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#37-repairs-l3a-executors-and-l4-lora" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.7 Repairs: L3a executors and L4 LoRA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#38-benchmark-packaging-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.8 Benchmark, packaging, image
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-gemma-4-e2b-reference-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Gemma-4-E2B reference adapter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Phases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-risks-and-open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Risks and open questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Out of scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-status-2026-09-28-phase-1-and-the-multimodal-half-of-phase-3-landed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Status (2026-09-28): phase 1 and the multimodal half of phase 3 landed
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="design-a-jax-white-box-backend-jax_local-reference-model-gemma-4-e2b">Design: a JAX white-box backend (<code>jax_local</code>), reference model Gemma-4-E2B</h1>
+<p>Status: 2026-09-26, phase 1 implemented (text read access on Gemma-4-E2B /
+E4B through Google DeepMind's <code>gemma</code> library); see section 9 for what landed,
+how to run it, and what is still open. Phases 2 and 3 are design only.</p>
+<p>EvalRX already runs JAX-served models as black boxes: any OpenAI-compatible
+endpoint, or an in-process <code>generate_fn</code>, gives the loop <code>GENERATE</code> and
+<code>LOGPROBS</code>, which covers Stage 0, the black-box M1 analyzers, M2 to M4, and the
+L0 to L2 repair tiers. What it cannot do is read or write a JAX model's
+internals: attention, hidden states, logits from a forward pass, gradients,
+forward-pass interventions, and LoRA. This document designs that.</p>
+<p>The reference model is <strong>Gemma-4-E2B</strong> (<code>gemma-4-e2b-it</code> in <code>evalrx/specs.py</code>).
+It is the right first target for three reasons:</p>
+<ul>
+<li>it is one checkpoint that serves all three benchmark modalities (text,
+  image + text, audio + text), so one adapter exercises every capture path;</li>
+<li>the torch twin already runs in <code>examples/benchmark/{llm,vlm,alm}/gemma</code>,
+  which gives a parity oracle for free: same manifests, same graders, same
+  pinned M1 sets, <code>--backend hf_local</code> versus <code>--backend jax_local</code>;</li>
+<li>Google publishes Gemma checkpoints for JAX and maintains a Flax reference
+  implementation, so the adapter wraps a first-party model instead of a port.</li>
+</ul>
+<h2 id="1-goals-and-non-goals">1. Goals and non-goals</h2>
+<p>Goals, in priority order:</p>
+<ol>
+<li>A <code>jax_local</code> backend that returns the same <code>Trace</code> the torch backend
+   returns, so every existing white-box analyzer runs unchanged on a JAX model.</li>
+<li>A small adapter protocol so a JAX model of any framework, including a
+   user's own training code, plugs in without touching EvalRX internals.</li>
+<li>Forward-pass interventions (L3b) and the contrastive-decoding repairs (L3a)
+   expressed against the <code>Model</code> contract, so both backends share them.</li>
+<li>LoRA repair (L4) on JAX.</li>
+</ol>
+<p>Non-goals for this design: replacing the torch backend, supporting every JAX
+framework out of the box, or removing torch from the analyzer code. The last
+one is possible later and is discussed in section 4.3.</p>
+<h2 id="2-what-exists-today-and-where-pytorch-leaks-through">2. What exists today, and where PyTorch leaks through</h2>
+<p>Analyzers never touch a framework directly. They call five things on
+<code>evalrx.core.model.Model</code>: <code>generate</code>, <code>forward</code>, <code>logprobs</code>, <code>chat</code>, and the
+two lens accessors <code>unembed_weight()</code> / <code>final_norm()</code>. <code>forward</code> returns a
+<code>Trace</code> (<code>evalrx/core/model.py</code>):</p>
+<table>
+<thead>
+<tr>
+<th>field</th>
+<th>shape (torch path)</th>
+<th>notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tokens</code>, <code>token_ids</code></td>
+<td><code>(seq,)</code></td>
+<td>prompt tokens after the chat template</td>
+</tr>
+<tr>
+<td><code>hidden_states</code></td>
+<td>list of <code>L+1</code> tensors <code>(seq, dim)</code></td>
+<td>entry 0 is the embedding output, as in HF</td>
+</tr>
+<tr>
+<td><code>attentions</code></td>
+<td>list of <code>L</code> tensors <code>(heads, seq, seq)</code></td>
+<td>requires eager attention on torch</td>
+</tr>
+<tr>
+<td><code>logits</code></td>
+<td><code>(seq, vocab)</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>token_type_map</code></td>
+<td><code>TokenTypeMap</code></td>
+<td>VLM: image positions plus patch grids</td>
+</tr>
+<tr>
+<td><code>extras</code></td>
+<td>dict</td>
+<td><code>image_token_mask</code>, <code>audio_token_mask</code>, <code>attn_semantics</code>, grids</td>
+</tr>
+</tbody>
+</table>
+<p><code>CaptureSpec</code> bounds layers, heads, and whether tensors move to CPU.
+<code>Capability</code> negotiation happens in <code>compose()</code> before any weights load, and
+<code>ProbeAgent</code> only offers analyzers whose <code>requires</code> the model provides.</p>
+<p>This contract is framework-neutral in intent. Three things leak PyTorch
+through it, and each one is a work item below:</p>
+<ol>
+<li><strong>Trace payloads are <code>torch.Tensor</code></strong>, and six analyzers do torch math on
+   them: <code>lens/logit_lens.py</code>, <code>lens/layer_contrast.py</code>, <code>geometry/cka.py</code>,
+   <code>geometry/linear_probe.py</code> (trains a probe with <code>torch.optim</code>),
+   <code>uncertainty/entropy.py</code>, <code>attention/summary.py</code> and <code>rollout.py</code>.</li>
+<li><strong>L3b and L4 reach around <code>Model</code>.</strong> <code>eval_agent/stages/fix_internals.py</code>
+   reads the private <code>model._hf</code> tuple (<code>_resolve_hf</code>), registers a torch
+   forward hook on the input embedding for <code>visual_embedding_boost</code>, and
+   hands the same object to <code>peft</code> in <code>run_lora_repair</code>.</li>
+<li><strong>L3a and the calibrated L2 repairs are methods on <code>HFLocalModel</code></strong>
+   (<code>generate_vcd</code>, <code>generate_instruction_cd</code>, <code>generate_tcd</code>, <code>generate_aad</code>,
+   the specialist routes), and <code>repair_catalog.discover_methods</code> finds them
+   with <code>callable(getattr(model, executor))</code>. Layer discovery
+   (<code>models/_discover.py</code>) walks <code>nn.ModuleList</code>.</li>
+</ol>
+<p>One more fact shapes the priorities. The benchmark's <strong>pinned M1 sets for the
+Gemma cells are all black-box plus logprobs</strong> (<code>_common/tasks/*.py</code>):
+<code>answer_extraction_audit</code>, <code>termination_audit</code>, <code>selfcheck_consistency</code>,
+<code>self_consistency</code>, <code>calibration</code>, <code>logprob_entropy</code>, <code>coverage_verification_gap</code>,
+<code>perturbation_battery</code>, <code>format_sensitivity</code>. None needs <code>ATTENTION</code> or
+<code>HIDDEN_STATES</code>. So on the default benchmark run, a JAX backend first has to
+match the torch path on <code>GENERATE</code> and <code>LOGPROBS</code>; white-box capture pays off
+through <code>--m1-selection judge</code> (the catalog then offers attention summary,
+sink, rollout, relative attention, logit lens, layer contrast, CKA, linear
+probe, entropy, VCD), through <code>AnalysisModule</code>'s image-attention rule, and
+through the L3a/L3b/L4 repair tiers, which the API backends clamp away.</p>
+<h2 id="3-architecture">3. Architecture</h2>
+<h3 id="31-jax_local-backend-over-a-thin-adapter-protocol">3.1 <code>jax_local</code> backend over a thin adapter protocol</h3>
+<p>JAX has no single model API the way HF torch does. The backend therefore never
+knows Flax NNX from Flax Linen from MaxText or Penzai. It talks to a
+<code>JaxModelAdapter</code>, and each framework, or a user's own model, implements that
+protocol. <code>JaxLocalModel</code> wraps the adapter exactly as <code>VLLMOfflineModel</code>
+wraps vLLM (<code>models/backends/vllm_offline.py</code> is the template) and registers
+as <code>BACKENDS["jax_local"]</code> in <code>models/backends/__init__.py</code>. Heavy imports
+stay inside <code>load()</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># evalrx/models/jax/protocol.py (as implemented; the sketch this replaced had</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># prefill/step and phase-2/3 methods, which are deferred to those phases)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">class</span><span class="w"> </span><span class="nc">Encoding</span><span class="p">:</span>            <span class="c1"># what the adapter's tokenizer / processor produced</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">];</span> <span class="n">tokens</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">];</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>        <span class="c1"># text = the rendered prompt</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">media</span><span class="p">:</span> <span class="nb">dict</span><span class="p">;</span> <span class="n">image_token_mask</span> <span class="o">/</span> <span class="n">audio_token_mask</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">grids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]];</span> <span class="n">image_token_id</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="k">class</span><span class="w"> </span><span class="nc">SamplingParams</span><span class="p">:</span>      <span class="c1"># hf_local's kwarg contract, backend-neutral</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">max_new_tokens</span><span class="p">:</span> <span class="nb">int</span><span class="p">;</span> <span class="n">temperature</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span> <span class="p">(</span><span class="o">&lt;=</span> <span class="mi">0</span> <span class="o">-&gt;</span> <span class="n">greedy</span><span class="p">);</span> <span class="n">top_p</span><span class="p">;</span> <span class="n">top_k</span><span class="p">;</span> <span class="n">seed</span><span class="p">;</span> <span class="n">stop</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="k">class</span><span class="w"> </span><span class="nc">ForwardOut</span><span class="p">(</span><span class="n">NamedTuple</span><span class="p">):</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">logits</span><span class="p">:</span> <span class="n">Array</span> <span class="o">|</span> <span class="kc">None</span>            <span class="c1"># (S, V) after the model's own soft-cap</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">hidden</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Array</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>      <span class="c1"># L+1 x (S, D): embeddings first, LAST entry post final-norm (HF layout)</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">attn</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Array</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span>        <span class="c1"># L x (H, S, S) probabilities; reference attention only</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">extras</span><span class="p">:</span> <span class="nb">dict</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="k">class</span><span class="w"> </span><span class="nc">JaxModelAdapter</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">n_layers</span><span class="p">:</span> <span class="nb">int</span><span class="p">;</span> <span class="n">modalities</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">];</span> <span class="n">reference_attention</span><span class="p">:</span> <span class="nb">bool</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">encode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">inputs</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">chat_template</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Encoding</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">render_chat</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">messages</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Encoding</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">decode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ids</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">enc</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">capture</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">layers</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ForwardOut</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">unembed</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Array</span>                       <span class="c1"># (V, D)</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">final_norm_params</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NormParams</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># scale, eps, plus_one -&gt; rebuilt as a torch RMSNorm</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">enc</span><span class="p">,</span> <span class="n">params</span><span class="p">:</span> <span class="n">SamplingParams</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">GenerateOut</span>   <span class="c1"># ids + text</span>
+</code></pre></div>
+<p><code>capture</code> holds the strings <code>"logits"</code>, <code>"hidden_states"</code>, <code>"attentions"</code>.
+When <code>layers</code> is given the adapter may leave unrequested entries <code>None</code>; the
+lists keep full length and the backend subsets them exactly like hf_local's
+<code>_maybe_subset</code>. Logprobs need no adapter method: the backend decodes greedily,
+then runs ONE teacher-forced <code>forward</code> over prompt + continuation.</p>
+<p><code>JaxLocalModel</code> maps the protocol onto <code>Model</code>:</p>
+<table>
+<thead>
+<tr>
+<th><code>Model</code> method</th>
+<th>implementation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>capabilities</code></td>
+<td><code>GENERATE</code>, <code>LOGITS</code>, <code>LOGPROBS</code>, <code>HIDDEN_STATES</code> always; <code>ATTENTION</code> only when the adapter runs reference attention (see 3.4); <code>TOOL_CALLS</code> when the tokenizer's chat template renders tools, the same rule <code>vllm_offline</code> uses</td>
+</tr>
+<tr>
+<td><code>generate</code></td>
+<td><code>adapter.generate</code> with the spec's <code>chat_template_kwargs</code>; <code>RuntimeConfig.apply_chat_template</code> honoured as on hf_local</td>
+</tr>
+<tr>
+<td><code>logprobs</code></td>
+<td>greedy <code>prefill</code>/<code>step</code> loop, <code>log_softmax</code> plus <code>top_k</code> per step, mapped to <code>TokenLogprob</code></td>
+</tr>
+<tr>
+<td><code>forward</code></td>
+<td><code>adapter.forward</code> with <code>capture</code> translated to adapter flags and <code>CaptureSpec.layers/heads</code> passed through, then the boundary conversion of 3.3</td>
+</tr>
+<tr>
+<td><code>unembed_weight</code>, <code>final_norm</code></td>
+<td>converted once and cached (3.3)</td>
+</tr>
+<tr>
+<td><code>chat</code></td>
+<td>render <code>messages</code> through the tokenizer's chat template and call <code>generate</code>; tool calls parsed by the existing codec</td>
+</tr>
+</tbody>
+</table>
+<p>Alongside <code>compose(spec, "jax_local", ...)</code>, add <code>evalrx.wrap_jax(model,
+tokenizer, adapter=...)</code> mirroring <code>wrap()</code>: a model already loaded in
+someone's training script gets a <code>JaxLocalModel</code> with an inferred spec, no
+registry entry needed.</p>
+<h3 id="32-identity-a-jaxspec-on-modelspec">3.2 Identity: a <code>JaxSpec</code> on <code>ModelSpec</code></h3>
+<p><code>ModelSpec</code> is HF-centric (<code>hf_repo</code>, <code>auto_class</code>, <code>module_paths</code>). Follow
+the <code>VisionSpec</code> / <code>AudioSpec</code> pattern and add an optional <code>jax: JaxSpec</code>
+field rather than overloading the HF fields:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">JaxSpec</span><span class="p">:</span>                        <span class="c1"># evalrx/core/spec.py (implemented)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">framework</span><span class="p">:</span> <span class="nb">str</span>                    <span class="c1"># "gemma" | "flax_linen" | "flax_nnx" | "maxtext" | "custom"</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">checkpoint</span><span class="p">:</span> <span class="nb">str</span>                   <span class="c1"># Orbax dir (gs:// or local), Kaggle handle, or safetensors path</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">tokenizer</span><span class="p">:</span> <span class="nb">str</span>                    <span class="c1"># SentencePiece model (gs:// or local) or an HF tokenizer id</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">adapter</span><span class="p">:</span> <span class="nb">str</span>                      <span class="c1"># import string "pkg.module:factory", called as factory(spec, runtime)</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">model_class</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span>             <span class="c1"># framework class, e.g. "Gemma4_E2B"</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">reference_attention</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># materialise (H,S,S) probs; False = fused kernels, no ATTENTION</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">sharding</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>   <span class="c1"># mesh axes; empty = single device</span>
+</code></pre></div>
+<p><code>compose</code> fails early when <code>backend.kind == "jax_local"</code> and <code>spec.jax is
+None</code>, the same way it refuses <code>api_only</code> specs on local backends. For Gemma 4
+the E2B and E4B entries gain a <code>jax=JaxSpec(framework="gemma", ...)</code> (the
+12B "Unified" variant has no class in the gemma library, so it stays torch-only);
+everything else about them (vision/audio specs, <code>chat_template_kwargs</code>,
+caveats) is shared with the torch path, which is the point.</p>
+<h3 id="33-trace-boundary-convert-to-torch-on-the-cpu-path-inside-the-backend">3.3 Trace boundary: convert to torch on the CPU path, inside the backend</h3>
+<p>Phase 1 keeps the analyzers untouched. <code>JaxLocalModel.forward</code> honours
+<code>CaptureSpec.to_cpu</code> (default <code>True</code>) with <code>jax.device_get</code> and wraps each
+array with <code>torch.from_numpy</code>, producing exactly the tensors <code>HFLocalModel</code>
+produces. The cost is a CPU-only torch wheel in the <code>jax</code> extra. The
+<code>to_cpu=False</code> path is out of scope for phase 1: zero-copy <code>torch.from_dlpack</code>
+across CUDA needs a CUDA torch build and is a memory-optimisation, not a
+correctness need.</p>
+<p>Two accessors need care so lens analyzers stay faithful:</p>
+<ul>
+<li><code>unembed_weight()</code> returns the <code>(V, D)</code> matrix the model actually applies,
+  converted once and cached (Gemma vocab is ~262k, so this is gigabytes in
+  float32; keep bf16 and let the analyzer's <code>.float()</code> decide).</li>
+<li><code>final_norm()</code> returns a small torch module rebuilt from the JAX norm's
+  weight and epsilon. Gemma also soft-caps final logits; the adapter's
+  <code>forward</code> returns logits after the cap, and the parity test in section 6
+  is what catches a mismatch here.</li>
+</ul>
+<p>Dropping torch from the analyzers is a separate, optional project: port the
+six files in section 2 to the Python array API (<code>array_api_compat</code>) and give
+<code>linear_probe</code> a closed-form or optax fit. It is not needed for any phase
+below.</p>
+<h3 id="34-capture-mechanics-inside-the-adapter">3.4 Capture mechanics inside the adapter</h3>
+<p>These are the JAX-specific problems, and they belong to the adapter, not to
+<code>JaxLocalModel</code>:</p>
+<ul>
+<li><strong>No forward hooks.</strong> Intermediates come from <code>sow</code> /
+  <code>capture_intermediates</code> in Flax Linen, <code>nnx.Intermediate</code> variables in Flax
+  NNX, selector insertion in Penzai, or from a layer <code>scan</code>'s stacked outputs.
+  Models that <code>lax.scan</code> over blocks (MaxText, Levanter) return <code>(L, S, D)</code>
+  hidden states for free from the scan's <code>ys</code>.</li>
+<li><strong>Attention probabilities are not materialised by fused kernels</strong> (cudnn,
+  splash, Pallas flash). The adapter needs a reference-attention switch driven
+  by <code>RuntimeConfig.attn_impl == "eager"</code>, the analog of hf_local's
+  <code>_ensure_eager_attention</code>, and must declare <code>ATTENTION</code> only when it is on.
+  Sliding-window layers still produce a masked <code>(S, S)</code> matrix.</li>
+<li><strong>jit and shapes.</strong> <code>capture</code>, <code>layers</code> and <code>heads</code> are static arguments so
+  unrequested captures are dead-code-eliminated inside the jitted forward;
+  sub-selecting layers and heads before returning keeps a full-attention
+  capture from allocating <code>L x H x S x S</code>. Pad sequence length to buckets
+  (for example multiples of 128) so a new prompt does not recompile.</li>
+<li><strong>Reproducible sampling.</strong> <code>generate</code> takes an explicit PRNG key derived
+  from the case id and the sample index. Stage 0 is then reproducible while
+  <code>self_consistency</code> and <code>coverage_verification_gap</code> still get fresh samples.</li>
+<li><strong>Logprobs.</strong> The gemma sampler does not return per-step logits, so the
+  backend decodes greedily and then runs one teacher-forced forward over
+  prompt + continuation: exact for greedy decoding, one extra pass.</li>
+<li><strong>Memory.</strong> The <code>to_cpu</code> transfer happens per layer, not for the whole
+  stack at once; on a 48 GB card the E2B forward with reference attention at
+  2k context fits, the 12B does not without layer sub-selection.</li>
+</ul>
+<h3 id="35-multimodal-capture-image-and-audio-token-maps">3.5 Multimodal capture: image and audio token maps</h3>
+<p>The torch path builds <code>TokenTypeMap</code> and the <code>extras</code> masks from the HF
+processor's output (<code>_encode_vlm</code>, <code>_populate_vision_extras</code>,
+<code>_populate_audio_extras</code> in <code>hf_local.py</code>). <code>tokentype.py</code> is already
+torch-free and accepts lists or numpy arrays, so the JAX adapter's <code>Encoding</code>
+feeds <code>build_token_type_map</code> directly. The adapter is responsible for:</p>
+<ul>
+<li><code>image_token_mask</code>: positions equal to the image placeholder id, or the
+  processor's <code>mm_token_type_ids</code> when it emits them (Gemma 4 does on the
+  torch side; the JAX processor must expose the equivalent);</li>
+<li><code>audio_token_mask</code>: positions equal to the audio placeholder id, one token
+  per encoded frame group;</li>
+<li>image grids: the torch path leaves <code>grids=[]</code> for Gemma 4 because the
+  variable-resolution tiling is not rebuilt (<code>grid_source="fixed"</code> with no
+  tile size, see <code>_GEMMA4_CAVEATS</code>). The JAX adapter fills them (verified
+  2026-09-28): the gemma vision encoder resizes every image to multiples of
+  <code>patch_size * pooling_kernel_size</code> = 48 px per side, keeping the aspect
+  ratio under a patch budget, then average-pools 3 x 3 patches row-major, so
+  an image yields exactly <code>(H/48) * (W/48)</code> soft tokens in row-major order.
+  <code>Encoding.grids = [(1, H/48, W/48)]</code> and <code>extras["image_spatial_shape"]</code>
+  come out exact (a 850 x 600 ChartQA image is 19 x 14 = 266 tokens), which
+  unlocks the spatial attention overlays the torch path forgoes.</li>
+</ul>
+<h3 id="36-interventions-through-named-sites-not-hooks-l3b">3.6 Interventions through named sites, not hooks (L3b)</h3>
+<p>Define a framework-neutral site vocabulary in <code>evalrx.core</code> and add
+<code>Model.intervene(sites: dict[str, Callable]) -&gt; ContextManager</code>:</p>
+<table>
+<thead>
+<tr>
+<th>site</th>
+<th>tensor handed to the callable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>embed_out</code></td>
+<td><code>(S, D)</code> token embeddings after the embedding layer, before block 0</td>
+</tr>
+<tr>
+<td><code>resid_pre[l]</code>, <code>resid_post[l]</code></td>
+<td>residual stream entering / leaving block <code>l</code></td>
+</tr>
+<tr>
+<td><code>attn_scores[l]</code></td>
+<td><code>(H, S, S)</code> pre-softmax scores</td>
+</tr>
+<tr>
+<td><code>attn_out[l]</code>, <code>mlp_out[l]</code></td>
+<td>block <code>l</code> sub-layer outputs before the residual add</td>
+</tr>
+<tr>
+<td><code>final_norm_out</code></td>
+<td><code>(S, D)</code> input to the unembedding</td>
+</tr>
+<tr>
+<td><code>logits</code></td>
+<td><code>(S, V)</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>HFLocalModel</code> implements <code>intervene</code> with forward hooks on the modules
+<code>_discover</code> already locates. The JAX adapter implements it functionally:
+wrapping the block call in NNX, <code>intercept_methods</code> in Linen, or tree
+rewriting in Penzai, then re-jitting. <code>visual_embedding_boost</code> becomes
+<code>intervene({"embed_out": scale_rows(image_token_mask, gamma)})</code>, written once
+against the site and the mask in <code>Trace.extras</code>, and <code>fix_internals</code> stops
+reading <code>_hf</code>. Future primitives (sink suppression on <code>attn_scores[l]</code>,
+activation steering on <code>resid_post[l]</code>) get both backends at once. The
+vocabulary is deliberately close to TransformerLens hook names so it reads
+familiarly.</p>
+<h3 id="37-repairs-l3a-executors-and-l4-lora">3.7 Repairs: L3a executors and L4 LoRA</h3>
+<p>Move the L3a algorithms out of <code>HFLocalModel</code> into <code>models/paper_methods/</code> as
+functions over the white-box primitives, and give both local backends the same
+method names through a <code>WhiteBoxRepairsMixin</code>, so <code>repair_catalog</code> keeps
+discovering by <code>getattr</code>. Instruction contrastive decoding already has this
+shape in its decoder-only branch: two <code>forward(capture={LOGITS})</code> calls and a
+fuse step. The audio and vision contrastive methods additionally need input
+transforms, which is what <code>adapter.encode_variants</code> is for:</p>
+<table>
+<thead>
+<tr>
+<th>repair</th>
+<th>tier</th>
+<th>needs from the adapter</th>
+<th>Gemma-4 modality</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>instruction CD (text-prefix variant)</td>
+<td>L3a</td>
+<td><code>forward</code> LOGITS</td>
+<td>image, audio</td>
+</tr>
+<tr>
+<td>VCD</td>
+<td>L3a</td>
+<td><code>encode_variants("vcd_noise")</code> on pixel values, <code>forward</code> LOGITS</td>
+<td>image</td>
+</tr>
+<tr>
+<td>AAD, TCD</td>
+<td>L3a</td>
+<td><code>encode_variants("tcd_blur")</code> on the waveform, <code>forward</code> LOGITS + HIDDEN_STATES, <code>audio_token_mask</code></td>
+<td>audio</td>
+</tr>
+<tr>
+<td>visual embedding boost</td>
+<td>L3b</td>
+<td><code>intervene</code> on <code>embed_out</code></td>
+<td>image</td>
+</tr>
+<tr>
+<td>LoRA</td>
+<td>L4</td>
+<td><code>lora_finetune</code> (NNX <code>LoRA</code> or the framework's own, optax AdamW), trained on <code>finetune_pool</code>, returns a new adapter that <code>JaxLocalModel</code> swaps in for the paired validation</td>
+<td>all</td>
+</tr>
+</tbody>
+</table>
+<p><code>paper_method_fidelity</code> must keep reporting the text-prefix ICD variant as
+architecture-adapted, exactly as it does for decoder-only VLMs on torch.</p>
+<h3 id="38-benchmark-packaging-image">3.8 Benchmark, packaging, image</h3>
+<ul>
+<li><code>examples/benchmark/_common/models.py</code>: <code>"jax_local"</code> is in <code>BACKENDS</code>;
+  <code>Family("gemma")</code> keeps <code>hf_local</code> as default, <code>--backend jax_local</code> opts in
+  and reuses the hf_local spec keys (done).</li>
+<li><code>_common/runner.py</code> <code>load_model</code>: a <code>jax_local</code> branch building
+  <code>RuntimeConfig(device, dtype, max_new_tokens, apply_chat_template=True,
+  engine_kwargs={"checkpoint": --model-path})</code> (done). <code>effective_fix_tier</code>
+  clamps jax_local to L2 for now: the backend reads internals, but the L3a
+  executors and L3b hooks are still hf_local methods (phases 2 and 3 lift it).</li>
+<li><code>pyproject.toml</code>: a <code>jax</code> extra with <code>jax</code>, <code>flax</code>, <code>gemma&gt;=4.0.1</code> (Python
+  3.12+ upstream) and <code>torch</code> for the trace boundary (done). CUDA wheels are a
+  separate install choice (<code>jax[cuda12]</code>); the gemma library brings orbax,
+  kauldron and the <code>dialog</code> formatter; no <code>transformers</code> is needed, the
+  tokenizer is SentencePiece.</li>
+<li><code>examples/benchmark/docker/Dockerfile</code>: a <code>gemma_jax</code> stage from
+  <code>python:3.12-slim</code> with the CUDA 12 jax wheels (the cluster driver is 12.4,
+  which the cu12 wheels support), not <code>FROM base</code>, because base is python 3.11
+  with the cu129 torch stack (done 2026-10-01; image <code>evalrx-bench-gemma-jax</code>,
+  11.2 GB). The JAX services live in their own leaves,
+  <code>examples/benchmark/{llm,vlm,alm}/gemma_jax/</code>, not in the gemma leaves: both
+  backends use the same <code>--model</code> key, so a shared leaf would write both into
+  one <code>outputs/&lt;model&gt;/&lt;dataset&gt;/</code>. A local Orbax mirror is mounted at <code>/ckpt</code>
+  through <code>EVALRX_JAX_CKPT</code>.</li>
+</ul>
+<h2 id="4-gemma-4-e2b-reference-adapter">4. Gemma-4-E2B reference adapter</h2>
+<p>The adapter wraps Google's Flax reference implementation and the published
+JAX checkpoints. The repo's spec already fixes what the adapter must
+reproduce; the table maps spec facts to adapter responsibilities.</p>
+<table>
+<thead>
+<tr>
+<th>spec fact (<code>evalrx/specs.py</code>, <code>gemma-4-e2b-it</code>)</th>
+<th>adapter responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>chat_template_kwargs={"enable_thinking": False}</code>; thought-channel leaks are model behaviour</td>
+<td>render the same template with the same kwarg; a leaked <code>thought</code> preamble is graded by <code>scoring.py</code> exactly as on torch</td>
+</tr>
+<tr>
+<td><code>AttnSemantics.STANDARD</code>, sliding / full interleave, all layers attention</td>
+<td>reference attention returns <code>(H, S, S)</code> per layer with the window mask applied; <code>n_layers</code> counts every block</td>
+</tr>
+<tr>
+<td>per-layer embeddings (PLE), ~10 GB BF16</td>
+<td>hidden state <code>l</code> is the residual stream after block <code>l</code>, after the PLE add; PLE weights stay out of <code>unembed()</code></td>
+</tr>
+<tr>
+<td><code>VisionSpec(image_token_id_attr="image_token_id", grid_source="fixed", fixed_tokens_per_tile=None)</code></td>
+<td><code>image_token_mask</code> marks the soft-token positions (reported as <code>&lt;|image|&gt;</code> = 258880, the id hf_local's <code>image_token_id</code> plays); <code>grids</code> and <code>image_spatial_shape</code> are exact on JAX (3.5)</td>
+</tr>
+<tr>
+<td><code>AudioSpec(audio_token_id_attr="audio_token_id", audio_tower="model.audio_tower")</code></td>
+<td><code>audio_token_mask</code> marks the soft-token positions (<code>&lt;|audio|&gt;</code> = 258881); <code>encode_variants("tcd_blur")</code> (still open) would blur the waveform before the audio encoder</td>
+</tr>
+<tr>
+<td><code>is_reasoning=True</code></td>
+<td>nothing extra; thinking stays off</td>
+</tr>
+<tr>
+<td>12B is encoder-free "Unified"</td>
+<td>same adapter, <code>modalities</code> still all three; embed projections replace towers, so <code>attn</code>/<code>hidden</code> shapes are unchanged</td>
+</tr>
+</tbody>
+</table>
+<p>Per modality, the acceptance path uses the existing Gemma cells:</p>
+<table>
+<thead>
+<tr>
+<th>modality</th>
+<th>cell</th>
+<th>Stage 0 parity check</th>
+<th>white-box check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>text</td>
+<td><code>llm/gemma</code> <code>bbh_causal_judgement</code> <code>--limit 8</code></td>
+<td>identical PASS/FAIL labels to hf_local under greedy decoding; sampled runs compare accuracy within noise</td>
+<td><code>--m1-selection judge</code> offers logit lens / attention summary; <code>Trace</code> shapes match</td>
+</tr>
+<tr>
+<td>image</td>
+<td><code>vlm/gemma</code> <code>chartqa</code> <code>--limit 8</code></td>
+<td>same as above with images through the JAX processor</td>
+<td><code>image_token_mask</code> count equals the torch path's; relative attention runs</td>
+</tr>
+<tr>
+<td>audio</td>
+<td><code>alm/gemma</code> <code>mmau</code> <code>--limit 8</code></td>
+<td>same with 16 kHz audio</td>
+<td><code>audio_token_mask</code> count matches; TCD's <code>layer_stability</code> gets <code>L+1</code> hidden states</td>
+</tr>
+</tbody>
+</table>
+<p>Facts about the Gemma JAX library this adapter depends on, verified on
+2026-09-26 against <code>gemma</code> 4.0.1 / <code>flax</code> 0.12.10 / <code>jax</code> 0.11.2 (they change
+between releases; re-check when bumping):</p>
+<table>
+<thead>
+<tr>
+<th>item</th>
+<th>verified fact</th>
+<th>where it matters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>model class and checkpoint</td>
+<td><code>gm.nn.Gemma4_E2B</code> / <code>Gemma4_E4B</code> (also 31B, 26B-A4B; no 12B Unified). Orbax checkpoints in the PUBLIC bucket <code>gs://gemma-data/checkpoints/gemma4-{e2b,e4b}-it</code>, readable anonymously (<code>gsutil</code>, or orbax via gcsfs); E2B is 18.25 GB on disk, stored <strong>float32</strong> (19.8 GB text-only in memory, 9.9 GB after the bf16 cast)</td>
+<td><code>JaxSpec.checkpoint</code>, <code>load()</code>, <code>RuntimeConfig.dtype</code></td>
+</tr>
+<tr>
+<td>Linen versus NNX</td>
+<td>Flax <strong>Linen</strong> (<code>nn.Module</code>, <code>self.param</code>); blocks named <code>layer_{i}</code> (35 on E2B), <code>final_norm</code>, <code>embedder</code></td>
+<td>the intermediates mechanism</td>
+</tr>
+<tr>
+<td>intermediates</td>
+<td><code>capture_intermediates</code> with a <code>(module, method)</code> filter works: <code>embedder.encode</code> (embedding output), <code>layer_i.__call__</code> -&gt; <code>(cache, x)</code>, <code>final_norm.__call__</code>; <code>return_hidden_states</code> equals the <code>final_norm</code> output</td>
+<td><code>forward</code>, HF-layout hidden states</td>
+</tr>
+<tr>
+<td>attention probabilities</td>
+<td>materialised softmax (no fused kernel); probs go through <code>kd.nn.Identity</code> named <code>attention_weights</code> inside <code>attn</code>, shape <code>(B, T, heads, S)</code>; sliding layers carry the window mask</td>
+<td>full <code>(H, S, S)</code> per layer; no module wrapping needed</td>
+</tr>
+<tr>
+<td>jit trap</td>
+<td><code>Transformer.__call__</code> is <code>nn.jit</code>-wrapped and its cached trace bakes in the first capture filter; the adapter calls the level beneath the wrapper through its own per-configuration <code>jax.jit</code> (checked: per-filter intermediates, logits identical)</td>
+<td>correctness of <code>layers</code> sub-selection</td>
+</tr>
+<tr>
+<td>padding</td>
+<td>right-padding with PAD (0) leaves valid positions unchanged (1e-7 on a random model; PAD masked out of positions and attention)</td>
+<td>length buckets (128 ... 4096) bound recompiles</td>
+</tr>
+<tr>
+<td>tokenizer</td>
+<td>SentencePiece <code>gs://gemma-data/tokenizers/tokenizer_gemma4.model</code> (4.5 MB, public); vocab 262144; <code>&lt;bos&gt;</code>=2, <code>&lt;eos&gt;</code>=1, <code>&lt;pad&gt;</code>=0, <code>&lt;|turn&gt;</code>=105, <code>&lt;turn|&gt;</code>=106, <code>&lt;|think|&gt;</code>=98, <code>&lt;|channel&gt;</code>=100, <code>&lt;channel|&gt;</code>=101, <code>&lt;|image|&gt;</code>=258880, <code>&lt;|audio|&gt;</code>=258881</td>
+<td><code>Encoding</code>, end-of-generation, special-token stripping</td>
+</tr>
+<tr>
+<td>chat format</td>
+<td><code>dialog.Format.GEMMA4</code>: <code>&lt;|turn&gt;user\n...&lt;turn|&gt;\n&lt;|turn&gt;model\n</code>; thinking is a <code>&lt;|think|&gt;</code> control token, so <code>enable_thinking=False</code> renders none. Where the HF <code>chat_template.jinja</code> puts it for <code>enable_thinking=True</code> could not be checked (gated repo, no HF token on the host): the adapter raises for that setting</td>
+<td>prompt parity with hf_local</td>
+</tr>
+<tr>
+<td>sampler</td>
+<td><code>gm.text.Gemma4Sampler(model, params, tokenizer, sampling, cache_length, max_out_length, pad_length).sample(text, max_new_tokens, rng, return_state=True)</code>; <code>Greedy</code> / <code>TopPSampling(p, temperature)</code> / <code>TopkSampling(k, temperature)</code> / <code>RandomSampling(temperature)</code>; ends on EOS, <code>&lt;turn|&gt;</code>, tool-response</td>
+<td><code>generate</code></td>
+</tr>
+<tr>
+<td>soft-cap and head-side norm</td>
+<td><code>final_logit_softcap=30.0</code> (<code>tanh(x/30)*30</code>), <code>attn_logits_soft_cap=None</code>; logits <code>x @ embedder.input_embedding.T</code> (tied, <code>(V, D)</code>); <code>final_norm</code> is <code>x * rsqrt(mean(x^2)+1e-6) * scale</code> (plain scale, not 1+scale)</td>
+<td><code>unembed</code>, <code>final_norm_params</code>, lens faithfulness</td>
+</tr>
+<tr>
+<td>vision (verified 2026-09-28)</td>
+<td><code>text_only=False</code> builds the 167 M-param <code>vision_encoder</code> (16 layers, d 768, float32). 16-px patches, aspect-ratio-preserving resize to multiples of 48 px, 3 x 3 average pooling row-major, <strong>at most <code>num_mm_tokens_per_image</code> = 280 soft tokens per image</strong> on E2B / E4B (<code>config.vision_encoder</code>). The library's <code>Gemma4Sampler</code> DEFAULT <code>max_soft_tokens=1120</code> does not match this encoder: with it the text side reserves ~1090 slots while the encoder emits ~270 pooled tokens, and the remaining slots are filled by gathering token 0 (checked on a random-init encoder: 266 valid pooled tokens for a 266-token reservation at 280, 267 for a 1092-token reservation at 1120). The adapter therefore reads <code>patch_size</code>, <code>num_mm_tokens_per_image</code>, <code>pooling_kernel_size</code> from the model config and passes them to the sampler too. Text-side expansion: <code>&lt;|image|&gt;</code> -&gt; <code>\n\n &lt;|image&gt; P*n &lt;image|&gt; \n\n</code> (<code>P</code> = internal -2, replaced by the merged embedding)</td>
+<td><code>Encoding</code>, <code>grids</code>, <code>generate</code></td>
+</tr>
+<tr>
+<td>audio (verified 2026-09-28)</td>
+<td><code>text_only=False</code> builds the 305 M-param conformer <code>audio_encoder</code> (12 layers, d 1024 -&gt; 1536, float32) on the raw 16 kHz waveform: 128-mel filterbank, 20 ms frames / 10 ms hop (+1-sample unfold quirk), two stride-2 subsamplings, so a clip of <code>n</code> samples gives <code>((n-321)//160 + 1 - 1)//2 + 1</code> then once more, capped at <code>audio_seq_length=750</code> (~30 s; longer clips raise in the adapter as <code>hf_local._check_audio_duration</code> does). Text-side expansion: <code>&lt;|audio|&gt;</code> -&gt; <code>&lt;|audio&gt; A*m &lt;audio|&gt;</code> (no <code>\n\n</code>; <code>A</code> = internal -4). <code>audio_soft_token_counts</code> is a STATIC argument of the forward, so every distinct clip length recompiles</td>
+<td><code>Encoding</code>, <code>audio_token_mask</code>, <code>generate</code></td>
+</tr>
+<tr>
+<td>multimodal forward</td>
+<td><code>Transformer.__call__</code> with images and <code>return_last_only=False</code> applies <code>remove_mm_logits</code>, a Gemma-3-era step assuming a fixed count per image, which garbles the sequence axis on Gemma 4's variable counts (the sampler never hits it: prefill uses <code>return_last_only=True</code>). The adapter's media forward calls <code>_encode_and_get_inputs</code> + <code>_apply_attention</code> + <code>embedder.decode</code> + soft-cap directly (Flax <code>apply(method=fn)</code>), the same code minus that step; <code>_encode_and_get_inputs.embeddings</code> (captured, Flax wraps private methods too) is the merged block-0 input, i.e. HF's <code>hidden_states[0]</code>. Media towers and their projections stay float32 (<code>initialize_param_with_dtype</code> excludes them); the bf16 cast skips the same paths</td>
+<td><code>forward</code>, <code>hidden[0]</code></td>
+</tr>
+<tr>
+<td>thread safety (verified 2026-10-02)</td>
+<td>the stack is not thread-safe: kauldron's <code>ktyping</code> keeps its type-check scopes on a process-global stack, so two <code>Gemma4Sampler.sample</code> calls from different threads fail <code>assert s == self</code> in <code>kauldron/ktyping/scope.py</code> (reproduced with two concurrent generates; the same calls pass one after the other). <code>JaxLocalModel</code> therefore serialises every adapter call on one re-entrant lock; hf_local needs none because torch ops are thread-safe</td>
+<td>M1 runs its analyzers from a thread pool: the chartqa shakedown lost <code>selfcheck_consistency</code> and <code>coverage_verification_gap</code> to this before the lock</td>
+</tr>
+<tr>
+<td>sampler seed (verified 2026-10-02)</td>
+<td><code>Gemma4Sampler.sample(rng=...)</code> takes an int seed or a key; <code>rng=None</code> makes the library draw one from Python's <code>random</code>. The adapter used to pass a constant 0 when <code>SamplingParams.seed</code> was unset, so every sampled call for a prompt returned the same text: M1's <code>self_consistency</code> / <code>selfcheck_consistency</code> / <code>coverage_verification_gap</code> saw 5 identical samples per case and M3 proposed "the harness is not sampling". Now a fresh 31-bit seed per unseeded call, the caller's seed when given, 0 under greedy. Also: the library has no combined top-p + top-k method, so nucleus wins when both are set</td>
+<td>every sampled probe and the <code>self_consistency_N</code> L2 repair</td>
+</tr>
+<tr>
+<td>LoRA (phase 3)</td>
+<td><code>gm.nn.LoRA(rank=..., model=...)</code> wraps every Dense / Einsum with kauldron <code>peft</code> layers; the checkpoint loader knows how to reconcile LoRA trees</td>
+<td>L4</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-phases">5. Phases</h2>
+<p><strong>Phase 1, text read access.</strong> <code>JaxLocalBackend</code>/<code>JaxLocalModel</code>, the
+protocol, <code>JaxSpec</code>, the Gemma adapter on text prompts, the torch boundary,
+<code>wrap_jax</code>. Delivers: Stage 0, <code>LOGPROBS</code>, <code>HIDDEN_STATES</code>, <code>LOGITS</code>,
+<code>ATTENTION</code> under reference attention; every M1 analyzer that runs on torch
+text models; L0 to L2 fixes; text-prefix ICD. Acceptance: the <code>llm/gemma</code>
+smoke row above, plus the unit tests in section 6.</p>
+<p><strong>Phase 2, sites and interventions.</strong> The site vocabulary, <code>Model.intervene</code>
+on both backends, <code>visual_embedding_boost</code> rewritten on sites,
+<code>fix_internals</code> freed from <code>_hf</code>. Delivers L3b on JAX and keeps the torch
+<code>fix_internals</code> tests green.</p>
+<p><strong>Phase 3, multimodal and the rest.</strong> Image and audio <code>Encoding</code>,
+<code>TokenTypeMap</code> and masks (landed 2026-09-28, section 9), then
+<code>encode_variants</code> for VCD and TCD/AAD, the <code>WhiteBoxRepairsMixin</code>,
+<code>input_gradient</code> for the <code>GRADIENTS</code> analyzers, LoRA (open).
+Acceptance: the <code>vlm/gemma</code> and <code>alm/gemma</code> smoke rows above and a full
+M1-to-fix chain on one cell per modality with <code>--backend jax_local</code>.</p>
+<h2 id="6-tests">6. Tests</h2>
+<ul>
+<li><strong>Toy model, CPU, no checkpoint.</strong> A two-layer Flax transformer built in the
+  test (vocab 64, dim 8, 4 heads) behind a <code>ToyAdapter</code>, the JAX twin of
+  <code>FakeCausalLM</code> in <code>tests/test_models/test_wrap.py</code>. Assert <code>Trace.provided</code>,
+  shapes, <code>require()</code>, and that <code>LogitLensAnalyzer</code>, <code>AttentionAnalyzer</code>,
+  <code>TokenEntropyAnalyzer</code> run end to end. Assert <code>compose(..., want={ATTENTION})</code> raises
+  when <code>reference_attention=False</code>.</li>
+<li><strong>Parity, marked <code>gpu</code>.</strong> Load Gemma-4-E2B in torch and JAX, run the same
+  eight prompts, compare logits and per-layer attention within tolerance,
+  and compare greedy outputs token for token. This is where RoPE, soft-cap,
+  window masks and PLE drift show up.</li>
+<li><strong>Stage 0 parity through the harness.</strong> The three smoke rows in section 4;
+  <code>baseline.json</code> labels are the artefact compared.</li>
+<li><strong>Intervention identity.</strong> <code>intervene({})</code> and
+  <code>intervene({"embed_out": identity})</code> reproduce the plain forward bit for bit
+  on both backends.</li>
+</ul>
+<h2 id="7-risks-and-open-questions">7. Risks and open questions</h2>
+<ul>
+<li><strong>Attention probabilities may not be exposed by the reference library.</strong>
+  Then the adapter maintains a reference attention module, which is a small
+  fork to keep in step with releases. Mitigation: declare <code>ATTENTION</code> only
+  when it works; everything else is unaffected.</li>
+<li><strong>Two implementations of one model drift.</strong> Parity tests are the guard, and
+  they are <code>gpu</code>-marked, so they run on demand, not in CI.</li>
+<li><strong>Compile latency.</strong> Reference attention plus capture flags multiply jit
+  variants. Sequence-length buckets and caching per <code>(capture, layers,
+  heads)</code> tuple keep it bounded; expect the first M1 pass on a cell to be
+  slower than torch eager.</li>
+<li><strong>Whether to build the site vocabulary for torch at the same time.</strong> Doing
+  both at once is less total work than a JAX-only patching path beside the
+  existing hooks, but it touches <code>fix_internals</code>, which has a large test
+  suite. Recommendation: yes, in phase 2, behind the current
+  <code>visual_embedding_boost</code> test expectations.</li>
+<li><strong>Concurrency.</strong> <code>--concurrency</code> is honoured only for the endpoint backend.
+  A JAX in-process model wants batching instead; an optional
+  <code>generate_batch</code> on the adapter, used by <code>CaseDiscoveryAgent</code> when present,
+  is the natural later addition and is out of scope here.</li>
+</ul>
+<h2 id="8-out-of-scope">8. Out of scope</h2>
+<p>Serving a JAX model behind an OpenAI-compatible endpoint (already works via
+<code>--backend endpoint</code>), a JAX port of the registered calibrated L2 specialists
+(they call other models and are backend-independent by nature; they should
+move to a shared mixin regardless of JAX), and removing torch from the
+analyzer code.</p>
+<h2 id="9-status-2026-09-28-phase-1-and-the-multimodal-half-of-phase-3-landed">9. Status (2026-09-28): phase 1 and the multimodal half of phase 3 landed</h2>
+<p>What exists in the repo:</p>
+<ul>
+<li><code>evalrx/core/spec.py</code>: <code>JaxSpec</code>, <code>ModelSpec.jax</code>; <code>evalrx/specs.py</code> gives
+  <code>gemma-4-e2b-it</code> and <code>gemma-4-e4b-it</code> their JAX twin.</li>
+<li><code>evalrx/models/jax/</code>: <code>protocol.py</code> (the contract above), <code>_boundary.py</code>
+  (jax -&gt; CPU torch, bf16 bit-exact; a torch RMSNorm rebuilt from the JAX
+  norm), <code>gemma.py</code> (the reference adapter: text, image and audio inputs).</li>
+<li><code>evalrx/models/_media.py</code>: image / audio resolution shared by <code>hf_local</code>
+  and <code>jax_local</code> (moved out of <code>hf_local.py</code>, whose private names stay bound).</li>
+<li><code>evalrx/models/backends/jax_local.py</code>: <code>JaxLocalModel</code> / <code>JaxLocalBackend</code>,
+  registered as <code>BACKENDS["jax_local"]</code>; <code>evalrx.wrap_jax(adapter)</code> mirrors
+  <code>wrap()</code>.</li>
+<li>Benchmark: <code>--backend jax_local</code> on the Gemma sizes (<code>_common/models.py</code>,
+  <code>run.py</code>, <code>runner.py</code>) for the llm, vlm and alm cells (the llm cells pass
+  <code>text_only=True</code> and skip the towers), fix ladder clamped to L2.</li>
+<li>Tests: <code>tests/test_models/test_jax_local.py</code> (toy adapters on CPU, no
+  downloads: Trace layout, subsetting, logprobs consistency, logit lens, the
+  bf16 boundary, media masks -&gt; <code>TokenTypeMap</code> / <code>image_spatial_shape</code>, the
+  audio token formula against the library sampler, the image grid against the
+  library's count, placeholder round-trips; two <code>gpu</code>-marked real-weights
+  tests), plus the spec / registry assertions in <code>test_compose.py</code> and
+  <code>test_benchmark_family_specs.py</code>.</li>
+</ul>
+<p>Environment used (the repo <code>.venv</code> keeps its torch 2.6 / transformers 4.57
+stack; the JAX stack lives beside it):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>venv<span class="w"> </span>.venv-jax<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span>.venv-jax/bin/python<span class="w"> </span><span class="s2">"jax[cuda12]"</span><span class="w"> </span><span class="s2">"gemma==4.0.1"</span><span class="w"> </span>pytest<span class="w"> </span>gcsfs
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span>.venv-jax/bin/python<span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>torch<span class="w">     </span><span class="c1"># CPU torch: trace boundary only</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span>.venv-jax/bin/python<span class="w"> </span>-e<span class="w"> </span>.
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="c1"># weights: public bucket, no credentials (18 GB + 4.5 MB)</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>gsutil<span class="w"> </span>-m<span class="w"> </span>cp<span class="w"> </span>-r<span class="w"> </span>gs://gemma-data/checkpoints/gemma4-e2b-it<span class="w"> </span>/tealab-data/jiaqiliu/models/gemma4/
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>gsutil<span class="w"> </span>cp<span class="w"> </span>gs://gemma-data/tokenizers/tokenizer_gemma4.model<span class="w"> </span>/tealab-data/jiaqiliu/models/gemma4/
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">RuntimeConfig</span><span class="p">,</span> <span class="n">compose</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">m</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"gemma-4-e2b-it"</span><span class="p">,</span> <span class="s2">"jax_local"</span><span class="p">,</span> <span class="n">RuntimeConfig</span><span class="p">(</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">"cpu"</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">,</span> <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">apply_chat_template</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">engine_kwargs</span><span class="o">=</span><span class="p">{</span><span class="s2">"checkpoint"</span><span class="p">:</span> <span class="s2">"/tealab-data/jiaqiliu/models/gemma4/gemma4-e2b-it"</span><span class="p">}))</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">trace</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="s2">"What is the capital of France?"</span><span class="p">,</span> <span class="n">capture</span><span class="o">=</span><span class="p">{</span><span class="n">Capability</span><span class="o">.</span><span class="n">ATTENTION</span><span class="p">,</span> <span class="n">Capability</span><span class="o">.</span><span class="n">HIDDEN_STATES</span><span class="p">,</span> <span class="n">Capability</span><span class="o">.</span><span class="n">LOGITS</span><span class="p">})</span>
+</code></pre></div>
+<p>Measured on the real E2B checkpoint (CPU, 128 cores, <code>dtype=bfloat16</code>, 21-token
+chat-templated prompt), through <code>compose(..., "jax_local")</code>:</p>
+<table>
+<thead>
+<tr>
+<th>step</th>
+<th>result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>load (local Orbax mirror, bf16 cast)</td>
+<td>75 s, 9.9 GB params (float32: 90 s, 19.8 GB)</td>
+</tr>
+<tr>
+<td><code>generate</code> greedy, "capital of France"</td>
+<td><code>Paris</code>; 23 s first call (compile), 7 s cached; deterministic</td>
+</tr>
+<tr>
+<td><code>generate</code> sampled (T 0.7, top-p 0.95, seed 3)</td>
+<td>a fluent one-sentence answer, 22 s</td>
+</tr>
+<tr>
+<td><code>logprobs</code> (greedy 8 tokens, teacher-forced pass)</td>
+<td><code>Paris</code> with logprob 0.0 and the same top-3 as the Trace logits</td>
+</tr>
+<tr>
+<td><code>forward</code> with ATTENTION + HIDDEN_STATES + LOGITS</td>
+<td>7 s; 36 hidden <code>(21, 1536)</code>, 35 attention <code>(8, 21, 21)</code> (rows sum to 1, strictly causal), logits <code>(21, 262144)</code>, all bf16 torch</td>
+</tr>
+<tr>
+<td><code>forward</code> with <code>CaptureSpec(layers=[0, 17, 34], heads=[0, 3])</code></td>
+<td>6 s; 3 hidden, 3 attention <code>(2, 21, 21)</code></td>
+</tr>
+<tr>
+<td><code>unembed_weight()</code> / <code>final_norm()</code></td>
+<td><code>(262144, 1536)</code> bf16; torch RMSNorm with the JAX scale</td>
+</tr>
+<tr>
+<td><code>LogitLensAnalyzer(top_k=3)</code></td>
+<td>13 s; <code>n_layers=36</code>, <code>final_norm_applied=True</code>, last layer's top token <code>Paris</code></td>
+</tr>
+</tbody>
+</table>
+<p>float32 gave the same 7 s per captured forward and a faster cached greedy
+generate (3 s versus 7 s) on this CPU; on a GPU the bf16 default halves the
+resident weights, so it stands.</p>
+<p>Image and audio inputs, measured on the same CPU host on 2026-09-28 with the
+full checkpoint (<code>text_only=False</code>: 20.5 GB float32 read, LM cast to bf16,
+towers kept float32; 32.6 GB peak RSS; the load took 257 s with two other
+loads sharing the NFS link, 111 s alone for <code>load_params</code>):</p>
+<table>
+<thead>
+<tr>
+<th>step</th>
+<th>result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>text <code>forward</code> after the change</td>
+<td>unchanged: 36 hidden, 35 attention, <code>hidden[0]</code> bit-identical to <code>embedder.encode</code> (max abs diff 0.0)</td>
+</tr>
+<tr>
+<td>ChartQA image 850 x 600 + question, <code>encode</code></td>
+<td>0.7 s; 297 ids, 266 image tokens, <code>grids=[(1, 14, 19)]</code>; tokens read <code>&lt;bos&gt; &lt;|turn&gt; user \n \n\n &lt;|image&gt; &lt;|image|&gt; x266 &lt;image|&gt; \n\n ...</code></td>
+</tr>
+<tr>
+<td>image <code>forward</code> with ATTENTION + HIDDEN_STATES + LOGITS</td>
+<td>17 s first call (compile), 7 s cached; all finite; <code>image_token_mask</code> sum 266, <code>image_spatial_shape</code> (14, 19), <code>TokenTypeMap</code> with 266 image positions; the last position puts 27 % of its attention mass on the image tokens (mean over heads and layers)</td>
+</tr>
+<tr>
+<td>image <code>generate</code> greedy</td>
+<td>26 s (sampler compile included); "10" for a bar-chart count whose gold is 14 (a wrong answer, not a format failure); "Describe this image in one sentence." gives a fluent description of the chart</td>
+</tr>
+<tr>
+<td>image <code>logprobs</code></td>
+<td>31 s; teacher-forced pass with the masks carried through</td>
+</tr>
+<tr>
+<td>MMAU speech clip 28.2 s + 4-way question, <code>encode</code></td>
+<td>0.6 s; 821 ids, 705 audio tokens (= the sampler's own count), waveform <code>(1, 1, 451520)</code></td>
+</tr>
+<tr>
+<td>audio <code>forward</code> (all three captures)</td>
+<td>21 s first call; all finite; <code>audio_token_mask</code> sum 705; the last position puts 35 % of its attention mass on the audio tokens</td>
+</tr>
+<tr>
+<td>audio <code>generate</code> greedy</td>
+<td>29 s; "A" = gold; "Transcribe the speech in this audio." returns the call-centre dialogue verbatim ("Thank you for calling Sprint. We care about everybody. ..."); the same question WITHOUT the clip answers "Please provide the audio so I can answer your question."</td>
+</tr>
+</tbody>
+</table>
+<p>Through the benchmark harness (<code>python -m _common.run --modality llm --model
+gemma-4-e2b --backend jax_local --dataset bbh_causal_judgement --limit 8
+--baseline-only --device cpu --model-path &lt;mirror&gt;</code>): weights loaded in 98 s,
+Stage 0 ran all 8 rows through the chat template at 44 s per case with a
+128-token greedy cap. Every answer was coherent, on-topic causal reasoning
+that the cap cut off before the Yes/No line, so that run graded 0/8. Rerun
+with a 1024-token cap: all 8 answers end in an <code>Answer: Yes/No</code> line, 5/8
+correct (accuracy 0.625, inside the usable band), 140 s per case on CPU; the
+three misses are genuine wrong answers, not parse failures. The torch arm of
+the same 8 rows is what the parity item below still needs.</p>
+<p>The vlm and alm cells through the same harness on 2026-09-28 (CPU, <code>--limit 4
+--baseline-only --temperature 0</code>, the tasks' own 64-token caps, the checkpoint
+already in the page cache): <code>vlm/gemma chartqa</code> loaded the weights with towers
+in 52 s and graded 2/4 at 21.8 s per case, every answer short and
+chart-grounded ("1.8" for 1.577, "U.S.", "19.7%", "77 and 77" for 77);
+<code>alm/gemma mmau</code> loaded in 38 s and graded 2/4 at 33.1 s per case (each clip
+length recompiles, open item 7), the two misses being a wrong letter and a
+leaked <code>thought</code> preamble, the same Gemma behaviour the torch cells show.</p>
+<p>Open items, in the order they block the acceptance table of section 4:</p>
+<ol>
+<li><strong>Stage-0 parity against hf_local</strong> has not been run: the host's eight
+   A100s were fully occupied by other jobs and its torch venv predates
+   transformers 5.15 (no <code>gemma4</code> model type), so the smoke ran on CPU with
+   nothing to compare against. The <code>llm/gemma</code> cell needs one GPU and a
+   transformers &gt;= 5.15 environment for the torch arm.</li>
+<li><strong>Chat-template parity</strong> with the HF <code>chat_template.jinja</code> (thinking off) is
+   inferred from the <code>dialog</code> package, not diffed against the HF render.</li>
+<li><strong>Thinking on</strong> (<code>--enable-thinking</code>) raises on jax_local.</li>
+<li><strong>GPU run</strong> of the adapter: done 2026-10-01 inside the <code>gemma_jax</code> image on
+   one A100 that another job was sharing (<code>XLA_PYTHON_CLIENT_PREALLOCATE=false</code>,
+   so memory grows on demand; the card showed about 17 GB more than before
+   while the vlm run was loading). Four-row Stage 0 smokes through the leaf compose files:
+   chartqa 2/4 at 11.9 s/case (the same four answers as the CPU run), mmau 3/4
+   at 29.5 s/case (every clip length recompiles, item 7), gsm8k 4/4 at
+   12.8 s/case. One mmau row differs from the CPU run: on CPU it opened a
+   <code>thought</code> preamble and failed, on GPU it answered the letter; greedy
+   decoding in bf16 is not device-identical on a near-tie. A first full-chain
+   shakedown (chartqa, 16 rows, 2026-10-02) got through baseline, M1 and the
+   explore step; it found the thread-safety trap above (fixed) and then
+   stopped at M3 because the judge CLI's OAuth session in the mounted
+   <code>claude-home</code> had expired. With fresh credentials the same 16-row chain
+   ran end to end (M1 3 analyzers, explore, 3 hypotheses, 3 M4 probes
+   inconclusive at n=8, one L2 <code>self_consistency_5</code> candidate tried and
+   rejected) and exposed the constant sampler seed above (fixed). The
+   full-size chartqa chain (256 rows, 2026-10-02) then ran end to end in
+   2 h 10 min on one shared A100: baseline 131/256 (1.1 s/case), M1 three
+   analyzers in 294 s, explore 12 min, three hypotheses, one verified
+   (failures concentrate on arithmetic over two chart values), fix stage
+   1 h 45 min, winner L1 <code>bind_target_element_first</code> 66 -&gt; 93 of 128 CONFIRM
+   pairs (+0.211, CI +0.117..+0.305, e = 1379, FIXED). No error in any stage
+   log apart from the stats tool's "one group empty" on constant signals.</li>
+<li>Phase 2 (sites, <code>Model.intervene</code>, L3b) and the rest of phase 3
+   (<code>encode_variants</code> for VCD / TCD / AAD, the <code>WhiteBoxRepairsMixin</code>,
+   <code>GRADIENTS</code>, LoRA) and the mkdocs nav entry for
+   this page.</li>
+<li><strong>Multimodal parity against hf_local</strong> (image / audio rows: same
+   <code>image_token_mask</code> count, same labels) waits on the same GPU + transformers<blockquote>
+<p>= 5.15 environment as item 1; the reservation-vs-encoder check was done
+   against the library's own encoder, not against the HF processor.</p>
+</blockquote>
+</li>
+<li><strong>Recompiles per audio length</strong>: <code>audio_soft_token_counts</code> is static in the
+   library's forward and prefill, so every distinct clip duration recompiles
+   both (about 20 s each on this CPU); a dynamic-count merge would remove it.</li>
+<li>Tool rendering (<code>render_chat</code> with <code>tools</code>) still raises on jax_local.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2120 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Failure case analysis for LLMs and VLMs">
+      
+      
+      
+        <link rel="canonical" href="https://evalvitals.github.io/evalrx/architecture/">
+      
+      
+        <link rel="prev" href="../analyzers/">
+      
+      
+        <link rel="next" href="../extending/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Architecture - EvalRX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="EvalRX" class="md-header__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EvalRX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Overview
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quickstart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quickstart
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Command-Line Interface
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../m2_analysis/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Exploratory Analysis (M2/M3)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../intervention/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Verification & Intervention (M4/M5)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../stage_io/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Stage Input/Output Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../analyzers/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Analyzer Zoo
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../extending/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Extending
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="EvalRX" class="md-nav__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EvalRX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-Line Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../m2_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exploratory Analysis (M2/M3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intervention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verification & Intervention (M4/M5)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage_io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Input/Output Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analyzers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyzer Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#package-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Contracts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core Contracts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#two-paths-to-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two paths to a Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modelspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelSpec
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analyzer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analyzer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#failurecase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FailureCase
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Result
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-shape-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why This Shape Works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#eval_agent-automated-diagnosis-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        eval_agent — automated diagnosis pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="eval_agent — automated diagnosis pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#package-layout_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage contracts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#m5-surgeryagent-four-strategies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M5 SurgeryAgent — four strategies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-directory-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run-directory infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evolutionstore-cross-run-lesson-accumulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EvolutionStore — cross-run lesson accumulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#persistent-store-jsonlstore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent store — JsonlStore
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysis-rules-vlm-image-attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis rules — VLM image-attention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#result-image-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Result image overlays
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runcontext-single-owner-of-a-runs-output-directory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RunContext — single owner of a run's output directory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixagent-tiered-post-loop-repair-m5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FixAgent — tiered post-loop repair (M5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#public-surface-guidance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public Surface Guidance
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#package-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Contracts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core Contracts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#two-paths-to-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two paths to a Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modelspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelSpec
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analyzer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analyzer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#failurecase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FailureCase
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Result
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-shape-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why This Shape Works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#eval_agent-automated-diagnosis-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        eval_agent — automated diagnosis pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="eval_agent — automated diagnosis pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#package-layout_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage contracts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#m5-surgeryagent-four-strategies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M5 SurgeryAgent — four strategies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-directory-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run-directory infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evolutionstore-cross-run-lesson-accumulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EvolutionStore — cross-run lesson accumulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#persistent-store-jsonlstore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent store — JsonlStore
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysis-rules-vlm-image-attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis rules — VLM image-attention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#result-image-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Result image overlays
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runcontext-single-owner-of-a-runs-output-directory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RunContext — single owner of a run's output directory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixagent-tiered-post-loop-repair-m5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FixAgent — tiered post-loop repair (M5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#public-surface-guidance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public Surface Guidance
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="architecture">Architecture</h1>
+<p>EvalRX is structured as a small framework substrate plus extension points.
+The goal is to make LLM/VLM evaluation feel like using sklearn estimators:
+objects are composable, parameters are explicit, capabilities are discoverable,
+and outputs follow a common shape.</p>
+<h2 id="package-layout">Package Layout</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>evalrx/
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>+-- core/              # stable contracts and shared substrate
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>+-- specs.py           # model identity registry
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>+-- models/            # model composition, runtime backends, compatibility shims
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>+-- analyzers/         # analyzers grouped by capability (attention, lens, uncertainty, …)
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>+-- datasets/          # loaders that produce FailureCase / CaseBatch
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>+-- stats/             # statistical tests: McNemar, e-value, bootstrap CI, Friedman
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>`-- eval_agent/        # automated diagnosis loop + selective-inference orchestration
+</code></pre></div>
+<h2 id="core-contracts">Core Contracts</h2>
+<h3 id="two-paths-to-a-model">Two paths to a <code>Model</code></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a># Public on-ramp — user brings their own already-loaded HF causal LM
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>evalrx.wrap(model, tokenizer)  -&gt;  HFLocalModel
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a># Curated path — load a registered checkpoint by key
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>evalrx.load("qwen2.5-7b-instruct")  -&gt;  HFLocalModel
+</code></pre></div>
+<p>Both paths return the same <code>HFLocalModel</code>: capabilities are inferred from the
+live model in the <code>wrap()</code> case, and read off the spec in the <code>load()</code> case.
+<code>wrap()</code> also applies attention fix-ups automatically (eager mode is required to
+capture attention weights; sdpa/flash return <code>None</code>).</p>
+<h3 id="modelspec"><code>ModelSpec</code></h3>
+<p><code>ModelSpec</code> describes what a model is, not how it is run. It stores identity and
+architecture facts such as model family, Hugging Face repo, decoder-layer paths,
+vision-token handling, MoE flags, reasoning flags, and attention semantics.</p>
+<p>Specs live in <code>evalrx.specs</code> and are intentionally torch-free.  When
+<code>wrap()</code> is used, a minimal spec is inferred at runtime from <code>model.config</code> via
+<code>evalrx.models.inference.infer_spec</code> — no registry entry is required.</p>
+<p><strong>Modality is a set, not a class fork.</strong> A spec declares modalities by the
+components it carries — <code>vision</code> adds <code>"image"</code>, <code>audio</code> adds <code>"audio"</code>,
+<code>video</code> adds <code>"video"</code> — so an <em>omni</em> model (Qwen3-Omni reference) is just a
+spec with more than one. Analyzers match on <code>model.modalities</code>, and <code>Inputs</code>
+carries <code>image</code> / <code>audio</code> / <code>video</code> slots beside the prompt:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">omni</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-omni-30b-a3b-instruct"</span><span class="p">,</span> <span class="s2">"api"</span><span class="p">,</span> <span class="n">rt</span><span class="p">)</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">omni</span><span class="o">.</span><span class="n">modalities</span>    <span class="c1"># frozenset({'text', 'image', 'audio', 'video'})</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">spec</span><span class="o">.</span><span class="n">is_omni</span>       <span class="c1"># True;  the audio-only Captioner -&gt; {'text', 'audio'}</span>
+</code></pre></div>
+<p>The thinker (text-emitting multimodal LM) is what failure analysis hooks; the
+talker (speech out) is out of scope.</p>
+<h3 id="backend"><code>Backend</code></h3>
+<p><code>Backend</code> describes how a model is run. Backends declare the capabilities they
+can provide and build concrete <code>Model</code> objects from a <code>ModelSpec</code>.</p>
+<p>Current backend categories:</p>
+<table>
+<thead>
+<tr>
+<th>Backend</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hf_local</code></td>
+<td>Local Hugging Face execution with internals capture.</td>
+</tr>
+<tr>
+<td><code>api</code></td>
+<td>Black-box generation through an injected API function.</td>
+</tr>
+<tr>
+<td><code>vllm_offline</code></td>
+<td>Planned high-throughput offline inference backend.</td>
+</tr>
+</tbody>
+</table>
+<p>Capabilities belong to the backend because the same model identity can expose
+different information under different runtimes — <code>compose()</code> negotiates them
+up front, before any weights load:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx</span><span class="w"> </span><span class="kn">import</span> <span class="n">compose</span><span class="p">,</span> <span class="n">RuntimeConfig</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">Capability</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># 1) API / black-box (also covers a `vllm serve` endpoint). Reuse your own engine:</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models.backends</span><span class="w"> </span><span class="kn">import</span> <span class="n">call_vision_api_generate_fn</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">rt</span> <span class="o">=</span> <span class="n">RuntimeConfig</span><span class="p">(</span><span class="n">generate_fn</span><span class="o">=</span><span class="n">call_vision_api_generate_fn</span><span class="p">(</span><span class="n">my_call_vision_api</span><span class="p">))</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">api_model</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-vl-8b-instruct"</span><span class="p">,</span> <span class="s2">"api"</span><span class="p">,</span> <span class="n">rt</span><span class="p">)</span>         <span class="c1"># caps: GENERATE, TOOL_CALLS</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="c1"># 2) Local white-box, full internals (forces eager when attention is requested):</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">wb</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-vl-8b-instruct"</span><span class="p">,</span> <span class="s2">"hf_local"</span><span class="p">,</span> <span class="n">want</span><span class="o">=</span><span class="p">{</span><span class="n">Capability</span><span class="o">.</span><span class="n">ATTENTION</span><span class="p">})</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="c1"># 3) Wrong ask fails immediately, before any weights load:</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-vl-8b-instruct"</span><span class="p">,</span> <span class="s2">"api"</span><span class="p">,</span> <span class="n">want</span><span class="o">=</span><span class="p">{</span><span class="n">Capability</span><span class="o">.</span><span class="n">ATTENTION</span><span class="p">})</span>   <span class="c1"># -&gt; CapabilityError</span>
+</code></pre></div>
+<p>Module paths in a spec are <em>hints</em>: the white-box backend <strong>discovers</strong> the
+real decoder-layer <code>ModuleList</code> at load time (<code>models/_discover.py</code>) instead
+of trusting a hardcoded path — robust across transformers releases and the
+doubled-<code>.model.</code> / no-<code>.model</code> / fused-experts traps.</p>
+<h3 id="model"><code>Model</code></h3>
+<p><code>Model</code> is the runtime object analyzers consume. It exposes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">model</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="n">inputs</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">model</span><span class="o">.</span><span class="n">forward</span><span class="p">(</span><span class="n">inputs</span><span class="p">,</span> <span class="n">capture</span><span class="o">=</span><span class="p">{</span><span class="o">...</span><span class="p">},</span> <span class="n">spec</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Trace</span>
+</code></pre></div>
+<p><code>forward</code> returns a <code>Trace</code>, which is the common carrier for captured internals
+such as tokens, token ids, attentions, hidden states, logits, and backend-specific
+extras.</p>
+<h3 id="analyzer"><code>Analyzer</code></h3>
+<p><code>Analyzer</code> is the EvalRX analogue of an sklearn estimator. It has explicit
+constructor parameters, declares required capabilities, and returns a <code>Result</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">analyzer</span> <span class="o">=</span> <span class="n">SomeAnalyzer</span><span class="p">(</span><span class="o">**</span><span class="n">params</span><span class="p">)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">result</span> <span class="o">=</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+</code></pre></div>
+<p>Analyzers should not depend on concrete model classes. They should depend on
+the <code>Model</code> protocol, requested captures, and <code>Trace</code> fields.</p>
+<h3 id="capability"><code>Capability</code></h3>
+<p><code>Capability</code> is the matching vocabulary between analyzers and runtimes.</p>
+<p>An analyzer declares:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">requires</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">Capability</span><span class="o">.</span><span class="n">ATTENTION</span><span class="p">})</span>
+</code></pre></div>
+<p>A backend/model declares:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">capabilities</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="n">Capability</span><span class="o">.</span><span class="n">GENERATE</span><span class="p">,</span> <span class="n">Capability</span><span class="o">.</span><span class="n">ATTENTION</span><span class="p">})</span>
+</code></pre></div>
+<p>The registry can then list compatible analyzers for a model, and <code>compose(...,
+want=...)</code> can fail early before loading weights.</p>
+<h3 id="failurecase"><code>FailureCase</code></h3>
+<p><code>FailureCase</code> is the common data unit. It is meant to hold inputs, labels,
+provenance, metadata, and agent trajectories. Datasets should produce
+<code>FailureCase</code> or <code>CaseBatch</code>; analyzers should accept those types in addition to
+plain strings where appropriate.</p>
+<h3 id="result"><code>Result</code></h3>
+<p><code>Result</code> is the common output object. It separates:</p>
+<ul>
+<li>a short human-readable summary,</li>
+<li>structured <code>findings</code> for agents and downstream code,</li>
+<li>optional heavy artifacts such as plots, tensors, or tables.</li>
+</ul>
+<h2 id="why-this-shape-works">Why This Shape Works</h2>
+<p>The design keeps common failure modes contained:</p>
+<ul>
+<li>Adding a new model family should usually mean adding a <code>ModelSpec</code>, not
+  rewriting analyzers.</li>
+<li>Adding a new runtime should usually mean implementing a <code>Backend</code>, not
+  changing model identity.</li>
+<li>Adding a new analysis should usually mean implementing an <code>Analyzer</code> that
+  requests capabilities, not adding methods to every model.</li>
+<li>Agent tooling can discover what is possible from registries instead of reading
+  source code or hard-coding model names.</li>
+</ul>
+<h2 id="eval_agent-automated-diagnosis-pipeline">eval_agent — automated diagnosis pipeline</h2>
+<p><code>eval_agent/</code> implements a multi-stage automated diagnosis cycle on top of the
+core contracts described above. Three loops are available — the same M1-M4
+stages, three different orchestration strategies:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>AutoDiagnoseLoop  (legacy.py — four-stage sweep, kept for existing callers)
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>  M1 · ProbeAgent         detect model kind → run ranked analyzers
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>  M2 · AnalysisModule     threshold rules + derived metrics → AnalysisReport
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>  M3 · DiagnosisAgent     judge.generate(report) → Hypothesis list
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>  M5 · SurgeryAgent       correlate / param-sweep / ExperimentWriter → SUPPORTED/REFUTED
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>       ↑_________________________________________________________________| (refocus or stop)
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>VLDiagnoseLoop  (loop.py — current, protocol-guided, stops on verified hypothesis)
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>  ExperimentProtocol  ← user's NL description of what to investigate
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>       │
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>  M1 · ProbeAgent         same as above; protocol.probe_hints() boosts relevant analyzers
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>  M2 · StatsAnalysisAgent protocol-aware; LLM judge writes conclusion + evidence chain
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>  M3 · DiagnosisAgent     same as above
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>  M4 · HypothesisTester   statistical test + protocol consistency check
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>       │
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>  loop exits when M4 finds a SUPPORTED + protocol-consistent hypothesis
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>       │
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>  M5 · SurgeryAgent       called once post-loop on the best verified hypothesis
+<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>
+<a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>AgenticDiagnoseLoop  (agentic/loop.py — judge-decided, same M1-M4 stages)
+<a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>  A CLI judge picks the next tool (run_probe / run_stats / explore_data /
+<a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>  cluster_failures / search_probes / propose_hypotheses / test_hypothesis /
+<a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>  run_surgery / run_fix / stop) each turn from an EvidenceBoard, instead of a
+<a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>  fixed cycle. The host — not the judge — enforces tool call caps,
+<a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a>  preconditions, and the stop-gate (declaring success requires an
+<a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a>  actually-tested, supported, protocol-consistent hypothesis). See
+<a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a>  [quickstart](quickstart.md#agenticdiagnoseloop--judge-decided-m1-m4-alternative-to-the-fixed-cycle).
+</code></pre></div>
+<p>The agent touches models only through the <code>Model</code> protocol and stores all
+evidence in a <code>Store</code>.</p>
+<p><code>.run()</code> on all three loops returns the same class, <code>AutoDiagnoseReport</code>
+(<code>loop_reports.py</code>; <code>VLDiagnoseReport</code> is a back-compat alias for the
+identical class). Each loop populates only the fields relevant to what it
+ran — see <a href="../stage_io/#loop-level-output">Stage Input/Output Reference</a> for
+the full field table.</p>
+<h3 id="package-layout_1">Package layout</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>eval_agent/
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>├── loop.py               VLDiagnoseLoop (current)
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>├── legacy.py             AutoDiagnoseLoop, SelfEvolveLoop (kept for existing callers)
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>├── loop_reports.py       AutoDiagnoseReport (VLDiagnoseReport is an alias — all
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>│                         three loops return this one unified report class)
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>├── checkpoint.py         write_checkpoint / write_heartbeat / read_checkpoint
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>├── run_metadata.py       shared run-provenance + logging-wiring helpers
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M4 (see below)
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>├── run_context.py        RunContext, Trial — single owner of a run's output directory
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>├── run_logger_v2.py       RunLoggerV2 — run.json + per-stage M&lt;n&gt;/log.json event log
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>├── log_schema.py          published event JSON Schema
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>├── hypothesis.py         Hypothesis, HypothesisStatus — shared across M3/M4/M5
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>├── cli_agent.py          compatibility facade over agent_runtime's CLI providers/judges
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>├── store.py              Store / InMemoryStore / JsonlStore
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>├── evolution.py          EvolutionStore — cross-run lesson accumulation
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>├── orchestrator.py       EvalOrchestrator — thin A/B facade
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>├── ab_runner.py          ABRunner — A/B execution
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>├── preregister.py        DataSplit, PreregisteredHypothesis
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>├── git_manager.py        ExperimentGitManager
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>├── report.py             DiagnosticReport
+<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>└── stages/               ← M1, M3, M4, M5 stage implementations (M2 lives in evalrx.analysis)
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>    ├── probe.py          M1  StrategyProbe
+<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a>    ├── probe_agent.py    M1  ProbeAgent
+<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a>    ├── protocol.py       M1  ExperimentProtocol, ProbingSchema
+<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a>    ├── diagnosis.py      M3  DiagnosisAgent, DiagnosisResult
+<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a>    ├── surgery.py        M5  SurgeryAgent, InterventionResult
+<a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a>    ├── experiment_writer.py  M5  ExperimentWriter
+<a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a>    ├── fix_agent.py       M5 (post-loop)  FixAgent, FixCandidate, FixOutcome
+<a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a>    ├── fix_tiers.py       FixTier ladder (L1 prompt → L4 parameter space)
+<a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a>    ├── hypothesis_tester.py  M4  HypothesisTester, HypothesisTestResult
+<a id="__codelineno-9-31" name="__codelineno-9-31" href="#__codelineno-9-31"></a>    ├── case_discovery.py  CaseDiscoveryAgent — runs candidates through a model,
+<a id="__codelineno-9-32" name="__codelineno-9-32" href="#__codelineno-9-32"></a>    │                      labels PASS/FAIL/UNKNOWN (judge or heuristic scorer)
+<a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a>    ├── probe_candidate_generator.py  VLMProbeCandidateGenerator — ProbeLLM
+<a id="__codelineno-9-34" name="__codelineno-9-34" href="#__codelineno-9-34"></a>    │                      Macro/Micro question paraphrasing over a fixed
+<a id="__codelineno-9-35" name="__codelineno-9-35" href="#__codelineno-9-35"></a>    │                      VLM seed pool (see probe search, below)
+<a id="__codelineno-9-36" name="__codelineno-9-36" href="#__codelineno-9-36"></a>    └── probe_search_agent.py  ProbeSearchAgent — wires ProbeSearch (below) to
+<a id="__codelineno-9-37" name="__codelineno-9-37" href="#__codelineno-9-37"></a>                           a real model + judge via CaseDiscoveryAgent +
+<a id="__codelineno-9-38" name="__codelineno-9-38" href="#__codelineno-9-38"></a>                           VLMProbeCandidateGenerator
+<a id="__codelineno-9-39" name="__codelineno-9-39" href="#__codelineno-9-39"></a>
+<a id="__codelineno-9-40" name="__codelineno-9-40" href="#__codelineno-9-40"></a>evalrx.agent_runtime/  shared CLI-agent runtime (sandbox, codegen, providers,
+<a id="__codelineno-9-41" name="__codelineno-9-41" href="#__codelineno-9-41"></a>                            judges, skills) — used by both eval_agent and analysis;
+<a id="__codelineno-9-42" name="__codelineno-9-42" href="#__codelineno-9-42"></a>                            imports neither. See "Package Layout" above.
+<a id="__codelineno-9-43" name="__codelineno-9-43" href="#__codelineno-9-43"></a>
+<a id="__codelineno-9-44" name="__codelineno-9-44" href="#__codelineno-9-44"></a>evalrx.analysis/       M2 lives here now (StatsAnalysisAgent, AnalysisModule,
+<a id="__codelineno-9-45" name="__codelineno-9-45" href="#__codelineno-9-45"></a>                            stats tool catalog) — usable standalone, not just from
+<a id="__codelineno-9-46" name="__codelineno-9-46" href="#__codelineno-9-46"></a>                            the loop. Also: ExploratoryAnalysisAgent, HypothesisAgent,
+<a id="__codelineno-9-47" name="__codelineno-9-47" href="#__codelineno-9-47"></a>                            cluster_failures (failure-mode clustering, with
+<a id="__codelineno-9-48" name="__codelineno-9-48" href="#__codelineno-9-48"></a>                            opt-in ProbeLLM-style failure-aware embedding +
+<a id="__codelineno-9-49" name="__codelineno-9-49" href="#__codelineno-9-49"></a>                            boundary-aware induction), probe_search.py
+<a id="__codelineno-9-50" name="__codelineno-9-50" href="#__codelineno-9-50"></a>                            (ProbeSearch — standalone hierarchical MCTS over
+<a id="__codelineno-9-51" name="__codelineno-9-51" href="#__codelineno-9-51"></a>                            injected generator/verifier callables; the eval_agent-
+<a id="__codelineno-9-52" name="__codelineno-9-52" href="#__codelineno-9-52"></a>                            layer glue that supplies real callables lives in
+<a id="__codelineno-9-53" name="__codelineno-9-53" href="#__codelineno-9-53"></a>                            stages/probe_search_agent.py above, since it needs a
+<a id="__codelineno-9-54" name="__codelineno-9-54" href="#__codelineno-9-54"></a>                            live target model + judge).
+</code></pre></div>
+<h3 id="stage-contracts">Stage contracts</h3>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Module</th>
+<th>Class</th>
+<th>Key method</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>M1</td>
+<td><code>stages/probe.py</code></td>
+<td><code>StrategyProbe</code></td>
+<td><code>routed_slots(model, data) → set[str]</code> (what ranking composes over); <code>select(model, hints, data) → list[str]</code>; <code>detect_kind(model) → ModelKind</code> (display label)</td>
+</tr>
+<tr>
+<td>M1</td>
+<td><code>stages/probe_agent.py</code></td>
+<td><code>ProbeAgent</code></td>
+<td><code>probe(model, data, hint_failure_modes) → dict[str, Result]</code></td>
+</tr>
+<tr>
+<td>M1</td>
+<td><code>stages/protocol.py</code></td>
+<td><code>ExperimentProtocol</code></td>
+<td><code>probe_hints() → list[str]</code> — maps NL description to failure-mode tags</td>
+</tr>
+<tr>
+<td>M2</td>
+<td><code>evalrx.analysis.analysis_module</code></td>
+<td><code>AnalysisModule</code></td>
+<td><code>analyze(results, model_name) → AnalysisReport</code></td>
+</tr>
+<tr>
+<td>M2</td>
+<td><code>evalrx.analysis.stats_agent</code></td>
+<td><code>StatsAnalysisAgent</code></td>
+<td><code>analyze(results, model_name, protocol) → StatsAnalysisReport</code></td>
+</tr>
+<tr>
+<td>M3</td>
+<td><code>stages/diagnosis.py</code></td>
+<td><code>DiagnosisAgent</code></td>
+<td><code>diagnose(report, prior_cycles) → DiagnosisResult</code></td>
+</tr>
+<tr>
+<td>M5</td>
+<td><code>stages/surgery.py</code></td>
+<td><code>SurgeryAgent</code></td>
+<td><code>operate(hypothesis, model, results, data) → InterventionResult</code></td>
+</tr>
+<tr>
+<td>M4</td>
+<td><code>stages/hypothesis_tester.py</code></td>
+<td><code>HypothesisTester</code></td>
+<td><code>test(hypotheses, report, data, protocol) → list[HypothesisTestResult]</code>; <code>stopping_criteria_met(results) → bool</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Pre-M1 (optional): <code>ProbeSearchAgent.run(model, seed_pool) → ProbeSearchResult</code></strong>
+— a hierarchical Macro/Micro MCTS (<code>evalrx.analysis.probe_search.ProbeSearch</code>)
+that synthesizes and evaluates new test cases (VLM QA in v1) rather than
+analyzing an already-collected dataset; <code>result.failure_cases</code> is a <code>CaseBatch</code>
+that can seed or extend the data M1 then probes. See
+<a href="../m2_analysis/#probe-search--hierarchical-mcts-failure-discovery-vlm">m2_analysis.md#probe-search--hierarchical-mcts-failure-discovery-vlm</a>.</p>
+<p><strong>M1 analyzer selection</strong> happens in two tiers:</p>
+<ul>
+<li><strong>Tier (a)</strong> <code>StrategyProbe</code> ranks analyzers by diagnostic value for the
+  detected model kind, guided by the protocol description via an LLM judge:</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Kind detected</th>
+<th>Priority analyzers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VLM (image/video)</td>
+<td><code>pope</code>, <code>chair</code>, <code>attention</code>, <code>attention_rollout</code>, <code>attention_sink</code>, <code>prompt_contrast</code>, <code>mm_shap</code>, <code>logprob_entropy</code></td>
+</tr>
+<tr>
+<td>Agent (<code>TOOL_CALLS</code>)</td>
+<td><code>loop_detect</code>, <code>ignored_obs</code>, <code>first_error_judge</code>, <code>counterfactual</code></td>
+</tr>
+<tr>
+<td>LLM (text-only)</td>
+<td><code>attention</code>, <code>logit_lens</code>, <code>token_entropy</code>, <code>logprob_entropy</code>, <code>attention_sink</code>, <code>prompt_contrast</code>, <code>cka</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Tier (b)</strong> <code>ProbeGenerator</code> / <code>WhiteboxProbeGenerator</code> — when no standard
+  analyzer covers the failure mode, an LLM or CLI agent writes a bespoke probe
+  and runs it in a sandbox.</li>
+</ul>
+<p><strong>M2 <code>StatsAnalysisAgent</code></strong> runs a catalog of statistical tools
+(<code>signal_label_assoc</code>, <code>mcnemar_evalue</code>, <code>bootstrap_diff</code>, <code>friedman</code>,
+<code>rank_corr</code>, <code>single_rate_evalue</code>) over the analyzer findings, applies e-BH
+FDR correction, and produces a <code>StatsAnalysisReport</code> with a structured
+evidence chain for M3. It can also be used standalone, outside the loop:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analysis</span><span class="w"> </span><span class="kn">import</span> <span class="n">StatsAnalysisAgent</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">rows</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="p">{</span><span class="s2">"case_id"</span><span class="p">:</span> <span class="s2">"c0"</span><span class="p">,</span> <span class="s2">"label"</span><span class="p">:</span> <span class="s2">"fail"</span><span class="p">,</span> <span class="s2">"low_img_attn"</span><span class="p">:</span> <span class="mi">1</span><span class="p">},</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>    <span class="p">{</span><span class="s2">"case_id"</span><span class="p">:</span> <span class="s2">"c1"</span><span class="p">,</span> <span class="s2">"label"</span><span class="p">:</span> <span class="s2">"pass"</span><span class="p">,</span> <span class="s2">"low_img_attn"</span><span class="p">:</span> <span class="mi">0</span><span class="p">},</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="p">]</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="n">report</span> <span class="o">=</span> <span class="n">StatsAnalysisAgent</span><span class="p">()</span><span class="o">.</span><span class="n">analyze_records</span><span class="p">(</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>    <span class="n">rows</span><span class="p">,</span> <span class="n">id_col</span><span class="o">=</span><span class="s2">"case_id"</span><span class="p">,</span> <span class="n">label_col</span><span class="o">=</span><span class="s2">"label"</span><span class="p">,</span> <span class="n">signal_cols</span><span class="o">=</span><span class="p">[</span><span class="s2">"low_img_attn"</span><span class="p">],</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="p">)</span>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">conclusion</span><span class="p">)</span>
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="nb">print</span><span class="p">([</span><span class="n">r</span><span class="o">.</span><span class="n">summary</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">report</span><span class="o">.</span><span class="n">stats_results</span><span class="p">])</span>
+</code></pre></div>
+<p>This is a different, confirmatory system from the standalone
+<code>ExploratoryAnalysisAgent</code>/<code>HypothesisAgent</code> pair covered in
+<a href="../m2_analysis/">Exploratory Analysis (M2/M3)</a> — that one is purely
+descriptive with no verdict; <code>StatsAnalysisAgent</code> is the loop's FDR-controlled
+confirmatory stage.</p>
+<p><strong>M4 <code>HypothesisTester</code></strong> asks two questions per hypothesis:</p>
+<ol>
+<li><em>Statistical support</em> — does the signal group fail at a significantly
+   higher rate than the control group? Consumes M2's FDR-corrected stats when
+   present; falls back to a clustered-bootstrap <code>stats.compare</code> call.</li>
+<li><em>Protocol consistency</em> — does the hypothesis match what the user
+   described? Keyword-based by default; an optional <code>judge=</code> runs an LLM
+   critic.</li>
+</ol>
+<p>All stages are injectable:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># AutoDiagnoseLoop</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">AutoDiagnoseLoop</span><span class="p">(</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="n">probe_agent</span><span class="o">=</span><span class="n">ProbeAgent</span><span class="p">(</span><span class="o">...</span><span class="p">),</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="n">analysis_module</span><span class="o">=</span><span class="n">AnalysisModule</span><span class="p">(</span><span class="o">...</span><span class="p">),</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="n">diagnosis_agent</span><span class="o">=</span><span class="n">DiagnosisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">),</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>    <span class="n">surgery_agent</span><span class="o">=</span><span class="n">SurgeryAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">),</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>    <span class="n">store</span><span class="o">=</span><span class="n">JsonlStore</span><span class="p">(</span><span class="n">run_dir</span> <span class="o">/</span> <span class="s2">"store"</span><span class="p">),</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>    <span class="n">run_logger</span><span class="o">=</span><span class="n">RunLoggerV2</span><span class="p">(</span><span class="n">run_dir</span><span class="p">),</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>    <span class="n">run_dir</span><span class="o">=</span><span class="n">run_dir</span><span class="p">,</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="p">)</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="c1"># VLDiagnoseLoop — ctx is a RunContext; see "RunContext" below for what it owns</span>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">RunContext</span><span class="p">(</span><span class="n">run_dir</span><span class="p">)</span>
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="n">protocol</span> <span class="o">=</span> <span class="n">ExperimentProtocol</span><span class="p">(</span>
+<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">"VLM suspected to ignore visual tokens ..."</span><span class="p">,</span>
+<a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>    <span class="n">failure_patterns</span><span class="o">=</span><span class="s2">"spatial confusion, hallucinated objects"</span><span class="p">,</span>
+<a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a><span class="p">)</span>
+<a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">VLDiagnoseLoop</span><span class="p">(</span>
+<a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a>    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a>    <span class="n">protocol</span><span class="o">=</span><span class="n">protocol</span><span class="p">,</span>
+<a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a>    <span class="n">stats_agent</span><span class="o">=</span><span class="n">StatsAnalysisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">figure_dir</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">figures_dir</span><span class="p">)),</span>
+<a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>    <span class="n">diagnosis_agent</span><span class="o">=</span><span class="n">DiagnosisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">model</span><span class="p">),</span>
+<a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a>    <span class="n">hypothesis_tester</span><span class="o">=</span><span class="n">HypothesisTester</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">min_effect</span><span class="o">=</span><span class="mf">0.05</span><span class="p">),</span>
+<a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a>    <span class="n">surgery_agent</span><span class="o">=</span><span class="n">SurgeryAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">run_context</span><span class="o">=</span><span class="n">ctx</span><span class="p">),</span>
+<a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a>    <span class="n">max_cycles</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a>    <span class="n">run_logger</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">logger</span><span class="p">,</span>
+<a id="__codelineno-11-28" name="__codelineno-11-28" href="#__codelineno-11-28"></a><span class="p">)</span>
+<a id="__codelineno-11-29" name="__codelineno-11-29" href="#__codelineno-11-29"></a><span class="n">report</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">cases</span><span class="p">)</span>
+<a id="__codelineno-11-30" name="__codelineno-11-30" href="#__codelineno-11-30"></a><span class="n">ctx</span><span class="o">.</span><span class="n">write_diagnose_report</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span>
+<a id="__codelineno-11-31" name="__codelineno-11-31" href="#__codelineno-11-31"></a><span class="n">fix</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">run_m5</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span>   <span class="c1"># M5 called post-loop on best hypothesis</span>
+</code></pre></div>
+<h3 id="m5-surgeryagent-four-strategies">M5 SurgeryAgent — four strategies</h3>
+<p>M5 selects the first matching strategy:</p>
+<ol>
+<li><strong><code>verify_fn</code></strong> — caller-supplied callable; full custom override.</li>
+<li><strong><code>analyzer_params</code></strong> — re-run named analyzers with modified parameters; surface before/after findings.</li>
+<li><strong><code>ExperimentWriter</code></strong> (when <code>judge</code> is provided) — multi-phase LLM/CLI agent writes and executes a targeted Python diagnostic project:</li>
+<li>Phase 1: Blueprint (YAML spec: file list, pseudocode, dependency order)</li>
+<li>Phase 2: Sequential file generation with AST-based CodeMem context</li>
+<li>Phase 3: Hard validation (AST parse; critical issues trigger repair)</li>
+<li>Phase 4: Exec-fix loop (parse traceback → targeted single-file repair)</li>
+<li>Phase 5: Tree search (optional; explore multiple candidates, score by metrics)</li>
+<li>Phase 6: Review dialog (optional; coder-reviewer LLM exchange)</li>
+<li><strong>Label correlation</strong> — passive; correlate per-case signals with PASS/FAIL labels.</li>
+</ol>
+<p>CLI coding agents (<code>codex</code>, <code>claude_code</code>, <code>opencode</code>, …) can substitute for the
+LLM writer in Phase 1+2 via <code>ExperimentWriterConfig(cli_agent=CliAgentConfig(provider="codex"))</code>.
+The generated code project is executed by <code>ExperimentSandbox.run_project()</code>.  Case images
+are saved as JPEG files in the sandbox workdir so the agent can load them.</p>
+<h3 id="sandbox">Sandbox</h3>
+<p><code>ExperimentSandbox</code> runs Python code safely in a subprocess.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">sandbox</span> <span class="o">=</span> <span class="n">ExperimentSandbox</span><span class="p">(</span><span class="n">workdir</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">"tmp/"</span><span class="p">))</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="c1"># Single-file execution</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">result</span> <span class="o">=</span> <span class="n">sandbox</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">"print('verdict: 1.0')"</span><span class="p">)</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="c1"># Multi-file project execution (M5 ExperimentWriter path)</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="n">result</span> <span class="o">=</span> <span class="n">sandbox</span><span class="o">.</span><span class="n">run_project</span><span class="p">(</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>    <span class="n">project_dir</span><span class="p">,</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>    <span class="n">entry_point</span><span class="o">=</span><span class="s2">"main.py"</span><span class="p">,</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>    <span class="n">timeout_sec</span><span class="o">=</span><span class="mi">60</span><span class="p">,</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="p">)</span>
+</code></pre></div>
+<p>Key properties:
+- <strong>Path traversal protection</strong>: <code>entry_point</code> is validated syntactically before copy and
+  after copy (symlink-resolved) to prevent directory escape.
+- <strong>Harness injection</strong>: <code>experiment_harness.py</code> is copied into every project directory before
+  execution.  It provides time-budget management, metric reporting with NaN guards, and
+  <code>results.json</code> persistence.  Projects cannot overwrite it.
+- <strong>Numbered project dirs</strong>: concurrent calls produce <code>_project_1/</code>, <code>_project_2/</code>, etc. (thread-safe).
+- <strong>Cleanup policy</strong>: project/script directories are deleted only on success (<code>rc==0</code> and
+  not timed out), preserving failure artefacts for debugging.</p>
+<p><code>SandboxProtocol</code> is a structural type allowing transparent substitution of subprocess,
+Docker, SSH, or other backends.  <code>create_sandbox(SandboxFactoryConfig, workdir)</code> selects
+the backend from a <code>mode</code> string (<code>"subprocess"</code> default, <code>"docker"</code> with graceful fallback).</p>
+<h3 id="run-directory-infrastructure">Run-directory infrastructure</h3>
+<p>Pass <code>run_dir</code> to <code>AutoDiagnoseLoop</code> to enable the full operational stack:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">AutoDiagnoseLoop</span><span class="p">(</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">diagnosis_agent</span><span class="o">=</span><span class="n">DiagnosisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">),</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="n">run_dir</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">"runs/my_experiment"</span><span class="p">),</span>   <span class="c1"># enables all infrastructure below</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="p">)</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="n">report</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">cases</span><span class="p">)</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="c1"># Resume a previously interrupted run</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="n">report</span> <span class="o">=</span> <span class="n">AutoDiagnoseLoop</span><span class="o">.</span><span class="n">resume</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">"runs/my_experiment"</span><span class="p">),</span> <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">cases</span><span class="p">)</span>
+</code></pre></div>
+<p>When <code>run_dir</code> is set, <code>AutoDiagnoseLoop</code> creates:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>run_dir/
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>├── checkpoint.json          ← atomic (temp+rename); last_completed_cycle + run_id
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>├── heartbeat.json           ← pid + last_cycle + timestamp (liveness signal)
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>├── artifacts/&lt;run_id&gt;/      ← per-run staging area
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>└── evolution/
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>    └── lessons.jsonl        ← cross-run lesson accumulation (append-only)
+</code></pre></div>
+<p><strong>Checkpointing and resume</strong>: after every completed cycle, <code>checkpoint.json</code> is written
+atomically.  <code>AutoDiagnoseLoop.resume(run_dir, model, data)</code> reads the checkpoint and
+restarts from <code>last_completed_cycle + 1</code>, skipping already-completed work.</p>
+<p><strong>Git integration</strong>: when <code>run_dir</code> is inside a git repository, <code>ExperimentGitManager</code>
+auto-detects it and:
+- Creates branch <code>eval/{run_id}</code> at the start of the run.
+- Commits all staged files with hypothesis statuses on a resolved run.
+- Calls <code>git reset --hard HEAD</code> on an unresolved run (non-destructive: only uncommitted
+  changes are discarded).</p>
+<h3 id="evolutionstore-cross-run-lesson-accumulation">EvolutionStore — cross-run lesson accumulation</h3>
+<p><code>EvolutionStore</code> accumulates lessons from every diagnosis run in an append-only JSONL
+file.  Lessons are weighted by a 30-day half-life exponential decay so recent findings
+rank higher.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">store</span> <span class="o">=</span> <span class="n">EvolutionStore</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">"runs/my_experiment/evolution"</span><span class="p">))</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="c1"># Lessons are appended automatically when run_dir is set.</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Read them back for prompt injection:</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="n">overlay</span> <span class="o">=</span> <span class="n">store</span><span class="o">.</span><span class="n">build_overlay</span><span class="p">(</span><span class="s2">"surgery"</span><span class="p">,</span> <span class="n">max_lessons</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="c1"># → "## Lessons from Prior Diagnosis Runs\n1. [WARN] ..."</span>
+</code></pre></div>
+<p><code>extract_lessons(report)</code> auto-derives lessons from an <code>AutoDiagnoseReport</code>:
+- INCONCLUSIVE hypotheses → <code>surgery / warning</code>
+- Loop exhausted without resolution → <code>diagnosis / warning</code>
+- HIGH/CRITICAL analysis severity with no resolution → <code>analysis / info</code></p>
+<h3 id="persistent-store-jsonlstore">Persistent store — <code>JsonlStore</code></h3>
+<p><code>JsonlStore</code> is a durable implementation of the <code>Store</code> interface backed by three JSONL files
+(<code>hypotheses.jsonl</code>, <code>results.jsonl</code>, <code>cases.jsonl</code>).  Hypotheses survive process restarts
+and are fully reconstructed via <code>hypothesis_to_dict</code> / <code>hypothesis_from_dict</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">store</span> <span class="o">=</span> <span class="n">JsonlStore</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">"runs/store"</span><span class="p">))</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">AutoDiagnoseLoop</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">store</span><span class="o">=</span><span class="n">store</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="analysis-rules-vlm-image-attention">Analysis rules — VLM image-attention</h3>
+<p><code>AnalysisModule</code> includes a VLM-specific derived metric for the <code>attention</code> analyzer.
+Before applying threshold rules, it sums the attention weights of image-related tokens
+(<code>&lt;|image_pad|&gt;</code>, <code>&lt;|vision_start|&gt;</code>, <code>&lt;|vision_end|&gt;</code>, …) from <code>top_attended_tokens</code>
+and exposes <code>image_token_attention_ratio</code>.  A ratio below 0.05 fires a <code>medium</code>-severity
+finding:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>[MEDIUM] attention.image_token_attention_ratio=0.012 &lt; 0.05:
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>VLM nearly ignores image tokens — attention dominated by text/structural tokens
+</code></pre></div>
+<p>This finding propagates to M3 DiagnosisAgent and M5 SurgeryAgent, closing the loop from
+attention measurement to codex-generated diagnostic code.</p>
+<h3 id="result-image-overlays">Result image overlays</h3>
+<p>A bare heatmap (<code>spatial_map</code>, <code>fail_mean_map</code>, …) carries no spatial reference
+to the photo it was computed from, so neither a human nor a multimodal judge
+can tell whether a highlighted patch corresponds to anything sensible.
+<code>RelativeAttentionResult</code> (and any <code>Result</code> subclass that wants the same
+treatment) exposes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">result</span><span class="o">.</span><span class="n">overlay</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="s2">"spatial_map"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.6</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="s2">"jet"</span><span class="p">)</span>  <span class="c1"># -&gt; PIL.Image | None</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">result</span><span class="o">.</span><span class="n">save_overlay</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>                             <span class="c1"># -&gt; bool</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="n">result</span><span class="o">.</span><span class="n">image_overlays</span><span class="p">(</span><span class="n">fig_dir</span><span class="p">,</span> <span class="n">stem_prefix</span><span class="p">)</span>                 <span class="c1"># -&gt; list[Path]</span>
+</code></pre></div>
+<p><code>overlay()</code> alpha-blends the map onto its representative case image
+(CAM-style, intensity-weighted so the background stays visible); it resolves
+lazy <code>Inputs.image</code> paths/URLs the same way the model's forward pass did
+(<code>transformers.image_utils.load_image</code>), so the overlay matches what was
+actually fed to the model. <code>image_overlays()</code> is a duck-typed hook:
+<code>RunLoggerV2</code> calls it on any <code>Result</code> that defines it and saves the PNGs
+into <code>M1/artifacts/</code> alongside the bare heatmaps, so overlays flow into the
+same artifact list a multimodal judge already receives — no per-analyzer
+wiring required.</p>
+<h3 id="runcontext-single-owner-of-a-runs-output-directory">RunContext — single owner of a run's output directory</h3>
+<p><code>RunContext</code> replaces the old per-example pattern of hand-written report
+files, a logger buried under a <code>logs/</code> subdir, hand-built figure-dir paths,
+and M5 sandboxes living in ephemeral temp dirs deleted on success.  One
+<code>RunContext</code> owns the whole run root and hands every producer its
+subdirectory, always through <code>RunLoggerV2</code> (<code>evalrx/eval_agent/RUN_LOGGER_V2.md</code>) —
+there is no other logger to select:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>&lt;root&gt;/
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>├── run.json          run-wide events: run_start, cases, diagnose_reports, manifest, …
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>├── M1/log.json …     one JSON document per stage, plus each stage's own artifacts/
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>│   M5/log.json
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>├── contract/         one validated JSON per stage (see evalrx.contract), if emitted
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>├── artifacts/        M1 heavy numeric data (.npy / .json) written outside any stage
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>└── langfuse_trace.json
+</code></pre></div>
+<p>No <code>run_log.jsonl</code>, no persisted <code>prompts/</code>/<code>experiments/</code>/<code>tools/</code>/
+<code>workspace/</code>/<code>fixes/</code> (generated text/code is captured inline into the
+relevant stage's JSON instead), no <code>manifest.json</code>/<code>README.txt</code> (the manifest
+lives inside <code>run.json</code>).</p>
+<p>Each entry under a stage's array (e.g. <code>M3/log.json["diagnosis"]</code>) carries
+<code>ts</code> (ISO-8601), a <code>schema_version</code> (int, bumped only when an existing
+event's fields are renamed/removed/change meaning — additive fields don't
+bump it, so a downstream parser can detect breaking changes without guessing
+from <code>evalrx_version</code>), <code>event_seq</code> (a global sequence assigned under the
+logger's lock — never derived from wall-clock order, so concurrent calls
+stay correctly ordered), and stage-specific fields (findings, narrative, raw
+LLM output, intervention status …). <code>run.json</code>'s <code>run_start</code> entry records
+run provenance — <code>model</code>, <code>judge</code>, <code>git_commit</code> (falls back to the
+<code>EVALRX_GIT_COMMIT</code> env var when the <code>git</code> CLI is unavailable, e.g. inside
+the example Docker images), <code>data_fingerprint</code> (an order-independent hash of
+the case batch, so two runs can be confirmed to use the same data) and
+<code>label_distribution</code> (the base PASS/FAIL/UNKNOWN counts the diagnosis is
+conditioned on). Nothing is externalized the way V1's <code>{"path", "n_items",
+"bytes"}</code> payload placeholder was — <code>stats_results</code>, <code>findings</code>, and every
+other per-event field are inlined verbatim in the stage's JSON document.
+<code>evalrx/reporting/run_events.py</code>'s <code>read_v2_events(root)</code> flattens <code>run.json</code>
++ every <code>M&lt;n&gt;/log.json</code> back into one ordered, flat event list (the same
+shape every downstream reader — dynamic report, HTML export, dashboard,
+Langfuse backfill — consumes), so most code never has to know about the
+per-stage bucketing directly:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.reporting.run_events</span><span class="w"> </span><span class="kn">import</span> <span class="n">read_v2_events</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="n">events</span> <span class="o">=</span> <span class="n">read_v2_events</span><span class="p">(</span><span class="s2">"run_dir"</span><span class="p">)</span>                          <span class="c1"># run_dir or run_dir/logs</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="n">diagnoses</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">events</span> <span class="k">if</span> <span class="n">e</span><span class="p">[</span><span class="s2">"event"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"diagnosis"</span><span class="p">]</span>  <span class="c1"># all judge outputs</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="n">probes</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">events</span> <span class="k">if</span> <span class="n">e</span><span class="p">[</span><span class="s2">"event"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"probe"</span><span class="p">]</span>          <span class="c1"># M1 findings</span>
+</code></pre></div>
+<p>or read one stage's document directly with any JSON tool:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>jq<span class="w"> </span><span class="s1">'.diagnosis'</span><span class="w"> </span>run_dir/M3/log.json<span class="w">         </span><span class="c1"># all M3 judge outputs</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>jq<span class="w"> </span><span class="s1">'.probe[-1].findings'</span><span class="w"> </span>run_dir/M1/log.json<span class="w">  </span><span class="c1"># latest M1 findings</span>
+</code></pre></div>
+<p>The event format is a <strong>published JSON Schema</strong> (Draft 2020-12), shipped as
+package data at <code>evalrx/eval_agent/run_log.schema.json</code> and built from
+<code>evalrx/eval_agent/log_schema.py</code> — so downstream parsers (in any language)
+can validate an event instead of guessing field shapes. It's permissive by
+design: it pins the common envelope (<code>event</code>, <code>schema_version</code>, <code>ts</code>,
+<code>trace_id</code>, <code>stage</code>, <code>span_id</code>, <code>event_seq</code>), the per-event required fields
+and core types, but allows additive fields (matching the <code>schema_version</code>
+rule above).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">validate_event</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="n">validate_event</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>  <span class="c1"># raises jsonschema.ValidationError on a violation</span>
+</code></pre></div>
+<p>Set <code>EVALRX_VALIDATE_LOG=1</code> to have <code>RunLoggerV2</code> self-check every event it
+writes against the schema and warn (never raise) on a violation — a CI/dev aid
+to catch a producer drifting from the contract. Both paths need the optional
+<code>jsonschema</code> dependency (<code>pip install evalrx[dev]</code>).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">RunContext</span><span class="p">,</span> <span class="n">VLDiagnoseLoop</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="k">with</span> <span class="n">RunContext</span><span class="p">(</span><span class="s2">"examples/foo/outputs"</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="k">as</span> <span class="n">ctx</span><span class="p">:</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>    <span class="n">stats_agent</span> <span class="o">=</span> <span class="n">StatsAnalysisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">,</span> <span class="n">figure_dir</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">figures_dir</span><span class="p">))</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>    <span class="n">loop</span> <span class="o">=</span> <span class="n">VLDiagnoseLoop</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">run_logger</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">logger</span><span class="p">)</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>    <span class="n">report</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">cases</span><span class="p">)</span>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a>    <span class="n">ctx</span><span class="o">.</span><span class="n">write_diagnose_report</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="n">cases</span><span class="p">,</span> <span class="n">discovery</span><span class="o">=</span><span class="n">discovery_rows</span><span class="p">)</span>
+<a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a><span class="c1"># run.json/M*/log.json are flushed incrementally throughout the run;</span>
+<a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a><span class="c1"># finalize() (called on exit) just closes them out and inlines the runtime tree.</span>
+</code></pre></div>
+<p><code>write_diagnose_report(report, cases, discovery=...)</code> writes the standard
+<code>report/</code> deliverables from an <code>AutoDiagnoseReport</code> (all three loops return
+this one class — see "Stage contracts" above), replacing the
+<code>_write_report_artifacts</code> boilerplate previously copy-pasted into every
+example.</p>
+<p><strong>Per-trial folders</strong> (<code>ctx.new_trial("fixes" | "experiments", label)</code>):
+each fix candidate or M5 experiment gets its own numbered folder —
+<code>fixes/03_widen_crop/</code> — holding the generated code, the sandbox it ran in,
+judge prompt/output, <code>record.md</code>, and <code>result.json</code>, instead of scattering
+those across <code>tools/</code> / <code>workspace/</code> / <code>fixes/</code> and re-correlating them by
+filename slug.  A <code>Trial</code>'s folder (and its <code>workspace/</code>) is created lazily
+on first write, so a candidate discarded before producing anything (e.g. a
+deduped proposal) leaves no empty folder — a gap in the numbering honestly
+means "proposed, then discarded," not a missing record.  <code>ctx.new_workdir(label)</code>
+is the non-trial equivalent for sandboxes that don't belong to a numbered
+attempt (e.g. M1/M2 tool codegen). Under V2 there are no persisted trial
+folders at all — a trial's generated code/output is inlined into its stage's
+JSON, and the sandbox it ran in lives under an ephemeral <code>ctx.runtime_root</code>
+tempdir that's deleted at <code>finalize()</code>, not <code>fixes/</code>/<code>experiments/</code>.</p>
+<p><strong>Not the same as <code>run_dir</code></strong> in the "Run-directory infrastructure" section
+above: <code>AutoDiagnoseLoop(run_dir=...)</code> owns <em>resume</em> mechanics (checkpoint,
+heartbeat, evolution, git) and is orthogonal — a run can use either, both, or
+neither. <code>RunContext</code> owns <em>output</em> (report/figures/artifacts/fixes/manifest).
+<code>AutoDiagnoseLoop</code>'s own <code>run_dir</code> infra was deliberately left untouched when
+<code>RunContext</code> was introduced.</p>
+<h3 id="fixagent-tiered-post-loop-repair-m5">FixAgent — tiered post-loop repair (M5)</h3>
+<p><code>FixAgent</code> (<code>stages/fix_agent.py</code>) is a second M5 path, invoked via
+<code>loop.run_fix(report, data)</code> after <code>loop.run()</code> — distinct from <code>SurgeryAgent</code>
+above, which verifies <em>why</em> something fails; <code>FixAgent</code> proposes and validates
+candidate <em>fixes</em>. The allowed intervention space is an <strong>input</strong> (<code>FixTier</code>,
+default <code>L2_SCAFFOLD</code>); there is no automatic escalation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>L1   input space        prompt rewrites, instruction strategies
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>L2   scaffold space     agent-designed pipelines around the unchanged model
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>                         (multi-call, external tools, aggregation) — sandboxed,
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a>                         bridged model access; labels never reach the code
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a>L3a  internals (read)   read attention/logits to guide scaffold actions
+<a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a>L3b  internals (write)  modify the forward pass (attention reweighting,
+<a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a>                         sink suppression, activation steering)
+<a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a>L4   parameter space    fine-tune recipe — v1 executes LoRA on the language
+<a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a>                         model, trained on a caller-supplied diagnosis-only
+<a id="__codelineno-24-10" name="__codelineno-24-10" href="#__codelineno-24-10"></a>                         pool; other recipe shapes (sft/full, vision_encoder/
+<a id="__codelineno-24-11" name="__codelineno-24-11" href="#__codelineno-24-11"></a>                         projector) are recorded, not yet executed
+</code></pre></div>
+<p>Every candidate is validated against the unmodified baseline with paired
+McNemar + e-value (never a bare p-value); a <em>fixed</em> verdict means the
+candidate repairs significantly more cases than it breaks.  <code>max_repair_rounds</code>
+(default 1) lets the judge/coder retry with <em>different</em> strategies within the
+same tier after a round where nothing validates — never re-proposing an
+identical candidate (<code>FixAgent._signature</code>), never raising the tier itself.
+<code>loop.run_fix(..., auto_escalate=True)</code> steps the ceiling tier L2 → L3a → L3b
+automatically, feeding each round the full history of prior failures.  When no
+candidate validates, the outcome carries a <code>recommendation</code> (e.g. "raise to
+L3a") for the caller to act on. Each candidate's code/sandbox/record lives
+under its own <code>fixes/NN_label/</code> folder when a <code>RunContext</code> is attached (see
+above).</p>
+<h2 id="public-surface-guidance">Public Surface Guidance</h2>
+<p>The intended stable public entry points are:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1"># Model construction — two paths, same result object</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">wrap</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">want</span><span class="o">=</span><span class="p">(),</span> <span class="o">**</span><span class="n">runtime</span><span class="p">)</span>  <span class="c1"># bring your own model</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">backend</span><span class="p">,</span> <span class="n">want</span><span class="p">,</span> <span class="n">checkpoint</span><span class="p">,</span> <span class="o">**</span><span class="n">runtime</span><span class="p">)</span>  <span class="c1"># curated checkpoints</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="c1"># Config-driven run</span>
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">load_config</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a>
+<a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a><span class="c1"># Registry / discovery</span>
+<a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">list_specs</span><span class="p">()</span>
+<a id="__codelineno-25-11" name="__codelineno-25-11" href="#__codelineno-25-11"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">get_spec</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+<a id="__codelineno-25-12" name="__codelineno-25-12" href="#__codelineno-25-12"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">registry</span>
+<a id="__codelineno-25-13" name="__codelineno-25-13" href="#__codelineno-25-13"></a>
+<a id="__codelineno-25-14" name="__codelineno-25-14" href="#__codelineno-25-14"></a><span class="c1"># Core types</span>
+<a id="__codelineno-25-15" name="__codelineno-25-15" href="#__codelineno-25-15"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">Capability</span>
+<a id="__codelineno-25-16" name="__codelineno-25-16" href="#__codelineno-25-16"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">FailureCase</span>
+<a id="__codelineno-25-17" name="__codelineno-25-17" href="#__codelineno-25-17"></a><span class="n">evalrx</span><span class="o">.</span><span class="n">Result</span>
+<a id="__codelineno-25-18" name="__codelineno-25-18" href="#__codelineno-25-18"></a>
+<a id="__codelineno-25-19" name="__codelineno-25-19" href="#__codelineno-25-19"></a><span class="c1"># Automated diagnosis — AutoDiagnoseLoop (legacy M1→M5 sweep)</span>
+<a id="__codelineno-25-20" name="__codelineno-25-20" href="#__codelineno-25-20"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoDiagnoseLoop</span><span class="p">,</span> <span class="n">DiagnosisAgent</span><span class="p">,</span> <span class="n">RunLoggerV2</span><span class="p">,</span> <span class="n">StrategyProbe</span><span class="p">,</span> <span class="n">SurgeryAgent</span>
+<a id="__codelineno-25-21" name="__codelineno-25-21" href="#__codelineno-25-21"></a>
+<a id="__codelineno-25-22" name="__codelineno-25-22" href="#__codelineno-25-22"></a><span class="c1"># Protocol-guided diagnosis — VLDiagnoseLoop (M1→M2→M3→M4, M5 post-loop)</span>
+<a id="__codelineno-25-23" name="__codelineno-25-23" href="#__codelineno-25-23"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+<a id="__codelineno-25-24" name="__codelineno-25-24" href="#__codelineno-25-24"></a>    <span class="n">VLDiagnoseLoop</span><span class="p">,</span> <span class="n">ExperimentProtocol</span><span class="p">,</span>
+<a id="__codelineno-25-25" name="__codelineno-25-25" href="#__codelineno-25-25"></a>    <span class="n">StatsAnalysisAgent</span><span class="p">,</span> <span class="n">HypothesisTester</span><span class="p">,</span>
+<a id="__codelineno-25-26" name="__codelineno-25-26" href="#__codelineno-25-26"></a><span class="p">)</span>
+<a id="__codelineno-25-27" name="__codelineno-25-27" href="#__codelineno-25-27"></a>
+<a id="__codelineno-25-28" name="__codelineno-25-28" href="#__codelineno-25-28"></a><span class="c1"># Run output ownership + post-loop tiered repair</span>
+<a id="__codelineno-25-29" name="__codelineno-25-29" href="#__codelineno-25-29"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">RunContext</span><span class="p">,</span> <span class="n">FixAgent</span><span class="p">,</span> <span class="n">FixTier</span>
+</code></pre></div>
+<p>Lower-level implementation details (<code>compose</code>, <code>HFLocalModel</code>, <code>infer_spec</code>,
+<code>Backend</code>, <code>ModelSpec</code>) should remain under their package namespaces unless they
+are meant to become long-term extension APIs.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2103 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Failure case analysis for LLMs and VLMs">
+      
+      
+      
+        <link rel="canonical" href="https://evalvitals.github.io/evalrx/quickstart/">
+      
+      
+        <link rel="prev" href="../overview/">
+      
+      
+        <link rel="next" href="../cli/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Quickstart - EvalRX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#quickstart" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="EvalRX" class="md-header__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EvalRX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Quickstart
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Overview
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quickstart
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Command-Line Interface
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../m2_analysis/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Exploratory Analysis (M2/M3)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../intervention/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Verification & Intervention (M4/M5)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../stage_io/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Stage Input/Output Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../analyzers/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Analyzer Zoo
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../extending/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Extending
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="EvalRX" class="md-nav__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EvalRX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#bring-your-own-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bring Your Own Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-liner-model-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-Liner Model Load
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-driven-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config-Driven Run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#explicit-backend-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Explicit Backend Selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Discovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-tool-calling-loop-any-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent — Tool-Calling Loop, Any Backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#standalone-m2-explore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone M2 Explore
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Standalone M2 Explore">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#case-study-on-a-paper-method-bench-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Case study on a paper-method bench run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-a-codebase-then-explore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run a Codebase, Then Explore
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#convenience-shim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convenience Shim
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hallucination-analysis-pope-chair" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hallucination Analysis (POPE + CHAIR)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shapley-attribution-mm-shap-vl-shap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shapley Attribution — MM-SHAP + VL-SHAP
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#logprob-entropy-black-box-uncertainty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logprob Entropy (black-box uncertainty)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#statistical-comparison-statscompare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Statistical Comparison — stats.compare
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vldiagnoseloop-automated-failure-attribution-current" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VLDiagnoseLoop — Automated Failure Attribution (Current)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agenticdiagnoseloop-judge-decided-m1-m4-alternative-to-the-fixed-cycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AgenticDiagnoseLoop — Judge-Decided M1-M4 (Alternative to the Fixed Cycle)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#input-modes-submitting-a-diagnosis-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Input Modes — Submitting a Diagnosis Run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Input Modes — Submitting a Diagnosis Run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mode-1-container-submission-reproduce-a-known-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mode 1 — Container Submission (Reproduce a Known Failure)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mode-2-natural-language-description-agent-writes-the-container" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mode 2 — Natural-Language Description (Agent Writes the Container)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#autodiagnoseloop-legacy-m1m5-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AutoDiagnoseLoop — Legacy M1→M5 Pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AutoDiagnoseLoop — Legacy M1→M5 Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#analysis-only-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis-only mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#controlling-analyzer-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controlling analyzer selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-intervention-surgeryagent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom intervention (SurgeryAgent)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#eval-agent-pre-registered-ab-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Eval Agent — Pre-Registered A/B Loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-Line Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../m2_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exploratory Analysis (M2/M3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intervention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verification & Intervention (M4/M5)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage_io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Input/Output Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analyzers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyzer Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#bring-your-own-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bring Your Own Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-liner-model-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-Liner Model Load
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-driven-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config-Driven Run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#explicit-backend-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Explicit Backend Selection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Discovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-tool-calling-loop-any-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent — Tool-Calling Loop, Any Backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#standalone-m2-explore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone M2 Explore
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Standalone M2 Explore">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#case-study-on-a-paper-method-bench-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Case study on a paper-method bench run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-a-codebase-then-explore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run a Codebase, Then Explore
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#convenience-shim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Convenience Shim
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hallucination-analysis-pope-chair" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hallucination Analysis (POPE + CHAIR)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shapley-attribution-mm-shap-vl-shap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shapley Attribution — MM-SHAP + VL-SHAP
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#logprob-entropy-black-box-uncertainty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logprob Entropy (black-box uncertainty)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#statistical-comparison-statscompare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Statistical Comparison — stats.compare
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vldiagnoseloop-automated-failure-attribution-current" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VLDiagnoseLoop — Automated Failure Attribution (Current)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agenticdiagnoseloop-judge-decided-m1-m4-alternative-to-the-fixed-cycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AgenticDiagnoseLoop — Judge-Decided M1-M4 (Alternative to the Fixed Cycle)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#input-modes-submitting-a-diagnosis-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Input Modes — Submitting a Diagnosis Run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Input Modes — Submitting a Diagnosis Run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mode-1-container-submission-reproduce-a-known-failure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mode 1 — Container Submission (Reproduce a Known Failure)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mode-2-natural-language-description-agent-writes-the-container" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mode 2 — Natural-Language Description (Agent Writes the Container)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#autodiagnoseloop-legacy-m1m5-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AutoDiagnoseLoop — Legacy M1→M5 Pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AutoDiagnoseLoop — Legacy M1→M5 Pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#analysis-only-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysis-only mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#controlling-analyzer-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controlling analyzer selection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-intervention-surgeryagent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom intervention (SurgeryAgent)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#eval-agent-pre-registered-ab-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Eval Agent — Pre-Registered A/B Loop
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="quickstart">Quickstart</h1>
+<p>This page shows the common ways to run EvalRX.</p>
+<h2 id="bring-your-own-model">Bring Your Own Model</h2>
+<p>If you already have a loaded Hugging Face causal LM, wrap it — no registry key
+needed. The wrapped model is the same object <code>evalrx.load(...)</code> returns, so
+every capability-compatible analyzer works on it.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">evalrx</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.lens.logit_lens</span><span class="w"> </span><span class="kn">import</span> <span class="n">LogitLensAnalyzer</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"my-org/my-llama"</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"my-org/my-llama"</span><span class="p">)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">wrapped</span> <span class="o">=</span> <span class="n">evalrx</span><span class="o">.</span><span class="n">wrap</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span><span class="p">)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">result</span> <span class="o">=</span> <span class="n">LogitLensAnalyzer</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">wrapped</span><span class="p">,</span> <span class="s2">"The capital of France is"</span><span class="p">)</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
+</code></pre></div>
+<p>Capabilities (attention, hidden states, logits, …) are inferred from the live
+model. Attention capture needs eager attention; <code>wrap</code> switches the model to it
+when it can, otherwise load with <code>attn_implementation="eager"</code>. White-box capture
+currently supports text decoder-only models (VLM capture is Stage 2).</p>
+<h2 id="one-liner-model-load">One-Liner Model Load</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">evalrx</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.attention.summary</span><span class="w"> </span><span class="kn">import</span> <span class="n">AttentionAnalyzer</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">model</span> <span class="o">=</span> <span class="n">evalrx</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">"qwen2.5-7b-instruct"</span><span class="p">)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">result</span> <span class="o">=</span> <span class="n">AttentionAnalyzer</span><span class="p">(</span><span class="n">layer</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="s2">"The Eiffel Tower is in"</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">findings</span><span class="p">)</span>
+</code></pre></div>
+<p>By default, <code>evalrx.load</code> uses the <code>hf_local</code> backend unless the spec is
+API-only.</p>
+<h2 id="config-driven-run">Config-Driven Run</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qwen2.5-7b-instruct</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">analysis</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">attention</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">analysis_kwargs</span><span class="p">:</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">layer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-1</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">top_k</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_config</span><span class="p">,</span> <span class="n">run</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">load_config</span><span class="p">(</span><span class="s2">"configs/qwen_attention.yaml"</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">result</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">"The Eiffel Tower is in"</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="explicit-backend-selection">Explicit Backend Selection</h2>
+<p>Use <code>compose</code> when you want to control the runtime and negotiate capabilities
+before model weights load.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx</span><span class="w"> </span><span class="kn">import</span> <span class="n">Capability</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">compose</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">model</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="s2">"qwen2.5-7b-instruct"</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="s2">"hf_local"</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">want</span><span class="o">=</span><span class="p">{</span><span class="n">Capability</span><span class="o">.</span><span class="n">ATTENTION</span><span class="p">},</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">)</span>
+</code></pre></div>
+<p>If the selected backend cannot provide the requested capability, EvalRX
+raises a <code>CapabilityError</code> before constructing the model.</p>
+<h2 id="discovery">Discovery</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">evalrx</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">evalrx</span><span class="o">.</span><span class="n">list_specs</span><span class="p">())</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">evalrx</span><span class="o">.</span><span class="n">registry</span><span class="o">.</span><span class="n">analyzers</span><span class="o">.</span><span class="n">list</span><span class="p">())</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">evalrx</span><span class="o">.</span><span class="n">registry</span><span class="o">.</span><span class="n">analyzers</span><span class="o">.</span><span class="n">names_compatible_with</span><span class="p">(</span><span class="n">model</span><span class="p">))</span>
+</code></pre></div>
+<p>This is the same discovery surface intended for an automated evaluation agent.</p>
+<h2 id="agent-tool-calling-loop-any-backend">Agent — Tool-Calling Loop, Any Backend</h2>
+<p><code>Agent(wraps=handle)</code> is <strong>backend-agnostic</strong>: it needs only <code>GENERATE</code> +
+<code>TOOL_CALLS</code> (checked up front), never internals — so the <em>same</em> loop drives
+an API model and a local model. The single thing that varies is the
+<code>ToolCallCodec</code> (auto-selected): OpenAI-native structured calls for the API,
+Hermes-style <code>&lt;tool_call&gt;{…}&lt;/tool_call&gt;</code> text parsing for local templates.
+Tool execution goes through a pluggable <code>ToolExecutor</code> (swap in your
+<code>APIToolHandler</code>).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx</span><span class="w"> </span><span class="kn">import</span> <span class="n">Agent</span><span class="p">,</span> <span class="n">Tool</span><span class="p">,</span> <span class="n">compose</span><span class="p">,</span> <span class="n">RuntimeConfig</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models.backends</span><span class="w"> </span><span class="kn">import</span> <span class="n">call_vision_api_chat_fn</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">search</span> <span class="o">=</span> <span class="n">Tool</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"search"</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">"web search"</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>              <span class="n">parameters</span><span class="o">=</span><span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span> <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"q"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">}}},</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>              <span class="n">fn</span><span class="o">=</span><span class="n">my_search</span><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1"># API agent (reuse your engine): native tool-calls, OpenAI codec</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="n">api</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-8b"</span><span class="p">,</span> <span class="s2">"api"</span><span class="p">,</span> <span class="n">RuntimeConfig</span><span class="p">(</span><span class="n">chat_fn</span><span class="o">=</span><span class="n">call_vision_api_chat_fn</span><span class="p">(</span><span class="n">call_vision_api</span><span class="p">)))</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="n">traj</span> <span class="o">=</span> <span class="n">Agent</span><span class="p">(</span><span class="n">api</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">search</span><span class="p">])</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">"who won the 2022 world cup?"</span><span class="p">)</span>   <span class="c1"># -&gt; Trajectory</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="c1"># Local agent: SAME Agent; tools rendered via the model's chat template, Qwen codec</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="n">local</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-8b"</span><span class="p">,</span> <span class="s2">"hf_local"</span><span class="p">)</span>        <span class="c1"># TOOL_CALLS granted only if spec.tool_calling</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="n">traj</span> <span class="o">=</span> <span class="n">Agent</span><span class="p">(</span><span class="n">local</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">search</span><span class="p">])</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">"..."</span><span class="p">)</span>  <span class="c1"># -&gt; Trajectory (steps: USER→ACTOR→TOOL→…)</span>
+</code></pre></div>
+<p><code>TOOL_CALLS</code> is a <strong>conditional</strong> capability for local models: the backend
+provides the channel, but it's granted only when the model's chat template
+renders tools (<code>spec.tool_calling</code>, verified against the template at load).
+So <code>compose(non_tool_model, "hf_local", want={TOOL_CALLS})</code> fails up front.</p>
+<p><strong>Multimodal agents.</strong> The same loop runs vision cases end-to-end: give the
+case an image and it enters the first user message; a tool that returns a
+<code>ToolResult</code> with <code>images</code> gets them re-injected as a new message, so the
+model can <em>look at</em> what its tool produced. <code>evalrx.models.tools</code> ships
+subject-side visual tools (deterministic, model-agnostic schemas):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx</span><span class="w"> </span><span class="kn">import</span> <span class="n">Capability</span><span class="p">,</span> <span class="n">compose</span><span class="p">,</span> <span class="n">RuntimeConfig</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.core.case</span><span class="w"> </span><span class="kn">import</span> <span class="n">FailureCase</span><span class="p">,</span> <span class="n">Inputs</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models.agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">Agent</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models.tools</span><span class="w"> </span><span class="kn">import</span> <span class="n">zoom_in_tool</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">vlm</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-vl-2b-instruct"</span><span class="p">,</span> <span class="s2">"hf_local"</span><span class="p">,</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>              <span class="n">runtime</span><span class="o">=</span><span class="n">RuntimeConfig</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="s2">"cuda:0"</span><span class="p">),</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>              <span class="n">want</span><span class="o">=</span><span class="p">{</span><span class="n">Capability</span><span class="o">.</span><span class="n">GENERATE</span><span class="p">,</span> <span class="n">Capability</span><span class="o">.</span><span class="n">TOOL_CALLS</span><span class="p">})</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">Agent</span><span class="p">(</span><span class="n">vlm</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">zoom_in_tool</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">save_dir</span><span class="o">=</span><span class="s2">"outputs/images"</span><span class="p">)],</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>              <span class="n">system</span><span class="o">=</span><span class="s2">"Zoom into the relevant region before answering."</span><span class="p">)</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="n">traj</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">FailureCase</span><span class="p">(</span><span class="n">inputs</span><span class="o">=</span><span class="n">Inputs</span><span class="p">(</span><span class="n">prompt</span><span class="o">=</span><span class="s2">"What does the sign say?"</span><span class="p">,</span> <span class="n">image</span><span class="o">=</span><span class="n">image</span><span class="p">)))</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">traj</span><span class="o">.</span><span class="n">to_dict</span><span class="p">(),</span> <span class="nb">open</span><span class="p">(</span><span class="s2">"trajectory.json"</span><span class="p">,</span> <span class="s2">"w"</span><span class="p">))</span>   <span class="c1"># serializable end-to-end</span>
+</code></pre></div>
+<p>Runnable version: <code>examples/agent_demos/visual_zoom_agent/run.py</code>.</p>
+<p><strong>Scale path.</strong> For batch probing, serve the open checkpoint with vLLM and use
+the built-in OpenAI-compatible client — no dependency injection needed:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>vllm<span class="w"> </span>serve<span class="w"> </span>Qwen/Qwen3-VL-2B-Instruct<span class="w"> </span>--port<span class="w"> </span><span class="m">8901</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>--enable-auto-tool-choice<span class="w"> </span>--tool-call-parser<span class="w"> </span>hermes
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models.agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_batch</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models.backends</span><span class="w"> </span><span class="kn">import</span> <span class="n">openai_runtime</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">vlm</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-vl-2b-instruct"</span><span class="p">,</span> <span class="s2">"api"</span><span class="p">,</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>              <span class="n">runtime</span><span class="o">=</span><span class="n">openai_runtime</span><span class="p">(</span><span class="n">base_url</span><span class="o">=</span><span class="s2">"http://localhost:8901/v1"</span><span class="p">))</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">trajs</span> <span class="o">=</span> <span class="n">run_batch</span><span class="p">(</span><span class="n">vlm</span><span class="p">,</span> <span class="n">cases</span><span class="p">,</span> <span class="n">tools_factory</span><span class="o">=</span><span class="k">lambda</span> <span class="n">c</span><span class="p">:</span> <span class="p">[</span><span class="n">zoom_in_tool</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">inputs</span><span class="o">.</span><span class="n">image</span><span class="p">)],</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>                  <span class="n">system</span><span class="o">=</span><span class="n">SYSTEM</span><span class="p">,</span> <span class="n">concurrency</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>   <span class="c1"># threads; error-stub per failed case</span>
+</code></pre></div>
+<p>Every turn records latency and token usage on the step's <code>span</code>; the
+trajectory flattener (<code>evalrx.analysis.trajectory_records</code>) turns finished
+runs into <code>records.json</code> rows that <code>evalrx explore</code> consumes directly.
+Closed models: the same <code>openai_runtime</code> against an OpenAI endpoint, or
+<code>GeminiModel</code> (native function calling) for Gemini.</p>
+<h2 id="standalone-m2-explore">Standalone M2 Explore</h2>
+<p>If you already have result logs and want M2 to analyze them without writing
+analysis code, run a single-shot exploration:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>evalrx<span class="w"> </span>explore<span class="w"> </span>/path/to/results<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>--backend<span class="w"> </span>antigravity<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>-q<span class="w"> </span><span class="s2">"Which failure patterns distinguish wrong answers from correct ones?"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span>--out<span class="w"> </span>evalrx_explore_output<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span>--serve-report<span class="w">       </span><span class="c1"># optional local browser server</span>
+</code></pre></div>
+<p>The run writes the generated code, stdout/stderr, a structured exploratory
+report (<code>exploratory_report.json</code>), and rendered charts under
+<code>evalrx_explore_output/figures/</code> + <code>tables/</code>.</p>
+<p>Add <code>--holdout-frac 0.4 --holdout-confirm</code> for a held-out design: the split
+is carved off BEFORE exploration (outcome-stratified, deterministic), the
+explorer is told to freeze threshold-explicit recipes, and after M3 the
+held-out rows re-test every recipe verbatim (e-BH, <code>split_label="held_out"</code>)
+while an LLM judge grades each hypothesis — <code>confirm_report.json</code> lands next
+to the report and fills the <em>Held-out Verdicts</em> section.</p>
+<p><strong>Agent-trajectory records.</strong> Rows produced by
+<code>evalrx.analysis.trajectory_records</code> flow through explore unchanged; use
+<code>trajectory_records.AGENT_QUESTION_TEMPLATE</code> as the question (it declares the
+column-family semantics — causal <code>shap_outcome_*</code>, stability <code>success_rate</code>,
+judge-assigned <code>failure_mode</code>, cost columns — and steers hypotheses toward
+the black-box fix surface). One held-out caveat is unique to agents: columns
+from the <em>interventional</em> probes (<code>reliability_probe</code>, <code>tool_shap</code>) must be
+<strong>re-run on the held-out cases</strong> (k repetitions / subset ablations there) —
+reusing exploration-set values would test nothing. Budget for it: held-out
+confirmation of these columns costs the same per case as exploration did.</p>
+<p>Open the saved output in the local report UI (a server, not a static file —
+use <code>evalrx report</code> instead for a single portable <code>report.html</code>; see the
+<a href="../cli/">CLI reference</a>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>evalrx<span class="w"> </span>serve<span class="w"> </span>evalrx_explore_output
+</code></pre></div>
+<p>See <a href="../m2_analysis/">Exploratory Analysis (M2/M3)</a> for the full standalone
+explore + hypothesis-generation workflow.</p>
+<h3 id="case-study-on-a-paper-method-bench-run">Case study on a paper-method bench run</h3>
+<p>Point the same command at an <code>examples/</code> bench run — a directory holding
+<code>outputs/&lt;name&gt;.json</code> beside the <code>data/</code> manifest the runner read — and the
+report UI opens a <strong>case book</strong> instead of the explore layout:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>evalrx<span class="w"> </span>serve<span class="w"> </span>examples/agent_loop/qwen2_audio_tcd_mmau
+</code></pre></div>
+<p>Three tabs: <em>Run Overview</em> (splits, hypothesis, where the baseline fails),
+<em>Case Study</em> and <em>Repair Methods</em>. The Case Study tab plays each case's actual
+stimulus — an <code>&lt;audio&gt;</code> player for MMAU clips, the image for the VLM slices —
+next to the question and its options, so a human can answer the item before
+anything is revealed (blind mode is on by default, and the outcome filter is
+disabled while it is, so the filter cannot leak the answer). Unblinding shows
+the correct answer, the model's baseline answer and, per repair candidate, what
+that candidate did to <em>this</em> case: repaired / broke / no change. Answers you
+lock in are scored against the model on the same cases and stay in the browser
+session — nothing is written back to the report.</p>
+<p>The Repair Methods tab is the other half of a case study: for every candidate
+in the sweep it shows the mechanism (TCD's blurred-waveform contrast, an L1
+prompt template, an L2 self-refine scaffold …), its exact configuration or
+prompt text, its paired McNemar / e-value verdict, and a button per flipped
+case that jumps straight to that case in the Case Study tab.</p>
+<h2 id="run-a-codebase-then-explore">Run a Codebase, Then Explore</h2>
+<p>If you don't have result logs yet — only an existing evaluation/inference
+codebase — <code>run_codebase</code> bridges the gap: a CLI coding agent runs the
+codebase for you inside an isolated copy (your original directory is never
+modified), harvests the per-case results it produces, and hands them
+straight to the same M2/M3 explore pipeline above.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>evalrx<span class="w"> </span>run-codebase<span class="w"> </span>./my_eval_repo<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--backend<span class="w"> </span>claude_code<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span>-q<span class="w"> </span><span class="s2">"Where does the model fail and why?"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span>--out<span class="w"> </span>evalrx_run_codebase_output<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span>--serve-report<span class="w">       </span><span class="c1"># optional</span>
+</code></pre></div>
+<p>Or from Python:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">evalrx</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">evalrx</span><span class="o">.</span><span class="n">run_codebase</span><span class="p">(</span><span class="s2">"./my_eval_repo"</span><span class="p">,</span> <span class="n">out</span><span class="o">=</span><span class="s2">"run_output"</span><span class="p">)</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">ran_ok</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">records</span><span class="p">))</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">explore</span><span class="o">.</span><span class="n">report</span><span class="o">.</span><span class="n">observations</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Output contract:</strong> the run agent is instructed to write <code>records.json</code> (a
+JSON array or JSON-Lines file, one row per evaluation case) in the codebase's
+working copy, each row carrying a <code>label</code> (e.g. <code>PASS</code>/<code>FAIL</code>) plus the
+case's input/prediction/target fields. If the codebase already writes
+per-case outputs, the agent converts them into this format rather than
+re-running everything. One repair turn is attempted if nothing usable was
+produced (<code>max_attempts</code>, default 2) before giving up with <code>ran_ok=False</code>
+and an <code>error</code> explaining why.</p>
+<p>Whatever environment the codebase needs — API keys, GPU, installed
+dependencies — is the user's responsibility; the agent runs with your local
+environment and does not provision infrastructure. Pass <code>analyze=False</code> /
+<code>--no-explore</code> to only run + harvest without the M2/M3 step.</p>
+<h2 id="convenience-shim">Convenience Shim</h2>
+<p>Models expose <code>call_&lt;analysis&gt;</code> methods dynamically through the analyzer
+registry:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">call_attention</span><span class="p">(</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    <span class="s2">"The Eiffel Tower is in"</span><span class="p">,</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="n">layer</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="p">)</span>
+</code></pre></div>
+<p>This is convenience syntax for:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.attention.summary</span><span class="w"> </span><span class="kn">import</span> <span class="n">AttentionAnalyzer</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">AttentionAnalyzer</span><span class="p">(</span><span class="n">layer</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+</code></pre></div>
+<p>Prefer direct analyzer construction in reusable code because it makes parameters
+and dependencies explicit.</p>
+<hr />
+<h2 id="hallucination-analysis-pope-chair">Hallucination Analysis (POPE + CHAIR)</h2>
+<p>Both analyzers are black-box (<code>GENERATE</code>-only) and work with any vision-capable
+model, including API endpoints.</p>
+<p><strong>POPE</strong> — yes/no object-presence probes; reports accuracy, precision, recall, F1.
+Each case needs <code>metadata["pope_label"]</code> = <code>"yes"</code> or <code>"no"</code>.</p>
+<blockquote>
+<p>Paper: Li et al., EMNLP 2023 — <a href="https://arxiv.org/abs/2305.10355">https://arxiv.org/abs/2305.10355</a><br />
+Code: <a href="https://github.com/AoiDragon/POPE">https://github.com/AoiDragon/POPE</a></p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.hallucination.pope</span><span class="w"> </span><span class="kn">import</span> <span class="n">POPEAnalyzer</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.core.case</span><span class="w"> </span><span class="kn">import</span> <span class="n">CaseBatch</span><span class="p">,</span> <span class="n">FailureCase</span><span class="p">,</span> <span class="n">Inputs</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="n">cases</span> <span class="o">=</span> <span class="n">CaseBatch</span><span class="p">([</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>    <span class="n">FailureCase</span><span class="p">(</span><span class="n">inputs</span><span class="o">=</span><span class="n">Inputs</span><span class="p">(</span><span class="n">prompt</span><span class="o">=</span><span class="s2">"Is there a cat? Answer yes or no."</span><span class="p">,</span> <span class="n">image</span><span class="o">=</span><span class="n">img</span><span class="p">),</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"pope_label"</span><span class="p">:</span> <span class="s2">"yes"</span><span class="p">}),</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>    <span class="n">FailureCase</span><span class="p">(</span><span class="n">inputs</span><span class="o">=</span><span class="n">Inputs</span><span class="p">(</span><span class="n">prompt</span><span class="o">=</span><span class="s2">"Is there a plane? Answer yes or no."</span><span class="p">,</span> <span class="n">image</span><span class="o">=</span><span class="n">img</span><span class="p">),</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"pope_label"</span><span class="p">:</span> <span class="s2">"no"</span><span class="p">}),</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="p">])</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="n">result</span> <span class="o">=</span> <span class="n">POPEAnalyzer</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="c1"># result.findings → {"accuracy": 0.83, "f1": 0.86, "yes_rate": 0.50, ...}</span>
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
+</code></pre></div>
+<p><strong>CHAIR</strong> — caption hallucination rate vs a fixed object vocabulary.
+Each case needs <code>metadata["gt_objects"]</code> = list of gold object strings.</p>
+<blockquote>
+<p>Paper: Rohrbach et al., EMNLP 2018 — <a href="https://arxiv.org/abs/1809.02156">https://arxiv.org/abs/1809.02156</a></p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.hallucination.chair</span><span class="w"> </span><span class="kn">import</span> <span class="n">CHAIRAnalyzer</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="n">COCO_VOCAB</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"cat"</span><span class="p">,</span> <span class="s2">"dog"</span><span class="p">,</span> <span class="s2">"car"</span><span class="p">,</span> <span class="s2">"chair"</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>  <span class="c1"># 80 COCO categories</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="n">cases</span> <span class="o">=</span> <span class="n">CaseBatch</span><span class="p">([</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>    <span class="n">FailureCase</span><span class="p">(</span><span class="n">inputs</span><span class="o">=</span><span class="n">Inputs</span><span class="p">(</span><span class="n">prompt</span><span class="o">=</span><span class="s2">"Describe the image."</span><span class="p">,</span> <span class="n">image</span><span class="o">=</span><span class="n">img</span><span class="p">),</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>                <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"gt_objects"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"cat"</span><span class="p">,</span> <span class="s2">"chair"</span><span class="p">]}),</span>
+<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="p">])</span>
+<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="n">result</span> <span class="o">=</span> <span class="n">CHAIRAnalyzer</span><span class="p">(</span><span class="n">object_vocab</span><span class="o">=</span><span class="n">COCO_VOCAB</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span>
+<a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a><span class="c1"># result.findings → {"chair_i": 0.25, "chair_s": 0.50, "n": 2}</span>
+<a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="c1"># chair_i: mean per-caption hallucination rate; chair_s: fraction of captions with ≥1 hallucination</span>
+</code></pre></div>
+<p>Full runnable example: <code>examples/analyzer_demos/hallucination/</code> (launch with <code>docker compose up</code>).</p>
+<hr />
+<h2 id="shapley-attribution-mm-shap-vl-shap">Shapley Attribution — MM-SHAP + VL-SHAP</h2>
+<p>Both analyzers require <code>LOGPROBS</code> capability and use Monte-Carlo Shapley sampling.</p>
+<p><strong>MM-SHAP</strong> — decomposes model reliance between text tokens and the image.
+<code>mm_score</code> near 1.0 ⇒ image-driven; near 0.0 ⇒ text-driven. Measures <em>reliance</em>,
+not correctness.</p>
+<blockquote>
+<p>Paper: Parcalabescu &amp; Frank, ACL 2022 — <a href="https://arxiv.org/abs/2212.08158">https://arxiv.org/abs/2212.08158</a><br />
+Code: <a href="https://github.com/coastalcph/mm-shap">https://github.com/coastalcph/mm-shap</a></p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.perturbation.mm_shap</span><span class="w"> </span><span class="kn">import</span> <span class="n">MMShapAnalyzer</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.core.case</span><span class="w"> </span><span class="kn">import</span> <span class="n">CaseBatch</span><span class="p">,</span> <span class="n">FailureCase</span><span class="p">,</span> <span class="n">Inputs</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="n">case</span> <span class="o">=</span> <span class="n">FailureCase</span><span class="p">(</span><span class="n">inputs</span><span class="o">=</span><span class="n">Inputs</span><span class="p">(</span><span class="n">prompt</span><span class="o">=</span><span class="s2">"What color is the car?"</span><span class="p">,</span> <span class="n">image</span><span class="o">=</span><span class="n">img</span><span class="p">))</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="n">result</span> <span class="o">=</span> <span class="n">MMShapAnalyzer</span><span class="p">(</span><span class="n">n_samples</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">CaseBatch</span><span class="p">([</span><span class="n">case</span><span class="p">]))</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="c1"># result.findings → {</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="c1">#   "mm_score": 0.62,              # 0=text-reliant, 1=image-reliant</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="c1">#   "text_contribution": 0.38,</span>
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a><span class="c1">#   "image_contribution": 0.62,</span>
+<a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a><span class="c1">#   "top_text_tokens": [{"token": "color", "shapley": 0.12}, ...]</span>
+<a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a><span class="c1"># }</span>
+</code></pre></div>
+<p><strong>VL-SHAP</strong> — spatial Shapley attribution over a grid of image regions.
+Ranks which regions most influenced the model's output logprob.</p>
+<blockquote>
+<p>Based on: Lundberg &amp; Lee, NeurIPS 2017 — <a href="https://arxiv.org/abs/1705.07874">https://arxiv.org/abs/1705.07874</a><br />
+Applied via MM-SHAP framework (Parcalabescu &amp; Frank, ACL 2022)</p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.perturbation.vl_shap</span><span class="w"> </span><span class="kn">import</span> <span class="n">VLShapAnalyzer</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">VLShapAnalyzer</span><span class="p">(</span><span class="n">n_regions</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span> <span class="n">n_samples</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">CaseBatch</span><span class="p">([</span><span class="n">case</span><span class="p">]))</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># result.findings → {</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="c1">#   "grid_side": 4,           # 4×4 grid</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="c1">#   "top_regions": [{"region": 5, "shapley": 0.31}, ...],</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="c1">#   "total_abs_attribution": 1.84</span>
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="c1"># }</span>
+</code></pre></div>
+<p>Full runnable example: <code>examples/analyzer_demos/mm_shap/</code> (launch with <code>docker compose up</code>).</p>
+<hr />
+<h2 id="logprob-entropy-black-box-uncertainty">Logprob Entropy (black-box uncertainty)</h2>
+<p><code>LogprobEntropyAnalyzer</code> computes sequence perplexity and per-token predictive
+entropy from output-token logprobs — works on any API model that returns
+<code>top_logprobs</code> (e.g. OpenAI).  No white-box access needed.</p>
+<blockquote>
+<p>Predictive entropy: Gal &amp; Ghahramani, ICML 2016 — <a href="https://arxiv.org/abs/1506.02142">https://arxiv.org/abs/1506.02142</a><br />
+LLM self-knowledge: Kadavath et al. 2022 — <a href="https://arxiv.org/abs/2207.05221">https://arxiv.org/abs/2207.05221</a></p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.uncertainty.logprob_entropy</span><span class="w"> </span><span class="kn">import</span> <span class="n">LogprobEntropyAnalyzer</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.core.case</span><span class="w"> </span><span class="kn">import</span> <span class="n">CaseBatch</span><span class="p">,</span> <span class="n">FailureCase</span><span class="p">,</span> <span class="n">Inputs</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="n">case</span> <span class="o">=</span> <span class="n">FailureCase</span><span class="p">(</span><span class="n">inputs</span><span class="o">=</span><span class="n">Inputs</span><span class="p">(</span><span class="n">prompt</span><span class="o">=</span><span class="s2">"The capital of France is"</span><span class="p">))</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="n">result</span> <span class="o">=</span> <span class="n">LogprobEntropyAnalyzer</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">CaseBatch</span><span class="p">([</span><span class="n">case</span><span class="p">]))</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="c1"># result.findings → {</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="c1">#   "n_tokens": 3,</span>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="c1">#   "perplexity": 1.12,        # low ⇒ model is confident</span>
+<a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a><span class="c1">#   "mean_logprob": -0.11,</span>
+<a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a><span class="c1">#   "mean_top_entropy": 0.08,  # high ⇒ broad uncertainty at that step</span>
+<a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a><span class="c1">#   "min_token_logprob": -0.31</span>
+<a id="__codelineno-21-12" name="__codelineno-21-12" href="#__codelineno-21-12"></a><span class="c1"># }</span>
+</code></pre></div>
+<p>Wire an OpenAI endpoint as the <code>logprobs_fn</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models.backends.api</span><span class="w"> </span><span class="kn">import</span> <span class="n">parse_openai_logprobs</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models.backends.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">RuntimeConfig</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">logprobs_fn</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-4o-mini"</span><span class="p">,</span> <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="o">**</span><span class="n">_</span><span class="p">):</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>    <span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>        <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">messages</span><span class="o">=</span><span class="p">[{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}],</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>        <span class="n">max_tokens</span><span class="o">=</span><span class="n">max_new_tokens</span><span class="p">,</span> <span class="n">logprobs</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">top_logprobs</span><span class="o">=</span><span class="n">top_k</span><span class="p">,</span>
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>    <span class="p">)</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a>    <span class="k">return</span> <span class="n">parse_openai_logprobs</span><span class="p">(</span><span class="n">resp</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">logprobs</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a>
+<a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="n">rt</span> <span class="o">=</span> <span class="n">RuntimeConfig</span><span class="p">(</span><span class="n">generate_fn</span><span class="o">=...</span><span class="p">,</span> <span class="n">logprobs_fn</span><span class="o">=</span><span class="n">logprobs_fn</span><span class="p">)</span>
+</code></pre></div>
+<p>Full runnable example: <code>examples/analyzer_demos/logprob_entropy/</code> (launch with <code>docker compose up</code>).</p>
+<hr />
+<h2 id="statistical-comparison-statscompare">Statistical Comparison — <code>stats.compare</code></h2>
+<p><code>compare</code> is the single entry point for pairwise A/B comparison. It <strong>never</strong>
+returns a bare p-value: it always gives effect size + clustered bootstrap CI +
+anytime-valid e-value + corrected reject decision.</p>
+<blockquote>
+<p>McNemar: McNemar (1947) <a href="https://doi.org/10.1007/BF02295996">https://doi.org/10.1007/BF02295996</a><br />
+E-values: Grünwald et al. (2022) <a href="https://arxiv.org/abs/1906.07801">https://arxiv.org/abs/1906.07801</a><br />
+e-BH FDR: Wang &amp; Ramdas (2022) <a href="https://arxiv.org/abs/2009.02824">https://arxiv.org/abs/2009.02824</a></p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">compare</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="c1"># success_a / success_b: list of bool (one per example, same order)</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="n">r</span> <span class="o">=</span> <span class="n">compare</span><span class="p">(</span><span class="n">success_a</span><span class="p">,</span> <span class="n">success_b</span><span class="p">,</span> <span class="n">paired</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>            <span class="n">min_effect</span><span class="o">=</span><span class="mf">0.03</span><span class="p">,</span> <span class="n">cluster_by</span><span class="o">=</span><span class="n">task_ids</span><span class="p">)</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
+<a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a><span class="c1"># [mcnemar + e-value] effect=+0.12 (B&gt;A) CI=[+0.04, +0.20] e=18.4 → REJECT H0</span>
+<a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a>
+<a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">effect</span><span class="p">)</span>      <span class="c1"># float: mean(B) - mean(A)</span>
+<a id="__codelineno-23-11" name="__codelineno-23-11" href="#__codelineno-23-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">ci</span><span class="p">)</span>          <span class="c1"># (lo, hi) 95% clustered bootstrap CI</span>
+<a id="__codelineno-23-12" name="__codelineno-23-12" href="#__codelineno-23-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">e_value</span><span class="p">)</span>     <span class="c1"># float: anytime-valid evidence (reject when e ≥ 1/alpha)</span>
+<a id="__codelineno-23-13" name="__codelineno-23-13" href="#__codelineno-23-13"></a><span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">reject</span><span class="p">)</span>      <span class="c1"># bool: corrected decision</span>
+<a id="__codelineno-23-14" name="__codelineno-23-14" href="#__codelineno-23-14"></a><span class="nb">print</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">underpowered</span><span class="p">)</span>  <span class="c1"># bool: True when CI width &gt; 2 × min_effect</span>
+</code></pre></div>
+<p>For <strong>3+ strategies</strong> use <code>compare_multiple</code> (Friedman omnibus + Nemenyi post-hoc):</p>
+<blockquote>
+<p>Friedman + Nemenyi: Demšar (2006) <a href="https://jmlr.org/papers/v7/demsarar06a.html">https://jmlr.org/papers/v7/demsarar06a.html</a></p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">compare_multiple</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="n">mr</span> <span class="o">=</span> <span class="n">compare_multiple</span><span class="p">({</span><span class="s2">"A"</span><span class="p">:</span> <span class="n">success_a</span><span class="p">,</span> <span class="s2">"B"</span><span class="p">:</span> <span class="n">success_b</span><span class="p">,</span> <span class="s2">"C"</span><span class="p">:</span> <span class="n">success_c</span><span class="p">},</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.05</span><span class="p">)</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">mr</span><span class="o">.</span><span class="n">reject_global</span><span class="p">)</span>      <span class="c1"># bool: at least one strategy differs</span>
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">mr</span><span class="o">.</span><span class="n">avg_ranks</span><span class="p">)</span>          <span class="c1"># {"A": 2.1, "B": 1.7, "C": 2.2}</span>
+<a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">mr</span><span class="o">.</span><span class="n">significant_pairs</span><span class="p">)</span>  <span class="c1"># [("A", "B"), ...] — pairs that pass Nemenyi CD</span>
+</code></pre></div>
+<hr />
+<h2 id="vldiagnoseloop-automated-failure-attribution-current">VLDiagnoseLoop — Automated Failure Attribution (Current)</h2>
+<p>Two diagnosis loops are available. <code>VLDiagnoseLoop</code> is the current
+architecture for VL and LLM tasks (<code>AutoDiagnoseLoop</code>, below, is kept for
+backward compatibility):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>M1  ProbeAgent         protocol-guided analyzer selection + execute
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>M2  StatsAnalysisAgent stats tools + e-BH FDR correction + LLM evidence chain
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>M3  DiagnosisAgent     "AI scientist" hypothesis generation
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>M4  HypothesisTester   stats test + protocol consistency check
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>     ↑___________________________________|
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a>     stop when M4 finds a verified, protocol-consistent hypothesis
+</code></pre></div>
+<p>M5 (<code>SurgeryAgent</code>) runs <strong>after</strong> the loop via <code>loop.run_m5()</code> to propose
+(Plan A) or execute (Plan B) a targeted fix for the best verified hypothesis.
+See <a href="../architecture/#eval_agent-automated-diagnosis-pipeline">Architecture</a>
+for the stage contracts, M1's two-tier analyzer selection, and what M2/M4 ask.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx</span><span class="w"> </span><span class="kn">import</span> <span class="n">compose</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.core.capability</span><span class="w"> </span><span class="kn">import</span> <span class="n">Capability</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">VLDiagnoseLoop</span><span class="p">,</span> <span class="n">AgyModel</span><span class="p">,</span> <span class="n">RunLoggerV2</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent.stages.protocol</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExperimentProtocol</span>
+<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent.stages.probe_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProbeAgent</span>
+<a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analysis.stats_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">StatsAnalysisAgent</span>
+<a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent.stages.diagnosis</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiagnosisAgent</span>
+<a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a>
+<a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a><span class="n">protocol</span> <span class="o">=</span> <span class="n">ExperimentProtocol</span><span class="p">(</span>
+<a id="__codelineno-26-10" name="__codelineno-26-10" href="#__codelineno-26-10"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">"The VLM gives wrong left/right positions in spatial questions."</span><span class="p">,</span>
+<a id="__codelineno-26-11" name="__codelineno-26-11" href="#__codelineno-26-11"></a>    <span class="n">task_domain</span><span class="o">=</span><span class="s2">"spatial reasoning"</span><span class="p">,</span>
+<a id="__codelineno-26-12" name="__codelineno-26-12" href="#__codelineno-26-12"></a>    <span class="n">success_criteria</span><span class="o">=</span><span class="s2">"Positions must match what is visible in the image."</span><span class="p">,</span>
+<a id="__codelineno-26-13" name="__codelineno-26-13" href="#__codelineno-26-13"></a><span class="p">)</span>
+<a id="__codelineno-26-14" name="__codelineno-26-14" href="#__codelineno-26-14"></a>
+<a id="__codelineno-26-15" name="__codelineno-26-15" href="#__codelineno-26-15"></a><span class="n">model</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen2.5-vl-7b-instruct"</span><span class="p">,</span> <span class="s2">"hf_local"</span><span class="p">,</span>
+<a id="__codelineno-26-16" name="__codelineno-26-16" href="#__codelineno-26-16"></a>                <span class="n">want</span><span class="o">=</span><span class="p">{</span><span class="n">Capability</span><span class="o">.</span><span class="n">GENERATE</span><span class="p">,</span> <span class="n">Capability</span><span class="o">.</span><span class="n">ATTENTION</span><span class="p">})</span>
+<a id="__codelineno-26-17" name="__codelineno-26-17" href="#__codelineno-26-17"></a><span class="n">judge</span> <span class="o">=</span> <span class="n">AgyModel</span><span class="p">()</span>   <span class="c1"># or any Model with Capability.GENERATE</span>
+<a id="__codelineno-26-18" name="__codelineno-26-18" href="#__codelineno-26-18"></a>
+<a id="__codelineno-26-19" name="__codelineno-26-19" href="#__codelineno-26-19"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">VLDiagnoseLoop</span><span class="p">(</span>
+<a id="__codelineno-26-20" name="__codelineno-26-20" href="#__codelineno-26-20"></a>    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-26-21" name="__codelineno-26-21" href="#__codelineno-26-21"></a>    <span class="n">probe_agent</span><span class="o">=</span><span class="n">ProbeAgent</span><span class="p">(</span><span class="n">max_analyzers</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+<a id="__codelineno-26-22" name="__codelineno-26-22" href="#__codelineno-26-22"></a>    <span class="n">stats_agent</span><span class="o">=</span><span class="n">StatsAnalysisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">),</span>
+<a id="__codelineno-26-23" name="__codelineno-26-23" href="#__codelineno-26-23"></a>    <span class="n">diagnosis_agent</span><span class="o">=</span><span class="n">DiagnosisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">),</span>
+<a id="__codelineno-26-24" name="__codelineno-26-24" href="#__codelineno-26-24"></a>    <span class="n">max_cycles</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<a id="__codelineno-26-25" name="__codelineno-26-25" href="#__codelineno-26-25"></a>    <span class="n">protocol</span><span class="o">=</span><span class="n">protocol</span><span class="p">,</span>
+<a id="__codelineno-26-26" name="__codelineno-26-26" href="#__codelineno-26-26"></a>    <span class="n">run_logger</span><span class="o">=</span><span class="n">RunLoggerV2</span><span class="p">(),</span>
+<a id="__codelineno-26-27" name="__codelineno-26-27" href="#__codelineno-26-27"></a><span class="p">)</span>
+<a id="__codelineno-26-28" name="__codelineno-26-28" href="#__codelineno-26-28"></a><span class="n">report</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">failure_cases</span><span class="p">)</span>
+<a id="__codelineno-26-29" name="__codelineno-26-29" href="#__codelineno-26-29"></a>
+<a id="__codelineno-26-30" name="__codelineno-26-30" href="#__codelineno-26-30"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">resolved</span><span class="p">)</span>           <span class="c1"># True when M4 finds a supported, consistent hypothesis</span>
+<a id="__codelineno-26-31" name="__codelineno-26-31" href="#__codelineno-26-31"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">final_hypotheses</span><span class="p">)</span>   <span class="c1"># list[Hypothesis] — status SUPPORTED/REFUTED/INCONCLUSIVE</span>
+<a id="__codelineno-26-32" name="__codelineno-26-32" href="#__codelineno-26-32"></a>
+<a id="__codelineno-26-33" name="__codelineno-26-33" href="#__codelineno-26-33"></a><span class="n">fix</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">run_m5</span><span class="p">(</span><span class="n">report</span><span class="p">,</span> <span class="n">failure_cases</span><span class="p">)</span>   <span class="c1"># post-loop fix proposal</span>
+</code></pre></div>
+<p><code>RunLoggerV2()</code> above writes just its own <code>run.json</code> + <code>M&lt;n&gt;/log.json</code> files at
+the given (or auto-generated) path — no other producer's output directory.
+For a full managed output directory — figures, per-trial fix/experiment
+sandboxes, contract export — construct a <code>RunContext</code> and pass
+<code>run_logger=ctx.logger</code> instead. See
+<a href="../architecture/#runcontext-single-owner-of-a-runs-output-directory">RunContext</a>.</p>
+<p><strong><code>ExperimentProtocol</code></strong> is the human prior that anchors the loop. M1 uses it
+to select analyzers relevant to the task; M4 uses it to reject hypotheses that
+drift from what the user was investigating:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent.stages.protocol</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExperimentProtocol</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="n">protocol</span> <span class="o">=</span> <span class="n">ExperimentProtocol</span><span class="p">(</span>
+<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">"free text — what the experiment tests and what failure looks like"</span><span class="p">,</span>
+<a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a>    <span class="n">task_domain</span><span class="o">=</span><span class="s2">"spatial reasoning"</span><span class="p">,</span>      <span class="c1"># short label</span>
+<a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a>    <span class="n">success_criteria</span><span class="o">=</span><span class="s2">"what counts as a pass"</span><span class="p">,</span>
+<a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a>    <span class="n">failure_patterns</span><span class="o">=</span><span class="s2">"observations already noticed (optional)"</span><span class="p">,</span>
+<a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a>    <span class="n">target_modalities</span><span class="o">=</span><span class="nb">frozenset</span><span class="p">({</span><span class="s2">"text"</span><span class="p">,</span> <span class="s2">"image"</span><span class="p">}),</span>
+<a id="__codelineno-27-9" name="__codelineno-27-9" href="#__codelineno-27-9"></a><span class="p">)</span>
+</code></pre></div>
+<h2 id="agenticdiagnoseloop-judge-decided-m1-m4-alternative-to-the-fixed-cycle">AgenticDiagnoseLoop — Judge-Decided M1-M4 (Alternative to the Fixed Cycle)</h2>
+<p><code>VLDiagnoseLoop</code> above always runs M1→M2→M3→M4 in the same order every cycle.
+<code>AgenticDiagnoseLoop</code> wraps the identical stages, confirm-split, and post-loop
+<code>run_m5</code>/<code>run_fix</code> — but a CLI judge decides which tool to call next each
+turn (probe, run stats, explore the raw data, cluster failure modes, search
+for new failure cases via a Macro/Micro MCTS probe search, propose
+hypotheses, test one, fix, or stop), instead of a fixed sequence. The host — not the judge —
+enforces call limits, tool preconditions, and the stopping discipline: the
+judge cannot declare success (<code>stop(resolved=true)</code>) until a hypothesis has
+actually been tested and is statistically supported and protocol-consistent;
+an early attempt is rejected and fed back to the judge.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgenticDiagnoseLoop</span><span class="p">,</span> <span class="n">ClaudeModel</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">AgenticDiagnoseLoop</span><span class="p">(</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a>    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a>    <span class="n">protocol</span><span class="o">=</span><span class="n">protocol</span><span class="p">,</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a>    <span class="n">judge</span><span class="o">=</span><span class="n">ClaudeModel</span><span class="p">(),</span>        <span class="c1"># the decision judge — any CLI-backed Model</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a>    <span class="n">max_actions</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>             <span class="c1"># hard cap on judge decision turns</span>
+<a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a>    <span class="n">run_logger</span><span class="o">=</span><span class="n">RunLoggerV2</span><span class="p">(),</span>
+<a id="__codelineno-28-9" name="__codelineno-28-9" href="#__codelineno-28-9"></a><span class="p">)</span>
+<a id="__codelineno-28-10" name="__codelineno-28-10" href="#__codelineno-28-10"></a><span class="n">report</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">failure_cases</span><span class="p">)</span>   <span class="c1"># same VLDiagnoseReport shape as VLDiagnoseLoop</span>
+</code></pre></div>
+<p><code>report.stopped_by</code> is one of <code>agent_stop</code> / <code>max_actions</code> / <code>budget</code> /
+<code>time_budget</code> / <code>invalid_actions</code> (three consecutive unparseable judge
+responses, even after a repair prompt). Two event types — <code>agent_decision</code>
+(the chosen tool + rationale) and <code>agent_tool</code> (the dispatch layer's
+accept/reject outcome) — sit inside <code>run.json</code>, alongside the reused
+<code>probe</code>/<code>analysis</code>/<code>diagnosis</code>/<code>surgery</code> events from the wrapped stages
+(<code>log_agent_decision</code>/<code>log_agent_tool</code>).</p>
+<h2 id="input-modes-submitting-a-diagnosis-run">Input Modes — Submitting a Diagnosis Run</h2>
+<p>There are two ways to trigger the diagnosis agent.</p>
+<h3 id="mode-1-container-submission-reproduce-a-known-failure">Mode 1 — Container Submission (Reproduce a Known Failure)</h3>
+<p>Write a <code>run.py</code> that defines your failure cases as <code>FailureCase</code> objects,
+then package it into a Docker container. The agent runs the M1→M5 loop
+inside the container and writes findings to <code>outputs/</code>.</p>
+<ol>
+<li><strong>Define failure cases and run the loop</strong> in <code>run.py</code> — see the
+   <code>VLDiagnoseLoop</code> example above; build a <code>CaseBatch</code> of <code>FailureCase</code>
+   objects instead of <code>failure_cases</code> and call <code>loop.run(cases)</code>.</li>
+<li><strong>Add a Dockerfile + docker-compose.yml</strong> mirroring one of the concrete
+   example directories under <code>examples/analyzer_demos/</code>, <code>examples/m2_m3/</code>,
+   or <code>examples/m1_m3/</code> / <code>examples/m1_m5/</code>.</li>
+<li><strong>Submit the container:</strong></li>
+</ol>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up
+</code></pre></div>
+<p>Outputs (logs, analyzer artifacts, hypotheses) are written to <code>outputs/</code> in
+the container, mounted to your local directory via the compose volume. See
+<code>examples/m1_m3/qwen_loop_agy/</code> and
+<code>examples/m1_m3/qwen_video_temporal/</code> for complete working examples.</p>
+<h3 id="mode-2-natural-language-description-agent-writes-the-container">Mode 2 — Natural-Language Description (Agent Writes the Container)</h3>
+<p>Describe the failure in plain English. The scaffold generator produces a
+ready-to-run Docker experiment with a <code>run.py</code>, <code>Dockerfile</code>, and
+<code>docker-compose.yml</code>. A CLI coding agent (Claude Code, Gemini CLI, …) can
+write a fully customised <code>run.py</code>; otherwise a template is used as a
+starting point.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">scaffold_from_description</span>
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>
+<a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a><span class="n">out</span> <span class="o">=</span> <span class="n">scaffold_from_description</span><span class="p">(</span>
+<a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a>    <span class="n">description</span><span class="o">=</span><span class="s2">"My VLM frequently confuses left and right when answering "</span>
+<a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a>                <span class="s2">"spatial relationship questions about images."</span><span class="p">,</span>
+<a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a>    <span class="n">model_key</span><span class="o">=</span><span class="s2">"qwen2.5-vl-7b-instruct"</span><span class="p">,</span>
+<a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a>    <span class="n">output_dir</span><span class="o">=</span><span class="s2">"./my_experiment"</span><span class="p">,</span>
+<a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a>    <span class="n">provider</span><span class="o">=</span><span class="s2">"claude_code"</span><span class="p">,</span>   <span class="c1"># optional: generates a bespoke run.py; omit for a template</span>
+<a id="__codelineno-30-9" name="__codelineno-30-9" href="#__codelineno-30-9"></a>    <span class="n">cli_model</span><span class="o">=</span><span class="s2">"sonnet"</span><span class="p">,</span>
+<a id="__codelineno-30-10" name="__codelineno-30-10" href="#__codelineno-30-10"></a><span class="p">)</span>
+<a id="__codelineno-30-11" name="__codelineno-30-11" href="#__codelineno-30-11"></a><span class="c1"># cd my_experiment &amp;&amp; docker compose up</span>
+</code></pre></div>
+<p>Or via CLI:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>python<span class="w"> </span>-m<span class="w"> </span>evalrx.eval_agent.nl_runner<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="w">    </span>--description<span class="w"> </span><span class="s2">"My VLM confuses left and right in spatial questions"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a><span class="w">    </span>--model<span class="w"> </span>qwen2.5-vl-7b-instruct<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="w">    </span>--out<span class="w"> </span>./my_experiment<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a><span class="w">    </span>--provider<span class="w"> </span>claude_code<span class="w"> </span>--cli-model<span class="w"> </span>sonnet<span class="w">   </span><span class="c1"># omit --provider for template mode</span>
+<a id="__codelineno-31-6" name="__codelineno-31-6" href="#__codelineno-31-6"></a>
+<a id="__codelineno-31-7" name="__codelineno-31-7" href="#__codelineno-31-7"></a><span class="nb">cd</span><span class="w"> </span>my_experiment<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>docker<span class="w"> </span>compose<span class="w"> </span>up
+</code></pre></div>
+<p>The generated scaffold contains <code>run.py</code> (diagnosis script with
+<code>ExperimentProtocol</code> pre-filled from your description), <code>Dockerfile</code>,
+<code>docker-compose.yml</code> (mounts HF cache, GPU, outputs, and agy binary), and
+<code>.gitignore</code>. In template mode, edit the <code>CASES</code> list in <code>run.py</code> to add your
+own failure examples before running <code>docker compose up</code>.</p>
+<h2 id="autodiagnoseloop-legacy-m1m5-pipeline">AutoDiagnoseLoop — Legacy M1→M5 Pipeline</h2>
+<p><code>AutoDiagnoseLoop</code> closes the analysis→diagnosis→intervention cycle automatically.
+It needs a <strong>judge model</strong> (any instruction-following model with <code>GENERATE</code>) and
+the model under evaluation.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx</span><span class="w"> </span><span class="kn">import</span> <span class="n">Capability</span>
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoDiagnoseLoop</span><span class="p">,</span> <span class="n">DiagnosisAgent</span>
+<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">compose</span>
+<a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.models.backends.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">RuntimeConfig</span>
+<a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a>
+<a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a><span class="c1"># 1. The model under evaluation (local VLM with white-box access)</span>
+<a id="__codelineno-32-7" name="__codelineno-32-7" href="#__codelineno-32-7"></a><span class="n">model</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-vl-8b-instruct"</span><span class="p">,</span> <span class="s2">"hf_local"</span><span class="p">,</span> <span class="n">want</span><span class="o">=</span><span class="p">{</span><span class="n">Capability</span><span class="o">.</span><span class="n">ATTENTION</span><span class="p">})</span>
+<a id="__codelineno-32-8" name="__codelineno-32-8" href="#__codelineno-32-8"></a>
+<a id="__codelineno-32-9" name="__codelineno-32-9" href="#__codelineno-32-9"></a><span class="c1"># 2. A capable judge (API model — needs only GENERATE)</span>
+<a id="__codelineno-32-10" name="__codelineno-32-10" href="#__codelineno-32-10"></a><span class="n">judge</span> <span class="o">=</span> <span class="n">compose</span><span class="p">(</span><span class="s2">"qwen3-8b"</span><span class="p">,</span> <span class="s2">"api"</span><span class="p">,</span> <span class="n">RuntimeConfig</span><span class="p">(</span><span class="n">generate_fn</span><span class="o">=</span><span class="n">my_generate_fn</span><span class="p">))</span>
+<a id="__codelineno-32-11" name="__codelineno-32-11" href="#__codelineno-32-11"></a>
+<a id="__codelineno-32-12" name="__codelineno-32-12" href="#__codelineno-32-12"></a><span class="c1"># 3. Build the loop</span>
+<a id="__codelineno-32-13" name="__codelineno-32-13" href="#__codelineno-32-13"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">AutoDiagnoseLoop</span><span class="p">(</span>
+<a id="__codelineno-32-14" name="__codelineno-32-14" href="#__codelineno-32-14"></a>    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-32-15" name="__codelineno-32-15" href="#__codelineno-32-15"></a>    <span class="n">diagnosis_agent</span><span class="o">=</span><span class="n">DiagnosisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">),</span>
+<a id="__codelineno-32-16" name="__codelineno-32-16" href="#__codelineno-32-16"></a>    <span class="n">max_cycles</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>     <span class="c1"># max M1→M5 iterations</span>
+<a id="__codelineno-32-17" name="__codelineno-32-17" href="#__codelineno-32-17"></a>    <span class="n">max_analyzers</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>  <span class="c1"># analyzers per cycle (ranked by diagnostic priority)</span>
+<a id="__codelineno-32-18" name="__codelineno-32-18" href="#__codelineno-32-18"></a><span class="p">)</span>
+<a id="__codelineno-32-19" name="__codelineno-32-19" href="#__codelineno-32-19"></a>
+<a id="__codelineno-32-20" name="__codelineno-32-20" href="#__codelineno-32-20"></a><span class="c1"># 4. Run on your failure cases</span>
+<a id="__codelineno-32-21" name="__codelineno-32-21" href="#__codelineno-32-21"></a><span class="n">report</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">failure_cases</span><span class="p">)</span>
+<a id="__codelineno-32-22" name="__codelineno-32-22" href="#__codelineno-32-22"></a>
+<a id="__codelineno-32-23" name="__codelineno-32-23" href="#__codelineno-32-23"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">resolved</span><span class="p">)</span>                        <span class="c1"># True if an intervention fixed it</span>
+<a id="__codelineno-32-24" name="__codelineno-32-24" href="#__codelineno-32-24"></a><span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">report</span><span class="o">.</span><span class="n">final_hypotheses</span><span class="p">:</span>
+<a id="__codelineno-32-25" name="__codelineno-32-25" href="#__codelineno-32-25"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">h</span><span class="o">.</span><span class="n">statement</span><span class="p">,</span> <span class="s2">"→"</span><span class="p">,</span> <span class="n">h</span><span class="o">.</span><span class="n">status</span><span class="p">)</span>        <span class="c1"># SUPPORTED / REFUTED / INCONCLUSIVE</span>
+<a id="__codelineno-32-26" name="__codelineno-32-26" href="#__codelineno-32-26"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="o">.</span><span class="n">final_results</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>            <span class="c1"># analyzers run in the last cycle</span>
+</code></pre></div>
+<p>To persist the run (event log, figures, report files, fix/experiment trial
+folders), wrap the loop in a <code>RunContext</code> — see "Log and persist a diagnosis
+run" in <a href="../extending/">Extending</a>.</p>
+<h3 id="analysis-only-mode">Analysis-only mode</h3>
+<p>Omit <code>diagnosis_agent</code> to run M1+M2 only — useful when you want the probe's
+ranked analysis without automated hypothesis generation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">AutoDiagnoseLoop</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">max_analyzers</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="n">report</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">cases</span><span class="p">)</span>
+<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a><span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">report</span><span class="o">.</span><span class="n">final_results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
+</code></pre></div>
+<h3 id="controlling-analyzer-selection">Controlling analyzer selection</h3>
+<p><code>StrategyProbe</code> ranks analyzers by the modality slots the run is actually about
+— the model's declared modalities intersected with the slots the batch fills:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">StrategyProbe</span><span class="p">,</span> <span class="n">ModelKind</span>
+<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>
+<a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a><span class="n">probe</span> <span class="o">=</span> <span class="n">StrategyProbe</span><span class="p">()</span>
+<a id="__codelineno-34-4" name="__codelineno-34-4" href="#__codelineno-34-4"></a><span class="n">probe</span><span class="o">.</span><span class="n">routed_slots</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span>             <span class="c1"># {"text", "audio"} for an ALM run</span>
+<a id="__codelineno-34-5" name="__codelineno-34-5" href="#__codelineno-34-5"></a><span class="n">probe</span><span class="o">.</span><span class="n">detect_kind</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>                     <span class="c1"># ModelKind.VLM / ALM / AVLM / AGENT / LLM</span>
+<a id="__codelineno-34-6" name="__codelineno-34-6" href="#__codelineno-34-6"></a><span class="n">probe</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">max_analyzers</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">cases</span><span class="p">)</span>
+</code></pre></div>
+<p>Pass <code>data=</code> whenever you have it. Without it, ranking falls back to the model's
+declaration, and an omni model on an audio benchmark is ranked as a VLM because
+it declares image.</p>
+<h3 id="custom-intervention-surgeryagent">Custom intervention (SurgeryAgent)</h3>
+<p>Override the default label-correlation verification with your own logic:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">SurgeryAgent</span><span class="p">,</span> <span class="n">InterventionResult</span><span class="p">,</span> <span class="n">HypothesisStatus</span>
+<a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a>
+<a id="__codelineno-35-3" name="__codelineno-35-3" href="#__codelineno-35-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">my_verify</span><span class="p">(</span><span class="n">hypothesis</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">results</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+<a id="__codelineno-35-4" name="__codelineno-35-4" href="#__codelineno-35-4"></a>    <span class="c1"># domain-specific logic — return True when fixed</span>
+<a id="__codelineno-35-5" name="__codelineno-35-5" href="#__codelineno-35-5"></a>    <span class="n">fixed</span> <span class="o">=</span> <span class="n">run_my_intervention</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<a id="__codelineno-35-6" name="__codelineno-35-6" href="#__codelineno-35-6"></a>    <span class="k">return</span> <span class="n">InterventionResult</span><span class="p">(</span>
+<a id="__codelineno-35-7" name="__codelineno-35-7" href="#__codelineno-35-7"></a>        <span class="n">hypothesis</span><span class="o">=</span><span class="n">hypothesis</span><span class="p">,</span>
+<a id="__codelineno-35-8" name="__codelineno-35-8" href="#__codelineno-35-8"></a>        <span class="n">status</span><span class="o">=</span><span class="n">HypothesisStatus</span><span class="o">.</span><span class="n">SUPPORTED</span> <span class="k">if</span> <span class="n">fixed</span> <span class="k">else</span> <span class="n">HypothesisStatus</span><span class="o">.</span><span class="n">INCONCLUSIVE</span><span class="p">,</span>
+<a id="__codelineno-35-9" name="__codelineno-35-9" href="#__codelineno-35-9"></a>        <span class="n">fixed</span><span class="o">=</span><span class="n">fixed</span><span class="p">,</span>
+<a id="__codelineno-35-10" name="__codelineno-35-10" href="#__codelineno-35-10"></a>        <span class="n">evidence</span><span class="o">=</span><span class="p">{</span><span class="s2">"custom"</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span>
+<a id="__codelineno-35-11" name="__codelineno-35-11" href="#__codelineno-35-11"></a>    <span class="p">)</span>
+<a id="__codelineno-35-12" name="__codelineno-35-12" href="#__codelineno-35-12"></a>
+<a id="__codelineno-35-13" name="__codelineno-35-13" href="#__codelineno-35-13"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">AutoDiagnoseLoop</span><span class="p">(</span>
+<a id="__codelineno-35-14" name="__codelineno-35-14" href="#__codelineno-35-14"></a>    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-35-15" name="__codelineno-35-15" href="#__codelineno-35-15"></a>    <span class="n">diagnosis_agent</span><span class="o">=</span><span class="n">DiagnosisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">),</span>
+<a id="__codelineno-35-16" name="__codelineno-35-16" href="#__codelineno-35-16"></a>    <span class="n">surgery_agent</span><span class="o">=</span><span class="n">SurgeryAgent</span><span class="p">(</span><span class="n">verify_fn</span><span class="o">=</span><span class="n">my_verify</span><span class="p">),</span>
+<a id="__codelineno-35-17" name="__codelineno-35-17" href="#__codelineno-35-17"></a><span class="p">)</span>
+</code></pre></div>
+<p>Or trigger a <strong>param sweep</strong> — re-run analyzers with modified settings to compare
+before/after findings:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="n">loop</span> <span class="o">=</span> <span class="n">AutoDiagnoseLoop</span><span class="p">(</span>
+<a id="__codelineno-36-2" name="__codelineno-36-2" href="#__codelineno-36-2"></a>    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+<a id="__codelineno-36-3" name="__codelineno-36-3" href="#__codelineno-36-3"></a>    <span class="n">diagnosis_agent</span><span class="o">=</span><span class="n">DiagnosisAgent</span><span class="p">(</span><span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">),</span>
+<a id="__codelineno-36-4" name="__codelineno-36-4" href="#__codelineno-36-4"></a>    <span class="n">surgery_agent</span><span class="o">=</span><span class="n">SurgeryAgent</span><span class="p">(</span><span class="n">analyzer_params</span><span class="o">=</span><span class="p">{</span><span class="s2">"attention"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"top_k"</span><span class="p">:</span> <span class="mi">20</span><span class="p">}}),</span>
+<a id="__codelineno-36-5" name="__codelineno-36-5" href="#__codelineno-36-5"></a><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="eval-agent-pre-registered-ab-loop">Eval Agent — Pre-Registered A/B Loop</h2>
+<p><code>EvalOrchestrator</code> enforces selective-inference safety: mine on <code>explore</code>,
+pre-register a falsifiable hypothesis (hash + timestamp) <strong>before</strong> unblinding,
+test once on <code>validate</code>, lock <code>confirm</code> for the final report.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.eval_agent</span><span class="w"> </span><span class="kn">import</span> <span class="n">EvalOrchestrator</span><span class="p">,</span> <span class="n">PreregisteredHypothesis</span><span class="p">,</span> <span class="n">DataSplit</span>
+<a id="__codelineno-37-2" name="__codelineno-37-2" href="#__codelineno-37-2"></a>
+<a id="__codelineno-37-3" name="__codelineno-37-3" href="#__codelineno-37-3"></a><span class="n">hyp</span> <span class="o">=</span> <span class="n">PreregisteredHypothesis</span><span class="p">(</span>
+<a id="__codelineno-37-4" name="__codelineno-37-4" href="#__codelineno-37-4"></a>    <span class="n">predicate</span><span class="o">=</span><span class="s2">"cluttered scenes"</span><span class="p">,</span>
+<a id="__codelineno-37-5" name="__codelineno-37-5" href="#__codelineno-37-5"></a>    <span class="n">statement</span><span class="o">=</span><span class="s2">"chain-of-thought prompt improves accuracy on multi-step questions"</span><span class="p">,</span>
+<a id="__codelineno-37-6" name="__codelineno-37-6" href="#__codelineno-37-6"></a>    <span class="n">direction</span><span class="o">=</span><span class="s2">"B&gt;A"</span><span class="p">,</span>
+<a id="__codelineno-37-7" name="__codelineno-37-7" href="#__codelineno-37-7"></a>    <span class="n">min_effect</span><span class="o">=</span><span class="mf">0.03</span><span class="p">,</span>
+<a id="__codelineno-37-8" name="__codelineno-37-8" href="#__codelineno-37-8"></a>    <span class="n">alpha</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span>
+<a id="__codelineno-37-9" name="__codelineno-37-9" href="#__codelineno-37-9"></a>    <span class="n">split</span><span class="o">=</span><span class="s2">"validate"</span><span class="p">,</span>
+<a id="__codelineno-37-10" name="__codelineno-37-10" href="#__codelineno-37-10"></a><span class="p">)</span>
+<a id="__codelineno-37-11" name="__codelineno-37-11" href="#__codelineno-37-11"></a>
+<a id="__codelineno-37-12" name="__codelineno-37-12" href="#__codelineno-37-12"></a><span class="n">orch</span> <span class="o">=</span> <span class="n">EvalOrchestrator</span><span class="p">(</span><span class="n">split</span><span class="o">=</span><span class="n">DataSplit</span><span class="p">(</span><span class="n">explore_frac</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">validate_frac</span><span class="o">=</span><span class="mf">0.3</span><span class="p">))</span>
+<a id="__codelineno-37-13" name="__codelineno-37-13" href="#__codelineno-37-13"></a><span class="n">report</span> <span class="o">=</span> <span class="n">orch</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">cases</span><span class="p">,</span> <span class="n">hyp</span><span class="p">,</span> <span class="n">strategy_a</span><span class="p">,</span> <span class="n">strategy_b</span><span class="p">)</span>
+<a id="__codelineno-37-14" name="__codelineno-37-14" href="#__codelineno-37-14"></a>
+<a id="__codelineno-37-15" name="__codelineno-37-15" href="#__codelineno-37-15"></a><span class="c1"># report keys: prereg_hash, decision, effect, ci, e_value, split, hypothesis</span>
+<a id="__codelineno-37-16" name="__codelineno-37-16" href="#__codelineno-37-16"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="p">[</span><span class="s2">"prereg_hash"</span><span class="p">])</span>   <span class="c1"># proves hypothesis was fixed before unblinding</span>
+<a id="__codelineno-37-17" name="__codelineno-37-17" href="#__codelineno-37-17"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="p">[</span><span class="s2">"decision"</span><span class="p">])</span>      <span class="c1"># "REJECT H0" or "inconclusive"</span>
+<a id="__codelineno-37-18" name="__codelineno-37-18" href="#__codelineno-37-18"></a><span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="p">[</span><span class="s2">"effect"</span><span class="p">])</span>        <span class="c1"># float</span>
+</code></pre></div>
+<p><strong>CounterfactualReplay</strong> ranks agent trajectory steps by causal influence (flip-rate):</p>
+<blockquote>
+<p>Causal framework: Pearl (2000) <em>Causality</em><br />
+Applied to NLP: Vig et al. 2020 — <a href="https://arxiv.org/abs/2004.12265">https://arxiv.org/abs/2004.12265</a></p>
+</blockquote>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.agent.counterfactual</span><span class="w"> </span><span class="kn">import</span> <span class="n">CounterfactualReplay</span>
+<a id="__codelineno-38-2" name="__codelineno-38-2" href="#__codelineno-38-2"></a>
+<a id="__codelineno-38-3" name="__codelineno-38-3" href="#__codelineno-38-3"></a><span class="k">def</span><span class="w"> </span><span class="nf">rerun_fn</span><span class="p">(</span><span class="n">trajectory</span><span class="p">,</span> <span class="n">step_idx</span><span class="p">,</span> <span class="n">seed</span><span class="p">):</span>
+<a id="__codelineno-38-4" name="__codelineno-38-4" href="#__codelineno-38-4"></a>    <span class="c1"># wrap your live agent + verifier here; return True/False (success)</span>
+<a id="__codelineno-38-5" name="__codelineno-38-5" href="#__codelineno-38-5"></a>    <span class="o">...</span>
+<a id="__codelineno-38-6" name="__codelineno-38-6" href="#__codelineno-38-6"></a>
+<a id="__codelineno-38-7" name="__codelineno-38-7" href="#__codelineno-38-7"></a><span class="n">analyzer</span> <span class="o">=</span> <span class="n">CounterfactualReplay</span><span class="p">(</span><span class="n">rerun_fn</span><span class="o">=</span><span class="n">rerun_fn</span><span class="p">,</span> <span class="n">n_replays</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<a id="__codelineno-38-8" name="__codelineno-38-8" href="#__codelineno-38-8"></a><span class="n">result</span> <span class="o">=</span> <span class="n">analyzer</span><span class="o">.</span><span class="n">_run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">CaseBatch</span><span class="p">([</span><span class="n">case_with_trajectory</span><span class="p">]))</span>
+<a id="__codelineno-38-9" name="__codelineno-38-9" href="#__codelineno-38-9"></a><span class="c1"># result.findings["per_case"][0]["steps"] →</span>
+<a id="__codelineno-38-10" name="__codelineno-38-10" href="#__codelineno-38-10"></a><span class="c1">#   [{"step": 1, "action": "extract_answer", "flip_rate": 0.80}, ...]</span>
+<a id="__codelineno-38-11" name="__codelineno-38-11" href="#__codelineno-38-11"></a><span class="c1"># High flip_rate ⇒ that step was causally influential.</span>
+</code></pre></div>
+<p>Full runnable example: <code>examples/preregistered_ab_demo/eval_agent/</code> (no API key needed, <code>docker compose up</code>).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

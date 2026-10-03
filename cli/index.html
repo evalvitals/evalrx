@@ -1,0 +1,1551 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Failure case analysis for LLMs and VLMs">
+      
+      
+      
+        <link rel="canonical" href="https://evalvitals.github.io/evalrx/cli/">
+      
+      
+        <link rel="prev" href="../quickstart/">
+      
+      
+        <link rel="next" href="../m2_analysis/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Command-Line Interface - EvalRX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#command-line-interface" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="EvalRX" class="md-header__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EvalRX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Command-Line Interface
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Overview
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quickstart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quickstart
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Command-Line Interface
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../m2_analysis/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Exploratory Analysis (M2/M3)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../intervention/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Verification & Intervention (M4/M5)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../stage_io/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Stage Input/Output Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../analyzers/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Analyzer Zoo
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../extending/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Extending
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="EvalRX" class="md-nav__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EvalRX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-Line Interface
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-Line Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-cli-does-and-doesnt-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this CLI does — and doesn't — run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-two-jobs-a-subcommand-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two jobs a subcommand does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-viewer-command-do-i-want" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which viewer command do I want?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-explore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx explore
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-run-codebase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx run-codebase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx serve
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-publish-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx publish-report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-dashboard-deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx dashboard (deprecated)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-export-langfuse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx export-langfuse
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-backfill-langfuse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx backfill-langfuse
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../m2_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exploratory Analysis (M2/M3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intervention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verification & Intervention (M4/M5)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage_io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Input/Output Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analyzers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyzer Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-cli-does-and-doesnt-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this CLI does — and doesn't — run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-two-jobs-a-subcommand-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two jobs a subcommand does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-viewer-command-do-i-want" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which viewer command do I want?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-explore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx explore
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-run-codebase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx run-codebase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-serve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx serve
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-publish-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx publish-report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-dashboard-deprecated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx dashboard (deprecated)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-export-langfuse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx export-langfuse
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evalrx-backfill-langfuse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evalrx backfill-langfuse
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="command-line-interface">Command-Line Interface</h1>
+<p>Installing the package installs one console script, <code>evalrx</code>
+(<code>evalrx.cli:main</code>), with eight subcommands. <code>evalrx &lt;command&gt; --help</code> is
+always the source of truth for flags; this page is the map of which command
+does what and how they chain together.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>evalrx<span class="w"> </span>--help
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>evalrx<span class="w"> </span>&lt;command&gt;<span class="w"> </span>--help
+</code></pre></div>
+<p><code>-v</code> / <code>--verbose</code> (before the subcommand) turns on EvalRX's internal
+stage-by-stage narration for any of them. Any command that prints a local UI
+address or a just-written report file (<code>serve</code>, <code>dashboard</code>, and the
+<code>report.html</code> every <code>explore</code> run writes) prints it as a clickable link in a
+terminal that supports OSC 8 hyperlinks (most modern ones do); it degrades
+to plain text automatically on a redirected/non-tty stream, or set
+<code>EVALRX_NO_HYPERLINKS=1</code> to force plain text.</p>
+<h2 id="what-this-cli-does-and-doesnt-run">What this CLI does — and doesn't — run</h2>
+<p><code>explore</code>/<code>run-codebase</code> only ever drive <strong>M2 (explore) → M3 (propose
+hypotheses) → M4-as-<code>--holdout-confirm</code></strong> — see the live-narration note under
+<a href="#evalrx-explore"><code>evalrx explore</code></a> below for what that looks like. <strong>There
+is no CLI command for M1 (targeted probing) or M5 (repair/intervention).</strong>
+The full M1→M5 loop (<code>VLDiagnoseLoop</code>/<code>AutoDiagnoseLoop</code>) is Python-API only
+— see <a href="../quickstart/#vldiagnoseloop-automated-failure-attribution-current">Quickstart</a>
+— or run as a complete example:</p>
+<ul>
+<li><strong>Zero setup:</strong> <a href="https://evalvitals.github.io/evalrx/demo/">evalvitals.github.io/evalrx/demo</a> —
+  two committed, real M1→M5 runs (VLM/ChartQA, ALM/MMAU), viewable in the
+  browser with nothing installed.</li>
+<li><strong>Run one yourself:</strong> <code>examples/m1_m5/deco_hallu</code> runs the real chain
+  end-to-end against a live VLM — needs a CUDA GPU, cached model weights, and
+  a coding-agent CLI for the judge. Launch it with <code>docker compose up</code> from
+  that directory (this repo's examples are Docker-only — see the example's
+  own <code>README.md</code>), then <code>evalrx serve outputs</code> to view the result. It
+  already runs with live M1-M5 terminal narration — same visual style as
+  <code>explore</code>'s, built from <code>RunLoggerV2(..., narrate=True)</code> — since its
+  <code>run.py</code> opts in; do the same in your own <code>RunLoggerV2(...)</code> call to get
+  it (see <code>evalrx.eval_agent.narration.LoopNarrator</code>).</li>
+</ul>
+<h2 id="the-two-jobs-a-subcommand-does">The two jobs a subcommand does</h2>
+<table>
+<thead>
+<tr>
+<th>Job</th>
+<th>Commands</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Produce</strong> a run — turn result logs, a codebase, or a diagnosis loop into an output directory</td>
+<td><a href="#evalrx-explore"><code>explore</code></a>, <a href="#evalrx-run-codebase"><code>run-codebase</code></a></td>
+</tr>
+<tr>
+<td><strong>View or export</strong> a finished run — everything below reads a run directory, none of them re-run the model</td>
+<td><a href="#evalrx-serve"><code>serve</code></a>, <a href="#evalrx-report"><code>report</code></a>, <a href="#evalrx-publish-report"><code>publish-report</code></a>, <a href="#evalrx-dashboard-deprecated"><code>dashboard</code></a>, <a href="#evalrx-export-langfuse"><code>export-langfuse</code></a>, <a href="#evalrx-backfill-langfuse"><code>backfill-langfuse</code></a></td>
+</tr>
+</tbody>
+</table>
+<p>A "run directory" is either an <code>explore</code> output (<code>exploratory_report.json</code> +
+<code>figures/</code> + <code>tables/</code>) or a loop run (<code>run.json</code>/<code>M1..M5</code>, or a <code>logs/</code>
+folder holding those) — every viewing command accepts either shape.</p>
+<h2 id="which-viewer-command-do-i-want">Which viewer command do I want?</h2>
+<p>Four commands all read the same run directory and this is the part that
+actually confuses people, because two of them sound like the same thing:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it produces</th>
+<th>When to reach for it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>evalrx serve</code></td>
+<td>Starts a local FastAPI server and opens the <strong>dynamic</strong> React report UI (<code>http://127.0.0.1:8501</code> by default) — the same interactive interface used throughout this repo's own examples. Nothing is written to disk beyond a small <code>.evalrx-cache</code> unless you also ask it to publish.</td>
+<td>Default choice. Point it at a run dir, or launch with none and drop a <code>.zip</code> on the page. <code>--runs-root</code> adds a runs panel to browse several experiments from one server.</td>
+</tr>
+<tr>
+<td><code>evalrx report</code></td>
+<td>Renders the <strong>same</strong> React UI but bakes it into one portable, self-contained <code>report.html</code> — no server, no network.</td>
+<td>Sharing a result with someone who won't run a Python server, or archiving a run as a single file.</td>
+</tr>
+<tr>
+<td><code>evalrx publish-report</code></td>
+<td>Compiles and caches the underlying <code>ReportData</code> + layout spec that both <code>serve</code> and <code>report</code> render, without launching or exporting anything.</td>
+<td>Pre-warming the cache for a run before serving it, or CI.</td>
+</tr>
+<tr>
+<td><code>evalrx dashboard</code></td>
+<td><strong>Deprecated.</strong> A dependency-free static-HTML server predating the React UI (<code>evalrx/analysis/dashboard.py</code>). Kept only for old <code>explore</code> outputs that never got a React-compatible <code>report.html</code>.</td>
+<td>Don't reach for this new — use <code>serve</code>.</td>
+</tr>
+</tbody>
+</table>
+<p><code>serve</code>/<code>report</code>/<code>publish-report</code> all take <code>--source {auto,local,langfuse}</code> +
+<code>--trace-id</code>: point them at a Langfuse trace instead of a local directory.</p>
+<h2 id="evalrx-explore"><code>evalrx explore</code></h2>
+<p>Single-shot exploratory analysis (M2 + M3) over a results directory — no
+loop, no code. A local CLI coding agent writes and runs the analysis code;
+the host adjudicates the statistics and renders figures.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>evalrx<span class="w"> </span>explore<span class="w"> </span>./results<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--backend<span class="w"> </span>codex<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>-q<span class="w"> </span><span class="s2">"What distinguishes failed cases from successful ones?"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span>--serve-report
+</code></pre></div>
+<p>By default this prints one live, aligned line per stage as it actually
+happens — the same <code>M2  explore ············ …</code> style the landing page's
+"simulated run" walkthrough shows, except every count and duration here is
+real (figures rendered, candidate signals found, hypotheses proposed, a
+repair-retry when the coding agent's first attempt needs fixing). Pass
+<code>--no-narrate</code> for plain output (e.g. when piping to a file); color is
+already skipped automatically for a non-tty stream or when <code>NO_COLOR</code> is
+set.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code> (positional)</td>
+<td>—</td>
+<td>File or directory of JSON/JSONL results. Required.</td>
+</tr>
+<tr>
+<td><code>-q, --question</code></td>
+<td><em>"Explore this dataset…"</em></td>
+<td>Natural-language analysis question for the coding agent.</td>
+</tr>
+<tr>
+<td><code>--outcome-col</code></td>
+<td>auto-detect</td>
+<td>Target/outcome column name. Falls back to unsupervised EDA when none is found.</td>
+</tr>
+<tr>
+<td><code>--out</code></td>
+<td><code>evalrx_explore_output</code></td>
+<td>Output directory for report/code/figures/tables.</td>
+</tr>
+<tr>
+<td><code>--backend</code> (<code>--coder-provider</code>)</td>
+<td><code>antigravity</code></td>
+<td>Coding-agent CLI: <code>antigravity</code>, <code>codex</code>, <code>claude_code</code>, <code>opencode</code>, <code>gemini_cli</code>, <code>kimi_cli</code>. Must be installed + authenticated separately.</td>
+</tr>
+<tr>
+<td><code>--model</code> (<code>--coder-model</code>)</td>
+<td>backend default</td>
+<td>Model name passed to the coding agent.</td>
+</tr>
+<tr>
+<td><code>--max-rows</code> / <code>--max-files</code></td>
+<td><code>2000</code> / <code>200</code></td>
+<td>Sampling caps for large inputs.</td>
+</tr>
+<tr>
+<td><code>--timeout-sec</code> / <code>--max-attempts</code></td>
+<td><code>120</code> / <code>2</code></td>
+<td>Per-attempt timeout and repair-retry budget.</td>
+</tr>
+<tr>
+<td><code>--serve-report</code></td>
+<td>off</td>
+<td>Launch <code>serve</code> on the output when the run finishes.</td>
+</tr>
+<tr>
+<td><code>--port</code></td>
+<td>auto</td>
+<td>Port for <code>--serve-report</code>.</td>
+</tr>
+<tr>
+<td><code>--skill DIR</code> (repeatable)</td>
+<td>—</td>
+<td>Agent-Skill directory to style agent-authored figures. Implies <code>--allow-skills</code>.</td>
+</tr>
+<tr>
+<td><code>--no-skills</code></td>
+<td>off</td>
+<td>Skip the package's bundled skills (e.g. <code>nature-figure</code>).</td>
+</tr>
+<tr>
+<td><code>--no-hypotheses</code></td>
+<td>off</td>
+<td>Skip M3 — stop after M2's takeaways.</td>
+</tr>
+<tr>
+<td><code>--holdout-frac</code></td>
+<td><code>0.0</code></td>
+<td>Fraction held out <em>before</em> exploration (outcome-stratified, deterministic).</td>
+</tr>
+<tr>
+<td><code>--holdout-confirm</code></td>
+<td>off</td>
+<td>Re-test frozen recipes/hypotheses on the held-out rows (<code>confirm_report.json</code>). Requires <code>--holdout-frac &gt; 0</code>.</td>
+</tr>
+<tr>
+<td><code>--judge-model</code></td>
+<td><code>claude-opus-4-8</code></td>
+<td>Judge grading each hypothesis against the held-out table (only with <code>--holdout-confirm</code>).</td>
+</tr>
+<tr>
+<td><code>--no-narrate</code></td>
+<td>off</td>
+<td>Don't print live per-stage terminal narration (see above).</td>
+</tr>
+<tr>
+<td><code>--progress-path PATH</code></td>
+<td>—</td>
+<td>Also append durable JSONL progress events to <code>PATH</code>, for a separate workbench UI — independent of narration; both can run together.</td>
+</tr>
+</tbody>
+</table>
+<p><code>--dashboard</code> still exists as a deprecated alias for <code>--serve-report</code>.</p>
+<h2 id="evalrx-run-codebase"><code>evalrx run-codebase</code></h2>
+<p>For when you don't have result logs yet — only an evaluation/inference
+codebase. A CLI coding agent runs it inside an isolated copy (your original
+directory is never modified), harvests a <code>records.json</code>/<code>.jsonl</code> output, and
+hands it to the same <code>explore</code> (M2+M3) pipeline.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>evalrx<span class="w"> </span>run-codebase<span class="w"> </span>./my_eval_repo<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--backend<span class="w"> </span>claude_code<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>-q<span class="w"> </span><span class="s2">"Where does the model fail and why?"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--out<span class="w"> </span>evalrx_run_codebase_output
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code> (positional)</td>
+<td>—</td>
+<td>Directory containing the codebase to run. Required.</td>
+</tr>
+<tr>
+<td><code>-q, --question</code></td>
+<td><em>"Explore this dataset…"</em></td>
+<td>Also given to the run agent as task context.</td>
+</tr>
+<tr>
+<td><code>--out</code></td>
+<td><code>evalrx_run_codebase_output</code></td>
+<td>Output directory for workspace/records/report/figures/tables.</td>
+</tr>
+<tr>
+<td><code>--backend</code> (<code>--coder-provider</code>)</td>
+<td><code>claude_code</code></td>
+<td>Same choices as <code>explore</code>. Used both to run the codebase and to explore it.</td>
+</tr>
+<tr>
+<td><code>--records-name</code></td>
+<td><code>records.json</code></td>
+<td>Output-contract filename the run agent must write.</td>
+</tr>
+<tr>
+<td><code>--timeout-sec</code> / <code>--max-attempts</code></td>
+<td><code>1200</code> / <code>2</code></td>
+<td>Budget for running the codebase itself.</td>
+</tr>
+<tr>
+<td><code>--no-explore</code></td>
+<td>off</td>
+<td>Only run + harvest; skip the M2/M3 explore step.</td>
+</tr>
+<tr>
+<td><code>--serve-report</code> / <code>--port</code></td>
+<td>off / auto</td>
+<td>Same as <code>explore</code>.</td>
+</tr>
+<tr>
+<td><code>--no-narrate</code></td>
+<td>off</td>
+<td>Don't print live terminal narration (a <code>RUN codebase</code> line plus the <code>explore</code> narration above).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="evalrx-serve"><code>evalrx serve</code></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>evalrx<span class="w"> </span>serve<span class="w"> </span>outputs/qwen3.5-2b/chartqa
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>evalrx<span class="w"> </span>serve<span class="w">                          </span><span class="c1"># start empty, drop a .zip on the page</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>evalrx<span class="w"> </span>serve<span class="w"> </span>--runs-root<span class="w"> </span>outputs/<span class="w">     </span><span class="c1"># runs panel over every run under outputs/</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run_dir</code> (positional, optional)</td>
+<td>none</td>
+<td>Run directory. Omit to start with an empty drop-zone.</td>
+</tr>
+<tr>
+<td><code>--port</code></td>
+<td><code>8501</code></td>
+<td>Loopback port.</td>
+</tr>
+<tr>
+<td><code>--no-browser</code></td>
+<td>off</td>
+<td>Don't auto-open a browser (the default in a headless/remote session).</td>
+</tr>
+<tr>
+<td><code>--source</code></td>
+<td><code>auto</code></td>
+<td><code>auto</code> | <code>local</code> | <code>langfuse</code>. <code>auto</code> uses Langfuse only when <code>--trace-id</code> is set.</td>
+</tr>
+<tr>
+<td><code>--trace-id</code></td>
+<td>—</td>
+<td>Langfuse trace id (required with <code>--source langfuse</code>).</td>
+</tr>
+<tr>
+<td><code>--runs-root</code></td>
+<td><code>run_dir</code>'s parent</td>
+<td>Where the in-page runs panel looks for other experiments.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="evalrx-report"><code>evalrx report</code></h2>
+<p>Exports the same UI <code>serve</code> shows, as one portable HTML file — no server
+needed to view it afterward.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>evalrx<span class="w"> </span>report<span class="w"> </span>outputs/qwen3.5-2b/chartqa<span class="w"> </span>--out<span class="w"> </span>chartqa_report.html
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run_dir</code> (positional)</td>
+<td><code>outputs</code></td>
+<td>Run directory holding <code>run.json</code>/<code>M1..M5</code>, or a <code>logs/</code> folder.</td>
+</tr>
+<tr>
+<td><code>--example-dir</code></td>
+<td>—</td>
+<td>Root holding a benchmark/example's <code>data/</code> manifest, for legacy runs.</td>
+</tr>
+<tr>
+<td><code>--out, -o</code></td>
+<td><code>&lt;run_dir&gt;/report.html</code></td>
+<td>Output HTML path.</td>
+</tr>
+<tr>
+<td><code>--embed-media</code></td>
+<td><code>representative</code></td>
+<td><code>representative</code> | <code>all</code> | <code>none</code> — how much image/audio to inline.</td>
+</tr>
+<tr>
+<td><code>--audio-bitrate</code></td>
+<td><code>48k</code></td>
+<td>Transcodes inlined lossless audio to mono MP3 via <code>ffmpeg</code> (needs <code>ffmpeg</code> on <code>PATH</code>); <code>none</code> inlines the original bytes.</td>
+</tr>
+<tr>
+<td><code>--no-audio</code></td>
+<td>off</td>
+<td>Skip audio transcoding entirely (forces <code>--embed-media none</code>).</td>
+</tr>
+<tr>
+<td><code>--source</code> / <code>--trace-id</code></td>
+<td><code>local</code> / —</td>
+<td>Same Langfuse switch as <code>serve</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="evalrx-publish-report"><code>evalrx publish-report</code></h2>
+<p>Compiles and caches <code>ReportData</code> plus the validated json-render layout that
+<code>serve</code>/<code>report</code> both render — without launching a server or writing an
+HTML file. Useful for pre-warming a run's cache, or in CI.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>evalrx<span class="w"> </span>publish-report<span class="w"> </span>outputs/qwen3.5-2b/chartqa
+</code></pre></div>
+<p>Takes <code>run_dir</code> (positional, default <code>outputs</code>), <code>--example-dir</code>,
+<code>--source</code>, <code>--trace-id</code> — same meanings as <code>report</code>.</p>
+<h2 id="evalrx-dashboard-deprecated"><code>evalrx dashboard</code> (deprecated)</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>evalrx<span class="w"> </span>dashboard<span class="w"> </span>evalrx_explore_output
+</code></pre></div>
+<p>A dependency-free static-HTML server (<code>evalrx/analysis/dashboard.py</code>)
+predating the React report UI. It compiles a legacy <code>report.html</code>
+(<code>evalrx/reporting/html_report.py</code>) if one isn't already there and serves it
+with the standard-library <code>http.server</code> — no <code>fastapi</code> needed. Kept for old
+<code>explore</code> outputs; reach for <code>serve</code> for anything new.</p>
+<p>Takes <code>run_dir</code> (positional) and <code>--port</code>.</p>
+<h2 id="evalrx-export-langfuse"><code>evalrx export-langfuse</code></h2>
+<p>Maps a finished run (M1–M4, fixes, scores) onto Langfuse Traces, Spans, and
+Scores — either as a static JSON bundle or a live sync.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>evalrx<span class="w"> </span>export-langfuse<span class="w"> </span>outputs/qwen3.5-2b/chartqa<span class="w"> </span>--out<span class="w"> </span>trace.json
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>evalrx<span class="w"> </span>export-langfuse<span class="w"> </span>outputs/qwen3.5-2b/chartqa<span class="w"> </span>--sync<span class="w">   </span><span class="c1"># push to a live Langfuse server</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run_dir</code> (positional)</td>
+<td><code>outputs</code></td>
+<td>Run directory.</td>
+</tr>
+<tr>
+<td><code>--out, -o</code></td>
+<td><code>&lt;run_dir&gt;/langfuse_trace.json</code></td>
+<td>Output JSON path (ignored with <code>--sync</code>).</td>
+</tr>
+<tr>
+<td><code>--sync</code></td>
+<td>off</td>
+<td>Push directly to a live Langfuse server instead of writing a file.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="evalrx-backfill-langfuse"><code>evalrx backfill-langfuse</code></h2>
+<p>Queues an already-completed run for reliable Langfuse ingestion (an outbox
+pattern, distinct from <code>export-langfuse --sync</code>'s direct push).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>evalrx<span class="w"> </span>backfill-langfuse<span class="w"> </span>outputs/qwen3.5-2b/chartqa<span class="w"> </span>--dry-run
+</code></pre></div>
+<p><code>run_dir</code> (positional, required) and <code>--dry-run</code> (inspect without writing an
+outbox) are the only flags. Prints <code>trace=… events=… published=… pending=…</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

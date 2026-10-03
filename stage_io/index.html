@@ -1,0 +1,3071 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Failure case analysis for LLMs and VLMs">
+      
+      
+      
+        <link rel="canonical" href="https://evalvitals.github.io/evalrx/stage_io/">
+      
+      
+        <link rel="prev" href="../intervention/">
+      
+      
+        <link rel="next" href="../analyzers/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Stage Input/Output Reference - EvalRX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#stage-inputoutput-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="EvalRX" class="md-header__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EvalRX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Stage Input/Output Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Overview
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quickstart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quickstart
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Command-Line Interface
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../m2_analysis/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Exploratory Analysis (M2/M3)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../intervention/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Verification & Intervention (M4/M5)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Stage Input/Output Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../analyzers/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Analyzer Zoo
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../extending/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Extending
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="EvalRX" class="md-nav__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EvalRX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-Line Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../m2_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exploratory Analysis (M2/M3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intervention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verification & Intervention (M4/M5)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Input/Output Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Input/Output Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline data flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-input-type-casebatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared input type — CaseBatch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pre-m1-probesearchagent-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pre-M1 — ProbeSearchAgent (optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m1-probeagent-analyzer-selection-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M1 — ProbeAgent (analyzer selection + execution)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m2-analysis-threshold-rules-statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M2 — analysis (threshold rules + statistics)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="M2 — analysis (threshold rules + statistics)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#analysismodule-base-always-available-no-judge-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AnalysisModule (base — always available, no judge required)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#statsanalysisagent-confirmatory-superset-of-analysisreport" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        StatsAnalysisAgent (confirmatory — superset of AnalysisReport)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standalone-exploratoryanalysisagent-m2-no-code-cli-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone ExploratoryAnalysisAgent (M2, no-code CLI path)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m3-hypothesis-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M3 — hypothesis generation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="M3 — hypothesis generation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#diagnosisagent-loop-internal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DiagnosisAgent (loop-internal)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standalone-hypothesisagent-m3-no-code-cli-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone HypothesisAgent (M3, no-code CLI path)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m5-intervention-verify-then-optionally-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M5 — intervention (verify, then optionally fix)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="M5 — intervention (verify, then optionally fix)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#surgeryagentoperate-verify-why-something-fails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SurgeryAgent.operate — verify why something fails
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixagentpropose_and_validate-propose-validate-repairs-post-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FixAgent.propose_and_validate — propose + validate repairs (post-loop)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m4-hypothesistester-statistical-protocol-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M4 — HypothesisTester (statistical + protocol verification)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loop-level-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loop-level output
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frontend-implementation-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frontend implementation contract
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Frontend implementation contract">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-choose-a-source-of-truth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Choose a source of truth
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Choose a source of truth">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#artifact-path-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifact path resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-shared-serialized-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Shared serialized objects
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Shared serialized objects">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#failure-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure case
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#m1-result-artifact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M1 result artifact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hypothesis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hypothesis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-event-envelope-and-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Event envelope and contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-stage-and-run-state-derivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Stage and run state derivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-join-and-identity-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Join and identity rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-fix-event-selection-is-not-confirmation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Fix event: selection is not confirmation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-missing-null-empty-zero-and-false" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Missing, null, empty, zero, and false
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-rendering-contract-by-stage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Rendering contract by stage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#9-live-loading-scale-and-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Live loading, scale, and failures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#10-ui-acceptance-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. UI acceptance checklist
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ui-reference-building-a-viewer-on-this-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI reference — building a viewer on this pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="UI reference — building a viewer on this pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#requirements-for-the-new-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements for the new UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#page-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Page layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-not-available-pattern-the-most-important-convention-to-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The "not available" pattern — the most important convention to copy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cross-cutting-conventions-worth-copying" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-cutting conventions worth copying
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analyzers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyzer Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pipeline-data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline data flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-input-type-casebatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared input type — CaseBatch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pre-m1-probesearchagent-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pre-M1 — ProbeSearchAgent (optional)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m1-probeagent-analyzer-selection-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M1 — ProbeAgent (analyzer selection + execution)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m2-analysis-threshold-rules-statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M2 — analysis (threshold rules + statistics)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="M2 — analysis (threshold rules + statistics)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#analysismodule-base-always-available-no-judge-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AnalysisModule (base — always available, no judge required)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#statsanalysisagent-confirmatory-superset-of-analysisreport" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        StatsAnalysisAgent (confirmatory — superset of AnalysisReport)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standalone-exploratoryanalysisagent-m2-no-code-cli-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone ExploratoryAnalysisAgent (M2, no-code CLI path)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m3-hypothesis-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M3 — hypothesis generation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="M3 — hypothesis generation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#diagnosisagent-loop-internal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DiagnosisAgent (loop-internal)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standalone-hypothesisagent-m3-no-code-cli-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone HypothesisAgent (M3, no-code CLI path)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m5-intervention-verify-then-optionally-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M5 — intervention (verify, then optionally fix)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="M5 — intervention (verify, then optionally fix)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#surgeryagentoperate-verify-why-something-fails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SurgeryAgent.operate — verify why something fails
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixagentpropose_and_validate-propose-validate-repairs-post-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FixAgent.propose_and_validate — propose + validate repairs (post-loop)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#m4-hypothesistester-statistical-protocol-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M4 — HypothesisTester (statistical + protocol verification)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loop-level-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loop-level output
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frontend-implementation-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frontend implementation contract
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Frontend implementation contract">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-choose-a-source-of-truth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Choose a source of truth
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Choose a source of truth">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#artifact-path-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifact path resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-shared-serialized-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Shared serialized objects
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Shared serialized objects">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#failure-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure case
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#m1-result-artifact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        M1 result artifact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hypothesis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hypothesis
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-event-envelope-and-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Event envelope and contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-stage-and-run-state-derivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Stage and run state derivation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-join-and-identity-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Join and identity rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-fix-event-selection-is-not-confirmation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Fix event: selection is not confirmation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-missing-null-empty-zero-and-false" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Missing, null, empty, zero, and false
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-rendering-contract-by-stage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Rendering contract by stage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#9-live-loading-scale-and-failures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Live loading, scale, and failures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#10-ui-acceptance-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. UI acceptance checklist
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ui-reference-building-a-viewer-on-this-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI reference — building a viewer on this pipeline
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="UI reference — building a viewer on this pipeline">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#requirements-for-the-new-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements for the new UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#page-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Page layout
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-not-available-pattern-the-most-important-convention-to-copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The "not available" pattern — the most important convention to copy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cross-cutting-conventions-worth-copying" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-cutting conventions worth copying
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="stage-inputoutput-reference">Stage Input/Output Reference</h1>
+<p>A single reference for what goes into and comes out of each stage of the
+M1→M5 diagnosis pipeline. <a href="../architecture/#eval_agent-automated-diagnosis-pipeline">Architecture</a>
+covers <em>why</em> the pipeline is shaped this way and how the three loops
+(<code>AutoDiagnoseLoop</code>, <code>VLDiagnoseLoop</code>, <code>AgenticDiagnoseLoop</code>) orchestrate these
+same stages differently; <a href="../m2_analysis/">Exploratory Analysis (M2/M3)</a> and
+<a href="../intervention/">Intervention &amp; Verification (M4/M5)</a> cover usage. This page
+covers the shape of the data crossing each boundary, and — since that shape
+is exactly what a viewer has to render — <a href="#ui-reference-building-a-viewer-on-this-pipeline">what to put on screen for it</a>.
+Building a new UI on this pipeline? Read the stage you're rendering below,
+then <a href="#ui-reference-building-a-viewer-on-this-pipeline">UI Reference</a> at the
+bottom for the static report's page layout, tab-to-stage mapping, and
+rendering conventions (source: <code>evalrx/reporting/html_report.py</code>).
+For an implementation hand-off, start with
+<a href="#frontend-implementation-contract">Frontend implementation contract</a>: it
+defines the files to load, event fields, joins, state derivation, null/error
+semantics, and TypeScript-friendly shapes that are not visible from the Python
+method signatures alone.</p>
+<h2 id="pipeline-data-flow">Pipeline data flow</h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>CaseBatch (labeled FailureCases)
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>   │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>   ▼
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>M1  ProbeAgent.probe(model, data)              → dict[str, Result]
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>   │
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>   ├─(optional) ExploratoryAnalysisAgent.explore_records(per-case table)
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>   │            → ExploreContext for M3 + explore/ files for the HTML report
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>   │              (descriptive; never enters M2's family, M4, or the fix gate)
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>   ▼
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>M2  AnalysisModule.analyze(results)            → AnalysisReport
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    StatsAnalysisAgent.analyze(results, data)  → StatsAnalysisReport (superset)
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>   │
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>   ▼
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>M3  DiagnosisAgent.diagnose(report)            → DiagnosisResult (.hypotheses)
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>   │
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>   ├──────────────────────────────┐
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>   ▼                              ▼
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>M5  SurgeryAgent.operate(...)     M4  HypothesisTester.test(...)
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    → InterventionResult              → list[HypothesisTestResult]
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    (verify why, no repair)           (statistical + protocol verdict;
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>                                        gates whether the loop stops)
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>   │
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>   ▼ (post-loop, on the best verified hypothesis)
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>M5  FixAgent.propose_and_validate(...) → FixOutcome
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    (propose + validate candidate repairs, tiered L1→L4)
+</code></pre></div>
+<p><code>VLDiagnoseLoop</code> runs M1→M2→M3→M4 in a cycle and calls M5 (<code>SurgeryAgent</code> then
+<code>FixAgent</code>) once, post-loop, on the best verified hypothesis. <code>AutoDiagnoseLoop</code>
+runs M1→M2→M3→M5 (<code>SurgeryAgent</code>) every cycle instead of M4. Both consume and
+produce the same per-stage types described below — only the wiring differs.</p>
+<p><strong>Pre-M1 (optional):</strong> <code>ProbeSearchAgent.run(model, seed_pool)</code> synthesizes
+<em>new</em> test cases rather than analyzing an already-collected dataset —
+<code>result.failure_cases</code> is a <code>CaseBatch</code> that can seed or extend the data M1
+then probes. See <a href="../m2_analysis/#probe-search-hierarchical-mcts-failure-discovery-vlm">m2_analysis.md</a>.</p>
+<h2 id="quick-reference">Quick reference</h2>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Class</th>
+<th>Method</th>
+<th>Input</th>
+<th>Output</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pre-M1</td>
+<td><code>ProbeSearchAgent</code></td>
+<td><code>run(model, seed_pool)</code></td>
+<td><code>Model</code> + <code>CaseBatch</code> (seed pool)</td>
+<td><code>ProbeSearchResult</code> (<code>.failure_cases: CaseBatch</code>)</td>
+</tr>
+<tr>
+<td>M1</td>
+<td><code>ProbeAgent</code></td>
+<td><code>probe(model, data, protocol=, prior_hypotheses=, hint_failure_modes=)</code></td>
+<td><code>Model</code> + <code>CaseBatch</code></td>
+<td><code>dict[str, Result]</code></td>
+</tr>
+<tr>
+<td>M2 (loop)</td>
+<td><code>AnalysisModule</code></td>
+<td><code>analyze(results, model_name)</code></td>
+<td><code>dict[str, Result]</code></td>
+<td><code>AnalysisReport</code></td>
+</tr>
+<tr>
+<td>M2 (loop, confirmatory)</td>
+<td><code>StatsAnalysisAgent</code></td>
+<td><code>analyze(results, model_name, protocol=, data=)</code></td>
+<td><code>dict[str, Result]</code> + <code>CaseBatch</code></td>
+<td><code>StatsAnalysisReport</code></td>
+</tr>
+<tr>
+<td>M2 (standalone)</td>
+<td><code>ExploratoryAnalysisAgent</code></td>
+<td><code>explore_path(path, question=)</code></td>
+<td>file/dir path or in-memory records</td>
+<td><code>exploratory_report.json</code> dict (takeaways, charts)</td>
+</tr>
+<tr>
+<td>explore (loop, optional)</td>
+<td><code>ExploratoryAnalysisAgent</code> via <code>VLDiagnoseLoop(explorer=)</code></td>
+<td><code>explore_records(records, question=, outcome_col="label")</code></td>
+<td>M1's per-case table (<code>build_stats_input</code> → <code>per_case_to_records</code>) — the same rows M2 sees</td>
+<td><code>ExploreContext</code> (observations / rendered charts / caveats) for M3; <code>explore/{exploratory_report.json,tables/,figures/}</code> on disk; an <code>explore</code> run-log event</td>
+</tr>
+<tr>
+<td>M3 (loop)</td>
+<td><code>DiagnosisAgent</code></td>
+<td><code>diagnose(analysis, prior_cycles=, explore_context=, failure_modes=)</code></td>
+<td><code>AnalysisReport</code> (or <code>StatsAnalysisReport</code>)</td>
+<td><code>DiagnosisResult</code> (<code>.hypotheses: list[Hypothesis]</code>)</td>
+</tr>
+<tr>
+<td>M3 (standalone)</td>
+<td><code>HypothesisAgent</code></td>
+<td><code>propose(report_dict)</code></td>
+<td>M2's report dict</td>
+<td><code>list[Hypothesis]</code></td>
+</tr>
+<tr>
+<td>M5 (verify)</td>
+<td><code>SurgeryAgent</code></td>
+<td><code>operate(hypothesis, model, results, data)</code></td>
+<td>one <code>Hypothesis</code> + <code>dict[str, Result]</code> + <code>CaseBatch</code></td>
+<td><code>InterventionResult</code></td>
+</tr>
+<tr>
+<td>M5 (fix)</td>
+<td><code>FixAgent</code></td>
+<td><code>propose_and_validate(model, data, hypotheses, prior_attempts=)</code></td>
+<td><code>Model</code> + <code>CaseBatch</code> + <code>list[Hypothesis]</code></td>
+<td><code>FixOutcome</code></td>
+</tr>
+<tr>
+<td>M4</td>
+<td><code>HypothesisTester</code></td>
+<td><code>test(hypotheses, stats_report, data, protocol=)</code></td>
+<td><code>list[Hypothesis]</code> + <code>StatsAnalysisReport</code> + <code>CaseBatch</code></td>
+<td><code>list[HypothesisTestResult]</code></td>
+</tr>
+<tr>
+<td>Loop</td>
+<td><code>AutoDiagnoseLoop</code> / <code>VLDiagnoseLoop</code> / <code>AgenticDiagnoseLoop</code></td>
+<td><code>run(cases)</code></td>
+<td><code>CaseBatch</code></td>
+<td><code>AutoDiagnoseReport</code> (all three loops return this one class — see below)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="shared-input-type-casebatch">Shared input type — <code>CaseBatch</code></h2>
+<p>Every stage that touches raw data consumes or produces a <code>CaseBatch</code> — a
+sequence of <code>FailureCase</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">FailureCase</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">inputs</span><span class="p">:</span> <span class="n">Inputs</span><span class="p">,</span>          <span class="c1"># prompt (+ optional image/audio/video)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">expected</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>    <span class="c1"># gold / expected behaviour</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">observed</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>    <span class="c1"># what the model produced, if run</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">label</span><span class="p">:</span> <span class="n">Label</span> <span class="o">=</span> <span class="n">UNKNOWN</span><span class="p">,</span>  <span class="c1"># PASS / FAIL / UNKNOWN</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">tags</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(),</span>  <span class="c1"># free-form failure-taxonomy tags</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="nb">id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="o">&lt;</span><span class="n">auto</span><span class="o">-</span><span class="n">uuid</span><span class="o">&gt;</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{},</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">)</span>
+</code></pre></div>
+<p><code>as_casebatch(str | FailureCase | Inputs | list | CaseBatch)</code> normalizes any
+of these into a <code>CaseBatch</code>, so stage inputs accept several shapes in
+practice even though the type hints say <code>CaseBatch</code>.</p>
+<hr />
+<h2 id="pre-m1-probesearchagent-optional">Pre-M1 — <code>ProbeSearchAgent</code> (optional)</h2>
+<p>Synthesizes and evaluates <em>new</em> test cases (VLM QA in v1) instead of
+analyzing data you already collected.</p>
+<p><strong>Input:</strong> a <code>Model</code> and a seed <code>CaseBatch</code> (VLM cases: image + question +
+expected answer) plus a search <code>budget</code> (number of simulations).</p>
+<p><strong>Output:</strong> <code>ProbeSearchResult</code> —
+<code>n_simulations</code>, <code>n_macro</code>, <code>n_micro</code>, <code>error_rate</code>, and
+<code>failure_cases: CaseBatch</code> (the newly discovered failing cases — feed this
+into M1, or straight into <code>cluster_failures</code>).</p>
+<p><strong>UI:</strong> not rendered by the current report — it's a data-generation step
+that runs <em>before</em> a diagnosis run exists, not part of one. If a new UI
+wants to expose it, treat it as its own small flow (pick a seed pool, set a
+budget, run, then hand the resulting <code>CaseBatch</code> into a normal M1 run) —
+nothing in the five-tab layout below assumes it happened.</p>
+<h2 id="m1-probeagent-analyzer-selection-execution">M1 — <code>ProbeAgent</code> (analyzer selection + execution)</h2>
+<p><strong>Input:</strong>
+- <code>model: Model</code> — the model under diagnosis.
+- <code>data: CaseBatch</code> — cases to run analyzers on.
+- <code>protocol: ExperimentProtocol | None</code> — NL description of what to
+  investigate; enables LLM-guided analyzer selection when a judge is set.
+- <code>prior_hypotheses: list[Hypothesis] | None</code> — M3 hypotheses from earlier
+  cycles, for focused follow-up probing.
+- <code>hint_failure_modes: list[str] | None</code> — failure-mode tags used by the
+  static (no-judge) fallback selector, <code>StrategyProbe</code>.</p>
+<p><strong>Output:</strong> <code>dict[str, Result]</code> — one <code>Result</code> per analyzer that ran, keyed by
+analyzer name (e.g. <code>{"attention": AttentionResult(...), "pope": Result(...)}</code>).
+Each <code>Result</code> carries <code>findings</code> (light, JSON-safe dict) and <code>artifacts</code>
+(heavy tensors/arrays). <code>ProbeAgent.last_schema</code> records which analyzers ran
+and why (selection rationale), separate from the return value.</p>
+<p>Analyzer selection ranks by <strong>modality slot</strong>, not by a model-kind label.
+<code>StrategyProbe.routed_slots(model, data)</code> intersects what the model declares
+with what the batch actually fills, and <code>select()</code> concatenates the priority
+list for each slot in play (agent → video → audio → image → text). LLM / VLM /
+ALM / AVLM are four subsets of <code>{text, image, audio, video}</code>, so adding a
+modality adds one list rather than multiplying a per-kind table.</p>
+<p>The batch decides, not the model: an omni model evaluated on an audio benchmark
+declares image too, and ranking on the declaration put image analyzers at the
+top of an audio run. When the batch fills no media slot at all the model's
+declaration is the fallback — no evidence, rather than evidence of absence — and
+<code>AnalyzerSelection</code> records <code>model_modalities</code>, <code>probed_modalities</code> and
+<code>routed_on</code> separately so a reader can see which path was taken.</p>
+<p><code>detect_kind()</code> still returns a coarse <code>ModelKind</code> (now including <code>ALM</code> and
+<code>AVLM</code>) for display and for the <code>priority_override</code> escape hatch; it does not
+decide routing. <code>Analyzer.requires_modalities</code> gates analyzers whose slot the
+batch never fills — the modality counterpart of <code>requires_trajectories</code> — and an
+LLM judge may pick directly from the protocol description;
+<code>WhiteboxProbeGenerator</code>/<code>ProbeGenerator</code> write a bespoke probe when no standard
+analyzer covers the failure mode.</p>
+<p><strong>UI:</strong> In the static report, M1's raw output (<code>dict[str, Result]</code>) is
+never shown directly — only the <em>derived</em> per-case feature table M2 builds
+from it reaches the screen, on <strong>Tab 1 — Problem Setting</strong>: case counts
+(total / FAIL / PASS / explore-confirm split), the reconstructed per-case
+signal columns (name + non-null coverage, as a small table), and a "stage
+map" chip strip showing which of M1–M5 this particular run actually reached
+(<code>_render_stage_map</code>, <code>_render_problem_setting</code>). If a run has no signal
+table to reconstruct, this tab falls back to the raw <code>data_profile</code> column
+schema instead. <strong>This is a known gap, not a pattern to keep</strong> — the new UI
+is explicitly required to also show M1's own results (each analyzer's
+<code>findings</code> + rendered <code>artifacts</code>); see
+<a href="#requirements-for-the-new-ui">Requirements for the new UI</a> below.</p>
+<h2 id="m2-analysis-threshold-rules-statistics">M2 — analysis (threshold rules + statistics)</h2>
+<p>Two implementations, both taking M1's <code>dict[str, Result]</code>:</p>
+<h3 id="analysismodule-base-always-available-no-judge-required"><code>AnalysisModule</code> (base — always available, no judge required)</h3>
+<p><strong>Input:</strong> <code>results: dict[str, Result]</code> from M1, <code>model_name: str</code>.</p>
+<p><strong>Output:</strong> <code>AnalysisReport</code> —
+<code>findings: list[AnalysisFinding]</code> (flagged threshold violations, sorted
+high-severity first), <code>severity: "high"|"medium"|"low"|"none"</code>,
+<code>narrative: str</code> (human-readable summary forwarded to M3), and
+<code>raw_results</code> (the M1 dict, passed through for M4/M5's per-case signal
+extraction).</p>
+<h3 id="statsanalysisagent-confirmatory-superset-of-analysisreport"><code>StatsAnalysisAgent</code> (confirmatory — superset of <code>AnalysisReport</code>)</h3>
+<p><strong>Input:</strong> <code>results: dict[str, Result]</code>, <code>model_name</code>,
+<code>protocol: ExperimentProtocol | None</code>, <code>data: CaseBatch | None</code> (required to
+run the statistical tool layer — needs per-case PASS/FAIL labels; falls back
+to threshold rules only when absent/unlabeled).</p>
+<p><strong>Output:</strong> <code>StatsAnalysisReport</code> — everything <code>AnalysisReport</code> has, plus:
+<code>conclusion</code> (NL summary), <code>evidence_chain</code> (step-by-step derivation),
+<code>stats_tool</code> (which statistics path ran: <code>threshold_rules</code> / <code>llm_guided</code> /
+<code>selected_tools</code>), <code>stats_results: list[StatsToolResult]</code> (per-tool verdicts
+from the catalog: <code>signal_label_assoc</code>, <code>mcnemar_evalue</code>, <code>bootstrap_diff</code>,
+<code>friedman</code>, <code>rank_corr</code>, <code>single_rate_evalue</code>), <code>stats_plan</code> (which tools
+were selected and why), <code>corrected_rejections</code> (e-BH FDR correction across
+all tool e-values), <code>figures</code> (paths to generated plots), and
+<code>llm_fallback_reason</code> (non-empty only when the LLM-guided narrative path was
+attempted and raised — <code>""</code> otherwise, whether it was never attempted or
+succeeded).</p>
+<h3 id="standalone-exploratoryanalysisagent-m2-no-code-cli-path">Standalone <code>ExploratoryAnalysisAgent</code> (M2, no-code CLI path)</h3>
+<p>A different, purely-descriptive tool for the <code>evalrx explore</code> CLI /
+<code>evalrx.explore()</code> — not loop-internal. See
+<a href="../m2_analysis/">m2_analysis.md</a> for full detail.</p>
+<p><strong>Input:</strong> <code>path: str | Path</code> (a <code>.json</code>/<code>.jsonl</code> file or directory tree of
+results — any shape; a coding agent figures out the schema) or in-memory
+<code>list[dict]</code>, plus a natural-language <code>question</code>.</p>
+<p><strong>Output:</strong> <code>exploratory_report.json</code> — <code>takeaways</code> (with <code>plain_title</code> +
+technical <code>title</code>), <code>observations</code>, <code>candidate_signals</code>, chart/table
+references — persisted alongside <code>analysis.py</code> (the generated analysis
+code), <code>records.json</code> (the tidy table it built), and <code>figures/</code>/<code>tables/</code>.</p>
+<p><strong>UI (Tab 2 — Exploratory Analysis):</strong> for the artifact-based rendering path
+(<code>_render_standalone_analysis</code> — see
+<a href="#ui-reference-building-a-viewer-on-this-pipeline">UI reference</a> for the
+two rendering modes), the tab shows: an
+optional data-structure/raw-data browser, then each <code>takeaway</code> as a card —
+badge number, headline (<code>plain_title</code> shown first, technical <code>title</code>
+secondary), its referenced charts/tables (<code>chart_names</code>/<code>table_names</code>
+looked up by name — missing ones render an explicit "referenced evidence not
+found" notice rather than silently dropping the claim), then full analysis
+text + source data in an expander. <code>observations</code> and <code>caveats</code> sit above
+the takeaways in collapsed expanders. Charts/tables the report produced but
+no takeaway referenced ("orphans") render at the bottom under their own
+section so nothing generated is ever hidden. <strong>Business logic to preserve:</strong>
+this tab is <em>purely descriptive</em> — no "supported"/"rejected" language
+anywhere, even when <code>stats_results</code> carries a <code>reject</code> flag; that verdict
+framing is reserved for Tab 4, because in-sample findings and out-of-sample
+verdicts must never look the same to the reader.</p>
+<h2 id="m3-hypothesis-generation">M3 — hypothesis generation</h2>
+<h3 id="diagnosisagent-loop-internal"><code>DiagnosisAgent</code> (loop-internal)</h3>
+<p><strong>Input:</strong> <code>analysis: AnalysisReport | StatsAnalysisReport | dict[str, Result]</code>
+(M2's output — dict form is accepted for backward compatibility),
+<code>prior_cycles: list[dict] | None</code> (summaries of earlier M1→M5 cycles, so the
+judge avoids re-proposing tested hypotheses), <code>explore_context</code>,
+<code>failure_modes</code> (optional, descriptive-only context from clustering).</p>
+<p><strong>Output:</strong> <code>DiagnosisResult</code> —
+<code>hypotheses: list[Hypothesis]</code> (proposed, falsifiable, for M4/M5),
+<code>findings_summary</code> (the findings dict shown to the judge),
+<code>raw_judge_output</code> (verbatim LLM response), <code>referenced_charts</code> (provenance).</p>
+<h3 id="standalone-hypothesisagent-m3-no-code-cli-path">Standalone <code>HypothesisAgent</code> (M3, no-code CLI path)</h3>
+<p><strong>Input:</strong> the M2 <code>exploratory_report.json</code> dict (or <code>ExploratoryReport</code>
+object).</p>
+<p><strong>Output:</strong> <code>list[Hypothesis]</code>, each with <code>statement</code> (technical claim),
+<code>plain_statement</code> (jargon-free rewrite), <code>basis</code> (which M2 takeaway grounds
+it), <code>test_design</code> (what evidence would confirm/refute it). Proposal only —
+generating a hypothesis is not testing one.</p>
+<p><strong>UI (Tab 3 — Hypotheses):</strong> one card per hypothesis — headline is
+<code>plain_statement</code> (falls back to <code>statement</code>), technical <code>statement</code> shown
+as a secondary line only when it differs from the plain one, then <code>basis</code>
+("based on: …") and <code>test_design</code> ("how this could be checked: …").
+<code>candidate_signals</code> (M2's raw signal list, not yet a hypothesis) and any
+<code>recommended_confirmatory_tests</code> are demoted into a collapsed "possible
+follow-ups, not validated hypotheses" expander below the cards — kept
+visually subordinate so they can't be mistaken for the vetted hypothesis
+list. <strong>Business logic to preserve:</strong> identical rendering whether or not a
+downstream confirm phase ran — this tab is always the pure proposal view; a
+verdict badge is never attached here (see Tab 4).</p>
+<h2 id="m5-intervention-verify-then-optionally-fix">M5 — intervention (verify, then optionally fix)</h2>
+<h3 id="surgeryagentoperate-verify-why-something-fails"><code>SurgeryAgent.operate</code> — verify <em>why</em> something fails</h3>
+<p><strong>Input:</strong> one <code>hypothesis: Hypothesis</code> (from M3), <code>model: Model</code>,
+<code>results: dict[str, Result]</code> (M1's per-analyzer results, for per-case signal
+extraction), <code>data: CaseBatch</code>.</p>
+<p><strong>Output:</strong> <code>InterventionResult</code> —
+<code>status: HypothesisStatus</code> (SUPPORTED / REFUTED / INCONCLUSIVE),
+<code>fixed: bool</code> (intervention completely separates failing from passing
+cases), <code>evidence</code> (supporting statistics), <code>new_data: CaseBatch | None</code>
+(when SUPPORTED, cases <strong>not</strong> in the signal group — refined subset for the
+next M1 cycle), <code>confidence_score</code> + <code>evidence_dimensions</code> (breakdown),
+<code>experiment</code> (rich payload when the <code>ExperimentWriter</code> strategy ran:
+generated files, stdout/stderr, blueprint, verdict).</p>
+<p>Four strategies are tried in order (first match wins): caller-supplied
+<code>verify_fn</code>, <code>analyzer_params</code> re-run, <code>ExperimentWriter</code> (when <code>judge</code> is
+set), or passive label correlation.</p>
+<h3 id="fixagentpropose_and_validate-propose-validate-repairs-post-loop"><code>FixAgent.propose_and_validate</code> — propose + validate repairs (post-loop)</h3>
+<p><strong>Input:</strong> <code>model: Model</code>, <code>data: CaseBatch</code>,
+<code>hypotheses: list[Hypothesis]</code> (the verified ones from M4),
+<code>prior_attempts: list[FixValidation] | None</code> (carried over across tier
+escalation).</p>
+<p><strong>Output:</strong> <code>FixOutcome</code> —
+<code>routed</code> (which <code>FixTier</code> each hypothesis was routed to and why),
+<code>attempted: list[FixValidation]</code> (every candidate tried), <code>best:
+FixValidation | None</code> (the winning candidate, paired McNemar + e-value
+validated against the unmodified baseline), <code>fixed: bool</code>,
+<code>recommendation: dict | None</code> (e.g. <code>{"recommend_tier": "L3a", "reason": ...}</code>
+when nothing validated — never auto-escalated), <code>ebh_survivors</code> (candidates
+whose e-value survives e-BH correction across the tested family),
+<code>repair_rounds</code> (feedback-driven propose→validate rounds actually run).</p>
+<p>Tiers (<code>FixTier</code>, an input the caller bounds): L1 prompt rewrite, L2 scaffold
+(pipeline around the unchanged model), L3a internals-read, L3b
+internals-write, L4 parameter space (recorded; LoRA additionally executed
+when <code>finetune_pool=</code> is given).</p>
+<p>Each <code>FixValidation</code> in <code>attempted</code> can now also come back
+<code>verdict="model_independent"</code> (a new tier alongside <code>fixed</code> / <code>partial</code> /
+<code>unsafe</code> / <code>regressed</code> / <code>no_effect</code> / <code>not_executed</code>): an L2 candidate is
+re-run under <code>frozen_model_control</code> — every bridged model call answered with
+the case's recorded baseline output — and any FAILING case that comes out
+right anyway was solved by the pipeline's own computation, not a repair of
+the model. Those cases are excluded from the paired test
+(<code>n_model_independent</code>) rather than counted as <code>fixed</code>.</p>
+<p><strong>UI (Tab 5 — Fix):</strong> greyed "not available" placeholder
+(<code>_render_unavailable_panel</code>: title, what happened, how to get it) when no
+<code>fix_report.json</code> sits next to the exploratory report — this pipeline phase
+is genuinely optional and the report never fakes a result for it. When
+present: a "Surgery context — M4 confirmation" table (one row per tested
+hypothesis: statement, M4 status, confidence, evidence grade, held-out
+verdict) sourced from <code>InterventionResult</code>/<code>HypothesisTestResult</code> flattened
+into <code>fix_report["m4_results"]</code>; then a deterministic narrative digest built
+from <code>attempted</code> (winner 🏆 with tier/name/repaired/broke/e-value, which
+candidates survived e-BH across the family, an L1-2-vs-L3 prompt-vs-internals
+contrast when the data shows one); then the full <code>attempted</code> candidates
+table (sorted by tier, e-value descending, winner marked); then
+<code>recommendation</code> when nothing validated. <strong>Business logic to preserve:</strong>
+"repaired"/"broke" are paired flips against the <em>unmodified baseline on the
+same cases</em> — never present a raw pass-rate delta as if it were this; a
+candidate only earns <code>fixed</code> when both its own McNemar+e-value rejects AND
+it survives e-BH across every candidate tried in that run (best-of-N
+correction) — <code>ebh_survivors</code> is the source of truth for the latter, not
+just <code>reject</code> on its own row.</p>
+<h2 id="m4-hypothesistester-statistical-protocol-verification">M4 — <code>HypothesisTester</code> (statistical + protocol verification)</h2>
+<p><strong>Input:</strong> <code>hypotheses: list[Hypothesis]</code> (from M3),
+<code>stats_report: StatsAnalysisReport</code> (M2's report — supplies <code>raw_results</code>
+for per-case signal extraction and any e-BH-corrected <code>stats_results</code>),
+<code>data: CaseBatch</code> (must carry labels for fail-rate comparison),
+<code>protocol: ExperimentProtocol | None</code> (consistency check target; <code>None</code> →
+all hypotheses assumed consistent).</p>
+<p><strong>Output:</strong> <code>list[HypothesisTestResult]</code>, one per hypothesis, each with:
+<code>status: HypothesisStatus</code>, <code>test_name</code> (e.g. <code>"fail_rate_comparison"</code>),
+<code>effect_size</code> (signal-group minus control-group fail rate),
+<code>is_consistent_with_protocol: bool</code>, <code>confidence</code> (geometric mean of
+evidence gap / sample adequacy / control cleanliness),
+<code>evidence_grade</code> (<code>"intervention"</code> causal &gt; <code>"observational"</code>
+correlational &gt; <code>"none"</code>), <code>verdict</code> (NL one-liner), <code>evidence</code> (stats +
+group sizes).</p>
+<p>A hypothesis is <code>SUPPORTED</code> only when both the statistical test and the
+protocol-consistency check hold — this is the gate <code>HypothesisTester.
+stopping_criteria_met(results)</code> checks before the loop stops.</p>
+<p><strong>UI (Tab 4 — Validation results):</strong> greyed "not available" placeholder when
+no <code>confirm_report.json</code> sits next to the exploratory report (same pattern
+as Tab 5 — this phase re-tests M3's hypotheses on a held-out split the
+explorer never touched, e.g. <code>test_hypotheses.py</code>, and is optional). When
+present: 4 headline metrics (validate-split case count, FAIL count in that
+split, signals adjudicated, held-out rejections), a caption naming the
+adjudication method/alpha/split, a "signal recipes on the held-out split"
+table (per-signal: status, held-out verdict "REJECT H0"/"not rejected", fail
+rate flagged vs. unflagged, effect, CI, n), then one hypothesis card per
+<code>hypothesis_verdicts</code> entry — the same card component Tab 3 uses, plus a
+verdict badge (color-coded by verdict) and the judge's reasoning line.
+<strong>Business logic to preserve:</strong> the caption explicitly says a REJECT <em>here</em>
+is a real held-out verdict, unlike Tab 2's in-sample screen — thresholds
+were frozen on the explore half before this split was ever touched, so this
+tab is where "supported"/"rejected" language is finally allowed to appear
+attached to a specific claim.</p>
+<h2 id="loop-level-output">Loop-level output</h2>
+<p>All three loops — <code>AutoDiagnoseLoop</code>, <code>VLDiagnoseLoop</code>, <code>AgenticDiagnoseLoop</code>
+— return the <strong>same class</strong>: <code>AutoDiagnoseReport</code> (<code>VLDiagnoseReport</code> is a
+back-compat alias for the identical class, so <code>isinstance</code> checks against
+either name succeed for a report from any loop). Each loop populates the
+subset of fields relevant to what it ran; fields the loop has no equivalent
+concept for stay at their default (<code>None</code> / empty):</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Populated by</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cycles</code></td>
+<td>all</td>
+<td>M1→M4/M5 cycles executed (or agentic decision steps).</td>
+</tr>
+<tr>
+<td><code>resolved: bool</code></td>
+<td>all</td>
+<td>Diagnosis considered closed — M5 confirmed a fix (legacy loop), or <code>bool(verified_hypotheses)</code> (current/agentic loops).</td>
+</tr>
+<tr>
+<td><code>stopped_by: str \| None</code></td>
+<td>VL / agentic</td>
+<td>Why the loop stopped: <code>"criteria_met"</code> / <code>"max_cycles"</code> / <code>"budget"</code> / <code>"no_hypotheses"</code> / <code>"no_probe_results"</code> / <code>"analysis_complete"</code>, or agentic's <code>"agent_stop"</code> / <code>"max_actions"</code> / <code>"time_budget"</code> / <code>"invalid_actions"</code>. <code>None</code> for the legacy loop.</td>
+</tr>
+<tr>
+<td><code>final_hypotheses: list[Hypothesis]</code></td>
+<td>all</td>
+<td>All M3 proposals across every cycle. (<code>all_hypotheses</code> is a read-only alias, kept for existing callers.)</td>
+</tr>
+<tr>
+<td><code>verified_hypotheses: list[HypothesisTestResult]</code></td>
+<td>VL / agentic (M4)</td>
+<td>SUPPORTED + protocol-consistent, highest confidence first — feed into <code>run_m5</code>.</td>
+</tr>
+<tr>
+<td><code>all_test_results: list[HypothesisTestResult]</code></td>
+<td>VL / agentic (M4)</td>
+<td>All M4 test results across every cycle.</td>
+</tr>
+<tr>
+<td><code>final_results: dict[str, Result]</code></td>
+<td>legacy</td>
+<td>Raw analyzer results from the last M1 probe.</td>
+</tr>
+<tr>
+<td><code>final_analysis: AnalysisReport \| None</code></td>
+<td>all</td>
+<td>Last M2 report. Auto-populated from <code>final_stats_report</code> when only that was set (<code>StatsAnalysisReport</code> is an <code>AnalysisReport</code> subclass), so this field works regardless of which loop produced the report.</td>
+</tr>
+<tr>
+<td><code>final_stats_report: StatsAnalysisReport \| None</code></td>
+<td>VL / agentic</td>
+<td>Last M2 report (same object as <code>final_analysis</code> when set).</td>
+</tr>
+<tr>
+<td><code>fix_proposal</code> / <code>fix_outcome</code></td>
+<td>post-loop</td>
+<td>Populated by <code>run_m5</code> / <code>run_fix</code> after <code>run()</code> returns.</td>
+</tr>
+<tr>
+<td><code>store</code></td>
+<td>all</td>
+<td>Accumulated results and hypotheses.</td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="../architecture/#runcontext-single-owner-of-a-runs-output-directory">RunContext</a>
+for where each stage's artifacts land on disk when a run directory is
+attached, and the <a href="../architecture/#eval_agent-automated-diagnosis-pipeline">event schema</a>
+for the structured event each stage emits per cycle.</p>
+<hr />
+<h2 id="frontend-implementation-contract">Frontend implementation contract</h2>
+<p><strong>Read <code>&lt;run&gt;/contract/</code> first.</strong> Every stage validates its output against
+<code>evalrx/contract/</code> on the way out and writes one JSON per stage —
+<code>c0.m1.json</code>, <code>c0.m2.json</code>, <code>c0.m3.json</code>, <code>c0.m4.json</code>, <code>m5_surgery.json</code>,
+<code>m5_fix.json</code>. That directory is the typed source of truth, and TypeScript
+declarations for all of it are generated into <code>docs/contract/contract.d.ts</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">import</span><span class="w"> </span><span class="kr">type</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">ProbeOutput</span><span class="p">,</span><span class="w"> </span><span class="nx">StatsReportWire</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"./contract/contract"</span><span class="p">;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">m1</span><span class="o">:</span><span class="w"> </span><span class="kt">ProbeOutput</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="p">(</span><span class="k">await</span><span class="w"> </span><span class="nx">fetch</span><span class="p">(</span><span class="s2">"contract/c0.m1.json"</span><span class="p">)).</span><span class="nx">json</span><span class="p">();</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nx">m1</span><span class="p">.</span><span class="nx">selection</span><span class="p">.</span><span class="nx">routed_on</span><span class="p">;</span><span class="w">      </span><span class="c1">// ["audio", "text"] — what the run was actually about</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nx">m1</span><span class="p">.</span><span class="nx">results</span><span class="p">[</span><span class="s2">"mm_shap"</span><span class="p">];</span><span class="w">       </span><span class="c1">// keyed by analyzer name</span>
+</code></pre></div>
+<p>Regenerate with <code>python -m evalrx.contract.export --out docs/contract</code>;
+CI runs the same command with <code>--check</code> so the artifacts cannot go stale.
+A stage that failed validation writes <code>&lt;stage&gt;.invalid.json</code> carrying the error
+instead — visibly broken rather than quietly missing.</p>
+<p>Two things the contract will not do for you, both deliberate:</p>
+<ul>
+<li><strong>Unknown fields must be ignored, never rejected.</strong> Adding a field is
+  additive and does not bump <code>schema_version</code>; only a change of <em>meaning</em> does.</li>
+<li><strong>Absent, null, empty, zero and false are five different things.</strong> Every
+  optional field is explicitly nullable so a reader can tell them apart. Never
+  collapse them with a truthiness fallback — <code>ungrounded_rate_audio: null</code>
+  means no case carried audio, and <code>0.0</code> means every case that did stayed
+  grounded.</li>
+</ul>
+<p>The rest of this section describes the raw run directory — <code>RunContext</code>'s
+only layout now (<code>evalrx/eval_agent/RUN_LOGGER_V2.md</code>; there is no other
+logger to select). <code>contract/</code> is unaffected by any of this.</p>
+<h3 id="1-choose-a-source-of-truth">1. Choose a source of truth</h3>
+<p>A normal persisted loop run has this shape (some parts are optional):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>&lt;run&gt;/
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>├── run.json                  run-wide events: run_start, cases, manifest, diagnose_reports, …
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>├── M1/log.json …             one JSON document per stage, plus each stage's own artifacts/
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>│   M5/log.json
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>├── contract/                 ← typed, validated; prefer this
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>│   ├── index.json
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>│   ├── c0.m1.json … c0.m4.json
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>│   └── m5_surgery.json, m5_fix.json
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>└── artifacts/                 M1 heavy numeric data (.npy/.json) written outside any stage
+</code></pre></div>
+<p>There's no separate <code>manifest.json</code>/<code>report/</code>/<code>prompts/</code>/<code>explore/</code>/<code>fixes/</code>
+— generated text/code is inlined into the owning stage's JSON, and the
+manifest lives inside <code>run.json</code>.</p>
+<p>Use one of these two contracts; do not silently merge conflicting values from
+both:</p>
+<table>
+<thead>
+<tr>
+<th>UI use case</th>
+<th>Primary source</th>
+<th>Secondary source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Live progress / per-cycle story</td>
+<td><code>run.json</code> + <code>M*/log.json</code>, both rewritten incrementally</td>
+<td>linked artifacts as they appear</td>
+</tr>
+<tr>
+<td>Finished run / stable report</td>
+<td><code>run.json</code>'s <code>manifest</code> + <code>diagnose_reports</code> entries</td>
+<td><code>M*/log.json</code> for provenance and detail</td>
+</tr>
+<tr>
+<td>Standalone Explore upload</td>
+<td><code>exploratory_report.json</code> and optional sibling <code>confirm_report.json</code> / <code>fix_report.json</code></td>
+<td>the uploaded records</td>
+</tr>
+</tbody>
+</table>
+<p>For a finished run, <code>run.json["manifest"]</code> is the file inventory. Its shape is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">"ts"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-08-18T00:00:00+00:00"</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">"run_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"auto_fix_v12"</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">"config"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">"benchmark"</span><span class="p">:</span><span class="w"> </span><span class="s2">"spatial457"</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">"model"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Qwen/Qwen2.5-VL-7B-Instruct"</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">"n_cases"</span><span class="p">:</span><span class="w"> </span><span class="mi">512</span><span class="p">,</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">"confirm_split"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">"fix_tier"</span><span class="p">:</span><span class="w"> </span><span class="s2">"L3a"</span><span class="p">,</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="nt">"allow_codegen"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">  </span><span class="p">},</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">  </span><span class="nt">"files"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"M1/log.json"</span><span class="p">,</span><span class="w"> </span><span class="s2">"M2/log.json"</span><span class="p">,</span><span class="w"> </span><span class="s2">"M2/artifacts/c0_attention.png"</span><span class="p">,</span><span class="w"> </span><span class="s2">"run.json"</span><span class="p">]</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="p">}</span>
+</code></pre></div>
+<p><code>config</code> is intentionally extensible: render recognized values as summary
+chips and preserve the remainder in a raw configuration view. <code>files</code> is a
+flat, complete file index (not grouped by category the way V1's was) —
+render it as-is.</p>
+<h4 id="artifact-path-resolution">Artifact path resolution</h4>
+<p>Paths recorded by a container may be absolute inside that container, while the
+UI is serving an extracted/copy-mounted run elsewhere. Therefore:</p>
+<ol>
+<li>Treat the directory containing <code>run.json</code> as <code>runRoot</code>.</li>
+<li>Resolve every relative path against <code>runRoot</code>.</li>
+<li>Do <strong>not</strong> use a recorded absolute path as the server filesystem root; it is
+   provenance and may say <code>/app/example/...</code> even when the UI sees another path.</li>
+<li>For an absolute path in an event, first strip any recorded run-root prefix
+   and resolve the suffix below <code>runRoot</code>; otherwise match its longest
+   unambiguous suffix against <code>manifest.files</code>.</li>
+<li>If no in-run match exists, show “artifact unavailable” and the recorded path
+   as text. Never let a client-provided path escape <code>runRoot</code>.</li>
+<li>Serve artifacts through a backend route such as
+   <code>/api/runs/:runId/artifacts/:relativePath</code>; do not expose host paths in URLs.</li>
+</ol>
+<h3 id="2-shared-serialized-objects">2. Shared serialized objects</h3>
+<p>All JSON objects are additive: a producer may add fields without increasing
+<code>schema_version</code>. Frontend decoders should validate the fields they consume and
+retain unknown fields for the raw JSON inspector.</p>
+<h4 id="failure-case">Failure case</h4>
+<p><code>FailureCase.to_dict()</code> serializes one case as:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sample-0042"</span><span class="p">,</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">"inputs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Which square is closest to the red circle?"</span><span class="p">,</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">"image"</span><span class="p">:</span><span class="w"> </span><span class="s2">"images/0042.png"</span><span class="p">,</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">"audio"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="nt">"video"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="p">},</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span><span class="nt">"expected"</span><span class="p">:</span><span class="w"> </span><span class="s2">"B"</span><span class="p">,</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span><span class="nt">"observed"</span><span class="p">:</span><span class="w"> </span><span class="s2">"C"</span><span class="p">,</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">  </span><span class="nt">"trajectory"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">  </span><span class="nt">"label"</span><span class="p">:</span><span class="w"> </span><span class="s2">"fail"</span><span class="p">,</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">  </span><span class="nt">"tags"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"spatial-reasoning"</span><span class="p">],</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">  </span><span class="nt">"provenance"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"source"</span><span class="p">:</span><span class="w"> </span><span class="s2">"dataset"</span><span class="p">,</span><span class="w"> </span><span class="nt">"metadata"</span><span class="p">:</span><span class="w"> </span><span class="p">{}},</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">  </span><span class="nt">"metadata"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"split"</span><span class="p">:</span><span class="w"> </span><span class="s2">"explore"</span><span class="p">}</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="p">}</span>
+</code></pre></div>
+<p>Field rules:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>UI meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td><code>string</code></td>
+<td>stable sample join key; display and search it</td>
+</tr>
+<tr>
+<td><code>inputs.prompt</code></td>
+<td><code>string</code></td>
+<td>always present</td>
+</tr>
+<tr>
+<td><code>inputs.image/audio/video</code></td>
+<td><code>unknown \| null</code></td>
+<td>normally a path/URL; an in-memory rich object may degrade to a descriptor such as <code>&lt;image 640x480&gt;</code></td>
+</tr>
+<tr>
+<td><code>expected</code>, <code>observed</code></td>
+<td><code>unknown \| null</code></td>
+<td>render strings directly and objects in a structured/raw view</td>
+</tr>
+<tr>
+<td><code>label</code></td>
+<td><code>"pass" \| "fail" \| "unknown"</code></td>
+<td>outcome, not a statistical verdict</td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td><code>string[]</code></td>
+<td>filter chips; order is not semantically meaningful</td>
+</tr>
+<tr>
+<td><code>provenance.source</code></td>
+<td><code>"human" \| "dataset" \| "agent"</code></td>
+<td>where the case originated</td>
+</tr>
+<tr>
+<td><code>metadata</code></td>
+<td><code>Record&lt;string, unknown&gt;</code></td>
+<td>dataset-specific columns; never assume a fixed schema</td>
+</tr>
+<tr>
+<td><code>trajectory</code></td>
+<td><code>Trajectory \| null</code></td>
+<td>agent runs only; steps contain <code>idx</code>, <code>role</code>, <code>content</code>, tool call/observation, span metrics, and optional error annotations</td>
+</tr>
+</tbody>
+</table>
+<p>Media descriptors are not media bytes. Only offer a preview when the value can
+be resolved to an allowed file/URL; otherwise display the descriptor.</p>
+<h4 id="m1-result-artifact">M1 result artifact</h4>
+<p>Each <code>artifacts/c&lt;cycle&gt;_&lt;analyzer&gt;.result.json</code> contains the lightweight,
+complete serialized <code>Result</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">"analyzer"</span><span class="p">:</span><span class="w"> </span><span class="s2">"attention"</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">"model"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Qwen/Qwen2.5-VL-7B-Instruct"</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">"findings"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">"summary_score"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.41</span><span class="p">,</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">"per_case"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">      </span><span class="p">{</span><span class="nt">"sample_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"sample-0042"</span><span class="p">,</span><span class="w"> </span><span class="nt">"attention_entropy"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.73</span><span class="p">}</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="p">]</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">  </span><span class="p">},</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">  </span><span class="nt">"metadata"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"layer"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="p">},</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">  </span><span class="nt">"n_cases"</span><span class="p">:</span><span class="w"> </span><span class="mi">512</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="p">}</span>
+</code></pre></div>
+<p><code>findings</code> is analyzer-specific. The UI should support scalar cards, a dynamic
+key/value view, and a virtualized table for <code>findings.per_case</code>. Join a per-case
+row to raw data using <code>sample_id</code> ↔ <code>FailureCase.id</code>. Heavy arrays/images are
+not embedded here; locate them through the <code>probe.artifact_paths</code> map or the
+manifest inventory.</p>
+<h4 id="hypothesis">Hypothesis</h4>
+<p>The full in-memory hypothesis has the following logical shape:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kr">type</span><span class="w"> </span><span class="nx">HypothesisStatus</span><span class="w"> </span><span class="o">=</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="o">|</span><span class="w"> </span><span class="s2">"proposed"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"testing"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"supported"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"refuted"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"inconclusive"</span><span class="p">;</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">Hypothesis</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nx">id?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nx">statement</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nx">target_model?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nx">predicted_failure_mode?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span><span class="nx">failure_mode?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="c1">// run-log alias of predicted_failure_mode</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">  </span><span class="nx">test_design?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">  </span><span class="nx">expected_association</span><span class="o">?:</span><span class="w"> </span><span class="s2">"higher_on_failures"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"lower_on_failures"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">  </span><span class="nx">status?</span><span class="o">:</span><span class="w"> </span><span class="kt">HypothesisStatus</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">  </span><span class="nx">parent_id?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">  </span><span class="nx">evidence?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">  </span><span class="nx">metadata?</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">unknown</span><span class="o">&gt;</span><span class="p">;</span>
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="p">}</span>
+</code></pre></div>
+<p>Not every persisted view contains every field. In particular, a <code>diagnosis</code>
+event emits only <code>statement</code>, <code>failure_mode</code>, <code>status</code>, and <code>test_design</code>.
+Normalize <code>failure_mode</code> and <code>predicted_failure_mode</code> into one view-model field,
+but keep the original JSON untouched.</p>
+<h3 id="3-event-envelope-and-contract">3. Event envelope and contract</h3>
+<p>Each stage document (<code>M&lt;n&gt;/log.json</code>) is one JSON object whose keys are event
+names, each mapping to an array of entries for that stage; <code>run.json</code> is the
+same shape for run-wide events (<code>run_start</code>, <code>cases</code>, <code>manifest</code>,
+<code>diagnose_reports</code>, <code>loop_end</code>, …). <code>evalrx.reporting.run_events.read_v2_events(root)</code>
+flattens all of it into one ordered list of independent event objects — the
+shape this section (and every table below) describes; prefer it over reading
+each file directly. Every event has:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">RunEventBase</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nx">event</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nx">schema_version</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w"> </span><span class="c1">// currently 6; branch on it, do not hard-fail on newer</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nx">ts</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">             </span><span class="c1">// ISO-8601 UTC</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nx">trace_id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">       </span><span class="c1">// run-level correlation id</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span><span class="nx">stage</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">          </span><span class="c1">// "RUN" or "M1".."M5" — which document it came from</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">  </span><span class="nx">span_id?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w">       </span><span class="c1">// e.g. c0.m1, c0.m2, c0.m3, c0.m4, fix</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">  </span><span class="nx">event_seq</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">      </span><span class="c1">// global sequence assigned under the logger's lock</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">  </span><span class="nx">cycle?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w">         </span><span class="c1">// normal cycles start at 0; post-loop fix uses -1</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">  </span><span class="p">[</span><span class="nx">extra</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">]</span><span class="o">:</span><span class="w"> </span><span class="nx">unknown</span><span class="p">;</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="p">}</span>
+</code></pre></div>
+<p>Events are ordered by <code>event_seq</code> (a real sequence counter, not wall-clock
+<code>ts</code> — concurrent calls can share or invert timestamps). <code>ts</code> is for display
+and cross-service correlation only.</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Stage</th>
+<th>Required/important payload</th>
+<th>UI interpretation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run_start</code></td>
+<td>run</td>
+<td>model/judge/config, <code>n_cases</code>, protocol, budgets, version/git/data fingerprint when available</td>
+<td>create run header; missing optional provenance is “unknown,” not failure</td>
+</tr>
+<tr>
+<td><code>probe</code></td>
+<td>M1</td>
+<td><code>cycle</code>, <code>analyzers</code>, <code>findings</code>, <code>results</code> (each analyzer's complete document, inline), <code>artifact_paths</code>; optional <code>selected_analyzers</code>, rationale, <code>failed_analyzers</code>, <code>judge_io</code>, duration</td>
+<td>one analyzer card per selected analyzer; a name in <code>failed_analyzers</code> is a local analyzer failure</td>
+</tr>
+<tr>
+<td><code>explore</code></td>
+<td>descriptive side path</td>
+<td><code>cycle</code>, <code>ok</code>, counts, observations, caveats, figures; optional error/report path</td>
+<td><code>ok: false</code> fails this optional step, but does not by itself fail the diagnosis loop</td>
+</tr>
+<tr>
+<td><code>analysis</code></td>
+<td>M2</td>
+<td><code>cycle</code>, severity, findings, narrative, <code>descriptive_only</code>; optional stats outputs, conclusion, figures, <code>llm_fallback_reason</code>, <code>judge_io</code></td>
+<td>label descriptive and confirmatory analysis explicitly; a fallback can still be a successful M2</td>
+</tr>
+<tr>
+<td><code>diagnosis</code></td>
+<td>M3</td>
+<td><code>cycle</code>, model, <code>n_hypotheses</code>, <code>hypotheses</code>, raw output; optional referenced charts/context flags, <code>judge_io</code></td>
+<td>zero parsed hypotheses is a completed empty/abstained M3 unless an explicit error exists elsewhere</td>
+</tr>
+<tr>
+<td><code>surgery</code></td>
+<td>M5 or M4</td>
+<td><code>cycle</code>, <code>module</code>, hypothesis text, failure mode, status, <code>fixed</code>, confidence/evidence, refocused-case count</td>
+<td>route by <code>module</code>; do not infer M5 vs M4 from the event name alone</td>
+</tr>
+<tr>
+<td><code>experiment</code></td>
+<td>M5</td>
+<td><code>cycle</code>, <code>module</code>, hypothesis, status/fixed; optional provider, metrics, exit/timing, code/output/workspace paths, record</td>
+<td>generated verification execution detail; failure of one experiment need not fail the whole run</td>
+</tr>
+<tr>
+<td><code>fix</code></td>
+<td>post-loop Fix</td>
+<td><code>cycle: -1</code>, <code>max_tier</code>, selection/final attempts, best, fixed, recommendation/refine signal, records</td>
+<td>distinguish EXPLORE selection from held-out FINAL confirmation; see below</td>
+</tr>
+<tr>
+<td><code>loop_end</code></td>
+<td>diagnosis loop</td>
+<td>cycles, resolved/stopped reason, final and verified hypotheses, tokens/timings</td>
+<td>diagnosis loop ended; <strong>not necessarily the last event in the run</strong></td>
+</tr>
+<tr>
+<td><code>agent_decision</code></td>
+<td>agentic loop</td>
+<td><code>step</code>, action/params/rationale, validity/repair/fallback, judge I/O</td>
+<td>trajectory node; <code>valid: false</code> means host fallback, not automatically run failure</td>
+</tr>
+<tr>
+<td><code>agent_tool</code></td>
+<td>agentic loop</td>
+<td><code>step</code>, tool, <code>ok</code>, summary/error, duration</td>
+<td>dispatch result; stage-specific event remains the source for stage payload</td>
+</tr>
+<tr>
+<td><code>tool_codegen</code></td>
+<td>support</td>
+<td>cycle/module/tool/need/source/<code>ok</code>, error/code paths</td>
+<td>one tool-generation attempt, not a stage verdict</td>
+</tr>
+<tr>
+<td><code>tool_registry</code></td>
+<td>support</td>
+<td>cycle/module/tool inventory</td>
+<td>diagnostic/debug inventory only</td>
+</tr>
+</tbody>
+</table>
+<p>Every field is inlined verbatim in its stage's JSON document — <code>stats_results</code>,
+<code>stats_plan</code>, <code>corrected_rejections</code>, per-analyzer probe results, generated
+experiment/fix code — nothing is externalized to a sibling file above a size
+threshold. A UI never needs to detect or lazy-load a pointer value here.</p>
+<h3 id="4-stage-and-run-state-derivation">4. Stage and run state derivation</h3>
+<p>Use these UI states; a single generic “N/A” loses information the user needs:</p>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Meaning</th>
+<th>Typical display</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>not_started</code></td>
+<td>no evidence that the stage was scheduled</td>
+<td>muted step</td>
+</tr>
+<tr>
+<td><code>running</code></td>
+<td>prerequisite exists and the stage has started, but no terminal stage event yet</td>
+<td>spinner + elapsed time</td>
+</tr>
+<tr>
+<td><code>succeeded</code></td>
+<td>terminal event has a usable non-empty result</td>
+<td>green/complete</td>
+</tr>
+<tr>
+<td><code>empty</code></td>
+<td>stage completed correctly with zero items</td>
+<td>neutral “No hypotheses/findings produced”</td>
+</tr>
+<tr>
+<td><code>abstained</code></td>
+<td>evaluator intentionally could not make a supported choice</td>
+<td>neutral warning with reason</td>
+</tr>
+<tr>
+<td><code>partial</code></td>
+<td>some analyzers/candidates succeeded and some failed</td>
+<td>amber + per-item errors</td>
+</tr>
+<tr>
+<td><code>failed</code></td>
+<td>explicit stage-level error/no usable result</td>
+<td>red + error and logs</td>
+</tr>
+<tr>
+<td><code>skipped</code></td>
+<td>run configuration or stopping rule intentionally omitted the stage</td>
+<td>grey + reason</td>
+</tr>
+<tr>
+<td><code>unavailable</code></td>
+<td>persisted run references data that cannot be loaded</td>
+<td>grey + recorded path/recovery hint</td>
+</tr>
+</tbody>
+</table>
+<p>Recommended derivation rules:</p>
+<ol>
+<li>Partition stage events by <code>(trace_id, cycle, logicalStage)</code>. Map a <code>surgery</code>
+   event using its <code>module</code>; treat <code>fix</code> as the post-loop stage even though its
+   cycle is <code>-1</code>.</li>
+<li>The first matching terminal event completes that item; later matching events
+   append/replace item detail rather than rewinding an already completed stage.</li>
+<li><code>diagnosis.n_hypotheses === 0</code> means M3 completed with an empty result. Do not
+   show a network/runtime error unless there is explicit error evidence.</li>
+<li><code>probe.failed_analyzers</code> with at least one successful analyzer means partial;
+   all selected analyzers failed means failed.</li>
+<li><code>explore.ok === false</code> marks only Explore failed. M2/M3 may continue.</li>
+<li><code>analysis.llm_fallback_reason</code> means the judge path failed and a fallback
+   path ran. Show the fallback badge while deriving M2 success from the actual
+   analysis payload.</li>
+<li>A hypothesis status of <code>inconclusive</code> is a valid abstention, not an exception.</li>
+<li><code>loop_end</code> terminates M1→M4 orchestration, but M5 verification and Fix can be
+   logged after it. Do not mark the entire run immutable merely because
+   <code>loop_end</code> appeared. A live transport/process terminal signal or a finalized
+   manifest is the run-level completion signal.</li>
+<li>Missing events in an older/in-progress run mean “not observed”; do not invent
+   a failure. Use <code>schema_version</code> and run configuration to decide skipped vs.
+   not started.</li>
+</ol>
+<p>A simple per-cycle reducer can look like:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kd">function</span><span class="w"> </span><span class="nx">reduceEvent</span><span class="p">(</span><span class="nx">state</span><span class="o">:</span><span class="w"> </span><span class="kt">RunView</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="o">:</span><span class="w"> </span><span class="kt">RunEventBase</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">RunView</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nx">state</span><span class="p">.</span><span class="nx">events</span><span class="p">.</span><span class="nx">push</span><span class="p">(</span><span class="nx">e</span><span class="p">);</span><span class="w"> </span><span class="c1">// preserve source order for raw/audit view</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">event</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"probe"</span><span class="p">)</span><span class="w"> </span><span class="nx">updateM1</span><span class="p">(</span><span class="nx">state</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">);</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">event</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"explore"</span><span class="p">)</span><span class="w"> </span><span class="nx">updateExplore</span><span class="p">(</span><span class="nx">state</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">);</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">event</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"analysis"</span><span class="p">)</span><span class="w"> </span><span class="nx">updateM2</span><span class="p">(</span><span class="nx">state</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">);</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">event</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"diagnosis"</span><span class="p">)</span><span class="w"> </span><span class="nx">updateM3</span><span class="p">(</span><span class="nx">state</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">);</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">event</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"surgery"</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">module</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"m5"</span><span class="p">)</span><span class="w"> </span><span class="nx">updateM4</span><span class="p">(</span><span class="nx">state</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">);</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">event</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"surgery"</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">e</span><span class="p">.</span><span class="nx">module</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"m4"</span><span class="p">)</span><span class="w"> </span><span class="nx">updateM5</span><span class="p">(</span><span class="nx">state</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">);</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">event</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"fix"</span><span class="p">)</span><span class="w"> </span><span class="nx">updateFix</span><span class="p">(</span><span class="nx">state</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="p">);</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">event</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"loop_end"</span><span class="p">)</span><span class="w"> </span><span class="nx">state</span><span class="p">.</span><span class="nx">diagnosisLoopEnded</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="nx">state</span><span class="p">;</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="5-join-and-identity-rules">5. Join and identity rules</h3>
+<p>There is no single ID present in every persisted representation, so use this
+precedence and expose ambiguous joins instead of hiding them:</p>
+<table>
+<thead>
+<tr>
+<th>Objects to join</th>
+<th>Preferred key</th>
+<th>Fallback</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>run events</td>
+<td><code>trace_id</code></td>
+<td>enclosing run directory; never merge two directories merely because model/config match</td>
+</tr>
+<tr>
+<td>analyzer per-case row ↔ raw case</td>
+<td><code>sample_id</code> ↔ <code>FailureCase.id</code></td>
+<td>no fuzzy matching</td>
+</tr>
+<tr>
+<td>full hypothesis objects</td>
+<td>hypothesis <code>id</code></td>
+<td><code>(cycle, normalized statement)</code></td>
+</tr>
+<tr>
+<td>M3 ↔ M4/M5 run-log records</td>
+<td><code>(cycle, exact statement)</code></td>
+<td>normalized whitespace/case only; mark collisions ambiguous</td>
+</tr>
+<tr>
+<td>fix candidate across selection/final</td>
+<td><code>trial_root</code> when present</td>
+<td><code>(tier, name, list ordinal)</code>; name alone is not unique across repair rounds</td>
+</tr>
+<tr>
+<td>agent decision ↔ dispatch result</td>
+<td><code>step</code></td>
+<td>file adjacency within the same trace</td>
+</tr>
+<tr>
+<td>stage artifact ↔ event</td>
+<td>exact relative path</td>
+<td>unique manifest suffix match</td>
+</tr>
+</tbody>
+</table>
+<p>Do not slugify hypothesis text and assume it is globally unique. If two
+hypotheses in one cycle have the same normalized statement, retain both as
+separate cards and show the shared outcome as an ambiguous association until a
+stable ID is available.</p>
+<h3 id="6-fix-event-selection-is-not-confirmation">6. Fix event: selection is not confirmation</h3>
+<p>The Fix UI must keep two datasets separate:</p>
+<ul>
+<li><code>selection_attempted</code>: exploratory candidate trials used to choose a repair.</li>
+<li><code>attempted</code>: final/holdout confirmation attempts. These are the attempts that
+  may justify the top-level <code>fixed</code> claim.</li>
+</ul>
+<p>The full useful attempt shape is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kr">type</span><span class="w"> </span><span class="nx">FixVerdict</span><span class="w"> </span><span class="o">=</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="o">|</span><span class="w"> </span><span class="s2">"fixed"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"partial"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"unsafe"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"regressed"</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="o">|</span><span class="w"> </span><span class="s2">"no_effect"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"not_executed"</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="s2">"model_independent"</span><span class="p">;</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">FixAttempt</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">  </span><span class="nx">tier</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">  </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">  </span><span class="nx">kind?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">  </span><span class="nx">source?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="w">  </span><span class="nx">payload?</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">unknown</span><span class="o">&gt;</span><span class="p">;</span>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">  </span><span class="nx">trial_root?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="w">  </span><span class="nx">n_pairs</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">  </span><span class="nx">n_baseline_correct</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="w">  </span><span class="nx">n_candidate_correct</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a><span class="w">  </span><span class="nx">n_fixed</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="w">  </span><span class="nx">n_broken</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="w">  </span><span class="nx">fixed_cases</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a><span class="w">  </span><span class="nx">broken_cases</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+<a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a><span class="w">  </span><span class="nx">effect</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a><span class="w">  </span><span class="nx">reject</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a><span class="w">  </span><span class="nx">fixed</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a><span class="w">  </span><span class="nx">n_applicable?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a><span class="w">  </span><span class="nx">coverage?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a><span class="w">  </span><span class="nx">n_unstable?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<a id="__codelineno-10-25" name="__codelineno-10-25" href="#__codelineno-10-25"></a><span class="w">  </span><span class="nx">n_model_independent?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<a id="__codelineno-10-26" name="__codelineno-10-26" href="#__codelineno-10-26"></a><span class="w">  </span><span class="nx">e_value?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-10-27" name="__codelineno-10-27" href="#__codelineno-10-27"></a><span class="w">  </span><span class="nx">verdict</span><span class="o">:</span><span class="w"> </span><span class="kt">FixVerdict</span><span class="p">;</span>
+<a id="__codelineno-10-28" name="__codelineno-10-28" href="#__codelineno-10-28"></a><span class="w">  </span><span class="nx">summary?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-10-29" name="__codelineno-10-29" href="#__codelineno-10-29"></a><span class="p">}</span>
+<a id="__codelineno-10-30" name="__codelineno-10-30" href="#__codelineno-10-30"></a>
+<a id="__codelineno-10-31" name="__codelineno-10-31" href="#__codelineno-10-31"></a><span class="kd">interface</span><span class="w"> </span><span class="nx">FixEvent</span><span class="w"> </span><span class="k">extends</span><span class="w"> </span><span class="nx">RunEventBase</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-10-32" name="__codelineno-10-32" href="#__codelineno-10-32"></a><span class="w">  </span><span class="nx">event</span><span class="o">:</span><span class="w"> </span><span class="s2">"fix"</span><span class="p">;</span>
+<a id="__codelineno-10-33" name="__codelineno-10-33" href="#__codelineno-10-33"></a><span class="w">  </span><span class="nx">cycle</span><span class="o">:</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="p">;</span>
+<a id="__codelineno-10-34" name="__codelineno-10-34" href="#__codelineno-10-34"></a><span class="w">  </span><span class="nx">max_tier</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-10-35" name="__codelineno-10-35" href="#__codelineno-10-35"></a><span class="w">  </span><span class="nx">routed</span><span class="o">:</span><span class="w"> </span><span class="kt">unknown</span><span class="p">[];</span>
+<a id="__codelineno-10-36" name="__codelineno-10-36" href="#__codelineno-10-36"></a><span class="w">  </span><span class="nx">selection_attempted</span><span class="o">:</span><span class="w"> </span><span class="kt">Array</span><span class="o">&lt;</span><span class="nx">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">unknown</span><span class="o">&gt;&gt;</span><span class="p">;</span>
+<a id="__codelineno-10-37" name="__codelineno-10-37" href="#__codelineno-10-37"></a><span class="w">  </span><span class="nx">selected_on_explore</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-10-38" name="__codelineno-10-38" href="#__codelineno-10-38"></a><span class="w">  </span><span class="nx">attempted</span><span class="o">:</span><span class="w"> </span><span class="kt">FixAttempt</span><span class="p">[];</span>
+<a id="__codelineno-10-39" name="__codelineno-10-39" href="#__codelineno-10-39"></a><span class="w">  </span><span class="nx">best</span><span class="o">:</span><span class="w"> </span><span class="kt">FixAttempt</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-10-40" name="__codelineno-10-40" href="#__codelineno-10-40"></a><span class="w">  </span><span class="nx">fixed</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span>
+<a id="__codelineno-10-41" name="__codelineno-10-41" href="#__codelineno-10-41"></a><span class="w">  </span><span class="nx">recommendation</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">unknown</span><span class="o">&gt;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-10-42" name="__codelineno-10-42" href="#__codelineno-10-42"></a><span class="w">  </span><span class="nx">refine_signal</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">unknown</span><span class="o">&gt;</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">;</span>
+<a id="__codelineno-10-43" name="__codelineno-10-43" href="#__codelineno-10-43"></a><span class="w">  </span><span class="nx">repair_rounds</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<a id="__codelineno-10-44" name="__codelineno-10-44" href="#__codelineno-10-44"></a><span class="w">  </span><span class="nx">ebh_survivors</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">[];</span>
+<a id="__codelineno-10-45" name="__codelineno-10-45" href="#__codelineno-10-45"></a><span class="w">  </span><span class="nx">record?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<a id="__codelineno-10-46" name="__codelineno-10-46" href="#__codelineno-10-46"></a><span class="p">}</span>
+</code></pre></div>
+<p>Render paired changes, not candidate accuracy alone: “fixed 18 / broke 1,”
+coverage, effect, rejection/e-value, and verdict. Useful outcome distinctions:</p>
+<table>
+<thead>
+<tr>
+<th>Payload</th>
+<th>Correct UI state</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fixed: true</code>, <code>best != null</code></td>
+<td>confirmed fix; show best and final evidence</td>
+</tr>
+<tr>
+<td><code>attempted.length &gt; 0</code>, no fixed attempt</td>
+<td>completed, no validated fix; show all failures and recommendation</td>
+</tr>
+<tr>
+<td><code>selection_attempted.length &gt; 0</code>, <code>selected_on_explore == null</code>, <code>attempted: []</code></td>
+<td>abstained during selection; confirmation was not run</td>
+</tr>
+<tr>
+<td>selected candidate exists, <code>attempted: []</code></td>
+<td>selected but unconfirmed/unfinished; never label fixed</td>
+</tr>
+<tr>
+<td><code>verdict: "unsafe"</code> or <code>"regressed"</code></td>
+<td>prominent safety failure, including <code>broken_cases</code></td>
+</tr>
+<tr>
+<td><code>verdict: "model_independent"</code></td>
+<td>apparent gain was not attributable to the target model</td>
+</tr>
+</tbody>
+</table>
+<p><code>exec_error</code> exists in the in-memory validation type but is not currently
+included in <code>FixOutcome.to_dict()</code>. The UI must not depend on that field; use the
+attempt <code>summary</code>, <code>verdict</code>, trial record, and captured execution artifacts.</p>
+<h3 id="7-missing-null-empty-zero-and-false">7. Missing, null, empty, zero, and false</h3>
+<p>These values are not interchangeable:</p>
+<table>
+<thead>
+<tr>
+<th>JSON value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>field absent</td>
+<td>producer/version did not emit it, or it was optional; “unknown/not recorded”</td>
+</tr>
+<tr>
+<td><code>null</code></td>
+<td>producer explicitly knows no value exists, e.g. no best fix or no refocused batch</td>
+</tr>
+<tr>
+<td><code>[]</code> / <code>{}</code></td>
+<td>valid collection with zero entries; often a completed empty result</td>
+</tr>
+<tr>
+<td><code>""</code></td>
+<td>empty narrative/reason; do not substitute an invented explanation</td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td>measured/count value of zero; display it</td>
+</tr>
+<tr>
+<td><code>false</code></td>
+<td>explicit negative boolean; display it and do not fall back with <code>value || default</code></td>
+</tr>
+</tbody>
+</table>
+<p>In TypeScript, prefer nullish fallback (<code>value ?? default</code>) over truthiness
+fallback when zero/false are valid. Preserve the original distinction in the
+raw view even if the summary UI groups some cases together.</p>
+<h3 id="8-rendering-contract-by-stage">8. Rendering contract by stage</h3>
+<p>Every stage page/card should have three layers: an answer-first summary, a
+structured detail view, and the unmodified raw source/artifact link.</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Summary</th>
+<th>Detail/drill-down</th>
+<th>Empty/error treatment</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Problem / input</td>
+<td>model, benchmark/protocol, case/label counts, split</td>
+<td>searchable raw cases; prompt/media/expected/observed; trajectory steps</td>
+<td>unresolved media is unavailable, not a missing case</td>
+</tr>
+<tr>
+<td>M1</td>
+<td>analyzers run/succeeded/failed; top scalar findings</td>
+<td>analyzer-specific JSON/table; per-case rows; PNG overlay/heatmap; <code>.npy</code> download</td>
+<td>selected analyzer with error gets its own failed card</td>
+</tr>
+<tr>
+<td>Explore</td>
+<td>observations/candidate-signal/chart counts; descriptive badge</td>
+<td>charts/tables/caveats and source rows</td>
+<td>show explicit explorer error while allowing later stages</td>
+</tr>
+<tr>
+<td>M2</td>
+<td>severity, conclusion, descriptive/confirmatory badge</td>
+<td>findings/evidence chain, stats plan/results, corrected decisions, figures, judge-I/O audit link</td>
+<td>no findings can be a successful empty result; fallback reason is a warning</td>
+</tr>
+<tr>
+<td>M3</td>
+<td>hypothesis count and short statements</td>
+<td>failure mode, test design, parent/evidence where available, cited charts</td>
+<td>zero hypotheses is neutral empty/abstained, not red failure</td>
+</tr>
+<tr>
+<td>M5 verify</td>
+<td>mechanism status, confidence, whether intervention changed outcome</td>
+<td>evidence dimensions, experiment metrics, generated files/stdout/stderr/workspace record</td>
+<td>inconclusive is valid; execution error belongs to the experiment card</td>
+</tr>
+<tr>
+<td>M4</td>
+<td>supported/refuted/inconclusive count</td>
+<td>test, effect, confidence, protocol consistency, evidence grade and evidence</td>
+<td>descriptive M2 rejection must never appear as M4 support</td>
+</tr>
+<tr>
+<td>Fix</td>
+<td>confirmed status and best candidate</td>
+<td>separate EXPLORE selection and FINAL confirmation tables; fixed/broken case links; code and record</td>
+<td>distinguish no validated fix, abstention, unsafe, and unfinished</td>
+</tr>
+</tbody>
+</table>
+<p>For arbitrary dictionaries, render a bounded structured view first and place
+the complete JSON in a collapsible raw panel. Long text generated by a model is
+untrusted content: escape HTML/Markdown by default, and never execute generated
+code or load arbitrary local paths in the browser.</p>
+<h3 id="9-live-loading-scale-and-failures">9. Live loading, scale, and failures</h3>
+<ul>
+<li>Parse JSONL incrementally and deduplicate by file byte offset, not by event
+  content; repeated-looking candidate events can be legitimate.</li>
+<li>Debounce visual updates, but append events in source order. A 250–500 ms UI
+  refresh is enough for normal stage durations.</li>
+<li>Virtualize <code>per_case</code>/raw-case tables and load heavy JSON, <code>.npy</code>, images,
+  prompts, responses, and workspaces on demand.</li>
+<li>Do not request an artifact before its event line is complete. If a referenced
+  file is still being written, show loading and retry with bounded backoff.</li>
+<li>Distinguish HTTP/read failure from JSON parse failure and from a valid empty
+  payload. Include the relative path and retry action in the error panel.</li>
+<li>Preserve the last valid UI state when a live read fails; add a stale/disconnected
+  badge rather than clearing completed stages.</li>
+<li>Use explicit size limits and confirmation before rendering very large text or
+  arrays. <code>.npy</code> should normally be summarized/rendered server-side, not parsed
+  by the browser.</li>
+<li>Redact credentials and authorization headers from raw config, prompts, tool
+  calls, stdout/stderr, and metadata at the server boundary.</li>
+</ul>
+<h3 id="10-ui-acceptance-checklist">10. UI acceptance checklist</h3>
+<p>A UI hand-off is complete when the implementation can demonstrate all of the
+following against both a live and a persisted run:</p>
+<ul>
+<li>All M1–M5 stages remain visible even when later stages were skipped.</li>
+<li>Raw cases and raw M1 analyzer output are discoverable without developer tools.</li>
+<li>An M1 per-case row opens the exact raw case via <code>sample_id</code>.</li>
+<li>Descriptive M2/Explore evidence is visually distinct from confirmatory M4.</li>
+<li>An empty M3, failed Explore, inconclusive M4, and missing artifact render as
+  four different states.</li>
+<li>An externalized M2 payload lazy-loads from its <code>{path, n_items, bytes}</code> pointer.</li>
+<li>A <code>loop_end</code> followed by M5/Fix updates the existing run instead of creating a
+  second run or freezing the first one.</li>
+<li>Fix selection and final confirmation appear in separate sections, and the UI
+  never claims “fixed” from selection evidence alone.</li>
+<li>Container-absolute artifact paths resolve inside the selected run root and
+  cannot traverse outside it.</li>
+<li>Unknown additive event/config fields do not crash parsing and remain inspectable
+  in the raw view.</li>
+</ul>
+<hr />
+<h2 id="ui-reference-building-a-viewer-on-this-pipeline">UI reference — building a viewer on this pipeline</h2>
+<p>There is already a working viewer for this exact data: <code>evalrx serve
+&lt;run-dir&gt;</code> runs it as a local dynamic UI, and <code>evalrx report &lt;run-dir&gt;</code>
+exports the same UI as one portable <code>report.html</code> — see the
+<a href="../cli/">CLI reference</a> for the full command set. The source of truth is
+<code>evalrx/reporting/dynamic.py</code> (compiles <code>ReportData</code> + layout),
+<code>evalrx/reporting/server.py</code> (the <code>serve</code> FastAPI app) and
+<code>evalrx/reporting/static_export.py</code> (the <code>report</code> exporter); all three share
+the same React/json-render renderer. (<code>evalrx/reporting/html_report.py</code> is
+the older, pre-React renderer behind the now-deprecated <code>evalrx dashboard</code>
+command — not this contract.) Read this section as the contract that
+renderer must preserve.</p>
+<h3 id="requirements-for-the-new-ui">Requirements for the new UI</h3>
+<p>Two explicit requirements on top of what's documented below:</p>
+<ol>
+<li><strong>Show the raw data exactly, not just a derived view of it.</strong> The
+   report exposes <code>records.json</code>/per-case artifacts through the Case Studio
+   and agent/artifact sections. A reader must be able to go from "the analysis
+   says X" to the literal row or case without hunting.</li>
+<li><strong>Show M1's results too, not just M2 through M4.</strong> M1 produces
+   <code>dict[str, Result]</code> — one entry per analyzer that ran, each carrying
+   <code>findings</code> (light JSON: scores, flagged tokens, contingency tables, …)
+   and <code>artifacts</code> (heavy: attention maps, heatmaps, embeddings). The
+   static report surfaces each analyzer pass in its M1 view. Keep <code>findings</code>
+   readable as JSON/table and expose rendered
+   artifacts where available (e.g. the attention/spatial overlay PNGs
+   described in <a href="../architecture/#result-image-overlays">Result image overlays</a>);
+   <code>RunContext</code>'s <code>figures/</code>/<code>artifacts/</code> subdirectories are where they land
+   on disk per run, see
+   <a href="../architecture/#runcontext-single-owner-of-a-runs-output-directory">RunContext</a>).</li>
+</ol>
+<p><strong>The current reference UI is one renderer, served live or exported static.</strong>
+Exploratory and full diagnostic runs use the same renderer and stage order.
+Missing optional M4/M5 artifacts retain their place and explain that the
+stage was not recorded; the tab list never changes with run completeness.</p>
+<h3 id="page-layout">Page layout</h3>
+<p>The common header identifies the run, then a tab rail shows every M1–M5 state
+in the action order M1 → M2 → M3 → M4 → M5. The rail is orientation, not a
+replacement for the stage views: a reader can move from a count/status to the
+full evidence, raw event, or artifact without switching applications.</p>
+<h3 id="the-not-available-pattern-the-most-important-convention-to-copy">The "not available" pattern — the most important convention to copy</h3>
+<p>M4 and M5 are genuinely optional — a run may stop at M3 and never reach
+validation or repair. Keep their tabs visible and render a clear stage-local
+empty state instead of deleting navigation. This lets a reader compare a
+quick M2/M3 analysis with a full M1→M4→M5 run without relearning the layout.</p>
+<h3 id="cross-cutting-conventions-worth-copying">Cross-cutting conventions worth copying</h3>
+<ul>
+<li><strong>Plain language first, technical detail second.</strong> Every headline
+  (question, takeaway, hypothesis) prefers a <code>plain_*</code> field and shows the
+  precise technical wording only as a secondary line, and only when it
+  actually differs from the plain one. This is a checked invariant upstream
+  (host-side jargon checker on M2/M3 output — see
+  <a href="../m2_analysis/">m2_analysis.md</a>), not just a UI nicety; a new viewer can
+  rely on <code>plain_title</code>/<code>plain_statement</code>/<code>plain_question</code> being genuinely
+  jargon-free rather than re-deriving a summary itself.</li>
+<li><strong>Descriptive vs. confirmatory framing is never blurred.</strong> M2 may show
+  exploratory/in-sample signals but never calls them supported; that wording
+  is reserved for M4 validation. This is the single most load-bearing UI
+  convention — getting it wrong makes an exploratory finding read as a
+  validated one.</li>
+<li><strong>Referenced-but-missing artifacts say so explicitly</strong> rather than
+  silently dropping the reference (a takeaway naming a chart that isn't in
+  <code>report["charts"]</code> renders a visible "referenced evidence not found"
+  notice). Artifacts the report produced but nothing referenced ("orphans")
+  still render, in their own section, so nothing generated is ever hidden.</li>
+<li><strong>Paired-comparison numbers are always framed against the unmodified
+  baseline</strong>, never as a bare rate — "repaired N / broke N" on the fix
+  panel, "fail rate flagged vs. unflagged" on the validation panel.</li>
+<li>Stage completeness for the <em>current</em> run is visualized by the shared stage
+  rail (<code>_render_stage_rail</code>) — every M1–M5 stage is listed, with the stages
+  actually reached highlighted, so a reader gets pipeline-position context
+  before reading any specific stage's content.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
