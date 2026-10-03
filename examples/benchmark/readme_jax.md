@@ -429,7 +429,7 @@ fine-tune the `gemma` library can load). Four edits:
    `_GEMMA4_JAX` with `key -> (library class, gs:// or local Orbax path)` and
    the key tuple below it; the loop builds a `ModelSpec` whose `jax=JaxSpec(...)`
    names the checkpoint, the tokenizer, `model_class` and
-   `adapter="evalrx.models.jax.gemma:make_adapter"`. A spec without `jax=` is
+   `adapter="evalrx.models.backends.jax.adapters.gemma:make_adapter"`. A spec without `jax=` is
    refused by `jax_local` with a clear message.
 2. [`_common/models.py`](_common/models.py): add a `Size` row (`key` is the
    `--model` value; `specs={modality: spec_key}` for the modalities it serves;
@@ -446,12 +446,12 @@ Mirror the checkpoint under `EVALRX_JAX_CKPT` as `gemma4-<size>-it/`, rebuild,
 smoke with `--baseline-only --limit 8`.
 
 **B. A model from another framework or family.** The backend
-[`evalrx/models/backends/jax_local.py`](../../evalrx/models/backends/jax_local.py)
+[`evalrx/models/backends/jax/backend.py`](../../evalrx/models/backends/jax/backend.py)
 is framework-agnostic: it drives any object satisfying
-[`evalrx/models/jax/protocol.py`](../../evalrx/models/jax/protocol.py)
+[`evalrx/models/backends/jax/protocol.py`](../../evalrx/models/backends/jax/protocol.py)
 `JaxModelAdapter`, and the spec's `JaxSpec.adapter` import string
 (`"pkg.module:factory"`, called as `factory(spec, runtime)`) says which one.
-Write a new module beside `evalrx/models/jax/gemma.py` that provides:
+Write a new module beside `evalrx/models/backends/jax/adapters/gemma.py` that provides:
 
 | member | what it must do |
 |---|---|

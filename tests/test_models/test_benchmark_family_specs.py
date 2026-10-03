@@ -31,7 +31,7 @@ def test_gemma4_e2b_e4b_carry_a_jax_twin_but_12b_does_not():
         js = get_spec(key).jax
         assert js is not None and js.framework == "gemma" and js.model_class == cls
         assert js.checkpoint.startswith("gs://gemma-data/checkpoints/gemma4-")
-        assert js.adapter == "evalrx.models.jax.gemma:make_adapter" and js.reference_attention
+        assert js.adapter == "evalrx.models.backends.jax.adapters.gemma:make_adapter" and js.reference_attention
     assert get_spec("gemma-4-12b-it").jax is None
 
 

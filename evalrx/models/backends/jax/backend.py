@@ -3,7 +3,7 @@
 Twin of ``hf_local`` for models that run under JAX (Gemma 4 through Google
 DeepMind's ``gemma`` library is the reference; a user's own Flax / MaxText /
 Penzai model plugs in through :func:`evalrx.wrap_jax`). The backend knows no
-framework: it drives a :class:`~evalrx.models.jax.protocol.JaxModelAdapter`
+framework: it drives a :class:`~evalrx.models.backends.jax.protocol.JaxModelAdapter`
 (built from ``ModelSpec.jax.adapter`` or passed in) and converts every captured
 array to a CPU torch tensor at the ``Trace`` boundary, so every analyzer that
 runs on ``hf_local`` text models runs here unchanged.
@@ -44,7 +44,7 @@ from evalrx.core.model import Model, TokenLogprob, Trace
 from evalrx.core.tokentype import TokenTypeMap
 from evalrx.core.tool import ChatTurn
 from evalrx.models.backends.base import Backend, RuntimeConfig
-from evalrx.models.jax.protocol import (
+from evalrx.models.backends.jax.protocol import (
     CAPTURE_ATTN,
     CAPTURE_HIDDEN,
     CAPTURE_LOGITS,
@@ -220,7 +220,7 @@ class JaxLocalModel(Model):
         over prompt + continuation (exact for greedy, one extra pass)."""
         import numpy as np
 
-        from evalrx.models.jax._boundary import to_numpy
+        from evalrx.models.backends.jax.boundary import to_numpy
 
         enc = self._encode(inputs)
         gen = self.adapter.generate(enc, SamplingParams(max_new_tokens=int(max_new_tokens)))
@@ -247,7 +247,7 @@ class JaxLocalModel(Model):
     def forward(self, inputs: Any, capture: set[Capability], spec=None) -> Trace:
         import torch
 
-        from evalrx.models.jax._boundary import to_torch
+        from evalrx.models.backends.jax.boundary import to_torch
 
         if Capability.ATTENTION in capture and Capability.ATTENTION not in self.capabilities:
             raise CapabilityError(analyzer="forward", model=repr(self), missing={Capability.ATTENTION})
@@ -329,7 +329,7 @@ class JaxLocalModel(Model):
         """The ``(vocab, dim)`` unembedding the model really applies, converted once."""
         self._ensure()
         if self._unembed is _UNSET:
-            from evalrx.models.jax._boundary import to_torch
+            from evalrx.models.backends.jax.boundary import to_torch
 
             W = self.adapter.unembed()
             self._unembed = None if W is None else to_torch(W)
@@ -340,7 +340,7 @@ class JaxLocalModel(Model):
         """The head-side norm as a small torch module (``None`` if the adapter has none)."""
         self._ensure()
         if self._final_norm is _UNSET:
-            from evalrx.models.jax._boundary import make_torch_rmsnorm
+            from evalrx.models.backends.jax.boundary import make_torch_rmsnorm
 
             params = self.adapter.final_norm_params()
             self._final_norm = None if params is None else make_torch_rmsnorm(params)

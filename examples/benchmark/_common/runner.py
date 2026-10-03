@@ -68,7 +68,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
     gen = generation_settings(task, args)
     max_new = gen["max_new_tokens"]
     if resolved.backend == "endpoint":
-        from evalrx.models.backends.openai_compat import openai_runtime
+        from evalrx.models.backends.api.openai import openai_runtime
 
         sampling = {"temperature": gen.get("temperature", 0.0), "max_tokens": max_new}
         # vLLM reads non-OpenAI params from the JSON body: top_k (dropped from the
@@ -85,7 +85,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
         # the endpoint's generate_fn carries the sampling itself; per-call kwargs are not forwarded
         return compose(spec, "api", runtime, set()), {}, spec
     if resolved.backend == "gemini":
-        from evalrx.models.backends.gemini_compat import ThinkingPolicy, gemini_runtime
+        from evalrx.models.backends.api.gemini import ThinkingPolicy, gemini_runtime
 
         sampling = {"temperature": gen.get("temperature", 0.0), "max_output_tokens": max_new}
         if gen.get("do_sample"):

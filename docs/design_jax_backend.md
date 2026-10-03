@@ -73,7 +73,7 @@ through it, and each one is a work item below:
    (`generate_vcd`, `generate_instruction_cd`, `generate_tcd`, `generate_aad`,
    the specialist routes), and `repair_catalog.discover_methods` finds them
    with `callable(getattr(model, executor))`. Layer discovery
-   (`models/_discover.py`) walks `nn.ModuleList`.
+   (`models/backends/hf/discover.py`) walks `nn.ModuleList`.
 
 One more fact shapes the priorities. The benchmark's **pinned M1 sets for the
 Gemma cells are all black-box plus logprobs** (`_common/tasks/*.py`):
@@ -100,7 +100,7 @@ as `BACKENDS["jax_local"]` in `models/backends/__init__.py`. Heavy imports
 stay inside `load()`.
 
 ```python
-# evalrx/models/jax/protocol.py (as implemented; the sketch this replaced had
+# evalrx/models/backends/jax/protocol.py (as implemented; the sketch this replaced had
 # prefill/step and phase-2/3 methods, which are deferred to those phases)
 
 class Encoding:            # what the adapter's tokenizer / processor produced
@@ -448,12 +448,14 @@ What exists in the repo:
 
 - `evalrx/core/spec.py`: `JaxSpec`, `ModelSpec.jax`; `evalrx/specs.py` gives
   `gemma-4-e2b-it` and `gemma-4-e4b-it` their JAX twin.
-- `evalrx/models/jax/`: `protocol.py` (the contract above), `_boundary.py`
-  (jax -> CPU torch, bf16 bit-exact; a torch RMSNorm rebuilt from the JAX
-  norm), `gemma.py` (the reference adapter: text, image and audio inputs).
+- `evalrx/models/backends/jax/`: `protocol.py` (the contract above),
+  `boundary.py` (jax -> CPU torch, bf16 bit-exact; a torch RMSNorm rebuilt
+  from the JAX norm), `adapters/gemma.py` (the reference adapter: text, image
+  and audio inputs). The pre-0.1.2 `evalrx/models/jax/` paths are deprecated
+  aliases.
 - `evalrx/models/_media.py`: image / audio resolution shared by `hf_local`
   and `jax_local` (moved out of `hf_local.py`, whose private names stay bound).
-- `evalrx/models/backends/jax_local.py`: `JaxLocalModel` / `JaxLocalBackend`,
+- `evalrx/models/backends/jax/backend.py`: `JaxLocalModel` / `JaxLocalBackend`,
   registered as `BACKENDS["jax_local"]`; `evalrx.wrap_jax(adapter)` mirrors
   `wrap()`.
 - Benchmark: `--backend jax_local` on the Gemma sizes (`_common/models.py`,

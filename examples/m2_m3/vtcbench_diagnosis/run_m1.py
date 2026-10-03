@@ -35,7 +35,7 @@ from evalrx.analyzers.agent.tool_shap import ToolShap
 from evalrx.analyzers.agent.trajectory_rubric import TrajectoryRubricJudge
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.models.agent import Agent, run_batch
-from evalrx.models.backends.openai_compat import openai_runtime
+from evalrx.models.backends.api.openai import openai_runtime
 from evalrx.models.tools import detect_tool, zoom_in_tool
 from evalrx.models.tools.perception import default_detect_engine
 

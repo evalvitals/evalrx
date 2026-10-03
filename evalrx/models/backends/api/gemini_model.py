@@ -57,7 +57,7 @@ def _audio_bytes(audio: Any) -> "tuple[bytes, str]":
     """
     import base64
 
-    from evalrx.models.backends.openai_compat import _to_input_audio
+    from evalrx.models.backends.api.openai import _to_input_audio
 
     encoded = _to_input_audio(audio)
     return base64.b64decode(encoded["data"]), _AUDIO_MIME.get(encoded["format"], "audio/wav")

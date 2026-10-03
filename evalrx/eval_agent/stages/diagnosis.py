@@ -647,7 +647,7 @@ def _default_judge() -> "Model":
         return AgyModel()
 
     if os.getenv("GEMINI_API_KEY"):
-        from evalrx.models.blackbox.gemini import GeminiModel
+        from evalrx.models.backends.api.gemini_model import GeminiModel
         return GeminiModel()
 
     raise ValueError(
@@ -678,7 +678,7 @@ class DiagnosisAgent:
         model_id: str = "gemini-2.0-flash",
     ) -> None:
         if judge is None and api_key is not None:
-            from evalrx.models.blackbox.gemini import GeminiModel
+            from evalrx.models.backends.api.gemini_model import GeminiModel
 
             judge = GeminiModel(model_id=model_id, api_key=api_key)
         self._judge = judge  # None → resolved lazily on first call

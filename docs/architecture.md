@@ -43,7 +43,7 @@ vision-token handling, MoE flags, reasoning flags, and attention semantics.
 
 Specs live in `evalrx.specs` and are intentionally torch-free.  When
 `wrap()` is used, a minimal spec is inferred at runtime from `model.config` via
-`evalrx.models.inference.infer_spec` — no registry entry is required.
+`evalrx.models.backends.hf.inference.infer_spec` — no registry entry is required.
 
 **Modality is a set, not a class fork.** A spec declares modalities by the
 components it carries — `vision` adds `"image"`, `audio` adds `"audio"`,
@@ -94,7 +94,7 @@ compose("qwen3-vl-8b-instruct", "api", want={Capability.ATTENTION})   # -> Capab
 ```
 
 Module paths in a spec are *hints*: the white-box backend **discovers** the
-real decoder-layer `ModuleList` at load time (`models/_discover.py`) instead
+real decoder-layer `ModuleList` at load time (`models/backends/hf/discover.py`) instead
 of trusting a hardcoded path — robust across transformers releases and the
 doubled-`.model.` / no-`.model` / fused-experts traps.
 

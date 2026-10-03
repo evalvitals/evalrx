@@ -4,7 +4,7 @@ The curated path (``evalrx.load("qwen...")``) looks a spec up by registry key.
 The public on-ramp (``evalrx.wrap(model, tokenizer)``) has no key — the user
 brings their own loaded HF model — so we *infer* the same ``ModelSpec`` fields from
 the live ``model.config`` and tokenizer instead.  Both paths then feed the identical
-:class:`~evalrx.models.backends.hf_local.HFLocalModel`, so every analyzer sees one
+:class:`~evalrx.models.backends.hf.model.HFLocalModel`, so every analyzer sees one
 contract.
 
 This module is torch-free: it only reads attributes off objects the caller already

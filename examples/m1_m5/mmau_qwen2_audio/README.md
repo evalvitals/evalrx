@@ -7,7 +7,7 @@ validates a repair — including the paper-registered `tcd_temporal_blur`
 candidate for Temporal Contrastive Decoding (TCD, Li et al. 2026,
 arXiv:2604.15383) on the paper's own hyperparameter anchor model
 (`paper_method_fidelity("tcd") == "native_layer_matched_stability"` for this
-pair — see `evalrx/models/backends/hf_local.py`).
+pair — see `evalrx/models/backends/hf/model.py`).
 
 This was `examples/m5/qwen2_audio_tcd_mmau`, a `FixAgent`-only run against a
 hand-supplied hypothesis. TCD's own framing ("temporal smoothing bias") is no

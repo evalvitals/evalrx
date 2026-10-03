@@ -18,6 +18,9 @@ from evalrx.core.model import Model
 
 # Backend layer + agent loop (torch-free at import; heavy deps are lazy in build/load).
 from evalrx.core.tool import ChatTurn, Tool, ToolCall
+from evalrx.models import (
+    _moved,  # noqa: F401  (registers the pre-0.1.2 module paths: backends.hf_local, models.jax, ...)
+)
 from evalrx.models.agent import Agent, APIToolHandlerExecutor, ToolExecutor
 from evalrx.models.backends import BACKENDS, RuntimeConfig, call_vision_api_chat_fn
 from evalrx.models.base import BaseAgent
@@ -130,7 +133,7 @@ def wrap(
     """Wrap an ALREADY-LOADED HF causal LM + tokenizer into an analyzable model.
 
     The captum-style public on-ramp: the user brings their own model, no registry
-    key needed.  The result is the same :class:`~evalrx.models.backends.hf_local.HFLocalModel`
+    key needed.  The result is the same :class:`~evalrx.models.backends.hf.model.HFLocalModel`
     that ``evalrx.load("qwen...")`` produces, so every capability-compatible
     analyzer works on it::
 
@@ -154,7 +157,7 @@ def wrap(
     Raises:
         NotImplementedError: if *model* looks like a VLM (Stage 2; text-only for now).
     """
-    from evalrx.models.backends.hf_local import HFLocalModel
+    from evalrx.models.backends.hf.model import HFLocalModel
     from evalrx.models.compose import negotiate
 
     handle = HFLocalModel.from_loaded(model, tokenizer, runtime=RuntimeConfig(**runtime))
@@ -172,9 +175,9 @@ def wrap_jax(
     """Wrap a JAX model that is ALREADY in memory into an analyzable model.
 
     The JAX twin of :func:`wrap`: the user brings an object implementing
-    :class:`~evalrx.models.jax.protocol.JaxModelAdapter` (their Flax / MaxText /
+    :class:`~evalrx.models.backends.jax.protocol.JaxModelAdapter` (their Flax / MaxText /
     Penzai model plus tokenizer behind the small adapter contract) and gets the
-    same :class:`~evalrx.models.backends.jax_local.JaxLocalModel` that
+    same :class:`~evalrx.models.backends.jax.backend.JaxLocalModel` that
     ``compose(spec, "jax_local")`` produces, no registry entry needed::
 
         wrapped = evalrx.wrap_jax(MyAdapter(model, params, tokenizer))
@@ -187,7 +190,7 @@ def wrap_jax(
         **runtime: forwarded to :class:`RuntimeConfig` (``max_new_tokens``, ``device``...).
     """
     from evalrx.core.spec import ModelSpec
-    from evalrx.models.backends.jax_local import JaxLocalModel
+    from evalrx.models.backends.jax.backend import JaxLocalModel
     from evalrx.models.compose import negotiate
 
     spec = ModelSpec(key=key, family="custom", model_type="custom", hf_repo="")

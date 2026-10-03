@@ -14,7 +14,7 @@ from torch import nn
 
 from evalrx.core.spec import ModelSpec
 from evalrx.models.backends.base import RuntimeConfig
-from evalrx.models.backends.hf_local import HFLocalModel
+from evalrx.models.backends.hf.model import HFLocalModel
 
 
 class _Tok:

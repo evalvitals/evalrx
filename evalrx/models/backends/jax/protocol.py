@@ -4,7 +4,7 @@ A JAX model has no single API the way an HF torch model does: Flax Linen, Flax
 NNX, MaxText, Penzai and hand-rolled ``lax.scan`` stacks all expose internals
 differently. The backend therefore never touches a framework. It drives a
 :class:`JaxModelAdapter`, and each framework (or a user's own training script)
-implements this small protocol. ``evalrx.models.jax.gemma`` is the reference
+implements this small protocol. ``evalrx.models.backends.jax.adapters.gemma`` is the reference
 implementation. Design notes: ``docs/design_jax_backend.md`` (section 3.1).
 
 Conventions the backend relies on:

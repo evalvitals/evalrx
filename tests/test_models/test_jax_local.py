@@ -24,9 +24,9 @@ from evalrx.core.case import Inputs  # noqa: E402
 from evalrx.core.model import CaptureSpec  # noqa: E402
 from evalrx.models import RuntimeConfig, compose  # noqa: E402
 from evalrx.models.backends import BACKENDS  # noqa: E402
-from evalrx.models.backends.jax_local import JaxLocalBackend, JaxLocalModel  # noqa: E402
-from evalrx.models.jax._boundary import make_torch_rmsnorm, to_torch  # noqa: E402
-from evalrx.models.jax.protocol import (  # noqa: E402
+from evalrx.models.backends.jax.backend import JaxLocalBackend, JaxLocalModel  # noqa: E402
+from evalrx.models.backends.jax.boundary import make_torch_rmsnorm, to_torch  # noqa: E402
+from evalrx.models.backends.jax.protocol import (  # noqa: E402
     CAPTURE_ATTN,
     CAPTURE_HIDDEN,
     CAPTURE_LOGITS,
@@ -419,7 +419,7 @@ def _sampler_audio_count(length, sample_rate=16000):
 
 
 def test_audio_soft_token_count_matches_the_library_sampler():
-    from evalrx.models.jax.gemma import audio_soft_token_count
+    from evalrx.models.backends.jax.adapters.gemma import audio_soft_token_count
 
     for n in (16000, 16001, 16321, 160000, int(28.22 * 16000), 30 * 16000, 31 * 16000):
         assert audio_soft_token_count(n) == _sampler_audio_count(n)
@@ -430,7 +430,7 @@ def test_image_grid_product_equals_library_soft_token_count():
     pytest.importorskip("gemma")
     from gemma.gm.nn.gemma4.vision import _preprocessing as vp
 
-    from evalrx.models.jax.gemma import image_grid
+    from evalrx.models.backends.jax.adapters.gemma import image_grid
 
     for settings in ({"patch_size": 16, "max_soft_tokens": 280, "pooling_kernel_size": 3},
                      {"patch_size": 16, "max_soft_tokens": 1120, "pooling_kernel_size": 3}):
@@ -441,7 +441,7 @@ def test_image_grid_product_equals_library_soft_token_count():
 
 
 def test_content_blocks_render_placeholders_in_order_and_collect_payloads():
-    from evalrx.models.jax.gemma import _content_blocks
+    from evalrx.models.backends.jax.adapters.gemma import _content_blocks
 
     text, images, audios = _content_blocks([
         {"type": "audio", "audio": "clip.wav"}, {"type": "image", "image": "a.png"},
@@ -453,7 +453,7 @@ def test_content_blocks_render_placeholders_in_order_and_collect_payloads():
 
 
 def test_gemma_adapter_draws_a_fresh_sampler_seed_per_unseeded_call():
-    from evalrx.models.jax.gemma import GemmaJaxAdapter
+    from evalrx.models.backends.jax.adapters.gemma import GemmaJaxAdapter
     from evalrx.specs import get_spec
 
     ad = GemmaJaxAdapter(get_spec("gemma-4-e2b-it"), RuntimeConfig())     # lazy: no jax / gemma import
@@ -470,7 +470,7 @@ def test_configure_jax_runtime_keeps_cpu_next_to_the_accelerator(monkeypatch):
     import os
     import sys
 
-    from evalrx.models.backends.jax_local import configure_jax_runtime
+    from evalrx.models.backends.jax.backend import configure_jax_runtime
 
     monkeypatch.delitem(sys.modules, "jax")                  # as if jax were not initialised yet
     for device, want in (("tpu", "tpu,cpu"), ("cuda", "cuda,cpu"), ("gpu", "cuda,cpu"),
@@ -487,7 +487,7 @@ def test_configure_jax_runtime_keeps_cpu_next_to_the_accelerator(monkeypatch):
 
 
 def test_placement_device_honours_an_index():
-    from evalrx.models.jax.gemma import placement_device
+    from evalrx.models.backends.jax.adapters.gemma import placement_device
 
     devs = ["d0", "d1"]
     assert placement_device(devs, "tpu:1") == "d1" and placement_device(devs, "cuda:0") == "d0"
@@ -505,7 +505,7 @@ def _fake_gemma_load(monkeypatch, *, fake_load_params, runtime):
     from gemma import gm
     from gemma.gm.ckpts import _checkpoint as ck
 
-    import evalrx.models.jax.gemma as gj
+    import evalrx.models.backends.jax.adapters.gemma as gj
     from evalrx.specs import get_spec
 
     class FakeModel:
@@ -591,7 +591,7 @@ def test_gemma_adapter_load_falls_back_to_host_cast_when_the_private_api_moves(m
 
 
 def test_gemma_adapter_sharding_knob_validates_and_picks_fsdp(monkeypatch):
-    from evalrx.models.jax.gemma import GemmaJaxAdapter
+    from evalrx.models.backends.jax.adapters.gemma import GemmaJaxAdapter
     from evalrx.specs import get_spec
 
     spec = get_spec("gemma-4-e2b-it")
@@ -611,7 +611,11 @@ def test_gemma_adapter_generate_buckets_the_static_output_length(monkeypatch):
     pytest.importorskip("gemma")
     from gemma import gm
 
-    from evalrx.models.jax.gemma import OUT_BUCKETS, GemmaJaxAdapter, bucket_length
+    from evalrx.models.backends.jax.adapters.gemma import (
+        OUT_BUCKETS,
+        GemmaJaxAdapter,
+        bucket_length,
+    )
     from evalrx.specs import get_spec
 
     built, sampled = [], []
@@ -646,7 +650,7 @@ def test_gemma_adapter_generate_buckets_the_static_output_length(monkeypatch):
 
 
 def test_gemma_adapter_model_tokens_restore_internal_placeholders():
-    from evalrx.models.jax.gemma import (
+    from evalrx.models.backends.jax.adapters.gemma import (
         AUDIO_PLACEHOLDER_ID,
         AUDIO_SOFT_PLACEHOLDER,
         IMAGE_PLACEHOLDER_ID,

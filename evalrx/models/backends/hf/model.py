@@ -5,7 +5,7 @@ Loads any spec via ``transformers`` and captures internals.  Two-tier capture:
   * **HF flags** (``output_attentions`` / ``output_hidden_states`` / logits) cover
     attention, residual-stream hidden states and logits with NO module-path
     surgery — this is the high-value common path.
-  * **hooks + runtime path discovery** (:mod:`evalrx.models._discover`) are
+  * **hooks + runtime path discovery** (:mod:`evalrx.models.backends.hf.discover`) are
     only needed beyond what flags give (activation patching, MoE routing,
     gradients) — reserved for Stage 2.
 
@@ -320,7 +320,7 @@ class HFLocalModel(Model):
         against the live ``attn_implementation`` (eager is required, else the model
         returns ``None`` attentions) — flipping it to eager when possible.
         """
-        from evalrx.models.inference import infer_spec
+        from evalrx.models.backends.hf.inference import infer_spec
 
         spec = spec or infer_spec(model, tokenizer)
         self = cls(spec, runtime or RuntimeConfig())
@@ -442,7 +442,7 @@ class HFLocalModel(Model):
 
     def unembed_weight(self):
         """The lm_head / unembedding weight ``(vocab, dim)`` for logit-lens."""
-        from evalrx.models._discover import get_unembed
+        from evalrx.models.backends.hf.discover import get_unembed
 
         model, _ = self._loaded
         head = get_unembed(model)
@@ -454,7 +454,7 @@ class HFLocalModel(Model):
         RMSNorm-family models need ``lm_head(norm(h_i))``, not ``lm_head(h_i)``,
         for faithful intermediate-layer readout (DeCo reference implementation).
         """
-        from evalrx.models._discover import get_final_norm
+        from evalrx.models.backends.hf.discover import get_final_norm
 
         model, _ = self._loaded
         return get_final_norm(model)
@@ -1132,7 +1132,7 @@ class HFLocalModel(Model):
             return baseline_answer
         engine = specialist_engine or self._audio_api_specialist_engines.get(str(model_id))
         if engine is None:
-            from evalrx.models.blackbox.gemini import GeminiModel
+            from evalrx.models.backends.api.gemini_model import GeminiModel
 
             specialist = GeminiModel(model_id=str(model_id))
 
@@ -1285,7 +1285,7 @@ class HFLocalModel(Model):
             return baseline_answer
         engine = specialist_engine or self._vision_api_specialist_engines.get(str(model_id))
         if engine is None:
-            from evalrx.models.blackbox.gemini import GeminiModel
+            from evalrx.models.backends.api.gemini_model import GeminiModel
 
             specialist = GeminiModel(model_id=str(model_id))
             engine = specialist.generate

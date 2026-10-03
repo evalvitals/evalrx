@@ -1,7 +1,7 @@
 """Gemma 4 on JAX: the reference adapter for the ``jax_local`` backend.
 
 Runs the Gemma 4 E2B / E4B checkpoints through Google DeepMind's ``gemma``
-library (Flax Linen) behind the :class:`~evalrx.models.jax.protocol.JaxModelAdapter`
+library (Flax Linen) behind the :class:`~evalrx.models.backends.jax.protocol.JaxModelAdapter`
 contract: text, image and audio inputs, read access (logits, hidden states,
 attention probabilities), greedy / sampled generation, teacher-forced logprobs
 (phases 1 and 3 of ``docs/design_jax_backend.md``; the L3a executors, sites and
@@ -86,7 +86,7 @@ from typing import Any
 
 from evalrx.core.case import Inputs
 from evalrx.models._media import AUDIO_SAMPLE_RATE, media_lists
-from evalrx.models.jax.protocol import (
+from evalrx.models.backends.jax.protocol import (
     CAPTURE_ATTN,
     CAPTURE_HIDDEN,
     CAPTURE_LOGITS,
@@ -453,7 +453,10 @@ class GemmaJaxAdapter:
         import numpy as np
         from flax.traverse_util import flatten_dict, unflatten_dict
 
-        host = jax.sharding.SingleDeviceSharding(jax.local_devices(backend="cpu")[0])
+        try:
+            host = jax.sharding.SingleDeviceSharding(jax.local_devices(backend="cpu")[0])
+        except RuntimeError:  # JAX_PLATFORMS set without cpu by the caller: cast where it lands
+            host = sharding if not callable(sharding) else None
         flat = flatten_dict(gm.ckpts.load_params(self.checkpoint, text_only=self.text_only, sharding=host))
         for path in list(flat):
             a = flat[path]

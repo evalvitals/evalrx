@@ -2857,7 +2857,7 @@ def test_l4_lora_repair_trains_fixes_held_out_cases_and_restores_weights():
     pytest.importorskip("peft")
     from evalrx.core.spec import ModelSpec
     from evalrx.models.backends.base import RuntimeConfig
-    from evalrx.models.backends.hf_local import HFLocalModel
+    from evalrx.models.backends.hf.model import HFLocalModel
 
     spec = ModelSpec(key="tiny-llama-test", family="fake", model_type="fake_llm", hf_repo="")
     model = HFLocalModel(spec, RuntimeConfig(device="cpu", dtype="float32", max_new_tokens=3))
@@ -2916,7 +2916,7 @@ def test_l4_lora_repair_zero_matching_layers_does_not_crash(monkeypatch):
     from evalrx.core.spec import ModelSpec
     from evalrx.eval_agent.stages import fix_internals
     from evalrx.models.backends.base import RuntimeConfig
-    from evalrx.models.backends.hf_local import HFLocalModel
+    from evalrx.models.backends.hf.model import HFLocalModel
 
     spec = ModelSpec(key="tiny-llama-test", family="fake", model_type="fake_llm", hf_repo="")
     model = HFLocalModel(spec, RuntimeConfig(device="cpu", dtype="float32", max_new_tokens=3))

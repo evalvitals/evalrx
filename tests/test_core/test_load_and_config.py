@@ -13,7 +13,7 @@ from evalrx.config import ModelConfig, load_config
 from evalrx.core import Capability, CapabilityError
 from evalrx.models import load, load_model, resolve_spec_key
 from evalrx.models.backends.api import APIModel
-from evalrx.models.backends.hf_local import HFLocalModel
+from evalrx.models.backends.hf.model import HFLocalModel
 
 # -- evalrx.load() -------------------------------------------------
 

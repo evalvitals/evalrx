@@ -111,14 +111,14 @@ class JaxSpec:
     adapter drives them, mirroring the :class:`VisionSpec` / :class:`AudioSpec`
     pattern. ``adapter`` is an import string ``"pkg.module:factory"``; the
     factory is called as ``factory(spec, runtime)`` and returns an object that
-    satisfies :class:`evalrx.models.jax.protocol.JaxModelAdapter`. Design notes:
+    satisfies :class:`evalrx.models.backends.jax.protocol.JaxModelAdapter`. Design notes:
     ``docs/design_jax_backend.md``.
     """
 
     framework: str                          # "gemma" | "flax_linen" | "flax_nnx" | "maxtext" | "custom"
     checkpoint: str                         # Orbax dir (gs:// or local), Kaggle handle, or safetensors path
     tokenizer: str                          # SentencePiece model (gs:// or local) or an HF tokenizer id
-    adapter: str                            # e.g. "evalrx.models.jax.gemma:make_adapter"
+    adapter: str                            # e.g. "evalrx.models.backends.jax.adapters.gemma:make_adapter"
     model_class: str = ""                   # framework class, e.g. "Gemma4_E2B" (gemma library)
     reference_attention: bool = True        # materialise (H,S,S) probabilities -> ATTENTION; False = fused kernels
     sharding: dict = field(default_factory=dict)   # {"strategy": "auto" | "fsdp" | "single"}; empty = "auto"

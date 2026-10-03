@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from evalrx.models.jax.protocol import NormParams
+from evalrx.models.backends.jax.protocol import NormParams
 
 
 def to_numpy(x: Any):

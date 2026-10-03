@@ -16,7 +16,7 @@ Torch-free; ``openai`` and ``PIL`` are imported lazily.
 Usage::
 
     from evalrx import compose
-    from evalrx.models.backends.openai_compat import openai_runtime
+    from evalrx.models.backends.api.openai import openai_runtime
 
     rt = openai_runtime(base_url="http://localhost:8901/v1")   # vllm serve
     vlm = compose("qwen3-vl-2b-instruct", "api", runtime=rt)

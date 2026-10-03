@@ -19,8 +19,8 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import Inputs
 from evalrx.core.spec import ModelSpec, VisionSpec
 from evalrx.models.backends.base import RuntimeConfig
-from evalrx.models.backends.hf_local import HFLocalModel
-from evalrx.models.inference import infer_spec
+from evalrx.models.backends.hf.inference import infer_spec
+from evalrx.models.backends.hf.model import HFLocalModel
 
 
 # ----------------------------------------------------------------------
