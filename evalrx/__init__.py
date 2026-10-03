@@ -60,7 +60,7 @@ from evalrx.core import (
 )
 from evalrx.core.tool import Tool, ToolCall
 from evalrx.logging_utils import disable_console_logging, enable_console_logging
-from evalrx.models import Agent, RuntimeConfig, compose, load, load_model, wrap
+from evalrx.models import Agent, RuntimeConfig, compose, load, load_model, wrap, wrap_jax
 from evalrx.specs import get_spec, list_specs
 
 # Library hygiene: silent by default (no "No handlers could be found" noise,
@@ -75,6 +75,7 @@ __all__ = [
     "load_config",
     "load_model",
     "wrap",
+    "wrap_jax",
     "compose",
     "RuntimeConfig",
     "Agent",

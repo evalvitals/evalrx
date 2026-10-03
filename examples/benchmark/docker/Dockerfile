@@ -11,6 +11,12 @@
 #             all-newline generations on the 4B, 2026-08-21), that code hard-imports
 #             mamba_ssm, and the kernels only ship prebuilt wheels up to torch 2.10
 #             (the sdist needs nvcc). First family whose pins differ from base.
+#   gemma_jax ITS OWN STACK (python:3.12-slim + jax[cuda12] 0.11 + flax + Google
+#             DeepMind's gemma 4.0.1 + CPU torch 2.14). The JAX twin of the gemma
+#             stage for --backend jax_local (docs/design_jax_backend.md): the gemma
+#             library needs python >= 3.12, and torch only carries the captured
+#             arrays into the analyzers, so the CPU wheel is enough. Not a family
+#             of its own: same sizes and specs as gemma, leaves <modality>/gemma_jax.
 #
 # Size and dataset are NOT build-time: the same image runs every size of its
 # family and every modality's datasets. Build context is the repo root:
@@ -90,5 +96,32 @@ COPY --chmod=0755 examples/benchmark/docker/codex /usr/local/bin/codex
 RUN pip install --no-cache-dir "nltk>=3.9" \
     && python -m nltk.downloader -d /usr/share/nltk_data punkt punkt_tab averaged_perceptron_tagger_eng wordnet omw-1.4
 ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/examples/benchmark
+WORKDIR /app/work
+CMD ["python", "-m", "_common.run", "--list"]
+
+FROM python:3.12-slim AS gemma_jax
+# Not FROM base: the gemma library (Flax Linen) needs python >= 3.12 and the model
+# runs on jax[cuda12], whose wheels bring their own CUDA 12 libraries. torch is the
+# CPU wheel: jax_local hands captured arrays to the analyzers as torch tensors and
+# never runs the model through it.
+WORKDIR /app
+# ffmpeg: audio decode (evalrx.models._media.resolve_audio + the audio downloaders).
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
+COPY . /evalrx
+# gcsfs: the specs' default checkpoints are gs://gemma-data/... (public, anonymous);
+# a local Orbax mirror mounted at /ckpt skips the bucket (see the leaf compose files).
+# transformers: no model code here, only the image helpers some analyzers import.
+RUN pip install --no-cache-dir "/evalrx[jax,data,viz,gemini]" "jax[cuda12]==0.11.2" "gemma==4.0.1" gcsfs \
+    pandas requests openai scipy soundfile "matplotlib<3.11" "transformers==5.15.0"
+COPY examples/dataset_selection/llm_band_probe /app/examples/dataset_selection/llm_band_probe
+COPY examples/dataset_selection/llm_benchmark/datasets.py /app/examples/dataset_selection/llm_benchmark/datasets.py
+COPY examples/benchmark/_common /app/examples/benchmark/_common
+COPY --chmod=0755 examples/benchmark/docker/codex /usr/local/bin/codex
+RUN pip install --no-cache-dir "nltk>=3.9" \
+    && python -m nltk.downloader -d /usr/share/nltk_data punkt punkt_tab averaged_perceptron_tagger_eng wordnet omw-1.4
+# XLA would otherwise reserve 75 % of the card at start-up (shared GPU boxes).
+ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app/examples/benchmark XLA_PYTHON_CLIENT_PREALLOCATE=false
 WORKDIR /app/work
 CMD ["python", "-m", "_common.run", "--list"]

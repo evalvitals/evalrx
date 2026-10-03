@@ -10,12 +10,15 @@ the dataset as a runtime variable.
 ```
 examples/benchmark/
 ├── _common/            the code: run.py (CLI) · models.py (matrix) · tasks/ (datasets) · runner.py (loop wiring)
-├── docker/Dockerfile   ONE multi-stage file: base → qwen | gemma | nemotron (docker-compose.build.yml builds all)
+├── docker/Dockerfile   ONE multi-stage file: base → qwen | gemma | nemotron | gemma_jax (docker-compose.build.yml builds all)
 ├── .env.example        host mount sources (copy to .env; every leaf links to it)
 ├── vlm/ _data/ {qwen,gemma,nemotron}/     image + text   : chartqa, spatial457, pope_{random,popular,adversarial}
 ├── llm/ _data/ {qwen,gemma,nemotron}/     text only      : the nine band-located slices of dataset_selection
 └── alm/ _data/ {qwen,gemma,nemotron}/     audio + text   : mmau, mmsu, audiocaps_hallu, af_reasoning_mcq
 ```
+
+Each modality also has a `gemma_jax/` leaf: the Gemma 4 E2B / E4B services on
+`--backend jax_local` (see the design rules below).
 
 ## The matrix
 
@@ -39,11 +42,17 @@ differs (Qwen3.5 text tower vs vision tower); Gemma 4 is one spec for all three.
 | `gemini-3.5-flash` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.5-flash` |
 | `gemini-3.5-flash-lite` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.5-flash-lite` |
 | `gemini-3.1-flash-lite` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.1-flash-lite` |
+| `gemini-3.1-pro-preview` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-3.1-pro-preview` (thinking floor `low`) |
 | `gemini-2.5-flash` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-2.5-flash` (`thinking_budget` 0) |
 | `gemini-2.5-flash-lite` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-2.5-flash-lite` (`thinking_budget` 0) |
 | `gemini-2.5-pro` | Gemini (API) | ✓ | ✓ | ✓ | 0 | `gemini-2.5-pro` (thinking cannot be disabled; budget 128) |
 
 `python -m _common.run --list` prints the same table from the code.
+
+Gemini 3.1 Pro uses the official API id
+[`gemini-3.1-pro-preview`](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview).
+Its minimum thinking level is `low`; thinking cannot be disabled. This model
+is configured for all three modalities; live benchmark validation is pending.
 
 Gemma 4 12B **does** take audio (the model card lists audio on E2B, E4B and 12B;
 the 12B is the encoder-free "Unified" variant), so it sits in the ALM row; drop
@@ -115,6 +124,18 @@ the final significance gate, and the validation data costs no confirm power.
   must also stop on the tokenizer's `<|im_end|>` (the template's turn end;
   `generation_config` only lists `</s>`, so every answer padded to the cap).
   The remote class has no SDPA dispatch, so nemotron sizes default to eager.
+* **`gemma_jax` is a leaf, not a family.** `<modality>/gemma_jax/` runs the
+  Gemma 4 E2B / E4B sizes through `--backend jax_local` (Google DeepMind's
+  `gemma` library on Flax; `docs/design_jax_backend.md`). Sizes, specs, datasets
+  and `_common/run.py` are the gemma family's, so `models.py` has no new row;
+  what differs is the runtime stack, hence its own stage (`gemma_jax`:
+  python 3.12 + `jax[cuda12]` + gemma 4.0.1 + CPU torch, image
+  `evalrx-bench-gemma-jax`) and its own `outputs/`, so a JAX run never lands in
+  the `hf_local` run directory of the same `--model`. Weights come from a local
+  Orbax mirror (`EVALRX_JAX_CKPT` in `.env`, mounted at `/ckpt`) or, without
+  one, from the public `gs://gemma-data` bucket. The backend reads internals
+  but the fix ladder is clamped to L2 for now, and there is no 12B service
+  (no JAX class upstream).
 * **The default backend is `endpoint` for every modality** (`_common/models.py`
   `DEFAULT_BACKEND`): an OpenAI-compatible server at `--base-url` (default
   `http://host.docker.internal:8020/v1`, i.e. a vLLM server on the host; serve
@@ -133,8 +154,9 @@ the final significance gate, and the validation data costs no confirm power.
   all default ON otherwise); `--enable-thinking` flips it for one run. Gemini
   cannot always switch thinking off, so the runtime sends each model's
   **floor**: `thinking_level=minimal` on 3.6/3.5/3.5-lite/3.1-lite, `low` on
-  3.7-flash (its lowest), `thinking_budget=0` on 2.5-flash / flash-lite and 128
-  on 2.5-pro. `--thinking-level {minimal,low,medium,high}` / `--thinking-budget N`
+  3.7-flash and 3.1-pro-preview (their lowest), `thinking_budget=0` on
+  2.5-flash / flash-lite and 128 on 2.5-pro.
+  `--thinking-level {minimal,low,medium,high}` / `--thinking-budget N`
   name a setting explicitly; `--enable-thinking` leaves the API default. A model
   that rejects the config falls back to the default once, logged, and the
   served `model_version` is written to `baseline.json` because a stable id is
@@ -204,7 +226,7 @@ that needs uid separation for the coder/sandbox or host-side label delivery.
 
 ```bash
 cp examples/benchmark/.env.example examples/benchmark/.env      # tealab: mount sources on /tealab-data
-docker compose -f examples/benchmark/docker/docker-compose.build.yml build   # all four images
+docker compose -f examples/benchmark/docker/docker-compose.build.yml build   # all five images
 
 cd examples/benchmark/vlm/qwen
 EXTRA_ARGS="--baseline-only --limit 8" docker compose run --rm qwen3.5-2b      # per-cell smoke (no judge)
@@ -234,6 +256,87 @@ For a figure rather than a dashboard, [`tools/extract_figure_data.py`](tools/REA
 turns the same run dir into the numbers a case-study figure prints (JSON, JSONL
 or a Markdown write-up), each carrying the artifact it was read from.
 
+### Gemma 4 on JAX (`gemma_jax` leaves)
+
+Gemma 4 E2B and E4B also run on JAX: `--backend jax_local` loads the Orbax
+checkpoint through Google DeepMind's `gemma` library instead of transformers,
+for text, image and audio inputs. The backend is opt-in and lives in its own
+leaves, `<modality>/gemma_jax/`, with its own image (`evalrx-bench-gemma-jax`,
+stage `gemma_jax`) and its own `outputs/`.
+
+**1. Weights (once).** The checkpoints are public
+(`gs://gemma-data/checkpoints/gemma4-{e2b,e4b}-it`, no credentials). Mirror the
+size you run and the tokenizer into one directory, then name it in `.env`:
+
+```bash
+gsutil -m cp -r gs://gemma-data/checkpoints/gemma4-e2b-it /path/to/gemma4/     # 17 GB
+gsutil cp gs://gemma-data/tokenizers/tokenizer_gemma4.model /path/to/gemma4/
+echo 'EVALRX_JAX_CKPT=/path/to/gemma4' >> examples/benchmark/.env
+```
+
+The directory is mounted read-only at `/ckpt`. A size with no mirror there is
+read from the bucket on every load, which works but is slow.
+
+**2. Docker.** Same shape as every other leaf; only the directory changes:
+
+```bash
+docker compose -f examples/benchmark/docker/docker-compose.build.yml build gemma_jax
+
+cd examples/benchmark/vlm/gemma_jax                                          # image + text
+EXTRA_ARGS="--baseline-only --limit 8" CUDA_VISIBLE_DEVICES=0 docker compose run --rm gemma-4-e2b
+DATASET=chartqa CUDA_VISIBLE_DEVICES=0 docker compose run -d --name vlm-gemma-jax-4-e2b-chartqa gemma-4-e2b
+
+cd ../../alm/gemma_jax                                                       # audio + text
+DATASET=mmau EXTRA_ARGS="--baseline-only --limit 8" CUDA_VISIBLE_DEVICES=0 docker compose run --rm gemma-4-e2b
+
+cd ../../llm/gemma_jax                                                       # text only
+DATASET=gsm8k EXTRA_ARGS="--baseline-only --limit 8" CUDA_VISIBLE_DEVICES=0 docker compose run --rm gemma-4-e2b
+```
+
+Add `--device cpu` to `EXTRA_ARGS` when no card is free. On a GPU the run takes
+memory on demand (`XLA_PYTHON_CLIENT_PREALLOCATE=false` is set in the image), so
+it can share a card.
+
+**3. Without Docker.** Build the JAX environment beside the repo `.venv` (the
+`gemma` library needs Python 3.12 or newer), then call the same CLI from
+`examples/benchmark`:
+
+```bash
+uv venv .venv-jax --python 3.12
+uv pip install --python .venv-jax/bin/python "jax[cuda12]" "gemma==4.0.1" gcsfs
+uv pip install --python .venv-jax/bin/python --index-url https://pypi.org/simple \
+    --extra-index-url https://download.pytorch.org/whl/cpu torch
+uv pip install --python .venv-jax/bin/python -e .
+
+cd examples/benchmark
+../../.venv-jax/bin/python -m _common.run --modality vlm --model gemma-4-e2b --backend jax_local \
+    --dataset chartqa --data-dir vlm/_data --run-dir vlm/gemma_jax/outputs \
+    --model-path /path/to/gemma4/gemma4-e2b-it --limit 8 --baseline-only --no-download
+```
+
+For the other cells swap `--modality`, `--dataset` and `--data-dir`
+(`alm` / `mmau` / `alm/_data`, `llm` / `gsm8k` / `llm/_data`). `--device cpu`
+keeps JAX off the GPUs. `--no-download` reuses the data already frozen under
+`<modality>/_data`; this environment has no dataset loaders, so freeze a new
+dataset through the Docker image (it installs the `data` extra) or add that
+extra to the venv first.
+
+What to expect from this backend today:
+
+* **Sizes:** `gemma-4-e2b` and `gemma-4-e4b`. The library has no 12B class.
+* **Stages:** the full chain ran end to end on the vlm / E2B / chartqa cell
+  (2026-10-02, see the cell status); the alm and llm cells have run Stage 0
+  only. The fix ladder is clamped to L2 on this backend.
+* **Thinking:** off only. `--enable-thinking` raises on this backend.
+* **Speed:** XLA compiles once per input shape, so the first case of each
+  padded length is slow, and on audio every distinct clip length compiles again.
+
+Each leaf's README repeats this for its modality; the design and the measured
+facts are in [`docs/design_jax_backend.md`](../../docs/design_jax_backend.md).
+[`readme_jax.md`](readme_jax.md) is the step-by-step guide: from zero to a
+running cell, switching model / dataset / validation set / agent, and adding
+datasets or models.
+
 ## Cell status
 
 `baseline` = `--baseline-only` load + Stage 0 succeeded on this cluster; `chain` =
@@ -249,5 +352,8 @@ All smokes: `--baseline-only --limit 8`, A6000, 2026-08-21.
 | llm / gemma-4-e2b / bbh_causal_judgement | ✓ 2/8, 27 s/case | | every output ends in an `Answer:` line |
 | alm / gemma-4-e2b / mmau | ✓ 5/8, 2.0 s/case | | audio through the generic hf_local encode; 3 `thought`-channel truncations |
 | llm / nemotron-3-nano-4b / bbh_causal_judgement | ✓ 4/8, 6.2 s/case | | remote code on the torch 2.10 stack + the two `hf_local` shims; before them: native 5.15 = newline-only output, remote code without shims = right text then `<|im_end|>` padding to the cap at 2 tok/s (249 s/case) |
+| vlm / gemma-4-e2b / chartqa (`gemma_jax`) | ✓ 131/256, 1.1 s/case | ✓ FIXED +0.211 | `jax_local` in Docker on one shared A100, 2026-10-02, 2 h 10 min end to end: 3 M1 analyzers, 3 hypotheses, 1 verified (arithmetic over two chart values), L1 `bind_target_element_first` 66→93 of 128 CONFIRM pairs, e=1379. Two backend bugs found by a 16-row shakedown first and fixed before this run: concurrent probes broke kauldron's global type-check scope (adapter calls now serialised) and the sampler seed was a constant (every sampled generation identical) |
+| alm / gemma-4-e2b / mmau (`gemma_jax`) | ✓ 3/4, 29.5 s/case | | as above; every clip length recompiles; one row differs from the CPU run (`thought` preamble there) |
+| llm / gemma-4-e2b / gsm8k (`gemma_jax`) | ✓ 4/4, 12.8 s/case | | as above; sampled at T=0.6 |
 | alm / qwen3-omni-30b-a3b / mmau | | | needs two free 48 GB cards |
 | vlm+alm / nemotron-3-nano-omni-30b-a3b | | | needs two free 48 GB cards; remote-code processor path unexercised |

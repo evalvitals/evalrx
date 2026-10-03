@@ -60,14 +60,18 @@ FAMILIES: dict[str, Family] = {
     "gemini": Family("gemini", "Gemini", "gemini", "evalrx-bench-gemini", backend="gemini"),
 }
 
-BACKENDS = ("hf_local", "endpoint", "gemini")
+#: jax_local = the JAX twin of hf_local (Google DeepMind's gemma library; Gemma
+#: E2B / E4B only; llm, vlm and alm cells — docs/design_jax_backend.md). Same spec
+#: keys as hf_local, so the size table needs no extra column.
+BACKENDS = ("hf_local", "jax_local", "endpoint", "gemini")
 
 _GEMMA = ("e2b", "e4b", "12b")
 #: Gemini API model ids = spec keys (evalrx/specs.py). Every one takes text,
 #: image, video and audio, so each size fills all three modality cells.
 _GEMINI = (
     "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
+    "gemini-3.1-flash-lite", "gemini-3.1-pro-preview",
+    "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
 )
 
 SIZES: dict[str, Size] = {

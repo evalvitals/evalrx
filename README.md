@@ -9,24 +9,25 @@
   <img src="docs/assets/figures/model-health-teaser.svg" alt="A model-health signal enters an auto-research loop that probes, explains and intervenes; only a held-out verified pass updates the model to n+1, which recurs as the next research subject." width="640">
 </picture>
 
+[![Paper](https://img.shields.io/badge/Paper-PDF-3D8DFF)](https://github.com/evalvitals/evalvitals-pages/blob/main/docs/assets/Evalvitals.pdf)
 [![PyPI version](https://img.shields.io/pypi/v/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
 [![Python versions](https://img.shields.io/pypi/pyversions/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
 [![CI](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml/badge.svg)](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-live-3D8DFF)](https://evalvitals.github.io/evalrx/overview/)
 [![Demo](https://img.shields.io/badge/demo-live-39A96B)](https://evalvitals.github.io/evalrx/demo/)
-[![License: CC0-1.0](https://img.shields.io/badge/license-CC0--1.0-39A96B)](LICENSE)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-39A96B)](LICENSE)
 
-[Loop](#the-loop) · [Quickstart](#quickstart) · [Trust](#why-the-loop-is-trustworthy) · [Ladder](#the-repair-ladder) · [Docs](https://evalvitals.github.io/evalrx/overview/) · [Demo](https://evalvitals.github.io/evalrx/demo/) · [GitHub](https://github.com/evalvitals/evalrx)
+[Loop](#the-loop) · [Quickstart](#quickstart) · [Models](#supported-models) · [Trust](#why-the-loop-is-trustworthy) · [Ladder](#the-repair-ladder) · [Docs](https://evalvitals.github.io/evalrx/overview/) · [Demo](https://evalvitals.github.io/evalrx/demo/) · [GitHub](https://github.com/evalvitals/evalrx)
 
 <br>
 
-[![A real EvalRX run: M1 probe through M5 repair on Gemma-4-E2B × MMAU](docs/assets/demo/evalrx-run.svg)](https://evalvitals.github.io/evalrx/demo/)
+[![A real EvalRX run: M1 probe through M5 repair on Gemma-4-E2B × MMAU](https://raw.githubusercontent.com/evalvitals/evalvitals-pages/main/docs/assets/videos/evalrx-final.gif)](https://evalvitals.github.io/evalrx/demo/)
 
 <sub>One real run, replayed — 256 MMAU cases, 162 failures, two of three
 mechanisms upheld on cases the analysis never saw, and an L2 repair that fixed
-25 of them while breaking none. 20 minutes of work compressed into 22 seconds;
+25 of them while breaking none. 20 minutes of work compressed into 81 seconds;
 the clock in the gutter is the run's own elapsed time.
-[Browse two full reports →](https://evalvitals.github.io/evalrx/demo/)</sub>
+[Browse two full reports →](https://evalvitals.github.io/evalrx/demo/) · [Watch full video ↗](https://github.com/evalvitals/evalvitals-pages/blob/main/docs/assets/videos/final.mp4)</sub>
 
 </div>
 
@@ -105,6 +106,31 @@ Full extras list (`interp`, `data`, `observability`, `ui`, `cluster`,
 `gemini`, `contract`, `all`, `dev`) in [`pyproject.toml`](pyproject.toml). For
 development: `pip install -e ".[dev]"` then `pytest -m "not gpu"`.
 
+## Supported models
+
+EvalRX currently provides benchmark configurations for the following models.
+The names below are the benchmark's `--model` keys. LLM = text only,
+VLM = image + text, and ALM = audio + text; ✓ marks a configured modality.
+
+| Family | Models (`--model`) | Language | Visual | Audio |
+|---|---|---|---|---|
+| Qwen 3.5 | `qwen3.5-2b`, `qwen3.5-4b`, `qwen3.5-9b` | ✓ | ✓ | — |
+| Qwen 3 Omni | `qwen3-omni-30b-a3b` | ✓ | ✓ | ✓ |
+| Gemma 4 | `gemma-4-e2b`, `gemma-4-e4b`, `gemma-4-12b` | ✓ | ✓ | ✓ |
+| Nemotron 3 Nano | `nemotron-3-nano-4b` | ✓ | — | — |
+| Nemotron 3 Nano Omni | `nemotron-3-nano-omni-30b-a3b` | ✓ | ✓ | ✓ |
+| Gemini 3.x (API) | `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.1-pro-preview` | ✓ | ✓ | ✓ |
+| Gemini 2.5 (API) | `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro` | ✓ | ✓ | ✓ |
+
+Open-weight models use an OpenAI-compatible server (`--backend endpoint`,
+the benchmark default) or run locally with `--backend hf_local` for access to
+model internals. Gemini uses `--backend gemini` with `GEMINI_API_KEY` and
+requires no local GPU. API backends limit the benchmark's repair ladder to L2.
+
+See [examples/benchmark](examples/benchmark/README.md) for setup and run
+commands, datasets, GPU requirements, registered model specs, and per-cell
+validation status.
+
 ## Use it as a library
 
 Every registered analyzer follows the same call shape:
@@ -182,3 +208,13 @@ EvalRX is an early-stage research toolkit; interfaces may evolve, and some
 full-loop examples need model weights, a GPU, or an external coding-agent
 CLI. Bug reports, reproducible failure cases, analyzer contributions, and
 evaluation integrations are welcome.
+
+
+## License
+
+This project is licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE).
+
+Noncommercial use is permitted under the terms of the license.
+
+Third-party components remain subject to their respective licenses.

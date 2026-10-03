@@ -22,6 +22,7 @@ audio, so the same service names exist in the llm / vlm / alm leaves.
 | `gemini-3.5-flash` | `gemini-3.5-flash` | minimal |
 | `gemini-3.5-flash-lite` | `gemini-3.5-flash-lite` | minimal |
 | `gemini-3.1-flash-lite` | `gemini-3.1-flash-lite` | minimal |
+| `gemini-3.1-pro-preview` | `gemini-3.1-pro-preview` | low (cannot be disabled) |
 | `gemini-2.5-flash` | `gemini-2.5-flash` | budget 0 |
 | `gemini-2.5-flash-lite` | `gemini-2.5-flash-lite` | budget 0 |
 | `gemini-2.5-pro` | `gemini-2.5-pro` | budget 128 (cannot be disabled) |

@@ -26,7 +26,7 @@ def test_every_matrix_cell_resolves_to_a_registered_spec_of_the_right_modality(c
 
     models, *_ = common
     cells = list(models.cells())
-    assert len(cells) == 43   # 19 open-weight cells + 8 Gemini models x 3 modalities
+    assert len(cells) == 46   # 19 open-weight cells + 9 Gemini models x 3 modalities
     for modality, family, size in cells:
         resolved = models.resolve(size.key, modality)
         spec = get_spec(resolved.spec_key)
@@ -67,7 +67,7 @@ def test_the_matrix_is_the_one_specified(common):
     for modality, family, size in models.cells():
         by_modality.setdefault(modality, {}).setdefault(family.key, []).append(size.key)
     gemini = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite",
-              "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
+              "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
     assert by_modality == {
         "vlm": {"qwen": ["qwen3.5-2b", "qwen3.5-4b", "qwen3.5-9b"],
                 "gemma": ["gemma-4-e2b", "gemma-4-e4b", "gemma-4-12b"],
@@ -314,7 +314,7 @@ def test_leaf_compose_files_cover_every_cell_and_leave_judge_to_cli_default(comm
         assert svc["build"]["target"] == family.docker_target and svc["image"] == family.image
         assert (leaf / "README.md").is_file() and (leaf / ".env").is_symlink()
         seen.add((modality, family.key, size.key))
-    assert len(seen) == 43
+    assert len(seen) == 46
 
 
 def test_dockerfile_has_one_stage_per_family(common):
@@ -326,6 +326,41 @@ def test_dockerfile_has_one_stage_per_family(common):
     # nemotron is its own stack: prebuilt Mamba kernels stop at torch 2.10
     assert "FROM python:3.11-slim AS nemotron" in text and "mamba_ssm-" in text
     assert "transformers==5.15.0" in text
+
+
+def test_gemma_jax_leaves_run_the_gemma_sizes_on_jax_local(common):
+    """<modality>/gemma_jax is the JAX twin of <modality>/gemma: not a family of
+    its own (same sizes and specs), but its own image stage and outputs."""
+    import yaml
+
+    from evalrx.specs import get_spec
+
+    models, *_ = common
+    text = (BENCH / "docker" / "Dockerfile").read_text(encoding="utf-8")
+    # the gemma library needs python >= 3.12, so the stage cannot extend base
+    assert "FROM python:3.12-slim AS gemma_jax\n" in text and '"gemma==4.0.1"' in text
+    build = yaml.safe_load((BENCH / "docker" / "docker-compose.build.yml").read_text(encoding="utf-8"))
+    assert build["services"]["gemma_jax"]["build"]["target"] == "gemma_jax"
+    for modality in models.MODALITIES:
+        leaf = BENCH / modality / "gemma_jax"
+        compose = yaml.safe_load((leaf / "docker-compose.yml").read_text(encoding="utf-8"))
+        services = compose["services"]
+        # exactly the gemma sizes whose spec has a JAX twin (no 12B class upstream)
+        want = {s.key for s in models.SIZES.values()
+                if s.family == "gemma" and get_spec(s.specs[modality]).jax is not None}
+        assert set(services) == want == {"gemma-4-e2b", "gemma-4-e4b"}
+        for key, svc in services.items():
+            cmd = svc["command"]
+            assert f"--model {key}" in cmd and f"--modality {modality}" in cmd
+            assert "--backend jax_local" in cmd and "--judge-provider" not in cmd
+            assert models.resolve(key, modality, "jax_local").backend == "jax_local"
+            # the mirror is optional: without it the spec's gs:// checkpoint is read
+            size = key.removeprefix("gemma-4-")
+            assert f"[ -d /ckpt/gemma4-{size}-it ] && echo --model-path /ckpt/gemma4-{size}-it" in cmd
+            assert any(str(v).endswith(":/ckpt:ro") for v in svc["volumes"])
+            assert svc["extends"]["file"] == "../../_common/compose/base.yml"
+            assert svc["build"]["target"] == "gemma_jax" and svc["image"] == "evalrx-bench-gemma-jax"
+        assert (leaf / "README.md").is_file() and (leaf / ".env").is_symlink()
 
 
 def test_generation_settings_sample_only_for_llm_tasks(common):
