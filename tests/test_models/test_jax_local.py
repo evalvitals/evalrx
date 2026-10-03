@@ -464,6 +464,113 @@ def test_gemma_adapter_draws_a_fresh_sampler_seed_per_unseeded_call():
     assert ad._rng_seed(SamplingParams(max_new_tokens=4)) == 0           # greedy: no randomness consumed
 
 
+def test_configure_jax_runtime_keeps_cpu_next_to_the_accelerator(monkeypatch):
+    """The Gemma adapter restores and casts on the host, so an accelerator
+    platform must not drop jax's cpu backend; indexed devices pick the platform."""
+    import os
+    import sys
+
+    from evalrx.models.backends.jax_local import configure_jax_runtime
+
+    monkeypatch.delitem(sys.modules, "jax")                  # as if jax were not initialised yet
+    for device, want in (("tpu", "tpu,cpu"), ("cuda", "cuda,cpu"), ("gpu", "cuda,cpu"),
+                         ("cuda:1", "cuda,cpu"), ("cpu", "cpu")):
+        monkeypatch.delenv("JAX_PLATFORMS", raising=False)
+        configure_jax_runtime(device)
+        assert os.environ["JAX_PLATFORMS"] == want, device
+    monkeypatch.delenv("JAX_PLATFORMS", raising=False)
+    configure_jax_runtime("auto")
+    assert "JAX_PLATFORMS" not in os.environ
+    monkeypatch.setenv("JAX_PLATFORMS", "tpu")               # a caller's explicit choice wins
+    configure_jax_runtime("cuda")
+    assert os.environ["JAX_PLATFORMS"] == "tpu"
+
+
+def test_gemma_adapter_load_restores_on_host_and_casts_before_placing(monkeypatch):
+    """The float32 checkpoint never reaches the accelerator: load_params gets a
+    host sharding, the text weights are cast to the runtime dtype (the media
+    towers stay float32) and the cast tree is placed on the default device."""
+    pytest.importorskip("gemma")
+    from gemma import gm
+
+    import evalrx.models.jax.gemma as gj
+    from evalrx.specs import get_spec
+
+    seen = {}
+
+    def fake_load_params(path, *, text_only, sharding):
+        seen.update(path=path, text_only=text_only, sharding=sharding)
+        put = lambda a: jax.device_put(jnp.asarray(a, jnp.float32), sharding)  # noqa: E731
+        return {"layer_0": {"w": put(np.ones((4, 4)))}, "final_norm": {"scale": put(np.ones(4))},
+                "vision_encoder": {"w": put(np.ones((2, 2)))}, "embedder": {"input_embedding": put(np.ones((8, 4)))}}
+
+    class FakeModel:
+        config = type("C", (), {"num_layers": 1})()
+
+        def __init__(self, text_only, dtype):
+            pass
+
+    class FakeTok:
+        tokens = ["<pad>", "a"]
+        special_tokens = type("S", (), {"__members__": {"PAD": 0}})
+
+        def __init__(self, path):
+            pass
+
+    monkeypatch.setattr(gm.ckpts, "load_params", fake_load_params)
+    monkeypatch.setattr(gm.text, "Gemma4Tokenizer", FakeTok)
+    monkeypatch.setattr(gj, "_below_flax", lambda fn: fn)
+    ad = gj.GemmaJaxAdapter(get_spec("gemma-4-e2b-it"), RuntimeConfig(dtype="bfloat16"))
+    monkeypatch.setattr(ad, "_model_cls", lambda: FakeModel)
+    ad.load()
+    assert seen["sharding"].device_set == {jax.local_devices(backend="cpu")[0]}
+    p = ad._params
+    assert p["layer_0"]["w"].dtype == jnp.bfloat16 and p["final_norm"]["scale"].dtype == jnp.bfloat16
+    assert p["vision_encoder"]["w"].dtype == jnp.float32                   # towers keep float32
+    assert all(a.devices() == {jax.devices()[0]} for a in jax.tree.leaves(p))
+
+
+def test_gemma_adapter_generate_buckets_the_static_output_length(monkeypatch):
+    """max_out_length is a static shape in the library's prefill / decode jits:
+    distinct max_tokens must share a bucket (one compile), while the exact
+    budget still goes in as the dynamic max_new_tokens."""
+    pytest.importorskip("gemma")
+    from gemma import gm
+
+    from evalrx.models.jax.gemma import OUT_BUCKETS, GemmaJaxAdapter, bucket_length
+    from evalrx.specs import get_spec
+
+    built, sampled = [], []
+
+    class FakeSampler:
+        def __init__(self, **kw):
+            built.append(kw)
+
+        def sample(self, text, *, max_new_tokens, **kw):
+            sampled.append(max_new_tokens)
+            predicted = np.zeros((1, built[-1]["max_out_length"]), dtype=np.int32)
+            predicted[0, :2] = [5, 6]
+            return type("Out", (), {"state": type("St", (), {"predicted_tokens": predicted})()})()
+
+    class FakeTok:
+        special_tokens = type("S", (), {"EOS": 1, "END_OF_TURN": 106, "BEGIN_OF_TOOL_RESPONSE": 50})
+
+        def decode(self, ids):
+            return " ".join(str(i) for i in ids)
+
+    monkeypatch.setattr(gm.text, "Gemma4Sampler", FakeSampler)
+    ad = GemmaJaxAdapter(get_spec("gemma-4-e2b-it"), RuntimeConfig())
+    ad._params, ad._model, ad._tok = {"loaded": True}, object(), FakeTok()
+    enc = Encoding(ids=[2, 7, 8], tokens=["<bos>", "a", "b"], text="a b")
+    for n in (5, 24, 31, 64, 200):
+        assert ad.generate(enc, SamplingParams(max_new_tokens=n)).ids == [5, 6]
+    assert sampled == [5, 24, 31, 64, 200]
+    assert [b["max_out_length"] for b in built] == [32, 32, 32, 64, 256]
+    assert all(b["max_out_length"] in OUT_BUCKETS for b in built)
+    assert all(b["cache_length"] == bucket_length(b["pad_length"] + b["max_out_length"] + 1, ad.buckets)
+               for b in built)
+
+
 def test_gemma_adapter_model_tokens_restore_internal_placeholders():
     from evalrx.models.jax.gemma import (
         AUDIO_PLACEHOLDER_ID,

@@ -99,6 +99,8 @@ logger = logging.getLogger(__name__)
 
 PAD_ID = 0
 DEFAULT_BUCKETS = (128, 256, 512, 1024, 2048, 4096)
+#: generation output-buffer sizes (static under jit; see ``generate``)
+OUT_BUCKETS = (32, 64, 128, 256, 512, 1024, 2048, 4096)
 TOKENIZER_FILENAME = "tokenizer_gemma4.model"
 #: the library's internal placeholders for merged media embeddings (never real ids)
 IMAGE_SOFT_PLACEHOLDER = -2
@@ -339,7 +341,18 @@ class GemmaJaxAdapter:
         self._tok = gm.text.Gemma4Tokenizer(path=self.tokenizer_path)
         self._pieces = list(self._tok.tokens)
         self._special_ids = self._collect_special_ids(self._tok, self._pieces)
-        params = gm.ckpts.load_params(self.checkpoint, text_only=self.text_only)
+        # restore on the host and cast there: the public checkpoints are float32
+        # (20.5 GB for E2B with its towers) and load_params' default sharding
+        # replicates them as stored onto every device, which peaks at 29.8 GB on
+        # the accelerator before the cast below (a 16 GB TPU v5e chip cannot load)
+        try:
+            host = jax.sharding.SingleDeviceSharding(jax.local_devices(backend="cpu")[0])
+        except RuntimeError:  # JAX_PLATFORMS set without cpu by the caller
+            host = None
+            logger.warning("GemmaJaxAdapter: no jax cpu backend (JAX_PLATFORMS=%r); the float32 "
+                           "checkpoint is restored straight onto the accelerator",
+                           os.environ.get("JAX_PLATFORMS"))
+        params = gm.ckpts.load_params(self.checkpoint, text_only=self.text_only, sharding=host)
         if not self.text_only:
             # the library scatters float32 tower outputs into the bf16 text
             # embeddings (merge_flat_embeddings); jax warns about the implicit
@@ -352,8 +365,10 @@ class GemmaJaxAdapter:
         # RuntimeConfig.dtype the way hf_local's torch_dtype does (bf16 = 9.9 GB),
         # except for the media towers and projections the library keeps float32
         flat = flatten_dict(params)
+        del params  # each float32 leaf is freed as soon as its cast replaces it
         kept = 0
-        for path, a in flat.items():
+        for path in list(flat):
+            a = flat[path]
             if not (jnp.issubdtype(a.dtype, jnp.floating) and a.dtype != dtype):
                 continue
             joined = "/".join(str(p) for p in path)
@@ -361,7 +376,10 @@ class GemmaJaxAdapter:
                 kept += 1
                 continue
             flat[path] = a.astype(dtype)
-        params = unflatten_dict(flat)
+            del a
+        # one host-to-device copy of the cast tree (11.3 GB peak for E2B)
+        params = jax.device_put(unflatten_dict(flat), jax.devices()[0])
+        del flat
         self._params = params
         self._forward_cache.clear()
         n_bytes = sum(int(a.nbytes) for a in jax.tree.leaves(params))
@@ -770,14 +788,19 @@ class GemmaJaxAdapter:
         media = enc.media or {}
         max_new = max(1, int(params.max_new_tokens))
         pad_len = bucket_length(len(enc.ids), self.buckets)
-        cache_len = bucket_length(pad_len + max_new + 1, self.buckets)
+        # max_out_length sizes the output buffer, a static shape in the library's
+        # prefill and decode jits; max_new_tokens is dynamic. Bucketing the first
+        # keeps every max_tokens a stage asks for (24, 64, 256, ...) on a few
+        # compiled programs instead of one compile per distinct value
+        max_out = bucket_length(max_new, OUT_BUCKETS)
+        cache_len = bucket_length(pad_len + max_out + 1, self.buckets)
         extra: dict[str, Any] = {}
         if "vision" in media:
             extra.update(self._vision_settings())
         sampler = gm.text.Gemma4Sampler(
             model=self._model, params=self._params, tokenizer=self._tok,
             sampling=self._sampling_method(params),
-            cache_length=cache_len, max_out_length=max_new, pad_length=pad_len,
+            cache_length=cache_len, max_out_length=max_out, pad_length=pad_len,
             audio_seq_length=self.audio_seq_length, **extra,
         )
         rng = self._rng_seed(params)

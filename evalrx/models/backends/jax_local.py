@@ -82,7 +82,8 @@ def configure_jax_runtime(device: str) -> None:
     jax_loaded = "jax" in sys.modules
     if not jax_loaded:
         os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
-    platform = {"cpu": "cpu", "cuda": "cuda", "gpu": "cuda", "tpu": "tpu"}.get(str(device).lower())
+    kind = str(device).lower().split(":", 1)[0]          # "cuda:0" / "tpu:0" pick the platform
+    platform = {"cpu": "cpu", "cuda": "cuda", "gpu": "cuda", "tpu": "tpu"}.get(kind)
     if platform is None:  # "auto" and friends: let jax pick
         return
     if jax_loaded:
@@ -96,7 +97,9 @@ def configure_jax_runtime(device: str) -> None:
                 "(set JAX_PLATFORMS before importing jax)", have, device,
             )
         return
-    os.environ.setdefault("JAX_PLATFORMS", platform)
+    # cpu stays initialised next to the accelerator: adapters restore and cast
+    # checkpoints in host memory first (the first platform listed is the default)
+    os.environ.setdefault("JAX_PLATFORMS", platform if platform == "cpu" else f"{platform},cpu")
 
 
 def _serialized(method):
