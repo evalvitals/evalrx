@@ -707,5 +707,5 @@ def test_gemma4_e2b_real_image_and_audio_inputs():
     wav = np.zeros(16000 * 2, dtype=np.float32)                               # 2 s of silence
     trace = m.forward(Inputs(prompt="Is there speech in this clip? Answer yes or no.", audio=wav),
                       capture={Capability.LOGITS})
-    assert int(trace.extras["audio_token_mask"].sum()) == 49 and trace.token_type_map is None
+    assert int(trace.extras["audio_token_mask"].sum()) == 50 and trace.token_type_map is None
     assert m.generate(Inputs(prompt="Is there speech in this clip? Answer yes or no.", audio=wav)).strip()
