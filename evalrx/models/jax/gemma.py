@@ -139,6 +139,17 @@ def bucket_length(n: int, buckets=DEFAULT_BUCKETS) -> int:
     return int(math.ceil(n / step) * step)
 
 
+def placement_device(devices: list, device: Any):
+    """The device ``RuntimeConfig.device`` names: ``"tpu:1"`` / ``"cuda:1"`` pick
+    that index of the default backend's devices, anything else the first one."""
+    _, sep, idx = str(device).partition(":")
+    if sep and idx.isdigit():
+        if int(idx) >= len(devices):
+            raise ValueError(f"RuntimeConfig.device={device!r}, but jax sees {len(devices)} device(s): {devices}")
+        return devices[int(idx)]
+    return devices[0]
+
+
 def audio_soft_token_count(n_samples: int, *, sample_rate: int = AUDIO_SAMPLE_RATE) -> int:
     """Soft tokens the audio tower emits for a clip of *n_samples* (uncapped).
 
@@ -377,8 +388,9 @@ class GemmaJaxAdapter:
                 continue
             flat[path] = a.astype(dtype)
             del a
-        # one host-to-device copy of the cast tree (11.3 GB peak for E2B)
-        params = jax.device_put(unflatten_dict(flat), jax.devices()[0])
+        # one host-to-device copy of the cast tree (11.3 GB peak for E2B); jitted
+        # calls follow these committed params onto their device
+        params = jax.device_put(unflatten_dict(flat), placement_device(jax.devices(), self.runtime.device))
         del flat
         self._params = params
         self._forward_cache.clear()

@@ -486,6 +486,16 @@ def test_configure_jax_runtime_keeps_cpu_next_to_the_accelerator(monkeypatch):
     assert os.environ["JAX_PLATFORMS"] == "tpu"
 
 
+def test_placement_device_honours_an_index():
+    from evalrx.models.jax.gemma import placement_device
+
+    devs = ["d0", "d1"]
+    assert placement_device(devs, "tpu:1") == "d1" and placement_device(devs, "cuda:0") == "d0"
+    assert placement_device(devs, "auto") == "d0" and placement_device(devs, "tpu") == "d0"
+    with pytest.raises(ValueError, match="2 device"):
+        placement_device(devs, "cuda:2")
+
+
 def test_gemma_adapter_load_restores_on_host_and_casts_before_placing(monkeypatch):
     """The float32 checkpoint never reaches the accelerator: load_params gets a
     host sharding, the text weights are cast to the runtime dtype (the media
