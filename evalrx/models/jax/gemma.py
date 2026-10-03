@@ -339,12 +339,14 @@ class GemmaJaxAdapter:
     def load(self) -> None:
         import jax
         import jax.numpy as jnp
+        import numpy as np
         from flax.traverse_util import flatten_dict, unflatten_dict
         from gemma import gm
 
         t0 = time.monotonic()
         dtype_name = _DTYPES.get(str(getattr(self.runtime, "dtype", "bfloat16")).lower(), "bfloat16")
         dtype = getattr(jnp, dtype_name)
+        np_dtype = np.dtype(dtype)                      # ml_dtypes.bfloat16 for bf16
         cls = self._model_cls()
         self._model = cls(text_only=self.text_only, dtype=dtype)
         self._n_layers = int(self._model.config.num_layers)
@@ -386,7 +388,9 @@ class GemmaJaxAdapter:
             if joined.startswith(_MM_FLOAT32_PREFIXES):
                 kept += 1
                 continue
-            flat[path] = a.astype(dtype)
+            # numpy (ml_dtypes) cast on the host: a jax astype here compiles one
+            # XLA kernel per distinct leaf shape (755 s of a TPU v5e load)
+            flat[path] = np.asarray(a).astype(np_dtype)
             del a
         # one host-to-device copy of the cast tree (11.3 GB peak for E2B); jitted
         # calls follow these committed params onto their device
