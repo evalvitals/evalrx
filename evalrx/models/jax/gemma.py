@@ -77,6 +77,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import random
 import time
 import warnings
 from typing import Any
@@ -282,6 +283,9 @@ class GemmaJaxAdapter:
         self._raw_call = None
         self._n_layers: int | None = None
         self._forward_cache: dict = {}
+        # fresh sampler seeds for calls without SamplingParams.seed (hf_local's
+        # sampled generates differ call to call through torch's global RNG)
+        self._seed_source = random.Random()
 
     # -- construction helpers --------------------------------------------
     @staticmethod
@@ -725,11 +729,24 @@ class GemmaJaxAdapter:
 
         if p.greedy:
             return gm.text.Greedy()
+        # the library has no combined top-p + top-k method: nucleus wins when both
+        # are set (top_k is then ignored), top-k alone otherwise
         if 0.0 < p.top_p < 1.0:
             return gm.text.TopPSampling(p=float(p.top_p), temperature=float(p.temperature))
         if p.top_k and int(p.top_k) > 0:
             return gm.text.TopkSampling(k=int(p.top_k), temperature=float(p.temperature))
         return gm.text.RandomSampling(temperature=float(p.temperature))
+
+    def _rng_seed(self, params: SamplingParams) -> int:
+        """Sampler seed: the caller's ``seed`` when given, else a fresh draw. A
+        constant default made every sampled call return the same text, so M1's
+        self-consistency / coverage probes saw zero variance and M3 diagnosed
+        "the harness is not sampling" (chartqa shakedown, 2026-10-02)."""
+        if params.seed is not None:
+            return int(params.seed)
+        if params.greedy:
+            return 0                                   # unused by Greedy; keep the trace stable
+        return self._seed_source.randrange(1 << 31)
 
     def _strip_generated(self, predicted: list[int]) -> list[int]:
         st = self._tok.special_tokens
@@ -763,7 +780,7 @@ class GemmaJaxAdapter:
             cache_length=cache_len, max_out_length=max_new, pad_length=pad_len,
             audio_seq_length=self.audio_seq_length, **extra,
         )
-        rng = int(params.seed) if params.seed is not None else 0
+        rng = self._rng_seed(params)
         out = sampler.sample(
             text, images=media.get("images") or None, audio=media.get("audios") or None,
             max_new_tokens=max_new, rng=rng, return_state=True,

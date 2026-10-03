@@ -225,6 +225,50 @@ def test_generate_kwargs_map_to_sampling_params():
     assert m._sampling({"max_new_tokens": 2, "max_tokens": 9}).max_new_tokens == 2
 
 
+class ScopedToyAdapter(ToyAdapter):
+    """Mimics the JAX stack's process-global state: like kauldron's ktyping
+    scopes, every call pushes onto one shared stack and asserts it pops what
+    it pushed, so two interleaved calls fail the way the real sampler does."""
+
+    stack: list = []
+
+    def _scoped(self, fn):
+        import time
+
+        token = object()
+        self.stack.append(token)
+        time.sleep(0.005)                      # widen the race window
+        out = fn()
+        assert self.stack.pop() is token, "interleaved call on the shared scope stack"
+        return out
+
+    def forward(self, enc, *, capture, layers=None):
+        return self._scoped(lambda: super(ScopedToyAdapter, self).forward(enc, capture=capture, layers=layers))
+
+    def generate(self, enc, params):
+        return self._scoped(lambda: super(ScopedToyAdapter, self).generate(enc, params))
+
+
+def test_adapter_calls_are_serialised_across_threads():
+    """M1 runs probes from a thread pool; concurrent Gemma4Sampler.sample calls
+    tripped kauldron's `assert s == self` (chartqa shakedown, 2026-10-02)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    m = evalrx.wrap_jax(ScopedToyAdapter(), max_new_tokens=4)
+    prompts = [f"prompt number {i} words" for i in range(12)]
+
+    def job(i):
+        text = m.generate(prompts[i], temperature=1.0)
+        trace = m.forward(prompts[i], {Capability.LOGITS})
+        return text, trace.logits.shape[-1]
+
+    with ThreadPoolExecutor(6) as ex:
+        results = list(ex.map(job, range(len(prompts))))
+    assert len(results) == 12 and all(v == 16 for _, v in results)
+    # the lock is re-entrant: logprobs encodes, generates and forwards under it
+    assert m.logprobs("the cat sat", max_new_tokens=2)
+
+
 def test_logprobs_are_teacher_forced_and_consistent_with_logits():
     ad = ToyAdapter(vocab=16)
     m = evalrx.wrap_jax(ad)
@@ -406,6 +450,18 @@ def test_content_blocks_render_placeholders_in_order_and_collect_payloads():
     assert text == "<|audio|><|image|><|image|>Describe."
     assert images == ["a.png"] and audios == ["clip.wav"]        # payload-less blocks are placeholders only
     assert _content_blocks("plain") == ("plain", [], [])
+
+
+def test_gemma_adapter_draws_a_fresh_sampler_seed_per_unseeded_call():
+    from evalrx.models.jax.gemma import GemmaJaxAdapter
+    from evalrx.specs import get_spec
+
+    ad = GemmaJaxAdapter(get_spec("gemma-4-e2b-it"), RuntimeConfig())     # lazy: no jax / gemma import
+    sampled = SamplingParams(max_new_tokens=4, temperature=1.0)
+    seeds = {ad._rng_seed(sampled) for _ in range(8)}
+    assert len(seeds) > 1 and all(0 <= s < 2**31 for s in seeds)
+    assert ad._rng_seed(SamplingParams(max_new_tokens=4, temperature=1.0, seed=7)) == 7
+    assert ad._rng_seed(SamplingParams(max_new_tokens=4)) == 0           # greedy: no randomness consumed
 
 
 def test_gemma_adapter_model_tokens_restore_internal_placeholders():

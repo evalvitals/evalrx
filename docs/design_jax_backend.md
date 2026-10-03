@@ -369,6 +369,8 @@ between releases; re-check when bumping):
 | vision (verified 2026-09-28) | `text_only=False` builds the 167 M-param `vision_encoder` (16 layers, d 768, float32). 16-px patches, aspect-ratio-preserving resize to multiples of 48 px, 3 x 3 average pooling row-major, **at most `num_mm_tokens_per_image` = 280 soft tokens per image** on E2B / E4B (`config.vision_encoder`). The library's `Gemma4Sampler` DEFAULT `max_soft_tokens=1120` does not match this encoder: with it the text side reserves ~1090 slots while the encoder emits ~270 pooled tokens, and the remaining slots are filled by gathering token 0 (checked on a random-init encoder: 266 valid pooled tokens for a 266-token reservation at 280, 267 for a 1092-token reservation at 1120). The adapter therefore reads `patch_size`, `num_mm_tokens_per_image`, `pooling_kernel_size` from the model config and passes them to the sampler too. Text-side expansion: `<|image|>` -> `\n\n <|image> P*n <image|> \n\n` (`P` = internal -2, replaced by the merged embedding) | `Encoding`, `grids`, `generate` |
 | audio (verified 2026-09-28) | `text_only=False` builds the 305 M-param conformer `audio_encoder` (12 layers, d 1024 -> 1536, float32) on the raw 16 kHz waveform: 128-mel filterbank, 20 ms frames / 10 ms hop (+1-sample unfold quirk), two stride-2 subsamplings, so a clip of `n` samples gives `((n-321)//160 + 1 - 1)//2 + 1` then once more, capped at `audio_seq_length=750` (~30 s; longer clips raise in the adapter as `hf_local._check_audio_duration` does). Text-side expansion: `<|audio|>` -> `<|audio> A*m <audio|>` (no `\n\n`; `A` = internal -4). `audio_soft_token_counts` is a STATIC argument of the forward, so every distinct clip length recompiles | `Encoding`, `audio_token_mask`, `generate` |
 | multimodal forward | `Transformer.__call__` with images and `return_last_only=False` applies `remove_mm_logits`, a Gemma-3-era step assuming a fixed count per image, which garbles the sequence axis on Gemma 4's variable counts (the sampler never hits it: prefill uses `return_last_only=True`). The adapter's media forward calls `_encode_and_get_inputs` + `_apply_attention` + `embedder.decode` + soft-cap directly (Flax `apply(method=fn)`), the same code minus that step; `_encode_and_get_inputs.embeddings` (captured, Flax wraps private methods too) is the merged block-0 input, i.e. HF's `hidden_states[0]`. Media towers and their projections stay float32 (`initialize_param_with_dtype` excludes them); the bf16 cast skips the same paths | `forward`, `hidden[0]` |
+| thread safety (verified 2026-10-02) | the stack is not thread-safe: kauldron's `ktyping` keeps its type-check scopes on a process-global stack, so two `Gemma4Sampler.sample` calls from different threads fail `assert s == self` in `kauldron/ktyping/scope.py` (reproduced with two concurrent generates; the same calls pass one after the other). `JaxLocalModel` therefore serialises every adapter call on one re-entrant lock; hf_local needs none because torch ops are thread-safe | M1 runs its analyzers from a thread pool: the chartqa shakedown lost `selfcheck_consistency` and `coverage_verification_gap` to this before the lock |
+| sampler seed (verified 2026-10-02) | `Gemma4Sampler.sample(rng=...)` takes an int seed or a key; `rng=None` makes the library draw one from Python's `random`. The adapter used to pass a constant 0 when `SamplingParams.seed` was unset, so every sampled call for a prompt returned the same text: M1's `self_consistency` / `selfcheck_consistency` / `coverage_verification_gap` saw 5 identical samples per case and M3 proposed "the harness is not sampling". Now a fresh 31-bit seed per unseeded call, the caller's seed when given, 0 under greedy. Also: the library has no combined top-p + top-k method, so nucleus wins when both are set | every sampled probe and the `self_consistency_N` L2 repair |
 | LoRA (phase 3) | `gm.nn.LoRA(rank=..., model=...)` wraps every Dense / Einsum with kauldron `peft` layers; the checkpoint loader knows how to reconcile LoRA trees | L4 |
 
 ## 5. Phases
@@ -559,8 +561,21 @@ Open items, in the order they block the acceptance table of section 4:
    at 29.5 s/case (every clip length recompiles, item 7), gsm8k 4/4 at
    12.8 s/case. One mmau row differs from the CPU run: on CPU it opened a
    `thought` preamble and failed, on GPU it answered the letter; greedy
-   decoding in bf16 is not device-identical on a near-tie. Nothing past the
-   baseline stage has been run on this backend yet.
+   decoding in bf16 is not device-identical on a near-tie. A first full-chain
+   shakedown (chartqa, 16 rows, 2026-10-02) got through baseline, M1 and the
+   explore step; it found the thread-safety trap above (fixed) and then
+   stopped at M3 because the judge CLI's OAuth session in the mounted
+   `claude-home` had expired. With fresh credentials the same 16-row chain
+   ran end to end (M1 3 analyzers, explore, 3 hypotheses, 3 M4 probes
+   inconclusive at n=8, one L2 `self_consistency_5` candidate tried and
+   rejected) and exposed the constant sampler seed above (fixed). The
+   full-size chartqa chain (256 rows, 2026-10-02) then ran end to end in
+   2 h 10 min on one shared A100: baseline 131/256 (1.1 s/case), M1 three
+   analyzers in 294 s, explore 12 min, three hypotheses, one verified
+   (failures concentrate on arithmetic over two chart values), fix stage
+   1 h 45 min, winner L1 `bind_target_element_first` 66 -> 93 of 128 CONFIRM
+   pairs (+0.211, CI +0.117..+0.305, e = 1379, FIXED). No error in any stage
+   log apart from the stats tool's "one group empty" on constant signals.
 5. Phase 2 (sites, `Model.intervene`, L3b) and the rest of phase 3
    (`encode_variants` for VCD / TCD / AAD, the `WhiteBoxRepairsMixin`,
    `GRADIENTS`, LoRA) and the mkdocs nav entry for

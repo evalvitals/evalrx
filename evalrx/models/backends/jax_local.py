@@ -17,16 +17,25 @@ through ``adapter.encode``; the ``Encoding`` masks become ``image_token_mask``,
 Trace, the same fields hf_local fills). Not yet: ``GRADIENTS``, the L3a
 executors and L3b interventions (``docs/design_jax_backend.md``).
 
+Calls into the adapter are serialised on one re-entrant lock per model: the
+analyzer stages run probes from a thread pool, and the JAX stack underneath is
+not thread-safe (kauldron's ``ktyping`` keeps its type-check scopes on a
+process-global stack, so two concurrent ``Gemma4Sampler.sample`` calls fail its
+``assert s == self``; Flax tracing is no safer). hf_local needs no such lock
+because torch ops are.
+
 jax and torch are imported lazily inside ``load()`` / the boundary, so this
 module imports on the light install and the registry stays torch-free.
 """
 
 from __future__ import annotations
 
+import functools
 import importlib
 import logging
 import os
 import sys
+import threading
 from typing import Any
 
 from evalrx.core.capability import Capability, CapabilityError
@@ -90,6 +99,18 @@ def configure_jax_runtime(device: str) -> None:
     os.environ.setdefault("JAX_PLATFORMS", platform)
 
 
+def _serialized(method):
+    """Run ``method`` under the model's lock (re-entrant: ``logprobs`` calls
+    ``_encode`` and the adapter twice, ``chat`` renders then generates)."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class JaxLocalModel(Model):
     """A JAX model behind a :class:`JaxModelAdapter`, lazily loaded."""
 
@@ -104,6 +125,7 @@ class JaxLocalModel(Model):
         self.spec = spec
         self.runtime = runtime
         self.adapter = adapter
+        self._lock = threading.RLock()
         self._loaded = False
         self._unembed: Any = _UNSET
         self._final_norm: Any = _UNSET
@@ -116,6 +138,7 @@ class JaxLocalModel(Model):
         self.modalities = frozenset(getattr(adapter, "modalities", frozenset({"text"})))
 
     # -- lazy load -----------------------------------------------------
+    @_serialized
     def load(self) -> None:
         if self._loaded:
             return
@@ -136,6 +159,7 @@ class JaxLocalModel(Model):
     def _as_inputs(inputs: Any) -> Inputs:
         return inputs if isinstance(inputs, Inputs) else Inputs(prompt=str(inputs))
 
+    @_serialized
     def _encode(self, inputs: Any) -> Encoding:
         self._ensure()
         return self.adapter.encode(self._as_inputs(inputs), chat_template=self.runtime.apply_chat_template)
@@ -178,12 +202,14 @@ class JaxLocalModel(Model):
         return text[:cut]
 
     # -- interface -----------------------------------------------------
+    @_serialized
     def generate(self, inputs: Any, **kwargs) -> str:
         enc = self._encode(inputs)
         params = self._sampling(kwargs)
         out = self.adapter.generate(enc, params)
         return self._truncate(out.text, params.stop)
 
+    @_serialized
     def logprobs(
         self, inputs: Any, max_new_tokens: int = 64, top_k: int = 5, **kwargs
     ) -> list[TokenLogprob]:
@@ -214,6 +240,7 @@ class JaxLocalModel(Model):
             result.append(TokenLogprob(token=gen_tokens[i], logprob=float(lp[int(tid)]), top=top))
         return result
 
+    @_serialized
     def forward(self, inputs: Any, capture: set[Capability], spec=None) -> Trace:
         import torch
 
@@ -283,6 +310,7 @@ class JaxLocalModel(Model):
             extras=extras,
         )
 
+    @_serialized
     def chat(self, messages: list, tools=None) -> ChatTurn:
         if Capability.TOOL_CALLS not in self.capabilities:
             raise CapabilityError(analyzer="chat", model=repr(self), missing={Capability.TOOL_CALLS})
@@ -293,6 +321,7 @@ class JaxLocalModel(Model):
         return ChatTurn(text=out.text, raw_tool_calls=None, usage=usage)  # codec parses the text
 
     # -- lens accessors --------------------------------------------------
+    @_serialized
     def unembed_weight(self):
         """The ``(vocab, dim)`` unembedding the model really applies, converted once."""
         self._ensure()
@@ -303,6 +332,7 @@ class JaxLocalModel(Model):
             self._unembed = None if W is None else to_torch(W)
         return self._unembed
 
+    @_serialized
     def final_norm(self):
         """The head-side norm as a small torch module (``None`` if the adapter has none)."""
         self._ensure()

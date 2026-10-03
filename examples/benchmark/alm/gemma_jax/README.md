@@ -12,7 +12,7 @@ transformers. The image is `evalrx-bench-gemma-jax`, stage `gemma_jax` of
 
 | service / `--model` | spec | JAX checkpoint | GPUs | note |
 |---|---|---|---|---|
-| `gemma-4-e2b` | `gemma-4-e2b-it` | `gemma4-e2b-it` | 1 | verified on real weights (CPU) |
+| `gemma-4-e2b` | `gemma-4-e2b-it` | `gemma4-e2b-it` | 1 | Stage 0 on GPU, mmau 3/4 (2026-10-01) |
 | `gemma-4-e4b` | `gemma-4-e4b-it` | `gemma4-e4b-it` | 1 | wired, not run yet |
 
 There is no `gemma-4-12b` service: the `gemma` library has no class for it.
