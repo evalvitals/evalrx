@@ -324,15 +324,18 @@ extra to the venv first.
 What to expect from this backend today:
 
 * **Sizes:** `gemma-4-e2b` and `gemma-4-e4b`. The library has no 12B class.
-* **Stages:** only Stage 0 (`--baseline-only`) has been run on `jax_local` so
-  far. The full chain is wired but unverified, and its fix ladder is clamped
-  to L2.
+* **Stages:** the full chain ran end to end on the vlm / E2B / chartqa cell
+  (2026-10-02, see the cell status); the alm and llm cells have run Stage 0
+  only. The fix ladder is clamped to L2 on this backend.
 * **Thinking:** off only. `--enable-thinking` raises on this backend.
 * **Speed:** XLA compiles once per input shape, so the first case of each
   padded length is slow, and on audio every distinct clip length compiles again.
 
 Each leaf's README repeats this for its modality; the design and the measured
 facts are in [`docs/design_jax_backend.md`](../../docs/design_jax_backend.md).
+[`readme_jax.md`](readme_jax.md) is the step-by-step guide: from zero to a
+running cell, switching model / dataset / validation set / agent, and adding
+datasets or models.
 
 ## Cell status
 
@@ -349,7 +352,7 @@ All smokes: `--baseline-only --limit 8`, A6000, 2026-08-21.
 | llm / gemma-4-e2b / bbh_causal_judgement | ✓ 2/8, 27 s/case | | every output ends in an `Answer:` line |
 | alm / gemma-4-e2b / mmau | ✓ 5/8, 2.0 s/case | | audio through the generic hf_local encode; 3 `thought`-channel truncations |
 | llm / nemotron-3-nano-4b / bbh_causal_judgement | ✓ 4/8, 6.2 s/case | | remote code on the torch 2.10 stack + the two `hf_local` shims; before them: native 5.15 = newline-only output, remote code without shims = right text then `<|im_end|>` padding to the cap at 2 tok/s (249 s/case) |
-| vlm / gemma-4-e2b / chartqa (`gemma_jax`) | ✓ 2/4, 11.9 s/case | | `jax_local` in Docker, 4 rows, one shared A100, 2026-10-01; same four answers as the CPU run |
+| vlm / gemma-4-e2b / chartqa (`gemma_jax`) | ✓ 131/256, 1.1 s/case | ✓ FIXED +0.211 | `jax_local` in Docker on one shared A100, 2026-10-02, 2 h 10 min end to end: 3 M1 analyzers, 3 hypotheses, 1 verified (arithmetic over two chart values), L1 `bind_target_element_first` 66→93 of 128 CONFIRM pairs, e=1379. Two backend bugs found by a 16-row shakedown first and fixed before this run: concurrent probes broke kauldron's global type-check scope (adapter calls now serialised) and the sampler seed was a constant (every sampled generation identical) |
 | alm / gemma-4-e2b / mmau (`gemma_jax`) | ✓ 3/4, 29.5 s/case | | as above; every clip length recompiles; one row differs from the CPU run (`thought` preamble there) |
 | llm / gemma-4-e2b / gsm8k (`gemma_jax`) | ✓ 4/4, 12.8 s/case | | as above; sampled at T=0.6 |
 | alm / qwen3-omni-30b-a3b / mmau | | | needs two free 48 GB cards |
