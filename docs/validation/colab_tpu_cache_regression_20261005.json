@@ -1,0 +1,75 @@
+{
+  "status": "passed",
+  "scope": "TPU execution regression, not an accuracy repair",
+  "case_id": "chartqa-human-827",
+  "expected": [
+    "36.1"
+  ],
+  "before": {
+    "phase": "EXPLORE repair search",
+    "observed_error": "XlaRuntimeError: RESOURCE_EXHAUSTED: Error loading program 'jit__sample_loop': Attempting to reserve 5.02G at the bottom of memory. That was not possible. There are 5.00G free, 0B reserved, and 5.00G reservable.",
+    "failed_request_kwargs": {
+      "max_tokens": 300
+    },
+    "failed_calls_observed": 64,
+    "transport_error": "websocket: bad handshake; existing SSH forward disconnected",
+    "controller_exit_code": 130,
+    "quarantine_restored": true
+  },
+  "after": {
+    "started_at_unix": 1791176165.2340395,
+    "operation": "/generate",
+    "image_sha256": "f55bd67e7d43700867094570cdf0d17871260c2939617d7333a8dc17b06b9131",
+    "prompt": "First, read the exact numbers you need from the chart. Next, do any calculation step by step. Finally, What is the sum, we get if we add United states and Australia? Answer with only the short answer.",
+    "kwargs": {
+      "max_tokens": 300
+    },
+    "allocation": {
+      "input_tokens": 318,
+      "padded_input_tokens": 512,
+      "requested_new_tokens": 300,
+      "output_buffer_tokens": 512,
+      "old_cache_tokens": 2048,
+      "new_cache_tokens": 1024
+    },
+    "status": "passed",
+    "result": {
+      "text": "30.11%"
+    },
+    "seconds": 95.0,
+    "tpu_memory": {
+      "num_allocs": 1338,
+      "bytes_in_use": 11183607296,
+      "peak_bytes_in_use": 11494340608,
+      "largest_alloc_size": 4697620480,
+      "bytes_limit": 16909336064,
+      "bytes_reserved": 5388289024,
+      "peak_bytes_reserved": 5414600704,
+      "bytes_reservable_limit": 5449569792,
+      "largest_free_block_bytes": 80951296
+    }
+  },
+  "environment": {
+    "python": "3.13.15",
+    "packages": {
+      "evalrx": "0.1.2",
+      "gemma": "4.0.1",
+      "jax": "0.7.2",
+      "jaxlib": "0.7.2",
+      "libtpu": "0.0.21.1",
+      "torch": "2.9.0+cpu",
+      "flax": "0.11.2",
+      "kauldron": "1.4.4",
+      "tensorflow-cpu": "2.21.0",
+      "numpy": "2.1.3",
+      "pillow": "12.3.0"
+    }
+  },
+  "baseline_parity": {
+    "n": 128,
+    "changed_outputs": [],
+    "unchanged_outputs": 128,
+    "baseline_before": 0.5,
+    "baseline_after_runtime_fix": 0.5
+  }
+}

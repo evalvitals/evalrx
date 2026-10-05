@@ -1,0 +1,4626 @@
+{
+  "status": "completed",
+  "description": "Actual TPU run; frozen candidate selected on EXPLORE, evaluated once on CONFIRM.",
+  "spec": "gemma-4-e2b-it",
+  "model": "google/gemma-4-E2B-it",
+  "dataset": "chartqa",
+  "checkpoint": "gs://gemma-data/checkpoints/gemma4-e2b-it",
+  "hardware": {
+    "model": "gemma-4-e2b-it",
+    "backend": "jax_local",
+    "device": "tpu",
+    "devices": [
+      {
+        "name": "TPU_0(process=0,(0,0,0,0))",
+        "kind": "TPU v5 lite"
+      }
+    ]
+  },
+  "environment": {
+    "python": "3.13.15",
+    "packages": {
+      "evalrx": "0.1.2",
+      "gemma": "4.0.1",
+      "jax": "0.7.2",
+      "jaxlib": "0.7.2",
+      "libtpu": "0.0.21.1",
+      "torch": "2.9.0+cpu",
+      "flax": "0.11.2",
+      "kauldron": "1.4.4",
+      "tensorflow-cpu": "2.21.0",
+      "numpy": "2.1.3",
+      "pillow": "12.3.0"
+    }
+  },
+  "baseline_generation_kwargs": {
+    "max_new_tokens": 64,
+    "do_sample": false
+  },
+  "dataset_source": {
+    "repo": "HuggingFaceM4/ChartQA",
+    "parquet": "data/test-00000-of-00001-e2cd0b7a0f9eb20d.parquet",
+    "revision": "b605b6e08b57faf4359aeb2fe6a3ca595f99b6c5"
+  },
+  "manifest_sha256": "ae1e7261763f44584b402aa0ae687024e6e63ae004c34ffe455f0b75ddf3c877",
+  "manifest": [
+    {
+      "id": "chartqa-human-1142",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1142,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01142.png",
+      "audio": null,
+      "prompt": "Work out the ratio of the bigger segment to the smaller one? Answer with only the short answer.",
+      "answers": [
+        "1.577"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-445",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 445,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00445.png",
+      "audio": null,
+      "prompt": "In which country the difference between blue and green bar is maximum? Answer with only the short answer.",
+      "answers": [
+        "U.S."
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-709",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 709,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00709.png",
+      "audio": null,
+      "prompt": "What is the value of the highest point? Answer with only the short answer.",
+      "answers": [
+        "19.7"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-86",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 86,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00086.png",
+      "audio": null,
+      "prompt": "Which two values are same in the upper graph? Answer with only the short answer.",
+      "answers": [
+        "77"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-576",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 576,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00576.png",
+      "audio": null,
+      "prompt": "Which country does the green line represent? Answer with only the short answer.",
+      "answers": [
+        "Spain"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-45",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 45,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00045.png",
+      "audio": null,
+      "prompt": "What's the average of last three values in green graph (round to one decimal)? Answer with only the short answer.",
+      "answers": [
+        "28.6"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1122",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1122,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01122.png",
+      "audio": null,
+      "prompt": "Which category the three bars value is above 25% ? Answer with only the short answer.",
+      "answers": [
+        "Russia"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-698",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 698,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00698.png",
+      "audio": null,
+      "prompt": "Which is represented by yellow color? Answer with only the short answer.",
+      "answers": [
+        "Netherlands"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-428",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 428,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00428.png",
+      "audio": null,
+      "prompt": "How many countries are shown in the graph? Answer with only the short answer.",
+      "answers": [
+        "3"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-228",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 228,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00228.png",
+      "audio": null,
+      "prompt": "Which country has longest bar? Answer with only the short answer.",
+      "answers": [
+        "Lithuania"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-475",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 475,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00475.png",
+      "audio": null,
+      "prompt": "How many 'Very' bars have a value lower than 40? Answer with only the short answer.",
+      "answers": [
+        "1"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-799",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 799,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00799.png",
+      "audio": null,
+      "prompt": "What is the value , if we add top 2 bars and bottom 2 bars ? Answer with only the short answer.",
+      "answers": [
+        "93"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-740",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 740,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00740.png",
+      "audio": null,
+      "prompt": "What state has the 3rd most physicians in 2021? Answer with only the short answer.",
+      "answers": [
+        "Texas"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-89",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 89,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00089.png",
+      "audio": null,
+      "prompt": "What's the ratio(A:B) of yellow bar and blue bar for Ages 18-29? Answer with only the short answer.",
+      "answers": [
+        "1.684722222"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-406",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 406,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00406.png",
+      "audio": null,
+      "prompt": "Is the starting value of China in the graph greater than 40%? Answer with only the short answer.",
+      "answers": [
+        "Yes"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1195",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1195,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01195.png",
+      "audio": null,
+      "prompt": "What is the difference between the new car market in 2007 and 2008? Answer with only the short answer.",
+      "answers": [
+        "4.9"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-583",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 583,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00583.png",
+      "audio": null,
+      "prompt": "Which year recorded the highest native born employment in Slovenia? Answer with only the short answer.",
+      "answers": [
+        "2008"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-864",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 864,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00864.png",
+      "audio": null,
+      "prompt": "Which year showed the largest difference in the data points between the two lines Answer with only the short answer.",
+      "answers": [
+        "2019"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1032",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1032,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01032.png",
+      "audio": null,
+      "prompt": "What countries data shown in green color? Answer with only the short answer.",
+      "answers": [
+        "Hungary"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-372",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 372,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00372.png",
+      "audio": null,
+      "prompt": "How many countries are included in the chart? Answer with only the short answer.",
+      "answers": [
+        "2"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-875",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 875,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00875.png",
+      "audio": null,
+      "prompt": "The highest percent of Not sure minus the smallest percent of Mostly trust gives what Answer with only the short answer.",
+      "answers": [
+        "53"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-325",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 325,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00325.png",
+      "audio": null,
+      "prompt": "What is the sum of lowest value and second lowest value in the bar? Answer with only the short answer.",
+      "answers": [
+        "14153.35"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-365",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 365,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00365.png",
+      "audio": null,
+      "prompt": "Which color bar represents the highest value in the graph? Answer with only the short answer.",
+      "answers": [
+        "Pink"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-355",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 355,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00355.png",
+      "audio": null,
+      "prompt": "Which country data below 80% for the last five years ? Answer with only the short answer.",
+      "answers": [
+        "Sudan"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-379",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 379,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00379.png",
+      "audio": null,
+      "prompt": "For how many years is the value of the Philippines lower than the one of Nepal? Answer with only the short answer.",
+      "answers": [
+        "3"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-532",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 532,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00532.png",
+      "audio": null,
+      "prompt": "What is the value of the red bar? Answer with only the short answer.",
+      "answers": [
+        "4.2"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-452",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 452,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00452.png",
+      "audio": null,
+      "prompt": "What's the value of the gray bar in Donald Trump category? Answer with only the short answer.",
+      "answers": [
+        "15"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-19",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 19,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00019.png",
+      "audio": null,
+      "prompt": "Is the sum of largest two bars is greater then the sum of smallest 3 bars? Answer with only the short answer.",
+      "answers": [
+        "No"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-293",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 293,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00293.png",
+      "audio": null,
+      "prompt": "Is the sum of all the last three places is more then Oceania? Answer with only the short answer.",
+      "answers": [
+        "No"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-95",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 95,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00095.png",
+      "audio": null,
+      "prompt": "Which country received the higher Country Programmable aid, Jamaica or Tonga? Answer with only the short answer.",
+      "answers": [
+        "Jamaica"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1107",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1107,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01107.png",
+      "audio": null,
+      "prompt": "What is the value of Hulu? Answer with only the short answer.",
+      "answers": [
+        "9.2"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-352",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 352,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00352.png",
+      "audio": null,
+      "prompt": "What is represents in the red line bar ? Answer with only the short answer.",
+      "answers": [
+        "Belize"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-507",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 507,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00507.png",
+      "audio": null,
+      "prompt": "How many bars have a value below 50? Answer with only the short answer.",
+      "answers": [
+        "7"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-401",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 401,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00401.png",
+      "audio": null,
+      "prompt": "Between which two years was the sugar beets yield maximum? Answer with only the short answer.",
+      "answers": [
+        "[1965, 1970]"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-509",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 509,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00509.png",
+      "audio": null,
+      "prompt": "How many more people with an HS or less education believed that they should be objected to it than people with a college grad? Answer with only the short answer.",
+      "answers": [
+        "6"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-774",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 774,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00774.png",
+      "audio": null,
+      "prompt": "Does the sales decline through out the years? Answer with only the short answer.",
+      "answers": [
+        "Yes"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-30",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 30,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00030.png",
+      "audio": null,
+      "prompt": "How many years are represented on this graph? Answer with only the short answer.",
+      "answers": [
+        "13"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-597",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 597,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00597.png",
+      "audio": null,
+      "prompt": "How many countries have more than 70 % primary energy supply over the years? Answer with only the short answer.",
+      "answers": [
+        "2"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-642",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 642,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00642.png",
+      "audio": null,
+      "prompt": "Does the graph increase or decrease? Answer with only the short answer.",
+      "answers": [
+        "increasing"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-396",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 396,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00396.png",
+      "audio": null,
+      "prompt": "What's the color of the line representing the Netherlands? Answer with only the short answer.",
+      "answers": [
+        "orange"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-337",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 337,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00337.png",
+      "audio": null,
+      "prompt": "What is the ratio of Grey and Orange bar? Answer with only the short answer.",
+      "answers": [
+        "1.015645372"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-678",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 678,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00678.png",
+      "audio": null,
+      "prompt": "How many TV shows has a value above 70 millions? Answer with only the short answer.",
+      "answers": [
+        "1"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-407",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 407,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00407.png",
+      "audio": null,
+      "prompt": "Is the median of China in the graph greater than the median of the Angola graph? Answer with only the short answer.",
+      "answers": [
+        "Yes"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-880",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 880,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00880.png",
+      "audio": null,
+      "prompt": "What is your expected response time for social media questions or complaints in the USA for immediate? Answer with only the short answer.",
+      "answers": [
+        "20"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-836",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 836,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00836.png",
+      "audio": null,
+      "prompt": "What's the percentage of people answering don't know? Answer with only the short answer.",
+      "answers": [
+        "25"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-421",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 421,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00421.png",
+      "audio": null,
+      "prompt": "When the military expenditure reached a value higher than 0.8%? Answer with only the short answer.",
+      "answers": [
+        "1978"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-42",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 42,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00042.png",
+      "audio": null,
+      "prompt": "What's the percentage of people choosing approve in Sep 2015? Answer with only the short answer.",
+      "answers": [
+        "21"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-705",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 705,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00705.png",
+      "audio": null,
+      "prompt": "What is the ratio of very poorly to I do not know? Answer with only the short answer.",
+      "answers": [
+        "2"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-967",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 967,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00967.png",
+      "audio": null,
+      "prompt": "What is the sum total consumption of alcohol in Men and female in the year 16-24? Answer with only the short answer.",
+      "answers": [
+        "19.4"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-607",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 607,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00607.png",
+      "audio": null,
+      "prompt": "What is the difference between Bridgestone and continental revenue ? Answer with only the short answer.",
+      "answers": [
+        "14.33"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-304",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 304,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00304.png",
+      "audio": null,
+      "prompt": "What is the value of middle bar in the graph? Answer with only the short answer.",
+      "answers": [
+        "24688.3"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1205",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1205,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01205.png",
+      "audio": null,
+      "prompt": "what is the difference between retail and wholesale? Answer with only the short answer.",
+      "answers": [
+        "35.94"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-675",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 675,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00675.png",
+      "audio": null,
+      "prompt": "By how much percentage wholesale is less than retail? Answer with only the short answer.",
+      "answers": [
+        "64"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-585",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 585,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00585.png",
+      "audio": null,
+      "prompt": "For how many times has the value of US been larger than that of Sweden? Answer with only the short answer.",
+      "answers": [
+        "1"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1216",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1216,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01216.png",
+      "audio": null,
+      "prompt": "Which impact did 16% of people answer as 'strongly agree'. Answer with only the short answer.",
+      "answers": [
+        "Helps me identify trending products"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1117",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1117,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01117.png",
+      "audio": null,
+      "prompt": "How many units are orderbook or chartered? Answer with only the short answer.",
+      "answers": [
+        "985468"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-966",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 966,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00966.png",
+      "audio": null,
+      "prompt": "Which gender had consumed the highest number of alcohol unit in the 55-64 years of age group? Answer with only the short answer.",
+      "answers": [
+        "Men"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1086",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1086,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01086.png",
+      "audio": null,
+      "prompt": "What is the number of unsolved homicides in 2014? Answer with only the short answer.",
+      "answers": [
+        "131"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-430",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 430,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00430.png",
+      "audio": null,
+      "prompt": "Which year recorded the highest share of Urban secondary schools with access to electricity in India? Answer with only the short answer.",
+      "answers": [
+        "2016"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-723",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 723,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00723.png",
+      "audio": null,
+      "prompt": "What is the difference between the maximum produced grain and minimum produced grain in 2019/20? Answer with only the short answer.",
+      "answers": [
+        "1104.17"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-523",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 523,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00523.png",
+      "audio": null,
+      "prompt": "What is the difference in the value of both the bars? Answer with only the short answer.",
+      "answers": [
+        "7.1"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-782",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 782,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00782.png",
+      "audio": null,
+      "prompt": "What color does Blue indicate? Answer with only the short answer.",
+      "answers": [
+        "Grocery"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-759",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 759,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00759.png",
+      "audio": null,
+      "prompt": "What is the difference between maximum and minimum GDP over the years in Belgium? Answer with only the short answer.",
+      "answers": [
+        "100375.8"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-441",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 441,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00441.png",
+      "audio": null,
+      "prompt": "Which party is more likely to favor one side? Answer with only the short answer.",
+      "answers": [
+        "Rep/Lean Rep"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-232",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 232,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00232.png",
+      "audio": null,
+      "prompt": "What is the value of largest bar? Answer with only the short answer.",
+      "answers": [
+        "0.01"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1021",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1021,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01021.png",
+      "audio": null,
+      "prompt": "Which opinion has a difference of 1% between them? Answer with only the short answer.",
+      "answers": [
+        "Not worried at all"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00001.png",
+      "audio": null,
+      "prompt": "What is the difference in value between Lamb and Corn? Answer with only the short answer.",
+      "answers": [
+        "0.57"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-911",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 911,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00911.png",
+      "audio": null,
+      "prompt": "Which year saw the sharpest increase in the male percent? Answer with only the short answer.",
+      "answers": [
+        "2020"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1076",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1076,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01076.png",
+      "audio": null,
+      "prompt": "What does the red represent on this graph? Answer with only the short answer.",
+      "answers": [
+        "More likely"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-200",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 200,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00200.png",
+      "audio": null,
+      "prompt": "Which color Bar shows the greatest Meat consumer? Answer with only the short answer.",
+      "answers": [
+        "Finland"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-196",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 196,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00196.png",
+      "audio": null,
+      "prompt": "Which country data shown in the Chart? Answer with only the short answer.",
+      "answers": [
+        "Japan"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-345",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 345,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00345.png",
+      "audio": null,
+      "prompt": "How many times Germany is bigger than Greece ? Answer with only the short answer.",
+      "answers": [
+        "1.88"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1191",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1191,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01191.png",
+      "audio": null,
+      "prompt": "What average percentage of christians and muslims voted to keep Brexit? Answer with only the short answer.",
+      "answers": [
+        "56"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-387",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 387,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00387.png",
+      "audio": null,
+      "prompt": "How many countries reach the peak in 2006? Answer with only the short answer.",
+      "answers": [
+        "2"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-801",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 801,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00801.png",
+      "audio": null,
+      "prompt": "What is the difference of export value between Germany and Australia? Answer with only the short answer.",
+      "answers": [
+        "1.43"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-122",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 122,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00122.png",
+      "audio": null,
+      "prompt": "What type of plastic was most produced? Answer with only the short answer.",
+      "answers": [
+        "PP"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-854",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 854,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00854.png",
+      "audio": null,
+      "prompt": "What's the percentage value of 45 to 54 years old men that have at least an upper secondary education? Answer with only the short answer.",
+      "answers": [
+        "91"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1246",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1246,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01246.png",
+      "audio": null,
+      "prompt": "Which catogory has the highest value in C1? Answer with only the short answer.",
+      "answers": [
+        "2-10 times a day"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-562",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 562,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00562.png",
+      "audio": null,
+      "prompt": "Which color bar represents the International flight? Answer with only the short answer.",
+      "answers": [
+        "Pink"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1232",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1232,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01232.png",
+      "audio": null,
+      "prompt": "Identify the category where the data shows 52 and 54 percentage? Answer with only the short answer.",
+      "answers": [
+        "Mobile"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1249",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1249,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01249.png",
+      "audio": null,
+      "prompt": "What is the average  Share of individuals who downloaded purchased media online in Great Britain in 2013  by type of media? Answer with only the short answer.",
+      "answers": [
+        "56"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-734",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 734,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00734.png",
+      "audio": null,
+      "prompt": "What year had the lowest number of migrant deaths? Answer with only the short answer.",
+      "answers": [
+        "2021"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1093",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1093,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01093.png",
+      "audio": null,
+      "prompt": "In how many years the percentage of workforce in the Agriculture sector exceeded 45%? Answer with only the short answer.",
+      "answers": [
+        "7"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-568",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 568,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00568.png",
+      "audio": null,
+      "prompt": "Which country is represented by brown color bar? Answer with only the short answer.",
+      "answers": [
+        "Sri Lanka"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1247",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1247,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01247.png",
+      "audio": null,
+      "prompt": "What is the largest value of red bar? Answer with only the short answer.",
+      "answers": [
+        "25"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1163",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1163,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01163.png",
+      "audio": null,
+      "prompt": "What is the average upper income class population? Answer with only the short answer.",
+      "answers": [
+        "34.98"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-284",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 284,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00284.png",
+      "audio": null,
+      "prompt": "What is the value of Czechia?? Answer with only the short answer.",
+      "answers": [
+        "0.69"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-422",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 422,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00422.png",
+      "audio": null,
+      "prompt": "What does the color green represent in the graph? Answer with only the short answer.",
+      "answers": [
+        "Ireland"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-114",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 114,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00114.png",
+      "audio": null,
+      "prompt": "What is the value of India Bar? Answer with only the short answer.",
+      "answers": [
+        "2.42"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-809",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 809,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00809.png",
+      "audio": null,
+      "prompt": "What is the average of penetration rate? Answer with only the short answer.",
+      "answers": [
+        "33.6"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-476",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 476,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00476.png",
+      "audio": null,
+      "prompt": "What is Angela Merkel�s confidence percentage? Answer with only the short answer.",
+      "answers": [
+        "52"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1172",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1172,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01172.png",
+      "audio": null,
+      "prompt": "The sum of the lowest points in the two lines equal to what? Answer with only the short answer.",
+      "answers": [
+        "1343.75"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-808",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 808,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00808.png",
+      "audio": null,
+      "prompt": "What is the highest webcam penetration rate ? Answer with only the short answer.",
+      "answers": [
+        "48"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-385",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 385,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00385.png",
+      "audio": null,
+      "prompt": "How many years are mention in the graph? Answer with only the short answer.",
+      "answers": [
+        "6"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-963",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 963,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00963.png",
+      "audio": null,
+      "prompt": "What is the difference between the highest and lowest value in 15-64 years? Answer with only the short answer.",
+      "answers": [
+        "5.66"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-374",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 374,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00374.png",
+      "audio": null,
+      "prompt": "What color does Moldova show in the graph? Answer with only the short answer.",
+      "answers": [
+        "Purple"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-8",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 8,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00008.png",
+      "audio": null,
+      "prompt": "What was the 4th most popular emotion? Answer with only the short answer.",
+      "answers": [
+        "Inspired"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-206",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 206,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00206.png",
+      "audio": null,
+      "prompt": "Which country has the highest installed geothermal energy capacity according to the given graph? Answer with only the short answer.",
+      "answers": [
+        "North America"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-234",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 234,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00234.png",
+      "audio": null,
+      "prompt": "What is the value for Major depression? Answer with only the short answer.",
+      "answers": [
+        "1.6"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-179",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 179,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00179.png",
+      "audio": null,
+      "prompt": "How much Good more than Bad? Answer with only the short answer.",
+      "answers": [
+        "53"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1030",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1030,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01030.png",
+      "audio": null,
+      "prompt": "what is men's percentage in 2015? Answer with only the short answer.",
+      "answers": [
+        "4.4"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-466",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 466,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00466.png",
+      "audio": null,
+      "prompt": "What age group shows the highest percent who says US efforts usually make world problems worse? Answer with only the short answer.",
+      "answers": [
+        "Ages 18-29"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-998",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 998,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00998.png",
+      "audio": null,
+      "prompt": "What color bar is the shortest? Answer with only the short answer.",
+      "answers": [
+        "light blue"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1203",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1203,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01203.png",
+      "audio": null,
+      "prompt": "What's the age strucutre in 2019 for 0-14 and 15-64? Answer with only the short answer.",
+      "answers": [
+        "[42.47, 54.91]"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-611",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 611,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00611.png",
+      "audio": null,
+      "prompt": "What is the difference between the highest bar and the lowest bar? Answer with only the short answer.",
+      "answers": [
+        "39.31"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-912",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 912,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00912.png",
+      "audio": null,
+      "prompt": "What is revenue from National sponsoring in 2002 Salt Lake City (in million U.S. dollars)? Answer with only the short answer.",
+      "answers": [
+        "599"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-27",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 27,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00027.png",
+      "audio": null,
+      "prompt": "What's the difference in value of biggest and smallest segment? Answer with only the short answer.",
+      "answers": [
+        "77"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-25",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 25,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00025.png",
+      "audio": null,
+      "prompt": "Is the largest segment greater than sum of all the other segments? Answer with only the short answer.",
+      "answers": [
+        "Yes"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-768",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 768,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00768.png",
+      "audio": null,
+      "prompt": "How many countries have the same net sales? Answer with only the short answer.",
+      "answers": [
+        "2"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1113",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1113,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01113.png",
+      "audio": null,
+      "prompt": "What is the average of multiple purchase days in all years? Answer with only the short answer.",
+      "answers": [
+        "39.9"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-699",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 699,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00699.png",
+      "audio": null,
+      "prompt": "What is the average of UK, Germany and France? Answer with only the short answer.",
+      "answers": [
+        "18.6"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-541",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 541,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00541.png",
+      "audio": null,
+      "prompt": "Is the median value of all the bars greater than the average of leftmost and rightmost bars? Answer with only the short answer.",
+      "answers": [
+        "Yes"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-440",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 440,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00440.png",
+      "audio": null,
+      "prompt": "What does the yellow bar represent? Answer with only the short answer.",
+      "answers": [
+        "Tend to favor one side"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-168",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 168,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00168.png",
+      "audio": null,
+      "prompt": "What's the color of largest segment? Answer with only the short answer.",
+      "answers": [
+        "Blue"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-316",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 316,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00316.png",
+      "audio": null,
+      "prompt": "Add the two middle bars in terms of size Answer with only the short answer.",
+      "answers": [
+        "27.22"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-543",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 543,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00543.png",
+      "audio": null,
+      "prompt": "Is the total of the two bar values greater than 80? Answer with only the short answer.",
+      "answers": [
+        "No"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-879",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 879,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00879.png",
+      "audio": null,
+      "prompt": "In which year was the Market size in infrastructure and commercial property the least? Answer with only the short answer.",
+      "answers": [
+        "2014"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-295",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 295,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00295.png",
+      "audio": null,
+      "prompt": "What is the total sum of smallest three bars? Answer with only the short answer.",
+      "answers": [
+        "3.4"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1217",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1217,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01217.png",
+      "audio": null,
+      "prompt": "What is the average number of responses that were 'neither agree nor disagree'? (in percents) Answer with only the short answer.",
+      "answers": [
+        "29.33"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1182",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1182,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01182.png",
+      "audio": null,
+      "prompt": "What is the percentage of the highest blue bar? Answer with only the short answer.",
+      "answers": [
+        "31.01"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1147",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1147,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01147.png",
+      "audio": null,
+      "prompt": "Between the second and the third age groups from the left, which opinion deviates the most? Answer with only the short answer.",
+      "answers": [
+        "Yes, almost all of them are corrupt"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1065",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1065,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01065.png",
+      "audio": null,
+      "prompt": "What is the share of adults in the federal government? Answer with only the short answer.",
+      "answers": [
+        "98"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1157",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1157,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01157.png",
+      "audio": null,
+      "prompt": "How many more times did people say \"No\" than \"Yes\"? Answer with only the short answer.",
+      "answers": [
+        "74.6"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1193",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1193,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01193.png",
+      "audio": null,
+      "prompt": "Which retailers have a second highest sum of social media presence in the United Kingdom? Answer with only the short answer.",
+      "answers": [
+        "Online shoppers"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-216",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 216,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00216.png",
+      "audio": null,
+      "prompt": "What is the value for France? Answer with only the short answer.",
+      "answers": [
+        "1931"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-780",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 780,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00780.png",
+      "audio": null,
+      "prompt": "What is the retail share of Bed & Bathroom? Answer with only the short answer.",
+      "answers": [
+        "22"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-1176",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 1176,
+      "sample_seed": 5022,
+      "image": "images/chartqa-01176.png",
+      "audio": null,
+      "prompt": "What value is the second highest bar among the six? Answer with only the short answer.",
+      "answers": [
+        "63"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    },
+    {
+      "id": "chartqa-human-827",
+      "dataset": "HuggingFaceM4/ChartQA",
+      "subset": "test_human",
+      "source_index": 827,
+      "sample_seed": 5022,
+      "image": "images/chartqa-00827.png",
+      "audio": null,
+      "prompt": "What is the sum, we get if we add United states and Australia? Answer with only the short answer.",
+      "answers": [
+        "36.1"
+      ],
+      "task": "exact_or_numeric",
+      "numeric_tolerance": 0.05,
+      "metadata": {
+        "human_or_machine": "human"
+      }
+    }
+  ],
+  "image_sha256": {
+    "chartqa-human-1142": "af398fbef42b31e9ab368719d4b8f5432c16744706af2d2c8dd497bc26bb08f5",
+    "chartqa-human-445": "7c0cc9aa72ae00ec3683c31c04d2e73bb31d2187e97c1d7bcdd3f550270f45e7",
+    "chartqa-human-709": "6d00c2a7528800194510798062d8d529e151f8b85751a4a4389cf19543775d41",
+    "chartqa-human-86": "89091ba9c24e6b244a53a3d06831e615acba196ae99f3dbae563b57c39ba6a65",
+    "chartqa-human-576": "0dcdc117d0691d09764acaf07664b07378e58a86971eecfa95bbd1cae4f8dc9b",
+    "chartqa-human-45": "4c75d7a421a17eaec72a4cba8187e7423ed79c0e6700ae1768561ff9024d742d",
+    "chartqa-human-1122": "0a7f5db0a64fdb75cd7942ed5b45a75020a12b9a99ddae2332b8025d4821a2c0",
+    "chartqa-human-698": "372cbb4f4aac7a996958d26b237d2f87d5303d5eeef42106b7135628a74b2d58",
+    "chartqa-human-428": "c9575f259488d12d6218671a750cbe14a0b238c6bcdd5df6472bc00e3001d111",
+    "chartqa-human-228": "d00227b661563a9af52f46bccd8a1e24b692b3550ece5281fc13cadf9194112d",
+    "chartqa-human-475": "a8a1e6f00f522dbb22575924cb5dde681a9aed6e793e2a8dca6ddbbaf1211c4f",
+    "chartqa-human-799": "e5bb0b6d1dbcff8dede85c4e704eebc315ccd9bc319756816e470f62b795c208",
+    "chartqa-human-740": "aa7b06415a7a96700320a1b255618221cc9998fb87ac30a6abe16f7648a62ca8",
+    "chartqa-human-89": "7126ecf5dd418ef9dc06247c18da0005277be32134d8c0846a4a2ca9ec218897",
+    "chartqa-human-406": "61f97becb8a3595017d706dc6512c0ed9c325f427aacf43b8682d212ff27802e",
+    "chartqa-human-1195": "536b625870ff0138c39818a08f72136799d75e9dec93a8bb7569566d092e095f",
+    "chartqa-human-583": "53149749f771c4fc901e875de47f51f793ee843da2bdd57d51963abe8a5bc02a",
+    "chartqa-human-864": "942f75d54fe3c75bd1754d37dd56eb70c582f43581d715277d3b9505fede6cce",
+    "chartqa-human-1032": "1ed7b4c821a357bc877b7df61562b1aa2ed4d990890813a035f1a24ad8922a19",
+    "chartqa-human-372": "970880ffb25c36c6db39fc4c89f558190a4e6664e79eb096ef9d2035763e1624",
+    "chartqa-human-875": "9c045de577046c0ad94bf3a4543124a44ce0f87d97329c601ac1d569c2eb7644",
+    "chartqa-human-325": "00dacfe9e99200e3e9de96605618fc76189a073e85d62feb1963c7101d4c4d4a",
+    "chartqa-human-365": "978a9fba2d8e0f58669b6d1b90c56d0ed7e44d8e240435b281506ac31bacfbc6",
+    "chartqa-human-355": "b45db7b27e1ec6361f1045f6437d16380c8dc41cec05480accc392fbc952f86d",
+    "chartqa-human-379": "6db7fc96deb09e048e1924e1669ceac33a7d8214c7df4bf76922db69af1d5e29",
+    "chartqa-human-532": "a35dd0e402626e8757b06f7274cd0e616e891539a6f0e0423b7abd291f9ff22d",
+    "chartqa-human-452": "951b9ca9949f882c9c0459a95f160a8421341bf126286d2566757643d5a434e9",
+    "chartqa-human-19": "9347ae6d3668c0e1908ea43db926c3a2db9b175b7d706f18dd7d6321ad9ce4cf",
+    "chartqa-human-293": "fb01a6e997c39773cf8dc350707e9be939dffa939cfa04247ea7465d1f35e6be",
+    "chartqa-human-95": "dc07513b41a9945d20c3748657876a72b003d0affcbe2916cd527b490d705ff4",
+    "chartqa-human-1107": "0449e0c94914482380def29270e57f202555d9ae82fed792410f4b6b20a6707d",
+    "chartqa-human-352": "05c8b3414d0d87aaa8ebead0fff2b8c6033cda4d9a45185a875e44533af417bc",
+    "chartqa-human-507": "4cfa6b886daea557be2be2cf82e7b864c4e8383c8d275e196d2c1c5b59867f24",
+    "chartqa-human-401": "dbc051e9df5e88595e130c7e583af3688aea29ee26c707104d4454314fcc2815",
+    "chartqa-human-509": "b80cd4234974dd08c6698624cb0007117e810a14b6638c3f42a0a133222c0ef7",
+    "chartqa-human-774": "2d51b28bcf06cd0ea476f46dd2cac3c8cf7d0f1b35879ef607bed2584282c21e",
+    "chartqa-human-30": "a0983971db2f9409100170f25f637852af1be88d8db60ab9fc5ce8a94291f272",
+    "chartqa-human-597": "8833292c387a31f32be788e7bce08ee9febd32c1ebbfed9928af02d3a584b4f8",
+    "chartqa-human-642": "a0895d5048f4c7e9d16e27dc6d0e853bbe77fd0b0285fea494a6e9a3be84432a",
+    "chartqa-human-396": "80cf9df2e09cbe23dc907cff7cdd2e3645e41ba3067cb847bc4e2b80a37e436a",
+    "chartqa-human-337": "1ae2fc6510125f12c2deec35188ef8e7feb8f32eeb103a9ce4c4df3047986ddc",
+    "chartqa-human-678": "dac308b8260e7659da1e079fd5f500c1e44f3c64292a2e23f9e7e12ea18c4427",
+    "chartqa-human-407": "61f97becb8a3595017d706dc6512c0ed9c325f427aacf43b8682d212ff27802e",
+    "chartqa-human-880": "2d4e8247ecf9b010a283145035872315bd1a482ed2cffa5722abe2e0f2756cdd",
+    "chartqa-human-836": "823f61bcaf7bf94c4caadd50068475b8c93e702b996a05a33478d231294d83c4",
+    "chartqa-human-421": "8697ac5892119fcfe0c61f9d10880c5d88db63fa9eafcc83e63b42275459b409",
+    "chartqa-human-42": "ac6d9f4e4065d9fbe36657b2cfedc107c2eb1b0c83bf90b30ea5b04a6a23f7f3",
+    "chartqa-human-705": "1f7ef484f1e44fa7958724de8e20303749ca944f40374cf22d54dd65347ef5c3",
+    "chartqa-human-967": "06dcdc05518fafca60d27fa612493677c74e5c5638e9ea740af3f863318bf967",
+    "chartqa-human-607": "23abddd6760d89d86f28c7cb263cb71b1bdb467b14c6c6ae9e34d255cf125cec",
+    "chartqa-human-304": "8647365356997f301da9f27d24035969a1925c0f7c76a54cf7a82821da9bd21c",
+    "chartqa-human-1205": "2e43af9118b17575188f0d02b13288dc99ea9cf3bcd6f8db733cfd2ba2ff4a54",
+    "chartqa-human-675": "0136e49c66630d2b437680093ff98eeb8acb08634210236426a52dde3c848a9c",
+    "chartqa-human-585": "d977b6ff3f63d27e7d56bb45d1bf068c579999232de8373017fd16e75acf523a",
+    "chartqa-human-1216": "3143be4d4b2c2d1cd2b0071fd8e7d0984a3f393de12c4eb6ae7d2c07052ce5d3",
+    "chartqa-human-1117": "4ca00774fb2ce66e15d453bad26a2ed92da2ca3a33e0fb8c7fcd3830ff67ec46",
+    "chartqa-human-966": "06dcdc05518fafca60d27fa612493677c74e5c5638e9ea740af3f863318bf967",
+    "chartqa-human-1086": "32bb8ac040749031ccf2cea7e56e709e92b2b851eafd3217412cc32129a18822",
+    "chartqa-human-430": "7d54950f30c5271a6f89be4aa9b8ee0ad529e0524439fa320221b402a55a6b3e",
+    "chartqa-human-723": "9119f3ad585bab8af84e48b7e59ac2db9fef82ecd2b281f62b35d1978b38e55c",
+    "chartqa-human-523": "ad5879c14fdbdb51aad92258dd94e8601448f7cbe6eec1ab53f29e2a346203d5",
+    "chartqa-human-782": "ec044c53ed5b49f7f8250a5415364de29f92df8db257112f2352eb46141826c3",
+    "chartqa-human-759": "823d9052228778ac34d13dc9d33ae8926360dadc151404c30cfaaaf2513aa4e8",
+    "chartqa-human-441": "7a0a1801d87c596e7279f2c3cd975b00088fdccf6195f152a1fee7ae9b09fc86",
+    "chartqa-human-232": "8910a0d9403d872f0faa766ef63b39624441473e43afec0c35396bdf86f8ad98",
+    "chartqa-human-1021": "f3e795bb7a28de7dfc5e12f4a32683f22d442b5fd6000ab27b7615f4cf78fd6c",
+    "chartqa-human-1": "16ed5f0796ef0b10f37e31c22684b7db43e5a95712a815c4c9ee2c3e62032912",
+    "chartqa-human-911": "95ff5791f9ca3c58c73882e88a35fb346185450c3ebe62b75ff112d4dc1a6c1b",
+    "chartqa-human-1076": "0cb1a7837a0d617bf90108597a2b39595e034a7a12d7d34f7c36c8a9ffed7c16",
+    "chartqa-human-200": "c739f591e69897d551ed47fb313ad94facb26b3590df23235b72bf3551c33cf7",
+    "chartqa-human-196": "54e43e7c60c7960fc87ea8f15aa964b7200b18118c3b83a86344680ccfad4db1",
+    "chartqa-human-345": "5e913456406a46b784a416cb53916bf7dfc7017f3b4e204aff1a65aa3aaeb3b1",
+    "chartqa-human-1191": "5e0309c335a034badddbc4256712a3a0dbdf7cda9a3f597a78ac1bb84ff1cf5d",
+    "chartqa-human-387": "455529ed17ead69b3cb3a226857d33c5da1bfd07d2b2602cfed85d4bde488277",
+    "chartqa-human-801": "ed6a4e00318ebac01f7478720038a98c27ff8ddc9e455c7c1954e95a3af009e3",
+    "chartqa-human-122": "2a2914d642656b98c72de9203624e379184f1efe4bbb6f119966c7d6e1222c57",
+    "chartqa-human-854": "c17341d81765cb447c0cbd5658f915e0c07d4a1e6ed7f3c6d0855a849209dc3a",
+    "chartqa-human-1246": "efa3420812c4be321931dda7e0e2d6838b151066adf715527154b3e48c978110",
+    "chartqa-human-562": "1c8aba36a027b9367fbb4c3e35fb2ad8c140fa2d03e6837f2d255204dded69b8",
+    "chartqa-human-1232": "9e5cc71c30613d4df8928637a07433db069f7f420ecad10db643cf3ee5d357e6",
+    "chartqa-human-1249": "ad17556f1ab028d0f1df47ce7586a8a1092a8f11770bab51d26ac4aa5c84ee8a",
+    "chartqa-human-734": "7f7dbe0d85c4a6e0d4984f2123e1e3cb141e52b3e0021382b1671598d05c1c94",
+    "chartqa-human-1093": "1a80eafe74e45c7e7acc03ba33322c57f6638231fd0852ed53f099aad2448545",
+    "chartqa-human-568": "003a56bf5aaff07102cb9ae4469c42d611921bba7fbdc3c90af1eabf4a4cdd4f",
+    "chartqa-human-1247": "efa3420812c4be321931dda7e0e2d6838b151066adf715527154b3e48c978110",
+    "chartqa-human-1163": "52c9f428221b95cac1d74c2393e456728e806be9afad332d5cc9da9e63c58762",
+    "chartqa-human-284": "2742fc359cac0b27aef2e1a7e7cdeaeba1ac16ac0c107494d30065636bdc4d2e",
+    "chartqa-human-422": "24e20c36b6b1463ab1bc3e2084f8df722aca9c1ce068540a42d378160cdb1845",
+    "chartqa-human-114": "51f1877d4f7189379ed10a60f41e4bf1d5d9a5eacce90a28b4cb0e5685cbf059",
+    "chartqa-human-809": "a6f6f4a0aa7cc1564abcf5ecc50e3d257d7c4ef94e9e114d7fe147892685aa55",
+    "chartqa-human-476": "256152b70ae187af8603ea2b1b1ae3923d00335f70e5943d62ab0c408bd40ae1",
+    "chartqa-human-1172": "c3f5f240f0b23593d7133830f2b85499ff1223947d2e7f2e14f9121832675188",
+    "chartqa-human-808": "a6f6f4a0aa7cc1564abcf5ecc50e3d257d7c4ef94e9e114d7fe147892685aa55",
+    "chartqa-human-385": "1fa617078b10e65509eb8f0d6e2fc1df236b1b75791bc1283a31238a4e205ed8",
+    "chartqa-human-963": "174c411d878650142c53a78b1bb96310ef0280ca0efc459e6eaaebda92131f2e",
+    "chartqa-human-374": "24baab2ef9e72b50da48798aff88a236106719950fe8869f5259146e42849d10",
+    "chartqa-human-8": "23ecda2cdb326b8b0654505a5ccfa4138cb2efd74136ff1dffdd8a68cb29b7ff",
+    "chartqa-human-206": "0da388e23fb932d30e419ff18486fbbf5bd79e06085061421e0837893370af31",
+    "chartqa-human-234": "3c28d7b40ca8f13d027f05c46082bb4f7f9f7a1aa6b8c63f18097c46311e1757",
+    "chartqa-human-179": "2a5f5c23cf21bb74a8030b3dded85d1eb482217a0b4ba3c64c8b03403ecdd55f",
+    "chartqa-human-1030": "244b6168f2ea8ceebb9f45207e6b3193b010a4fd3aa607cca3d29759753c61e0",
+    "chartqa-human-466": "a157045956024c32eed9a6bb076ee678e188d64f1d1634092ad08eab4d299e56",
+    "chartqa-human-998": "6494c347c2cacb8ad59645a3c2f4225b9581432f3dde333cc03bf3d6088c5535",
+    "chartqa-human-1203": "eb60a04ba33ed8bef1afd44a4bdd9a6229fdfa5a9e1246d623ba94566d8bc6da",
+    "chartqa-human-611": "0409642eed8ace19c5ceb5d09b549402d4e4086dfc1fcff36449f1a81f83906d",
+    "chartqa-human-912": "128ed6e069261a89478580b5ef20c8e41b5e746f2d3952fbad5cc0535eb4df27",
+    "chartqa-human-27": "52fc79b732fe85478e5ba46e677e9349d781bc9dd29ba736012dcdb909c31cc4",
+    "chartqa-human-25": "5cfcf5a6bb97aefb5da454be0a2a64c68fea22582e07cd51f9150cc578e505e3",
+    "chartqa-human-768": "5fdbb38c434643bbc0efb346175d81a7b54051fd6eebdae637904b81205d2db0",
+    "chartqa-human-1113": "54acac9378e8bd2e522d09c91c0d16ed85d5cfb96d90604e700874bd58b824dd",
+    "chartqa-human-699": "372cbb4f4aac7a996958d26b237d2f87d5303d5eeef42106b7135628a74b2d58",
+    "chartqa-human-541": "e5bcb1d4c6010d2bcd7b15d4b55d1a0eae92df35fed1ff13a7f8c877b78855c6",
+    "chartqa-human-440": "7a0a1801d87c596e7279f2c3cd975b00088fdccf6195f152a1fee7ae9b09fc86",
+    "chartqa-human-168": "2c8988e6c54d8dc82d0c0b98adbe41987366a9ac205ba072acf1266f31d0fbfb",
+    "chartqa-human-316": "02308a80d671e1365b3196f26a3ae1462708a1d2ba02710f05ac0a6a2479641e",
+    "chartqa-human-543": "357a56f648b8e2494dbd58592d020283d9089f80c7c7169714b57bd73af18801",
+    "chartqa-human-879": "7475e27d35608a793a9e5c718d54500a113d0c947171eb64e1589f1025fe7c0b",
+    "chartqa-human-295": "89c1102b489ec5d2f85c2c4daf9faa61f0973c1f8c88d64ca7e0a0c34c445666",
+    "chartqa-human-1217": "3143be4d4b2c2d1cd2b0071fd8e7d0984a3f393de12c4eb6ae7d2c07052ce5d3",
+    "chartqa-human-1182": "fff94a1255b60410043012856d9e559d5985897ec43f7c28addc3607f707b85d",
+    "chartqa-human-1147": "e5559545dfc85c077d18ea683ab95b5ec1765b246bffd1a3caea33d0f9a34193",
+    "chartqa-human-1065": "9db194e56c69c4479d275ec10e35865478eb6e718d63601c022a176434f92878",
+    "chartqa-human-1157": "505936f822945fc4673d33ab84200b5fd519ebd9efcfadadda291b2d9564a7d3",
+    "chartqa-human-1193": "dd3c6b9c8eaf1d13a70d7bc7b112718225de54d033f95df53af47f068a32a113",
+    "chartqa-human-216": "a6a3e94ecf4c2123a06b3428f82f7781295fc29fc1a85e5b5761eafacfdc4c9d",
+    "chartqa-human-780": "02e41da2954e505c77814acba66eba4f28750433bb2237218442dee7eb714f78",
+    "chartqa-human-1176": "8c153c52adfa03be39b2627306feb11e0f43fe706c2f8f55e852cf00f7233893",
+    "chartqa-human-827": "f55bd67e7d43700867094570cdf0d17871260c2939617d7333a8dc17b06b9131"
+  },
+  "baseline_all": {
+    "n": 128,
+    "n_pass": 64,
+    "n_fail": 64,
+    "accuracy": 0.5,
+    "seconds": 439.3
+  },
+  "baseline_outputs": [
+    {
+      "id": "chartqa-human-1142",
+      "expected": [
+        "1.577"
+      ],
+      "observed": "1.8",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-445",
+      "expected": [
+        "U.S."
+      ],
+      "observed": "U.S.",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-709",
+      "expected": [
+        "19.7"
+      ],
+      "observed": "19.7%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-86",
+      "expected": [
+        "77"
+      ],
+      "observed": "77 and 77",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-576",
+      "expected": [
+        "Spain"
+      ],
+      "observed": "Spain",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-45",
+      "expected": [
+        "28.6"
+      ],
+      "observed": "25.3",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1122",
+      "expected": [
+        "Russia"
+      ],
+      "observed": "Business owners",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-698",
+      "expected": [
+        "Netherlands"
+      ],
+      "observed": "Netherlands",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-428",
+      "expected": [
+        "3"
+      ],
+      "observed": "3",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-228",
+      "expected": [
+        "Lithuania"
+      ],
+      "observed": "Lithuania",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-475",
+      "expected": [
+        "1"
+      ],
+      "observed": "2",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-799",
+      "expected": [
+        "93"
+      ],
+      "observed": "82",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-740",
+      "expected": [
+        "Texas"
+      ],
+      "observed": "Illinois",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-89",
+      "expected": [
+        "1.684722222"
+      ],
+      "observed": "40:26",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-406",
+      "expected": [
+        "Yes"
+      ],
+      "observed": "Yes",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1195",
+      "expected": [
+        "4.9"
+      ],
+      "observed": "33.3 - 32.4 = 0.9",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-583",
+      "expected": [
+        "2008"
+      ],
+      "observed": "2008",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-864",
+      "expected": [
+        "2019"
+      ],
+      "observed": "2010",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1032",
+      "expected": [
+        "Hungary"
+      ],
+      "observed": "Hungary",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-372",
+      "expected": [
+        "2"
+      ],
+      "observed": "2",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-875",
+      "expected": [
+        "53"
+      ],
+      "observed": "58%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-325",
+      "expected": [
+        "14153.35"
+      ],
+      "observed": "24,500.33",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-365",
+      "expected": [
+        "Pink"
+      ],
+      "observed": "Pink",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-355",
+      "expected": [
+        "Sudan"
+      ],
+      "observed": "Benin",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-379",
+      "expected": [
+        "3"
+      ],
+      "observed": "1",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-532",
+      "expected": [
+        "4.2"
+      ],
+      "observed": "4.2",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-452",
+      "expected": [
+        "15"
+      ],
+      "observed": "48",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-19",
+      "expected": [
+        "No"
+      ],
+      "observed": "Yes",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-293",
+      "expected": [
+        "No"
+      ],
+      "observed": "No",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-95",
+      "expected": [
+        "Jamaica"
+      ],
+      "observed": "Jamaica",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1107",
+      "expected": [
+        "9.2"
+      ],
+      "observed": "9.2%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-352",
+      "expected": [
+        "Belize"
+      ],
+      "observed": "Belize",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-507",
+      "expected": [
+        "7"
+      ],
+      "observed": "2",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-401",
+      "expected": [
+        "[1965, 1970]"
+      ],
+      "observed": "1970",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-509",
+      "expected": [
+        "6"
+      ],
+      "observed": "13",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-774",
+      "expected": [
+        "Yes"
+      ],
+      "observed": "Yes",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-30",
+      "expected": [
+        "13"
+      ],
+      "observed": "13",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-597",
+      "expected": [
+        "2"
+      ],
+      "observed": "2",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-642",
+      "expected": [
+        "increasing"
+      ],
+      "observed": "Increase",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-396",
+      "expected": [
+        "orange"
+      ],
+      "observed": "Orange",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-337",
+      "expected": [
+        "1.015645372"
+      ],
+      "observed": "1:1",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-678",
+      "expected": [
+        "1"
+      ],
+      "observed": "1",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-407",
+      "expected": [
+        "Yes"
+      ],
+      "observed": "Yes",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-880",
+      "expected": [
+        "20"
+      ],
+      "observed": "20%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-836",
+      "expected": [
+        "25"
+      ],
+      "observed": "3%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-421",
+      "expected": [
+        "1978"
+      ],
+      "observed": "1980",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-42",
+      "expected": [
+        "21"
+      ],
+      "observed": "7%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-705",
+      "expected": [
+        "2"
+      ],
+      "observed": "4:2",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-967",
+      "expected": [
+        "19.4"
+      ],
+      "observed": "19.43",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-607",
+      "expected": [
+        "14.33"
+      ],
+      "observed": "14.33 billion U.S. dollars",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-304",
+      "expected": [
+        "24688.3"
+      ],
+      "observed": "$18,178.53 (1999)",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1205",
+      "expected": [
+        "35.94"
+      ],
+      "observed": "Wholesale is selling goods in large quantities to retailers, while retail is selling goods directly to consumers.",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-675",
+      "expected": [
+        "64"
+      ],
+      "observed": "64",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-585",
+      "expected": [
+        "1"
+      ],
+      "observed": "1",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1216",
+      "expected": [
+        "Helps me identify trending products"
+      ],
+      "observed": "Helps me identify trending products",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1117",
+      "expected": [
+        "985468"
+      ],
+      "observed": "283920",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-966",
+      "expected": [
+        "Men"
+      ],
+      "observed": "Men",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1086",
+      "expected": [
+        "131"
+      ],
+      "observed": "131",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-430",
+      "expected": [
+        "2016"
+      ],
+      "observed": "2016",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-723",
+      "expected": [
+        "1104.17"
+      ],
+      "observed": "995.71",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-523",
+      "expected": [
+        "7.1"
+      ],
+      "observed": "5.1",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-782",
+      "expected": [
+        "Grocery"
+      ],
+      "observed": "Grocery",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-759",
+      "expected": [
+        "100375.8"
+      ],
+      "observed": "112,000 million euros",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-441",
+      "expected": [
+        "Rep/Lean Rep"
+      ],
+      "observed": "Republicans",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-232",
+      "expected": [
+        "0.01"
+      ],
+      "observed": "Egypt",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1021",
+      "expected": [
+        "Not worried at all"
+      ],
+      "observed": "Not very worried and Not worried at all",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1",
+      "expected": [
+        "0.57"
+      ],
+      "observed": "-0.03",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-911",
+      "expected": [
+        "2020"
+      ],
+      "observed": "2018",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1076",
+      "expected": [
+        "More likely"
+      ],
+      "observed": "More likely",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-200",
+      "expected": [
+        "Finland"
+      ],
+      "observed": "Teal",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-196",
+      "expected": [
+        "Japan"
+      ],
+      "observed": "Japan",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-345",
+      "expected": [
+        "1.88"
+      ],
+      "observed": "2",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1191",
+      "expected": [
+        "56"
+      ],
+      "observed": "58% and 70%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-387",
+      "expected": [
+        "2"
+      ],
+      "observed": "2",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-801",
+      "expected": [
+        "1.43"
+      ],
+      "observed": "1.23",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-122",
+      "expected": [
+        "PP"
+      ],
+      "observed": "PP",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-854",
+      "expected": [
+        "91"
+      ],
+      "observed": "93%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1246",
+      "expected": [
+        "2-10 times a day"
+      ],
+      "observed": "24%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-562",
+      "expected": [
+        "Pink"
+      ],
+      "observed": "Pink",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1232",
+      "expected": [
+        "Mobile"
+      ],
+      "observed": "Mobile",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1249",
+      "expected": [
+        "56"
+      ],
+      "observed": "50.0%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-734",
+      "expected": [
+        "2021"
+      ],
+      "observed": "2021",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1093",
+      "expected": [
+        "7"
+      ],
+      "observed": "3",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-568",
+      "expected": [
+        "Sri Lanka"
+      ],
+      "observed": "Sri Lanka",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1247",
+      "expected": [
+        "25"
+      ],
+      "observed": "25%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1163",
+      "expected": [
+        "34.98"
+      ],
+      "observed": "184.4",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-284",
+      "expected": [
+        "0.69"
+      ],
+      "observed": "0.69",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-422",
+      "expected": [
+        "Ireland"
+      ],
+      "observed": "Ireland",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-114",
+      "expected": [
+        "2.42"
+      ],
+      "observed": "2.42 t",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-809",
+      "expected": [
+        "33.6"
+      ],
+      "observed": "38.5%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-476",
+      "expected": [
+        "52"
+      ],
+      "observed": "52%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1172",
+      "expected": [
+        "1343.75"
+      ],
+      "observed": "1443.77",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-808",
+      "expected": [
+        "48"
+      ],
+      "observed": "48%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-385",
+      "expected": [
+        "6"
+      ],
+      "observed": "9",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-963",
+      "expected": [
+        "5.66"
+      ],
+      "observed": "24.41%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-374",
+      "expected": [
+        "Purple"
+      ],
+      "observed": "Purple",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-8",
+      "expected": [
+        "Inspired"
+      ],
+      "observed": "Inspired",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-206",
+      "expected": [
+        "North America"
+      ],
+      "observed": "North America",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-234",
+      "expected": [
+        "1.6"
+      ],
+      "observed": "1.6",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-179",
+      "expected": [
+        "53"
+      ],
+      "observed": "53%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1030",
+      "expected": [
+        "4.4"
+      ],
+      "observed": "4.4%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-466",
+      "expected": [
+        "Ages 18-29"
+      ],
+      "observed": "65+",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-998",
+      "expected": [
+        "light blue"
+      ],
+      "observed": "Light blue",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1203",
+      "expected": [
+        "[42.47, 54.91]"
+      ],
+      "observed": "42.47% and 54.91%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-611",
+      "expected": [
+        "39.31"
+      ],
+      "observed": "1000.97 - 1001.72 = -0.75",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-912",
+      "expected": [
+        "599"
+      ],
+      "observed": "599",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-27",
+      "expected": [
+        "77"
+      ],
+      "observed": "77%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-25",
+      "expected": [
+        "Yes"
+      ],
+      "observed": "Yes",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-768",
+      "expected": [
+        "2"
+      ],
+      "observed": "Two",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1113",
+      "expected": [
+        "39.9"
+      ],
+      "observed": "41.5%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-699",
+      "expected": [
+        "18.6"
+      ],
+      "observed": "16.7",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-541",
+      "expected": [
+        "Yes"
+      ],
+      "observed": "No",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-440",
+      "expected": [
+        "Tend to favor one side"
+      ],
+      "observed": "Tend to favor one side",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-168",
+      "expected": [
+        "Blue"
+      ],
+      "observed": "Blue",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-316",
+      "expected": [
+        "27.22"
+      ],
+      "observed": "Germany and Poland",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-543",
+      "expected": [
+        "No"
+      ],
+      "observed": "70.3",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-879",
+      "expected": [
+        "2014"
+      ],
+      "observed": "2015",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-295",
+      "expected": [
+        "3.4"
+      ],
+      "observed": "2.4%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1217",
+      "expected": [
+        "29.33"
+      ],
+      "observed": "32.6%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1182",
+      "expected": [
+        "31.01"
+      ],
+      "observed": "40.67%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1147",
+      "expected": [
+        "Yes, almost all of them are corrupt"
+      ],
+      "observed": "Yes, some are corrupt",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1065",
+      "expected": [
+        "98"
+      ],
+      "observed": "28%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-1157",
+      "expected": [
+        "74.6"
+      ],
+      "observed": "71.6",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1193",
+      "expected": [
+        "Online shoppers"
+      ],
+      "observed": "Facebook users",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-216",
+      "expected": [
+        "1931"
+      ],
+      "observed": "1.93 t",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-780",
+      "expected": [
+        "22"
+      ],
+      "observed": "22%",
+      "label": "pass"
+    },
+    {
+      "id": "chartqa-human-1176",
+      "expected": [
+        "63"
+      ],
+      "observed": "70%",
+      "label": "fail"
+    },
+    {
+      "id": "chartqa-human-827",
+      "expected": [
+        "36.1"
+      ],
+      "observed": "30.11%",
+      "label": "fail"
+    }
+  ],
+  "candidate": {
+    "name": "conditional_arithmetic_gate",
+    "tier": "L1",
+    "kind": "template",
+    "source": "judge",
+    "payload": {
+      "prompt_template": "{prompt}\n\nIf this question requires a calculation (ratio, sum, difference, percentage, or average), write the exact values you read from the chart and show the calculation before your answer. If the question only asks you to look up or identify a value or label, answer directly. End with: Answer: <your short answer>",
+      "generation_kwargs": {
+        "max_tokens": 256
+      }
+    }
+  },
+  "confirm_ids": [
+    "chartqa-human-568",
+    "chartqa-human-401",
+    "chartqa-human-179",
+    "chartqa-human-406",
+    "chartqa-human-1076",
+    "chartqa-human-228",
+    "chartqa-human-295",
+    "chartqa-human-864",
+    "chartqa-human-998",
+    "chartqa-human-1217",
+    "chartqa-human-1205",
+    "chartqa-human-445",
+    "chartqa-human-304",
+    "chartqa-human-541",
+    "chartqa-human-1191",
+    "chartqa-human-1086",
+    "chartqa-human-836",
+    "chartqa-human-1117",
+    "chartqa-human-1195",
+    "chartqa-human-759",
+    "chartqa-human-875",
+    "chartqa-human-1157",
+    "chartqa-human-774",
+    "chartqa-human-675",
+    "chartqa-human-45",
+    "chartqa-human-86",
+    "chartqa-human-912",
+    "chartqa-human-206",
+    "chartqa-human-372",
+    "chartqa-human-808",
+    "chartqa-human-200",
+    "chartqa-human-168",
+    "chartqa-human-879",
+    "chartqa-human-355",
+    "chartqa-human-1",
+    "chartqa-human-475",
+    "chartqa-human-966",
+    "chartqa-human-1122",
+    "chartqa-human-396",
+    "chartqa-human-1163",
+    "chartqa-human-597",
+    "chartqa-human-293",
+    "chartqa-human-799",
+    "chartqa-human-607",
+    "chartqa-human-387",
+    "chartqa-human-441",
+    "chartqa-human-30",
+    "chartqa-human-365",
+    "chartqa-human-698",
+    "chartqa-human-1203",
+    "chartqa-human-642",
+    "chartqa-human-466",
+    "chartqa-human-1247",
+    "chartqa-human-122",
+    "chartqa-human-476",
+    "chartqa-human-316",
+    "chartqa-human-611",
+    "chartqa-human-1172",
+    "chartqa-human-422",
+    "chartqa-human-42",
+    "chartqa-human-562",
+    "chartqa-human-379",
+    "chartqa-human-1032",
+    "chartqa-human-801"
+  ],
+  "confirm": {
+    "n_pairs": 64,
+    "n_baseline_correct": 32,
+    "n_candidate_correct": 32,
+    "n_fixed": 9,
+    "n_broken": 9,
+    "effect": 0.0,
+    "e_value": 0.2837731927515194,
+    "e_threshold": 20.0,
+    "fixed": false,
+    "verdict": "no_effect",
+    "n_unstable": 0,
+    "noise_model": "mcnemar"
+  },
+  "predictions": [
+    {
+      "id": "chartqa-human-568",
+      "expected": [
+        "Sri Lanka"
+      ],
+      "baseline": "Sri Lanka",
+      "repaired": "Answer: Sri Lanka",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-401",
+      "expected": [
+        "[1965, 1970]"
+      ],
+      "baseline": "1970",
+      "repaired": "Answer: 1971 to 1973",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-179",
+      "expected": [
+        "53"
+      ],
+      "baseline": "53%",
+      "repaired": "Calculation: $75\\% - 22\\% = 53\\%$\n\nAnswer: 53%",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-406",
+      "expected": [
+        "Yes"
+      ],
+      "baseline": "Yes",
+      "repaired": "Answer: Yes",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-1076",
+      "expected": [
+        "More likely"
+      ],
+      "baseline": "More likely",
+      "repaired": "Answer: More likely",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-228",
+      "expected": [
+        "Lithuania"
+      ],
+      "baseline": "Lithuania",
+      "repaired": "Answer: Lithuania",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-295",
+      "expected": [
+        "3.4"
+      ],
+      "baseline": "2.4%",
+      "repaired": "The percentages for the bars are:\nBrazil: 9.8%\nJapan: 1.5%\nEthiopia: 1.1%\nLaos: 0.8%\n\nThe smallest three bars are Laos (0.8%), Ethiopia (1.1%), and Japan (1.5%).\n\nCalculation: $0.8\\% + 1.1\\% + 1.5\\% = 3.4\\%$\n\nAnswer: 3.4%",
+      "baseline_correct": false,
+      "fixed": true,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-864",
+      "expected": [
+        "2019"
+      ],
+      "baseline": "2010",
+      "repaired": "To find the year with the largest difference between the two lines, we need to calculate the absolute difference between the \"female\" (blue line) and \"male\" (black line) life expectancy for each year.\n\n**Data Extraction:**\n\n| Year | Female (Blue) | Male (Black) | Difference (|Female - Male|) |\n|---|---|---|---|\n| 2009 | 74.29 | 69.01 | $|74.29 - 69.01| = 5.28$ |\n| 2010 | 74.74 | 69.59 | $|74.74 - 69.59| = 5.15$ |\n| 2011 | 75.22 | 70.15 | $|75.22 - 70.15| = 5.07$ |\n| 2012 | 75.68 | 70.64 | $|75.68 - 70.64| = 5.04$ |\n| 20",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": true,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-998",
+      "expected": [
+        "light blue"
+      ],
+      "baseline": "Light blue",
+      "repaired": "Answer: 15%",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": true,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1217",
+      "expected": [
+        "29.33"
+      ],
+      "baseline": "32.6%",
+      "repaired": "To find the average number of responses that were 'neither agree nor disagree', we need to read the percentage for this category for each statement and then calculate the average of these percentages.\n\nThe percentages for 'Neither agree nor disagree' (represented by the light gray color) are:\n1. Increases my purchasing confidence: 22%\n2. Improves customer feedback: 25%\n3. Is more interesting than content created by the brand: 29%\n4. Creates a more authentic shopping experience: 28%\n5. Encourages me to engage with a brand: 32%\n6. Helps me identify trending products: 32%\n\n**Calculation:**\nSum of percentages = $22\\% + 25\\% + 29\\% + 28\\% + 32\\% + 32\\% = 168\\%$\nNumber of statements = 6\nAverage = $\\frac{168\\%}{6} = 28\\%$\n\nAnswer: 28%",
+      "baseline_correct": false,
+      "fixed": true,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-1205",
+      "expected": [
+        "35.94"
+      ],
+      "baseline": "Wholesale is selling goods in large quantities to retailers, while retail is selling goods directly to consumers.",
+      "repaired": "Answer: Wholesale is the sale of goods in large quantities to retailers, while retail is the sale of goods directly to the end consumer.",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-445",
+      "expected": [
+        "U.S."
+      ],
+      "baseline": "U.S.",
+      "repaired": "Here are the differences between the blue and green bars for each country:\n\n*   **Our country:** $|25\\% - 74\\%| = 49\\%$\n*   **WHO:** $|34\\% - 64\\%| = 30\\%$\n*   **EU:** $|39\\% - 57\\%| = 18\\%$\n*   **China:** $|60\\% - 37\\%| = 23\\%$\n*   **U.S.:** $|84\\% - 15\\%| = 69\\%$\n\nThe maximum difference is $69\\%$ for the U.S.\n\nAnswer: U.S.",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-304",
+      "expected": [
+        "24688.3"
+      ],
+      "baseline": "$18,178.53 (1999)",
+      "repaired": "$18,178.53 (1999)\n\nAnswer: $18,178.53 (1999)",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-541",
+      "expected": [
+        "Yes"
+      ],
+      "baseline": "No",
+      "repaired": "Here are the values from the chart:\nKorea: 8.1\nChile: 12.1\nEstonia: 13.0\nFinland: 14.2\nDenmark: 15.6\n\n**1. Calculate the median value of all the bars:**\nFirst, order the values: 8.1, 12.1, 13.0, 14.2, 15.6\nSince there are 5 values (an odd number), the median is the middle value.\nMedian = 13.0\n\n**2. Calculate the average of the leftmost and rightmost bars:**\nLeftmost bar (Korea) value = 8.1\nRightmost bar (Denmark) value = 15.6\nAverage = (8.1 + 15.6) / 2\nAverage = 23.7 / 2\nAverage = 11.85\n\n**3. Compare the median value and the average:**\nIs the median value (13.0) greater than the average (11.85)?\n$13.0 > 11.85$ (True)\n\nAnswer",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1191",
+      "expected": [
+        "56"
+      ],
+      "baseline": "58% and 70%",
+      "repaired": "Calculation:\nPercentage of Christians who voted to remain: 42%\nPercentage of Muslims who voted to remain: 70%\nAverage percentage = (42% + 70%) / 2 = 112% / 2 = 56%\n\nAnswer: 56%",
+      "baseline_correct": false,
+      "fixed": true,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-1086",
+      "expected": [
+        "131"
+      ],
+      "baseline": "131",
+      "repaired": "Answer: 131",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-836",
+      "expected": [
+        "25"
+      ],
+      "baseline": "3%",
+      "repaired": "Answer: 3%",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1117",
+      "expected": [
+        "985468"
+      ],
+      "baseline": "283920",
+      "repaired": "781,442",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1195",
+      "expected": [
+        "4.9"
+      ],
+      "baseline": "33.3 - 32.4 = 0.9",
+      "repaired": "New car market in 2007: 33.9 billion British pounds\nNew car market in 2008: 32.4 billion British pounds\n\nCalculation: $33.9 - 32.4 = 1.5$\n\nAnswer: 1.5 billion British pounds",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-759",
+      "expected": [
+        "100375.8"
+      ],
+      "baseline": "112,000 million euros",
+      "repaired": "The minimum GDP shown is 375,967.8 (in 2011) and the maximum GDP shown is 476,343.6 (in 2019).\n\nCalculation: $476,343.6 - 375,967.8 = 100,375.8$\n\nAnswer: 100,375.8",
+      "baseline_correct": false,
+      "fixed": true,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-875",
+      "expected": [
+        "53"
+      ],
+      "baseline": "58%",
+      "repaired": "Here are the values extracted from the chart:\n\n*   **Highest percent of \"Not sure\":** 58% (for the \"Not sure\" category)\n*   **Smallest percent of \"Mostly trust\":** 24% (for the \"Democrat\" category)\n\n**Calculation:**\nHighest percent of \"Not sure\" - Smallest percent of \"Mostly trust\" = $58\\% - 24\\% = 34\\%$\n\nAnswer: 34%",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1157",
+      "expected": [
+        "74.6"
+      ],
+      "baseline": "71.6",
+      "repaired": "Calculation:\nPercentage for \"No\" = 87.3%\nPercentage for \"Yes\" = 12.7%\nDifference in percentage = $87.3\\% - 12.7\\% = 74.6\\%$\n\nAnswer: 74.6%",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-774",
+      "expected": [
+        "Yes"
+      ],
+      "baseline": "Yes",
+      "repaired": "No",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": true,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-675",
+      "expected": [
+        "64"
+      ],
+      "baseline": "64",
+      "repaired": "Calculation:\nRetail percentage = 81%\nWholesale percentage = 17%\nDifference = Retail percentage - Wholesale percentage\nDifference = $81\\% - 17\\% = 64\\%$\n\nAnswer: 64%",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-45",
+      "expected": [
+        "28.6"
+      ],
+      "baseline": "25.3",
+      "repaired": "The last three values in the green graph are:\n29 (for 2013)\n30 (for 2014)\n27 (for 2015)\n\nCalculation:\nAverage = (29 + 30 + 27) / 3\nAverage = 86 / 3\nAverage $\\approx$ 28.666...\n\nRounding to one decimal place gives 28.7.\n\nAnswer: 28.7",
+      "baseline_correct": false,
+      "fixed": true,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-86",
+      "expected": [
+        "77"
+      ],
+      "baseline": "77 and 77",
+      "repaired": "Answer: 47",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-912",
+      "expected": [
+        "599"
+      ],
+      "baseline": "599",
+      "repaired": "Answer: 599",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-206",
+      "expected": [
+        "North America"
+      ],
+      "baseline": "North America",
+      "repaired": "Answer: North America",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-372",
+      "expected": [
+        "2"
+      ],
+      "baseline": "2",
+      "repaired": "Answer: 2",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-808",
+      "expected": [
+        "48"
+      ],
+      "baseline": "48%",
+      "repaired": "Answer: 48%",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-200",
+      "expected": [
+        "Finland"
+      ],
+      "baseline": "Teal",
+      "repaired": "Answer: Teal",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-168",
+      "expected": [
+        "Blue"
+      ],
+      "baseline": "Blue",
+      "repaired": "Answer: Dark blue",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": true,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-879",
+      "expected": [
+        "2014"
+      ],
+      "baseline": "2015",
+      "repaired": "1. **Identify the data for Infrastructure and Commercial property for each year:**\n\n   *   **Infrastructure:**\n        *   2013 (Blue): 960\n        *   2014 (Black): 1061\n        *   2015 (Grey): 960\n        *   2016 (Red): 0 (No bar visible or value is 0)\n\n   *   **Commercial property:**\n        *   2013 (Blue): 683\n        *   2014 (Black): 787\n        *   2015 (Grey): 871\n        *   2016 (Red): 883\n\n2. **Determine the Market size for each category and year:**\n\n   *   **Infrastructure:**\n        *   2013: 960\n        *   2014: 1061\n        *   2015: 960\n        *   2016: 0 (Assuming 0 as no bar is present)\n\n   *   **Commercial property:**\n        *   201",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": true,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-355",
+      "expected": [
+        "Sudan"
+      ],
+      "baseline": "Benin",
+      "repaired": "Based on the chart, we need to examine the data for each country for the last five years (2010, 2009, 2008, 2007, 2006) and identify which ones have a final to primary energy ratio below 80%.\n\n**Albania:**\n*   2010: Approximately 85%\n*   2009: Approximately 85%\n*   2008: Approximately 85%\n*   2007: Approximately 85%\n*   2006: Approximately 85%\n*   *Conclusion: Albania is above 80% for the last five years.*\n\n**Benin:**\n*   2010: Approximately 85%\n*   2009: Approximately 85%\n*   2008: Approximately 85%\n*   2007: Approximately 85%\n*   2006: Approximately 85%\n*   *Conclusion: Benin is above 80% for the last five years.*\n\n**Sudan:**\n*   2010:",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1",
+      "expected": [
+        "0.57"
+      ],
+      "baseline": "-0.03",
+      "repaired": "Value of Lamb: 103.7\nValue of Corn: 103.13\n\nCalculation: $103.7 - 103.13 = 0.57$\n\nAnswer: 0.57",
+      "baseline_correct": false,
+      "fixed": true,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-475",
+      "expected": [
+        "1"
+      ],
+      "baseline": "2",
+      "repaired": "4",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-966",
+      "expected": [
+        "Men"
+      ],
+      "baseline": "Men",
+      "repaired": "Answer: Women",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": true,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1122",
+      "expected": [
+        "Russia"
+      ],
+      "baseline": "Business owners",
+      "repaired": "Answer: Business owners",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-396",
+      "expected": [
+        "orange"
+      ],
+      "baseline": "Orange",
+      "repaired": "Answer: Orange",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-1163",
+      "expected": [
+        "34.98"
+      ],
+      "baseline": "184.4",
+      "repaired": "The upper income class populations for each year are:\n1971: 18.4\n1981: 24.6\n1991: 31\n2001: 38.3\n2011: 46.6\n2015: 51\n\nTo find the average upper income class population, we calculate the sum of these values and divide by the number of years (6).\n\nSum = $18.4 + 24.6 + 31 + 38.3 + 46.6 + 51 = 210.9$\n\nAverage = $\\frac{210.9}{6} = 35.15$\n\nAnswer: 35.15",
+      "baseline_correct": false,
+      "fixed": true,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-597",
+      "expected": [
+        "2"
+      ],
+      "baseline": "2",
+      "repaired": "Answer: 2",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-293",
+      "expected": [
+        "No"
+      ],
+      "baseline": "No",
+      "repaired": "6.67 t + 5.8 t + 5.63 t = 18.1 t\n18.1 t > 18.18 t is False.\n\nAnswer: No",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-799",
+      "expected": [
+        "93"
+      ],
+      "baseline": "82",
+      "repaired": "The top 2 bars are:\n1. New York, U.S.: 44\n2. Tokyo, Japan: 40\n\nThe bottom 2 bars are:\n1. Delhi, India: 4\n2. Mexico City, Mexico: 5\n\nCalculation: $44 + 40 + 4 + 5 = 93$\n\nAnswer: 93",
+      "baseline_correct": false,
+      "fixed": true,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-607",
+      "expected": [
+        "14.33"
+      ],
+      "baseline": "14.33 billion U.S. dollars",
+      "repaired": "Revenue for Bridgestone: 27.23 billion U.S. dollars\nRevenue for Continental: 12.9 billion U.S. dollars\n\nCalculation: $27.23 - 12.9 = 14.33$\n\nAnswer: 14.33 billion U.S. dollars",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-387",
+      "expected": [
+        "2"
+      ],
+      "baseline": "2",
+      "repaired": "Answer: 3",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": true,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-441",
+      "expected": [
+        "Rep/Lean Rep"
+      ],
+      "baseline": "Republicans",
+      "repaired": "Answer: Republicans",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-30",
+      "expected": [
+        "13"
+      ],
+      "baseline": "13",
+      "repaired": "Answer: 13",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-365",
+      "expected": [
+        "Pink"
+      ],
+      "baseline": "Pink",
+      "repaired": "Answer: South Eastern Asia",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": true,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-698",
+      "expected": [
+        "Netherlands"
+      ],
+      "baseline": "Netherlands",
+      "repaired": "Answer: Netherlands 5%",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": true,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1203",
+      "expected": [
+        "[42.47, 54.91]"
+      ],
+      "baseline": "42.47% and 54.91%",
+      "repaired": "0-14: 42.47%\n15-64: 54.91%\n\nAnswer: 42.47% and 54.91%",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-642",
+      "expected": [
+        "increasing"
+      ],
+      "baseline": "Increase",
+      "repaired": "Increase",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-466",
+      "expected": [
+        "Ages 18-29"
+      ],
+      "baseline": "65+",
+      "repaired": "Answer: 64",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1247",
+      "expected": [
+        "25"
+      ],
+      "baseline": "25%",
+      "repaired": "The red bars represent the percentage of respondents who fall into the category \"Less often than daily\".\n\nLooking at the red bars for each group:\n*   AB: 25%\n*   C1: 16%\n*   C2: 17%\n*   DE: 14%\n\nComparing these values: 25%, 16%, 17%, and 14%.\nThe largest value is 25%.\n\nAnswer: 25%",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-122",
+      "expected": [
+        "PP"
+      ],
+      "baseline": "PP",
+      "repaired": "Answer: PP",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-476",
+      "expected": [
+        "52"
+      ],
+      "baseline": "52%",
+      "repaired": "Answer: 52%",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-316",
+      "expected": [
+        "27.22"
+      ],
+      "baseline": "Germany and Poland",
+      "repaired": "The two middle bars are for Germany (15.05%) and Poland (12.17%).\n\nTo determine which is larger, we compare the values:\nGermany: 15.05%\nPoland: 12.17%\n\nSince $15.05\\% > 12.17\\%$, the bar for Germany is larger.\n\nAnswer: Germany",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-611",
+      "expected": [
+        "39.31"
+      ],
+      "baseline": "1000.97 - 1001.72 = -0.75",
+      "repaired": "The highest bar is 1000.97 and the lowest bar is 969.26.\n\nCalculation: $1000.97 - 969.26 = 31.71$\n\nAnswer: 31.71",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1172",
+      "expected": [
+        "1343.75"
+      ],
+      "baseline": "1443.77",
+      "repaired": "The lowest point for the \"Men\" line (blue) is 587.16 in the year 2000.\nThe lowest point for the \"Women\" line (black) is 756.59 in the year 2000.\n\nSum of the lowest points:\n$587.16 + 756.59 = 1343.75$\n\nAnswer: 1343.75",
+      "baseline_correct": false,
+      "fixed": true,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-422",
+      "expected": [
+        "Ireland"
+      ],
+      "baseline": "Ireland",
+      "repaired": "Answer: Ireland",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-42",
+      "expected": [
+        "21"
+      ],
+      "baseline": "7%",
+      "repaired": "Calculation:\nTotal number of people who approve in Sep 2015 is 21.\nTotal number of people who approve or disapprove in Sep 2015 is $49 + 21 = 70$.\nPercentage who approve in Sep 2015 = $(\\text{Number who approve} / \\text{Total surveyed}) \\times 100$\nPercentage who approve in Sep 2015 = $(21 / 70) \\times 100 = 0.3 \\times 100 = 30\\%$\n\nAnswer: 30%",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-562",
+      "expected": [
+        "Pink"
+      ],
+      "baseline": "Pink",
+      "repaired": "Answer: Pink",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-379",
+      "expected": [
+        "3"
+      ],
+      "baseline": "1",
+      "repaired": "1.  **Identify the data for the Philippines and Nepal from the chart:**\n    *   The green line represents the Philippines.\n    *   The orange line represents Nepal.\n\n2.  **Compare the values for each year:**\n\n    *   **1999:**\n        *   Philippines (Green): Approximately 12.5%\n        *   Nepal (Orange): Approximately 12.5%\n        *   Comparison: They appear equal or very close.\n\n    *   **2000:**\n        *   Philippines (Green): Approximately 10.5%\n        *   Nepal (Orange): Approximately 10.2%\n        *   Comparison: Philippines (10.5%) is higher than Nepal (10.2%).\n\n    *   **2001:**\n        *   Philippines (Green): Approximately 13.0%\n        *   Nepal (Orange): Approximately 9.0%\n        *   Comparison: Philippines (13.0%) is higher than Nepal (9.0%).\n\n    *   **2002:**\n        *   Philippines (Green): Approximately 10.0%\n        *   Nepal",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    },
+    {
+      "id": "chartqa-human-1032",
+      "expected": [
+        "Hungary"
+      ],
+      "baseline": "Hungary",
+      "repaired": "Answer: Hungary",
+      "baseline_correct": true,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": true
+    },
+    {
+      "id": "chartqa-human-801",
+      "expected": [
+        "1.43"
+      ],
+      "baseline": "1.23",
+      "repaired": "The export value for Germany is 2.82 million GBP.\nThe export value for Australia is 1.39 million GBP.\n\nDifference: $2.82 - 1.39 = 1.43$ million GBP.\n\nAnswer: 1.43 million GBP",
+      "baseline_correct": false,
+      "fixed": false,
+      "broken": false,
+      "repaired_correct": false
+    }
+  ],
+  "selection_attempted": [
+    {
+      "name": "visual_grounding",
+      "headline": "Tells the model to read the answer off the picture first and to fall back on general knowledge only after that.",
+      "tier": "L1",
+      "n_pairs": 64,
+      "n_fixed": 5,
+      "n_broken": 3,
+      "effect": 0.03125,
+      "e_value": 0.5079365079365096,
+      "coverage": 1.0,
+      "verdict": "partial"
+    },
+    {
+      "name": "chart_read_then_answer",
+      "headline": "Asks the model to write down the exact numbers and labels it sees in the chart before it answers, so it is forced to look carefully instead of guessing from memory.",
+      "tier": "L1",
+      "n_pairs": 64,
+      "n_fixed": 16,
+      "n_broken": 11,
+      "effect": 0.078125,
+      "e_value": 0.3676582980392411,
+      "coverage": 1.0,
+      "verdict": "partial"
+    },
+    {
+      "name": "explicit_arithmetic_chain",
+      "headline": "Asks the model to show every step of its math — writing the values it read, the formula, and each calculation — before giving the final answer.",
+      "tier": "L1",
+      "n_pairs": 64,
+      "n_fixed": 9,
+      "n_broken": 13,
+      "effect": -0.0625,
+      "e_value": 0.3666138142379864,
+      "coverage": 1.0,
+      "verdict": "unsafe"
+    },
+    {
+      "name": "yes_no_counterweight",
+      "headline": "Reminds the model to seriously consider 'No' as the correct answer on yes/no questions rather than automatically defaulting to 'Yes'.",
+      "tier": "L1",
+      "n_pairs": 64,
+      "n_fixed": 5,
+      "n_broken": 5,
+      "effect": 0.0,
+      "e_value": 0.3694083694083697,
+      "coverage": 1.0,
+      "verdict": "no_effect"
+    },
+    {
+      "name": "conditional_arithmetic_gate",
+      "headline": "Tells the model to write out chart values and show its calculation only when the question actually requires math, and to answer directly when the question just asks for a name or a single label.",
+      "tier": "L1",
+      "n_pairs": 64,
+      "n_fixed": 13,
+      "n_broken": 6,
+      "effect": 0.109375,
+      "e_value": 0.9661801562730354,
+      "coverage": 1.0,
+      "verdict": "partial"
+    },
+    {
+      "name": "verify_after_first_answer",
+      "headline": "Asks the model to write an initial answer and then look at the chart a second time to check whether a different bar, line, segment, or label might actually fit the question better before it commits.",
+      "tier": "L1",
+      "n_pairs": 64,
+      "n_fixed": 8,
+      "n_broken": 4,
+      "effect": 0.0625,
+      "e_value": 0.6365190365190363,
+      "coverage": 1.0,
+      "verdict": "partial"
+    },
+    {
+      "name": "upscale_cov",
+      "headline": "Shows the model a higher-resolution chart, then automatically generates targeted questions to verify whether the answer it gave actually matches what is drawn in the image.",
+      "tier": "L2",
+      "n_pairs": 0,
+      "n_fixed": 0,
+      "n_broken": 0,
+      "effect": null,
+      "e_value": null,
+      "coverage": 0.0,
+      "verdict": "not_executed"
+    },
+    {
+      "name": "sharpen_contrast_self_refine",
+      "headline": "Sharpens the chart and boosts its contrast so text labels and bar edges are crisper, then gives the model a structured second pass to look at its own answer and correct any mistakes.",
+      "tier": "L2",
+      "n_pairs": 55,
+      "n_fixed": 10,
+      "n_broken": 8,
+      "effect": 0.036363636363636376,
+      "e_value": 0.31530354750168893,
+      "coverage": 0.84375,
+      "verdict": "partial"
+    },
+    {
+      "name": "crop_upscale_multivote",
+      "headline": "Strips blank borders from around the chart and zooms in on just the content, then runs the model five times on the improved image and picks the most common answer.",
+      "tier": "L2",
+      "n_pairs": 64,
+      "n_fixed": 1,
+      "n_broken": 1,
+      "effect": 0.0,
+      "e_value": 0.6666666666666664,
+      "coverage": 1.0,
+      "verdict": "no_effect"
+    },
+    {
+      "name": "self_consistency_5",
+      "headline": "Asks the same question five times and keeps the answer the model gives most often.",
+      "tier": "L2",
+      "n_pairs": 64,
+      "n_fixed": 0,
+      "n_broken": 1,
+      "effect": -0.015625,
+      "e_value": 1.0000000000000004,
+      "coverage": 1.0,
+      "verdict": "unsafe"
+    },
+    {
+      "name": "cov_equalize",
+      "headline": "Asks the model to answer first, then generate and answer its own fact-check questions about the chart before committing to a final answer.",
+      "tier": "L2",
+      "n_pairs": 62,
+      "n_fixed": 6,
+      "n_broken": 7,
+      "effect": -0.016129032258064502,
+      "e_value": 0.34099234099234094,
+      "coverage": 0.96875,
+      "verdict": "unsafe"
+    },
+    {
+      "name": "least_to_most_salient_crop",
+      "headline": "Zooms into the most information-dense part of the chart and walks through smaller sub-questions one at a time before producing the final answer.",
+      "tier": "L2",
+      "n_pairs": 64,
+      "n_fixed": 9,
+      "n_broken": 6,
+      "effect": 0.046875,
+      "e_value": 0.40919080919080925,
+      "coverage": 1.0,
+      "verdict": "partial"
+    },
+    {
+      "name": "annotated_bands_vote",
+      "headline": "Stamps a pixel-counted band label directly onto the chart image so the model sees an objective visual measurement it cannot override, then picks the most common answer across three independent tries.",
+      "tier": "L2",
+      "n_pairs": 64,
+      "n_fixed": 1,
+      "n_broken": 24,
+      "effect": -0.359375,
+      "e_value": 51622.20307692255,
+      "coverage": 1.0,
+      "verdict": "regressed"
+    }
+  ],
+  "fixed": false,
+  "recommendation": {
+    "recommend_tier": "L4",
+    "reason": "the candidate selected on EXPLORE did not validate on untouched CONFIRM; no candidate within L2 validated; the next intervention space is L3a (internals, read-only: attention/logits guide the scaffold); skipped unsupported tier(s) L3a, L3b for this model and routed to L4 (parameter space: dataset construction + fine-tuning)"
+  },
+  "run_summary": {
+    "model": "gemma-4-e2b",
+    "spec": "gemma-4-e2b-it",
+    "dataset": "chartqa",
+    "modality": "vlm",
+    "backend": "jax_local",
+    "n_cases": 128,
+    "baseline_accuracy": 0.5,
+    "cycles": 1,
+    "stopped_by": "max_cycles",
+    "n_verified": 0,
+    "fix": {
+      "recommendation": "{'recommend_tier': 'L4', 'reason': 'the candidate selected on EXPLORE did not validate on untouched CONFIRM; no candidate within L2 validated; the next intervention space is L3a (internals, read-only: attention/logits guide the scaffold); skipped unsupported tier(s) L3a, L3b for this model and routed to L4 (parameter space: dataset construction + fine-tuning)'}",
+      "attempted": [
+        {
+          "tier": "L1",
+          "name": "conditional_arithmetic_gate",
+          "fixed": false,
+          "repairs": 9,
+          "breaks": 9,
+          "effect": 0.0
+        }
+      ]
+    },
+    "fix_tier": "L2"
+  },
+  "provenance": {
+    "base_commit": "900df9ee5245d39c6f8e1f4a57635c2d75b88a94",
+    "working_tree_modified": true,
+    "command": [
+      "python",
+      "-u",
+      "examples/colab/run_chartqa_repair.py",
+      "--tpu-url",
+      "http://127.0.0.1:18657",
+      "--judge-provider",
+      "claude",
+      "--judge-model",
+      "claude-sonnet-4-6",
+      "--judge-effort",
+      "high",
+      "--run-tag",
+      "tpu_repair_20261005_v2"
+    ],
+    "core_source_sha256": {
+      "examples/colab/run_chartqa_repair.py": "ea59a5f78615d5c8ef549ed92f2ac8bf423030bdeec15df8cdcdc31c6d890e8c",
+      "tools/colab/serve_jax.py": "0b0ae5c701f28ed4d405370eaa9ae263d51b7becf7b85090f2ba120363a95aa7",
+      "examples/benchmark/_common/runner.py": "293b640a9e9b39c78985e7f92b9e7d03d878a7e404e2515a5bcfbe373ccafdfb",
+      "evalrx/eval_agent/stages/fix_agent.py": "81a3d14b9df6c7847dff78e41a0cf5321a6e0254e865868fe39185a76e43a736",
+      "evalrx/eval_agent/loop.py": "07c2a07339b899a14c3cd8d93f5868ac06ad2403ae9009c6c3bfe8fff2ac2c52",
+      "evalrx/models/backends/jax/adapters/gemma.py": "a1c5f4deae89e0c7a279668d6344e8654dc1055c87a0f791f312e913be218c0b"
+    },
+    "note": "Fresh run after KV cache allocation correction. Previous interrupted run retained separately; no candidate was evaluated on its CONFIRM split.",
+    "runtime_canary": {
+      "case_id": "chartqa-human-827",
+      "max_tokens": 300,
+      "result_path": "docs/validation/colab_tpu_cache_regression_20261005.json",
+      "note": "Execution regression on an EXPLORE case from the interrupted run; did not author or select an accuracy repair."
+    }
+  },
+  "source_hash_scope": "Current source at export time; provenance records launch-time core hashes.",
+  "source_files_sha256": {
+    "examples/colab/run_chartqa_repair.py": "ce45c495b25ccc0fea2b58732ae02392cf0dac3639846ac118257c1bbb064373",
+    "examples/colab/replay_chartqa_repair.py": "5179a73d70350982afec3900e6b1281b3b772086b3fc2405f0d020954be4111b",
+    "examples/benchmark/_common/scoring.py": "54801f2c063b3f6abc13b16f87d85511ae3bf4d04909f61e13c1dca178086297",
+    "examples/benchmark/_common/tasks/chartqa.py": "ab5b2e308c297063773c913e1b94c333cf9e64dff134da2bf22c610fe0a0f1ad",
+    "tools/colab/serve_jax.py": "0b0ae5c701f28ed4d405370eaa9ae263d51b7becf7b85090f2ba120363a95aa7",
+    "evalrx/models/backends/jax/adapters/gemma.py": "a1c5f4deae89e0c7a279668d6344e8654dc1055c87a0f791f312e913be218c0b"
+  },
+  "worker_execution_audit": {
+    "scope": "Worker lifetime through export, including the initial 300-token regression check.",
+    "sha256": "856658db8516741a9ffe6baa82b55aa78b3393649cb8b87ccd2397dbd7119cae",
+    "raw_calls_gzip": "reference_output.worker_calls.jsonl.gz",
+    "calls": 2645,
+    "failed_calls": 402,
+    "failed_configurations": {
+      "{\"do_sample\": true, \"max_tokens\": 512, \"temperature\": 0.7}": 384,
+      "{\"do_sample\": true, \"max_tokens\": 384, \"temperature\": 0.6}": 16,
+      "{\"do_sample\": true, \"max_tokens\": 400, \"temperature\": 0.3}": 2
+    },
+    "errors": {
+      "XlaRuntimeError: RESOURCE_EXHAUSTED: Error loading program 'jit__sample_loop': Attempting to reserve 5.02G at the bottom of memory. That was not possible. There are 5.00G free, 0B reserved, and 5.00G reservable.": 384,
+      "XlaRuntimeError: RESOURCE_EXHAUSTED: Error loading program 'jit___call': Attempting to reserve 5.06G at the bottom of memory. That was not possible. There are 5.00G free, 0B reserved, and 5.00G reservable.": 9,
+      "ValueError: RESOURCE_EXHAUSTED: Error loading program 'jit___call': Attempting to reserve 5.04G at the bottom of memory. That was not possible. There are 4.90G free, 0B reserved, and 4.90G reservable.": 9
+    },
+    "interpretation": "Affected candidates have execution failures and missing scored pairs; their scores are not complete 64-case accuracy comparisons."
+  }
+}

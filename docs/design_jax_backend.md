@@ -4,6 +4,9 @@ Status: 2026-09-26, phase 1 implemented (text read access on Gemma-4-E2B /
 E4B through Google DeepMind's `gemma` library); see section 9 for what landed,
 how to run it, and what is still open. Phases 2 and 3 are design only.
 
+For Colab TPU setup, runnable examples and measured single-device validation,
+see the [Colab TPU tutorial](colab_tpu.md).
+
 EvalRX already runs JAX-served models as black boxes: any OpenAI-compatible
 endpoint, or an in-process `generate_fn`, gives the loop `GENERATE` and
 `LOGPROBS`, which covers Stage 0, the black-box M1 analyzers, M2 to M4, and the

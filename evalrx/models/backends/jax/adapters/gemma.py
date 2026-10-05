@@ -871,7 +871,12 @@ class GemmaJaxAdapter:
         # keeps every max_tokens a stage asks for (24, 64, 256, ...) on a few
         # compiled programs instead of one compile per distinct value
         max_out = bucket_length(max_new, OUT_BUCKETS)
-        cache_len = bucket_length(pad_len + max_out + 1, self.buckets)
+        # The output buffer is bucketed, but the loop stops at the *requested*
+        # max_new_tokens. Reserving KV slots for unused output-buffer padding
+        # can cross the next cache bucket: a 512-token prompt + a 300-token
+        # budget needs 1024 slots, not 2048. That unnecessary allocation was
+        # present in the 300-token Colab TPU OOM. Keep one guard position.
+        cache_len = bucket_length(pad_len + max_new + 1, self.buckets)
         extra: dict[str, Any] = {}
         if "vision" in media:
             extra.update(self._vision_settings())

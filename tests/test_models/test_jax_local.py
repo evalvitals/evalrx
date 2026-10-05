@@ -608,13 +608,12 @@ def test_gemma_adapter_generate_buckets_the_static_output_length(monkeypatch):
     """max_out_length is a static shape in the library's prefill / decode jits:
     distinct max_tokens must share a bucket (one compile), while the exact
     budget still goes in as the dynamic max_new_tokens."""
-    pytest.importorskip("gemma")
-    from gemma import gm
+    import sys
+    from types import SimpleNamespace
 
     from evalrx.models.backends.jax.adapters.gemma import (
         OUT_BUCKETS,
         GemmaJaxAdapter,
-        bucket_length,
     )
     from evalrx.specs import get_spec
 
@@ -636,7 +635,9 @@ def test_gemma_adapter_generate_buckets_the_static_output_length(monkeypatch):
         def decode(self, ids):
             return " ".join(str(i) for i in ids)
 
-    monkeypatch.setattr(gm.text, "Gemma4Sampler", FakeSampler)
+    # This allocation regression needs no checkpoint or optional Gemma wheel.
+    gm = SimpleNamespace(text=SimpleNamespace(Gemma4Sampler=FakeSampler, Greedy=lambda: None))
+    monkeypatch.setitem(sys.modules, "gemma", SimpleNamespace(gm=gm))
     ad = GemmaJaxAdapter(get_spec("gemma-4-e2b-it"), RuntimeConfig())
     ad._params, ad._model, ad._tok = {"loaded": True}, object(), FakeTok()
     enc = Encoding(ids=[2, 7, 8], tokens=["<bos>", "a", "b"], text="a b")
@@ -645,8 +646,18 @@ def test_gemma_adapter_generate_buckets_the_static_output_length(monkeypatch):
     assert sampled == [5, 24, 31, 64, 200]
     assert [b["max_out_length"] for b in built] == [32, 32, 32, 64, 256]
     assert all(b["max_out_length"] in OUT_BUCKETS for b in built)
-    assert all(b["cache_length"] == bucket_length(b["pad_length"] + b["max_out_length"] + 1, ad.buckets)
-               for b in built)
+    assert all(b["cache_length"] >= b["pad_length"] + n + 1
+               for b, n in zip(built, sampled))
+
+    # Real ChartQA repair regression: a 300-token decode budget rounds the
+    # output buffer up to 512, but those unused 212 tokens need no KV slots.
+    # Double rounding allocated 2048 cache slots and OOMed on the Colab TPU.
+    enc = Encoding(ids=[2] * 400, tokens=["a"] * 400, text="chart question")
+    assert ad.generate(enc, SamplingParams(max_new_tokens=300)).ids == [5, 6]
+    assert sampled[-1] == 300  # Preserve the caller's budget; never truncate to fit.
+    assert built[-1]["pad_length"] == 512
+    assert built[-1]["max_out_length"] == 512
+    assert built[-1]["cache_length"] == 1024
 
 
 def test_gemma_adapter_model_tokens_restore_internal_placeholders():

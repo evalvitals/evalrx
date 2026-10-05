@@ -1,52 +1,70 @@
 #!/usr/bin/env bash
-# One-shot EvalRX jax_local setup on a Colab runtime (CPU or TPU), verified on
-# the 2026-10-01 Colab image (Ubuntu 24.04, Python 3.13).
-#   * keeps Colab's preinstalled jax / jaxlib / libtpu (a TPU runtime ships a
-#     matching libtpu; letting pip move jax would break that pairing);
-#   * kauldron (a gemma dependency) requires `tensorflow-cpu`; installed next to
-#     Colab's `tensorflow` the two overwrite one directory and `import tensorflow`
-#     fails, and etils.epath reads gs:// through tf.io.gfile, so every gs://
-#     checkpoint / tokenizer read fails. Put the original TF back afterwards.
+# Install this checkout on a Colab CPU/TPU runtime. Run in a fresh runtime,
+# before importing gemma/TensorFlow in a notebook cell. No CUDA wheels needed.
 set -euo pipefail
-REF="${EVALRX_REF:-ruinan}"
-ver() { pip show "$1" 2>/dev/null | sed -n 's/^Version: //p' || true; }
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SETUP_DIR="${EVALRX_SETUP_DIR:-${HOME}/.cache/evalrx/colab}"
+mkdir -p "$SETUP_DIR"
+ver() { python3 -m pip show "$1" 2>/dev/null | sed -n 's/^Version: //p' || true; }
+python3 -c 'import sys; assert sys.version_info >= (3, 12), "Gemma requires Python 3.12 or newer"'
 
-: > /root/constraints.txt
-for p in jax jaxlib libtpu; do v=$(ver $p); [ -n "$v" ] && echo "$p==$v" >> /root/constraints.txt; done
-TF_BEFORE=""; for p in tensorflow tensorflow-cpu tensorflow-tpu; do v=$(ver $p); [ -n "$v" ] && TF_BEFORE="$TF_BEFORE $p==$v"; done
-echo "pinned: $(tr '\n' ' ' < /root/constraints.txt)| tensorflow before:${TF_BEFORE:- none}"
+# Colab provides a matched JAX/libtpu set. Keep its CPU torch too: resolving
+# torch afresh can download unnecessary CUDA packages into a TPU runtime.
+# Keep fsspec compatible with Colab's preinstalled datasets package as well.
+: > "$SETUP_DIR/constraints.txt"
+for p in jax jaxlib libtpu torch fsspec; do
+  v=$(ver "$p")
+  if [ -n "$v" ]; then echo "$p==$v" >> "$SETUP_DIR/constraints.txt"; fi
+done
+if ! python3 -c 'import importlib.metadata as m; m.version("torch")' >/dev/null 2>&1; then
+  python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+  echo "torch==$(ver torch)" >> "$SETUP_DIR/constraints.txt"
+fi
+TF_BEFORE=""
+for p in tensorflow tensorflow-cpu tensorflow-tpu; do
+  v=$(ver "$p")
+  if [ -n "$v" ]; then TF_BEFORE="$TF_BEFORE $p==$v"; fi
+done
+echo "Keeping runtime packages:"
+cat "$SETUP_DIR/constraints.txt"
 
-# the TPU image ships Debian-installed packages (PyJWT ...) that pip cannot
-# uninstall ("no RECORD file"); shadow each one into /usr/local and retry
+# Some Colab packages are installed by Debian without pip RECORD metadata.
+# Shadow only a package that pip explicitly reports it cannot uninstall.
 for attempt in 1 2 3 4; do
-  if pip install -q -c /root/constraints.txt "evalrx[jax] @ git+https://github.com/evalvitals/evalrx@${REF}" \
-       "gemma==4.0.1" pytest > /root/pip_setup.log 2>&1; then
+  if python3 -m pip install -c "$SETUP_DIR/constraints.txt" -e "$REPO_DIR[jax]" \
+       'gemma==4.0.1' pytest gcsfs > "$SETUP_DIR/pip_setup.log" 2>&1; then
     break
   fi
-  pkg=$(sed -n 's/.*Cannot uninstall \([A-Za-z0-9_.-]*\) .*/\1/p' /root/pip_setup.log | head -1)
-  if [ -z "$pkg" ] || [ "$attempt" = 4 ]; then tail -n 30 /root/pip_setup.log; exit 1; fi
-  echo "shadowing distro-installed $pkg"
-  pip install -q --ignore-installed -c /root/constraints.txt "$pkg" > /root/pip_shadow.log 2>&1 || { tail -n 20 /root/pip_shadow.log; exit 1; }
+  pkg=$(sed -n 's/.*Cannot uninstall \([A-Za-z0-9_.-]*\) .*/\1/p' "$SETUP_DIR/pip_setup.log" | head -1)
+  if [ -z "$pkg" ] || [ "$attempt" = 4 ]; then tail -n 40 "$SETUP_DIR/pip_setup.log"; exit 1; fi
+  echo "Shadowing distro-installed $pkg"
+  python3 -m pip install --ignore-installed -c "$SETUP_DIR/constraints.txt" "$pkg" \
+    > "$SETUP_DIR/pip_shadow.log" 2>&1 || { tail -n 20 "$SETUP_DIR/pip_shadow.log"; exit 1; }
 done
 
+# kauldron pulls tensorflow-cpu. If the runtime already had another TensorFlow
+# distribution, restore that distribution's shared import directory afterwards.
 for p in tensorflow tensorflow-cpu tensorflow-tpu; do
-  v=$(ver $p)
+  v=$(ver "$p")
   if [ -n "$TF_BEFORE" ] && [ -n "$v" ] && [[ "$TF_BEFORE" != *"$p=="* ]]; then
-    echo "removing $p==$v pulled in next to the runtime's TensorFlow"
-    pip uninstall -y -q "$p"
+    python3 -m pip uninstall -y "$p"
   fi
 done
 for spec in $TF_BEFORE; do
-  echo "restoring $spec"
-  pip install -q --force-reinstall --no-deps "$spec" > /root/pip_tf.log 2>&1 || { tail -n 20 /root/pip_tf.log; exit 1; }
+  python3 -m pip install --force-reinstall --no-deps "$spec" > "$SETUP_DIR/pip_tf.log" 2>&1 \
+    || { tail -n 20 "$SETUP_DIR/pip_tf.log"; exit 1; }
 done
 
-[ -d /root/evalrx ] || git clone -q --depth 1 -b "$REF" https://github.com/evalvitals/evalrx.git /root/evalrx
-
-# separate processes: TF must import cleanly (gs:// reads), jax must see the accelerator
-python3 -c "import tensorflow as tf; print('SETUP tf', tf.__version__, 'gs:// readable:', tf.io.gfile.exists('gs://gemma-data/tokenizers/tokenizer_gemma4.model'))" 2>&1 \
-  | grep -E "^(SETUP|\w+Error)" || true
-timeout -k 5 120 python3 -c "
-import importlib.metadata as md, jax
-print('SETUP versions', {p: md.version(p) for p in ('evalrx', 'gemma', 'jax', 'jaxlib', 'flax', 'kauldron')})
-print('SETUP jax', jax.default_backend(), jax.devices())" 2>&1 | grep -E "^(SETUP|\w+Error)" || true
+# Fail visibly on broken imports or accelerator initialisation.
+TF_CPP_MIN_LOG_LEVEL=2 python3 - <<'PY'
+import tensorflow as tf
+from gemma import gm
+assert tf.io.gfile.exists('gs://gemma-data/tokenizers/tokenizer_gemma4.model')
+print('SETUP tensorflow', tf.__version__, 'checkpoint bucket readable; gemma import OK')
+PY
+timeout -k 5 60 python3 -u - <<'PY'
+import importlib.metadata as md
+import jax
+print('SETUP versions', {p: md.version(p) for p in ('evalrx', 'gemma', 'jax', 'jaxlib', 'flax', 'kauldron', 'torch')})
+print('SETUP jax', jax.default_backend(), jax.devices())
+PY

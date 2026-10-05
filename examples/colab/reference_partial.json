@@ -1,0 +1,1162 @@
+{
+  "status": "interrupted_before_confirm",
+  "model": "google/gemma-4-E2B-it",
+  "spec": "gemma-4-e2b-it",
+  "dataset": "HuggingFaceM4/ChartQA test_human",
+  "hardware": {
+    "model": "gemma-4-e2b-it",
+    "backend": "jax_local",
+    "device": "tpu",
+    "devices": [
+      {
+        "name": "TPU_0(process=0,(0,0,0,0))",
+        "kind": "TPU v5 lite"
+      }
+    ]
+  },
+  "baseline": {
+    "model": "gemma-4-e2b",
+    "spec": "gemma-4-e2b-it",
+    "hf_repo": "google/gemma-4-E2B-it",
+    "backend": "jax_local",
+    "dataset": "chartqa",
+    "task": "exact_or_numeric",
+    "n": 128,
+    "n_pass": 64,
+    "n_fail": 64,
+    "n_unknown": 0,
+    "accuracy": 0.5,
+    "seconds": 532.6,
+    "generation_kwargs": {
+      "max_new_tokens": 64,
+      "do_sample": false
+    },
+    "enable_thinking": false,
+    "manifest": "/tealab-data/rjin02/evalvitals/examples/colab/data/chartqa/manifest.json",
+    "limit": 128,
+    "cases": [
+      {
+        "id": "chartqa-human-1142",
+        "expected": [
+          "1.577"
+        ],
+        "observed": "1.8",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-445",
+        "expected": [
+          "U.S."
+        ],
+        "observed": "U.S.",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-709",
+        "expected": [
+          "19.7"
+        ],
+        "observed": "19.7%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-86",
+        "expected": [
+          "77"
+        ],
+        "observed": "77 and 77",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-576",
+        "expected": [
+          "Spain"
+        ],
+        "observed": "Spain",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-45",
+        "expected": [
+          "28.6"
+        ],
+        "observed": "25.3",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1122",
+        "expected": [
+          "Russia"
+        ],
+        "observed": "Business owners",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-698",
+        "expected": [
+          "Netherlands"
+        ],
+        "observed": "Netherlands",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-428",
+        "expected": [
+          "3"
+        ],
+        "observed": "3",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-228",
+        "expected": [
+          "Lithuania"
+        ],
+        "observed": "Lithuania",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-475",
+        "expected": [
+          "1"
+        ],
+        "observed": "2",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-799",
+        "expected": [
+          "93"
+        ],
+        "observed": "82",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-740",
+        "expected": [
+          "Texas"
+        ],
+        "observed": "Illinois",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-89",
+        "expected": [
+          "1.684722222"
+        ],
+        "observed": "40:26",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-406",
+        "expected": [
+          "Yes"
+        ],
+        "observed": "Yes",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1195",
+        "expected": [
+          "4.9"
+        ],
+        "observed": "33.3 - 32.4 = 0.9",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-583",
+        "expected": [
+          "2008"
+        ],
+        "observed": "2008",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-864",
+        "expected": [
+          "2019"
+        ],
+        "observed": "2010",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1032",
+        "expected": [
+          "Hungary"
+        ],
+        "observed": "Hungary",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-372",
+        "expected": [
+          "2"
+        ],
+        "observed": "2",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-875",
+        "expected": [
+          "53"
+        ],
+        "observed": "58%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-325",
+        "expected": [
+          "14153.35"
+        ],
+        "observed": "24,500.33",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-365",
+        "expected": [
+          "Pink"
+        ],
+        "observed": "Pink",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-355",
+        "expected": [
+          "Sudan"
+        ],
+        "observed": "Benin",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-379",
+        "expected": [
+          "3"
+        ],
+        "observed": "1",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-532",
+        "expected": [
+          "4.2"
+        ],
+        "observed": "4.2",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-452",
+        "expected": [
+          "15"
+        ],
+        "observed": "48",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-19",
+        "expected": [
+          "No"
+        ],
+        "observed": "Yes",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-293",
+        "expected": [
+          "No"
+        ],
+        "observed": "No",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-95",
+        "expected": [
+          "Jamaica"
+        ],
+        "observed": "Jamaica",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1107",
+        "expected": [
+          "9.2"
+        ],
+        "observed": "9.2%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-352",
+        "expected": [
+          "Belize"
+        ],
+        "observed": "Belize",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-507",
+        "expected": [
+          "7"
+        ],
+        "observed": "2",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-401",
+        "expected": [
+          "[1965, 1970]"
+        ],
+        "observed": "1970",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-509",
+        "expected": [
+          "6"
+        ],
+        "observed": "13",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-774",
+        "expected": [
+          "Yes"
+        ],
+        "observed": "Yes",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-30",
+        "expected": [
+          "13"
+        ],
+        "observed": "13",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-597",
+        "expected": [
+          "2"
+        ],
+        "observed": "2",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-642",
+        "expected": [
+          "increasing"
+        ],
+        "observed": "Increase",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-396",
+        "expected": [
+          "orange"
+        ],
+        "observed": "Orange",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-337",
+        "expected": [
+          "1.015645372"
+        ],
+        "observed": "1:1",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-678",
+        "expected": [
+          "1"
+        ],
+        "observed": "1",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-407",
+        "expected": [
+          "Yes"
+        ],
+        "observed": "Yes",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-880",
+        "expected": [
+          "20"
+        ],
+        "observed": "20%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-836",
+        "expected": [
+          "25"
+        ],
+        "observed": "3%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-421",
+        "expected": [
+          "1978"
+        ],
+        "observed": "1980",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-42",
+        "expected": [
+          "21"
+        ],
+        "observed": "7%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-705",
+        "expected": [
+          "2"
+        ],
+        "observed": "4:2",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-967",
+        "expected": [
+          "19.4"
+        ],
+        "observed": "19.43",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-607",
+        "expected": [
+          "14.33"
+        ],
+        "observed": "14.33 billion U.S. dollars",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-304",
+        "expected": [
+          "24688.3"
+        ],
+        "observed": "$18,178.53 (1999)",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1205",
+        "expected": [
+          "35.94"
+        ],
+        "observed": "Wholesale is selling goods in large quantities to retailers, while retail is selling goods directly to consumers.",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-675",
+        "expected": [
+          "64"
+        ],
+        "observed": "64",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-585",
+        "expected": [
+          "1"
+        ],
+        "observed": "1",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1216",
+        "expected": [
+          "Helps me identify trending products"
+        ],
+        "observed": "Helps me identify trending products",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1117",
+        "expected": [
+          "985468"
+        ],
+        "observed": "283920",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-966",
+        "expected": [
+          "Men"
+        ],
+        "observed": "Men",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1086",
+        "expected": [
+          "131"
+        ],
+        "observed": "131",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-430",
+        "expected": [
+          "2016"
+        ],
+        "observed": "2016",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-723",
+        "expected": [
+          "1104.17"
+        ],
+        "observed": "995.71",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-523",
+        "expected": [
+          "7.1"
+        ],
+        "observed": "5.1",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-782",
+        "expected": [
+          "Grocery"
+        ],
+        "observed": "Grocery",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-759",
+        "expected": [
+          "100375.8"
+        ],
+        "observed": "112,000 million euros",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-441",
+        "expected": [
+          "Rep/Lean Rep"
+        ],
+        "observed": "Republicans",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-232",
+        "expected": [
+          "0.01"
+        ],
+        "observed": "Egypt",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1021",
+        "expected": [
+          "Not worried at all"
+        ],
+        "observed": "Not very worried and Not worried at all",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1",
+        "expected": [
+          "0.57"
+        ],
+        "observed": "-0.03",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-911",
+        "expected": [
+          "2020"
+        ],
+        "observed": "2018",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1076",
+        "expected": [
+          "More likely"
+        ],
+        "observed": "More likely",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-200",
+        "expected": [
+          "Finland"
+        ],
+        "observed": "Teal",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-196",
+        "expected": [
+          "Japan"
+        ],
+        "observed": "Japan",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-345",
+        "expected": [
+          "1.88"
+        ],
+        "observed": "2",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1191",
+        "expected": [
+          "56"
+        ],
+        "observed": "58% and 70%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-387",
+        "expected": [
+          "2"
+        ],
+        "observed": "2",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-801",
+        "expected": [
+          "1.43"
+        ],
+        "observed": "1.23",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-122",
+        "expected": [
+          "PP"
+        ],
+        "observed": "PP",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-854",
+        "expected": [
+          "91"
+        ],
+        "observed": "93%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1246",
+        "expected": [
+          "2-10 times a day"
+        ],
+        "observed": "24%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-562",
+        "expected": [
+          "Pink"
+        ],
+        "observed": "Pink",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1232",
+        "expected": [
+          "Mobile"
+        ],
+        "observed": "Mobile",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1249",
+        "expected": [
+          "56"
+        ],
+        "observed": "50.0%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-734",
+        "expected": [
+          "2021"
+        ],
+        "observed": "2021",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1093",
+        "expected": [
+          "7"
+        ],
+        "observed": "3",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-568",
+        "expected": [
+          "Sri Lanka"
+        ],
+        "observed": "Sri Lanka",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1247",
+        "expected": [
+          "25"
+        ],
+        "observed": "25%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1163",
+        "expected": [
+          "34.98"
+        ],
+        "observed": "184.4",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-284",
+        "expected": [
+          "0.69"
+        ],
+        "observed": "0.69",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-422",
+        "expected": [
+          "Ireland"
+        ],
+        "observed": "Ireland",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-114",
+        "expected": [
+          "2.42"
+        ],
+        "observed": "2.42 t",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-809",
+        "expected": [
+          "33.6"
+        ],
+        "observed": "38.5%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-476",
+        "expected": [
+          "52"
+        ],
+        "observed": "52%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1172",
+        "expected": [
+          "1343.75"
+        ],
+        "observed": "1443.77",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-808",
+        "expected": [
+          "48"
+        ],
+        "observed": "48%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-385",
+        "expected": [
+          "6"
+        ],
+        "observed": "9",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-963",
+        "expected": [
+          "5.66"
+        ],
+        "observed": "24.41%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-374",
+        "expected": [
+          "Purple"
+        ],
+        "observed": "Purple",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-8",
+        "expected": [
+          "Inspired"
+        ],
+        "observed": "Inspired",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-206",
+        "expected": [
+          "North America"
+        ],
+        "observed": "North America",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-234",
+        "expected": [
+          "1.6"
+        ],
+        "observed": "1.6",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-179",
+        "expected": [
+          "53"
+        ],
+        "observed": "53%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1030",
+        "expected": [
+          "4.4"
+        ],
+        "observed": "4.4%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-466",
+        "expected": [
+          "Ages 18-29"
+        ],
+        "observed": "65+",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-998",
+        "expected": [
+          "light blue"
+        ],
+        "observed": "Light blue",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1203",
+        "expected": [
+          "[42.47, 54.91]"
+        ],
+        "observed": "42.47% and 54.91%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-611",
+        "expected": [
+          "39.31"
+        ],
+        "observed": "1000.97 - 1001.72 = -0.75",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-912",
+        "expected": [
+          "599"
+        ],
+        "observed": "599",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-27",
+        "expected": [
+          "77"
+        ],
+        "observed": "77%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-25",
+        "expected": [
+          "Yes"
+        ],
+        "observed": "Yes",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-768",
+        "expected": [
+          "2"
+        ],
+        "observed": "Two",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1113",
+        "expected": [
+          "39.9"
+        ],
+        "observed": "41.5%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-699",
+        "expected": [
+          "18.6"
+        ],
+        "observed": "16.7",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-541",
+        "expected": [
+          "Yes"
+        ],
+        "observed": "No",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-440",
+        "expected": [
+          "Tend to favor one side"
+        ],
+        "observed": "Tend to favor one side",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-168",
+        "expected": [
+          "Blue"
+        ],
+        "observed": "Blue",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-316",
+        "expected": [
+          "27.22"
+        ],
+        "observed": "Germany and Poland",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-543",
+        "expected": [
+          "No"
+        ],
+        "observed": "70.3",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-879",
+        "expected": [
+          "2014"
+        ],
+        "observed": "2015",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-295",
+        "expected": [
+          "3.4"
+        ],
+        "observed": "2.4%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1217",
+        "expected": [
+          "29.33"
+        ],
+        "observed": "32.6%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1182",
+        "expected": [
+          "31.01"
+        ],
+        "observed": "40.67%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1147",
+        "expected": [
+          "Yes, almost all of them are corrupt"
+        ],
+        "observed": "Yes, some are corrupt",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1065",
+        "expected": [
+          "98"
+        ],
+        "observed": "28%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-1157",
+        "expected": [
+          "74.6"
+        ],
+        "observed": "71.6",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1193",
+        "expected": [
+          "Online shoppers"
+        ],
+        "observed": "Facebook users",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-216",
+        "expected": [
+          "1931"
+        ],
+        "observed": "1.93 t",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-780",
+        "expected": [
+          "22"
+        ],
+        "observed": "22%",
+        "label": "pass"
+      },
+      {
+        "id": "chartqa-human-1176",
+        "expected": [
+          "63"
+        ],
+        "observed": "70%",
+        "label": "fail"
+      },
+      {
+        "id": "chartqa-human-827",
+        "expected": [
+          "36.1"
+        ],
+        "observed": "30.11%",
+        "label": "fail"
+      }
+    ]
+  },
+  "m1": {
+    "answer_extraction_audit": {
+      "n_cases": 64,
+      "n_gradable": 64,
+      "n_labelled_fail": 32,
+      "n_extraction_suspect": 3,
+      "suspect_rate": 0.0938,
+      "n_reasked": 0,
+      "n_reask_confirmed": null,
+      "n_extraction_point_miss": 0,
+      "missing_tag_rate": 1.0,
+      "_caveat": "suspect_rate is the fraction of FAIL cases whose gold answer sits in the ANSWER REGION of the output (tail window or a tagged/boxed span) — HARNESS failures wearing a model-failure label. gold_in_output is the loose upper bound and over-counts: it fires on a gold that only appears as an intermediate quantity, so never read it as the suspect rate. Above ~5% the labels feeding M2 are contaminated and every other probe's correlations should be re-read after fixing extraction (or after dropping extraction_suspect==1 cases). This probe is OBSERVATIONAL by default: it re-reads stored outputs and introduces no new sampling. With reask=True the reask_* columns are interventional and must be re-run for held-out confirmation. On yes/no (true/false) tasks answered_yes and gold_yes are the answer's and the gold's DIRECTION, two separate marginals (not re-grades): a directional hypothesis is tested on them, e.g. answered_yes HIGHER on failing cases."
+    },
+    "selfcheck_consistency": {
+      "n_cases": 64,
+      "n_samples": 4,
+      "degenerate_sampling": false,
+      "gen_kwargs": {
+        "temperature": 1.0
+      },
+      "mean_inconsistency": 0.0,
+      "_caveat": "Unigram-containment proxy for SelfCheckGPT (no NLI model): paraphrases inflate the score, verbatim repetition of a wrong fact deflates it. Requires stochastic sampling — with temperature 0 the resamples repeat one greedy generation and the column degenerates to baseline-vs-greedy disagreement (degenerate_sampling flags this). selfcheck_inconsistency / selfcheck_worst_sentence are numeric M2 columns; treat them as signals to correlate with the outcome label, never as a hallucination verdict."
+    },
+    "coverage_verification_gap": {
+      "n_cases": 64,
+      "n_scored": 64,
+      "k": 5,
+      "gen_kwargs": {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20
+      },
+      "mean_pass_at_k": 0.5312,
+      "mean_majority_correct": 0.4844,
+      "coverage_gap_rate": 0.0469,
+      "mean_verify_correct": null,
+      "no_coverage_rate": 0.4688,
+      "degenerate_sampling": false,
+      "_caveat": "coverage_gap = 'the answer was in the pool, the vote missed it' ⇒ a selection defect, fixable at L1/L2 with a verifier or reranker. no_coverage_rate = 'never produced once in k' ⇒ a capability defect no scaffold reaches; do not let a headline pass@k hide which of the two dominates. REQUIRES sampling: degenerate_sampling=true means every sample was identical (temperature 0 or a deterministic backend) and the gap is structurally zero, not measured. pass_at_k here uses the unbiased estimator over exactly k draws, so with k small its variance is large per case — read the batch rate. INTERVENTIONAL: held-out confirmation must re-sample."
+    }
+  },
+  "confirm": null,
+  "validated_repair": null,
+  "interruption": {
+    "phase": "EXPLORE repair search",
+    "observed_error": "XlaRuntimeError: RESOURCE_EXHAUSTED: Error loading program 'jit__sample_loop': Attempting to reserve 5.02G at the bottom of memory. That was not possible. There are 5.00G free, 0B reserved, and 5.00G reservable.",
+    "failed_request_kwargs": {
+      "max_tokens": 300
+    },
+    "failed_calls_observed": 64,
+    "transport_error": "websocket: bad handshake; existing SSH forward disconnected",
+    "controller_exit_code": 130,
+    "quarantine_restored": true
+  },
+  "proposed_runtime_fix": {
+    "file": "evalrx/models/backends/jax/adapters/gemma.py",
+    "change": "Size the bucketed KV cache from the actual generation budget, not the rounded output-buffer size.",
+    "regression_case": {
+      "pad_length": 512,
+      "max_new_tokens": 300,
+      "max_out_length": 512,
+      "old_cache_length": 2048,
+      "new_cache_length": 1024
+    },
+    "cpu_regression_test": "passed",
+    "tpu_retest": "not run: tunnel disconnected before patch deployment",
+    "cpu_suite": {
+      "passed": 28,
+      "skipped": 5,
+      "deselected_gpu": 2
+    }
+  },
+  "provenance": {
+    "base_commit": "900df9ee5245d39c6f8e1f4a57635c2d75b88a94",
+    "working_tree_modified": true,
+    "command": [
+      "python",
+      "-u",
+      "examples/colab/run_chartqa_repair.py",
+      "--tpu-url",
+      "http://127.0.0.1:18657",
+      "--judge-provider",
+      "claude",
+      "--judge-model",
+      "claude-sonnet-4-6",
+      "--judge-effort",
+      "high",
+      "--run-tag",
+      "tpu_repair_20261005"
+    ],
+    "core_source_sha256": {
+      "examples/benchmark/_common/runner.py": "293b640a9e9b39c78985e7f92b9e7d03d878a7e404e2515a5bcfbe373ccafdfb",
+      "evalrx/eval_agent/stages/fix_agent.py": "81a3d14b9df6c7847dff78e41a0cf5321a6e0254e865868fe39185a76e43a736",
+      "evalrx/eval_agent/loop.py": "07c2a07339b899a14c3cd8d93f5868ac06ad2403ae9009c6c3bfe8fff2ac2c52",
+      "evalrx/models/backends/jax/adapters/gemma.py": "20a1d298cdaf9a2d939c313d62256840d3672f7705c8db6509cf9a24fe852503"
+    }
+  },
+  "manifest_sha256": "ae1e7261763f44584b402aa0ae687024e6e63ae004c34ffe455f0b75ddf3c877"
+}
