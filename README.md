@@ -107,10 +107,9 @@ Full extras list (`interp`, `data`, `observability`, `ui`, `cluster`,
 `gemini`, `contract`, `all`, `dev`) in [`pyproject.toml`](pyproject.toml). For
 development: `pip install -e ".[dev]"` then `pytest -m "not gpu"`.
 
-Want to use a TPU? See the [ChartQA example](examples/colab/README.md)
-with Gemma E2B, a runnable frozen-candidate replay, and actual CONFIRM outputs
-(32/64 before and after; no accuracy repair validated).
-The [backend tutorial](docs/colab_tpu.md) covers inference and white-box checks.
+Want to use a TPU? [Open the Colab notebook](https://colab.research.google.com/github/evalvitals/evalrx/blob/ruinan/examples/colab/chartqa_repair.ipynb).
+It runs `evalrx run` with Gemma E2B on ChartQA; commands, console output,
+results and figures are all in the notebook.
 
 ## Supported models
 

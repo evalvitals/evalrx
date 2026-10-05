@@ -66,6 +66,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command")
 
+    from evalrx.benchmark.run import build_parser as benchmark_parser
+
+    benchmark_parser(sub.add_parser(
+        "run", help="Evaluate a model and run the M1–M5 diagnosis and repair workflow.",
+    ))
+
     explore = sub.add_parser(
         "explore",
         help="Run a single-shot exploratory analysis over a results directory.",
@@ -271,6 +277,10 @@ def main(argv: list[str] | None = None) -> int:
         from evalrx.logging_utils import enable_console_logging
 
         enable_console_logging()
+    if args.command == "run":
+        from evalrx.benchmark.run import run_args
+
+        return run_args(args)
     if args.command == "explore":
         if not args.path:
             parser.error("evalrx explore requires a results path")
