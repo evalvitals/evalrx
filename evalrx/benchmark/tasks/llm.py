@@ -67,7 +67,14 @@ def catalog():
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules[_MODULE_NAME] = mod
-    spec.loader.exec_module(mod)
+    try:
+        spec.loader.exec_module(mod)
+    except BaseException:
+        # A failed import must not stay cached: the early return above would
+        # hand the half-initialised module to every later caller, which then
+        # dies on ``mod.B`` and hides the real import error.
+        sys.modules.pop(_MODULE_NAME, None)
+        raise
     return mod, mod.B
 
 

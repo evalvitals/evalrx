@@ -494,6 +494,29 @@ def test_llm_download_freezes_from_the_hub_when_the_datasets_server_is_down(comm
     assert "datasets-server unavailable for m-a-p/SuperGPQA" in out and "hub files" in out
 
 
+def test_llm_catalog_does_not_cache_a_failed_import(tmp_path, monkeypatch):
+    """A catalog import that fails must fail the same way on the next call.
+
+    Caching the half-initialised module turned a missing dependency into
+    ``AttributeError: ... has no attribute 'B'`` for every later caller.
+    """
+    from evalrx.benchmark.tasks import llm
+
+    (tmp_path / "llm_benchmark").mkdir()
+    (tmp_path / "llm_band_probe").mkdir()
+    (tmp_path / "llm_benchmark" / "datasets.py").write_text(
+        "raise ImportError('missing optional dependency')\n")
+    (tmp_path / "llm_band_probe" / "band_locate.py").write_text("")
+    monkeypatch.setenv("EVALRX_DATASET_SELECTION_DIR", str(tmp_path))
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.delitem(sys.modules, llm._MODULE_NAME, raising=False)
+
+    for _ in range(2):
+        with pytest.raises(ImportError, match="missing optional dependency"):
+            llm.catalog()
+        assert llm._MODULE_NAME not in sys.modules
+
+
 # ----------------------------------------------------------------------
 # Gemini: the closed-weight API family
 # ----------------------------------------------------------------------
