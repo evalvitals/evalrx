@@ -156,7 +156,10 @@ class AgyModel:
 
             output = proc.stdout.strip()
             if proc.returncode != 0 and not output:
-                reason = scan_agy_log(log_path) or (proc.stderr or "").strip()[:240]
+                # Startup errors (e.g. an unsupported model) are on stderr;
+                # background quota logs can misleadingly say "not logged in"
+                # even when API-key authentication is configured correctly.
+                reason = (proc.stderr or "").strip()[:600] or scan_agy_log(log_path)
                 raise RuntimeError(f"AgyModel: agy exited {proc.returncode}: {reason}")
 
             output = re.sub(r"<think>.*?</think>", "", output, flags=re.DOTALL).strip()

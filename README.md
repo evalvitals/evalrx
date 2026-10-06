@@ -107,9 +107,10 @@ Full extras list (`interp`, `data`, `observability`, `ui`, `cluster`,
 `gemini`, `contract`, `all`, `dev`) in [`pyproject.toml`](pyproject.toml). For
 development: `pip install -e ".[dev]"` then `pytest -m "not gpu"`.
 
-Want to use a TPU? [Open the Colab notebook](https://colab.research.google.com/github/evalvitals/evalrx/blob/ruinan/examples/colab/chartqa_repair.ipynb).
-It runs `evalrx run` with Gemma E2B on ChartQA; commands, console output,
-results and figures are all in the notebook.
+Want to use Colab? See the [accelerator notebook index](examples/colab/README.md).
+The executed TPU example launches Antigravity CLI (`agy`) inside the runtime
+and runs `evalrx run` with Gemma. Matching GPU examples are being validated. Commands, agent code, results, and figures
+stay in the notebook outputs.
 
 ## Supported models
 

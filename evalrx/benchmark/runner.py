@@ -508,6 +508,12 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                                extra_args=coder_extra)
     pinned = list(task.pinned_m1)
     overrides = _sampling_analyzer_overrides(resolved, args)
+    # In-process generation shares one accelerator model. Concurrent Python
+    # generation loops contend heavily on HF models; JAX already serializes
+    # model access. Keep native probes on the calling thread, while serving
+    # backends can continue issuing concurrent requests.
+    probe_workers = 1 if resolved.backend in {"hf_local", "jax_local"} else 8
+    ctx.config["m1_workers"] = probe_workers
     if args.m1_selection == "pinned":
         probe_agent = ProbeAgent(
             # StrategyProbe dispatches by the model's detected kind.  Keep the
@@ -517,11 +523,12 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             judge=None, max_analyzers=len(pinned),
             max_cases_per_analyzer=args.analyzer_max_cases,
             analyzer_overrides=overrides,
+            max_workers=probe_workers,
         )
     else:
         probe_agent = ProbeAgent(judge=judge, allow_codegen=False,
                                  max_cases_per_analyzer=args.analyzer_max_cases,
-                                 analyzer_overrides=overrides)
+                                 analyzer_overrides=overrides, max_workers=probe_workers)
     m2_codegen = args.m2_codegen if args.m2_codegen is not None else task.modality == "llm"
     stats_agent = StatsAnalysisAgent(
         judge=judge, figure_dir=str(ctx.figures_dir), max_signal_tools=16,

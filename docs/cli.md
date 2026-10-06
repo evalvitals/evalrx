@@ -26,26 +26,26 @@ packaged benchmark runner; it works from an installed wheel as well as a checkou
 `--baseline-only` stops after evaluation and requires no judge.
 
 ```bash
-evalrx run --modality vlm --model gemma-4-e2b --dataset chartqa \
-  --backend jax_local --device tpu --limit 64 --download-limit 64 \
-  --judge-provider gemini --judge-model gemini-2.5-flash \
-  --coder-provider gemini_cli --coder-model gemini-2.5-flash \
-  --fix-tier L1 --fix-repair-rounds 1 \
+evalrx run --modality llm --model gemma-4-e2b --dataset bbh_word_sorting \
+  --backend jax_local --device tpu --limit 128 --download-limit 128 \
+  --judge-provider agy --judge-model gemini-3.8-flash-low \
+  --max-new-tokens 512 --temperature 0 --analyzer-max-cases 8 \
+  --fix-tier L2 --fix-repair-rounds 2 \
   --allow-codegen --explore --m2-codegen --skip-surgery
 ```
 
-The [Colab notebook](https://github.com/evalvitals/evalrx/blob/ruinan/examples/colab/chartqa_repair.ipynb)
-contains setup, an agent preflight, and cells that retain the run's output.
-Install Gemini CLI (the notebook pins version 0.46.0) and set `GEMINI_API_KEY`.
-`--coder-provider gemini_cli` launches the coding agent inside the runtime for
-exploratory analysis and code generation; the API judge handles structured
-judgments. Gemma remains local on the TPU. `--skip-surgery` omits the separate
-surgery experiment but **does not** skip M5 prompt-repair search; `--skip-m5`
-is its legacy alias. CLI judge providers `agy`, `claude` and `codex` use their
-corresponding coding agent by default.
+The [Colab notebooks](https://github.com/evalvitals/evalrx/tree/ruinan/examples/colab)
+include agent installation, authentication and actual execution cells.
+For agy API-key authentication, set `modelProvider` to `gemini` in
+`~/.gemini/antigravity-cli/settings.json` and supply `GEMINI_API_KEY` through
+the environment. EvalRX launches agy for judgments and coding-agent stages.
+`--skip-surgery` omits separate surgery experiments but **does not** skip M5
+repair search; `--skip-m5` is its legacy alias.
 
-Without a coding-agent override, the `gemini` API judge requires
-`--no-allow-codegen --no-explore --no-m2-codegen --skip-surgery`.
+Other supported judge providers are `claude`, `codex`, and the `gemini` API.
+The API-only judge requires a separate coding-agent override such as
+`--coder-provider gemini_cli` when code generation is enabled. Without one,
+use `--no-allow-codegen --no-explore --no-m2-codegen --skip-surgery`.
 
 Use `evalrx run --help` for all controls, `--list` for model support, and
 `--download-only` to prepare data. EXPLORE selects a candidate; CONFIRM tests it
