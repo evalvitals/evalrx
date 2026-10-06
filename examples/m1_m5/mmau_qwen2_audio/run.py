@@ -408,7 +408,7 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
     rows = all_rows[args.pilot_size:args.limit]
 
     from evalrx.models.backends.base import RuntimeConfig
-    from evalrx.models.backends.hf_local import HFLocalModel
+    from evalrx.models.backends.hf.model import HFLocalModel
     from evalrx.specs import get_spec
 
     model = HFLocalModel(
@@ -702,7 +702,7 @@ def main() -> int:
     rows = rows[: args.limit]
 
     from evalrx.models.backends.base import RuntimeConfig
-    from evalrx.models.backends.hf_local import HFLocalModel
+    from evalrx.models.backends.hf.model import HFLocalModel
     from evalrx.specs import get_spec
 
     model = HFLocalModel(

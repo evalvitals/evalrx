@@ -130,7 +130,7 @@ def test_endpoint_backend_sends_thinking_off_and_top_k_in_extra_body(common, mon
     lacks) in extra_body."""
     _, _, _, run = common
     captured = {}
-    import evalrx.models.backends.openai_compat as oc
+    import evalrx.models.backends.api.openai as oc
 
     def fake_runtime(**kw):
         captured.update(kw)
@@ -494,6 +494,29 @@ def test_llm_download_freezes_from_the_hub_when_the_datasets_server_is_down(comm
     assert "datasets-server unavailable for m-a-p/SuperGPQA" in out and "hub files" in out
 
 
+def test_llm_catalog_does_not_cache_a_failed_import(tmp_path, monkeypatch):
+    """A catalog import that fails must fail the same way on the next call.
+
+    Caching the half-initialised module turned a missing dependency into
+    ``AttributeError: ... has no attribute 'B'`` for every later caller.
+    """
+    from evalrx.benchmark.tasks import llm
+
+    (tmp_path / "llm_benchmark").mkdir()
+    (tmp_path / "llm_band_probe").mkdir()
+    (tmp_path / "llm_benchmark" / "datasets.py").write_text(
+        "raise ImportError('missing optional dependency')\n")
+    (tmp_path / "llm_band_probe" / "band_locate.py").write_text("")
+    monkeypatch.setenv("EVALRX_DATASET_SELECTION_DIR", str(tmp_path))
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.delitem(sys.modules, llm._MODULE_NAME, raising=False)
+
+    for _ in range(2):
+        with pytest.raises(ImportError, match="missing optional dependency"):
+            llm.catalog()
+        assert llm._MODULE_NAME not in sys.modules
+
+
 # ----------------------------------------------------------------------
 # Gemini: the closed-weight API family
 # ----------------------------------------------------------------------
@@ -554,7 +577,7 @@ def test_load_model_gemini_branch_sends_the_floor_and_claims_generate_only(commo
         captured.update(kw)
         return RuntimeConfig(generate_fn=lambda prompt, model="", **k: "Answer: Yes")
 
-    monkeypatch.setattr("evalrx.models.backends.gemini_compat.gemini_runtime", fake_runtime)
+    monkeypatch.setattr("evalrx.models.backends.api.gemini.gemini_runtime", fake_runtime)
 
     # llm task: sampled decoding at the task cap, thinking at the floor, no logprobs
     args = run.build_parser().parse_args(["--modality", "llm", "--model", "gemini-3.6-flash"])

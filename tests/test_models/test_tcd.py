@@ -15,7 +15,7 @@ import torch
 
 from evalrx.core.spec import AudioSpec, ModelSpec
 from evalrx.models.backends.base import RuntimeConfig
-from evalrx.models.backends.hf_local import HFLocalModel
+from evalrx.models.backends.hf.model import HFLocalModel
 from evalrx.models.paper_methods import tcd
 
 

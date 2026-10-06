@@ -5,7 +5,7 @@ so a closed-weight Gemini model rides the same ``api`` backend as a served
 open model::
 
     from evalrx import compose
-    from evalrx.models.backends.gemini_compat import gemini_runtime
+    from evalrx.models.backends.api.gemini import gemini_runtime
 
     rt = gemini_runtime(temperature=0.6, max_output_tokens=2048)   # key: GEMINI_API_KEY
     llm = compose("gemini-3.6-flash", "api", runtime=rt)
@@ -52,13 +52,13 @@ from typing import Any, Callable, Optional
 
 from evalrx.core.model import TokenLogprob
 from evalrx.core.tool import ChatTurn
-from evalrx.models.backends.base import RuntimeConfig
-from evalrx.models.blackbox.gemini import (
+from evalrx.models.backends.api.gemini_model import (
     _audio_bytes,
     _png_bytes,
     _to_genai_contents,
     _to_genai_tools,
 )
+from evalrx.models.backends.base import RuntimeConfig
 
 logger = logging.getLogger(__name__)
 

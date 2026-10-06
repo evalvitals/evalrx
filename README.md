@@ -98,6 +98,7 @@ command set.
 pip install evalrx                # core — no Torch required
 pip install "evalrx[api]"         # OpenAI-compatible / API models
 pip install "evalrx[local]"       # local Hugging Face models + Torch
+pip install "evalrx[jax]"         # JAX adapter (accelerator runtime installed separately)
 pip install "evalrx[finetune]"    # L4 parameter-space repair (LoRA via peft)
 pip install "evalrx[viz,stats]"   # plots + inferential statistics
 ```
@@ -105,6 +106,11 @@ pip install "evalrx[viz,stats]"   # plots + inferential statistics
 Full extras list (`interp`, `data`, `observability`, `ui`, `cluster`,
 `gemini`, `contract`, `all`, `dev`) in [`pyproject.toml`](pyproject.toml). For
 development: `pip install -e ".[dev]"` then `pytest -m "not gpu"`.
+
+Want to use Colab? See the [accelerator notebook index](examples/colab/README.md).
+The executed TPU example launches Antigravity CLI (`agy`) inside the runtime
+and runs `evalrx run` with Gemma. Matching GPU examples are being validated. Commands, agent code, results, and figures
+stay in the notebook outputs.
 
 ## Supported models
 

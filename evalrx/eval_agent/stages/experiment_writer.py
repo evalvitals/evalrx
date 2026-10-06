@@ -264,7 +264,7 @@ def build_model_context(
     if type(model).__name__ == "GeminiModel":
         model_id = getattr(model, "model_id", "gemini-2.5-flash")
         return {
-            "import_expr": "from evalrx.models.blackbox.gemini import GeminiModel",
+            "import_expr": "from evalrx.models.backends.api.gemini_model import GeminiModel",
             "load_expr": f"GeminiModel(model_id={model_id!r})",
             "capabilities": caps,
         }

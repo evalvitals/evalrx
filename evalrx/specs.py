@@ -2,7 +2,7 @@
 
 A plain dict (no import-side-effect decorator).  Module paths are HINTS only;
 the hf_local backend discovers the real decoder-layer ModuleList at load time
-(see :mod:`evalrx.models._discover`).  Token ids / merge sizes are read from
+(see :mod:`evalrx.models.backends.hf.discover`).  Token ids / merge sizes are read from
 the live config via the attribute NAMES in ``VisionSpec`` — never baked as values
 (GLM-4.5V 151363 vs GLM-4.1V 151343 is exactly why).
 
@@ -537,7 +537,7 @@ for _key, _repo, _model_type, _unified in (
     if _key in _GEMMA4_JAX:
         _cls, _ckpt = _GEMMA4_JAX[_key]
         _jax = JaxSpec(framework="gemma", checkpoint=_ckpt, tokenizer=_GEMMA4_JAX_TOKENIZER,
-                       adapter="evalrx.models.jax.gemma:make_adapter", model_class=_cls)
+                       adapter="evalrx.models.backends.jax.adapters.gemma:make_adapter", model_class=_cls)
     _add(ModelSpec(
         key=_key, family="gemma4", model_type=_model_type, hf_repo=_repo,
         auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",

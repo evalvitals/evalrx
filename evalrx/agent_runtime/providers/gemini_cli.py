@@ -17,8 +17,12 @@ class GeminiCliAgent(CliAgentBase):
             self._binary,
             "-p",
             prompt,
-            "--cwd",
-            str(workdir),
+            # SubprocessRunner sets cwd; Gemini CLI has no --cwd flag.
+            "--approval-mode",
+            "yolo",
+            "--skip-trust",  # Trust only this explicit per-run workspace/session.
+            "--output-format",
+            "stream-json",
         ]
         if self._model:
             cmd += ["--model", self._model]

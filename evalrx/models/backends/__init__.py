@@ -12,21 +12,21 @@ from evalrx.models.backends.api import (
     call_vision_api_generate_fn,
     parse_openai_logprobs,
 )
-from evalrx.models.backends.base import Backend, RuntimeConfig
-from evalrx.models.backends.gemini_compat import (
+from evalrx.models.backends.api.gemini import (
     ThinkingPolicy,
     gemini_chat_fn,
     gemini_generate_fn,
     gemini_logprobs_fn,
     gemini_runtime,
 )
-from evalrx.models.backends.hf_local import HFLocalBackend, HFLocalModel
-from evalrx.models.backends.jax_local import JaxLocalBackend, JaxLocalModel
-from evalrx.models.backends.openai_compat import (
+from evalrx.models.backends.api.openai import (
     openai_chat_fn,
     openai_generate_fn,
     openai_runtime,
 )
+from evalrx.models.backends.base import Backend, RuntimeConfig
+from evalrx.models.backends.hf.model import HFLocalBackend, HFLocalModel
+from evalrx.models.backends.jax.backend import JaxLocalBackend, JaxLocalModel
 from evalrx.models.backends.vllm_offline import VLLMOfflineBackend
 
 #: name -> backend class.  Plain dict (no import-side-effect decorator).

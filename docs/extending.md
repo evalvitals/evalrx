@@ -168,7 +168,7 @@ Guidelines:
 ### Bring a JAX model
 
 `jax_local` is the JAX twin of `hf_local`. It drives a small adapter contract
-(`evalrx.models.jax.protocol.JaxModelAdapter`: encode, forward with capture
+(`evalrx.models.backends.jax.protocol.JaxModelAdapter`: encode, forward with capture
 flags, generate, unembed, final-norm parameters) and converts the captured
 arrays to CPU torch tensors at the `Trace` boundary, so the analyzers that run
 on `hf_local` models run unchanged. `Inputs.image` / `audio` / `video` go
@@ -185,7 +185,7 @@ model = compose("gemma-4-e2b-it", "jax_local", RuntimeConfig(apply_chat_template
 wrapped = evalrx.wrap_jax(MyAdapter(model, params, tokenizer), key="my-jax-model")
 ```
 
-`evalrx/models/jax/gemma.py` is the reference adapter and
+`evalrx/models/backends/jax/adapters/gemma.py` is the reference adapter and
 `docs/design_jax_backend.md` the design (phases, capture mechanics, the traps).
 
 ## Add a Dataset Loader

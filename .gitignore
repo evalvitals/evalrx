@@ -77,6 +77,9 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+# Local reports produced by the Colab TPU tutorial.
+/colab_results/
+/examples/colab/data/
 
 # IPython
 profile_default/

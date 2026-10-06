@@ -94,6 +94,9 @@ class ProbeAgent:
         docker_timeout:    Seconds before a Docker run is killed.
         model_env_var:     Name of the env var inside Docker that carries the
                            API key for the containerised model.
+        max_workers:       Maximum parallel black-box analyzers. Use 1 to run
+                           all analyzers on the calling thread for a shared
+                           local model.
     """
 
     def __init__(
@@ -114,7 +117,11 @@ class ProbeAgent:
         case_examples: tuple[int, int] = (4, 2),
         run_logger: "Any | None" = None,
         max_cases_per_analyzer: int = 0,
+        max_workers: int = 8,
     ) -> None:
+        if max_workers < 1:
+            raise ValueError("max_workers must be positive")
+        self.max_workers = max_workers
         self.selector = probe or StrategyProbe()
         self.judge = judge
         self.runner = runner or ExperimentRunner()
@@ -204,8 +211,9 @@ class ProbeAgent:
            optional *hint_failure_modes* list for priority-boosting (used by
            :class:`~evalrx.eval_agent.legacy.AutoDiagnoseLoop`).
 
-        Analyzers are executed in parallel using a ``ThreadPoolExecutor`` so
-        that independent analyzers do not wait on each other.
+        Black-box analyzers use a ``ThreadPoolExecutor`` when ``max_workers``
+        exceeds 1. White-box analyzers, and all probes with ``max_workers=1``,
+        run sequentially on the calling thread.
 
         Sets :attr:`last_schema` with the selection rationale so callers can
         inspect which analyzers ran and why without changing the return type.
@@ -269,9 +277,12 @@ class ProbeAgent:
         # running them in threads races on the model (accelerate device_map
         # hooks are not thread-safe → meta-tensor/dtype errors) and stacks
         # transient activations until the GPU OOMs. Only black-box analyzers
-        # (GENERATE/LOGPROBS, possibly Dockerised) are safe to parallelise.
+        # (GENERATE/LOGPROBS, possibly Dockerised) may parallelise when the
+        # caller's backend supports concurrent requests.
         parallel = [(n, a) for n, a in tasks if _is_blackbox_compatible(type(a))]
         serial = [(n, a) for n, a in tasks if not _is_blackbox_compatible(type(a))]
+        if self.max_workers == 1:
+            parallel, serial = [], tasks
 
         def _record(name: str, result, exc=None) -> None:
             if exc is not None:
@@ -280,7 +291,7 @@ class ProbeAgent:
                 results[name] = result
 
         if parallel:
-            max_workers = min(len(parallel), 8)
+            max_workers = min(len(parallel), self.max_workers)
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = {pool.submit(_run_one, n, a): n for n, a in parallel}
                 for future in as_completed(futures):
@@ -289,7 +300,7 @@ class ProbeAgent:
                         _record(name, result)
                     except Exception as exc:
                         _record(futures[future], None, exc)
-        for name, analyzer in serial:  # white-box: one at a time on the GPU
+        for name, analyzer in serial:  # shared local model: one probe at a time
             try:
                 _, result = _run_one(name, analyzer)
                 _record(name, result)

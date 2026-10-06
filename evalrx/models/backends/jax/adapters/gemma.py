@@ -1,7 +1,7 @@
 """Gemma 4 on JAX: the reference adapter for the ``jax_local`` backend.
 
 Runs the Gemma 4 E2B / E4B checkpoints through Google DeepMind's ``gemma``
-library (Flax Linen) behind the :class:`~evalrx.models.jax.protocol.JaxModelAdapter`
+library (Flax Linen) behind the :class:`~evalrx.models.backends.jax.protocol.JaxModelAdapter`
 contract: text, image and audio inputs, read access (logits, hidden states,
 attention probabilities), greedy / sampled generation, teacher-forced logprobs
 (phases 1 and 3 of ``docs/design_jax_backend.md``; the L3a executors, sites and
@@ -67,7 +67,9 @@ Facts this file depends on, verified against gemma 4.0.1 / flax 0.12.10 on
 
 ``engine_kwargs`` understood: ``checkpoint``, ``tokenizer``, ``model_class``,
 ``pad_buckets``, ``text_only`` (default: False when the spec declares vision or
-audio, True otherwise), ``audio_seq_length`` (750).
+audio, True otherwise), ``audio_seq_length`` (750), ``sharding`` (``"auto"``:
+FSDP over the chips of a multi-chip TPU host, else one device; ``"fsdp"``;
+``"single"``). Multi-GPU belongs to hf_local; JAX FSDP is the TPU path.
 
 jax and gemma are imported lazily inside ``load()``.
 """
@@ -84,7 +86,7 @@ from typing import Any
 
 from evalrx.core.case import Inputs
 from evalrx.models._media import AUDIO_SAMPLE_RATE, media_lists
-from evalrx.models.jax.protocol import (
+from evalrx.models.backends.jax.protocol import (
     CAPTURE_ATTN,
     CAPTURE_HIDDEN,
     CAPTURE_LOGITS,
@@ -99,6 +101,8 @@ logger = logging.getLogger(__name__)
 
 PAD_ID = 0
 DEFAULT_BUCKETS = (128, 256, 512, 1024, 2048, 4096)
+#: generation output-buffer sizes (static under jit; see ``generate``)
+OUT_BUCKETS = (32, 64, 128, 256, 512, 1024, 2048, 4096)
 TOKENIZER_FILENAME = "tokenizer_gemma4.model"
 #: the library's internal placeholders for merged media embeddings (never real ids)
 IMAGE_SOFT_PLACEHOLDER = -2
@@ -135,6 +139,29 @@ def bucket_length(n: int, buckets=DEFAULT_BUCKETS) -> int:
             return int(b)
     step = int(buckets[-1])
     return int(math.ceil(n / step) * step)
+
+
+def _describe_sharding(sharding) -> str:
+    if hasattr(sharding, "device_set"):
+        return f"on {next(iter(sharding.device_set))}"
+    return f"{type(sharding).__name__} over {_device_count()} devices"
+
+
+def _device_count() -> int:
+    import jax
+
+    return jax.device_count()
+
+
+def placement_device(devices: list, device: Any):
+    """The device ``RuntimeConfig.device`` names: ``"tpu:1"`` / ``"cuda:1"`` pick
+    that index of the default backend's devices, anything else the first one."""
+    _, sep, idx = str(device).partition(":")
+    if sep and idx.isdigit():
+        if int(idx) >= len(devices):
+            raise ValueError(f"RuntimeConfig.device={device!r}, but jax sees {len(devices)} device(s): {devices}")
+        return devices[int(idx)]
+    return devices[0]
 
 
 def audio_soft_token_count(n_samples: int, *, sample_rate: int = AUDIO_SAMPLE_RATE) -> int:
@@ -261,6 +288,10 @@ class GemmaJaxAdapter:
         self.model_class = str(kw.pop("model_class", None) or js.model_class or "Gemma4_E2B")
         self.buckets = tuple(sorted(int(b) for b in kw.pop("pad_buckets", DEFAULT_BUCKETS)))
         self.audio_seq_length = int(kw.pop("audio_seq_length", DEFAULT_AUDIO_SEQ_LENGTH))
+        # parameter placement: "auto" (FSDP over several devices, else one), "fsdp", "single"
+        self.sharding = str(kw.pop("sharding", None) or (js.sharding or {}).get("strategy", "auto")).lower()
+        if self.sharding not in ("auto", "fsdp", "single"):
+            raise ValueError(f"sharding must be 'auto', 'fsdp' or 'single', got {self.sharding!r}")
         spec_mods = set(getattr(spec, "modalities", None) or {"text"})
         has_media = bool(spec_mods - {"text"})
         text_only = kw.pop("text_only", None)
@@ -326,7 +357,6 @@ class GemmaJaxAdapter:
     def load(self) -> None:
         import jax
         import jax.numpy as jnp
-        from flax.traverse_util import flatten_dict, unflatten_dict
         from gemma import gm
 
         t0 = time.monotonic()
@@ -339,7 +369,6 @@ class GemmaJaxAdapter:
         self._tok = gm.text.Gemma4Tokenizer(path=self.tokenizer_path)
         self._pieces = list(self._tok.tokens)
         self._special_ids = self._collect_special_ids(self._tok, self._pieces)
-        params = gm.ckpts.load_params(self.checkpoint, text_only=self.text_only)
         if not self.text_only:
             # the library scatters float32 tower outputs into the bf16 text
             # embeddings (merge_flat_embeddings); jax warns about the implicit
@@ -348,29 +377,96 @@ class GemmaJaxAdapter:
             warnings.filterwarnings(
                 "ignore", message="scatter inputs have incompatible types", category=FutureWarning,
             )
-        # the public checkpoints store float32 (19.8 GB for text-only E2B); honour
-        # RuntimeConfig.dtype the way hf_local's torch_dtype does (bf16 = 9.9 GB),
-        # except for the media towers and projections the library keeps float32
-        flat = flatten_dict(params)
-        kept = 0
-        for path, a in flat.items():
-            if not (jnp.issubdtype(a.dtype, jnp.floating) and a.dtype != dtype):
-                continue
-            joined = "/".join(str(p) for p in path)
-            if joined.startswith(_MM_FLOAT32_PREFIXES):
-                kept += 1
-                continue
-            flat[path] = a.astype(dtype)
-        params = unflatten_dict(flat)
+        sharding = self._param_sharding(jax)
+        # The public checkpoints store float32 (20.5 GB for E2B with its towers);
+        # RuntimeConfig.dtype is honoured the way hf_local's torch_dtype is, except
+        # for the media towers and projections the library keeps float32. Orbax
+        # casts and places each array as it reads it, so neither the accelerator
+        # (16 GB on a TPU v5e chip) nor the host (47 GB on a Colab TPU VM) ever
+        # holds the float32 tree; load_params' own default would replicate it,
+        # as stored, onto every device.
+        try:
+            target = self._restore_target(jax, jnp, dtype, sharding)
+        except (ImportError, AttributeError, TypeError) as exc:  # private gemma API moved
+            logger.warning("GemmaJaxAdapter: cannot build a typed restore target (%s: %s); restoring "
+                           "float32 on the host and casting there", type(exc).__name__, exc)
+            params = self._restore_then_cast(jax, jnp, gm, dtype, sharding)
+        else:
+            params = gm.ckpts.load_params(self.checkpoint, params=target, text_only=self.text_only)
         self._params = params
         self._forward_cache.clear()
-        n_bytes = sum(int(a.nbytes) for a in jax.tree.leaves(params))
+        leaves = jax.tree.leaves(params)
+        n_bytes = sum(int(a.nbytes) for a in leaves)
+        kept = sum(1 for a in leaves if a.dtype == jnp.float32) if dtype != jnp.float32 else 0
         logger.info(
             "GemmaJaxAdapter: %s loaded from %s in %.0fs (%.1f GB params, %s, %d layers, "
-            "modalities=%s, %d float32 media arrays, reference_attention=%s, jax backend=%s)",
+            "modalities=%s, %d float32 arrays, reference_attention=%s, jax backend=%s, %s)",
             self.model_class, self.checkpoint, time.monotonic() - t0, n_bytes / 1e9, dtype_name,
             self._n_layers, sorted(self.modalities), kept, self.reference_attention, jax.default_backend(),
+            _describe_sharding(sharding),
         )
+
+    def _param_sharding(self, jax):
+        """Where the parameters live: one device, or FSDP over every device.
+
+        ``"auto"`` (the default) shards over the chips of a multi-chip TPU host
+        (v5e-8, v6e-8, ...) unless ``RuntimeConfig.device`` names an index, and
+        otherwise uses one device: on GPUs that matches hf_local (``cuda`` is the
+        first card); FSDP over GPUs is opt-in with ``sharding="fsdp"``.
+        """
+        devices = jax.devices()
+        indexed = ":" in str(getattr(self.runtime, "device", ""))
+        multi_tpu = jax.default_backend() == "tpu" and len(devices) > 1 and not indexed
+        if self.sharding == "fsdp" or (self.sharding == "auto" and multi_tpu):
+            from kauldron import kd
+
+            if jax.default_backend() == "gpu" and "xla_gpu_enable_command_buffer" not in os.environ.get("XLA_FLAGS", ""):
+                # multi-GPU is hf_local's job (device_map); JAX FSDP targets TPU hosts
+                logger.warning("GemmaJaxAdapter: FSDP over GPUs hits XLA CUDA-graph errors in generate "
+                               "(jax 0.11.2); set XLA_FLAGS=--xla_gpu_enable_command_buffer= before jax starts")
+            return kd.sharding.FSDPSharding()
+        return jax.sharding.SingleDeviceSharding(placement_device(devices, self.runtime.device))
+
+    def _restore_target(self, jax, jnp, dtype, sharding):
+        """The checkpoint's nested tree as ``ShapeDtypeStruct``s in the target
+        dtype and sharding, for Orbax to restore into. Reads the checkpoint
+        metadata through private helpers of the gemma library (pinned 4.0.1);
+        callers fall back to :meth:`_restore_then_cast` if they move."""
+        import orbax.checkpoint as ocp
+        from gemma.gm.ckpts import _checkpoint as ck
+        from kauldron import kd
+
+        meta, _ = ck._get_metadata_and_path(ocp.StandardCheckpointer(), self.checkpoint)
+        tree = ck._CheckpointTree.shape_dtype_struct_like(tree=meta)
+        tree = tree.as_nested(remove_mm=self.text_only and tree.has_mm_params).tree
+
+        def leaf(path, s):
+            key = "/".join(str(getattr(p, "key", p)) for p in path)
+            cast = jnp.issubdtype(s.dtype, jnp.floating) and not key.startswith(_MM_FLOAT32_PREFIXES)
+            return jax.ShapeDtypeStruct(s.shape, dtype if cast else s.dtype)
+
+        return kd.sharding.with_sharding_constraint(jax.tree_util.tree_map_with_path(leaf, tree), sharding)
+
+    def _restore_then_cast(self, jax, jnp, gm, dtype, sharding):
+        """Fallback: restore float32 into host memory, cast there with numpy
+        (a jax astype would compile one kernel per leaf shape), then place."""
+        import numpy as np
+        from flax.traverse_util import flatten_dict, unflatten_dict
+
+        try:
+            host = jax.sharding.SingleDeviceSharding(jax.local_devices(backend="cpu")[0])
+        except RuntimeError:  # JAX_PLATFORMS set without cpu by the caller: cast where it lands
+            host = sharding if not callable(sharding) else None
+        flat = flatten_dict(gm.ckpts.load_params(self.checkpoint, text_only=self.text_only, sharding=host))
+        for path in list(flat):
+            a = flat[path]
+            if jnp.issubdtype(a.dtype, jnp.floating) and a.dtype != dtype \
+                    and not "/".join(str(p) for p in path).startswith(_MM_FLOAT32_PREFIXES):
+                flat[path] = np.asarray(a).astype(np.dtype(dtype))     # frees the float32 leaf
+            del a
+        tree = unflatten_dict(flat)
+        del flat
+        return jax.device_put(tree, sharding(tree) if callable(sharding) else sharding)
 
     @staticmethod
     def _collect_special_ids(tok, pieces: list[str]) -> set[int]:
@@ -770,6 +866,16 @@ class GemmaJaxAdapter:
         media = enc.media or {}
         max_new = max(1, int(params.max_new_tokens))
         pad_len = bucket_length(len(enc.ids), self.buckets)
+        # max_out_length sizes the output buffer, a static shape in the library's
+        # prefill and decode jits; max_new_tokens is dynamic. Bucketing the first
+        # keeps every max_tokens a stage asks for (24, 64, 256, ...) on a few
+        # compiled programs instead of one compile per distinct value
+        max_out = bucket_length(max_new, OUT_BUCKETS)
+        # The output buffer is bucketed, but the loop stops at the *requested*
+        # max_new_tokens. Reserving KV slots for unused output-buffer padding
+        # can cross the next cache bucket: a 512-token prompt + a 300-token
+        # budget needs 1024 slots, not 2048. That unnecessary allocation was
+        # present in the 300-token Colab TPU OOM. Keep one guard position.
         cache_len = bucket_length(pad_len + max_new + 1, self.buckets)
         extra: dict[str, Any] = {}
         if "vision" in media:
@@ -777,7 +883,7 @@ class GemmaJaxAdapter:
         sampler = gm.text.Gemma4Sampler(
             model=self._model, params=self._params, tokenizer=self._tok,
             sampling=self._sampling_method(params),
-            cache_length=cache_len, max_out_length=max_new, pad_length=pad_len,
+            cache_length=cache_len, max_out_length=max_out, pad_length=pad_len,
             audio_seq_length=self.audio_seq_length, **extra,
         )
         rng = self._rng_seed(params)

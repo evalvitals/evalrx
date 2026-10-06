@@ -21,8 +21,8 @@ import pytest
 
 from evalrx.core.capability import Capability
 from evalrx.core.case import Inputs
-from evalrx.models.backends import gemini_compat as gc
-from evalrx.models.backends.gemini_compat import (
+from evalrx.models.backends.api import gemini as gc
+from evalrx.models.backends.api.gemini import (
     ThinkingPolicy,
     answer_text,
     gemini_runtime,
@@ -275,7 +275,7 @@ def test_thinking_that_spends_output_tokens_gets_headroom_on_the_cap():
     16-token cap with level=low truncates; 3.7-flash returns an empty answer).
     A config that lets the model think therefore raises the request cap; one
     that turns thinking off (minimal / budget 0) must NOT touch it."""
-    from evalrx.models.backends.gemini_compat import (
+    from evalrx.models.backends.api.gemini import (
         THINKING_OUTPUT_HEADROOM,
         thinking_spends_output_tokens,
     )
@@ -465,7 +465,7 @@ def test_chat_fn_uses_native_function_calling_and_reports_finish_reason():
 
 
 def test_audio_blocks_in_chat_history_become_inline_audio_parts():
-    from evalrx.models.blackbox.gemini import _to_genai_contents
+    from evalrx.models.backends.api.gemini_model import _to_genai_contents
 
     _system, contents = _to_genai_contents(
         [{"role": "user", "content": [{"type": "audio", "audio": b"RIFFfake"}, {"type": "text", "text": "?"}]}],
@@ -490,7 +490,7 @@ def test_gemini_specs_are_api_only_omni_and_named_by_model_id():
 
 
 def test_wav_encoding_helper_round_trips_a_waveform():
-    from evalrx.models.blackbox.gemini import _audio_bytes
+    from evalrx.models.backends.api.gemini_model import _audio_bytes
 
     data, mime = _audio_bytes(([0.0] * 32, 16000))
     assert mime == "audio/wav"
@@ -505,7 +505,7 @@ def test_wav_encoding_helper_round_trips_a_waveform():
 def test_afc_chatter_is_filtered_off_the_sdk_logger_but_real_warnings_pass():
     import logging
 
-    from evalrx.models.backends import gemini_compat as gc
+    from evalrx.models.backends.api import gemini as gc
 
     sdk_logger = logging.getLogger("google_genai.models")
     records = []

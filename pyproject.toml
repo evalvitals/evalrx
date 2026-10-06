@@ -49,7 +49,9 @@ finetune = [
 ]
 # JAX white-box backend (jax_local, docs/design_jax_backend.md). Google DeepMind's
 # gemma library drives the Gemma 4 reference adapter (Flax Linen; Python >= 3.12
-# upstream). CUDA wheels are a separate choice: `pip install "jax[cuda12]"`.
+# upstream). Accelerator wheels are a separate choice: `pip install "jax[cuda12]"`
+# (GPU) or `pip install "jax[tpu]"` (Cloud TPU; Colab TPU runtimes ship it, see
+# tools/colab/).
 # Captured arrays cross into the analyzers as torch tensors, so a CPU torch is
 # enough here (`--extra-index-url https://download.pytorch.org/whl/cpu`).
 jax = [
@@ -73,6 +75,10 @@ interp = [
 data = [
     "datasets>=2.0",
     "pillow>=9.0",
+    # The text-LLM benchmark tasks (evalrx.benchmark.tasks.llm) load
+    # examples/dataset_selection/llm_band_probe/band_locate.py, which imports
+    # requests at module level to page through the HF datasets-server.
+    "requests>=2.28",
 ]
 # Machine-readable M1-M5 stage contract (evalrx.contract): runtime validation
 # of what crosses each stage boundary + JSON Schema / TypeScript generation.

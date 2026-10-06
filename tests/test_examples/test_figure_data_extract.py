@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 _TOOL = Path(__file__).resolve().parents[2] / "examples" / "benchmark" / "tools"
-_RUNNER = Path(__file__).resolve().parents[2] / "examples" / "benchmark" / "_common" / "runner.py"
+_RUNNER = Path(__file__).resolve().parents[2] / "evalrx" / "benchmark" / "runner.py"
 
 # The keys extract_figure_data reads out of summary.json (see block_run). The
 # producer is _common/runner.py; test_summary_contract_with_the_runner guards
