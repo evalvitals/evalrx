@@ -15,6 +15,4 @@ The executed TPU word-sorting notebook reports CONFIRM accuracy of **27/64 → 3
 
 A successful repair must pass the independent CONFIRM check. EXPLORE gains alone are not enough. These are inference repairs around unchanged model weights, not fine-tuning.
 
-The earlier [ChartQA diagnosis](archive/chartqa_diagnosis.ipynb) is retained with its original outputs and its negative result: no validated repair.
-
 Google recommends migrating individual-account Gemini CLI users to agy; API-key Gemini CLI access remains supported. agy API-key authentication requires `modelProvider: "gemini"` in its settings as well as `GEMINI_API_KEY`. See the [official migration announcement](https://github.com/google-gemini/gemini-cli/discussions/28017) and [authentication instructions](https://www.antigravity.google/docs/cli/install/).
