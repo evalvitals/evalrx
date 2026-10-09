@@ -70,14 +70,15 @@ rm -f "$uv_whl"
 # A relocatable python-build-standalone install, the same build uv uses online.
 log "packing Python $PY_VERSION"
 UV_PYTHON_INSTALL_DIR="$WORK/pythons" "$B/uv" python install -q --no-bin "$PY_VERSION"
-py_root="$(dirname "$(dirname "$(UV_PYTHON_INSTALL_DIR="$WORK/pythons" "$B/uv" python find --managed-python "$PY_VERSION")")")"
+# realpath: uv's cpython-3.12-* entry is a symlink to the cpython-3.12.N-* directory.
+py_root="$(dirname "$(dirname "$(realpath "$(UV_PYTHON_INSTALL_DIR="$WORK/pythons" "$B/uv" python find --managed-python "$PY_VERSION")")")")"
 tar -czf "$B/python.tar.gz" -C "$(dirname "$py_root")" "$(basename "$py_root")"
 
 if [ "${EVALRX_SKIP_AGY:-0}" != 1 ]; then
   log "fetching agy"
   python3 -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' \
     "${EVALRX_AGY_INSTALLER:-https://antigravity.google/cli/install.sh}" "$WORK/agy_install.sh"
-  HOME="$WORK/home" bash "$WORK/agy_install.sh" --dir "$WORK/tool" >/dev/null
+  HOME="$WORK/home" bash "$WORK/agy_install.sh" --dir "$WORK/tool" >"$WORK/agy_install.log" 2>&1 || { tail -n 20 "$WORK/agy_install.log"; exit 1; }
   install -m 0755 "$WORK/tool/agy" "$B/agy"
 fi
 
