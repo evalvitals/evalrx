@@ -1,0 +1,11 @@
+# Colab TPU env (jax_local). The JAX/TPU set the executed TPU notebook ran on
+# (Colab image release-colab-external-images_20261002): it must stay matched.
+jax==0.7.2
+jaxlib==0.7.2
+libtpu==0.0.21.1
+flax==0.11.2
+kauldron==1.4.4
+gemma==4.0.1
+torch==2.9.0+cpu
+gcsfs
+pandas

@@ -1,0 +1,4 @@
+# Colab GPU env (hf_local). Torch matches the validated GPU run (2.13.0+cu129).
+torch==2.13.0+cu129
+transformers==5.15.0
+pandas
