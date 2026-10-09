@@ -34,12 +34,26 @@ PY_VERSION=3.12
 STAMP="$EVALRX_ENV/.stamp"
 log() { echo "[evalrx-bootstrap] $*"; }
 die() { echo "[evalrx-bootstrap] ERROR: $*" >&2; exit 1; }
+# agy reads its provider from settings; "gemini" selects GEMINI_API_KEY auth.
+# Per user (HOME), so it runs on every call, also when the env is prebuilt.
+configure_agy() {
+  [ -x "$EVALRX_ENV/bin/agy" ] || return 0
+  "$EVALRX_ENV/bin/python" - <<'PY'
+import json, pathlib
+p = pathlib.Path.home() / ".gemini/antigravity-cli/settings.json"
+cfg = json.loads(p.read_text()) if p.exists() else {}
+cfg["modelProvider"] = "gemini"
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps(cfg, indent=2))
+PY
+}
 
 [ "$(uname -s)-$(uname -m)" = "Linux-x86_64" ] || die "needs Linux x86_64, got $(uname -s)-$(uname -m)"
 
 # Same lock + same source = nothing to do; a rerun of the cell is instant.
 want_stamp="$ACCEL $(sha256sum "$LOCK" | cut -c1-16) $(cd "$REPO_DIR" && git rev-parse HEAD 2>/dev/null || cat "$BUNDLE/COMMIT" 2>/dev/null || echo unknown)"
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$want_stamp" ] && [ -x "$EVALRX_ENV/bin/evalrx" ]; then
+  configure_agy
   log "environment up to date: $EVALRX_ENV ($want_stamp)"
   exit 0
 fi
@@ -121,18 +135,7 @@ VPY="$EVALRX_ENV/bin/python"
 "$UV" pip install -q --python "$VPY" "${INDEX_ARGS[@]}" --no-deps -e "$REPO_DIR"
 [ -z "$AGY_SRC" ] || install -m 0755 "$AGY_SRC" "$EVALRX_ENV/bin/agy"
 
-# agy reads its provider from settings; "gemini" selects GEMINI_API_KEY auth.
-if [ -x "$EVALRX_ENV/bin/agy" ]; then
-  "$VPY" - <<'PY'
-import json, pathlib
-p = pathlib.Path.home() / ".gemini/antigravity-cli/settings.json"
-cfg = json.loads(p.read_text()) if p.exists() else {}
-cfg["modelProvider"] = "gemini"
-p.parent.mkdir(parents=True, exist_ok=True)
-p.write_text(json.dumps(cfg, indent=2))
-PY
-fi
-
+configure_agy
 "$VPY" - "$ACCEL" <<'PY'
 import importlib.metadata as md, sys
 names = ["evalrx", "torch", "transformers"] if sys.argv[1] == "gpu" else ["evalrx", "jax", "libtpu", "gemma", "flax", "torch"]
