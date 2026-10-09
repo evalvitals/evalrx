@@ -48,6 +48,12 @@ p.write_text(json.dumps(cfg, indent=2))
 PY
 }
 
+# Colab kernels export uv/Python settings for their own Python (UV_SYSTEM_PYTHON,
+# UV_CONSTRAINT, PYTHONPATH, ...). They must not reach this environment.
+# A pip mirror configured through the environment still counts (online default below).
+PIP_ENV_INDEX="${PIP_INDEX_URL:-}"
+for var in $(compgen -e | grep -E '^(UV_|PIP_|PYTHONPATH$|PYTHONHOME$)' || true); do unset "$var"; done
+
 [ "$(uname -s)-$(uname -m)" = "Linux-x86_64" ] || die "needs Linux x86_64, got $(uname -s)-$(uname -m)"
 
 # Same lock + same source = nothing to do; a rerun of the cell is instant.
@@ -77,7 +83,7 @@ if [ -d "$BUNDLE" ]; then
   [ -f "$BUNDLE/agy" ] && AGY_SRC="$BUNDLE/agy"
 else
   # ----------------------------------------------------------------- online
-  pip_index="$(python3 -m pip config get global.index-url 2>/dev/null || true)"
+  pip_index="${PIP_ENV_INDEX:-$(python3 -m pip config get global.index-url 2>/dev/null || true)}"
   PYPI="${EVALRX_PYPI_INDEX:-${pip_index:-https://pypi.org/simple}}"
   if [ "$ACCEL" = gpu ]; then torch_default=https://download.pytorch.org/whl/cu129
   else torch_default=https://download.pytorch.org/whl/cpu; fi
