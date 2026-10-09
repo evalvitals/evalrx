@@ -1,3 +1,8 @@
+# Regenerate tpu.txt (needs uv; libtpu wheels are manylinux_2_31):
+#   uv pip compile pyproject.toml tools/colab/lock/tpu.in --extra jax --extra data --extra contract \
+#     --extra viz --extra stats --python-version 3.12 --python-platform x86_64-manylinux_2_31 \
+#     --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match \
+#     --no-header -o tools/colab/lock/tpu.txt
 # Colab TPU env (jax_local). The JAX/TPU set the executed TPU notebook ran on
 # (Colab image release-colab-external-images_20261002): it must stay matched.
 jax==0.7.2
