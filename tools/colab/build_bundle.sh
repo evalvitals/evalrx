@@ -46,15 +46,16 @@ echo "$COMMIT" > "$B/COMMIT"
 echo "$ACCEL" > "$B/ACCEL"
 
 # Wheels for the Colab target (Linux x86_64, CPython 3.12), whatever this host runs.
-log "downloading wheels for tools/colab/lock/$ACCEL.txt"
 # pip does not expand manylinux tags for a foreign target: list glibc 2.17..2.31
 # (the locks resolve against manylinux_2_28 / _2_31; Colab's glibc is newer).
 platforms=(--platform any --platform manylinux2014_x86_64)
 for v in $(seq 17 31); do platforms+=(--platform "manylinux_2_${v}_x86_64"); done
-python3 -m pip download -q --no-deps --only-binary=:all: --dest "$B/wheels" \
-  --python-version "$PY_VERSION" --implementation cp --abi cp312 --abi abi3 --abi none "${platforms[@]}" \
-  --index-url "$PYPI" --extra-index-url "$TORCH_INDEX" \
-  -r "tools/colab/lock/$ACCEL.txt" setuptools wheel uv
+download() {
+  python3 -m pip download -q --no-deps --only-binary=:all: --dest "$B/wheels" \
+    --python-version "$PY_VERSION" --implementation cp --abi cp312 --abi abi3 --abi none "${platforms[@]}" \
+    --index-url "$PYPI" --extra-index-url "$TORCH_INDEX" "$@"
+}
+download uv
 
 # uv's static binary comes out of its wheel; the wheel itself is not needed.
 uv_whl="$(ls "$B"/wheels/uv-*.whl)"
@@ -71,8 +72,28 @@ rm -f "$uv_whl"
 log "packing Python $PY_VERSION"
 UV_PYTHON_INSTALL_DIR="$WORK/pythons" "$B/uv" python install -q --no-bin "$PY_VERSION"
 # realpath: uv's cpython-3.12-* entry is a symlink to the cpython-3.12.N-* directory.
-py_root="$(dirname "$(dirname "$(realpath "$(UV_PYTHON_INSTALL_DIR="$WORK/pythons" "$B/uv" python find --managed-python "$PY_VERSION")")")")"
+PY312="$(realpath "$(UV_PYTHON_INSTALL_DIR="$WORK/pythons" "$B/uv" python find --managed-python "$PY_VERSION")")"
+py_root="$(dirname "$(dirname "$PY312")")"
 tar -czf "$B/python.tar.gz" -C "$(dirname "$py_root")" "$(basename "$py_root")"
+
+log "downloading wheels for tools/colab/lock/$ACCEL.txt"
+# A few locked packages publish only an sdist (e.g. promise): take them out of the
+# binary download one by one, then build their wheels with the bundle's Python.
+grep -v '^[[:space:]]*#' "tools/colab/lock/$ACCEL.txt" | sed '/^[[:space:]]*$/d' > "$WORK/req.txt"
+echo setuptools >> "$WORK/req.txt"; echo wheel >> "$WORK/req.txt"
+sdists=()
+until download -r "$WORK/req.txt" > "$WORK/download.log" 2>&1; do
+  pkg="$(sed -n 's/.*No matching distribution found for \([^ ]*\).*/\1/p' "$WORK/download.log" | head -1)"
+  if [ -z "$pkg" ] || [ "${#sdists[@]}" -ge 20 ]; then tail -n 20 "$WORK/download.log"; exit 1; fi
+  sdists+=("$pkg")
+  grep -vixF "$pkg" "$WORK/req.txt" > "$WORK/req.next"; mv "$WORK/req.next" "$WORK/req.txt"
+done
+if [ "${#sdists[@]}" -gt 0 ]; then
+  log "building sdist-only packages: ${sdists[*]}"
+  "$B/uv" venv -q --seed --python "$PY312" "$WORK/wheel-env"
+  "$WORK/wheel-env/bin/python" -m pip wheel -q --no-deps --wheel-dir "$B/wheels" \
+    --index-url "$PYPI" "${sdists[@]}"
+fi
 
 if [ "${EVALRX_SKIP_AGY:-0}" != 1 ]; then
   log "fetching agy"
