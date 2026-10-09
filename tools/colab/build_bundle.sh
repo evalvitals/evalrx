@@ -47,10 +47,12 @@ echo "$ACCEL" > "$B/ACCEL"
 
 # Wheels for the Colab target (Linux x86_64, CPython 3.12), whatever this host runs.
 log "downloading wheels for tools/colab/lock/$ACCEL.txt"
+# pip does not expand manylinux tags for a foreign target: list glibc 2.17..2.31
+# (the locks resolve against manylinux_2_28 / _2_31; Colab's glibc is newer).
+platforms=(--platform any --platform manylinux2014_x86_64)
+for v in $(seq 17 31); do platforms+=(--platform "manylinux_2_${v}_x86_64"); done
 python3 -m pip download -q --no-deps --only-binary=:all: --dest "$B/wheels" \
-  --python-version "$PY_VERSION" --implementation cp --abi cp312 --abi abi3 --abi none \
-  --platform manylinux_2_31_x86_64 --platform manylinux_2_28_x86_64 \
-  --platform manylinux_2_17_x86_64 --platform manylinux2014_x86_64 --platform any \
+  --python-version "$PY_VERSION" --implementation cp --abi cp312 --abi abi3 --abi none "${platforms[@]}" \
   --index-url "$PYPI" --extra-index-url "$TORCH_INDEX" \
   -r "tools/colab/lock/$ACCEL.txt" setuptools wheel uv
 
