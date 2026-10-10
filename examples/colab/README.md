@@ -1,17 +1,24 @@
 # Colab notebooks
 
-Select the matching hardware runtime, add `GEMINI_API_KEY` to Colab Secrets, then run the notebook from top to bottom. The notebooks install **Antigravity CLI (`agy`)** and configure API-key authentication; no browser login is needed. Agent code, charts, predictions, and confirmation results remain in the notebook outputs.
+Select the matching hardware runtime, add `GEMINI_API_KEY` to Colab Secrets, then run the notebook from top to bottom. The notebooks provide **Antigravity CLI (`agy`)** and configure API-key authentication; no browser login is needed. Agent code, charts, predictions, and confirmation results remain in the notebook outputs.
 
 | Hardware | Model | Task | Notebook |
 |---|---|---|---|
-| TPU | Gemma 4 E2B-it | BBH word sorting | [Word sorting](tpu/word_sorting_repair.ipynb) |
-| TPU | Gemma 4 E2B-it | CRUXEval output prediction | [Code reasoning](tpu/code_reasoning_repair.ipynb) |
+| TPU | Gemma 4 E2B-it | BBH word sorting or CRUXEval output prediction (set `DATASET`) | [`tpu/evalrx_tpu.ipynb`](tpu/evalrx_tpu.ipynb): install once, then launch anywhere (below) |
 | GPU | Gemma 4 E2B-it | BBH word sorting | Execution in progress; notebook pending |
 | GPU | Gemma 4 E2B-it | CRUXEval output prediction | Queued; notebook pending |
 
 The planned TPU/GPU pairs use the same model and dataset, 128 cases, seed 0, a 64/64 EXPLORE/CONFIRM split, a 512-token generation budget, and the same agent and repair settings. The hardware adaptation changes installation, device checks, and `--backend`/`--device`: `jax_local`/`tpu` versus `hf_local`/`cuda`. Both default to bfloat16; use a compatible GPU such as L4 or A100. Backend numerics can still produce different predictions.
 
-The executed TPU word-sorting notebook reports CONFIRM accuracy of **27/64 → 37/64** (13 fixed, 3 broken). Its e-value is **6.884**, below the threshold of 20: the verdict is **partial**, not a validated repair. All six code cells completed. The outputs of the run and result cells are saved; the two setup cells' outputs were removed when setup moved to the self-contained environment (see the notebook header for the original revision and runtime). The executed TPU CRUXEval notebook reports CONFIRM accuracy of **32/64 → 41/64** (9 fixed, 0 broken). Its e-value is **51.2**, above the threshold of 20: the verdict is **fixed**, a validated inference repair (the frozen L1 candidate `scratchpad_and_expanded_limit`). It ran end to end, all six code cells, in the self-contained environment on a Colab TPU v5e runtime (image `release-colab-external-images_20261008-060111_RC00`). The remaining two GPU notebooks will be published after execution.
+Results on a Colab TPU v5e:
+
+- **CRUXEval, from the prebuilt image (2026-10-10):** CONFIRM accuracy was **32/64 → 48/64** (16 fixed, 0 broken). The e-value was **3855**, above the threshold of 20, so the verdict is **fixed**: a validated repair by the frozen L1 candidate `concise_direct_execution_trace`. See *Verification status* below.
+- **Earlier per-task notebooks, installed online (2026-10-09):**
+  - Word sorting: **27/64 → 37/64** (13 fixed, 3 broken), e = 6.884, below 20. The verdict is **partial**, not a validated repair.
+  - CRUXEval: **32/64 → 41/64** (9 fixed, 0 broken), e = 51.2. The verdict is **fixed**, by the candidate `scratchpad_and_expanded_limit`.
+  - `tpu/evalrx_tpu.ipynb` replaces those notebooks. They remain in git history at `f55fbea`, with their outputs.
+
+The remaining two GPU notebooks will be published after execution.
 
 A successful repair must pass the independent CONFIRM check. EXPLORE gains alone are not enough. These are inference repairs around unchanged model weights, not fine-tuning.
 
