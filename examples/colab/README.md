@@ -135,6 +135,17 @@ All runs below used Google's Colab runtime image (`us-docker.pkg.dev/colab-image
     - The model loaded from the restored weights, since GCS was unreachable.
   - The full CRUXEval run (128 cases, seed 0) reached a baseline of 63/128. CONFIRM accuracy was **32/64 → 48/64** (16 fixed, 0 broken), with e-value **3855**, above the threshold of 20. The verdict is **fixed**, a validated repair by the frozen L1 candidate `concise_direct_execution_trace`.
   - The test ran on the same runtime that built the image, after the deletions above, not on a second fresh runtime.
+- **Fresh runtime, end to end, Colab TPU v5e runtime (same Colab image), 2026-10-10:**
+  - A newly allocated runtime ran `tpu/evalrx_tpu.ipynb` with `EVALRX_STORE` set to the Drive folder that held the image and weights tars, under the isolation above. Nothing was on the runtime beforehand; the notebook was the version from `26c4ef8`.
+  - Every cell completed without an error.
+    - The image restored from Drive in 83 s, and the weights in 621 s. Both checksums verified, with no install step.
+    - jax drove the TPU, and the `agy` check printed `AGENT_READY`.
+  - The CRUXEval baseline was 63/128. CONFIRM accuracy was **32/64 → 44/64** (12 fixed, 0 broken), with e-value **315**. The verdict is **fixed**, by the frozen L1 candidate `simulated_interpreter_repl`.
+- **Reproducibility across the three TPU CRUXEval runs:**
+  - The baseline was 63/128 in each run, and CONFIRM started from 32/64 in each.
+  - The repaired CONFIRM accuracy was 41, 48 and 44 of 64, each from a different selected candidate. The candidates are written by the Gemini agent, whose output varies between runs.
+  - The environment and the model's predictions therefore reproduce exactly. The repair reproduces statistically: each run reached a validated fix, by a different candidate.
+- **Public image download, Colab runtime image on CPU (local container), under the same isolation:** with default settings, the notebook downloaded the image anonymously from its public Google Drive link (4.8 GB in 57 s), verified it and restored it. Separately, a stalled connection and a dropped connection were simulated, and the download resumed from the current byte after each.
 - **One notebook, Colab runtime image on CPU (local container):** `tpu/evalrx_tpu.ipynb` with an empty local `EVALRX_STORE` installed the environment, saved the image to the store, and then skipped the restore of the environment it had just packed. A second run, under the isolation above, found the image in the store, installed nothing, and restored and verified the image and the 18 GB weights tar.
 
 Not yet verified: Google-internal Colab. If the first install fails on a public runtime, the endpoint check reports the blocked URL.
