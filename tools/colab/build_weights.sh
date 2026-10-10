@@ -24,56 +24,89 @@ OUT_DIR="$(mkdir -p "${2:-$REPO_DIR/dist}" && cd "${2:-$REPO_DIR/dist}" && pwd)"
 NAME="evalrx-colab-weights-$ACCEL-gemma-4-e2b"
 log() { echo "[evalrx-weights] $*"; }
 
-WORK="$(mktemp -d "$OUT_DIR/.weights.XXXXXX")"   # next to the output: it is as large as the tar
-trap 'rm -rf "$WORK"' EXIT
-DEST="$WORK/$NAME"
-mkdir -p "$DEST"
-
-if [ "$ACCEL" = tpu ]; then
+# One pass: each file streams from its source into the tar, hashed on the way;
+# nothing is staged on disk (Colab runtime disks can be slow).
+if [ "$ACCEL" = gpu ]; then
+  # The Hugging Face snapshot is staged, next to the output, then packed.
+  STAGE="$(mktemp -d "$OUT_DIR/.weights.XXXXXX")"
+  trap 'rm -rf "$STAGE"' EXIT
+  log "downloading google/gemma-4-E2B-it"
+  python3 - "$STAGE" <<'PY'
+import sys
+from huggingface_hub import snapshot_download
+snapshot_download("google/gemma-4-E2B-it", local_dir=sys.argv[1])
+PY
+  rm -rf "$STAGE/.cache"
+else
+  STAGE=""
   # The checkpoint and tokenizer the jax_local backend reads by default (evalrx/specs.py).
-  log "downloading gs://gemma-data/checkpoints/gemma4-e2b-it"
-  python3 - "$DEST" <<'PY'
-import concurrent.futures, json, os, sys, urllib.parse, urllib.request
-BUCKET, PREFIX, dest = "gemma-data", "checkpoints/gemma4-e2b-it/", sys.argv[1]
-def objects(prefix):
+  log "packing gs://gemma-data/checkpoints/gemma4-e2b-it and its tokenizer"
+fi
+
+python3 - "$OUT_DIR/$NAME.tar" "$NAME" "$STAGE" <<'PY'
+import hashlib, io, json, os, sys, tarfile, time, urllib.parse, urllib.request
+out, name, stage = sys.argv[1:]
+GCS = "https://storage.googleapis.com"
+
+def gcs_objects(bucket, prefix):
     token = ""
     while True:
         q = urllib.parse.urlencode({"prefix": prefix, "pageToken": token, "fields": "items(name,size),nextPageToken"})
-        page = json.load(urllib.request.urlopen(f"https://storage.googleapis.com/storage/v1/b/{BUCKET}/o?{q}"))
+        page = json.load(urllib.request.urlopen(f"{GCS}/storage/v1/b/{bucket}/o?{q}"))
         yield from page.get("items", [])
         token = page.get("nextPageToken")
         if not token:
             return
-def fetch(job):
-    name, target, _ = job
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    urllib.request.urlretrieve(f"https://storage.googleapis.com/{BUCKET}/{urllib.parse.quote(name)}", target)
-    return os.path.getsize(target)
-# "*_$folder$" objects are GCS console folder placeholders, not checkpoint files.
-jobs = [(o["name"], os.path.join(dest, o["name"][len(PREFIX):]), int(o["size"]))
-        for o in objects(PREFIX) if not o["name"].endswith(("_$folder$", "/"))]
-jobs.append(("tokenizers/tokenizer_gemma4.model", os.path.join(dest, "tokenizer_gemma4.model"), None))
-with concurrent.futures.ThreadPoolExecutor(16) as pool:
-    sizes = list(pool.map(fetch, jobs))
-bad = [j[0] for j, n in zip(jobs, sizes) if j[2] is not None and j[2] != n]
-if bad:
-    sys.exit(f"size mismatch: {bad[:5]}")
-print(f"[evalrx-weights] {len(jobs)} files, {sum(sizes) / 1e9:.1f} GB")
-PY
-else
-  REPO_ID=google/gemma-4-E2B-it
-  log "downloading $REPO_ID"
-  python3 - "$REPO_ID" "$DEST" <<'PY'
-import sys
-from huggingface_hub import snapshot_download
-snapshot_download(sys.argv[1], local_dir=sys.argv[2])
-PY
-  rm -rf "$DEST/.cache"
-fi
 
-(cd "$DEST" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
-out="$OUT_DIR/$NAME.tar"
-tar -cf "$out" -C "$WORK" "$NAME"
-(cd "$OUT_DIR" && sha256sum "$NAME.tar" > "$NAME.tar.sha256")
-log "wrote $out ($(du -h "$out" | cut -f1))"
-log "sha256 $(cut -d' ' -f1 "$out.sha256")"
+files = []  # (path inside the weights directory, size, opener)
+if stage:
+    for root, _, names in os.walk(stage):
+        for n in sorted(names):
+            path = os.path.join(root, n)
+            files.append((os.path.relpath(path, stage), os.path.getsize(path), lambda path=path: open(path, "rb")))
+else:
+    def gcs(bucket, obj):
+        return lambda: urllib.request.urlopen(f"{GCS}/{bucket}/{urllib.parse.quote(obj)}")
+    prefix = "checkpoints/gemma4-e2b-it/"
+    for o in gcs_objects("gemma-data", prefix):
+        if not o["name"].endswith(("_$folder$", "/")):  # "_$folder$": GCS console placeholders
+            files.append((o["name"][len(prefix):], int(o["size"]), gcs("gemma-data", o["name"])))
+    (tok,) = gcs_objects("gemma-data", "tokenizers/tokenizer_gemma4.model")
+    files.append(("tokenizer_gemma4.model", int(tok["size"]), gcs("gemma-data", tok["name"])))
+files.sort()
+
+class Hashing(io.RawIOBase):
+    """Pass reads (or writes) through, hashing the bytes."""
+    def __init__(self, f):
+        self.f, self.h = f, hashlib.sha256()
+    def readable(self): return True
+    def writable(self): return True
+    def read(self, n=-1):
+        b = self.f.read(n); self.h.update(b); return b
+    def write(self, b):
+        self.h.update(b); return self.f.write(b)
+
+sums, total, start = [], sum(f[1] for f in files), time.time()
+with open(out, "wb") as raw:
+    tar_out = Hashing(raw)
+    with tarfile.open(fileobj=tar_out, mode="w|", format=tarfile.GNU_FORMAT) as tar:
+        done = 0
+        for rel, size, opener in files:
+            info = tarfile.TarInfo(f"{name}/{rel}")
+            info.size, info.mode, info.mtime = size, 0o644, int(start)
+            with opener() as src:
+                reader = Hashing(src)
+                tar.addfile(info, reader)  # raises if the source ends early
+            sums.append(f"{reader.h.hexdigest()}  ./{rel}\n")
+            done += size
+            print(f"[evalrx-weights] {done / 1e9:5.1f}/{total / 1e9:.1f} GB  {rel}", flush=True)
+        data = "".join(sums).encode()
+        info = tarfile.TarInfo(f"{name}/SHA256SUMS")
+        info.size, info.mode, info.mtime = len(data), 0o644, int(start)
+        tar.addfile(info, io.BytesIO(data))
+digest = tar_out.h.hexdigest()
+with open(out + ".sha256", "w") as f:
+    f.write(f"{digest}  {os.path.basename(out)}\n")
+print(f"[evalrx-weights] wrote {out} ({os.path.getsize(out) / 1e9:.1f} GB, {len(files)} files, {time.time() - start:.0f} s)")
+print(f"[evalrx-weights] sha256 {digest}")
+PY

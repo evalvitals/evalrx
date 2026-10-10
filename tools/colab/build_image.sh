@@ -66,11 +66,11 @@ name="evalrx-colab-$ACCEL-image-${COMMIT:0:12}.tar"
 out="$OUT_DIR/$name"
 log "writing $out"
 # Left out: uv (only installs use it), the offline bundle's install inputs, git metadata.
-tar -cf "$out" -C /content \
+# One pass: the checksum is computed while the tar is written.
+tar -cf - -C /content \
   --exclude=evalrx-env/.uv --exclude=evalrx/.git --exclude=evalrx/.bundle/wheels \
   --exclude=evalrx/.bundle/python.tar.gz --exclude=evalrx/.bundle/uv --exclude=evalrx/.bundle/agy \
   --exclude=evalrx/.bundle/SHA256SUMS \
-  evalrx evalrx-env
-(cd "$OUT_DIR" && sha256sum "$name" > "$name.sha256")
+  evalrx evalrx-env | tee "$out" | sha256sum | sed "s| -\$| $name|" > "$out.sha256"
 log "wrote $out ($(du -h "$out" | cut -f1))"
 log "sha256 $(cut -d' ' -f1 "$out.sha256")"
