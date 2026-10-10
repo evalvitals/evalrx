@@ -105,6 +105,9 @@ All runs below used Google's Colab runtime image (`us-docker.pkg.dev/colab-image
 - **TPU, Colab TPU v5e runtime (`release-colab-external-images_20261008-060111_RC00`):** the complete CRUXEval notebook ran in a Jupyter kernel with the Colab kernel's environment. The environment's jax 0.7.2 and libtpu drove the TPU, and the run reached a validated repair (above). The source was copied in instead of fetched by `EVALRX_REF`, and the key came from the environment instead of Colab Secrets.
 - **TPU bundle, `--network none`, CPU:** installation completed, and jax 0.7.2, libtpu 0.0.21.1, gemma 4.0.1, and TensorFlow imported.
 
-Not yet verified: Google-internal Colab. If setup fails there, the endpoint check reports the blocked URL.
+- **Prebuilt image, Colab TPU v5e runtime (`release-colab-external-images_20261008-060111_RC00`):** `setup.ipynb` installed the environment and wrote the image (4.5 GB) and weights tar (17 GB). With git hidden and PyPI, GitHub, PyTorch, Hugging Face, the agy server and GCS unresolvable, `launch.ipynb` restored and verified the image in about a minute. The runtime was recycled while the weights were restoring, so the TPU run of `launch.ipynb` is still pending.
+- **Prebuilt image, Colab runtime image on CPU (local container):** `setup.ipynb` wrote the image. Under the same isolation, `launch.ipynb` restored the image and the 18 GB weights tar in 78 s, both checksums verified. A 2-case CPU baseline then loaded Gemma 4 E2B from the restored weights while GCS was unreachable, and the `agy` check printed `AGENT_READY`.
+
+Not yet verified: Google-internal Colab, and a complete `launch.ipynb` run on a TPU. If setup fails there, the endpoint check reports the blocked URL.
 
 To read a `gs://` bundle or weights tar from a private bucket, first run `from google.colab import auth; auth.authenticate_user()`. The install cell does not run it. Colab TPU runtimes have no Cloud SDK (`gcloud`, `gsutil`), so there the install cell downloads `gs://` paths with the kernel's `google.cloud.storage`, using your credentials or, for a public bucket, anonymous access.
