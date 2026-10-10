@@ -26,7 +26,7 @@ Choose a setup method:
 | Runtime | Setup |
 |---|---|
 | Colab with internet access | Run the notebook unchanged. |
-| Colab with restricted egress, e.g. Google-internal Colab | Use an offline bundle (below). |
+| Colab with restricted egress or no git, e.g. Google-internal Colab | Use an offline bundle, and where the model source is unreachable a weights tar (below). |
 | A GPU machine you control | Run the [local-runtime image](#local-runtime-container) and connect Colab to it. |
 
 Before installing anything, setup checks each download endpoint. If an endpoint is blocked, the error names it and the variable that overrides it:
@@ -37,7 +37,7 @@ Before installing anything, setup checks each download endpoint. If an endpoint 
 | `EVALRX_TORCH_INDEX` | `https://download.pytorch.org/whl/cu129` (GPU), `.../whl/cpu` (TPU) |
 | `EVALRX_PYTHON_MIRROR` | python-build-standalone on GitHub (uv's `UV_PYTHON_INSTALL_MIRROR`) |
 | `EVALRX_AGY_INSTALLER` | `https://antigravity.google/cli/install.sh` (`EVALRX_SKIP_AGY=1` skips agy) |
-| `EVALRX_REF`, `EVALRX_BUNDLE`, `EVALRX_ENV`, `EVALRX_REPO` | set in the first cell |
+| `EVALRX_REF`, `EVALRX_BUNDLE`, `EVALRX_WEIGHTS`, `EVALRX_ENV`, `EVALRX_REPO` | set in the first cell |
 
 Set these with `os.environ[...] = ...` in a cell before the install cell, or edit the first cell.
 
@@ -49,12 +49,17 @@ On any Linux x86_64 machine with internet access, at a committed revision:
 bash tools/colab/build_bundle.sh gpu   # or tpu; writes dist/evalrx-colab-gpu-<commit>.tar
 ```
 
-The tar contains the source tree, uv, a relocatable Python 3.12, every locked wheel, the agy binary, the two notebook datasets frozen at 128 cases and seed 0, and SHA-256 checksums. The builder installs the bundle into a scratch environment without network access to the package indexes, then freezes the datasets with it. A missing wheel therefore fails the build instead of the notebook. Upload the tar where the runtime can read it, such as a GCS bucket, Google Drive, or an internal share. Then set `EVALRX_BUNDLE` in the first cell to its `gs://`, `https://`, or local path (for example `/content/drive/MyDrive/...`). Setup then downloads nothing from GitHub, PyPI, PyTorch, or the agy server.
+The tar contains the source tree, uv, a relocatable Python 3.12, every locked wheel, the agy binary, the two notebook datasets frozen at 128 cases and seed 0, and SHA-256 checksums. The builder installs the bundle into a scratch environment without network access to the package indexes, then freezes the datasets with it. A missing wheel therefore fails the build instead of the notebook. Upload the tar where the runtime can read it, such as a GCS bucket, Google Drive, or an internal share. Then set `EVALRX_BUNDLE` in the first cell to its `gs://`, `https://`, or local path (for example `/content/drive/MyDrive/...`). Setup then downloads nothing from GitHub, PyPI, PyTorch, or the agy server, and does not need git installed.
 
-The bundle does not include these runtime resources:
+The bundle does not include the model weights. By default GPU reads `google/gemma-4-E2B-it` from the Hugging Face Hub (not gated), and TPU reads `gs://gemma-data/checkpoints/gemma4-e2b-it` anonymously. Where that source is unreachable, pack the weights once:
 
-- **Gemini API** (`generativelanguage.googleapis.com`) for the agy agent, authenticated with `GEMINI_API_KEY`.
-- **Model weights.** GPU uses `google/gemma-4-E2B-it` from the Hugging Face Hub, which is not gated. TPU uses `gs://gemma-data/checkpoints/gemma4-e2b-it`, read anonymously. Where either is unreachable, copy the weights to a reachable location and add `--model-path <dir>` to the `evalrx run` cell.
+```bash
+bash tools/colab/build_weights.sh tpu   # or gpu; writes dist/evalrx-colab-weights-tpu-gemma-4-e2b.tar
+```
+
+The TPU tar is 17 GB: the Orbax checkpoint plus its tokenizer, downloaded over plain HTTPS. The GPU tar is the Hugging Face snapshot. The weights do not depend on the EvalRX revision, so one tar serves every bundle. Host it next to the bundle and set `EVALRX_WEIGHTS` in the first cell to its path or URL, or to a directory that already holds the unpacked weights. The install cell unpacks the tar to `/content/evalrx-weights` and verifies its checksums, and the run cell passes the weights as `--model-path`.
+
+One runtime resource remains outside both tars: the **Gemini API** (`generativelanguage.googleapis.com`) for the agy agent, authenticated with `GEMINI_API_KEY`.
 
 ### Local-runtime container
 
@@ -79,4 +84,4 @@ All runs below used Google's Colab runtime image (`us-docker.pkg.dev/colab-image
 
 Not yet verified: Google-internal Colab. If setup fails there, the endpoint check reports the blocked URL.
 
-To read a `gs://` bundle from hosted Colab, first run `from google.colab import auth; auth.authenticate_user()`. The install cell does not run it.
+To read a `gs://` bundle or weights tar from a private bucket, first run `from google.colab import auth; auth.authenticate_user()`. The install cell does not run it. Colab TPU runtimes have no Cloud SDK (`gcloud`, `gsutil`), so there the install cell downloads `gs://` paths with the kernel's `google.cloud.storage`, using your credentials or, for a public bucket, anonymous access.
