@@ -26,12 +26,26 @@ Google recommends migrating individual-account Gemini CLI users to agy; API-key 
 
 ## Prebuilt TPU image: install once, launch anywhere
 
-For Google-internal Colab, or any runtime without git or package downloads, use [`tpu/evalrx_tpu.ipynb`](tpu/evalrx_tpu.ipynb). It is a single notebook. Set `EVALRX_STORE` to a folder (Drive, `gs://`, or a local path) and run all cells:
+[`tpu/evalrx_tpu.ipynb`](tpu/evalrx_tpu.ipynb) runs EvalRX on any Colab TPU runtime: public Colab, Google-internal Colab, or a later Colab image. To run it:
 
-- **First run**, on a Colab TPU runtime with internet access: the store has no image yet. The notebook installs the locked environment, packs it into an image tar and the model weights into a weights tar, saves both to the store, then runs the experiment. Installing takes about 15 minutes.
-- **Every later run**, on any Colab TPU runtime: the notebook finds the image in the store and installs nothing. It restores the image by unpacking it, checks the TPU and `agy`, runs the complete workflow on `bbh_word_sorting` or `cruxeval_output`, and shows the result.
+1. Select a TPU runtime.
+2. Add `GEMINI_API_KEY` to Colab Secrets.
+3. Run all cells.
 
-For an internal runtime that cannot read the store the image was built into, copy the two tars and their `.sha256` files to a folder it can read, and point `EVALRX_STORE` there. `EVALRX_IMAGE` and `EVALRX_WEIGHTS` can also name each tar directly, including as an `https://` URL.
+The notebook downloads the public prebuilt image from Google Drive. The image is shared with anyone who has the link, and the notebook holds its link and SHA-256 checksum. The notebook unpacks the image, checks the TPU and `agy`, runs the complete workflow on `bbh_word_sorting` or `cruxeval_output`, and shows the result. It installs nothing, and it needs no git, GitHub or PyPI.
+
+The image contains the environment only, not a model. Model weights load from the source that EvalRX registers for `MODEL` in `evalrx/specs.py`. For Gemma 4 E2B and E4B on TPU, that source is Google's public `gs://gemma-data`. Switching models therefore only means setting `MODEL`. A runtime that cannot read the weights source can use a weights tar instead (`EVALRX_WEIGHTS`, see *Offline bundle* below).
+
+| Public file (Google Drive) | Size | SHA-256 |
+|---|---|---|
+| [`evalrx-colab-tpu-image-e6e8ec4db687.tar`](https://drive.google.com/file/d/1dkVwb02WnR15NBfDy20m5lOeT_oENMdV) (EvalRX commit `e6e8ec4`) | 4.8 GB | `1a2048c8fc8a6e7effe659ffda4c86a065439d557ada54fc79bb918ddeb36f21` |
+
+Google Drive limits how often a shared file can be downloaded in a day. If the notebook reports "quota exceeded", try again later, or keep your own copy. To use your own copy, set `EVALRX_STORE` to a folder (Drive, `gs://`, or a local path):
+
+- If the folder holds an image, the notebook uses the newest one.
+- If it holds none, the notebook builds one on a runtime with internet access and saves it there. Building installs the locked environment and packs it, which takes about 5 minutes. With `EVALRX_BUILD_WEIGHTS`, the notebook also packs `MODEL`'s weights into a tar next to the image.
+
+`EVALRX_IMAGE` and `EVALRX_WEIGHTS` can also name a tar directly, as a path, a Drive file link, or an `https://` URL.
 
 The image, `evalrx-colab-tpu-image-<commit>.tar` (about 5 GB), holds the installed `/content/evalrx-env` and `/content/evalrx`:
 
@@ -39,9 +53,9 @@ The image, `evalrx-colab-tpu-image-<commit>.tar` (about 5 GB), holds the install
 - the EvalRX source and the two datasets, frozen at 128 cases and seed 0;
 - a manifest `evalrx-env/.image` that records the commit, the package versions, and the Colab image it was built on.
 
-The weights tar, `evalrx-colab-weights-tpu-gemma-4-e2b.tar` (18 GB), holds the Gemma 4 E2B checkpoint and tokenizer. It does not depend on the EvalRX revision. Each tar has a `.sha256` file; keep it next to the tar. The notebook checks the checksum while it unpacks, and rejects a damaged or partial copy.
+A weights tar, `evalrx-colab-weights-tpu-<model>.tar`, holds one model's checkpoint and tokenizer, for example 18 GB for Gemma 4 E2B. It does not depend on the EvalRX revision. Each tar has a `.sha256` file; keep it next to the tar. The notebook checks the checksum while it unpacks, and rejects a damaged or partial copy.
 
-Launching does not run pip, uv, or git, and it does not contact GitHub, PyPI, or the model's source. It does not import or change the Colab kernel's packages, so the kernel's Python version does not matter. The only network service a run needs is the Gemini API, for `agy`. The image restores to the fixed paths `/content/evalrx` and `/content/evalrx-env`, which its scripts refer to.
+Launching does not run pip, uv, or git, and it does not contact GitHub or PyPI. It does not import or change the Colab kernel's packages, so the kernel's Python version does not matter. A run uses three network services: the image's location (Google Drive by default), the model's weights source (unless a weights tar is given), and the Gemini API, for `agy`. The image restores to the fixed paths `/content/evalrx` and `/content/evalrx-env`, which its scripts refer to.
 
 A later Colab image does not affect the image. A new TPU generation can: libtpu 0.0.21.1 supports the TPUs available in Colab as of October 2026. If the TPU check fails on new hardware, update `tools/colab/lock/tpu.txt` and build a new image: set `EVALRX_REBUILD = True` (or remove the image from the store) and run the notebook on a runtime with internet access.
 
@@ -84,7 +98,7 @@ The tar contains the source tree, uv, a relocatable Python 3.12, every locked wh
 The bundle does not include the model weights. By default GPU reads `google/gemma-4-E2B-it` from the Hugging Face Hub (not gated), and TPU reads `gs://gemma-data/checkpoints/gemma4-e2b-it` anonymously. Where that source is unreachable, pack the weights once:
 
 ```bash
-bash tools/colab/build_weights.sh tpu   # or gpu; writes dist/evalrx-colab-weights-tpu-gemma-4-e2b.tar
+bash tools/colab/build_weights.sh tpu dist gemma-4-e2b   # or gpu; any model in evalrx/benchmark/models.py; writes dist/evalrx-colab-weights-tpu-gemma-4-e2b.tar
 ```
 
 The TPU tar is 17 GB: the Orbax checkpoint plus its tokenizer, downloaded over plain HTTPS. The GPU tar is the Hugging Face snapshot. The weights do not depend on the EvalRX revision, so one tar serves every bundle. Host it next to the bundle and set `EVALRX_WEIGHTS` in the first cell to its path or URL, or to a directory that already holds the unpacked weights. The install cell unpacks the tar to `/content/evalrx-weights` and verifies its checksums, and the run cell passes the weights as `--model-path`.
