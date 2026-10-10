@@ -19,12 +19,12 @@ Google recommends migrating individual-account Gemini CLI users to agy; API-key 
 
 ## Prebuilt TPU image: install once, launch anywhere
 
-For Google-internal Colab, or any runtime without git or package downloads, use the two TPU notebooks below in place of an install cell:
+For Google-internal Colab, or any runtime without git or package downloads, use [`tpu/evalrx_tpu.ipynb`](tpu/evalrx_tpu.ipynb). It is a single notebook. Set `EVALRX_STORE` to a folder (Drive, `gs://`, or a local path) and run all cells:
 
-| Notebook | When | What it does |
-|---|---|---|
-| [`tpu/setup.ipynb`](tpu/setup.ipynb) | Once, on a Colab TPU runtime with internet access | Installs the locked environment and packs it into an image tar. Optionally also packs the model weights. Saves both to Drive, GCS, or a local directory. |
-| [`tpu/launch.ipynb`](tpu/launch.ipynb) | Every session, on any Colab TPU runtime | Restores the image by unpacking it, checks the TPU and `agy`, runs the complete workflow on `bbh_word_sorting` or `cruxeval_output`, and shows the result. |
+- **First run**, on a Colab TPU runtime with internet access: the store has no image yet. The notebook installs the locked environment, packs it into an image tar and the model weights into a weights tar, saves both to the store, then runs the experiment. Installing takes about 15 minutes.
+- **Every later run**, on any Colab TPU runtime: the notebook finds the image in the store and installs nothing. It restores the image by unpacking it, checks the TPU and `agy`, runs the complete workflow on `bbh_word_sorting` or `cruxeval_output`, and shows the result.
+
+For an internal runtime that cannot read the store the image was built into, copy the two tars and their `.sha256` files to a folder it can read, and point `EVALRX_STORE` there. `EVALRX_IMAGE` and `EVALRX_WEIGHTS` can also name each tar directly, including as an `https://` URL.
 
 The image, `evalrx-colab-tpu-image-<commit>.tar` (about 5 GB), holds the installed `/content/evalrx-env` and `/content/evalrx`:
 
@@ -32,11 +32,11 @@ The image, `evalrx-colab-tpu-image-<commit>.tar` (about 5 GB), holds the install
 - the EvalRX source and the two datasets, frozen at 128 cases and seed 0;
 - a manifest `evalrx-env/.image` that records the commit, the package versions, and the Colab image it was built on.
 
-The weights tar, `evalrx-colab-weights-tpu-gemma-4-e2b.tar` (18 GB), holds the Gemma 4 E2B checkpoint and tokenizer. It does not depend on the EvalRX revision. Each tar has a `.sha256` file; keep it next to the tar. `launch.ipynb` checks the checksum while it unpacks, and rejects a damaged or partial copy.
+The weights tar, `evalrx-colab-weights-tpu-gemma-4-e2b.tar` (18 GB), holds the Gemma 4 E2B checkpoint and tokenizer. It does not depend on the EvalRX revision. Each tar has a `.sha256` file; keep it next to the tar. The notebook checks the checksum while it unpacks, and rejects a damaged or partial copy.
 
 Launching does not run pip, uv, or git, and it does not contact GitHub, PyPI, or the model's source. It does not import or change the Colab kernel's packages, so the kernel's Python version does not matter. The only network service a run needs is the Gemini API, for `agy`. The image restores to the fixed paths `/content/evalrx` and `/content/evalrx-env`, which its scripts refer to.
 
-A later Colab image does not affect the image. A new TPU generation can: libtpu 0.0.21.1 supports the TPUs available in Colab as of October 2026. If the TPU check in `launch.ipynb` fails on new hardware, update `tools/colab/lock/tpu.txt` and run `setup.ipynb` again.
+A later Colab image does not affect the image. A new TPU generation can: libtpu 0.0.21.1 supports the TPUs available in Colab as of October 2026. If the TPU check fails on new hardware, update `tools/colab/lock/tpu.txt` and build a new image: set `EVALRX_REBUILD = True` (or remove the image from the store) and run the notebook on a runtime with internet access.
 
 The scripts behind the notebooks also work outside them: `tools/colab/build_image.sh` packs an environment built by `bootstrap.sh`, and `tools/colab/build_weights.sh` packs the weights.
 

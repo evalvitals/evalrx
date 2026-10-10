@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Pack the installed EvalRX environment into a Colab image: one .tar that
-# launch.ipynb restores by unpacking it, with no install step.
+# examples/colab/tpu/evalrx_tpu.ipynb restores by unpacking it, with no install step.
 #
 #   bash tools/colab/build_image.sh gpu|tpu [out_dir]     # default out_dir: /content/evalrx-image-out
 #
 # Run it on a Colab runtime with the target accelerator, after bootstrap.sh has
-# built /content/evalrx-env from the source in /content/evalrx (setup.ipynb does
+# built /content/evalrx-env from the source in /content/evalrx (evalrx_tpu.ipynb does
 # all three steps). The image holds both directories at those fixed paths: the
 # environment's scripts and its editable EvalRX install refer to them, so it
 # must be restored to /content. Inside:
 #   evalrx/          the source tree, with the frozen notebook datasets in .bundle/data
 #   evalrx-env/      Python 3.12, every locked package, agy; .image = manifest (JSON)
-# Next to the tar, <name>.sha256 holds its checksum; launch.ipynb checks it while
+# Next to the tar, <name>.sha256 holds its checksum; the notebook checks it while
 # unpacking. Freezing the datasets needs internet access; nothing else does.
 set -euo pipefail
 
@@ -42,7 +42,7 @@ for ds in $DATASETS; do
      --download-limit 128 --seed 0 --download-only --data-dir "$REPO_DIR/.bundle/data" >/dev/null)
 done
 
-# Smoke test the environment as launch.ipynb will use it, then record what it holds.
+# Smoke test the environment as the notebook will use it, then record what it holds.
 "$ENV_DIR/bin/evalrx" --help >/dev/null
 [ -x "$ENV_DIR/bin/agy" ] || die "agy missing from $ENV_DIR/bin"
 "$ENV_DIR/bin/python" - "$ACCEL" "$COMMIT" "$ENV_DIR/.image" <<'PY'

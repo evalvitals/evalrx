@@ -9,7 +9,7 @@
 # directory that `evalrx run --model-path` takes: for TPU the Orbax checkpoint
 # with tokenizer_gemma4.model inside it (18 GB), for GPU the Hugging Face
 # snapshot of google/gemma-4-E2B-it. SHA256SUMS inside covers every file, and
-# <name>.tar.sha256 next to it the tar, which launch.ipynb checks. It does not
+# <name>.tar.sha256 next to it the tar, which tpu/evalrx_tpu.ipynb checks. It does not
 # depend on the EvalRX revision, so one weights tar serves every bundle. Host it
 # next to the bundle and set EVALRX_WEIGHTS in the notebook's first cell.
 #
