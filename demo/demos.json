@@ -1,0 +1,14 @@
+[
+  {
+    "tag": "VLM · image + text",
+    "title": "Gemini 2.5 Flash-Lite on ChartQA",
+    "blurb": "256 human-written chart questions, 128 diagnosed / 128 confirm. Three hypotheses proposed, none certified on held-out cases; the L1 repair that reads the chart marks before computing fixes 21 and breaks 6 (e = 16, short of the bar) — an honest negative.",
+    "href": "vlm.html"
+  },
+  {
+    "tag": "ALM · audio + text",
+    "title": "Gemma 4 E2B on MMAU",
+    "blurb": "256 audio reasoning questions with the same split. Two of three hypotheses hold up on held-out cases — the model drops the answer letter — and the L2 consensus repair for malformed choices is confirmed: 25 repaired, 0 broken.",
+    "href": "alm.html"
+  }
+]
