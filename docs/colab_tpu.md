@@ -2,7 +2,7 @@
 
 The [Colab notebook index](https://github.com/evalvitals/evalrx/tree/ruinan/examples/colab) links the completed TPU word-sorting example and tracks the remaining TPU/GPU notebooks awaiting completed execution.
 
-Each notebook installs EvalRX and Antigravity CLI (`agy`), launches the coding agent in the runtime, runs `evalrx run`, and displays the baseline, agent analysis, repair selection, and independent confirmation. Save the executed notebook to keep its outputs, generated code, tables, and figures together.
+Each notebook installs EvalRX and Antigravity CLI (`agy`), launches the coding agent in the runtime, runs `evalrx run`, and displays the baseline, agent analysis, repair selection, and independent confirmation. Installation creates a separate environment in `/content/evalrx-env`, with its own Python 3.12 and locked packages, so Colab image updates do not change it. Where GitHub or PyPI are unreachable, as in Google-internal Colab, the notebook can install from an offline bundle instead. For setup options, see the [environment section](https://github.com/evalvitals/evalrx/tree/ruinan/examples/colab#environment) of the notebook index. Save the executed notebook to keep its outputs, generated code, tables, and figures together.
 
 Add `GEMINI_API_KEY` to Colab Secrets and enable notebook access. The notebook sets agy's `modelProvider` to `gemini`; the key alone is insufficient. No interactive login is required. See [agy authentication](https://www.antigravity.google/docs/cli/install/).
 
