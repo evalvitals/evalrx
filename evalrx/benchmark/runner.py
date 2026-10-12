@@ -590,7 +590,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         floor = {"max_tokens": gen_kwargs.get("max_new_tokens", task.max_new_tokens)}
         if sampled:
             floor.update(temperature=gen_kwargs["temperature"], top_p=gen_kwargs["top_p"])
-        fix_kwargs.update(baseline_generation_kwargs=floor, floor_candidates=("self_consistency_5",))
+        fix_kwargs.update(baseline_generation_kwargs=floor)
     prewritten_code = (
         Path(args.fix_code_file).read_text(encoding="utf-8")
         if args.fix_code_file else ""

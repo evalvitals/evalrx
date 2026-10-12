@@ -121,3 +121,47 @@ def test_agentic_rejects_unsupported_holdout_before_model_load():
                                      "--diagnosis-mode", "agentic", "--held-out"])
     with pytest.raises(ValueError, match="EXPLORE"):
         run_args(args)
+
+
+@pytest.mark.parametrize('modality,dataset', [
+    ('llm', 'bbh_causal_judgement'), ('vlm', 'chartqa'), ('alm', 'mmau'),
+])
+def test_default_runner_constructs_agentic_pipeline_for_every_modality(monkeypatch, tmp_path,
+                                                                     modality, dataset):
+    from evalrx.benchmark.models import resolve
+    from evalrx.benchmark.tasks import get
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.eval_agent import AgenticDiagnoseLoop, CaseDiscoveryAgent
+    from evalrx.specs import get_spec
+    from tests.conftest import FakeModel
+
+    cases = CaseBatch([
+        FailureCase(id=str(i), inputs=Inputs(prompt=f'question {i}'), expected='A',
+                    observed='A' if i % 2 else 'B', label=Label.PASS if i % 2 else Label.FAIL)
+        for i in range(8)
+    ])
+    args = build_parser().parse_args(['--modality', modality, '--model', 'gemini-3.6-flash',
+                                     '--dataset', dataset, '--run-dir', str(tmp_path)])
+    resolved = resolve(args.model, modality, 'gemini')
+    monkeypatch.setattr(runner, 'ensure_manifest', lambda *a: tmp_path / 'manifest.json')
+    monkeypatch.setattr(runner.T, 'build_cases', lambda *a: (cases, []))
+    monkeypatch.setattr(runner, 'build_judge', lambda *a: (FakeModel(), 'claude', None, ()))
+    monkeypatch.setattr(runner, 'load_model', lambda *a: (
+        FakeModel(), {'do_sample': True, 'temperature': 0.6, 'top_p': 0.95},
+        get_spec(resolved.spec_key)))
+    monkeypatch.setattr(CaseDiscoveryAgent, 'discover', lambda *a, **k: SimpleNamespace(
+        cases=cases, n_pass=4, n_fail=4, n_unknown=0, has_m4_groups=True))
+
+    class ReachedController(Exception):
+        pass
+
+    def run(loop, data):
+        assert loop.probe_agent.allow_codegen
+        assert loop.max_actions == 12
+        assert loop.fix_agent._floor_candidates == ()
+        assert len(data) == 8
+        raise ReachedController
+
+    monkeypatch.setattr(AgenticDiagnoseLoop, 'run', run)
+    with pytest.raises(ReachedController):
+        runner.run(args, get(dataset), resolved)
