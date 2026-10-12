@@ -29,6 +29,7 @@ mypy evalrx --ignore-missing-imports
 2. If white-box internals are needed, add `evalrx/models/whitebox/<family>.py` — declare `capabilities` + implement `forward(inputs, capture) -> Trace` — and register with `@register_model`.
 3. The `compose()` function in `evalrx/models/compose.py` wires everything together; no changes needed there for a new spec-only model.
 4. Write a unit test in `tests/test_models/` using `FakeModel` from `tests/conftest.py` (no GPU needed).
+5. Run `python tools/gen_analyzer_docs.py` to add the spec to the model tables in `docs/analyzers.md`.
 
 See `docs/extending.md` for a full walkthrough.
 
@@ -40,8 +41,9 @@ See `docs/extending.md` for a full walkthrough.
 4. Decorate with `@register_analyzer("<name>")`.
 5. Import the new module in `evalrx/analyzers/<category>/__init__.py`.
 6. Write a unit test using `FakeModel`.
+7. Run `python tools/gen_analyzer_docs.py` and fill in the new row's name and Paper in `docs/analyzers.md`.
 
-The new analyzer is instantly discoverable via `registry.analyzers.names_compatible_with(model)` — no other changes needed.
+The new analyzer is instantly discoverable via `registry.analyzers.names_compatible_with(model)` — no other code changes needed.
 
 ## Pull requests
 
