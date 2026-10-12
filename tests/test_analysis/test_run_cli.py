@@ -79,8 +79,7 @@ def test_agy_effort_is_forwarded_to_both_judge_and_coder(monkeypatch):
     assert observed['effort'] == 'low'
 
 
-@pytest.mark.parametrize('mode,expected', [('auto', 'auto'), ('on', True), ('off', False)])
-def test_gemini_benchmark_forwards_probability_policy(monkeypatch, mode, expected):
+def test_gemini_benchmark_probes_probability_support_automatically(monkeypatch):
     from importlib import import_module
 
     from evalrx.benchmark.models import resolve
@@ -93,20 +92,27 @@ def test_gemini_benchmark_forwards_probability_policy(monkeypatch, mode, expecte
         return SimpleNamespace()
     monkeypatch.setattr(gemini, 'gemini_runtime', runtime)
     monkeypatch.setattr(import_module('evalrx.models.compose'), 'compose', lambda *args: 'model')
-    args = build_parser().parse_args(['--modality', 'vlm', '--model', 'gemini-3.6-flash',
-                                     '--gemini-logprobs', mode, '--gemini-top-logprobs', '10'])
+    args = build_parser().parse_args(['--modality', 'vlm', '--model', 'gemini-3.6-flash'])
     runner.load_model(resolve(args.model, 'vlm', 'gemini'), args, get('chartqa'))
-    assert observed['with_logprobs'] == expected
+    assert observed['with_logprobs'] == 'auto'
     assert observed['logprobs_model'] == 'gemini-3.6-flash'
-    assert observed['top_logprobs'] == 10
+    assert observed['top_logprobs'] == 5
 
 
-def test_agentic_cli_exposes_bounded_controller():
-    args = build_parser().parse_args(["--diagnosis-mode", "agentic", "--max-actions", "8",
-                                     "--no-fix-floor", "--m1-codegen"])
-    assert (args.diagnosis_mode, args.max_actions, args.fix_floor, args.m1_codegen) == (
-        "agentic", 8, False, True)
-    assert args.diagnosis_retries == 1
+def test_agentic_is_default_without_extra_flags():
+    parser = build_parser()
+    args = parser.parse_args([])
+    assert args.diagnosis_mode == "agentic"
+    assert args.max_actions == 12
+    help_text = parser.format_help()
+    for removed in ("--diagnosis-mode", "--diagnosis-retries", "--m1-codegen",
+                    "--fix-floor", "--gemini-logprobs", "--gemini-top-logprobs"):
+        assert removed not in help_text
+    assert parser.parse_args(["--max-actions", "8"]).max_actions == 8
+
+
+def test_legacy_fixed_protocol_remains_replayable():
+    assert build_parser().parse_args(["--diagnosis-mode", "fixed"]).diagnosis_mode == "fixed"
 
 
 def test_agentic_rejects_unsupported_holdout_before_model_load():

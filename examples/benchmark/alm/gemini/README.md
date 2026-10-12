@@ -30,13 +30,11 @@ audio, so the same service names exist in the llm / vlm / alm leaves.
 `--thinking-level {minimal,low,medium,high}` / `--thinking-budget N` override
 the floor; `--enable-thinking` leaves the API default.
 
-The benchmark defaults to `--gemini-logprobs auto`: a short real request must
-return valid token log probabilities before the model exposes `LOGPROBS` to
-analyzers. `--gemini-logprobs on` requires support and fails if unavailable;
-`off` skips the probe. `--gemini-top-logprobs 5` requests five alternatives
-(allowed range 0–20). The response evidence and effective capabilities are
-saved in `api_capabilities.json`. Authentication, quota and transport failures
-remain errors; they are not interpreted as missing model capabilities.
+The benchmark automatically probes probability support with a short real request.
+Only valid token log probabilities enable `LOGPROBS` analyzers; five top
+alternatives are requested when supported. Response evidence and effective
+capabilities are saved in `api_capabilities.json`. Authentication, quota and
+transport failures remain errors rather than being treated as missing capabilities.
 
 Raw logits and model internals are unavailable. Top-k logprobs cannot be
 substituted for logits. Without logprobs, probability-only analyzers are
@@ -89,4 +87,4 @@ Requests retry with backoff on 429/5xx (`--request-retries`, default 5;
 `--request-timeout`, default 300 s). `CONCURRENCY` (default 4) controls the
 number of discovery requests in flight.
 
-For adaptive probe selection and bounded controller decisions, add `--diagnosis-mode agentic --max-actions 12`. See [adaptive benchmark diagnosis](../../../../docs/agentic_benchmark.md) for the confirmation boundary, failure handling, and protocol differences.
+Adaptive probe selection and bounded controller decisions are the default; no mode flag is needed. See [adaptive benchmark diagnosis](../../../../docs/agentic_benchmark.md) for the confirmation boundary, failure handling, and protocol differences.

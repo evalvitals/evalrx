@@ -117,10 +117,9 @@ def load_model(resolved: Resolved, args, task: T.Task):
                                 floor=not args.enable_thinking)
         runtime = gemini_runtime(api_key=args.api_key, timeout=args.request_timeout,
                                  retries=args.request_retries, thinking=policy,
-                                 with_logprobs={"auto": "auto", "on": True, "off": False}[
-                                     getattr(args, "gemini_logprobs", "auto")],
+                                 with_logprobs="auto",
                                  logprobs_model=spec.hf_repo or spec.key,
-                                 top_logprobs=getattr(args, "gemini_top_logprobs", 5), **sampling)
+                                 top_logprobs=5, **sampling)
         return compose(spec, "api", runtime, set()), {}, spec
     from evalrx.models.backends.base import RuntimeConfig
 
@@ -200,9 +199,8 @@ def build_judge(args):
     providers as the m1_m5 examples; the benchmark CLI defaults to
     Claude / claude-opus-5 / high."""
     if args.judge_provider == "gemini":
-        adaptive = getattr(args, "diagnosis_mode", "fixed") == "agentic"
-        probe_codegen = getattr(args, "m1_codegen", None)
-        probe_codegen = adaptive if probe_codegen is None else probe_codegen
+        adaptive = getattr(args, "diagnosis_mode", "agentic") == "agentic"
+        probe_codegen = adaptive and args.allow_codegen
         stats_codegen = args.m2_codegen if args.m2_codegen is not None else adaptive
         if (args.allow_codegen or args.explore or stats_codegen or probe_codegen
                 or not args.skip_m5) and not getattr(args, "coder_provider", None):
@@ -425,9 +423,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                 "fix_tier": args.fix_tier,
                 "allow_codegen": args.allow_codegen, "auto_escalate": args.auto_escalate,
                 "m1_selection": args.m1_selection, "generation_kwargs": gen_kwargs,
-                "diagnosis_mode": getattr(args, "diagnosis_mode", "fixed"),
+                "diagnosis_mode": getattr(args, "diagnosis_mode", "agentic"),
                 "max_actions": getattr(args, "max_actions", 12),
-                "diagnosis_retries": getattr(args, "diagnosis_retries", 1),
+                "diagnosis_retries": 1,
                 "enable_thinking": bool(args.enable_thinking),
                 "judge_provider": args.judge_provider, "judge_model": args.judge_model,
             },
@@ -556,9 +554,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     # backends can continue issuing concurrent requests.
     probe_workers = 1 if resolved.backend in {"hf_local", "jax_local"} else 8
     ctx.config["m1_workers"] = probe_workers
-    agentic = getattr(args, "diagnosis_mode", "fixed") == "agentic"
-    m1_codegen = getattr(args, "m1_codegen", None)
-    m1_codegen = agentic if m1_codegen is None else m1_codegen
+    agentic = getattr(args, "diagnosis_mode", "agentic") == "agentic"
+    m1_codegen = agentic and args.allow_codegen
     ctx.config["m1_codegen"] = bool(m1_codegen)
     ctx.config["m1_selection"] = "judge" if agentic or m1_codegen else args.m1_selection
     if args.m1_selection == "pinned" and not agentic and not m1_codegen:
@@ -617,10 +614,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         exec_timeout_sec=args.fix_exec_timeout,
         prewritten_code=prewritten_code,
         concurrency=getattr(args, "concurrency", 1),
-        floor_candidates=("self_consistency_5",) if (
-            getattr(args, "fix_floor", None) if getattr(args, "fix_floor", None) is not None
-            else not agentic
-        ) else (),
+        floor_candidates=() if agentic else ("self_consistency_5",),
         progress_callback=_print_fix_progress,
         **fix_kwargs,
     )
@@ -647,7 +641,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                            registry_factory=_benchmark_agentic_registry)
     loop = loop_class(
         **loop_kwargs,
-        diagnosis_retries=getattr(args, "diagnosis_retries", 1),
+        diagnosis_retries=1,
         model=model, protocol=protocol, probe_agent=probe_agent, stats_agent=stats_agent,
         diagnosis_agent=DiagnosisAgent(judge=judge),
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),

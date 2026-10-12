@@ -1,7 +1,7 @@
 # Benchmark matrix: model family × modality × dataset
 
-The full diagnosis chain — Stage 0 baseline → M1 (pinned analyzers) → explore →
-M2 → M3 → M4 → M5 → fix — run as a **matrix** over three model families,
+The full diagnosis chain — Stage 0 baseline → agent-directed M1–M4 investigation
+→ M5 → repair search and confirmation — runs as a **matrix** over model families,
 three input modalities and the benchmark datasets of each modality, through one
 code path ([`_common/run.py`](_common/run.py)). Each `<modality>/<family>/`
 directory is one cell family: a compose file whose services are the sizes, with
@@ -200,10 +200,11 @@ the final significance gate, and the validation data costs no confirm power.
   defaults `enable_thinking` to false and the spec sends it explicitly, yet 3/8
   MMAU generations still opened a `thought` channel and hit the 64-token cap.
   `termination_audit` / `answer_extraction_audit` are pinned for exactly that.
-* **M1 is pinned per task** (`Task.pinned_m1`, the audited sets of the `m1_m5`
-  examples; an 8-analyzer text set for llm). `--m1-selection judge` switches to
-  catalog selection, which is modality-gated on the MODEL — on a multimodal spec
-  running a text task it can pick image analyzers, hence the pinned default.
+* **Agentic diagnosis is the default.** The controller chooses its next action,
+  selects available probes, and can request custom analysis using the task and
+  observed failures. No mode flag is required. `--max-actions` optionally changes
+  the default budget of 12 decisions. See [agentic diagnosis](../../docs/agentic_benchmark.md)
+  for confirmation isolation and legacy fixed-protocol replay.
 
 ### Held-out isolation during the fix stage
 
