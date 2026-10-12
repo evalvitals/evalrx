@@ -1,19 +1,24 @@
 """Analyzers — functional taxonomy keyed by required capability (not black/white-box).
 
 Every analyzer declares ``requires`` (capabilities) + ``applies_to_modalities`` and
-self-registers on import.  Categories:
+self-registers on import.  Categories (full tables: docs/analyzers.md):
 
-    perturbation/   input masking (RISE; VL-SHAP/MM-SHAP)        — GENERATE/LOGPROBS
-    uncertainty/    entropy / self-consistency / verbalized conf  — LOGITS/GENERATE
-    hallucination/  POPE / CHAIR / OPERA / VCD                    — GENERATE/ATTENTION
-    attention/      summary / rollout / sink / relative-attn      — ATTENTION
-    attribution/    Grad-CAM / Chefer generic-attention           — GRADIENTS
-    lens/           logit-lens / tuned-lens                       — HIDDEN_STATES
-    patching/       causal tracing / activation patching          — HIDDEN_STATES (read+write)
-    geometry/       CKA / linear-probe                            — HIDDEN_STATES
+    perturbation/   RISE / VL-SHAP / MM-SHAP / modality ablation /
+                    prompt contrast / MC format / CoT faithfulness /
+                    context-SHAP / perturbation battery            — GENERATE/LOGPROBS
+    uncertainty/    entropy / self-consistency / verbalized conf /
+                    calibration / coverage-verification gap        — LOGITS/LOGPROBS/GENERATE
+    hallucination/  POPE / CHAIR / SelfCheck / OPERA / VCD         — GENERATE/ATTENTION/LOGITS
+    attention/      summary / rollout / sink / relative-attn       — ATTENTION
+    attribution/    Grad-CAM / Chefer generic-attention            — GRADIENTS
+    lens/           logit-lens / tuned-lens / layer contrast       — HIDDEN_STATES
+    patching/       causal tracing / activation patching           — HIDDEN_STATES (read+write)
+    geometry/       CKA / linear-probe                             — HIDDEN_STATES
     reasoning/      extraction/termination hygiene; arithmetic,
-                    self-repair, step-value, knowledge split       — GENERATE
-    agent/          loop / ignored-obs / first-error / counterfactual — Trajectory
+                    self-repair, step-value, knowledge split,
+                    contamination                                  — GENERATE
+    agent/          loop / ignored-obs / first-error / rubric /
+                    counterfactual / reliability / tool-SHAP       — Trajectory
 
 Import is torch-tolerant: the ``attention`` subpackage loads torch at import, so on
 the light (pure-API) install it is skipped and its analyzers are simply not offered.
