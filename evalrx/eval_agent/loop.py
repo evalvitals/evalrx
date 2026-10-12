@@ -835,7 +835,7 @@ class VLDiagnoseLoop:
 
     def _do_explore(
         self, cycle: int, probe_results: "dict[str, Any]", data: "Any",
-        timings: "dict[str, float]", *, log: bool = True,
+        timings: "dict[str, float]", *, log: bool = True, question: str | None = None,
     ) -> "Any | None":
         """Optional in-cycle explore step: free-form EDA over M1's per-case table.
 
@@ -876,7 +876,7 @@ class VLDiagnoseLoop:
             if not records:
                 logger.info("explore: M1 produced no per-case signals — skipping.")
                 return None
-            question = self._explore_question
+            question = question or self._explore_question
             if not question:
                 from evalrx.eval_agent.prompts.explore_step import default_explore_question
 
