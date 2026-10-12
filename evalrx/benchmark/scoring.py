@@ -116,6 +116,9 @@ def parsed_choice(output: str, letters: str = "ABCD") -> str:
     """
     text = str(output or "")
     cls = "".join(sorted(set(letters.upper())))
+    # Strip balanced presentation markup around a SINGLE choice, not arbitrary
+    # prose. Preserve the thought-channel and ambiguous-answer guards below.
+    text = re.sub(rf"(\*\*|__|`|\*|_)([{cls}{cls.lower()}])\1", r"(\2)", text)
     marked = re.findall(rf"(?:answer|choice|final|option)\s*[:=\-]?\s*\(?([{cls}{cls.lower()}])\)?\b",
                         text, re.IGNORECASE)
     if marked:

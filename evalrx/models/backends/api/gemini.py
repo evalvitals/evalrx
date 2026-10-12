@@ -30,11 +30,10 @@ diagnosis run:
   — the discovery pass fires ``--concurrency`` requests at once.
 * **Media goes inline**: image → PNG part, audio → its own format (or 16-bit
   WAV for a waveform); the API takes up to 20 MB per request inline.
-* **Logprobs are OFF by default.** Gemini returns none for 3.x models
-  ("working as intended", Google forum 2026-08-05) and withdrew them on 2.5;
-  pass ``with_logprobs=True`` only against a model that actually returns a
-  ``logprobs_result`` — claiming :attr:`Capability.LOGPROBS` otherwise turns a
-  skipped analyzer into a failing one.
+* **Logprobs are OFF by default in this factory.** The benchmark opts into
+  ``with_logprobs="auto", logprobs_model=...``: a real request must return
+  token probabilities before LOGPROBS is advertised. Unsupported responses
+  are recorded; operational errors propagate. Raw logits are never claimed.
 
 Torch-free; ``google-genai`` is imported lazily (``pip install 'evalrx[gemini]'``).
 """
@@ -43,6 +42,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import random
 import threading
@@ -439,6 +439,12 @@ def parse_logprobs_result(result: Any) -> list[TokenLogprob]:
     """
     if result is None:
         return []
+    def probability(candidate: Any) -> float:
+        value = getattr(candidate, "log_probability", None)
+        if value is None or not math.isfinite(float(value)) or float(value) > 0:
+            raise ValueError("Gemini returned a missing or invalid token log probability")
+        return float(value)
+
     chosen = getattr(result, "chosen_candidates", None) or []
     tops = getattr(result, "top_candidates", None) or []
     out: list[TokenLogprob] = []
@@ -446,9 +452,9 @@ def parse_logprobs_result(result: Any) -> list[TokenLogprob]:
         top: dict[str, float] = {}
         if i < len(tops):
             for t in getattr(tops[i], "candidates", None) or []:
-                top[getattr(t, "token", "") or ""] = float(getattr(t, "log_probability", 0.0) or 0.0)
+                top[getattr(t, "token", "") or ""] = probability(t)
         out.append(TokenLogprob(token=getattr(c, "token", "") or "",
-                                logprob=float(getattr(c, "log_probability", 0.0) or 0.0), top=top))
+                                logprob=probability(c), top=top))
     return out
 
 
@@ -491,10 +497,49 @@ def _logprobs_fn(rt: _Runtime) -> Callable[..., list]:
         _client, types = rt.genai()
         response = rt.request(model, _parts(types, prompt, image, audio), kw, logprobs=True)
         cand, _parts_ = _candidate(response)
-        return parse_logprobs_result(getattr(cand, "logprobs_result", None) if cand is not None else None)
+        tokens = parse_logprobs_result(getattr(cand, "logprobs_result", None) if cand is not None else None)
+        if not tokens:
+            raise RuntimeError(f"{model} returned no token logprobs; probability analysis is unavailable")
+        return tokens
 
     _fn.state = rt.state  # type: ignore[attr-defined]
     return _fn
+
+
+def _probe_logprobs(rt: _Runtime, model: str) -> bool:
+    """Verify actual token probabilities, not just SDK parameter availability.
+
+    Only explicit unsupported-feature errors are downgraded. Authentication,
+    quota, transport, and unknown errors must remain visible to the caller.
+    """
+    evidence = {"model": model, "status": "probing", "top_k": rt.top_logprobs}
+    rt.state["logprobs_probe"] = evidence
+    try:
+        response = rt.request(model, "Reply with exactly OK.",
+                              {"max_output_tokens": 32, "temperature": 0.0}, logprobs=True)
+    except Exception as exc:
+        message = str(exc)
+        lowered = message.lower()
+        if (getattr(exc, "code", None) == 400 and "logprob" in lowered
+                and any(s in lowered for s in ("not supported", "unsupported", "not available", "not enabled"))):
+            evidence.update(status="unsupported", reason=message)
+            return False
+        evidence.update(status="error", error_type=type(exc).__name__)
+        raise
+    cand, _ = _candidate(response)
+    result = getattr(cand, "logprobs_result", None) if cand is not None else None
+    chosen = getattr(result, "chosen_candidates", None) or []
+    valid = bool(chosen) and all(
+        getattr(c, "log_probability", None) is not None
+        and math.isfinite(float(c.log_probability)) and float(c.log_probability) <= 0
+        for c in chosen
+    )
+    evidence.update(status="available" if valid else "not_returned",
+                    model_version=getattr(response, "model_version", None),
+                    token_count=len(chosen), finish_reason=_finish_reason(cand))
+    if valid:
+        evidence["tokens"] = [vars(t) for t in parse_logprobs_result(result)]
+    return valid
 
 
 def _runtime(*, api_key, client, timeout, retries, thinking, top_logprobs, sampling) -> _Runtime:
@@ -554,7 +599,8 @@ def gemini_runtime(
     timeout: float = 300.0,
     retries: int = 5,
     thinking: Optional[ThinkingPolicy] = None,
-    with_logprobs: bool = False,
+    with_logprobs: bool | str = False,
+    logprobs_model: Optional[str] = None,
     top_logprobs: int = 5,
     **sampling: Any,
 ) -> RuntimeConfig:
@@ -563,14 +609,32 @@ def gemini_runtime(
     The three functions share one client and one ``state`` dict
     (``model_version`` of the last reply, call / retry counts, models that
     fell back to the default thinking config). ``with_logprobs`` is False by
-    default because Gemini does not return logprobs for the 3.x models.
+    default. Pass ``with_logprobs="auto", logprobs_model=model_id`` to
+    probe the endpoint and expose LOGPROBS only when token probabilities
+    really arrive. True with a model id requires a successful probe.
+    Probing never enables LOGITS: top-k log probabilities are not raw logits.
     """
     rt = _runtime(api_key=api_key, client=client, timeout=timeout, retries=retries,
                   thinking=thinking, top_logprobs=top_logprobs, sampling=sampling)
+    if with_logprobs not in (True, False, "auto"):
+        raise ValueError("with_logprobs must be True, False, or 'auto'")
+    if not 0 <= top_logprobs <= 20:
+        raise ValueError("top_logprobs must be between 0 and 20")
+    if with_logprobs == "auto" and not logprobs_model:
+        raise ValueError("logprobs_model is required for automatic capability probing")
+    enabled = bool(with_logprobs)
+    rt.state["logits"] = {"status": "unavailable", "reason": "Gemini API does not expose raw logits"}
+    if with_logprobs and logprobs_model:
+        enabled = _probe_logprobs(rt, logprobs_model)
+        if not enabled and with_logprobs is True:
+            raise RuntimeError(f"{logprobs_model} did not provide usable logprobs: "
+                               f"{rt.state['logprobs_probe']}")
+    elif not enabled:
+        rt.state["logprobs_probe"] = {"status": "disabled"}
     return RuntimeConfig(
         chat_fn=_chat_fn(rt),
         generate_fn=_generate_fn(rt),
-        logprobs_fn=_logprobs_fn(rt) if with_logprobs else None,
+        logprobs_fn=_logprobs_fn(rt) if enabled else None,
     )
 
 

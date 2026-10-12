@@ -62,3 +62,56 @@ def test_api_judge_can_launch_separate_gemini_coding_agent(monkeypatch):
                                      '--coder-model', 'gemini-2.5-flash', '--m2-codegen'])
     assert args.allow_codegen and args.explore
     assert runner.build_judge(args) == (judge, 'gemini_cli', 'gemini-2.5-flash', ())
+
+
+def test_agy_effort_is_forwarded_to_both_judge_and_coder(monkeypatch):
+    observed = {}
+    judge = SimpleNamespace(generate=lambda prompt: 'OK')
+
+    def factory(**kwargs):
+        observed.update(kwargs)
+        return judge
+
+    monkeypatch.setattr('evalrx.agent_runtime.judges.AgyModel', factory)
+    args = build_parser().parse_args(['--judge-provider', 'agy', '--judge-model',
+                                     'gemini-3.6-flash', '--judge-effort', 'low'])
+    assert runner.build_judge(args) == (judge, 'antigravity', 'gemini-3.6-flash', ('--effort', 'low'))
+    assert observed['effort'] == 'low'
+
+
+@pytest.mark.parametrize('mode,expected', [('auto', 'auto'), ('on', True), ('off', False)])
+def test_gemini_benchmark_forwards_probability_policy(monkeypatch, mode, expected):
+    from importlib import import_module
+
+    from evalrx.benchmark.models import resolve
+    from evalrx.benchmark.tasks import get
+    from evalrx.models.backends.api import gemini
+
+    observed = {}
+    def runtime(**kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace()
+    monkeypatch.setattr(gemini, 'gemini_runtime', runtime)
+    monkeypatch.setattr(import_module('evalrx.models.compose'), 'compose', lambda *args: 'model')
+    args = build_parser().parse_args(['--modality', 'vlm', '--model', 'gemini-3.6-flash',
+                                     '--gemini-logprobs', mode, '--gemini-top-logprobs', '10'])
+    runner.load_model(resolve(args.model, 'vlm', 'gemini'), args, get('chartqa'))
+    assert observed['with_logprobs'] == expected
+    assert observed['logprobs_model'] == 'gemini-3.6-flash'
+    assert observed['top_logprobs'] == 10
+
+
+def test_agentic_cli_exposes_bounded_controller():
+    args = build_parser().parse_args(["--diagnosis-mode", "agentic", "--max-actions", "8",
+                                     "--no-fix-floor", "--m1-codegen"])
+    assert (args.diagnosis_mode, args.max_actions, args.fix_floor, args.m1_codegen) == (
+        "agentic", 8, False, True)
+    assert args.diagnosis_retries == 1
+
+
+def test_agentic_rejects_unsupported_holdout_before_model_load():
+    from evalrx.benchmark.run import run_args
+    args = build_parser().parse_args(["--modality", "llm", "--model", "gemini-3.6-flash",
+                                     "--diagnosis-mode", "agentic", "--held-out"])
+    with pytest.raises(ValueError, match="EXPLORE"):
+        run_args(args)

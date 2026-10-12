@@ -15,6 +15,7 @@ import io
 import threading
 import wave
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import pytest
@@ -415,6 +416,68 @@ def test_logprobs_are_not_claimed_unless_wired():
     assert rt.logprobs_fn is None
     rt = gemini_runtime(client=FakeClient([]), api_key="k", with_logprobs=True)
     assert rt.logprobs_fn is not None
+
+
+def test_auto_logprobs_enables_only_after_real_probability_data():
+    result = SimpleNamespace(chosen_candidates=[SimpleNamespace(token="OK", log_probability=-0.2)],
+                             top_candidates=[])
+    client = FakeClient([_reply(Part(text="OK"), logprobs=result),
+                         _reply(Part(text="OK"), logprobs=result)])
+    rt = gemini_runtime(client=client, with_logprobs="auto", logprobs_model="gemini-3.6-flash")
+    assert rt.logprobs_fn is not None
+    assert rt.generate_fn.state['logprobs_probe']['status'] == 'available'
+    assert rt.generate_fn.state['logits']['status'] == 'unavailable'
+    from evalrx.models import compose
+    model = compose('gemini-3.6-flash', 'api', rt)
+    assert Capability.LOGPROBS in model.capabilities
+    assert Capability.LOGITS not in model.capabilities
+    from evalrx.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
+    result = LogprobEntropyAnalyzer().run(model, 'Answer OK')
+    assert result.findings['mean_logprob'] == pytest.approx(-0.2)
+    assert result.findings['perplexity'] == pytest.approx(1.2214)
+
+
+@pytest.mark.parametrize('reply', [
+    APIError(400, 'Logprobs is not enabled for this model'),
+    APIError(400, 'Logprobs is not supported for this model'),
+    _reply(Part(text='OK')),
+    _reply(Part(text='OK'), logprobs=SimpleNamespace(
+        chosen_candidates=[SimpleNamespace(token='OK', log_probability=None)])),
+])
+def test_auto_logprobs_does_not_claim_missing_or_unsupported_data(reply):
+    rt = gemini_runtime(client=FakeClient([reply]), with_logprobs='auto',
+                        logprobs_model='gemini-3.6-flash')
+    assert rt.logprobs_fn is None
+    assert rt.generate_fn.state['logprobs_probe']['status'] in {'unsupported', 'not_returned'}
+
+
+@pytest.mark.parametrize('error', [APIError(403, 'Permission denied'),
+                                 APIError(429, 'quota'),
+                                 APIError(400, 'Invalid sampling config'), TimeoutError('timeout')])
+def test_auto_logprobs_does_not_hide_operational_failures(error):
+    with pytest.raises(type(error)):
+        gemini_runtime(client=FakeClient([error]), retries=0, with_logprobs='auto',
+                       logprobs_model='gemini-3.6-flash')
+
+
+def test_required_logprobs_fails_when_response_has_no_probabilities():
+    with pytest.raises(RuntimeError, match='usable logprobs'):
+        gemini_runtime(client=FakeClient([_reply(Part(text='OK'))]), with_logprobs=True,
+                       logprobs_model='gemini-3.6-flash')
+
+
+def test_logprobs_missing_after_opt_in_is_not_an_empty_probability_distribution():
+    rt = gemini_runtime(client=FakeClient([_reply(Part(text='OK'))]), with_logprobs=True)
+    with pytest.raises(RuntimeError, match='no token logprobs'):
+        rt.logprobs_fn('q', model='gemini-3.6-flash')
+
+
+@pytest.mark.parametrize('value', [None, float('nan'), float('inf'), 0.1])
+def test_malformed_logprobs_are_never_replaced_with_probability_one(value):
+    result = SimpleNamespace(chosen_candidates=[SimpleNamespace(token='OK', log_probability=value)],
+                             top_candidates=[])
+    with pytest.raises(ValueError, match='invalid token log probability'):
+        parse_logprobs_result(result)
 
 
 def test_logprobs_fn_asks_for_response_logprobs_and_parses_the_result():

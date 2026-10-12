@@ -586,7 +586,7 @@ def test_load_model_gemini_branch_sends_the_floor_and_claims_generate_only(commo
     assert gen_kwargs == {} and spec.key == "gemini-3.6-flash"
     assert model.capabilities == frozenset({Capability.GENERATE, Capability.TOOL_CALLS})
     assert {"image", "audio"} <= set(model.modalities)
-    assert captured["with_logprobs"] is False and captured["api_key"] is None
+    assert captured["with_logprobs"] == "auto" and captured["api_key"] is None
     assert captured["thinking"].floor is True and captured["thinking"].level is None
     assert (captured["temperature"], captured["top_p"], captured["top_k"]) == (0.6, 0.95, 20)
     assert captured["max_output_tokens"] == 2048
@@ -849,3 +849,22 @@ def test_all_cells_default_to_the_endpoint_backend(common):
     assert models.resolve("gemini-2.5-flash-lite", "llm").backend == "gemini"     # family forced
     with pytest.raises(ValueError):
         models.default_backend("video")
+
+
+@pytest.mark.parametrize("output,letter", [
+    ("The correct answer is **A**.", "A"), ("The correct option is **A**.", "A"),
+    ("__A__", "A"), ("`B`", "B"), ("Answer: **C**", "C"), ("Final: _D_", "D"),
+])
+def test_choice_markdown_is_presentation_not_a_wrong_answer(common, output, letter):
+    _, _, scoring, _ = common
+    assert scoring.parsed_choice(output) == letter
+    assert scoring.score_output("multiple_choice_letter", output, letter)
+
+
+@pytest.mark.parametrize("output", [
+    "Either **A** or **C**.", "**A** dog, **B** cat", "thought\n**A**",
+    "A dog barks.", "AB", "**AB**",
+])
+def test_choice_markdown_does_not_turn_ambiguity_into_a_commitment(common, output):
+    _, _, scoring, _ = common
+    assert scoring.parsed_choice(output) == ""

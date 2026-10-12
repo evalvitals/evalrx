@@ -870,6 +870,7 @@ class FixAgent:
         prewritten_code: str = "",
         candidate_model: "Model | None" = None,
         deployed_spec: "dict[str, Any] | None" = None,
+        progress_callback: "Callable[[dict[str, Any]], None] | None" = None,
     ) -> None:
         if verbose:
             # Surfaces this module's own logger.info()/.warning() calls (tier
@@ -879,6 +880,7 @@ class FixAgent:
 
             enable_console_logging()
 
+        self._progress_callback = progress_callback
         self._judge = judge
         self._finetune_pool = finetune_pool
         self.max_tier = parse_tier(max_tier)
@@ -1050,6 +1052,7 @@ class FixAgent:
         seen: "set[tuple[str, str, str]]" = set()
         round_limit = 1 if proposal_data is not None else self.max_repair_rounds
         for round_idx in range(round_limit):
+            self._progress("proposal_started", completed=round_idx, total=round_limit)
             combined_prior = list(prior_attempts or []) + outcome.attempted
             prior_text = (
                 self._format_prior(combined_prior, authoring_data)
@@ -3364,8 +3367,13 @@ class FixAgent:
             return result.scores
         strategy = self._strategy(candidate)
         cases = list(data)
+        from threading import Lock
+
+        progress_lock = Lock()
+        completed = 0
 
         def guarded(case: "FailureCase") -> "tuple[str, Optional[bool]]":
+            nonlocal completed
             # One case's failure (a template that cannot render, an adapter
             # error) scores None for THAT case; it must never abort the whole
             # candidate — let alone the fix stage.
@@ -3380,6 +3388,12 @@ class FixAgent:
             except Exception as exc:
                 logger.warning("FixAgent: %s failed on case %s: %s", candidate.name, case.id, exc)
                 return case.id, None
+            finally:
+                with progress_lock:
+                    completed += 1
+                    if completed == 1 or completed % 10 == 0 or completed == len(cases):
+                        self._progress("candidate_cases", candidate=candidate.name,
+                                       completed=completed, total=len(cases))
 
         if self._concurrency > 1 and len(cases) > 1:
             from concurrent.futures import ThreadPoolExecutor
@@ -3634,7 +3648,29 @@ class FixAgent:
             code = ""
         return code, source, raw
 
+    def _progress(self, phase: str, **fields: Any) -> None:
+        """Operational counters only: never expose scores or held-out labels."""
+        if self._progress_callback is not None:
+            try:
+                self._progress_callback({"phase": phase, **fields})
+            except Exception:
+                logger.warning("Repair progress callback failed", exc_info=True)
+
     def _validate(
+        self, candidate: FixCandidate, model: "Model", data: "CaseBatch",
+        baseline: "dict[str, Optional[bool]]", unstable: "set[str] | None" = None,
+    ) -> FixValidation:
+        self._progress("candidate_started", candidate=candidate.name, total=len(data))
+        try:
+            result = self._validate_impl(candidate, model, data, baseline, unstable)
+        except Exception:
+            self._progress("candidate_failed", candidate=candidate.name)
+            raise
+        self._progress("candidate_completed", candidate=candidate.name,
+                       completed=len(data), total=len(data))
+        return result
+
+    def _validate_impl(
         self,
         candidate: FixCandidate,
         model: "Model",

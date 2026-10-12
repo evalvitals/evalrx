@@ -41,6 +41,10 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                    help="per-request timeout in seconds for the API backends")
     p.add_argument("--request-retries", type=int, default=5,
                    help="retries with backoff on 429/5xx for --backend gemini")
+    p.add_argument("--gemini-logprobs", choices=["auto", "on", "off"], default="auto",
+                   help="probe and enable real Gemini logprobs when available; on requires support; off skips probing")
+    p.add_argument("--gemini-top-logprobs", type=int, choices=range(21), default=5,
+                   help="number of top token alternatives requested from Gemini (0..20)")
     p.add_argument("--thinking-level", choices=["minimal", "low", "medium", "high"], default=None,
                    help="gemini: thinking_level for a 3.x model (default: the model's floor, i.e. "
                         "minimal, or low on 3.7-flash); on a 2.5 model it maps to a thinking_budget")
@@ -121,6 +125,16 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
     p.add_argument("--explore", action=argparse.BooleanOptionalAction, default=True,
                    help="in-cycle free-form EDA between M1 and M2")
     p.add_argument("--max-cycles", type=int, default=1)
+    p.add_argument("--diagnosis-mode", choices=["fixed", "agentic"], default="fixed",
+                   help="agentic: budgeted tool selection, custom probes, and adaptive investigation")
+    p.add_argument("--max-actions", type=int, default=12,
+                   help="maximum controller decisions in agentic diagnosis")
+    p.add_argument("--diagnosis-retries", type=int, default=1,
+                   help="bounded retries after an M3 exception (not after a valid empty result)")
+    p.add_argument("--m1-codegen", action=argparse.BooleanOptionalAction, default=None,
+                   help="allow custom probe generation (default: on in agentic mode)")
+    p.add_argument("--fix-floor", action=argparse.BooleanOptionalAction, default=None,
+                   help="include built-in floor candidates (default: off in agentic mode)")
     p.add_argument("--held-out", action=argparse.BooleanOptionalAction, default=False,
                    help="use the task's held-out validation manifest (manifest_val.json, a "
                         "disjoint fresh sample of half the main slice): M4 verifies once there "
@@ -202,6 +216,10 @@ def run_args(args) -> int:
         return 0
     if not args.modality or not args.model:
         build_parser().error("--modality and --model are required (or --list / --smoke-test)")
+    if args.max_actions < 1 or args.diagnosis_retries < 0:
+        raise ValueError("max-actions must be positive and diagnosis-retries non-negative")
+    if args.diagnosis_mode == "agentic" and args.held_out:
+        raise ValueError("agentic diagnosis uses EXPLORE; --held-out is supported only in fixed mode")
     dataset = args.dataset or T.DEFAULT_TASK[args.modality]
     task = T.get(dataset)
     if task.modality != args.modality:

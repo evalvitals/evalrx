@@ -142,6 +142,7 @@ class _RunState:
     probe_search_result: Any = None
     surgery_outcome: Any = None
     fix_outcome: Any = None
+    diagnosis_failed: bool = False
 
 
 def _summarize_probe(probe_results: dict[str, Any]) -> list[dict[str, Any]]:
@@ -314,10 +315,14 @@ def _propose_hypotheses(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         diag = loop._do_m3(
             state.cycle, state.stats_report, state.prior_cycles, state.timings,
-            failure_modes=state.failure_modes,
+            failure_modes=state.failure_modes, cases=state.data,
         )
-        if diag is None or not diag.hypotheses:
-            return ToolOutcome(False, "M3 produced no hypotheses", error="empty")
+        state.diagnosis_failed = diag is None
+        if diag is None:
+            return ToolOutcome(False, "M3 failed after bounded retries; inspect diagnosis errors",
+                               error="diagnosis_error")
+        if not diag.hypotheses:
+            return ToolOutcome(False, "M3 produced no hypotheses; gather new evidence", error="empty")
         for h in diag.hypotheses:
             loop.store.add_hypothesis(h)
         state.all_hypotheses.extend(diag.hypotheses)

@@ -906,23 +906,17 @@ class TestVLDiagnoseLoop:
         assert report.all_hypotheses == []
         assert report.all_test_results == []
 
-    def test_no_diagnosis_agent_stops_early(self):
-        loop = VLDiagnoseLoop(
-            model=_vlm(),
-            protocol=_spatial_protocol(),
-            diagnosis_agent=None,
-            max_cycles=3,
-        )
-        # Should not raise even with no diagnosis agent; override lazy resolution
-        # by patching the internal flag
-        loop._diag_instance = None  # type: ignore[attr-defined]
-        # The loop will hit the analysis-only guard
-        # (we just verify no exception is raised)
-        try:
-            report = loop.run(_labeled_batch())
-            assert report.cycles >= 1
-        except Exception:
-            pass  # acceptable if Gemini key absent; we just check no crash
+    def test_no_diagnosis_agent_stops_early(self, monkeypatch):
+        loop = VLDiagnoseLoop(model=_vlm(), protocol=_spatial_protocol(), max_cycles=3)
+
+        def unavailable():
+            raise RuntimeError("judge unavailable")
+
+        monkeypatch.setattr(loop, "_get_diagnosis_agent", unavailable)
+        report = loop.run(_labeled_batch())
+        assert report.stopped_by == "diagnosis_error"
+        assert report.cycles == 1
+
 
 
 class TestVLDiagnoseTwoPhase:
@@ -1121,24 +1115,34 @@ class TestDescriptivePhaseCompiler:
 
 
 class TestM3FaultTolerance:
-    def test_judge_exception_in_m3_does_not_kill_loop(self):
+    def test_judge_exception_in_m3_does_not_kill_loop(self, tmp_path):
         """A judge timeout/quota error in M3 must end the loop gracefully
-        (stopped_by=no_hypotheses), not propagate (regression: an agy
+        (stopped_by=diagnosis_error), not propagate (regression: an agy
         TimeoutExpired killed the whole run after M1+M2 had succeeded)."""
 
         class ExplodingDiagnosisAgent:
             def diagnose(self, analysis, model_name="", prior_cycles=None):
                 raise RuntimeError("AgyModel: agy timed out after 120s")
 
+        import json
+
+        from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+        run_logger = RunLoggerV2(tmp_path / "logs")
         loop = VLDiagnoseLoop(
             model=_vlm(),
             protocol=_spatial_protocol(),
             diagnosis_agent=ExplodingDiagnosisAgent(),
-            max_cycles=2,
+            max_cycles=2, run_logger=run_logger,
         )
         report = loop.run(_labeled_batch())
         assert isinstance(report, VLDiagnoseReport)
-        assert report.stopped_by == "no_hypotheses"
+        assert report.stopped_by == "diagnosis_error"
+        errors = json.loads((tmp_path / "logs/M3/log.json").read_text())["model_calls"]
+        assert len(errors) == 2
+        assert errors[0]["metadata"]["retrying"] is True
+        assert errors[1]["metadata"]["retrying"] is False
+        assert all("timed out" in e["error"] for e in errors)
         assert report.all_hypotheses == []
 
 
@@ -1279,3 +1283,28 @@ class TestM4Holdout:
         assert report.m4_holdout == "confirmed"
         assert len(report.verified_hypotheses) >= 1
         assert report.verified_hypotheses[0].evidence["split"] == "confirm_holdout"
+
+
+def test_m3_transient_error_retries_without_reprobing(tmp_path):
+    from types import SimpleNamespace
+
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+    class Transient:
+        calls = 0
+
+        def diagnose(self, analysis, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("transient timeout")
+            return SimpleNamespace(hypotheses=[], raw_judge_output="NO_ISSUE", tokens_used=1)
+
+    agent = Transient()
+    loop = VLDiagnoseLoop(model=_vlm(), protocol=_spatial_protocol(), diagnosis_agent=agent,
+                          run_logger=RunLoggerV2(tmp_path / "logs"))
+    result = loop._do_m3(0, None, [], {}, log=False)
+    assert result is not None and result.hypotheses == []
+    assert agent.calls == 2
+    # A valid empty answer is not retried.
+    loop._do_m3(0, None, [], {}, log=False)
+    assert agent.calls == 3

@@ -67,6 +67,7 @@ _STOPPED_BY_CRITERIA  = "criteria_met"
 _STOPPED_BY_MAX       = "max_cycles"
 _STOPPED_BY_BUDGET    = "budget"
 _STOPPED_BY_NO_HYPS   = "no_hypotheses"
+_STOPPED_BY_DIAG_ERROR = "diagnosis_error"
 _STOPPED_BY_NO_PROBE  = "no_probe_results"
 # run_analysis() ran M1->M2->M3 and proposed hypotheses without confirming them
 # (M4 deferred to run_confirm()). Not a failure — the analysis dashboard is ready.
@@ -425,6 +426,7 @@ class VLDiagnoseLoop:
         explore_dir: "str | Path | None" = None,
         explore_question: str = "",
         verbose: bool = False,
+        diagnosis_retries: int = 1,
     ) -> None:
         from evalrx.analysis.stats_agent import StatsAnalysisAgent
         from evalrx.eval_agent.stages.fix_agent import FixAgent
@@ -452,6 +454,9 @@ class VLDiagnoseLoop:
         self.surgery_agent = surgery_agent or SurgeryAgent()
         self.fix_agent = fix_agent or FixAgent(run_logger=run_logger)
         self.store = store or InMemoryStore()
+        if diagnosis_retries < 0:
+            raise ValueError("diagnosis_retries must be non-negative")
+        self.diagnosis_retries = diagnosis_retries
         self.max_cycles = max_cycles
         self.run_logger = run_logger
         self.token_budget = token_budget
@@ -966,27 +971,31 @@ class VLDiagnoseLoop:
         through to the diagnosis agent only when it accepts the parameter —
         ``None`` (the default, always the case for ``VLDiagnoseLoop``) adds
         nothing to the prompt and costs no extra call."""
-        try:
-            diag_agent = self._get_diagnosis_agent()
-            # Retain the lazily resolved agent so report publication can reuse
-            # the same judge without asking callers to inject it a second time.
-            self.diagnosis_agent = diag_agent
-        except Exception as exc:
-            logger.warning("Could not resolve DiagnosisAgent: %s", exc)
-            return None
-
         _t0 = time.monotonic()
-        try:
-            diag = _diagnose_with_optional_context(
-                diag_agent, stats_report, prior_cycles, self._explore_context,
-                failure_modes, cases=cases,
-            )
-        except Exception as exc:  # judge timeout/quota must not kill the loop
-            logger.warning(
-                "M3 diagnosis failed at cycle %d (%s) — stopping with the "
-                "evidence collected so far.", cycle, exc,
-            )
-            return None
+        for attempt in range(self.diagnosis_retries + 1):
+            try:
+                diag_agent = self._get_diagnosis_agent()
+                self.diagnosis_agent = diag_agent
+                diag = _diagnose_with_optional_context(
+                    diag_agent, stats_report, prior_cycles, self._explore_context,
+                    failure_modes, cases=cases,
+                )
+                break
+            except Exception as exc:
+                retrying = attempt < self.diagnosis_retries
+                error = f"{type(exc).__name__}: {exc}"
+                logger.warning("M3 attempt %d failed (%s); retrying=%s",
+                               attempt + 1, error, retrying)
+                if self.run_logger is not None:
+                    self.run_logger.log_model_exchange(
+                        stage="M3", cycle=cycle, role="diagnosis", operation="diagnose",
+                        inputs=None, output=None, error=error,
+                        metadata={"attempt": attempt + 1, "retrying": retrying},
+                        duration_sec=time.monotonic() - _t0,
+                    )
+                if not retrying:
+                    timings["m3"] = timings.get("m3", 0.0) + time.monotonic() - _t0
+                    return None
         _dt = time.monotonic() - _t0
         timings["m3"] = timings.get("m3", 0.0) + _dt
 
@@ -1285,7 +1294,10 @@ class VLDiagnoseLoop:
 
             # ── M3: hypothesis generation ("AI scientist") ────────────
             diag = self._do_m3(cycle, stats_report, prior_cycles, timings, cases=data)
-            if diag is None or not diag.hypotheses:
+            if diag is None:
+                stopped_by = _STOPPED_BY_DIAG_ERROR
+                break
+            if not diag.hypotheses:
                 if diag is not None:
                     logger.info("M3 produced no hypotheses at cycle %d.", cycle)
                 stopped_by = _STOPPED_BY_NO_HYPS
@@ -1428,7 +1440,7 @@ class VLDiagnoseLoop:
                 # Stats + dashboard are still valid; just no hypotheses to confirm.
                 if diag is not None:
                     logger.info("M3 produced no hypotheses.")
-                stopped_by = _STOPPED_BY_NO_HYPS
+                stopped_by = _STOPPED_BY_DIAG_ERROR if diag is None else _STOPPED_BY_NO_HYPS
             else:
                 for h in diag.hypotheses:
                     self.store.add_hypothesis(h)
@@ -1782,16 +1794,21 @@ class VLDiagnoseLoop:
             outcome = FixOutcome(
                 max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
                 stage_status="skipped",
-                skip_reason="no_accepted_hypothesis",
+                skip_reason=("diagnosis_error" if report.stopped_by == "diagnosis_error"
+                             else "no_accepted_hypothesis"),
                 recommendation={
-                    "reason": "Repair was not attempted because no hypothesis passed the evidence gate.",
-                    "next_step": "Run the targeted diagnostic probe proposed by M3.",
+                    "reason": ("Repair was not attempted because diagnosis failed; inspect M3 errors."
+                               if report.stopped_by == "diagnosis_error" else
+                               "Repair was not attempted because no hypothesis passed the evidence gate."),
+                    "next_step": ("Inspect the recorded M3 error, fix its cause, and retry diagnosis."
+                                  if report.stopped_by == "diagnosis_error" else
+                                  "Run the targeted diagnostic probe proposed by M3."),
                 },
             )
             if self.run_logger is not None:
                 self.run_logger.log_stage_skipped(
-                    "M5", "no_accepted_hypothesis",
-                    detail="No M4-verified hypothesis was available for repair authoring.",
+                    "M5", outcome.skip_reason,
+                    detail=outcome.recommendation["reason"],
                 )
             self._set_fix_outcome(report, outcome)
             return outcome

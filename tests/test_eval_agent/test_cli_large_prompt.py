@@ -43,6 +43,13 @@ NOOP_BINARY = shutil.which("true") or "/usr/bin/true"
 
 
 class TestAgyModelLargePrompt:
+    def test_model_and_effort_reach_cli(self, tmp_path):
+        model = AgyModel(binary_path=_echo_argv_script(tmp_path), timeout_sec=10,
+                         model='gemini-3.6-flash', effort='low')
+        out = model.generate('OK')
+        assert '--model gemini-3.6-flash' in out
+        assert '--effort low' in out
+
     def test_small_prompt_stays_inline(self, tmp_path):
         model = AgyModel(binary_path=_echo_argv_script(tmp_path), timeout_sec=10)
         out = model.generate("hello judge")
