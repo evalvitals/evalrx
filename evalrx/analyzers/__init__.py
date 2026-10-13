@@ -11,8 +11,10 @@ self-registers on import.  Categories (full tables: docs/analyzers.md):
     hallucination/  POPE / CHAIR / SelfCheck / OPERA / VCD         — GENERATE/ATTENTION/LOGITS
     attention/      summary / rollout / sink / relative-attn       — ATTENTION
     attribution/    Grad-CAM / Chefer generic-attention            — GRADIENTS
-    lens/           logit-lens / tuned-lens / layer contrast       — HIDDEN_STATES
-    patching/       causal tracing / activation patching           — HIDDEN_STATES (read+write)
+    lens/           logit-lens / tuned-lens / layer contrast /
+                    head logit attribution                         — HIDDEN_STATES
+    patching/       causal tracing / attention knockout /
+                    attention sensitivity                          — HIDDEN_STATES / ATTENTION (write)
     geometry/       CKA / linear-probe                             — HIDDEN_STATES
     reasoning/      extraction/termination hygiene; arithmetic,
                     self-repair, step-value, knowledge split,
@@ -22,6 +24,10 @@ self-registers on import.  Categories (full tables: docs/analyzers.md):
 
 Import is torch-tolerant: the ``attention`` subpackage loads torch at import, so on
 the light (pure-API) install it is skipped and its analyzers are simply not offered.
+
+``_internals/`` is the private write-side plumbing (attention tap, residual hooks,
+logit-margin targets) that the patching / attribution / head-attribution analyzers
+install around an ordinary ``model.forward`` call; it imports torch lazily.
 """
 
 from evalrx.analyzers import (  # noqa: F401  -- import to self-register

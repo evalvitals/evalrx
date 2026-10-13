@@ -6,6 +6,50 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — write-side white-box analyzers (knockout, causal trace, gradients, head attribution)
+
+Four registered stubs are now native implementations, plus three new
+analyzers. All explain the next-token logit margin at the end of the prompt
+(`target="prediction"`: clean top-1 vs top-2, label-free; or `"gold"`) and emit
+`per_case` columns for M2:
+
+- `attention_knockout` (new, `patching/`) — cut text→media attention in all
+  layers and per third of the stack (Geva et al. 2023).
+- `attention_sensitivity` (new, `patching/`) — rescale text→media attention
+  (×0.5 / ×2, renormalised) and report the margin's slope; negative = more
+  looking weakens the answer (PAI-style repair signal).
+- `causal_trace` (was a stub) — Meng-style corruption of the media tokens
+  (noise, incl. Qwen3-VL DeepStack injections; or a same-size gray image) and
+  per-layer restoration at the media tokens and at the answer position.
+- `gradcam` (was a stub) — Grad-CAM over the decoder's image tokens at a
+  fractional depth, mapped onto the patch grid with photo overlays.
+- `generic_attention` (was a stub) — Chefer et al. 2021 relevance, propagated
+  as one row from the top layer down.
+- `head_attribution` (new, `lens/`) — direct logit attribution per attention
+  head with the final norm frozen at the clean run.
+- `tuned_lens` (was a stub) — per-layer affine translators fit label-free to the
+  model's own final distribution; cached per model, optional save/load.
+
+`attention` and `attention_sink` now run over the batch (`max_cases`) and emit
+`per_case` columns (`media_mass_mid`, `sink_mass_mean`, …) instead of reading
+only the first case.
+
+Plumbing lives in `evalrx/analyzers/_internals/`: an attention function
+registered with transformers' `AttentionInterface` (plus the matching mask
+function — without it transformers builds no causal mask) that reproduces eager
+attention and can block / reweight / record it, verified once per model to
+engage on every layer and reproduce the native logits; decoder-layer pre-hooks
+for reading/replacing the residual stream; per-head output capture.
+Attention-editing analyzers refuse hybrid (`HYBRID_SPARSE`) and latent attention.
+
+### Changed — `hf_local` provides `GRADIENTS`
+
+`HFLocalModel.forward(spec=CaptureSpec(with_grad=True))` now keeps the autograd
+graph (it was always `no_grad`, and `with_grad` was ignored), and `hf_local`
+declares `Capability.GRADIENTS`, so `gradcam` / `generic_attention` are offered
+for local models. The default forward is still `no_grad`. Gradient analyzers use
+`torch.autograd.grad` on hooked activations and never write parameter `.grad`.
+
 ### Docs — analyzer zoo regenerated from the registries
 
 `docs/analyzers.md` listed 29 of the 46 registered analyzers and 16 of the 57

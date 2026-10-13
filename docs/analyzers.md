@@ -22,13 +22,13 @@ model, not by a black-box / white-box label.
 | [Uncertainty](#uncertainty) | `uncertainty/` | 6 | 0 |
 | [Hallucination](#hallucination) | `hallucination/` | 5 | 2 |
 | [Attention](#attention) | `attention/` | 4 | 0 |
-| [Attribution](#attribution) | `attribution/` | 2 | 2 |
-| [Lens](#lens) | `lens/` | 3 | 1 |
-| [Patching](#patching) | `patching/` | 1 | 1 |
+| [Attribution](#attribution) | `attribution/` | 2 | 0 |
+| [Lens](#lens) | `lens/` | 4 | 0 |
+| [Patching](#patching) | `patching/` | 3 | 0 |
 | [Geometry](#geometry) | `geometry/` | 2 | 0 |
 | [Reasoning](#reasoning) | `reasoning/` | 7 | 0 |
 | [Agent](#agent) | `agent/` | 7 | 0 |
-| **Total** | | **46** | **6** |
+| **Total** | | **49** | **2** |
 <!-- END GENERATED -->
 
 How to read the columns:
@@ -116,39 +116,51 @@ on the light (API-only) install it is skipped and these analyzers are not offere
 ### Attribution
 
 `evalrx/analyzers/attribution/`: gradient-based saliency (`GRADIENTS`, a backward
-pass through a white-box model).
+pass through a white-box model: `hf_local` keeps the autograd graph when asked with
+`CaptureSpec(with_grad=True)`). Both explain the next-token logit margin and map the
+result back onto the image's patch grid, with overlays on the case photo. Grad-CAM
+reads the decoder's image-token states rather than the vision tower.
 
 <!-- BEGIN GENERATED: analyzers/attribution -->
 | Analyzer | Key | Requires | Modality | Paper | Status |
 |---|---|---|---|---|---|
-| Grad-CAM | `gradcam` | `GRADIENTS` | image | [Selvaraju et al. 2017](https://arxiv.org/abs/1610.02391) | stub |
-| Generic attention explainability | `generic_attention` | `ATTENTION` + `GRADIENTS` | text + image | [Chefer et al. 2021](https://arxiv.org/abs/2103.15679) | stub |
+| Grad-CAM | `gradcam` | `GRADIENTS` + `LOGITS` | **image** + **video** | [Selvaraju et al. 2017](https://arxiv.org/abs/1610.02391) | ✓ |
+| Generic attention explainability | `generic_attention` | `ATTENTION` + `GRADIENTS` + `LOGITS` | text + image | [Chefer et al. 2021](https://arxiv.org/abs/2103.15679) | ✓ |
 <!-- END GENERATED -->
 
 ### Lens
 
 `evalrx/analyzers/lens/`: project intermediate hidden states through the
 unembedding (`HIDDEN_STATES`) to see at which layer a prediction forms, and where
-premature layers disagree with the final one.
+premature layers disagree with the final one; or project each attention head's own
+write, to see which heads write the answer.
 
 <!-- BEGIN GENERATED: analyzers/lens -->
 | Analyzer | Key | Requires | Modality | Paper | Status |
 |---|---|---|---|---|---|
 | Logit lens | `logit_lens` | `HIDDEN_STATES` | text + image | [nostalgebraist 2020](https://www.lesswrong.com/posts/AcKRB8wDpdaN6v6ru/interpreting-gpt-the-logit-lens) | ✓ |
-| Tuned lens | `tuned_lens` | `HIDDEN_STATES` | text + image | [Belrose et al. 2023](https://arxiv.org/abs/2303.08112) | stub |
+| Tuned lens | `tuned_lens` | `HIDDEN_STATES` | text + image | [Belrose et al. 2023](https://arxiv.org/abs/2303.08112) | ✓ |
 | Layer contrast | `layer_contrast` | `HIDDEN_STATES` | text + image | [Chuang et al. 2024](https://arxiv.org/abs/2309.03883); [Wang et al. 2025](https://arxiv.org/abs/2410.11779) | ✓ |
+| Head logit attribution | `head_attribution` | `HIDDEN_STATES` + `LOGITS` | text + image | [Elhage et al. 2021](https://transformer-circuits.pub/2021/framework/index.html); [Wang et al. 2023](https://arxiv.org/abs/2211.00593) | ✓ |
 <!-- END GENERATED -->
 
 ### Patching
 
 `evalrx/analyzers/patching/`: causal interventions. Write a clean run's
 activations into a corrupted run to localise where information is used
-(`HIDDEN_STATES`, read and write hooks).
+(`HIDDEN_STATES`, read and write hooks), or cut attention edges and measure what
+the answer loses. These act on the live torch module of a local `hf_local` model
+through `evalrx/analyzers/_internals/` (an attention function registered with
+transformers, and decoder-layer pre-hooks); attention edits refuse hybrid or
+latent-attention stacks and verify, once per model, that the edit-free path
+reproduces the native logits.
 
 <!-- BEGIN GENERATED: analyzers/patching -->
 | Analyzer | Key | Requires | Modality | Paper | Status |
 |---|---|---|---|---|---|
-| Causal trace | `causal_trace` | `HIDDEN_STATES` | text + image | [Meng et al. 2022](https://arxiv.org/abs/2202.05262) | stub |
+| Causal trace | `causal_trace` | `HIDDEN_STATES` + `LOGITS` | **image** + **audio** + **video** | [Meng et al. 2022](https://arxiv.org/abs/2202.05262); [Basu et al. 2024](https://arxiv.org/abs/2406.04236) | ✓ |
+| Attention knockout | `attention_knockout` | `ATTENTION` + `LOGITS` | **image** + **audio** + **video** | [Geva et al. 2023](https://arxiv.org/abs/2304.14767); [Zhang et al. 2025](https://arxiv.org/abs/2411.18620) | ✓ |
+| Attention sensitivity | `attention_sensitivity` | `ATTENTION` + `LOGITS` | **image** + **audio** + **video** | [Liu et al. 2024 (PAI)](https://arxiv.org/abs/2407.21771) | ✓ |
 <!-- END GENERATED -->
 
 ### Geometry
