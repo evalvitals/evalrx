@@ -121,6 +121,11 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
     p.add_argument("--explore", action=argparse.BooleanOptionalAction, default=True,
                    help="in-cycle free-form EDA between M1 and M2")
     p.add_argument("--max-cycles", type=int, default=1)
+    # Legacy replay only; normal runs always default to the adaptive controller.
+    p.add_argument("--diagnosis-mode", choices=["fixed", "agentic"], default="agentic",
+                   help=argparse.SUPPRESS)
+    p.add_argument("--max-actions", type=int, default=12,
+                   help="maximum diagnostic controller decisions (default: 12)")
     p.add_argument("--held-out", action=argparse.BooleanOptionalAction, default=False,
                    help="use the task's held-out validation manifest (manifest_val.json, a "
                         "disjoint fresh sample of half the main slice): M4 verifies once there "
@@ -141,7 +146,7 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "(modality-gated on the MODEL, so avoid on multimodal specs for text tasks)")
     p.add_argument("--analyzer-max-cases", type=int, default=0, help="cap per analyzer (0 = every case)")
     p.add_argument("--m2-codegen", action=argparse.BooleanOptionalAction, default=None,
-                   help="coder-written M2 statistics tools (default: on for llm, off otherwise)")
+                   help="coder-written M2 statistics tools (default: on)")
     p.add_argument(
         "--fix-validation-cases",
         type=int,
@@ -202,6 +207,10 @@ def run_args(args) -> int:
         return 0
     if not args.modality or not args.model:
         build_parser().error("--modality and --model are required (or --list / --smoke-test)")
+    if args.max_actions < 1:
+        raise ValueError("max-actions must be positive")
+    if args.diagnosis_mode == "agentic" and args.held_out:
+        raise ValueError("agentic diagnosis uses EXPLORE; --held-out is supported only in fixed mode")
     dataset = args.dataset or T.DEFAULT_TASK[args.modality]
     task = T.get(dataset)
     if task.modality != args.modality:

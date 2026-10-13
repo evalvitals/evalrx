@@ -28,12 +28,21 @@ audio, so the same service names exist in the llm / vlm / alm leaves.
 | `gemini-2.5-pro` | `gemini-2.5-pro` | budget 128 (cannot be disabled) |
 
 `--thinking-level {minimal,low,medium,high}` / `--thinking-budget N` override
-the floor; `--enable-thinking` leaves the API default. What the family cannot
-do: expose internals or logprobs (Gemini returns none for 3.x), so the model
-claims `GENERATE` only — `calibration` runs on its verbalized channel,
-`logprob_entropy` is skipped — and the fix ladder is **clamped to L2**
-(`--fix-tier L3a/L3b` prints the clamp; `summary.json` records the effective
-`fix_tier`). The served `model_version` is written to `baseline.json`.
+the floor; `--enable-thinking` leaves the API default.
+
+The benchmark automatically probes probability support with a short real request.
+Only valid token log probabilities enable `LOGPROBS` analyzers; five top
+alternatives are requested when supported. Response evidence and effective
+capabilities are saved in `api_capabilities.json`. Authentication, quota and
+transport failures remain errors rather than being treated as missing capabilities.
+
+Raw logits and model internals are unavailable. Top-k logprobs cannot be
+substituted for logits. Without logprobs, probability-only analyzers are
+skipped and calibration can use verbalized confidence. M1–M5 and the L0–L2
+repair search still operate on API generation. The repair ceiling is clamped
+to L2; CONFIRM evaluates the frozen candidate separately from EXPLORE.
+Running all stages does not imply a statistically confirmed improvement.
+The served `model_version` is written to `baseline.json`.
 
 ## Datasets (`DATASET=`)
 
@@ -60,8 +69,22 @@ DATASET=mmau CONCURRENCY=8 docker compose run -d --name alm-gemini-3.6-flash-mma
 docker logs -f alm-gemini-3.6-flash-mmau
 ```
 
-Every service's command pins the judge and coder to Codex Terra (`--judge-provider
-codex --judge-model gpt-5.6-terra --judge-effort medium`). Requests retry with
-backoff on 429/5xx (`--request-retries`, default 5; `--request-timeout`, default
-300 s); `CONCURRENCY` (default 4) is the number of discovery requests in flight —
-size it to the account's rate-limit tier.
+The default judge/coder is Claude. To run the full chain with the mounted
+Antigravity CLI, explicitly set both the model and its required effort:
+
+```bash
+EXTRA_ARGS="--limit 32 --run-tag gemini-m1m5 --judge-provider agy --judge-model gemini-3.6-flash --judge-effort low --fix-tier L2" \
+  docker compose run --rm gemini-3.6-flash
+```
+
+This runs M1–M5 plus the repair search; omit `--baseline-only`, `--skip-fix`
+and `--skip-m5` when validating the whole chain. Use a freshly built image
+after updating source. Inspect `summary.json` and stage logs for actual
+completion and the repair verdict. A 32-case run checks integration; it is
+not a powered benchmark for small gains.
+
+Requests retry with backoff on 429/5xx (`--request-retries`, default 5;
+`--request-timeout`, default 300 s). `CONCURRENCY` (default 4) controls the
+number of discovery requests in flight.
+
+Adaptive probe selection and bounded controller decisions are the default; no mode flag is needed. See [adaptive benchmark diagnosis](../../../../docs/agentic_benchmark.md) for the confirmation boundary, failure handling, and protocol differences.

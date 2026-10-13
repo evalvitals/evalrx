@@ -142,6 +142,7 @@ class _RunState:
     probe_search_result: Any = None
     surgery_outcome: Any = None
     fix_outcome: Any = None
+    diagnosis_failed: bool = False
 
 
 def _summarize_probe(probe_results: dict[str, Any]) -> list[dict[str, Any]]:
@@ -227,18 +228,16 @@ def _run_stats(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], 
 
 def _explore_data(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
-        from evalrx.analysis.operationalize import per_case_to_records
-        from evalrx.analysis.stats_tools import build_stats_input
-
         question = str(
             params.get("question")
             or "Explore this dataset and surface the patterns that matter."
         )
-        stats_input = build_stats_input(state.probe_results, state.data)
-        records = per_case_to_records(stats_input.per_case, stats_input.labels)
-        if not records:
-            return ToolOutcome(False, "no per-case records to explore yet", error="empty")
-        report = loop.explorer.explore_records(records, question=question)
+        # Reuse host adjudication, artifact capture, and M3 context publication.
+        report = loop._do_explore(
+            state.cycle, state.probe_results, state.data, state.timings, question=question,
+        )
+        if report is None:
+            return ToolOutcome(False, "exploration produced no report", error="empty")
         board.explore_takeaways = [t.to_dict() for t in getattr(report, "takeaways", [])]
         summary = (
             f"{len(board.explore_takeaways)} takeaway(s)"
@@ -314,10 +313,14 @@ def _propose_hypotheses(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         diag = loop._do_m3(
             state.cycle, state.stats_report, state.prior_cycles, state.timings,
-            failure_modes=state.failure_modes,
+            failure_modes=state.failure_modes, cases=state.data,
         )
-        if diag is None or not diag.hypotheses:
-            return ToolOutcome(False, "M3 produced no hypotheses", error="empty")
+        state.diagnosis_failed = diag is None
+        if diag is None:
+            return ToolOutcome(False, "M3 failed after bounded retries; inspect diagnosis errors",
+                               error="diagnosis_error")
+        if not diag.hypotheses:
+            return ToolOutcome(False, "M3 produced no hypotheses; gather new evidence", error="empty")
         for h in diag.hypotheses:
             loop.store.add_hypothesis(h)
         state.all_hypotheses.extend(diag.hypotheses)
