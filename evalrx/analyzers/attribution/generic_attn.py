@@ -20,8 +20,14 @@ Attention weights and their gradients come from the evalrx attention tap
 (:mod:`evalrx.analyzers._internals.attn_tap`), checked once per model to
 reproduce the native logits; the per-layer ``Ā_l`` is formed in a tensor hook
 during the backward pass, so no full set of attention gradients is ever held.
-A hybrid stack (linear-attention layers without a token matrix) is refused:
-relevance would only cross some of the layers.
+
+On a hybrid stack (Qwen3.5, Qwen3-Next) the gated-delta-rule linear-attention
+layers have no softmax matrix, but they are linear in their values: ``o = A·v``
+for a data-dependent causal ``A``, which
+:mod:`evalrx.analyzers._internals.linear_mix` materialises with the module's own
+kernel, and ``∇A = (∂y/∂o) vᵀ``. Those layers then enter the same rule. Their
+``A`` is not row-normalised like a softmax, and the short convolution before the
+delta rule (three tokens back) is not propagated.
 
 References:
 - Generic Attention-model Explainability for Interpreting Bi-Modal and
@@ -92,6 +98,7 @@ class GenericAttentionExplainability(Analyzer):
             torch_module,
         )
         from evalrx.analyzers._internals.attn_tap import attention_tap, require_fidelity
+        from evalrx.analyzers._internals.linear_mix import delta_rule_relevance
         from evalrx.analyzers._internals.maps import (
             SpatialMapResult,
             group_maps,
@@ -101,11 +108,8 @@ class GenericAttentionExplainability(Analyzer):
         from evalrx.analyzers._internals.targets import build_margin
         from evalrx.core.model import CaptureSpec
 
-        check_editable_attention(model, self.name)
         stack = decoder_stack(torch_module(model, self.name))
-        if not stack.fully_attentional:
-            raise ValueError(f"{self.name}: some decoder layers have no softmax attention "
-                             "(hybrid stack); relevance would cross only part of the stack.")
+        check_editable_attention(model, self.name, stack)
         n_layers = stack.n_layers
         spec = CaptureSpec(with_grad=True, to_cpu=False)
 
@@ -116,10 +120,14 @@ class GenericAttentionExplainability(Analyzer):
         first: "dict[str, Any] | None" = None
         for case in cases.stratified_head(self.max_cases):
             if fidelity is None:
-                fidelity = require_fidelity(model, case.inputs, rtol=self.fidelity_rtol,
-                                            analyzer=self.name)
+                fidelity = (require_fidelity(model, case.inputs, rtol=self.fidelity_rtol,
+                                             analyzer=self.name) if stack.n_softmax else {})
+                fidelity.update(softmax_layers=stack.n_softmax, linear_layers=stack.n_linear)
             abar: dict[int, Any] = {}
-            attn_probs: list = []
+            recorded: dict[int, Any] = {}
+
+            def on_abar(layer: int, value: Any) -> None:
+                abar[layer] = value
 
             def on_probs(layer: int, probs: Any) -> None:
                 if not probs.requires_grad:
@@ -131,25 +139,27 @@ class GenericAttentionExplainability(Analyzer):
                     abar[layer] = (grad.float() * held.float()).clamp(min=0).mean(dim=1)[0]
 
                 probs.register_hook(hook)
-                attn_probs.append(probs)
+                recorded[layer] = probs
 
-            with attention_tap(model, on_probs=on_probs, analyzer=self.name):
+            with attention_tap(model, on_probs=on_probs, analyzer=self.name), \
+                    delta_rule_relevance(model, on_abar, analyzer=self.name) as linear_out:
                 trace = model.forward(case.inputs, capture={Capability.LOGITS}, spec=spec)
+            recorded.update(linear_out)
             logits = trace.require(Capability.LOGITS)[-1:]
             margin, why = build_margin(self.target, logits, model=model, case=case)
             if margin is None:
                 skipped[why] += 1
                 continue
-            if not attn_probs:
+            if not recorded:
                 raise RuntimeError(
                     f"{self.name}: the forward pass kept no autograd graph through attention — "
                     "the backend ignores CaptureSpec(with_grad=True)."
                 )
             m_value = margin.value(logits)
-            # Asking for layer 0's attention gradient sends the backward pass
-            # through every layer's attention, firing each layer's hook once.
-            torch.autograd.grad(margin(logits), attn_probs[0])
-            del attn_probs, logits
+            # Asking for the first layer's mixing gradient sends the backward
+            # pass through every layer's mixer, firing each layer's hook once.
+            torch.autograd.grad(margin(logits), recorded[min(recorded)])
+            del recorded, linear_out, logits
             if len(abar) != n_layers:
                 raise RuntimeError(f"{self.name}: relevance reached {len(abar)} of {n_layers} layers")
 

@@ -63,8 +63,9 @@ class ModelKind(str, Enum):
 # the diagnosis agent flagged rather than running the same generic priority list.
 _FAILURE_MODE_TO_ANALYZERS: dict[str, list[str]] = {
     "attention_sink":            ["attention_sink"],
-    "attention":                 ["attention", "attention_rollout"],
-    "hallucination":             ["pope", "chair", "selfcheck_consistency"],
+    "attention":                 ["attention", "attention_rollout", "generic_attention"],
+    "hallucination":             ["pope", "chair", "selfcheck_consistency",
+                                  "attention_knockout", "attention_sensitivity"],
     "low_consistency":           ["self_consistency"],
     "unstable_generation":       ["self_consistency"],
     "overconfidence":            ["verbalized_confidence", "calibration"],
@@ -74,19 +75,36 @@ _FAILURE_MODE_TO_ANALYZERS: dict[str, list[str]] = {
     "unfaithful_reasoning":      ["cot_faithfulness"],
     "post_hoc_reasoning":        ["cot_faithfulness"],
     "context_ignored":           ["context_shap"],
-    "premature_layer_divergence": ["layer_contrast"],
+    "premature_layer_divergence": ["layer_contrast", "tuned_lens"],
     "confident_inconsistency":   ["self_consistency", "verbalized_confidence"],
     "loop":                      ["loop_detect"],
     "ignored_obs":               ["ignored_obs"],
-    # Decision-layer mechanisms — discriminated by prompt interventions.
-    "language_prior_bias":       ["prompt_contrast"],
+    # Decision-layer mechanisms — discriminated by prompt interventions, and for
+    # a white-box VLM/ALM by cutting / rescaling what the text reads from the media.
+    "language_prior_bias":       ["prompt_contrast", "attention_knockout", "attention_sensitivity"],
     "negative_bias":             ["prompt_contrast", "pope"],
     "threshold_miscalibration":  ["prompt_contrast"],
     "prompt_formatting_bias":    ["prompt_contrast"],
     "instruction_following":     ["prompt_contrast"],
     "entropy":                   ["token_entropy", "logprob_entropy"],
     "perplexity":                ["logprob_entropy"],
-    "logit_lens":                ["logit_lens"],
+    "logit_lens":                ["logit_lens", "tuned_lens"],
+    # White-box information-flow mechanisms (VLM / ALM). Each tag names what the
+    # analyzers can falsify: is the media read at all (knockout / causal trace),
+    # would reading it more help (sensitivity), is the right region read
+    # (gradient maps), where does the answer get written or suppressed (heads / lens).
+    "visual_neglect":            ["attention_knockout", "causal_trace", "modality_ablation",
+                                  "attention_sensitivity"],
+    "audio_neglect":             ["attention_knockout", "causal_trace", "modality_ablation",
+                                  "attention_sensitivity"],
+    "modality_neglect":          ["attention_knockout", "causal_trace", "modality_ablation"],
+    "insufficient_visual_attention": ["attention_sensitivity", "attention_knockout", "attention"],
+    "visual_information_loss":   ["causal_trace", "attention_knockout"],
+    "late_visual_integration":   ["causal_trace", "attention_knockout"],
+    "mislocalized_attention":    ["gradcam", "generic_attention", "relative_attention"],
+    "grounding_error":           ["gradcam", "generic_attention", "relative_attention"],
+    "late_suppression":          ["tuned_lens", "logit_lens", "layer_contrast", "head_attribution"],
+    "answer_head_conflict":      ["head_attribution"],
     "representational_collapse": ["cka"],
     "numerical_hallucination":   ["self_consistency", "verbalized_confidence"],
     # Text-reasoning mechanisms (2026-08). The hygiene pair is listed under the
@@ -129,7 +147,8 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
     ],
     "video": [
         "modality_ablation",                      # is the video load-bearing at all?
-        "relative_attn",                          # attention across frames
+        "attention_knockout",                     # white-box: is it READ, and at what depth?
+        "relative_attention",                     # attention across frames
         "mm_shap",                                # per-slot reliance
     ],
     "audio": [
@@ -137,6 +156,7 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
         # an ALM that answers from the language prior alone produces failures that
         # mimic every mechanism below, and nothing else here would reveal it.
         "modality_ablation",                      # does replacing the audio change the answer?
+        "attention_knockout",                     # white-box: is the audio READ, and at what depth?
         "mm_shap",                                # audio vs text reliance
         "answer_extraction_audit",                # is the FAIL label real or a parse miss?
         "termination_audit",                      # truncated / degenerate / gave up?
@@ -144,15 +164,21 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
         "selfcheck_consistency",                  # hallucinated content in the description
         "self_consistency", "logprob_entropy",
         "attention", "attention_sink",            # where does it attend among audio tokens?
+        "attention_sensitivity",                  # would attending more to the audio help?
+        "causal_trace",                           # where the audio's effect hands off to the text
         "verbalized_confidence", "calibration",
     ],
     "image": [
         "pope", "chair",                          # hallucination metrics
         "modality_ablation",                      # is the image load-bearing at all?
+        "attention_knockout",                     # white-box: is it READ, and at what depth?
         "attention", "attention_rollout",          # where is the model looking?
         "attention_sink",                          # sink collapse?
+        "attention_sensitivity",                   # would looking more help (PAI-style repair)?
         "prompt_contrast",                         # are failures prompt-repairable?
         "mm_shap",                                # text vs image reliance
+        "gradcam", "generic_attention",            # which image regions the answer depends on
+        "causal_trace",                            # where the image's effect hands off to the text
         "logprob_entropy", "self_consistency",
     ],
     "text": [],   # filled below from the legacy LLM list
@@ -164,10 +190,14 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
 _PRIORITY: dict[str, list[str]] = {
     ModelKind.VLM: [
         "pope", "chair",                          # hallucination metrics
+        "attention_knockout",                     # white-box: is the image READ at all?
         "attention", "attention_rollout",          # where is the model looking?
         "attention_sink",                          # sink collapse?
+        "attention_sensitivity",                   # would looking more help?
         "prompt_contrast",                         # are failures prompt-repairable?
         "mm_shap",                                # text vs image reliance
+        "gradcam", "generic_attention",            # which image regions the answer depends on
+        "causal_trace",                            # where the image's effect hands off
         "logprob_entropy", "self_consistency",
     ],
     ModelKind.AGENT: [
@@ -192,8 +222,11 @@ _PRIORITY: dict[str, list[str]] = {
         "calibration",                            # ECE / overconfidence vs labels
         "attention", "logit_lens",                # interpretability
         "layer_contrast",                          # DoLa/DeCo divergence signal
+        "tuned_lens",                              # unbiased per-layer readout
+        "head_attribution",                        # which heads write / oppose the answer
         "token_entropy", "logprob_entropy",
         "attention_sink", "attention_rollout",
+        "generic_attention",                       # gradient-weighted relevance per token
         "prompt_contrast",                         # are failures prompt-repairable?
         "context_shap",                            # RAG context dependence
         "cka", "self_consistency", "verbalized_confidence",

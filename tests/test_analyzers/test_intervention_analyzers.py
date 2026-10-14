@@ -57,13 +57,16 @@ def _batch(n: int = 4, with_gold: bool = True) -> CaseBatch:
     ])
 
 
-def _raw_inputs(seq_tail: list[int]) -> dict:
+def _raw_inputs(seq_tail: list[int], module=None) -> dict:
     """Direct module inputs (bypassing the Model) for mask-level checks."""
-    from tests.tiny_whitebox import GRID, _pixel_values
+    from tests.tiny_whitebox import GRID, _accepts, _pixel_values
 
     ids = [1, 2, VSTART] + [IMAGE_TOKEN] * 16 + [VEND] + seq_tail
-    return dict(input_ids=torch.tensor([ids]), pixel_values=_pixel_values(image(0)),
-                image_grid_thw=torch.tensor([[1, GRID, GRID]]))
+    enc = dict(input_ids=torch.tensor([ids]), pixel_values=_pixel_values(image(0)),
+               image_grid_thw=torch.tensor([[1, GRID, GRID]]))
+    if module is not None and _accepts(module, "mm_token_type_ids"):  # transformers 5 M-RoPE
+        enc["mm_token_type_ids"] = (enc["input_ids"] == IMAGE_TOKEN).long()
+    return enc
 
 
 # ── attention tap ──────────────────────────────────────────────────────────────
@@ -79,7 +82,7 @@ def test_tap_keeps_the_causal_mask(vlm):
     # transformers builds NO mask for an unknown attention name; the tap must
     # register one, or earlier positions would see a changed future token.
     module = vlm._loaded[0]
-    a, b = _raw_inputs([7, 8, 9, 10]), _raw_inputs([7, 8, 9, 11])
+    a, b = _raw_inputs([7, 8, 9, 10], module), _raw_inputs([7, 8, 9, 11], module)
     with torch.no_grad(), attention_tap(vlm):
         la, lb = module(**a).logits, module(**b).logits
     assert torch.equal(la[0, :-1], lb[0, :-1])
@@ -100,7 +103,7 @@ def test_tap_retargets_only_the_decoder_and_restores_on_error(vlm):
 
 def test_knockout_touches_only_downstream_rows(vlm):
     module = vlm._loaded[0]
-    enc = _raw_inputs([7, 8, 9, 10])
+    enc = _raw_inputs([7, 8, 9, 10], module)
     image_pos = list(range(3, 19))
     text_q = [i for i in range(enc["input_ids"].shape[1]) if i not in image_pos]
     with torch.no_grad():
@@ -113,7 +116,7 @@ def test_knockout_touches_only_downstream_rows(vlm):
 
 def test_reweight_equivalences(vlm):
     module = vlm._loaded[0]
-    enc = _raw_inputs([7, 8, 9, 10])
+    enc = _raw_inputs([7, 8, 9, 10], module)
     keys = list(range(3, 19))
     with torch.no_grad():
         base = module(**enc).logits
@@ -256,12 +259,12 @@ def test_attention_knockout_refuses_text_only_batch(vlm):
         AttentionKnockoutAnalyzer().run(vlm, CaseBatch([FailureCase(inputs=Inputs(prompt="hi"))]))
 
 
-def test_attention_knockout_refuses_hybrid_attention():
+def test_attention_knockout_refuses_latent_attention():
     from evalrx.analyzers.patching.attention_knockout import AttentionKnockoutAnalyzer
 
-    hybrid = TinyVLM("qwen2_5_vl", attn_semantics=AttnSemantics.HYBRID_SPARSE)
-    with pytest.raises(ValueError, match="hybrid_sparse"):
-        AttentionKnockoutAnalyzer().run(hybrid, _batch(1))
+    latent = TinyVLM("qwen2_5_vl", attn_semantics=AttnSemantics.MLA_LATENT)
+    with pytest.raises(ValueError, match="mla_latent"):
+        AttentionKnockoutAnalyzer().run(latent, _batch(1))
 
 
 def test_attention_summary_reports_media_mass(vlm):

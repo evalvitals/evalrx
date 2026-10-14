@@ -13,11 +13,16 @@ of the stack. A large full-stack drop says the answer was built from the media;
 a drop near zero says the answer did not come from the media at all — the
 language-prior signature. The band columns say WHERE the reading happened.
 
-Mechanism: :mod:`evalrx.analyzers._internals.attn_tap` routes the decoder's
-attention through an eager-equivalent function that masks the cut edges to
-−inf before the softmax (an exact knockout, rows stay normalised). Before
+Mechanism (:mod:`evalrx.analyzers._internals.edits`): in softmax layers the
+attention tap masks the cut edges to −inf before the softmax (an exact
+knockout, rows stay normalised); in the gated-delta-rule linear-attention
+layers of a hybrid stack (Qwen3.5, Qwen3-Next), which have no attention matrix,
+the text positions instead get the layer's output re-computed on the sequence
+without the media tokens (:mod:`evalrx.analyzers._internals.linear_mix`). Before
 reporting anything the analyzer verifies, once per model, that the edit-free
-tap engages on every attention layer and reproduces the native logits.
+tap engages on every softmax layer and reproduces the native logits, and that
+the media-absent re-run engages every linear layer and reproduces the outputs
+before the first media token.
 
 References:
 - Dissecting Recall of Factual Associations in Auto-Regressive Language Models
@@ -58,8 +63,9 @@ class AttentionKnockoutAnalyzer(Analyzer):
                        ``"gold"`` (gold first token vs strongest other token).
         queries:       ``"text"`` — every non-media position loses the media
                        (Geva's setting); ``"last"`` — only the final position does.
-        fidelity_rtol: tolerance of the edit-free tap vs native logits (relative
-                       to the largest logit) before the analyzer refuses.
+        fidelity_rtol: tolerance of the edit-free tap vs native logits, and of the
+                       linear-layer re-run vs the real prefix outputs (relative to
+                       the largest value) before the analyzer refuses.
         max_cases:     label-stratified cap; 0 (the default) = every case.
                        Cost: 5 logits-only forwards per case.
     """
@@ -96,15 +102,12 @@ class AttentionKnockoutAnalyzer(Analyzer):
             media_positions,
             torch_module,
         )
-        from evalrx.analyzers._internals.attn_tap import attention_tap, knockout, require_fidelity
+        from evalrx.analyzers._internals.edits import media_flow_edit, require_edit_fidelity
         from evalrx.analyzers._internals.targets import build_margin
         from evalrx.core.model import CaptureSpec
 
-        check_editable_attention(model, self.name)
         stack = decoder_stack(torch_module(model, self.name))
-        if not stack.fully_attentional:
-            raise ValueError(f"{self.name}: some decoder layers have no softmax attention "
-                             "(hybrid stack); a knockout there would be partial.")
+        check_editable_attention(model, self.name, stack)
         bands = layer_bands(stack.n_layers)
         spec = CaptureSpec(to_cpu=False)
 
@@ -128,15 +131,15 @@ class AttentionKnockoutAnalyzer(Analyzer):
                 skipped[why] += 1
                 continue
             if fidelity is None:
-                fidelity = require_fidelity(model, case.inputs, rtol=self.fidelity_rtol,
-                                            analyzer=self.name)
+                fidelity = require_edit_fidelity(model, case.inputs, media,
+                                                 rtol=self.fidelity_rtol, analyzer=self.name)
             media_set = set(media)
             queries = ([clean.seq_len - 1] if self.queries == "last"
                        else [i for i in range(clean.seq_len) if i not in media_set])
 
             def cut(layers: "list[int] | None") -> Any:
-                edit = knockout(media, queries=queries, layers=layers)
-                with attention_tap(model, [edit], analyzer=self.name):
+                with media_flow_edit(model, media, queries=queries, layers=layers, weight=0.0,
+                                     analyzer=self.name):
                     return last_logits(case.inputs)
 
             m_clean = margin.value(logits)
@@ -167,6 +170,7 @@ class AttentionKnockoutAnalyzer(Analyzer):
             "media_slot": slots.most_common(1)[0][0],
             "target": self.target,
             "queries": self.queries,
+            "layer_kinds": {"softmax": stack.n_softmax, "linear": stack.n_linear},
             "tap_fidelity": fidelity,
             "mean_delta_full": round(sum(r["ko_delta_full"] for r in per_case) / n, 4),
             "frac_flips_top1": round(sum(bool(r["ko_flips_top1"]) for r in per_case) / n, 4),

@@ -151,9 +151,12 @@ activations into a corrupted run to localise where information is used
 (`HIDDEN_STATES`, read and write hooks), or cut attention edges and measure what
 the answer loses. These act on the live torch module of a local `hf_local` model
 through `evalrx/analyzers/_internals/` (an attention function registered with
-transformers, and decoder-layer pre-hooks); attention edits refuse hybrid or
-latent-attention stacks and verify, once per model, that the edit-free path
-reproduces the native logits.
+transformers, and decoder-layer pre-hooks), and verify, once per model, that the
+edit-free path reproduces the native logits. Hybrid stacks (Qwen3.5, Qwen3-Next:
+softmax + gated-delta-rule linear attention) are edited on every layer: a linear
+layer's text positions get its output re-run on the sequence without the media
+tokens (`_internals/linear_mix.py`). Latent / unverified attention is refused.
+Qwen3.5 needs transformers 5 (the `vllm35` environment), not the `[local]` extra.
 
 <!-- BEGIN GENERATED: analyzers/patching -->
 | Analyzer | Key | Requires | Modality | Paper | Status |

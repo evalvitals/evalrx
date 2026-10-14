@@ -17,6 +17,12 @@ A diagnostic only: no decoding is changed. With ``target="gold"`` the slope is
 for the gold token instead, i.e. whether amplifying the media would move the
 model TOWARD the right answer.
 
+On a hybrid stack (Qwen3.5, Qwen3-Next) the gated-delta-rule linear-attention
+layers have no attention weights to rescale; there the media's contribution to
+the text positions' layer output is scaled instead —
+``absent + w · (real − absent)``, with ``absent`` the layer re-run without the
+media tokens (:mod:`evalrx.analyzers._internals.linear_mix`).
+
 References:
 - Paying More Attention to Image: A Training-Free Method for Alleviating
   Hallucination in LVLMs (PAI) — Liu et al., ECCV 2024 — arXiv:2407.21771
@@ -89,16 +95,13 @@ class AttentionSensitivityAnalyzer(Analyzer):
             media_positions,
             torch_module,
         )
-        from evalrx.analyzers._internals.attn_tap import attention_tap, require_fidelity, reweight
+        from evalrx.analyzers._internals.edits import media_flow_edit, require_edit_fidelity
         from evalrx.analyzers._internals.targets import build_margin
         from evalrx.analyzers.patching.attention_knockout import layer_bands
         from evalrx.core.model import CaptureSpec
 
-        check_editable_attention(model, self.name)
         stack = decoder_stack(torch_module(model, self.name))
-        if not stack.fully_attentional:
-            raise ValueError(f"{self.name}: some decoder layers have no softmax attention "
-                             "(hybrid stack); a reweight there would be partial.")
+        check_editable_attention(model, self.name, stack)
         layers = None if self.band == "all" else layer_bands(stack.n_layers)[self.band]
         spec = CaptureSpec(to_cpu=False)
         log_span = math.log(self.up) - math.log(self.down)
@@ -118,16 +121,16 @@ class AttentionSensitivityAnalyzer(Analyzer):
                 skipped[why] += 1
                 continue
             if fidelity is None:
-                fidelity = require_fidelity(model, case.inputs, rtol=self.fidelity_rtol,
-                                            analyzer=self.name)
+                fidelity = require_edit_fidelity(model, case.inputs, media,
+                                                 rtol=self.fidelity_rtol, analyzer=self.name)
             media_set = set(media)
             queries = [i for i in range(clean.seq_len) if i not in media_set]
             top1 = int(logits[-1].argmax())
             del clean
 
             def scaled(weight: float) -> Any:
-                edit = reweight(media, weight, queries=queries, layers=layers)
-                with attention_tap(model, [edit], analyzer=self.name):
+                with media_flow_edit(model, media, queries=queries, layers=layers, weight=weight,
+                                     analyzer=self.name):
                     out = model.forward(case.inputs, capture={Capability.LOGITS}, spec=spec)
                 return out.require(Capability.LOGITS)[-1:].float()
 
@@ -154,6 +157,7 @@ class AttentionSensitivityAnalyzer(Analyzer):
             "band": self.band,
             "weights": [self.down, self.up],
             "target": self.target,
+            "layer_kinds": {"softmax": stack.n_softmax, "linear": stack.n_linear},
             "tap_fidelity": fidelity,
             "mean_slope": round(sum(r["rw_slope"] for r in per_case) / n, 4),
             "frac_negative_slope": round(sum(r["rw_slope"] < 0 for r in per_case) / n, 4),

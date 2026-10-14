@@ -9,6 +9,14 @@ DeepStack for Qwen3-VL) with a few thousand parameters, fed through a
 positions in a TokenTypeMap, logits, optional attentions/hidden states, and
 gradients when ``CaptureSpec.with_grad`` asks for them.
 
+Hybrid stacks (softmax + gated-delta-rule linear attention):
+
+* ``"qwen3_5"`` — a real Qwen3.5 VLM; needs transformers 5 (skipped on 4.x,
+  see :data:`HAS_QWEN3_5`);
+* ``"qwen3_next"`` — the same layer kinds as a text-only model (transformers
+  4.57+): an image is represented by its 16 placeholder tokens with no pixels,
+  which is all the analyzers' position logic needs.
+
 Images are 16×16 PIL images: 8×8 patches of 2 px, merged 2×2 → 16 image tokens.
 """
 
@@ -32,6 +40,12 @@ VOCAB = 128
 IMG_PX, PATCH, MERGE = 16, 2, 2
 GRID = IMG_PX // PATCH          # 8 patches per side
 TOKENS_SIDE = GRID // MERGE     # 4 merged tokens per side → 16 image tokens
+
+HAS_QWEN3_5 = hasattr(transformers, "Qwen3_5ForConditionalGeneration")
+#: Families whose stack mixes softmax and linear attention.
+HYBRID_FAMILIES = ("qwen3_next",) + (("qwen3_5",) if HAS_QWEN3_5 else ())
+#: Families without a vision tower: images enter as placeholder tokens only.
+TEXT_ONLY_FAMILIES = ("qwen3_next",)
 
 # These models are tiny; on a many-core box torch's default one-thread-per-core
 # turns every matmul into scheduling contention (minutes instead of seconds).
@@ -65,9 +79,32 @@ def _build(family: str) -> Any:
                                               "mrope_interleaved": True})
         cfg = transformers.Qwen3VLConfig(vision_config=vision, text_config=text, **ids)
         cls = transformers.Qwen3VLForConditionalGeneration
+    elif family == "qwen3_5":
+        vision.update(num_position_embeddings=64)
+        text.update(head_dim=16, layer_types=["linear_attention", "linear_attention", "full_attention"] * 2,
+                    linear_num_value_heads=4, linear_num_key_heads=2, linear_key_head_dim=8,
+                    linear_value_head_dim=8, linear_conv_kernel_dim=4,
+                    rope_parameters={"rope_type": "default", "rope_theta": 10000.0,
+                                     "mrope_section": [2, 1, 1], "mrope_interleaved": True,
+                                     "partial_rotary_factor": 0.5})
+        cfg = transformers.Qwen3_5Config(vision_config=vision, text_config=text, **ids)
+        cls = transformers.Qwen3_5ForConditionalGeneration
+    elif family == "qwen3_next":
+        cfg = transformers.Qwen3NextConfig(
+            **text, head_dim=8, full_attention_interval=3, linear_num_value_heads=4,
+            linear_num_key_heads=2, linear_key_head_dim=8, linear_value_head_dim=8,
+            linear_conv_kernel_dim=4, mlp_only_layers=list(range(6)), num_experts=2,
+            num_experts_per_tok=1)
+        cls = transformers.Qwen3NextForCausalLM
     else:  # pragma: no cover - test helper misuse
         raise ValueError(family)
     return cls._from_config(cfg, attn_implementation="eager").eval()
+
+
+def _accepts(module: Any, name: str) -> bool:
+    import inspect
+
+    return name in inspect.signature(module.forward).parameters
 
 
 def _pixel_values(image: Any) -> torch.Tensor:
@@ -93,6 +130,9 @@ class TinyVLM(Model):
             caps.add(Capability.GRADIENTS)
         self.capabilities = frozenset(caps)
         self.modalities = frozenset({"text", "image"})
+        if family in HYBRID_FAMILIES and attn_semantics is AttnSemantics.STANDARD:
+            attn_semantics = AttnSemantics.HYBRID_SPARSE  # what the real specs declare
+        self.family = family
         self.spec = SimpleNamespace(key=f"tiny-{family}", attn_semantics=attn_semantics)
         self._hf = (_build(family), CharTokenizer())
         self.n_forwards = 0
@@ -122,8 +162,9 @@ class TinyVLM(Model):
         if image is not None:
             n_img = TOKENS_SIDE * TOKENS_SIDE
             ids = [1, 2, VSTART] + [IMAGE_TOKEN] * n_img + [VEND] + text_ids
-            enc["pixel_values"] = _pixel_values(image)
-            enc["image_grid_thw"] = torch.tensor([[1, GRID, GRID]])
+            if self.family not in TEXT_ONLY_FAMILIES:
+                enc["pixel_values"] = _pixel_values(image)
+                enc["image_grid_thw"] = torch.tensor([[1, GRID, GRID]])
             image_pos = list(range(3, 3 + n_img))
             grids = [(1, TOKENS_SIDE, TOKENS_SIDE)]
             patches = [(0, 0, r, c) for r in range(TOKENS_SIDE) for c in range(TOKENS_SIDE)]
@@ -131,6 +172,10 @@ class TinyVLM(Model):
             ids = [1, 2] + text_ids
             image_pos, grids, patches = [], [], []
         enc["input_ids"] = torch.tensor([ids])
+        if "pixel_values" in enc and _accepts(module, "mm_token_type_ids"):
+            # transformers 5 computes M-RoPE from this processor output and
+            # refuses image inputs without it; 4.x models do not take it.
+            enc["mm_token_type_ids"] = (enc["input_ids"] == IMAGE_TOKEN).long()
         with_grad = bool(spec is not None and getattr(spec, "with_grad", False))
         with torch.set_grad_enabled(with_grad):
             out = module(**enc, output_attentions=Capability.ATTENTION in capture,

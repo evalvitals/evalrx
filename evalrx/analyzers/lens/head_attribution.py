@@ -12,6 +12,12 @@ write directly, how concentrated it is in a few heads, and at what depth.
 layers (its effect on what they compute) scores low here. Combine with
 ``attention_knockout`` / ``causal_trace`` for indirect effects.
 
+On a hybrid stack (Qwen3.5, Qwen3-Next) the gated-delta-rule linear-attention
+layers write through the same kind of per-head output projection, so their
+value heads are attributed alongside the softmax heads (``layer_kinds`` and
+``heads_per_layer`` say which is which; rows of the maps are zero-padded to the
+widest layer).
+
 The per-head mean attribution over the batch, and its FAIL−PASS difference,
 are artifacts (``(layers, heads)`` maps), so a head that writes the wrong
 answer on failures stands out as a hot cell.
@@ -64,6 +70,7 @@ class HeadAttributionAnalyzer(Analyzer):
         "dla_top_head_layer_frac": ("Top head's depth", "Relative depth (0 = first layer, 1 = last) of the head with the largest absolute contribution."),
         "dla_late_share": ("Late heads' share", "Share of all heads' absolute contribution coming from the last third of the layers."),
         "dla_negative_share": ("Heads opposing answer", "Share of all heads' absolute contribution that pushes AGAINST the answer token."),
+        "dla_linear_share": ("Linear-attention share", "Hybrid stacks only: share of all heads' absolute contribution written by the linear-attention (gated delta rule) layers rather than softmax attention."),
     }
 
     def __init__(self, target: str = "prediction", top_k: int = 10, max_cases: int = 0) -> None:
@@ -87,12 +94,13 @@ class HeadAttributionAnalyzer(Analyzer):
         stack = decoder_stack(module)
         norm = get_final_norm(module)
         unembed = get_unembed(module)
-        projs = [out_proj(a) if a is not None else None for a in stack.attn]
+        projs = [out_proj(m) if m is not None else None for m in stack.mixers]
         if any(p is None for p in projs):
-            raise ValueError(f"{self.name}: some decoder layers have no attention output projection "
-                             "(hybrid stack); head attribution would miss them.")
-        n_heads = [n_heads_of(a, p) for a, p in zip(stack.attn, projs)]
+            raise ValueError(f"{self.name}: some decoder layers have no recognised token mixer "
+                             "with an output projection; head attribution would miss them.")
+        n_heads = [n_heads_of(m, p) for m, p in zip(stack.mixers, projs)]
         n_layers = stack.n_layers
+        linear_layers = [i for i, kind in enumerate(stack.kinds) if kind == "linear"]
 
         per_case: list[dict[str, Any]] = []
         maps: dict[str, Any] = {}
@@ -144,6 +152,8 @@ class HeadAttributionAnalyzer(Analyzer):
             }
             if abs(m_value) > 1e-6:
                 row["dla_heads_share"] = round(float(flat.sum()) / m_value, 4)
+            if linear_layers:
+                row["dla_linear_share"] = round(float(dla[linear_layers].abs().sum()) / total_abs, 4)
             per_case.append(row)
             maps[case.id] = dla.numpy()
             if not first_top:
@@ -166,6 +176,8 @@ class HeadAttributionAnalyzer(Analyzer):
             "skip_reasons": dict(skipped),
             "n_layers": n_layers,
             "n_heads": max(n_heads),
+            "heads_per_layer": n_heads,
+            "layer_kinds": stack.kinds,
             "target": self.target,
             "top_heads_first_case": first_top,
             "mean_heads_total": round(sum(r["dla_heads_total"] for r in per_case) / n, 4),

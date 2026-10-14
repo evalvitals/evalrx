@@ -1,7 +1,8 @@
 """Per-head attention outputs at one position, and the final norm frozen to a linear map.
 
-Every supported decoder attention module ends in an output projection whose
-INPUT is the heads' outputs concatenated, ``(n_heads · head_dim)``. A forward
+Every supported decoder token mixer — softmax attention, or the gated-delta-rule
+linear attention of a hybrid stack — ends in an output projection whose INPUT
+is the heads' outputs concatenated, ``(n_heads · head_dim)``. A forward
 pre-hook on that projection reads them; head ``h``'s write into the residual
 stream is ``W_O[:, h·hd:(h+1)·hd] @ x[h·hd:(h+1)·hd]``, and the per-head writes
 sum to the projection's output (minus its bias, if any).
@@ -37,8 +38,12 @@ def out_proj(attn: Any) -> Any:
 
 
 def n_heads_of(attn: Any, proj: Any) -> int:
-    """Query-head count: the projection's input width over the head dim."""
-    head_dim = getattr(attn, "head_dim", None)
+    """Head count: the projection's input width over the head dim.
+
+    Softmax attention exposes ``head_dim``; a gated-delta-rule mixer writes its
+    value heads (``head_v_dim`` wide each) through ``out_proj``.
+    """
+    head_dim = getattr(attn, "head_dim", None) or getattr(attn, "head_v_dim", None)
     if head_dim is None:
         cfg = getattr(attn, "config", None)
         head_dim = getattr(cfg, "head_dim", None) or (
@@ -78,10 +83,10 @@ def head_capture(model: "Model", position: int = -1, *, analyzer: str = "head ca
     def grab_final(mod, args):
         session.final_residual = args[0][0, position].detach()
 
-    for layer, attn in enumerate(stack.attn):
-        proj = out_proj(attn) if attn is not None else None
+    for layer, mixer in enumerate(stack.mixers):
+        proj = out_proj(mixer) if mixer is not None else None
         if proj is None:
-            raise ValueError(f"{analyzer}: layer {layer} has no attention output projection")
+            raise ValueError(f"{analyzer}: layer {layer} has no token-mixer output projection")
         handles.append(proj.register_forward_pre_hook(grab_heads(layer)))
     handles.append(norm.register_forward_pre_hook(grab_final))
     try:

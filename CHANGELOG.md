@@ -40,7 +40,41 @@ function — without it transformers builds no causal mask) that reproduces eage
 attention and can block / reweight / record it, verified once per model to
 engage on every layer and reproduce the native logits; decoder-layer pre-hooks
 for reading/replacing the residual stream; per-head output capture.
-Attention-editing analyzers refuse hybrid (`HYBRID_SPARSE`) and latent attention.
+Attention-editing analyzers refuse latent attention (hybrid stacks: see below).
+
+### Added — the write-side analyzers run on hybrid stacks (Qwen3.5 / Qwen3-Next)
+
+Qwen3.5 interleaves softmax attention with gated-delta-rule (GatedDeltaNet)
+layers that have no attention matrix; the analyzers used to refuse it. New
+`_internals/linear_mix.py` covers those layers with the module's own code:
+
+- media edits (`attention_knockout`, `attention_sensitivity`) re-run a linear
+  layer on the sequence WITHOUT the media tokens and blend its output at the
+  text positions (`w = 0` = knockout); `_internals/edits.py` applies the tap
+  and this re-run together, and checks both once per model (the re-run must
+  reproduce the outputs before the first media token);
+- `generic_attention` materialises each linear layer's token-mixing matrix
+  (the delta rule is linear in its values: `o = A·v`) and uses
+  `∇A = (∂y/∂o) vᵀ` in Chefer's rule;
+- `head_attribution` attributes the linear layers' value heads too
+  (`dla_linear_share`, `layer_kinds`, `heads_per_layer`).
+
+`causal_trace`, `gradcam` and `tuned_lens` were already architecture-agnostic.
+Verified on Qwen3.5-2B (transformers 5.14): tap 6/6 softmax layers exact,
+re-run 18/18 linear layers within 0.24% (bf16). Tests: a tiny Qwen3-Next
+(transformers ≥ 4.57) and a tiny Qwen3.5 VLM (transformers 5).
+
+### Changed — routing reaches the white-box analyzers
+
+`StrategyProbe` ranks the new analyzers for white-box image / audio / video
+runs (`attention_knockout` right after `modality_ablation`), and M3 failure
+modes promote them: `language_prior_bias` and `hallucination` now include the
+media interventions, and new tags `visual_neglect`, `audio_neglect`,
+`insufficient_visual_attention`, `visual_information_loss`,
+`mislocalized_attention`, `late_suppression` (also offered to the M3 prompt)
+route to the analyzer that tests them. The video list named the unregistered
+`relative_attn` (silently dropped); it is now `relative_attention`, and a test
+fails on any unregistered name in the routing tables.
 
 ### Changed — `hf_local` provides `GRADIENTS`
 
