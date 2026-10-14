@@ -62,7 +62,7 @@ class ModelKind(str, Enum):
 # surface evidence for that mode.  Used in cycle 2+ to focus the probe on what
 # the diagnosis agent flagged rather than running the same generic priority list.
 _FAILURE_MODE_TO_ANALYZERS: dict[str, list[str]] = {
-    "attention_sink":            ["attention_sink"],
+    "attention_sink":            ["attention_sink", "attention_temperature", "embed_lens"],
     "attention":                 ["attention", "attention_rollout", "generic_attention"],
     "hallucination":             ["pope", "chair", "selfcheck_consistency",
                                   "attention_knockout", "attention_sensitivity"],
@@ -101,12 +101,14 @@ _FAILURE_MODE_TO_ANALYZERS: dict[str, list[str]] = {
     "audio_neglect":             ["attention_knockout", "causal_trace", "modality_ablation",
                                   "attention_sensitivity"],
     "modality_neglect":          ["attention_knockout", "causal_trace", "modality_ablation"],
-    "insufficient_visual_attention": ["attention_sensitivity", "attention_knockout", "attention"],
+    "insufficient_visual_attention": ["attention_sensitivity", "attention_knockout", "attention",
+                                      "attention_temperature"],
     "visual_information_loss":   ["causal_trace", "attribution_patching", "attention_knockout",
-                                  "path_patching"],
+                                  "path_patching", "embed_lens"],
     "late_visual_integration":   ["causal_trace", "attribution_patching", "attention_knockout"],
-    "mislocalized_attention":    ["gradcam", "generic_attention", "relative_attention"],
-    "grounding_error":           ["gradcam", "generic_attention", "relative_attention"],
+    "mislocalized_attention":    ["gradcam", "generic_attention", "relative_attention",
+                                  "attention_temperature"],
+    "grounding_error":           ["gradcam", "generic_attention", "relative_attention", "embed_lens"],
     "late_suppression":          ["tuned_lens", "patchscope", "logit_lens", "layer_contrast",
                                   "head_attribution"],
     "answer_head_conflict":      ["head_attribution", "path_patching"],
@@ -157,6 +159,7 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
         "mm_shap",                                # per-slot reliance
         "causal_trace", "attribution_patching",   # where the video's effect hands off to the text
         "path_patching",                          # which heads carry it to the answer
+        "attention_temperature", "embed_lens",    # focus of the look; frame tokens at the input
     ],
     "audio": [
         # Grounding first, for the same reason the text list leads with hygiene:
@@ -172,9 +175,11 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
         "self_consistency", "logprob_entropy",
         "attention", "attention_sink",            # where does it attend among audio tokens?
         "attention_sensitivity",                  # would attending more to the audio help?
+        "attention_temperature",                  # ... or attending more sharply / broadly?
         "causal_trace",                           # where the audio's effect hands off to the text
         "attribution_patching",                   # ... estimated at every layer and token
         "path_patching",                          # which heads carry it to the answer
+        "embed_lens",                             # what the audio tokens mean at the LLM input
         "verbalized_confidence", "calibration",
     ],
     "image": [
@@ -184,9 +189,11 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
         "attention", "attention_rollout",          # where is the model looking?
         "attention_sink",                          # sink collapse?
         "attention_sensitivity",                   # would looking more help (PAI-style repair)?
+        "attention_temperature",                   # ... or looking more sharply / more broadly?
         "prompt_contrast",                         # are failures prompt-repairable?
         "mm_shap",                                # text vs image reliance
         "gradcam", "generic_attention",            # which image regions the answer depends on
+        "embed_lens",                              # what the image tokens mean at the LLM input
         "causal_trace",                            # where the image's effect hands off to the text
         "attribution_patching",                    # ... estimated at every layer and token
         "path_patching",                           # which heads carry it to the answer
@@ -205,9 +212,11 @@ _PRIORITY: dict[str, list[str]] = {
         "attention", "attention_rollout",          # where is the model looking?
         "attention_sink",                          # sink collapse?
         "attention_sensitivity",                   # would looking more help?
+        "attention_temperature",                   # ... or looking more sharply / more broadly?
         "prompt_contrast",                         # are failures prompt-repairable?
         "mm_shap",                                # text vs image reliance
         "gradcam", "generic_attention",            # which image regions the answer depends on
+        "embed_lens",                              # what the image tokens mean at the LLM input
         "causal_trace",                            # where the image's effect hands off
         "attribution_patching",                    # ... estimated at every layer and token
         "path_patching",                           # which heads carry it to the answer

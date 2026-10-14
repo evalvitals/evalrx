@@ -93,6 +93,38 @@ cross-case tally of relay tokens.
 - `_internals/residual.py`: `keep_grad` also works with frozen weights (the
   captured state becomes a leaf).
 
+### Added — `attention_temperature` and `embed_lens`
+
+- `patching/attention_temperature`: divides the pre-softmax scores of the text
+  after the media by a temperature (`sharp` 0.5 / `flat` 2.0, by band) and
+  reports the margin's slope in log T. Default `scope="within"` tempers only the
+  media keys and keeps each row's total media weight — the model looks at the
+  image as much as before, only more focused or more spread out (FOCUS; the
+  AMOUNT is `attention_sensitivity`'s). `scope="all"` is plain temperature.
+  New tap edit kinds `temp` / `temp_within` (`attn_tap.temperature`), exact to
+  float precision (tested: `T=1` no-op, media mass kept, `p^(1/T)` inside,
+  `softmax(s/T)`). Softmax layers only: on Qwen3.5 6 of 24 layers are edited.
+- `lens/embed_lens` (Fan et al., CVPR 2026): each media token at the decoder
+  input, read through its nearest input-embedding words (cosine). Tokens are
+  split into recurring (nearest word shared across ≥ `recurring_frac` of the
+  batch's images), high-norm (≥ `norm_ratio` × the image's median) and specific
+  — the paper's sink / dead / alive, inferred from the batch's DISTINCT images
+  instead of checkpoint-specific ids — and each prompt content word gets the
+  best cosine any media token reaches to it (grounding). `layer` reads any
+  depth (default 0, the decoder input, as in the paper).
+- Measured on Qwen3.5-0.8B (POPE adversarial):
+  - `attention_temperature` (16 cases; tap exact; within-media mean slope
+    +0.33, no flips; plain temperature flips 19% when flattened).
+  - `embed_lens` (100 cases): at the input Qwen3.5's image tokens are not in
+    vocabulary space — best cosine 0.15, 90% recurring (space, digits,
+    `<|endoftext|>`), the queried object's word no closer when present
+    (AUROC 0.47). At `layer=0.9` 87% are image-specific (rocky, snow, wooden,
+    buses, ...) and object grounding reaches AUROC 0.76 (0.82 at the last layer).
+- Routing: `attention_temperature` after `attention_sensitivity` and under
+  `attention_sink` / `insufficient_visual_attention` / `mislocalized_attention`;
+  `embed_lens` after the gradient maps and under `attention_sink` /
+  `visual_information_loss` / `grounding_error`.
+
 ### Added — `path_patching` and `patchscope`
 
 - `patching/path_patching` (Wang et al., IOI): which heads carry the media's

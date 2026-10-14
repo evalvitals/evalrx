@@ -30,7 +30,7 @@ from tests.conftest import FakeModel  # noqa: E402
 
 WRITE_SIDE = {"attention_knockout", "attention_sensitivity", "causal_trace", "attribution_patching",
               "path_patching", "gradcam", "generic_attention", "head_attribution", "tuned_lens",
-              "patchscope"}
+              "patchscope", "attention_temperature", "embed_lens"}
 _WHITE_BOX = {Capability.GENERATE, Capability.LOGITS, Capability.LOGPROBS,
               Capability.ATTENTION, Capability.HIDDEN_STATES, Capability.GRADIENTS}
 

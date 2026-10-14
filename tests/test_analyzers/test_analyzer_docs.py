@@ -39,6 +39,7 @@ _SIBLING_ROWS = (
     "| Attention sensitivity | `attention_sensitivity` | | | — | |\n"
     "| Attribution patching | `attribution_patching` | | | — | |\n"
     "| Path patching | `path_patching` | | | — | |\n"
+    "| Attention temperature | `attention_temperature` | | | — | |\n"
 )
 
 

@@ -23,12 +23,12 @@ model, not by a black-box / white-box label.
 | [Hallucination](#hallucination) | `hallucination/` | 5 | 2 |
 | [Attention](#attention) | `attention/` | 4 | 0 |
 | [Attribution](#attribution) | `attribution/` | 2 | 0 |
-| [Lens](#lens) | `lens/` | 5 | 0 |
-| [Patching](#patching) | `patching/` | 5 | 0 |
+| [Lens](#lens) | `lens/` | 6 | 0 |
+| [Patching](#patching) | `patching/` | 6 | 0 |
 | [Geometry](#geometry) | `geometry/` | 2 | 0 |
 | [Reasoning](#reasoning) | `reasoning/` | 7 | 0 |
 | [Agent](#agent) | `agent/` | 7 | 0 |
-| **Total** | | **52** | **2** |
+| **Total** | | **54** | **2** |
 <!-- END GENERATED -->
 
 How to read the columns:
@@ -137,7 +137,14 @@ write, to see which heads write the answer. `patchscope` lets the model decode i
 own states instead: each layer's residual at the answer position (and optionally
 each image / audio token) is patched into a token-identity prompt at the same
 layer. On Qwen3.5-0.8B it reads the final answer about five layers earlier than
-the logit lens.
+the logit lens. `embed_lens` reads the media tokens where they ENTER the language
+model, through their nearest vocabulary embeddings: which carry image-specific
+words, which repeat across every image (recurring / high-norm, the sink- and
+dead-like tokens of Fan et al., inferred from the batch rather than from
+checkpoint-specific ids), and how close the image comes to each prompt word.
+On Qwen3.5-0.8B the input is not in vocabulary space (90% recurring, object
+grounding at chance); `layer=0.9` reads the same lens deep, where 87% of image
+tokens are specific and the queried object is grounded (POPE AUROC 0.76).
 
 <!-- BEGIN GENERATED: analyzers/lens -->
 | Analyzer | Key | Requires | Modality | Paper | Status |
@@ -147,6 +154,7 @@ the logit lens.
 | Layer contrast | `layer_contrast` | `HIDDEN_STATES` | text + image | [Chuang et al. 2024](https://arxiv.org/abs/2309.03883); [Wang et al. 2025](https://arxiv.org/abs/2410.11779) | ✓ |
 | Head logit attribution | `head_attribution` | `HIDDEN_STATES` + `LOGITS` | text + image | [Elhage et al. 2021](https://transformer-circuits.pub/2021/framework/index.html); [Wang et al. 2023](https://arxiv.org/abs/2211.00593) | ✓ |
 | Patchscope | `patchscope` | `HIDDEN_STATES` + `LOGITS` | text + image + audio + video | [Ghandeharioun et al. 2024](https://arxiv.org/abs/2401.06102) | ✓ |
+| EmbedLens | `embed_lens` | `HIDDEN_STATES` | **image** + **audio** + **video** | [Fan et al. 2026](https://arxiv.org/abs/2603.00510) | ✓ |
 <!-- END GENERATED -->
 
 ### Patching
@@ -178,6 +186,11 @@ by direct logit attribution and the top `top_k` patched exactly; patching every
 head at once reproduces the whole effect at the answer position (a tested
 identity), so the shares are exact fractions of it.
 
+`attention_temperature` divides the text's pre-softmax scores on the media by a
+temperature while keeping each row's total media weight (`scope="within"`): the
+model looks at the image as much as before, only more sharply or more broadly —
+FOCUS, where `attention_sensitivity` changes the AMOUNT. Softmax layers only.
+
 <!-- BEGIN GENERATED: analyzers/patching -->
 | Analyzer | Key | Requires | Modality | Paper | Status |
 |---|---|---|---|---|---|
@@ -186,6 +199,7 @@ identity), so the shares are exact fractions of it.
 | Attention sensitivity | `attention_sensitivity` | `ATTENTION` + `LOGITS` | **image** + **audio** + **video** | [Liu et al. 2024 (PAI)](https://arxiv.org/abs/2407.21771) | ✓ |
 | Attribution patching | `attribution_patching` | `GRADIENTS` + `HIDDEN_STATES` + `LOGITS` | **image** + **audio** + **video** | [Syed et al. 2023](https://arxiv.org/abs/2310.10348); [Kramár et al. 2024 (AtP*)](https://arxiv.org/abs/2403.00745); [Hanna et al. 2024 (EAP-IG)](https://arxiv.org/abs/2403.17806) | ✓ |
 | Path patching | `path_patching` | `HIDDEN_STATES` + `LOGITS` | **image** + **audio** + **video** | [Wang et al. 2023 (IOI)](https://arxiv.org/abs/2211.00593) | ✓ |
+| Attention temperature | `attention_temperature` | `ATTENTION` + `LOGITS` | **image** + **audio** + **video** | — (an intervention; cf. [Liu et al. 2024 (PAI)](https://arxiv.org/abs/2407.21771)) | ✓ |
 <!-- END GENERATED -->
 
 ### Geometry

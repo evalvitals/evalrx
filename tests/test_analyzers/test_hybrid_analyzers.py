@@ -242,3 +242,38 @@ def test_path_patching_freezes_and_patches_the_linear_heads_too(hybrid):
     for row in f["per_case"]:
         assert row["pp_topk_direct_share"] == pytest.approx(1.0, abs=1e-3)
         assert 0.0 <= row["pp_linear_share"] <= 1.0
+
+
+def test_attention_temperature_edits_only_the_softmax_layers(hybrid):
+    from evalrx.analyzers.patching.attention_temperature import AttentionTemperatureAnalyzer
+
+    stack = decoder_stack(hybrid._loaded[0])
+    f = AttentionTemperatureAnalyzer().run(hybrid, _batch(2)).findings
+    assert f["tt_edited_layers"] == stack.n_softmax < stack.n_layers
+    assert f["layer_kinds"] == {"softmax": stack.n_softmax, "linear": stack.n_linear}
+    early_softmax = [i for i in range(round(stack.n_layers / 3)) if stack.kinds[i] == "softmax"]
+    if not early_softmax:  # a band of linear layers only has no temperature to set
+        with pytest.raises(ValueError, match="no softmax attention layer"):
+            AttentionTemperatureAnalyzer(band="early").run(hybrid, _batch(1))
+
+
+def test_embed_lens_runs_on_hybrid(hybrid):
+    from evalrx.analyzers.lens.embed_lens import EmbedLensAnalyzer
+
+    _contract(EmbedLensAnalyzer().run(hybrid, _batch()), "embed_lens", 4)
+
+
+def test_embed_lens_reads_a_placeholder_token_as_itself():
+    # The text-only Qwen3-Next fixture feeds an "image" as 16 copies of the
+    # placeholder token: each media token IS that token's embedding, so its
+    # nearest word is itself at cosine 1 — and every case shows the same
+    # "image", which counts once.
+    from evalrx.analyzers.lens.embed_lens import EmbedLensAnalyzer
+    from tests.tiny_whitebox import IMAGE_TOKEN
+
+    result = EmbedLensAnalyzer().run(TinyVLM("qwen3_next"), _batch())
+    f = result.findings
+    assert f["n_cases_analyzed"] == 4 and f["n_distinct_media"] == 1 and f["recurring_inferred"] is False
+    for row in f["per_case"]:
+        assert row["el_mean_max_sim"] == pytest.approx(1.0, abs=1e-4)
+    assert all(set(t["top1"]) == {IMAGE_TOKEN} for t in result.artifacts["tokens"].values())

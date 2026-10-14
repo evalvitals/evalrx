@@ -824,6 +824,156 @@ def test_attention_sensitivity_validates_params():
         AttentionSensitivityAnalyzer(down=2.0, up=3.0)
 
 
+# ── attention temperature ─────────────────────────────────────────────────────
+
+def test_temperature_edits_are_exact(vlm):
+    # Layer-0 attention depends on the input only, so edited and clean rows compare directly.
+    from evalrx.analyzers._internals.attn_tap import temperature
+
+    inputs = Inputs(prompt="what is here?", image=image(0))
+    media = list(range(3, 19))
+    probs: dict = {}
+
+    def grab(tag):
+        def record(layer, p):
+            if layer == 0:
+                probs[tag] = p.detach()[0].float()
+        return record
+
+    with torch.no_grad():
+        with attention_tap(vlm, on_probs=grab("clean")):
+            base = vlm.forward(inputs, capture={Capability.LOGITS}).logits
+        with attention_tap(vlm, [temperature(media, 0.5, within=True)], on_probs=grab("within")):
+            vlm.forward(inputs, capture={Capability.LOGITS})
+        with attention_tap(vlm, [temperature(range(64), 2.0)], on_probs=grab("all")):
+            vlm.forward(inputs, capture={Capability.LOGITS})
+        with attention_tap(vlm, [temperature(media, 1.0, within=True)]):
+            same = vlm.forward(inputs, capture={Capability.LOGITS}).logits
+    assert torch.equal(same, base)                                  # T = 1 is no edit
+    p, w, a = probs["clean"], probs["within"], probs["all"]
+    last = p.shape[-1] - 1
+    mass = p[:, last, media].sum(-1)
+    assert torch.allclose(w[:, last, media].sum(-1), mass, atol=1e-6)  # how much it looks: kept
+    sharpened = p[:, last, media] ** 2
+    assert torch.allclose(w[:, last, media], sharpened / sharpened.sum(-1, keepdim=True) * mass[:, None], atol=1e-6)
+    assert torch.allclose(w[:, last, 19:], p[:, last, 19:], atol=1e-6)  # text keys untouched
+    flat = torch.softmax(torch.log(p[:, last, : last + 1]) / 2.0, -1)
+    assert torch.allclose(a[:, last, : last + 1], flat, atol=1e-6)
+
+
+def test_temperature_must_be_positive_and_finite():
+    from evalrx.analyzers._internals.attn_tap import temperature
+
+    for bad in (0.0, -1.0, float("inf")):
+        with pytest.raises(ValueError, match="temperature"):
+            temperature([1, 2], bad)
+
+
+@pytest.mark.parametrize("scope", ["within", "all"])
+def test_attention_temperature_contract(vlm, scope):
+    from evalrx.analyzers.patching.attention_temperature import AttentionTemperatureAnalyzer
+
+    f = _assert_result_contract(AttentionTemperatureAnalyzer(scope=scope).run(vlm, _batch()),
+                                "attention_temperature", 4)
+    assert f["tap_fidelity"]["tap_faithful"] is True and f["scope"] == scope
+    assert f["tt_edited_layers"] == 6 and f["temperatures"] == [0.5, 2.0]
+    for row in f["per_case"]:
+        assert isinstance(row["tt_flips_sharp"], bool) and 0.0 <= row["tt_media_entropy"] <= 1.0
+        assert row["tt_slope"] == pytest.approx(
+            (row["tt_delta_flat"] - row["tt_delta_sharp"]) / math.log(4.0), abs=2e-4)
+
+
+def test_attention_temperature_validates_params(vlm):
+    from evalrx.analyzers.patching.attention_temperature import AttentionTemperatureAnalyzer
+
+    with pytest.raises(ValueError, match="sharp"):
+        AttentionTemperatureAnalyzer(sharp=1.5)
+    with pytest.raises(ValueError, match="scope"):
+        AttentionTemperatureAnalyzer(scope="text")
+    with pytest.raises(ValueError, match="band"):
+        AttentionTemperatureAnalyzer(band="top")
+    assert AttentionTemperatureAnalyzer(band="late").run(vlm, _batch(1)).findings["tt_edited_layers"] == 2
+
+
+# ── embed lens ────────────────────────────────────────────────────────────────
+
+class _LetterDecoder:
+    """Decodes every id to a distinct three-letter word, so content words exist."""
+
+    def decode(self, ids):
+        i = int(ids[0])
+        return chr(ord("a") + i % 26) + chr(ord("a") + (i // 26) % 26) + "x"
+
+
+def test_embed_lens_neighbours_match_brute_force(vlm):
+    from evalrx.analyzers.lens.embed_lens import EmbedLensAnalyzer
+
+    batch = _batch(2)
+    result = EmbedLensAnalyzer(top_k=3, vocab_chunk=7).run(vlm, batch)  # many blocks to merge
+    table = vlm._loaded[0].get_input_embeddings().weight.float()
+    for case in batch:
+        with torch.no_grad(), residual_hooks(vlm, capture={0: None}) as res:
+            vlm.forward(case.inputs, capture={Capability.LOGITS})
+        x = res.captured[0][3:19].float()
+        cos = torch.nn.functional.normalize(x, dim=-1) @ torch.nn.functional.normalize(table, dim=-1).T
+        want = cos.topk(3, dim=-1)
+        got = result.artifacts["tokens"][case.id]
+        assert got["top_ids"] == want.indices.tolist()
+        assert got["max_sim"] == pytest.approx([round(v, 4) for v in want.values[:, 0].tolist()], abs=1e-4)
+
+
+def test_embed_lens_contract_and_grounding(vlm, monkeypatch):
+    from evalrx.analyzers._internals import access as access_mod
+    from evalrx.analyzers.lens.embed_lens import EmbedLensAnalyzer
+
+    monkeypatch.setattr(access_mod, "tokenizer_of", lambda model: _LetterDecoder())
+    result = EmbedLensAnalyzer().run(vlm, _batch())
+    f = _assert_result_contract(result, "embed_lens", 4)
+    assert f["recurring_inferred"] is True
+    for row in f["per_case"]:
+        assert row["el_n_media_tokens"] == 16
+        parts = row["el_frac_specific"] + row["el_frac_recurring"] + row["el_frac_high_norm"]
+        assert parts == pytest.approx(1.0, abs=1e-3)
+        sims = result.artifacts["prompt_sims"][row["sample_id"]]
+        assert row["el_prompt_best_sim"] == max(sims.values()) and row["el_prompt_best_word"] in sims
+
+
+def test_embed_lens_reads_any_depth(vlm):
+    from evalrx.analyzers.lens.embed_lens import EmbedLensAnalyzer
+
+    batch = _batch(2)
+    deep = EmbedLensAnalyzer(layer=0.6, top_k=2).run(vlm, batch)
+    assert deep.findings["layer_used"] == 3  # round(0.6 * 5)
+    table = vlm._loaded[0].get_input_embeddings().weight.float()
+    with torch.no_grad(), residual_hooks(vlm, capture={3: None}) as res:
+        vlm.forward(batch[0].inputs, capture={Capability.LOGITS})
+    cos = (torch.nn.functional.normalize(res.captured[3][3:19].float(), dim=-1)
+           @ torch.nn.functional.normalize(table, dim=-1).T)
+    assert deep.artifacts["tokens"][batch[0].id]["top_ids"] == cos.topk(2, dim=-1).indices.tolist()
+
+
+def test_embed_lens_counts_each_image_once(vlm):
+    # Four questions about ONE image are one image's worth of evidence: every
+    # nearest word of it "recurs" in 100% of the distinct images, but only one
+    # image backs that, below min_images, so nothing is called recurring.
+    from evalrx.analyzers.lens.embed_lens import EmbedLensAnalyzer
+
+    same = CaseBatch([FailureCase(inputs=Inputs(prompt=f"question {i}?", image=image(0))) for i in range(4)])
+    f = EmbedLensAnalyzer().run(vlm, same).findings
+    assert f["n_cases_analyzed"] == 4 and f["n_distinct_media"] == 1
+    assert f["recurring_inferred"] is False and f["recurring_words"] == []
+
+
+def test_embed_lens_infers_nothing_recurring_from_too_few_images(vlm):
+    from evalrx.analyzers.lens.embed_lens import EmbedLensAnalyzer
+
+    f = EmbedLensAnalyzer(min_images=10).run(vlm, _batch()).findings
+    assert f["recurring_inferred"] is False and f["recurring_words"] == []
+    assert all(row["el_frac_recurring"] == 0.0 for row in f["per_case"])
+    with pytest.raises(ValueError, match="recurring_frac"):
+        EmbedLensAnalyzer(recurring_frac=0.0)
+
+
 # ── tuned lens ────────────────────────────────────────────────────────────────
 
 def test_tuned_lens_fit_beats_the_identity_translator_and_leaves_weights_alone(vlm, tmp_path):

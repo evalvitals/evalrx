@@ -12,10 +12,10 @@ self-registers on import.  Categories (full tables: docs/analyzers.md):
     attention/      summary / rollout / sink / relative-attn       — ATTENTION
     attribution/    Grad-CAM / Chefer generic-attention            — GRADIENTS
     lens/           logit-lens / tuned-lens / layer contrast /
-                    head logit attribution / patchscope            — HIDDEN_STATES
+                    head logit attribution / patchscope / embed-lens — HIDDEN_STATES
     patching/       causal tracing / attribution patching /
                     path patching / attention knockout /
-                    attention sensitivity                          — HIDDEN_STATES / ATTENTION (write)
+                    attention sensitivity / temperature            — HIDDEN_STATES / ATTENTION (write)
     geometry/       CKA / linear-probe                             — HIDDEN_STATES
     reasoning/      extraction/termination hygiene; arithmetic,
                     self-repair, step-value, knowledge split,

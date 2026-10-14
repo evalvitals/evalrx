@@ -27,6 +27,12 @@ Edits act on the pre-softmax scores, so they compose with the causal mask:
   implemented exactly as ``+log w`` on the scores (``w = 0`` is ``block``).
 * ``scale_raw`` — multiply post-softmax weights by ``w`` without renormalising
   (the PAI-style amplification; rows no longer sum to one).
+* ``temp``      — attention temperature ``T`` over the keys: their scores are
+  divided by ``T`` (``T < 1`` sharpens, ``T > 1`` flattens).
+* ``temp_within`` — the same, but each row keeps the total weight it gave those
+  keys: only how that weight is distributed AMONG them changes,
+  ``p'_k ∝ p_k^(1/T)`` inside the set (a per-row shift of the divided scores).
+Masked cells (future keys, padding) are never touched by a temperature.
 """
 
 from __future__ import annotations
@@ -42,7 +48,8 @@ if TYPE_CHECKING:
     from evalrx.core.model import Model
 
 TAP_NAME = "evalrx_tap"
-EDIT_KINDS = ("block", "scale", "scale_raw")
+EDIT_KINDS = ("block", "scale", "scale_raw", "temp", "temp_within")
+TEMPERATURE_KINDS = ("temp", "temp_within")
 
 _ACTIVE: "list[TapState]" = []
 _REGISTERED = False
@@ -65,6 +72,8 @@ class AttentionEdit:
     def __post_init__(self) -> None:
         if self.kind not in EDIT_KINDS:
             raise ValueError(f"edit kind must be one of {EDIT_KINDS}, got {self.kind!r}")
+        if self.kind in TEMPERATURE_KINDS and not (self.weight > 0 and math.isfinite(self.weight)):
+            raise ValueError(f"attention temperature must be a finite number > 0, got {self.weight}")
         if self.weight < 0:
             raise ValueError(f"attention weight must be >= 0, got {self.weight}")
 
@@ -90,6 +99,17 @@ def reweight(keys: Iterable[int], weight: float, *, queries: "Iterable[int] | No
         None if queries is None else tuple(int(q) for q in queries),
         None if layers is None else frozenset(int(i) for i in layers),
         float(weight),
+    )
+
+
+def temperature(keys: Iterable[int], value: float, *, queries: "Iterable[int] | None" = None,
+                layers: "Iterable[int] | None" = None, within: bool = False) -> AttentionEdit:
+    """Attention temperature *value* over *keys* (``within``: keep each row's mass on them)."""
+    return AttentionEdit(
+        "temp_within" if within else "temp", tuple(int(k) for k in keys),
+        None if queries is None else tuple(int(q) for q in queries),
+        None if layers is None else frozenset(int(i) for i in layers),
+        float(value),
     )
 
 
@@ -139,7 +159,10 @@ class TapState:
             if edit.kind == "scale_raw" or not edit.applies(layer):
                 continue
             mask = self._mask(index, edit, q_len, k_len, scores.device)
-            if edit.kind == "block" or edit.weight == 0:
+            if edit.kind in TEMPERATURE_KINDS:
+                if edit.weight != 1.0:
+                    scores = _tempered(scores, mask, edit.weight, within=edit.kind == "temp_within")
+            elif edit.kind == "block" or edit.weight == 0:
                 scores = scores.masked_fill(mask, torch.finfo(scores.dtype).min)
             elif edit.weight != 1.0:
                 scores = scores + mask.to(scores.dtype) * math.log(edit.weight)
@@ -156,6 +179,24 @@ class TapState:
             factor = torch.where(mask, edit.weight, 1.0).to(probs.dtype)
             probs = probs * factor
         return probs
+
+
+def _tempered(scores: Any, mask: Any, t: float, *, within: bool) -> Any:
+    """Divide the *mask* cells' scores by *t*; with *within*, shift each row so the
+    softmax mass on those cells is what it was (``logsumexp`` over them unchanged)."""
+    import torch
+
+    floor = torch.finfo(scores.dtype).min
+    sel = mask & (scores > floor / 2)          # never the masked (future / padding) cells
+    s = scores.float()
+    out = s / t
+    if within:
+        neg = torch.tensor(float("-inf"), device=s.device)
+        before = torch.logsumexp(torch.where(sel, s, neg), dim=-1, keepdim=True)
+        after = torch.logsumexp(torch.where(sel, out, neg), dim=-1, keepdim=True)
+        shift = torch.where(torch.isfinite(before), before - after, torch.zeros_like(before))
+        out = out + shift
+    return torch.where(sel, out, s).to(scores.dtype)
 
 
 def _tap_attention(module: Any, query: Any, key: Any, value: Any, attention_mask: Any,
