@@ -71,6 +71,12 @@ interp = [
     "inseq>=0.6",
     "nnsight>=0.3",
 ]
+# Optional live-model probing through VLMProbe. Its audited HF adapters have a
+# separate Transformers version contract; installing this extra does not
+# downgrade or pin EvalRX's existing local backend.
+vlmprobe = [
+    "vlmprobe[visualization]>=0.9,<0.10",
+]
 # Benchmark dataset loaders that pull from the HuggingFace Hub (e.g. Spatial457).
 data = [
     "datasets>=2.0",

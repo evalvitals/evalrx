@@ -101,6 +101,7 @@ pip install "evalrx[local]"       # local Hugging Face models + Torch
 pip install "evalrx[jax]"         # JAX adapter (accelerator runtime installed separately)
 pip install "evalrx[finetune]"    # L4 parameter-space repair (LoRA via peft)
 pip install "evalrx[viz,stats]"   # plots + inferential statistics
+pip install "evalrx[vlmprobe]"    # VLMProbe lens, attention and causal analyzers + plots
 ```
 
 Full extras list (`interp`, `data`, `observability`, `ui`, `cluster`,
@@ -155,12 +156,19 @@ spec runs through a black-box API or a white-box local backend — only the
 available capability set changes. [Analyzer Zoo →](docs/analyzers.md) ·
 [Architecture guide →](docs/architecture.md)
 
+For local models, the optional [VLMProbe integration](docs/vlmprobe.md) exposes
+24 lens, attention and causal method factories through one EvalRX analyzer.
+It keeps native tensors for built-in visualizations and measured interventions;
+calibrated lenses load model-bound artifacts rather than training on evaluation
+cases. See the [offline CPU example](examples/vlmprobe_integration.py).
+
 ## Docs & Examples
 
 [Quickstart](docs/quickstart.md) · [CLI](docs/cli.md) ·
 [Exploratory Analysis](docs/m2_analysis.md) ·
 [Intervention & Verification](docs/intervention.md) ·
 [Analyzer Zoo](docs/analyzers.md) · [Architecture](docs/architecture.md) ·
+[VLMProbe Integration](docs/vlmprobe.md) ·
 [Extending EvalRX](docs/extending.md) · [Roadmap](docs/roadmap.md) — all live,
 searchable, at [evalvitals.github.io/evalrx](https://evalvitals.github.io/evalrx/overview/).
 

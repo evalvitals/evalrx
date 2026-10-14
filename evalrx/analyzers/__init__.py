@@ -34,6 +34,7 @@ from evalrx.analyzers import (  # noqa: F401  -- import to self-register
     perturbation,
     reasoning,
     uncertainty,
+    vlmprobe,
 )
 from evalrx.analyzers.base import Analyzer, Result
 

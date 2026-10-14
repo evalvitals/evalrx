@@ -1,0 +1,40 @@
+name: VLMProbe integration
+
+on:
+  push:
+    branches: [main, gexin]
+    paths:
+      - "evalrx/analyzers/vlmprobe/**"
+      - "evalrx/analyzers/__init__.py"
+      - "tests/test_analyzers/test_vlmprobe*"
+      - "examples/vlmprobe_integration.py"
+      - "pyproject.toml"
+      - ".github/workflows/vlmprobe.yml"
+  pull_request:
+    paths:
+      - "evalrx/analyzers/vlmprobe/**"
+      - "evalrx/analyzers/__init__.py"
+      - "tests/test_analyzers/test_vlmprobe*"
+      - "pyproject.toml"
+      - ".github/workflows/vlmprobe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU-only Torch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install the published probing package and audited adapters
+        run: pip install -e ".[dev,vlmprobe]" "transformers>=5.3,<5.4"
+      - name: Validate native model, image, gradient, and intervention contracts
+        run: pytest tests/test_analyzers/test_vlmprobe.py tests/test_analyzers/test_vlmprobe_multimodal.py -q
+      - name: Run the offline example
+        run: python examples/vlmprobe_integration.py --output-dir /tmp/vlmprobe-example

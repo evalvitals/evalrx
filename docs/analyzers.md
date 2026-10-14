@@ -25,10 +25,11 @@ model, not by a black-box / white-box label.
 | [Attribution](#attribution) | `attribution/` | 2 | 2 |
 | [Lens](#lens) | `lens/` | 3 | 1 |
 | [Patching](#patching) | `patching/` | 1 | 1 |
+| [VLMProbe](#vlmprobe) | `vlmprobe/` | 1 | 0 |
 | [Geometry](#geometry) | `geometry/` | 2 | 0 |
 | [Reasoning](#reasoning) | `reasoning/` | 7 | 0 |
 | [Agent](#agent) | `agent/` | 7 | 0 |
-| **Total** | | **46** | **6** |
+| **Total** | | **47** | **6** |
 <!-- END GENERATED -->
 
 How to read the columns:
@@ -149,6 +150,21 @@ activations into a corrupted run to localise where information is used
 | Analyzer | Key | Requires | Modality | Paper | Status |
 |---|---|---|---|---|---|
 | Causal trace | `causal_trace` | `HIDDEN_STATES` | text + image | [Meng et al. 2022](https://arxiv.org/abs/2202.05262) | stub |
+<!-- END GENERATED -->
+
+### VLMProbe
+
+`evalrx/analyzers/vlmprobe/` bridges 24 VLMProbe method factories into one
+configured analyzer. It runs against a caller-owned local PyTorch model,
+retains native results for visualization and saved artifacts, and checks the
+method's precise adapter requirements. Existing analyzer names keep their
+current algorithms and output contracts. See the [integration guide](vlmprobe.md)
+for the method inventory, paired inputs and calibration workflow.
+
+<!-- BEGIN GENERATED: analyzers/vlmprobe -->
+| Analyzer | Key | Requires | Modality | Paper | Status |
+|---|---|---|---|---|---|
+| VLMProbe integration | `vlmprobe` | `HIDDEN_STATES` | text + image | [Method sources and implementation scope](vlmprobe.md#method-inventory) | ✓ |
 <!-- END GENERATED -->
 
 ### Geometry

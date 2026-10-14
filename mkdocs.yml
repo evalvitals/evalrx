@@ -39,6 +39,7 @@ nav:
   - Verification & Intervention (M4/M5): intervention.md
   - Stage Input/Output Reference: stage_io.md
   - Analyzer Zoo: analyzers.md
+  - VLMProbe Integration: vlmprobe.md
   - Architecture: architecture.md
   - Extending: extending.md
   - Roadmap: roadmap.md

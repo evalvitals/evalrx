@@ -62,6 +62,7 @@ from evalrx.analyzers.uncertainty.entropy import TokenEntropyAnalyzer
 from evalrx.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
 from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 from evalrx.analyzers.uncertainty.verbalized_conf import VerbalizedConfidenceAnalyzer
+from evalrx.analyzers.vlmprobe import VLMProbeAnalyzer
 from evalrx.core.capability import Capability, CapabilityError
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label, Step, StepRole, Trajectory
 from evalrx.core.registry import registry
@@ -215,6 +216,7 @@ def _long_prompt_batch() -> CaseBatch:
 # When adding a new analyzer: either add it to _RUNNABLE/_STUBS below, or add an
 # entry here explaining why it is excluded. The coverage test will catch omissions.
 _SKIPPED_REASON: dict[str, str] = {
+    "vlmprobe": "optional VLMProbe integration: dedicated dispatch and tiny CPU numerical suite in test_vlmprobe.py",
     # Requires a live PIL image; no FakeModel path.
     "relative_attention": "VLM-only: needs case.inputs.image (PIL image)",
     "vl_shap":            "VLM-only: needs case.inputs.image (PIL image)",
@@ -832,6 +834,7 @@ _STUBS_IDS = [a.name for a, _, _ in _STUBS]
 
 
 _CLASS_FACTORIES: dict[str, Callable[[], Any]] = {
+    "vlmprobe": lambda: VLMProbeAnalyzer(method="lens.logit"),
     "counterfactual": lambda: CounterfactualReplay(
         rerun_fn=lambda traj, idx, seed: True,
         n_replays=2,
