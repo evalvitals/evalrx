@@ -159,7 +159,8 @@ class GenericAttentionExplainability(Analyzer):
             # Asking for the first layer's mixing gradient sends the backward
             # pass through every layer's mixer, firing each layer's hook once.
             torch.autograd.grad(margin(logits), recorded[min(recorded)])
-            del recorded, linear_out, logits
+            recorded.clear()  # drop the graph-holding tensors; the closure keeps the dict
+            del linear_out, logits
             if len(abar) != n_layers:
                 raise RuntimeError(f"{self.name}: relevance reached {len(abar)} of {n_layers} layers")
 

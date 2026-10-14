@@ -228,6 +228,8 @@ _SKIPPED_REASON: dict[str, str] = {
     "attention_knockout": "needs a live torch module; see test_intervention_analyzers.py",
     "causal_trace":       "needs a live torch module; see test_intervention_analyzers.py",
     "attribution_patching": "needs a live torch module; see test_intervention_analyzers.py",
+    "path_patching":      "needs a live torch module; see test_intervention_analyzers.py",
+    "patchscope":         "needs a live torch module; see test_intervention_analyzers.py",
     "attention_sensitivity": "needs a live torch module; see test_intervention_analyzers.py",
     "head_attribution":   "needs a live torch module; see test_intervention_analyzers.py",
 }

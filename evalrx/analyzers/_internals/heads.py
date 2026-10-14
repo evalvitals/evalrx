@@ -1,4 +1,5 @@
-"""Per-head attention outputs at one position, and the final norm frozen to a linear map.
+"""Per-head token-mixer outputs (read at one position, or read / overwritten everywhere),
+and the final norm frozen to a linear map.
 
 Every supported decoder token mixer — softmax attention, or the gated-delta-rule
 linear attention of a hybrid stack — ends in an output projection whose INPUT
@@ -96,6 +97,74 @@ def head_capture(model: "Model", position: int = -1, *, analyzer: str = "head ca
             handle.remove()
 
 
+@dataclass
+class MixerSession:
+    """``inputs[layer]`` — the output projection's whole input ``(seq, n_heads · head_dim)``;
+    ``final_residual`` — the final norm's input ``(seq, dim)``."""
+
+    inputs: "dict[int, Any]" = field(default_factory=dict)
+    final_residual: Any = None
+
+
+@contextmanager
+def mixer_hooks(
+    model: "Model",
+    *,
+    capture: bool = False,
+    replace: "dict[int, Any] | None" = None,
+    analyzer: str = "mixer hooks",
+) -> Iterator[MixerSession]:
+    """Read and/or overwrite every token mixer's per-head outputs, all positions.
+
+    ``replace[layer]`` — ``(seq, n_heads · head_dim)`` written over that layer's
+    output-projection input (heads concatenated, as the projection reads them),
+    so every head's write into the residual stream is set; the projection and
+    everything after it recompute. With *capture*, the inputs are recorded
+    (after any replacement) together with the final norm's input.
+    """
+    from evalrx.models.backends.hf.discover import get_final_norm
+
+    module = torch_module(model, analyzer)
+    stack = decoder_stack(module)
+    replace = dict(replace or {})
+    session = MixerSession()
+    handles = []
+
+    def hook_for(layer: int):
+        def hook(mod, args):
+            x = args[0]
+            if x.dim() != 3 or x.shape[0] != 1:
+                raise RuntimeError(f"{analyzer}: expected a (1, seq, width) projection input, "
+                                   f"got {tuple(x.shape)}")
+            if layer in replace:
+                x = replace[layer].to(device=x.device, dtype=x.dtype).reshape(x.shape)
+            if capture:
+                session.inputs[layer] = x[0].detach()
+            return (x, *args[1:]) if layer in replace else None
+        return hook
+
+    for layer, mixer in enumerate(stack.mixers):
+        proj = out_proj(mixer) if mixer is not None else None
+        if proj is None:
+            raise ValueError(f"{analyzer}: layer {layer} has no token-mixer output projection")
+        if capture or layer in replace:
+            handles.append(proj.register_forward_pre_hook(hook_for(layer)))
+    if capture:
+        norm = get_final_norm(module)
+        if norm is None:
+            raise ValueError(f"{analyzer}: no final norm found after the decoder layers")
+
+        def grab_final(mod, args):
+            session.final_residual = args[0][0].detach()
+
+        handles.append(norm.register_forward_pre_hook(grab_final))
+    try:
+        yield session
+    finally:
+        for handle in handles:
+            handle.remove()
+
+
 def frozen_norm_scale(norm: Any, x: Any) -> "tuple[Any, bool]":
     """``(scale, centre)``: ``norm(x + c) ≈ norm(x) + scale ⊙ (c - centre·mean(c))``.
 
@@ -113,3 +182,17 @@ def frozen_norm_scale(norm: Any, x: Any) -> "tuple[Any, bool]":
             return weight / torch.sqrt(xf.var(unbiased=False) + eps), True
         w_eff = norm(torch.ones_like(x)).float() * (1.0 + eps) ** 0.5  # undo rms(1) = sqrt(1 + eps)
         return w_eff / torch.sqrt(xf.pow(2).mean() + eps), False
+
+
+def readout_direction(norm: Any, unembed: Any, x_final: Any, positive: int, negative: int) -> Any:
+    """``v`` with ``margin ≈ x · v`` around *x_final* (the final norm frozen there).
+
+    A write ``c`` into the final residual moves the ``positive − negative`` logit
+    margin by ``c · v``: the frozen norm scale times the unembedding difference
+    (mean-removed for LayerNorm, whose centring is linear).
+    """
+    scale, centre = frozen_norm_scale(norm, x_final)
+    w_u = unembed.weight
+    direction = (w_u[positive].float() - w_u[negative].float()).to(scale.device)
+    v = scale * direction
+    return v - v.mean() if centre else v

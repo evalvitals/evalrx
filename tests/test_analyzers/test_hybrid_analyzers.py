@@ -204,16 +204,19 @@ def test_head_attribution_on_hybrid_covers_linear_heads(hybrid):
     assert all(0.0 <= r["dla_linear_share"] <= 1.0 for r in f["per_case"])
 
 
-@pytest.mark.parametrize("name", ["causal_trace", "attribution_patching", "gradcam", "tuned_lens"])
+@pytest.mark.parametrize("name", ["causal_trace", "attribution_patching", "gradcam", "tuned_lens",
+                                  "patchscope"])
 def test_architecture_agnostic_analyzers_run_on_hybrid(hybrid, name):
     from evalrx.analyzers.attribution.gradcam import GradCAMAnalyzer
+    from evalrx.analyzers.lens.patchscope import PatchscopeAnalyzer
     from evalrx.analyzers.lens.tuned_lens import TunedLensAnalyzer
     from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
     from evalrx.analyzers.patching.causal_trace import CausalTraceAnalyzer
 
     analyzer = {"causal_trace": CausalTraceAnalyzer(min_effect=0.0, n_points=3),
                 "attribution_patching": AttributionPatchingAnalyzer(min_effect=0.0),
-                "gradcam": GradCAMAnalyzer(), "tuned_lens": TunedLensAnalyzer(steps=10)}[name]
+                "gradcam": GradCAMAnalyzer(), "tuned_lens": TunedLensAnalyzer(steps=10),
+                "patchscope": PatchscopeAnalyzer(media_layers=2)}[name]
     _contract(analyzer.run(hybrid, _batch()), name, 4)
 
 
@@ -226,3 +229,16 @@ def test_attribution_patching_is_exact_in_the_small_corruption_limit_on_hybrid(h
         f = AttributionPatchingAnalyzer(noise_scale=1e-3, min_effect=0.0, ig_steps=steps,
                                         n_verify=2).run(hybrid, _batch()).findings
         assert f["verification"]["all"]["mae"] < 0.02 and f["verification"]["all"]["pearson"] > 0.99
+
+
+def test_path_patching_freezes_and_patches_the_linear_heads_too(hybrid):
+    # Every head's direct path together must carry the whole media effect; a
+    # linear-attention layer left unfrozen or unpatched would break the identity.
+    from evalrx.analyzers.patching.path_patching import PathPatchingAnalyzer
+
+    f = PathPatchingAnalyzer(min_effect=0.0, top_k=0).run(hybrid, _batch()).findings
+    stack = decoder_stack(hybrid._loaded[0])
+    assert f["layer_kinds"] == stack.kinds and "linear" in f["layer_kinds"]
+    for row in f["per_case"]:
+        assert row["pp_topk_direct_share"] == pytest.approx(1.0, abs=1e-3)
+        assert 0.0 <= row["pp_linear_share"] <= 1.0

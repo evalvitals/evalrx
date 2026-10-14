@@ -108,3 +108,42 @@ def residual_hooks(
     finally:
         for handle in handles:
             handle.remove()
+
+
+@contextmanager
+def batched_patch(
+    model: "Model",
+    patches: "Mapping[int, Sequence[tuple[int, int, Any]]]",
+    *,
+    analyzer: str = "batched patch",
+) -> Iterator[None]:
+    """Overwrite single residual vectors in a BATCHED forward, row by row.
+
+    ``patches[layer] = [(row, position, vector), ...]`` writes ``vector``
+    (``(dim,)``) over ``hidden[row, position]`` entering decoder layer ``layer``
+    — one forward can then carry a different patch (layer, source) per row.
+    """
+    module = torch_module(model, analyzer)
+    stack = decoder_stack(module)
+    for idx in patches:
+        if not 0 <= idx < stack.n_layers:
+            raise ValueError(f"{analyzer}: layer {idx} outside [0, {stack.n_layers})")
+
+    def make_hook(idx: int):
+        def hook(mod, args, kwargs):
+            hidden = args[0] if args else kwargs["hidden_states"]
+            hidden = hidden.clone()
+            for row, position, vector in patches[idx]:
+                hidden[row, position] = vector.to(device=hidden.device, dtype=hidden.dtype)
+            if args:
+                return (hidden, *args[1:]), kwargs
+            return args, {**kwargs, "hidden_states": hidden}
+        return hook
+
+    handles = [stack.layers[idx].register_forward_pre_hook(make_hook(idx), with_kwargs=True)
+               for idx in sorted(patches) if patches[idx]]
+    try:
+        yield
+    finally:
+        for handle in handles:
+            handle.remove()

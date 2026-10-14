@@ -612,6 +612,147 @@ def test_attribution_patching_argument_checks_and_token_text():
     assert _token_text(object(), 7) is None
 
 
+# ── path patching ─────────────────────────────────────────────────────────────
+
+def _clean_and_donor(vlm, inputs):
+    """Projection inputs of the clean run and of the noise-corrupted run (seed 0)."""
+    from evalrx.analyzers._internals.heads import mixer_hooks
+    from evalrx.analyzers.patching.causal_trace import corrupted_variants
+
+    with torch.no_grad():
+        with residual_hooks(vlm, capture={0: None}) as res, mixer_hooks(vlm, capture=True) as clean:
+            base = vlm.forward(inputs, capture={Capability.LOGITS}).logits[-1]
+        media = list(range(3, 19))
+        (variant,), _ = corrupted_variants(inputs, "noise", slot="image", media=media,
+                                           embeddings=res.captured[0][media], deepstack=False,
+                                           noise_scale=3.0, n_noise=1, seed=0)
+        with residual_hooks(vlm, replace=variant[1]), mixer_hooks(vlm, capture=True) as donor:
+            vlm.forward(inputs, capture={Capability.LOGITS})
+    return base, clean.inputs, donor.inputs
+
+
+def test_freezing_every_head_at_its_own_output_is_a_no_op(vlm):
+    from evalrx.analyzers._internals.heads import mixer_hooks
+
+    inputs = Inputs(prompt="what?", image=image(1))
+    base, clean, _ = _clean_and_donor(vlm, inputs)
+    with torch.no_grad(), mixer_hooks(vlm, replace=clean):
+        frozen = vlm.forward(inputs, capture={Capability.LOGITS}).logits[-1]
+    assert torch.equal(frozen, base)
+
+
+def test_a_last_layer_heads_direct_path_is_its_whole_effect(vlm):
+    # No head follows the last layer, so freezing the others cannot change what
+    # its patch does: direct and total effects coincide exactly.
+    from evalrx.analyzers._internals.heads import mixer_hooks, n_heads_of, out_proj
+    from evalrx.analyzers.patching.path_patching import sender_inputs
+
+    stack = access.decoder_stack(vlm._loaded[0])
+    n_heads = [n_heads_of(m, out_proj(m)) for m in stack.mixers]
+    inputs = Inputs(prompt="what?", image=image(1))
+    base, clean, donor = _clean_and_donor(vlm, inputs)
+    sender = [(stack.n_layers - 1, 0)]
+    out = {}
+    for freeze in (True, False):
+        with torch.no_grad(), mixer_hooks(vlm, replace=sender_inputs(clean, donor, sender, n_heads, freeze=freeze)):
+            out[freeze] = vlm.forward(inputs, capture={Capability.LOGITS}).logits[-1]
+    assert torch.equal(out[True], out[False]) and not torch.equal(out[True], base)
+
+
+def test_all_heads_together_carry_the_whole_media_effect(vlm):
+    # MLPs are per-position, so the media reaches the answer position only
+    # through token mixers: patching every head's direct path at once must
+    # reproduce the corrupted run there, i.e. a share of exactly 1.
+    from evalrx.analyzers.patching.path_patching import PathPatchingAnalyzer
+
+    f = PathPatchingAnalyzer(min_effect=0.0, top_k=0).run(vlm, _batch()).findings
+    for row in f["per_case"]:
+        assert row["pp_topk_direct_share"] == pytest.approx(1.0, abs=1e-3)
+        assert row["pp_topk_total_share"] == pytest.approx(1.0, abs=1e-3)
+
+
+def test_path_patching_contract(vlm):
+    from evalrx.analyzers.patching.path_patching import PathPatchingAnalyzer
+
+    result = PathPatchingAnalyzer(min_effect=0.0, top_k=5).run(vlm, _batch())
+    f = _assert_result_contract(result, "path_patching", 4)
+    assert f["n_traced"] == 4 and f["heads_per_layer"] == [4] * 6 and f["top_k"] == 5
+    assert 1 <= len(f["recurring_heads"]) <= 10
+    for row in f["per_case"]:
+        assert row["pp_top_head"].startswith("L") and isinstance(row["pp_top_head_linear"], bool)
+        assert -1.0 <= row["pp_screen_spearman"] <= 1.0 and 0.0 <= row["pp_top_head_depth_frac"] <= 1.0
+    for table in result.artifacts["head_tables"].values():
+        assert len(table) == 5 and {"head", "screen", "direct", "kind"} <= set(table[0])
+        screened = [abs(t["screen"]) for t in table]
+        assert screened == sorted(screened, reverse=True)  # the top-k BY the screen were patched
+
+
+def test_path_patching_small_effects_keep_the_row_but_skip_the_heads(vlm):
+    from evalrx.analyzers.patching.path_patching import PathPatchingAnalyzer
+
+    f = PathPatchingAnalyzer().run(vlm, _batch(2)).findings  # tiny model: effects << 1 logit
+    assert f["n_traced"] == 0 and f["recurring_heads"] == []
+    assert all(row["pp_effect_traceable"] is False and "pp_top_head" not in row for row in f["per_case"])
+
+
+def test_path_patching_argument_checks_and_rank_correlation():
+    from evalrx.analyzers.patching.path_patching import PathPatchingAnalyzer, _spearman
+
+    with pytest.raises(ValueError, match="top_k"):
+        PathPatchingAnalyzer(top_k=-1)
+    with pytest.raises(ValueError, match="corruption"):
+        PathPatchingAnalyzer(corruption="blur")
+    assert _spearman([1, 2, 3, 4], [10, 20, 30, 40]) == pytest.approx(1.0)
+    assert _spearman([1, 2, 3, 4], [4, 3, 2, 1]) == pytest.approx(-1.0)
+    assert _spearman([1, 2], [1, 2]) is None
+
+
+# ── patchscope ────────────────────────────────────────────────────────────────
+
+def test_patchscope_layer0_readout_is_the_source_token_in_the_placeholder(vlm):
+    # Layer 0 reads the embedding, so decoding the answer position there is the
+    # target prompt with the source's last token written into the placeholder.
+    from evalrx.analyzers.lens.patchscope import IDENTITY_PROMPT, PatchscopeAnalyzer
+    from tests.tiny_whitebox import CharTokenizer
+
+    case = _batch(1)
+    result = PatchscopeAnalyzer().run(vlm, case)
+    trace = vlm.forward(case[0].inputs, capture={Capability.LOGITS})
+    target = int(trace.logits[-1].argmax())
+    ids = CharTokenizer()(IDENTITY_PROMPT)["input_ids"]
+    ids[-1] = trace.token_ids[-1]
+    with torch.no_grad():
+        plain = torch.softmax(vlm._loaded[0](input_ids=torch.tensor([ids])).logits[0, -1].float(), -1)
+    curve = result.artifacts["readout_curves"][case[0].id]
+    assert curve["p_target"][0] == pytest.approx(float(plain[target]), abs=1e-4)
+    assert curve["top1"][0] == str(int(plain.argmax()))  # no decoder: the id, never a made-up word
+    assert result.findings["patch_check_max_diff"] == 0.0
+
+
+def test_patchscope_contract_with_media_words(vlm):
+    from evalrx.analyzers.lens.patchscope import PatchscopeAnalyzer
+
+    result = PatchscopeAnalyzer(media_layers=2).run(vlm, _batch())
+    f = _assert_result_contract(result, "patchscope", 4)
+    assert f["layers_read"] == list(range(6)) and f["media_layers_read"] == [2, 5]  # not the embedding
+    for row in f["per_case"]:
+        assert 0.0 <= row["ps_first_depth_frac"] <= 1.0 and 0.0 <= row["ps_agree_mid"] <= 1.0
+        assert row["ps_late_drop"] == pytest.approx(row["ps_peak_prob"] - row["ps_final_prob"], abs=2e-4)
+    for words in result.artifacts["media_words"].values():
+        assert sorted(words) == [2, 5] and all(len(w) == 16 for w in words.values())
+    assert set(f["mean_p_target_curves"]) == {"fail", "pass"}
+
+
+def test_patchscope_reads_text_only_cases_and_skips_missing_gold(vlm):
+    from evalrx.analyzers.lens.patchscope import PatchscopeAnalyzer
+
+    text_only = CaseBatch([FailureCase(inputs=Inputs(prompt="two plus two is"), expected="4"),
+                           FailureCase(inputs=Inputs(prompt="no gold here"))])
+    f = PatchscopeAnalyzer(target="gold", n_points=3).run(vlm, text_only).findings
+    assert f["n_cases_analyzed"] == 1 and f["skip_reasons"] == {"no_gold": 1}
+    assert f["layers_read"] == [0, 2, 5]
+
+
 # ── head attribution ──────────────────────────────────────────────────────────
 
 def test_per_head_writes_sum_to_the_output_projection(vlm):

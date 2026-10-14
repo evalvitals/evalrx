@@ -29,7 +29,8 @@ from evalrx.eval_agent.stages.probe import (  # noqa: E402
 from tests.conftest import FakeModel  # noqa: E402
 
 WRITE_SIDE = {"attention_knockout", "attention_sensitivity", "causal_trace", "attribution_patching",
-              "gradcam", "generic_attention", "head_attribution", "tuned_lens"}
+              "path_patching", "gradcam", "generic_attention", "head_attribution", "tuned_lens",
+              "patchscope"}
 _WHITE_BOX = {Capability.GENERATE, Capability.LOGITS, Capability.LOGPROBS,
               Capability.ATTENTION, Capability.HIDDEN_STATES, Capability.GRADIENTS}
 
@@ -64,7 +65,8 @@ def test_white_box_vlm_ranks_knockout_right_after_modality_ablation():
     vlm = FakeModel(capabilities=_WHITE_BOX, modalities={"text", "image"})
     ranked = StrategyProbe().select(vlm, data=_image_batch())
     assert ranked.index("attention_knockout") == ranked.index("modality_ablation") + 1
-    assert WRITE_SIDE - {"tuned_lens", "head_attribution"} <= set(ranked[: len(_SLOT_PRIORITY["image"]) + 2])
+    assert WRITE_SIDE - {"tuned_lens", "head_attribution", "patchscope"} <= set(
+        ranked[: len(_SLOT_PRIORITY["image"]) + 2])
 
 
 def test_white_box_alm_gets_the_audio_interventions():

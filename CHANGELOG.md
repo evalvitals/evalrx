@@ -93,6 +93,42 @@ cross-case tally of relay tokens.
 - `_internals/residual.py`: `keep_grad` also works with frozen weights (the
   captured state becomes a leaf).
 
+### Added — `path_patching` and `patchscope`
+
+- `patching/path_patching` (Wang et al., IOI): which heads carry the media's
+  effect directly to the answer. One head's output from the media-corrupted run
+  (`causal_trace`'s corruptions), every other token-mixing head frozen at its
+  clean output (the value heads of linear-attention layers included), MLPs and
+  norms recomputed. Heads are screened by direct logit attribution of their
+  media-dependent output and the `top_k` (8) patched exactly; per case the top
+  direct-path head, the joint direct / total share of the top-k, the screen's
+  rank agreement and (hybrids) the linear-attention share; across cases the
+  recurring heads. Patching every head at once reproduces the full effect at the
+  answer position — tested as an identity, on hybrids too.
+- `lens/patchscope` (Ghandeharioun et al.): each layer's residual at the answer
+  position is patched into a token-identity prompt at the same layer and decoded
+  by the model: the depth where the answer first ranks first, its peak, and
+  `ps_late_drop` (peak minus the output probability; with `target="gold"`, a
+  right answer formed then suppressed). `media_layers > 0` also decodes every
+  image / audio token into a word ("what it sees").
+- Shared plumbing: `_internals/heads.mixer_hooks` (read / overwrite every
+  head's output at every position), `heads.readout_direction` (the frozen-norm
+  margin direction, now also used by `head_attribution`),
+  `residual.batched_patch` (a different residual patch per batch row).
+- Measured on Qwen3.5-0.8B (16 POPE-adversarial cases): the screen ranks heads
+  like the exact patch (Spearman 0.86); the direct carriers recur in the last
+  two layers (`L23.H6` +0.33 of the effect in 8 cases; `L23.H0` −0.24 in 10 —
+  it consistently works against the image's effect). Patchscope's top-1 matches
+  the model's answer from layer 18 in 14/16 cases; the logit lens only at the
+  last layer, 6/16. Image tokens decode to scene words ("snow", "board",
+  "skiing", "slope" for a snowboarding photo).
+- New spec `qwen3.5-0.8b-vl` (same 24-layer hybrid layout as the 2B; the fast
+  real-model check).
+- Routing: `path_patching` after `attribution_patching` in the image / audio /
+  video lists and under `answer_head_conflict` / `visual_information_loss`;
+  `patchscope` after `tuned_lens` in the text list and under `late_suppression`,
+  `premature_layer_divergence`, `logit_lens`.
+
 ### Changed — routing reaches the white-box analyzers
 
 `StrategyProbe` ranks the new analyzers for white-box image / audio / video

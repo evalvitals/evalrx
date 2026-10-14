@@ -82,10 +82,10 @@ class HeadAttributionAnalyzer(Analyzer):
 
         from evalrx.analyzers._internals.access import decoder_stack, torch_module
         from evalrx.analyzers._internals.heads import (
-            frozen_norm_scale,
             head_capture,
             n_heads_of,
             out_proj,
+            readout_direction,
         )
         from evalrx.analyzers._internals.targets import build_margin
         from evalrx.models.backends.hf.discover import get_final_norm, get_unembed
@@ -118,12 +118,7 @@ class HeadAttributionAnalyzer(Analyzer):
             m_value = margin.value(logits)
             with torch.no_grad():
                 x_final = cap.final_residual
-                scale, centre = frozen_norm_scale(norm, x_final)
-                w_u = unembed.weight
-                direction = (w_u[margin.positive].float() - w_u[margin.negative].float()).to(scale.device)
-                v = scale * direction
-                if centre:
-                    v = v - v.mean()
+                v = readout_direction(norm, unembed, x_final, margin.positive, margin.negative)
                 readout = float(x_final.float().to(v.device) @ v)
                 bias = getattr(unembed, "bias", None)
                 if bias is not None:
