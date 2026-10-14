@@ -14,6 +14,17 @@ it does not substitute for EvalRX's vision-feature Grad-CAM.
 
 ## Installation and model support
 
+This integration is maintained on the `gexin` branch and has not yet been
+released as an EvalRX PyPI update. Install from that checkout for now:
+
+```bash
+git clone --branch gexin git@github.com:evalvitals/evalrx.git
+cd evalrx
+pip install -e ".[local,vlmprobe]" "transformers>=5.3,<5.4"
+```
+
+After an EvalRX release containing this integration, the packaged extra is:
+
 ```bash
 pip install "evalrx[vlmprobe]"
 ```

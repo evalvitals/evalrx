@@ -161,6 +161,9 @@ For local models, the optional [VLMProbe integration](docs/vlmprobe.md) exposes
 It keeps native tensors for built-in visualizations and measured interventions;
 calibrated lenses load model-bound artifacts rather than training on evaluation
 cases. See the [offline CPU example](examples/vlmprobe_integration.py).
+Until this integration is included in an EvalRX release, install it from the
+`gexin` checkout with `pip install -e ".[vlmprobe]"`; the guide specifies the
+audited local-model environment.
 
 ## Docs & Examples
 

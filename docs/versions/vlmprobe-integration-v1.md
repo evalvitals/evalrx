@@ -68,3 +68,8 @@ scores triggers the upstream overflow guard; successful temperature parity
 tests use 1.5. This integration does not bypass those guards or alter method
 kernels. The dedicated CI workflow uses the published package and audited
 Transformers 5.3 environment.
+
+The [GitHub Actions integration run](https://github.com/evalvitals/evalrx/actions/runs/38530824251)
+passed in a fresh CPU environment, including the 96 passing tests, intentional
+architecture skip and offline example. The follow-up documentation clarifies
+that users must install the `gexin` checkout until EvalRX publishes this extra.
