@@ -24,11 +24,11 @@ model, not by a black-box / white-box label.
 | [Attention](#attention) | `attention/` | 4 | 0 |
 | [Attribution](#attribution) | `attribution/` | 2 | 0 |
 | [Lens](#lens) | `lens/` | 4 | 0 |
-| [Patching](#patching) | `patching/` | 3 | 0 |
+| [Patching](#patching) | `patching/` | 4 | 0 |
 | [Geometry](#geometry) | `geometry/` | 2 | 0 |
 | [Reasoning](#reasoning) | `reasoning/` | 7 | 0 |
 | [Agent](#agent) | `agent/` | 7 | 0 |
-| **Total** | | **49** | **2** |
+| **Total** | | **50** | **2** |
 <!-- END GENERATED -->
 
 How to read the columns:
@@ -158,12 +158,21 @@ layer's text positions get its output re-run on the sequence without the media
 tokens (`_internals/linear_mix.py`). Latent / unverified attention is refused.
 Qwen3.5 needs transformers 5 (the `vllm35` environment), not the `[local]` extra.
 
+`attribution_patching` estimates `causal_trace`'s patch for every single token
+at every layer from gradients (`GRADIENTS`), averaged along the corrupt → clean
+media path (EAP-IG). It reports single tokens only — the answer position, and
+the question / template token that relays the media's information — because the
+media tokens' joint patch is not additive and a sum of gradient estimates does
+not track it. Each case is checked against exact patches of the sites it
+reports, and only cases that pass enter the aggregates.
+
 <!-- BEGIN GENERATED: analyzers/patching -->
 | Analyzer | Key | Requires | Modality | Paper | Status |
 |---|---|---|---|---|---|
 | Causal trace | `causal_trace` | `HIDDEN_STATES` + `LOGITS` | **image** + **audio** + **video** | [Meng et al. 2022](https://arxiv.org/abs/2202.05262); [Basu et al. 2024](https://arxiv.org/abs/2406.04236) | ✓ |
 | Attention knockout | `attention_knockout` | `ATTENTION` + `LOGITS` | **image** + **audio** + **video** | [Geva et al. 2023](https://arxiv.org/abs/2304.14767); [Zhang et al. 2025](https://arxiv.org/abs/2411.18620) | ✓ |
 | Attention sensitivity | `attention_sensitivity` | `ATTENTION` + `LOGITS` | **image** + **audio** + **video** | [Liu et al. 2024 (PAI)](https://arxiv.org/abs/2407.21771) | ✓ |
+| Attribution patching | `attribution_patching` | `GRADIENTS` + `HIDDEN_STATES` + `LOGITS` | **image** + **audio** + **video** | [Syed et al. 2023](https://arxiv.org/abs/2310.10348); [Kramár et al. 2024 (AtP*)](https://arxiv.org/abs/2403.00745); [Hanna et al. 2024 (EAP-IG)](https://arxiv.org/abs/2403.17806) | ✓ |
 <!-- END GENERATED -->
 
 ### Geometry

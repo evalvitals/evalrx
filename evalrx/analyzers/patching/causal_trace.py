@@ -118,6 +118,45 @@ def deepstack_mergers(module: Any) -> list:
     return mergers
 
 
+def corrupted_variants(
+    inputs: "Inputs",
+    corruption: str,
+    *,
+    slot: str,
+    media: "list[int]",
+    embeddings: Any,
+    deepstack: bool,
+    noise_scale: float,
+    n_noise: int,
+    seed: int,
+) -> "tuple[list[tuple[Any, dict, Any]], str]":
+    """The corrupted runs of one case: ``(variants, "")`` or ``([], skip_reason)``.
+
+    A variant is ``(inputs, layer-0 replace plan, (DeepStack noise store,
+    generator))`` — one per noise sample (Gaussian noise of ``noise_scale`` ×
+    the media embeddings' std written over *embeddings* at the *media*
+    positions; on DeepStack models the re-injected copies are noised from the
+    same generator on the variant's first forward, see :func:`_noised`), or the
+    single gray-image input. A gray variant still has to be checked for token
+    alignment by the caller.
+    """
+    import torch
+
+    if corruption == "gray":
+        grayed = gray_inputs(inputs) if slot == "image" else None
+        if grayed is None:
+            return [], "gray_needs_an_image"
+        return [(grayed, {}, (None, None))], ""
+    std = float(embeddings.float().std()) * noise_scale
+    gen = torch.Generator(device="cpu").manual_seed(seed)
+    variants = []
+    for _ in range(max(1, n_noise)):
+        noise = torch.randn(embeddings.shape, generator=gen).to(embeddings.device, embeddings.dtype) * std
+        store = {} if deepstack and slot == "image" else None
+        variants.append((inputs, {0: (media, embeddings + noise)}, (store, gen)))
+    return variants, ""
+
+
 @contextmanager
 def _noised(mergers: list, store: dict, scale: float, gen: Any) -> Iterator[None]:
     """Add fixed noise to each merger output; drawn once per variant, then reused."""
@@ -187,8 +226,6 @@ class CausalTraceAnalyzer(Analyzer):
                          max_cases=max_cases)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        import torch
-
         from evalrx.analyzers._internals.access import (
             decoder_stack,
             layer_points,
@@ -241,27 +278,18 @@ class CausalTraceAnalyzer(Analyzer):
             probe.logits = None  # keep token ids for the alignment check, not the (seq, vocab) logits
             del clean, logits
 
-            # One corrupted variant per noise sample (or the single gray image):
-            # (inputs, layer-0 replace plan, (DeepStack noise store, generator)).
-            variants: list[tuple[Any, dict, Any]] = []
+            variants, why = corrupted_variants(
+                case.inputs, self.corruption, slot=slot, media=media, embeddings=clean_media[0][1],
+                deepstack=bool(mergers), noise_scale=self.noise_scale, n_noise=self.n_noise,
+                seed=self.seed * 100003 + index)
+            if not variants:
+                skipped[why] += 1
+                continue
             if self.corruption == "gray":
-                grayed = gray_inputs(case.inputs) if slot == "image" else None
-                if grayed is None:
-                    skipped["gray_needs_an_image"] += 1
-                    continue
-                check = model.forward(grayed, capture={Capability.LOGITS}, spec=spec)
+                check = model.forward(variants[0][0], capture={Capability.LOGITS}, spec=spec)
                 if check.token_ids != probe.token_ids:
                     skipped["corruption_misaligned"] += 1
                     continue
-                variants.append((grayed, {}, (None, None)))
-            else:
-                emb = clean_media[0][1]
-                std = float(emb.float().std()) * self.noise_scale
-                gen = torch.Generator(device="cpu").manual_seed(self.seed * 100003 + index)
-                for _ in range(max(1, self.n_noise)):
-                    noise = torch.randn(emb.shape, generator=gen).to(emb.device, emb.dtype) * std
-                    store = {} if mergers and slot == "image" else None
-                    variants.append((case.inputs, {0: (media, emb + noise)}, (store, gen)))
 
             m_corrupt = sum(margin_with(v, margin) for v in variants) / len(variants)
             effect = m_clean - m_corrupt

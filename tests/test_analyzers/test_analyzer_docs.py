@@ -37,6 +37,7 @@ def gen():
 _SIBLING_ROWS = (
     "| Attention knockout | `attention_knockout` | | | — | |\n"
     "| Attention sensitivity | `attention_sensitivity` | | | — | |\n"
+    "| Attribution patching | `attribution_patching` | | | — | |\n"
 )
 
 

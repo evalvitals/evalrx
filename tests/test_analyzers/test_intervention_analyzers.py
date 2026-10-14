@@ -13,6 +13,7 @@ Two layers of checks:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 
@@ -421,6 +422,194 @@ def test_gray_inputs_keep_size_and_flatten_content():
     arr = np.asarray(grayed.image)
     assert grayed.image.size == image(3).size and (arr == arr[0, 0]).all()
     assert gray_inputs(Inputs(prompt="x")) is None
+
+
+# ── attribution patching ──────────────────────────────────────────────────────
+
+def test_residual_keep_grad_survives_frozen_weights():
+    # A model loaded with requires_grad_(False) has no graph upstream of the
+    # residual stream; keep_grad makes the captured state a leaf so the gradient
+    # analyzers still work — and without grad mode it changes nothing.
+    from evalrx.core.model import CaptureSpec
+
+    frozen = TinyVLM("qwen2_5_vl")
+    frozen._loaded[0].requires_grad_(False)
+    inputs = Inputs(prompt="q", image=image(0))
+    with residual_hooks(frozen, capture={0: None, 3: None}, keep_grad=True) as s:
+        trace = frozen.forward(inputs, capture={Capability.LOGITS},
+                               spec=CaptureSpec(with_grad=True, to_cpu=False))
+    grads = torch.autograd.grad(trace.logits[-1].sum(), [s.captured[0], s.captured[3]])
+    assert all(bool(g.abs().sum() > 0) for g in grads)
+    with residual_hooks(frozen, capture={0: None}, keep_grad=True) as s:
+        frozen.forward(inputs, capture={Capability.LOGITS})
+    assert not s.captured[0].requires_grad
+
+
+@pytest.mark.parametrize("direction, ig_steps", [("denoise", 1), ("noise", 1), ("denoise", 5)])
+def test_attribution_patching_matches_exact_patches_for_a_small_corruption(vlm, direction, ig_steps):
+    # First order is exact in the limit: with a tiny corruption every reported
+    # single-token estimate must agree with the real patch of that token.
+    from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
+
+    f = AttributionPatchingAnalyzer(noise_scale=1e-3, min_effect=0.0, direction=direction,
+                                    ig_steps=ig_steps, n_verify=2).run(vlm, _batch()).findings
+    checked = f["verification"]
+    assert checked["last"]["n_sites"] == 4 * 2 and checked["relay"]["n_sites"] >= 1
+    assert checked["all"]["mae"] < 0.02 and checked["all"]["pearson"] > 0.99
+
+
+@pytest.mark.parametrize("corruption", ["noise", "gray"])
+def test_integration_path_runs_from_the_corrupted_to_the_clean_run(corruption):
+    # The path moves only the decoder's media input — the layer-0 media
+    # embeddings and every DeepStack re-injection — so its ends must be the
+    # corrupted run and the clean run exactly, pixels untouched.
+    from evalrx.analyzers.patching.attribution_patching import _recorded, path_point
+    from evalrx.analyzers.patching.causal_trace import (
+        _noised,
+        corrupted_variants,
+        deepstack_mergers,
+    )
+
+    vlm = TinyVLM("qwen3_vl")
+    mergers = deepstack_mergers(vlm._loaded[0])
+    inputs = Inputs(prompt="what?", image=image(1))
+
+    def forward(variant, record=None, capture=False):
+        run_inputs, plan, (store, gen) = variant
+        noised = _noised(mergers, store, 3.0, gen) if store is not None else contextlib.nullcontext()
+        recording = _recorded(mergers, record) if record is not None else contextlib.nullcontext()
+        with torch.no_grad(), recording, noised, residual_hooks(
+                vlm, capture={0: None} if capture else None, replace=plan) as s:
+            logits = vlm.forward(run_inputs, capture={Capability.LOGITS}).logits[-1]
+        return logits, s.captured
+
+    clean_rec, corrupt_rec = {}, {}
+    clean, states = forward((inputs, {}, (None, None)), record=clean_rec, capture=True)
+    media = list(range(3, 19))
+    variants, _ = corrupted_variants(inputs, corruption, slot="image", media=media,
+                                     embeddings=states[0][media], deepstack=True,
+                                     noise_scale=3.0, n_noise=1, seed=0)
+    corrupt, corrupt_states = forward(variants[0], record=corrupt_rec, capture=True)
+    store = variants[0][2][0]
+    deltas = ({i: corrupt_rec[i] - clean_rec[i] for i in corrupt_rec} if corruption == "gray"
+              else dict(store))
+    assert len(deltas) == 2 and not torch.allclose(corrupt, clean)
+    ends = {alpha: forward(path_point(alpha, inputs=inputs, media=media, clean_media=states[0][media],
+                                      corrupt_media=corrupt_states[0][media], deltas=deltas))[0]
+            for alpha in (0.0, 1.0)}
+    assert torch.allclose(ends[0.0], corrupt, atol=1e-5)
+    assert torch.allclose(ends[1.0], clean, atol=1e-5)
+
+
+def test_attribution_patching_exact_check_is_causal_traces_measurement(vlm):
+    # Same corruption, same noise draws: the exact patch of the last position it
+    # runs to verify itself is causal_trace's recovery at that layer, digit for digit.
+    from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
+    from evalrx.analyzers.patching.causal_trace import CausalTraceAnalyzer
+
+    batch = _batch()
+    ap = AttributionPatchingAnalyzer(min_effect=0.0, n_verify=1).run(vlm, batch)
+    ct = CausalTraceAnalyzer(min_effect=0.0, n_points=3).run(vlm, batch)
+    assert ap.findings["verify_layers"] == [2] and ct.findings["layers_probed"][1] == 2
+    for cid, pairs in ap.artifacts["verification"].items():
+        (last,) = [p for p in pairs if p["site"] == "last"]
+        assert last["exact"] == ct.artifacts["recovery_curves"][cid]["last"][1]
+
+
+@pytest.mark.parametrize("corruption", ["noise", "gray"])
+def test_attribution_patching_contract(vlm, corruption):
+    from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
+
+    result = AttributionPatchingAnalyzer(corruption=corruption, min_effect=0.0).run(vlm, _batch())
+    f = _assert_result_contract(result, "attribution_patching", 4)
+    assert f["n_traced"] == 4 and f["direction"] == "denoise" and f["ig_steps"] == 5
+    assert f["deepstack_layers"] == (2 if vlm.spec.key.endswith("qwen3_vl") else 0)
+    assert set(f["verification"]) == {"last", "relay", "all"}
+    assert set(f["mean_share_curves"]) == {f"{label}_{site}" for label in ("fail", "pass")
+                                           for site in ("last", "relay")}
+    assert all(len(curve) == 6 for curve in f["mean_share_curves"].values())
+    assert f["relay_tokens"] == []  # the char tokenizer cannot decode: no token text made up
+    for row in f["per_case"]:
+        assert 0.0 <= row["ap_last_rise_frac"] <= 1.0 and row["ap_verify_mae"] >= 0.0
+        assert "ap_relay_token" not in row
+    for curve in result.artifacts["share_curves"].values():
+        # Nothing has left the media tokens yet at layer 0: no text token carries any of it.
+        assert curve["last"][0] == 0.0 and curve["relay"][0] == 0.0
+
+
+def test_attribution_patching_names_the_relay_token(vlm, monkeypatch):
+    from evalrx.analyzers._internals import access as access_mod
+    from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
+
+    class Decoder:
+        def decode(self, ids):
+            return f"<{ids[0]}>"
+
+    monkeypatch.setattr(access_mod, "tokenizer_of", lambda model: Decoder())
+    batch = _batch()
+    f = AttributionPatchingAnalyzer(min_effect=0.0, n_verify=0).run(vlm, batch).findings
+    for case, row in zip(batch, f["per_case"]):
+        ids = vlm.forward(case.inputs, capture={Capability.LOGITS}).token_ids
+        assert row["ap_relay_token"] == f"<{ids[len(ids) - 1 - row['ap_relay_pos_from_end']]}>"
+    assert sum(count for _, count in f["relay_tokens"]) == 4
+
+
+def test_cases_failing_their_exact_check_stay_out_of_the_aggregates(vlm, monkeypatch):
+    from evalrx.analyzers._internals import access as access_mod
+    from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
+
+    class Decoder:
+        def decode(self, ids):
+            return f"<{ids[0]}>"
+
+    monkeypatch.setattr(access_mod, "tokenizer_of", lambda model: Decoder())
+    strict = AttributionPatchingAnalyzer(min_effect=0.0, verify_tol=-1.0).run(vlm, _batch()).findings
+    assert strict["n_traced"] == 4 and strict["n_verified"] == 0
+    assert all(row["ap_verified"] is False and "ap_relay_token" in row for row in strict["per_case"])
+    assert strict["mean_share_curves"] == {} and strict["relay_tokens"] == []
+    loose = AttributionPatchingAnalyzer(min_effect=0.0, verify_tol=1e9).run(vlm, _batch()).findings
+    assert loose["n_verified"] == 4 and sum(count for _, count in loose["relay_tokens"]) == 4
+
+
+def test_attribution_patching_small_effects_keep_the_row_but_skip_the_estimate(vlm):
+    from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
+
+    result = AttributionPatchingAnalyzer().run(vlm, _batch(2))  # tiny model: effects << 1 logit
+    f = result.findings
+    assert f["n_cases_analyzed"] == 2 and f["n_traced"] == 0 and f["verification"] is None
+    for row in f["per_case"]:
+        assert row["ap_effect_traceable"] is False and "ap_last_rise_frac" not in row
+    assert result.artifacts["share_curves"] == {}
+
+
+def test_attribution_patching_writes_no_parameter_grads(vlm):
+    from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
+
+    for direction, steps in (("denoise", 1), ("noise", 1), ("denoise", 3)):
+        AttributionPatchingAnalyzer(min_effect=0.0, direction=direction, ig_steps=steps,
+                                    n_verify=0).run(vlm, _batch(1))
+    assert all(p.grad is None for p in vlm._loaded[0].parameters())
+
+
+def test_attribution_patching_argument_checks_and_token_text():
+    from evalrx.analyzers.patching.attribution_patching import (
+        AttributionPatchingAnalyzer,
+        _token_text,
+    )
+
+    with pytest.raises(ValueError, match="direction"):
+        AttributionPatchingAnalyzer(direction="sideways")
+    with pytest.raises(ValueError, match="corruption"):
+        AttributionPatchingAnalyzer(corruption="blur")
+    with pytest.raises(ValueError, match="ig_steps"):
+        AttributionPatchingAnalyzer(ig_steps=0)
+
+    class Decoder:
+        def decode(self, ids):
+            return f"<{ids[0]}>"
+
+    assert _token_text(Decoder(), 7) == "<7>"
+    assert _token_text(object(), 7) is None
 
 
 # ── head attribution ──────────────────────────────────────────────────────────

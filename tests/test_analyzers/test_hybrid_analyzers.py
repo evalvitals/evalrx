@@ -204,12 +204,25 @@ def test_head_attribution_on_hybrid_covers_linear_heads(hybrid):
     assert all(0.0 <= r["dla_linear_share"] <= 1.0 for r in f["per_case"])
 
 
-@pytest.mark.parametrize("name", ["causal_trace", "gradcam", "tuned_lens"])
+@pytest.mark.parametrize("name", ["causal_trace", "attribution_patching", "gradcam", "tuned_lens"])
 def test_architecture_agnostic_analyzers_run_on_hybrid(hybrid, name):
     from evalrx.analyzers.attribution.gradcam import GradCAMAnalyzer
     from evalrx.analyzers.lens.tuned_lens import TunedLensAnalyzer
+    from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
     from evalrx.analyzers.patching.causal_trace import CausalTraceAnalyzer
 
     analyzer = {"causal_trace": CausalTraceAnalyzer(min_effect=0.0, n_points=3),
+                "attribution_patching": AttributionPatchingAnalyzer(min_effect=0.0),
                 "gradcam": GradCAMAnalyzer(), "tuned_lens": TunedLensAnalyzer(steps=10)}[name]
     _contract(analyzer.run(hybrid, _batch()), name, 4)
+
+
+def test_attribution_patching_is_exact_in_the_small_corruption_limit_on_hybrid(hybrid):
+    # The gradient runs back through the gated-delta-rule kernel and its conv;
+    # with a tiny corruption the estimates must still meet the real patches.
+    from evalrx.analyzers.patching.attribution_patching import AttributionPatchingAnalyzer
+
+    for steps in (1, 5):
+        f = AttributionPatchingAnalyzer(noise_scale=1e-3, min_effect=0.0, ig_steps=steps,
+                                        n_verify=2).run(hybrid, _batch()).findings
+        assert f["verification"]["all"]["mae"] < 0.02 and f["verification"]["all"]["pearson"] > 0.99

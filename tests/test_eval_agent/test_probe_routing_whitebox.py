@@ -28,8 +28,8 @@ from evalrx.eval_agent.stages.probe import (  # noqa: E402
 )
 from tests.conftest import FakeModel  # noqa: E402
 
-WRITE_SIDE = {"attention_knockout", "attention_sensitivity", "causal_trace", "gradcam",
-              "generic_attention", "head_attribution", "tuned_lens"}
+WRITE_SIDE = {"attention_knockout", "attention_sensitivity", "causal_trace", "attribution_patching",
+              "gradcam", "generic_attention", "head_attribution", "tuned_lens"}
 _WHITE_BOX = {Capability.GENERATE, Capability.LOGITS, Capability.LOGPROBS,
               Capability.ATTENTION, Capability.HIDDEN_STATES, Capability.GRADIENTS}
 

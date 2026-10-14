@@ -49,7 +49,12 @@ def residual_hooks(
                    Replacement happens before capture at the same layer.
         keep_grad: record the whole hidden tensor un-detached instead, so a
                    caller can ``torch.autograd.grad`` a target with respect to it.
+                   Under grad mode a state that does not require grad (frozen
+                   weights upstream) is made a leaf that does — nothing upstream
+                   needed a gradient, so no path is cut.
     """
+    import torch
+
     module = torch_module(model, analyzer)
     stack = decoder_stack(module)
     capture = dict(capture or {})
@@ -78,6 +83,9 @@ def residual_hooks(
                 changed = True
             if idx in capture:
                 if keep_grad:
+                    if torch.is_grad_enabled() and not hidden.requires_grad:
+                        hidden = hidden.detach().requires_grad_(True)
+                        changed = True
                     session.captured[idx] = hidden
                 else:
                     positions = capture[idx]

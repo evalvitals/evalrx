@@ -91,16 +91,18 @@ _FAILURE_MODE_TO_ANALYZERS: dict[str, list[str]] = {
     "logit_lens":                ["logit_lens", "tuned_lens"],
     # White-box information-flow mechanisms (VLM / ALM). Each tag names what the
     # analyzers can falsify: is the media read at all (knockout / causal trace),
-    # would reading it more help (sensitivity), is the right region read
-    # (gradient maps), where does the answer get written or suppressed (heads / lens).
+    # where does its information travel, layer by layer and token by token
+    # (attribution patching), would reading it more help (sensitivity), is the
+    # right region read (gradient maps), where does the answer get written or
+    # suppressed (heads / lens).
     "visual_neglect":            ["attention_knockout", "causal_trace", "modality_ablation",
                                   "attention_sensitivity"],
     "audio_neglect":             ["attention_knockout", "causal_trace", "modality_ablation",
                                   "attention_sensitivity"],
     "modality_neglect":          ["attention_knockout", "causal_trace", "modality_ablation"],
     "insufficient_visual_attention": ["attention_sensitivity", "attention_knockout", "attention"],
-    "visual_information_loss":   ["causal_trace", "attention_knockout"],
-    "late_visual_integration":   ["causal_trace", "attention_knockout"],
+    "visual_information_loss":   ["causal_trace", "attribution_patching", "attention_knockout"],
+    "late_visual_integration":   ["causal_trace", "attribution_patching", "attention_knockout"],
     "mislocalized_attention":    ["gradcam", "generic_attention", "relative_attention"],
     "grounding_error":           ["gradcam", "generic_attention", "relative_attention"],
     "late_suppression":          ["tuned_lens", "logit_lens", "layer_contrast", "head_attribution"],
@@ -150,6 +152,7 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
         "attention_knockout",                     # white-box: is it READ, and at what depth?
         "relative_attention",                     # attention across frames
         "mm_shap",                                # per-slot reliance
+        "causal_trace", "attribution_patching",   # where the video's effect hands off to the text
     ],
     "audio": [
         # Grounding first, for the same reason the text list leads with hygiene:
@@ -166,6 +169,7 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
         "attention", "attention_sink",            # where does it attend among audio tokens?
         "attention_sensitivity",                  # would attending more to the audio help?
         "causal_trace",                           # where the audio's effect hands off to the text
+        "attribution_patching",                   # ... estimated at every layer and token
         "verbalized_confidence", "calibration",
     ],
     "image": [
@@ -179,6 +183,7 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
         "mm_shap",                                # text vs image reliance
         "gradcam", "generic_attention",            # which image regions the answer depends on
         "causal_trace",                            # where the image's effect hands off to the text
+        "attribution_patching",                    # ... estimated at every layer and token
         "logprob_entropy", "self_consistency",
     ],
     "text": [],   # filled below from the legacy LLM list
@@ -198,6 +203,7 @@ _PRIORITY: dict[str, list[str]] = {
         "mm_shap",                                # text vs image reliance
         "gradcam", "generic_attention",            # which image regions the answer depends on
         "causal_trace",                            # where the image's effect hands off
+        "attribution_patching",                    # ... estimated at every layer and token
         "logprob_entropy", "self_consistency",
     ],
     ModelKind.AGENT: [

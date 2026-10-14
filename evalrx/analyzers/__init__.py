@@ -13,8 +13,8 @@ self-registers on import.  Categories (full tables: docs/analyzers.md):
     attribution/    Grad-CAM / Chefer generic-attention            — GRADIENTS
     lens/           logit-lens / tuned-lens / layer contrast /
                     head logit attribution                         — HIDDEN_STATES
-    patching/       causal tracing / attention knockout /
-                    attention sensitivity                          — HIDDEN_STATES / ATTENTION (write)
+    patching/       causal tracing / attribution patching /
+                    attention knockout / attention sensitivity     — HIDDEN_STATES / ATTENTION (write)
     geometry/       CKA / linear-probe                             — HIDDEN_STATES
     reasoning/      extraction/termination hygiene; arithmetic,
                     self-repair, step-value, knowledge split,

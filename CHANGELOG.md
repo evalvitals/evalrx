@@ -64,6 +64,35 @@ Verified on Qwen3.5-2B (transformers 5.14): tap 6/6 softmax layers exact,
 re-run 18/18 linear layers within 0.24% (bf16). Tests: a tiny Qwen3-Next
 (transformers ≥ 4.57) and a tiny Qwen3.5 VLM (transformers 5).
 
+### Added — `attribution_patching`: causal tracing of single tokens, from gradients
+
+New `patching/attribution_patching` estimates the effect of restoring each
+single token at each layer — `causal_trace`'s residual-stream site, corruptions
+and noise draws — as `(h_clean − h_corrupt) · ∂margin/∂h`, with the gradient
+averaged along the corrupt → clean media path (EAP-IG, `ig_steps=5`;
+`ig_steps=1` = plain attribution patching, `direction="denoise" | "noise"`).
+It reports the answer position's share of the media's effect per layer
+(`ap_last_rise_frac`, `ap_last_share_mid`) and the strongest single relay token
+(`ap_relay_token`, `ap_relay_share`, `ap_relay_depth_frac`), with a
+cross-case tally of relay tokens.
+
+- Each case is checked against exact patches of the sites it reports (the last
+  position at `n_verify` layers, the relay token at its peak). Cases whose mean
+  gap exceeds `verify_tol` (0.25) are flagged `ap_verified=False` and kept out
+  of the aggregates.
+- Measured on Qwen3-VL-2B and Qwen3.5-2B (8 deco_pope cases): the media tokens'
+  joint patch is not additive, and the sum of their gradient estimates does not
+  track it (r < 0.4 under every setting), so it is not reported. Single-token
+  estimates do track the exact patch where corrupting the media lowers the
+  margin (last position r 0.92–0.96), and fail where it makes the model more
+  confident (a saturated margin). With the shipped defaults, 2/6 (Qwen3-VL) and
+  4/6 (Qwen3.5) traced cases pass their own check; 19 s / 55 s per 8 cases.
+- `causal_trace`: the corrupted-variant construction is now
+  `corrupted_variants`, shared with the new analyzer (behaviour unchanged; the
+  exact checks reproduce `causal_trace`'s numbers digit for digit).
+- `_internals/residual.py`: `keep_grad` also works with frozen weights (the
+  captured state becomes a leaf).
+
 ### Changed — routing reaches the white-box analyzers
 
 `StrategyProbe` ranks the new analyzers for white-box image / audio / video
@@ -74,7 +103,9 @@ media interventions, and new tags `visual_neglect`, `audio_neglect`,
 `mislocalized_attention`, `late_suppression` (also offered to the M3 prompt)
 route to the analyzer that tests them. The video list named the unregistered
 `relative_attn` (silently dropped); it is now `relative_attention`, and a test
-fails on any unregistered name in the routing tables.
+fails on any unregistered name in the routing tables. `attribution_patching`
+follows `causal_trace` in the image / audio / video lists (the video list now
+has both) and under `visual_information_loss` / `late_visual_integration`.
 
 ### Changed — `hf_local` provides `GRADIENTS`
 
