@@ -113,7 +113,9 @@ class AgenticDiagnoseLoop(VLDiagnoseLoop):
             cfg["decision_judge"] = repr(self.judge)
             cfg["max_actions"] = self.max_actions
             self.run_logger.log_run_start(cfg)
-            self.run_logger.log_cases(data)
+            self.run_logger.log_cases(data, split="explore" if confirm is not None else None)
+            if confirm is not None:
+                self.run_logger.log_cases(confirm, split="confirm")
 
         board = EvidenceBoard(
             protocol_summary=_protocol_summary(self.protocol),
@@ -173,6 +175,8 @@ class AgenticDiagnoseLoop(VLDiagnoseLoop):
 
             step += 1
 
+        if state.diagnosis_failed:
+            stopped_by = "diagnosis_error"
         verified = self.hypothesis_tester.best_hypotheses(state.all_test_results)
         report = VLDiagnoseReport(
             cycles=step,

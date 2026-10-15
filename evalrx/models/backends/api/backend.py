@@ -1,7 +1,7 @@
 """API backend — remote / OpenAI-compatible models (incl. ``vllm serve``).
 
 Capabilities: ``GENERATE`` + ``TOOL_CALLS`` (+ ``LOGPROBS`` when the endpoint
-returns top-logprobs, e.g. OpenAI but not Gemini).  No internals: ``forward``
+returns token logprobs; Gemini support is probed by its runtime). No internals: ``forward``
 raises, and capability matching means white-box analyzers are simply never
 offered for an API model.
 

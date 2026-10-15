@@ -54,6 +54,7 @@ class AgyModel:
         binary_path: str = "",
         timeout_sec: int = 120,
         model: str = "",
+        effort: str = "",
     ) -> None:
         from evalrx.core.capability import Capability
 
@@ -66,6 +67,7 @@ class AgyModel:
         self._binary = binary
         self._timeout_sec = timeout_sec
         self._model = model
+        self._effort = effort
         self.capabilities = frozenset({Capability.GENERATE})
         self.modalities = frozenset({"text"})
 
@@ -138,6 +140,8 @@ class AgyModel:
                 cmd += ["--add-dir", workspace_dir]
             if self._model:
                 cmd += ["--model", self._model]
+            if self._effort:
+                cmd += ["--effort", self._effort]
 
             try:
                 proc = subprocess.run(

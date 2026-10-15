@@ -6,8 +6,9 @@ Loads any spec via ``transformers`` and captures internals.  Two-tier capture:
     attention, residual-stream hidden states and logits with NO module-path
     surgery — this is the high-value common path.
   * **hooks + runtime path discovery** (:mod:`evalrx.models.backends.hf.discover`) are
-    only needed beyond what flags give (activation patching, MoE routing,
-    gradients) — reserved for Stage 2.
+    only needed beyond what flags give. The write-side analyzers (attention
+    knockout, causal tracing, gradient attribution) install them themselves
+    around an ordinary ``forward`` call — see :mod:`evalrx.analyzers._internals`.
 
 Attention capture REQUIRES eager attention (sdpa/flash silently return ``None``),
 so when the model declares ``eager_required_for_attn`` we force
@@ -71,6 +72,10 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
             Capability.LOGITS,
             Capability.LOGPROBS,
             Capability.HIDDEN_STATES,
+            # forward(spec=CaptureSpec(with_grad=True)) keeps the autograd graph;
+            # gradient analyzers differentiate a logit target w.r.t. hooked
+            # activations (torch.autograd.grad — no parameter .grad is written).
+            Capability.GRADIENTS,
         }
         if spec.attn_semantics is not AttnSemantics.NONE:
             caps.add(Capability.ATTENTION)
@@ -605,7 +610,11 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
 
         flags = {flag: True for cap, flag in _CAPTURE_FLAGS.items() if cap in capture}
         enc.pop("token_type_ids", None)  # some VLM processors emit this; forward() rejects it
-        with torch.no_grad():
+        # GRADIENTS: CaptureSpec.with_grad keeps the graph so a caller can
+        # differentiate the returned logits (pair it with to_cpu=False). Default
+        # stays no_grad: an attention capture with a live graph costs gigabytes.
+        with_grad = bool(spec is not None and getattr(spec, "with_grad", False))
+        with torch.set_grad_enabled(with_grad):
             outputs = model(**enc, **flags)
 
         layers = spec.layers if spec is not None else None
@@ -665,6 +674,7 @@ class HFLocalBackend(Backend):
             Capability.LOGPROBS,
             Capability.HIDDEN_STATES,
             Capability.ATTENTION,
+            Capability.GRADIENTS,
         }
     )
 

@@ -151,27 +151,61 @@ class AttentionAnalyzer(Analyzer):
 
     name = "attention"
     requires = frozenset({Capability.ATTENTION})
+    signal_docs = {
+        "last_query_entropy": ("Answer-token attention spread", "Normalized entropy of the final prompt position's attention at the summary layer (1 = spread evenly over all tokens, 0 = on one token)."),
+        "last_query_top1_share": ("Answer-token peak attention", "Largest single share of the final prompt position's attention at the summary layer."),
+        "media_mass_mid": ("Attention on image/audio", "Share of the final prompt position's attention that lands on image/audio tokens, averaged over heads and the middle half of the layers; low = the answer position barely reads the media."),
+    }
 
-    def __init__(self, layer: int = -1, head: int | str = "mean", top_k: int = 10) -> None:
-        super().__init__(layer=layer, head=head, top_k=top_k)
+    def __init__(self, layer: int = -1, head: int | str = "mean", top_k: int = 10,
+                 max_cases: int = 0) -> None:
+        super().__init__(layer=layer, head=head, top_k=top_k, max_cases=max_cases)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> AttentionResult:
-        # Stage 1: analyse the first case (single-case ergonomics). Multi-case
-        # aggregation is a Stage-2 extension that will return a batched result.
-        case = cases[0]
-        trace = model.forward(case.inputs, capture={Capability.ATTENTION})
-        attentions = trace.require(Capability.ATTENTION)
-
-        result = AttentionResult(
-            analyzer=self.name,
-            model=repr(model),
-            cases=cases,
-            tokens=trace.tokens,
-            token_ids=trace.token_ids,
-            artifacts={"attentions": attentions},
-        )
+        # The first case keeps the full per-layer tensors (single-case
+        # ergonomics: aggregate/plot/top_attended_tokens); every analysed case
+        # contributes one per_case row for the M2 stats layer.
+        result: AttentionResult | None = None
+        per_case: list[dict[str, Any]] = []
+        for case in cases.stratified_head(self.max_cases):
+            trace = model.forward(case.inputs, capture={Capability.ATTENTION})
+            attentions = trace.require(Capability.ATTENTION)
+            if result is None:
+                result = AttentionResult(
+                    analyzer=self.name,
+                    model=repr(model),
+                    cases=cases,
+                    tokens=trace.tokens,
+                    token_ids=trace.token_ids,
+                    artifacts={"attentions": attentions},
+                )
+            per_case.append({"sample_id": case.id, **self._case_columns(trace, attentions)})
+        if result is None:
+            raise ValueError("attention: empty case batch")
         result.findings = self._summarise(result)
+        result.findings["n_cases_analyzed"] = len(per_case)
+        result.findings["per_case"] = per_case
         return result
+
+    def _case_columns(self, trace: Any, attentions: "list[torch.Tensor]") -> dict[str, Any]:
+        """Per-case scalars: last-query concentration, and its media share mid-stack."""
+        from evalrx.analyzers._internals.access import media_positions
+
+        attn = attentions[self.layer]
+        row = (attn.float().mean(0) if self.head == "mean" else attn[int(self.head)].float())[-1]
+        p = row.clamp(min=1e-12) / row.sum().clamp(min=1e-12)
+        ent = float(-(p * p.log()).sum()) / float(np.log(max(p.numel(), 2)))
+        out: dict[str, Any] = {
+            "last_query_entropy": round(ent, 4),
+            "last_query_top1_share": round(float(row.max()), 4),
+        }
+        _, media = media_positions(trace)
+        if media:
+            n = len(attentions)
+            mid = range(n // 4, max(n // 4 + 1, (3 * n) // 4))
+            shares = [float(attentions[i].float().mean(0)[-1][media].sum()) for i in mid]
+            out["media_mass_mid"] = round(sum(shares) / len(shares), 4)
+        return out
 
     def _summarise(self, result: AttentionResult) -> dict[str, Any]:
         """Build the light, agent-readable summary stored in ``findings``."""

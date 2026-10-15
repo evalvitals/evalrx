@@ -21,7 +21,7 @@ class Capability(str, Enum):
 
     GENERATE = "generate"           # produce text output
     TOOL_CALLS = "tool_calls"       # emit/consume tool calls (agent mode)
-    LOGPROBS = "logprobs"           # top-k token logprobs (API-feasible; OpenAI yes / Gemini no)
+    LOGPROBS = "logprobs"           # token logprobs, when the API actually exposes them
     LOGITS = "logits"               # full next-token logit tensor (white-box forward)
     ATTENTION = "attention"         # per-layer, per-head attention weights
     HIDDEN_STATES = "hidden_states" # per-layer residual-stream activations

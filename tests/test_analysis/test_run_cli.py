@@ -62,3 +62,106 @@ def test_api_judge_can_launch_separate_gemini_coding_agent(monkeypatch):
                                      '--coder-model', 'gemini-2.5-flash', '--m2-codegen'])
     assert args.allow_codegen and args.explore
     assert runner.build_judge(args) == (judge, 'gemini_cli', 'gemini-2.5-flash', ())
+
+
+def test_agy_effort_is_forwarded_to_both_judge_and_coder(monkeypatch):
+    observed = {}
+    judge = SimpleNamespace(generate=lambda prompt: 'OK')
+
+    def factory(**kwargs):
+        observed.update(kwargs)
+        return judge
+
+    monkeypatch.setattr('evalrx.agent_runtime.judges.AgyModel', factory)
+    args = build_parser().parse_args(['--judge-provider', 'agy', '--judge-model',
+                                     'gemini-3.6-flash', '--judge-effort', 'low'])
+    assert runner.build_judge(args) == (judge, 'antigravity', 'gemini-3.6-flash', ('--effort', 'low'))
+    assert observed['effort'] == 'low'
+
+
+def test_gemini_benchmark_probes_probability_support_automatically(monkeypatch):
+    from importlib import import_module
+
+    from evalrx.benchmark.models import resolve
+    from evalrx.benchmark.tasks import get
+    from evalrx.models.backends.api import gemini
+
+    observed = {}
+    def runtime(**kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace()
+    monkeypatch.setattr(gemini, 'gemini_runtime', runtime)
+    monkeypatch.setattr(import_module('evalrx.models.compose'), 'compose', lambda *args: 'model')
+    args = build_parser().parse_args(['--modality', 'vlm', '--model', 'gemini-3.6-flash'])
+    runner.load_model(resolve(args.model, 'vlm', 'gemini'), args, get('chartqa'))
+    assert observed['with_logprobs'] == 'auto'
+    assert observed['logprobs_model'] == 'gemini-3.6-flash'
+    assert observed['top_logprobs'] == 5
+
+
+def test_agentic_is_default_without_extra_flags():
+    parser = build_parser()
+    args = parser.parse_args([])
+    assert args.diagnosis_mode == "agentic"
+    assert args.max_actions == 12
+    help_text = parser.format_help()
+    for removed in ("--diagnosis-mode", "--diagnosis-retries", "--m1-codegen",
+                    "--fix-floor", "--gemini-logprobs", "--gemini-top-logprobs"):
+        assert removed not in help_text
+    assert parser.parse_args(["--max-actions", "8"]).max_actions == 8
+
+
+def test_legacy_fixed_protocol_remains_replayable():
+    assert build_parser().parse_args(["--diagnosis-mode", "fixed"]).diagnosis_mode == "fixed"
+
+
+def test_agentic_rejects_unsupported_holdout_before_model_load():
+    from evalrx.benchmark.run import run_args
+    args = build_parser().parse_args(["--modality", "llm", "--model", "gemini-3.6-flash",
+                                     "--diagnosis-mode", "agentic", "--held-out"])
+    with pytest.raises(ValueError, match="EXPLORE"):
+        run_args(args)
+
+
+@pytest.mark.parametrize('modality,dataset', [
+    ('llm', 'bbh_causal_judgement'), ('vlm', 'chartqa'), ('alm', 'mmau'),
+])
+def test_default_runner_constructs_agentic_pipeline_for_every_modality(monkeypatch, tmp_path,
+                                                                     modality, dataset):
+    from evalrx.benchmark.models import resolve
+    from evalrx.benchmark.tasks import get
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+    from evalrx.eval_agent import AgenticDiagnoseLoop, CaseDiscoveryAgent
+    from evalrx.specs import get_spec
+    from tests.conftest import FakeModel
+
+    cases = CaseBatch([
+        FailureCase(id=str(i), inputs=Inputs(prompt=f'question {i}'), expected='A',
+                    observed='A' if i % 2 else 'B', label=Label.PASS if i % 2 else Label.FAIL)
+        for i in range(8)
+    ])
+    args = build_parser().parse_args(['--modality', modality, '--model', 'gemini-3.6-flash',
+                                     '--dataset', dataset, '--run-dir', str(tmp_path)])
+    resolved = resolve(args.model, modality, 'gemini')
+    monkeypatch.setattr(runner, 'ensure_manifest', lambda *a: tmp_path / 'manifest.json')
+    monkeypatch.setattr(runner.T, 'build_cases', lambda *a: (cases, []))
+    monkeypatch.setattr(runner, 'build_judge', lambda *a: (FakeModel(), 'claude', None, ()))
+    monkeypatch.setattr(runner, 'load_model', lambda *a: (
+        FakeModel(), {'do_sample': True, 'temperature': 0.6, 'top_p': 0.95},
+        get_spec(resolved.spec_key)))
+    monkeypatch.setattr(CaseDiscoveryAgent, 'discover', lambda *a, **k: SimpleNamespace(
+        cases=cases, n_pass=4, n_fail=4, n_unknown=0, has_m4_groups=True))
+
+    class ReachedController(Exception):
+        pass
+
+    def run(loop, data):
+        assert loop.probe_agent.allow_codegen
+        assert loop.max_actions == 12
+        assert loop.fix_agent._floor_candidates == ()
+        assert len(data) == 8
+        raise ReachedController
+
+    monkeypatch.setattr(AgenticDiagnoseLoop, 'run', run)
+    with pytest.raises(ReachedController):
+        runner.run(args, get(dataset), resolved)

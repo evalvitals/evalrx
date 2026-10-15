@@ -32,6 +32,17 @@ def gen():
     return module
 
 
+# Every other analyzer registered under patching/, so a page built around one
+# row does not report its siblings as "added".
+_SIBLING_ROWS = (
+    "| Attention knockout | `attention_knockout` | | | — | |\n"
+    "| Attention sensitivity | `attention_sensitivity` | | | — | |\n"
+    "| Attribution patching | `attribution_patching` | | | — | |\n"
+    "| Path patching | `path_patching` | | | — | |\n"
+    "| Attention temperature | `attention_temperature` | | | — | |\n"
+)
+
+
 def _patching_page(rows: str) -> str:
     return (
         "### Patching\n\n"
@@ -49,17 +60,20 @@ def test_analyzer_doc_is_current(gen):
 
 
 def test_curated_cells_survive_and_derived_cells_are_rewritten(gen):
-    page = _patching_page("| My trace | `causal_trace` | WRONG | WRONG | [P](https://x) | ✓ |\n")
+    page = _patching_page(
+        "| My trace | `causal_trace` | WRONG | WRONG | [P](https://x) | stub |\n" + _SIBLING_ROWS
+    )
     fresh, added = gen.render(page, require_all=False)
     assert (
-        "| My trace | `causal_trace` | `HIDDEN_STATES` | text + image | [P](https://x) | stub |"
+        "| My trace | `causal_trace` | `HIDDEN_STATES` + `LOGITS` | **image** + **audio** + **video** "
+        "| [P](https://x) | ✓ |"
         in fresh
     )
     assert added == []
 
 
 def test_new_key_gets_a_placeholder_row_and_a_stale_key_is_dropped(gen):
-    page = _patching_page("| Gone | `no_such_analyzer` | | | — | |\n")
+    page = _patching_page("| Gone | `no_such_analyzer` | | | — | |\n" + _SIBLING_ROWS)
     fresh, added = gen.render(page, require_all=False)
     assert "no_such_analyzer" not in fresh
     assert "`causal_trace`" in fresh

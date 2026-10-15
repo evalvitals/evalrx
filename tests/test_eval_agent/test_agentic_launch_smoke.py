@@ -214,3 +214,28 @@ def test_agentic_loop_rejects_premature_stop_and_continues_to_a_real_verdict(tmp
     assert report.stopped_by == "agent_stop"
     assert len(action_judge.calls) == 6  # the rejected early stop + the full happy path
     assert len(report.verified_hypotheses) == 1
+
+
+def test_benchmark_controller_cannot_open_confirmation_or_repair(tmp_path):
+    from evalrx.benchmark.runner import _benchmark_agentic_registry
+
+    judge = _ScriptedActionJudge([
+        '{"tool":"run_fix","params":{},"rationale":"try to see confirmation"}',
+        '{"tool":"stop","params":{"resolved":false,"reason":"done"},"rationale":"done"}',
+    ])
+    ctx, loop = _build_loop(tmp_path, judge)
+    loop._registry_factory = _benchmark_agentic_registry
+    loop.confirm_split = 0.5
+    report = loop.run(_cases())
+    assert report.stopped_by == "agent_stop"
+    ctx.finalize()
+    events = read_v2_events(ctx.root)
+    tools = [e for e in events if e["event"] == "agent_tool"]
+    assert len(judge.calls) == 2  # forbidden action is rejected before dispatch
+    assert all(e["tool"] != "run_fix" for e in tools)
+    assert not any(e["event"] == "fix" for e in events)
+    cases = [e for e in events if e["event"] == "case_record"]
+    explore = {e["case_id"] for e in cases if e.get("split") == "explore"}
+    confirm = {e["case_id"] for e in cases if e.get("split") == "confirm"}
+    assert len(explore) == len(confirm) == 2
+    assert explore.isdisjoint(confirm)

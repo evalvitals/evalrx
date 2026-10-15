@@ -50,7 +50,8 @@ class AutoDiagnoseReport:
                               (from ``run_analysis``, which proposes hypotheses
                               without confirming them) — or, for the agentic
                               loop, ``"agent_stop"`` / ``"max_actions"`` /
-                              ``"time_budget"`` / ``"invalid_actions"``. ``None``
+                              ``"time_budget"`` / ``"invalid_actions"``. ``"diagnosis_error"``
+                              means M3 failed after bounded retries; it is not an empty finding. ``None``
                               for the legacy M5-per-cycle loop, which has no
                               single stopping-reason concept.
         final_hypotheses:      All M3 proposals across every cycle. (Formerly

@@ -30,6 +30,23 @@ def model_label(resolved: Resolved) -> str:
     return f"{resolved.label}, spec {spec.key} = {spec.hf_repo or ('api:' + spec.key)}"
 
 
+def _print_fix_progress(event):
+    # No scores, outputs, labels, or case IDs: safe even while CONFIRM is sealed.
+    print(f"[fix] {event['phase']} candidate={event.get('candidate', '-')} "
+          f"completed={event.get('completed', 0)}/{event.get('total', '?')}", flush=True)
+
+
+def _benchmark_agentic_registry(loop, state):
+    """Keep repair/CONFIRM access outside the adaptive controller."""
+    from evalrx.eval_agent.agentic.tools import ToolRegistry, build_default_registry
+
+    full = build_default_registry(loop, state)
+    registry = ToolRegistry()
+    for name in sorted(full.tool_names() - {"run_fix", "run_surgery"}):
+        registry.register(full.get(name))
+    return registry
+
+
 def _pinned_priority_override(pinned: list[str]) -> dict[str, list[str]]:
     """Apply a benchmark task's pinned M1 list to every probe model kind."""
     return {k: list(pinned) for k in ("vlm", "avlm", "alm", "agent", "llm")}
@@ -94,13 +111,15 @@ def load_model(resolved: Resolved, args, task: T.Task):
         # Thinking OFF policy, Gemini edition: the runtime sends each model's
         # floor (minimal / low on 3.7-flash / budget 0 on 2.5) unless
         # --thinking-level / --thinking-budget name a setting or
-        # --enable-thinking leaves the API default. No logprobs: Gemini returns
-        # none for the 3.x models, so the backend claims GENERATE only.
+        # --enable-thinking leaves the API default. Probe actual probability
+        # availability rather than inferring it from a model name or SDK field.
         policy = ThinkingPolicy(level=args.thinking_level, budget=args.thinking_budget,
                                 floor=not args.enable_thinking)
         runtime = gemini_runtime(api_key=args.api_key, timeout=args.request_timeout,
                                  retries=args.request_retries, thinking=policy,
-                                 with_logprobs=False, **sampling)
+                                 with_logprobs="auto",
+                                 logprobs_model=spec.hf_repo or spec.key,
+                                 top_logprobs=5, **sampling)
         return compose(spec, "api", runtime, set()), {}, spec
     from evalrx.models.backends.base import RuntimeConfig
 
@@ -180,7 +199,11 @@ def build_judge(args):
     providers as the m1_m5 examples; the benchmark CLI defaults to
     Claude / claude-opus-5 / high."""
     if args.judge_provider == "gemini":
-        if (args.allow_codegen or args.explore or args.m2_codegen or not args.skip_m5) and not getattr(args, "coder_provider", None):
+        adaptive = getattr(args, "diagnosis_mode", "agentic") == "agentic"
+        probe_codegen = adaptive and args.allow_codegen
+        stats_codegen = args.m2_codegen if args.m2_codegen is not None else adaptive
+        if (args.allow_codegen or args.explore or stats_codegen or probe_codegen
+                or not args.skip_m5) and not getattr(args, "coder_provider", None):
             raise ValueError("The Gemini API judge requires --no-allow-codegen --no-explore "
                              "--no-m2-codegen --skip-surgery; coding-agent stages need a CLI judge.")
         from evalrx.models import compose
@@ -192,8 +215,9 @@ def build_judge(args):
     elif args.judge_provider == "agy":
         from evalrx.agent_runtime.judges import AgyModel
 
-        judge = AgyModel(model=args.judge_model, timeout_sec=300)
-        coder = ("antigravity", args.judge_model, ())
+        judge = AgyModel(model=args.judge_model, effort=args.judge_effort, timeout_sec=300)
+        coder = ("antigravity", args.judge_model,
+                 (("--effort", args.judge_effort) if args.judge_effort else ()))
     elif args.judge_provider == "claude":
         name = args.judge_model or "claude-opus-5"
         from evalrx.eval_agent import ClaudeModel
@@ -337,6 +361,14 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         judge, coder_provider, coder_model, coder_extra = build_judge(args)
 
     model, gen_kwargs, spec = load_model(resolved, args, task)
+    if resolved.backend == "gemini":
+        from evalrx.models.backends.api.gemini import runtime_state
+
+        capabilities = {"capabilities": sorted(c.value for c in model.capabilities),
+                        "runtime": runtime_state(model)}
+        (run_dir / "api_capabilities.json").write_text(
+            json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
+        print(f"[model] logprobs: {capabilities['runtime'].get('logprobs_probe')}")
     protocol = task.protocol(label)
     if hasattr(model, "load"):
         # load the weights OUTSIDE the timed discovery pass (hf_local is lazy)
@@ -391,6 +423,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                 "fix_tier": args.fix_tier,
                 "allow_codegen": args.allow_codegen, "auto_escalate": args.auto_escalate,
                 "m1_selection": args.m1_selection, "generation_kwargs": gen_kwargs,
+                "diagnosis_mode": getattr(args, "diagnosis_mode", "agentic"),
+                "max_actions": getattr(args, "max_actions", 12),
+                "diagnosis_retries": 1,
                 "enable_thinking": bool(args.enable_thinking),
                 "judge_provider": args.judge_provider, "judge_model": args.judge_model,
             },
@@ -507,6 +542,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     coder_cfg = CliAgentConfig(provider=coder_provider, model=coder_model, timeout_sec=900,
                                extra_args=coder_extra)
     pinned = list(task.pinned_m1)
+    if resolved.backend == "gemini":
+        from evalrx.core.capability import Capability
+
+        if Capability.LOGPROBS in model.capabilities and "logprob_entropy" not in pinned:
+            pinned.append("logprob_entropy")
     overrides = _sampling_analyzer_overrides(resolved, args)
     # In-process generation shares one accelerator model. Concurrent Python
     # generation loops contend heavily on HF models; JAX already serializes
@@ -514,7 +554,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     # backends can continue issuing concurrent requests.
     probe_workers = 1 if resolved.backend in {"hf_local", "jax_local"} else 8
     ctx.config["m1_workers"] = probe_workers
-    if args.m1_selection == "pinned":
+    agentic = getattr(args, "diagnosis_mode", "agentic") == "agentic"
+    m1_codegen = agentic and args.allow_codegen
+    ctx.config["m1_codegen"] = bool(m1_codegen)
+    ctx.config["m1_selection"] = "judge" if agentic or m1_codegen else args.m1_selection
+    if args.m1_selection == "pinned" and not agentic and not m1_codegen:
         probe_agent = ProbeAgent(
             # StrategyProbe dispatches by the model's detected kind.  Keep the
             # benchmark's pinned list authoritative for every supported kind,
@@ -526,10 +570,12 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             max_workers=probe_workers,
         )
     else:
-        probe_agent = ProbeAgent(judge=judge, allow_codegen=False,
+        probe_agent = ProbeAgent(judge=judge, allow_codegen=m1_codegen,
+                                 codegen_config=coder_cfg,
                                  max_cases_per_analyzer=args.analyzer_max_cases,
                                  analyzer_overrides=overrides, max_workers=probe_workers)
-    m2_codegen = args.m2_codegen if args.m2_codegen is not None else task.modality == "llm"
+    m2_codegen = args.m2_codegen if args.m2_codegen is not None else (agentic or task.modality == "llm")
+    ctx.config["m2_codegen"] = bool(m2_codegen)
     stats_agent = StatsAnalysisAgent(
         judge=judge, figure_dir=str(ctx.figures_dir), max_signal_tools=16,
         allow_codegen=m2_codegen, **({"codegen_config": coder_cfg} if m2_codegen else {}),
@@ -544,7 +590,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         floor = {"max_tokens": gen_kwargs.get("max_new_tokens", task.max_new_tokens)}
         if sampled:
             floor.update(temperature=gen_kwargs["temperature"], top_p=gen_kwargs["top_p"])
-        fix_kwargs.update(baseline_generation_kwargs=floor, floor_candidates=("self_consistency_5",))
+        fix_kwargs.update(baseline_generation_kwargs=floor)
     prewritten_code = (
         Path(args.fix_code_file).read_text(encoding="utf-8")
         if args.fix_code_file else ""
@@ -568,6 +614,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         exec_timeout_sec=args.fix_exec_timeout,
         prewritten_code=prewritten_code,
         concurrency=getattr(args, "concurrency", 1),
+        floor_candidates=() if agentic else ("self_consistency_5",),
+        progress_callback=_print_fix_progress,
         **fix_kwargs,
     )
     explorer = None
@@ -583,7 +631,17 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             ),
             timeout_sec=900, max_attempts=3,
         )
-    loop = VLDiagnoseLoop(
+    loop_class = VLDiagnoseLoop
+    loop_kwargs = {}
+    if agentic:
+        from evalrx.eval_agent.agentic import AgenticDiagnoseLoop
+
+        loop_class = AgenticDiagnoseLoop
+        loop_kwargs = dict(judge=judge, max_actions=args.max_actions,
+                           registry_factory=_benchmark_agentic_registry)
+    loop = loop_class(
+        **loop_kwargs,
+        diagnosis_retries=1,
         model=model, protocol=protocol, probe_agent=probe_agent, stats_agent=stats_agent,
         diagnosis_agent=DiagnosisAgent(judge=judge),
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
@@ -607,7 +665,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         # the stages' logger.info() stream over the aligned narration.
         verbose=False,
     )
-    print(f"\n{'=' * 64}\nVLDiagnoseLoop  model={args.model}  max_cycles={args.max_cycles}\n{'=' * 64}")
+    print(f"\n{'=' * 64}\n{loop_class.__name__}  model={args.model}  max_cycles={args.max_cycles}\n{'=' * 64}")
     report = loop.run(cases)
     discovery_rows = [{
         "id": c.id, "prompt": c.inputs.prompt, "expected": c.expected,
@@ -621,6 +679,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         "backend": resolved.backend, "n_cases": len(cases), "baseline_accuracy": round(accuracy, 4),
         "cycles": report.cycles, "stopped_by": str(report.stopped_by),
         "n_verified": len(report.verified_hypotheses), "fix": None,
+        "diagnosis_status": "error" if report.stopped_by == "diagnosis_error" else "completed",
     }
     fix_tier = effective_fix_tier(resolved.backend, args.fix_tier)
     summary["fix_tier"] = fix_tier
@@ -664,4 +723,4 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     ctx.finalize()
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(f"Done. Tidy M1-M5 logs: {ctx.root.resolve()}")
-    return 0
+    return 2 if report.stopped_by == "diagnosis_error" else 0

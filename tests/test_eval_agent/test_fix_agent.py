@@ -3989,3 +3989,25 @@ def test_plain_description_never_falls_back_to_the_slug():
     assert plain_description(judged).startswith("Gives the model a short checklist")
     assert plain_description(builtin).startswith("Tells the model to read the answer")
     assert plain_description(unknown) == ""
+
+
+def test_progress_survives_suppressed_result_logger_and_never_includes_labels():
+    from evalrx.eval_agent.stages.fix_agent import FixCandidate
+    from tests.conftest import FakeModel
+
+    events = []
+    agent = FixAgent(score_fn=lambda case, output: output == "A",
+                     progress_callback=events.append, run_logger=None)
+    case = FailureCase(id="secret-case", inputs=Inputs(prompt="question"), expected="A",
+                       observed="B", label=Label.FAIL)
+    candidate = FixCandidate(tier=FixTier.L1_PROMPT, name="short", kind="template",
+                             payload={"prompt_template": "{prompt}"}, source="test")
+    model = FakeModel()
+    model.generate = lambda *args, **kwargs: "A"
+    agent._validate(candidate, model, CaseBatch([case]), {case.id: False})
+    assert events[0]["phase"] == "candidate_started"
+    assert events[-1]["phase"] == "candidate_completed"
+    assert events[-1]["completed"] == 1
+    assert any(e["phase"] == "candidate_cases" for e in events)
+    assert all(set(e) <= {"phase", "candidate", "completed", "total"} for e in events)
+    assert "secret-case" not in str(events)
