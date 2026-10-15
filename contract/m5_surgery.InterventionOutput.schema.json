@@ -1,0 +1,378 @@
+{
+  "$defs": {
+    "CaseBatchRef": {
+      "additionalProperties": false,
+      "description": "A batch referenced by file rather than inlined (the normal case).",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "n_cases": {
+          "title": "N Cases",
+          "type": "integer"
+        },
+        "split": {
+          "anyOf": [
+            {
+              "enum": [
+                "all",
+                "explore",
+                "confirm",
+                "discovery"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Split"
+        }
+      },
+      "required": [
+        "path",
+        "n_cases"
+      ],
+      "title": "CaseBatchRef",
+      "type": "object"
+    },
+    "HypothesisStatus": {
+      "enum": [
+        "proposed",
+        "testing",
+        "supported",
+        "refuted",
+        "inconclusive"
+      ],
+      "title": "HypothesisStatus",
+      "type": "string"
+    },
+    "JoinReport": {
+      "additionalProperties": false,
+      "description": "Health of one ``sample_id`` <-> ``FailureCase.id`` join.\n\nThis exists because a broken join and a real null result are indistinguishable\ndownstream: unmatched ids are skipped, both groups come out empty, and the\ntool reports \"no significant association\" — the same output as a model with\nno defect. Emitting coverage makes \"the pipeline is broken\" a separate,\nvisible state from \"the model is fine\".",
+      "properties": {
+        "left": {
+          "description": "e.g. 'attention.findings.per_case'",
+          "title": "Left",
+          "type": "string"
+        },
+        "right": {
+          "description": "e.g. 'CaseBatch(explore)'",
+          "title": "Right",
+          "type": "string"
+        },
+        "n_left": {
+          "title": "N Left",
+          "type": "integer"
+        },
+        "n_right": {
+          "title": "N Right",
+          "type": "integer"
+        },
+        "n_matched": {
+          "title": "N Matched",
+          "type": "integer"
+        },
+        "coverage": {
+          "description": "n_matched / n_left",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Coverage",
+          "type": "number"
+        },
+        "unmatched_sample": {
+          "description": "First few unmatched ids, for triage.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Unmatched Sample",
+          "type": "array"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "n_left",
+        "n_right",
+        "n_matched",
+        "coverage"
+      ],
+      "title": "JoinReport",
+      "type": "object"
+    },
+    "MethodologyWire": {
+      "additionalProperties": false,
+      "description": "A repair or intervention, as an embeddable diagram plus plain language.",
+      "properties": {
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "description": "Two or three sentences a non-specialist can follow. Not the code.",
+          "maxLength": 1000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "tier": {
+          "default": "",
+          "description": "L1..L4 for a fix; empty for an intervention.",
+          "title": "Tier",
+          "type": "string"
+        },
+        "drawio_xml": {
+          "description": "Uncompressed mxfile document, embeddable as-is. Compressed diagrams are rejected: they cannot be diffed, reviewed, or repaired by hand.",
+          "minLength": 1,
+          "title": "Drawio Xml",
+          "type": "string"
+        },
+        "n_model_calls": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Model calls this method makes per case. A large claimed gain alongside few model calls is the shape of a model-independent result, where the scaffold rather than the model did the work.",
+          "title": "N Model Calls"
+        }
+      },
+      "required": [
+        "title",
+        "drawio_xml"
+      ],
+      "title": "MethodologyWire",
+      "type": "object"
+    },
+    "StageState": {
+      "description": "Per-stage UI state. A single generic \"N/A\" loses information the reader\nneeds — in particular ``EMPTY`` (ran, produced nothing) and ``FAILED``\n(did not run correctly) must never render the same.",
+      "enum": [
+        "not_started",
+        "running",
+        "succeeded",
+        "empty",
+        "abstained",
+        "partial",
+        "failed",
+        "skipped",
+        "unavailable"
+      ],
+      "title": "StageState",
+      "type": "string"
+    },
+    "StageStatus": {
+      "additionalProperties": false,
+      "description": "Terminal state of one stage in one cycle.\n\n``EMPTY`` and ``ABSTAINED`` are successes with nothing to show; ``FAILED``\nand ``UNAVAILABLE`` are not. Collapsing them loses the only signal a reader\nhas for whether to trust the absence of a result.",
+      "properties": {
+        "stage": {
+          "enum": [
+            "pre_m1",
+            "m1",
+            "explore",
+            "m2",
+            "m3",
+            "m5_surgery",
+            "m5_fix",
+            "m4"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/StageState"
+        },
+        "cycle": {
+          "description": "Normal cycles start at 0; the post-loop fix uses -1.",
+          "title": "Cycle",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why, for any state that is not plain success — the skip rule, the error, the reason for abstaining. One field, because a reader wants one answer.",
+          "title": "Reason"
+        },
+        "duration_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Sec"
+        },
+        "joins": {
+          "items": {
+            "$ref": "#/$defs/JoinReport"
+          },
+          "title": "Joins",
+          "type": "array"
+        }
+      },
+      "required": [
+        "stage",
+        "state",
+        "cycle"
+      ],
+      "title": "StageStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``SurgeryAgent.operate`` result — causal evidence, not a repair.\n\n``fixed`` here means \"the intervention completely separated failing from\npassing cases\", i.e. the mechanism is confirmed. It does NOT mean a usable\nrepair exists; that claim belongs to :class:`FixOutput` alone.",
+  "properties": {
+    "schema_version": {
+      "default": 5,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "trace_id": {
+      "description": "Run-level correlation id.",
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "span_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "e.g. 'c0.m1'.",
+      "title": "Span Id"
+    },
+    "cycle": {
+      "default": 0,
+      "title": "Cycle",
+      "type": "integer"
+    },
+    "produced_at": {
+      "description": "ISO-8601 UTC.",
+      "title": "Produced At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/StageStatus"
+    },
+    "hypothesis_id": {
+      "description": "Points into the M3 DiagnosisOutput.",
+      "minLength": 1,
+      "title": "Hypothesis Id",
+      "type": "string"
+    },
+    "hypothesis_status": {
+      "$ref": "#/$defs/HypothesisStatus",
+      "description": "Verdict on the hypothesis. Named apart from the envelope's `status`, which is this STAGE's execution state — they answer different questions."
+    },
+    "strategy": {
+      "default": "passive_correlation",
+      "enum": [
+        "verify_fn",
+        "analyzer_params",
+        "experiment_writer",
+        "passive_correlation"
+      ],
+      "title": "Strategy",
+      "type": "string"
+    },
+    "fixed": {
+      "default": false,
+      "description": "Mechanism fully separates the groups. NOT a shippable repair.",
+      "title": "Fixed",
+      "type": "boolean"
+    },
+    "confidence_score": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence Score",
+      "type": "number"
+    },
+    "evidence_dimensions": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "description": "Breakdown: evidence gap / sample adequacy / control cleanliness.",
+      "title": "Evidence Dimensions",
+      "type": "object"
+    },
+    "evidence": {
+      "additionalProperties": true,
+      "title": "Evidence",
+      "type": "object"
+    },
+    "methodology": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MethodologyWire"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The manipulation performed: which variable was changed, what was held fixed, what was compared. This is what makes the causal claim auditable."
+    },
+    "trial_root": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Attempt folder when the experiment-writer strategy ran: generated code, stdout/stderr, workspace and record all sit there.",
+      "title": "Trial Root"
+    },
+    "new_data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CaseBatchRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "When SUPPORTED: the cases NOT in the signal group — the refined subset for the next M1 cycle. null means no refinement, which differs from an empty batch."
+    }
+  },
+  "required": [
+    "trace_id",
+    "produced_at",
+    "status",
+    "hypothesis_id",
+    "hypothesis_status"
+  ],
+  "title": "InterventionOutput",
+  "type": "object",
+  "$id": "https://evalrx.dev/contract/m5_surgery.InterventionOutput.json",
+  "x-stage": "m5_surgery",
+  "x-role": "output",
+  "x-schema-version": 5,
+  "x-optional-stage": false
+}
