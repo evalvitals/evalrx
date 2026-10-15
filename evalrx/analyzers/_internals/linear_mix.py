@@ -35,8 +35,10 @@ relevance moves at most three tokens through it unaccounted.
 from __future__ import annotations
 
 import sys
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
+from functools import wraps
+from threading import RLock, get_ident
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator
 
 from evalrx.analyzers._internals.access import decoder_stack, torch_module
@@ -182,6 +184,48 @@ def mixing_matrix(kernel: Callable, query: Any, key: Any, g: Any, beta: Any, **k
     return out.float().permute(0, 2, 1, 3)  # (B, T_query, H, T_key) -> (B, H, T, T)
 
 
+# Serialize temporary module-global replacements across tapped forwards. Calls
+# from other threads still use the original kernel via the dispatcher below.
+_DELTA_KERNEL_LOCK = RLock()
+
+
+@contextmanager
+def _replace_attribute(owner: Any, name: str, value: Any) -> Iterator[None]:
+    had_instance_attr = name in owner.__dict__
+    previous = owner.__dict__.get(name)
+    setattr(owner, name, value)
+    try:
+        yield
+    finally:
+        if had_instance_attr:
+            setattr(owner, name, previous)
+        else:
+            delattr(owner, name)
+
+
+def _module_kernel_forward(mod: Any, wrap_kernel: Callable[[Callable], Callable]) -> Callable:
+    """Tap the module-level kernel only while this mixer's forward is running."""
+    owner = sys.modules[type(mod).__module__]
+    forward = mod.forward
+
+    @wraps(forward)
+    def tapped_forward(*args, **kwargs):
+        with _DELTA_KERNEL_LOCK:
+            original = owner.torch_chunk_gated_delta_rule
+            tapped = wrap_kernel(original)
+            thread = get_ident()
+
+            @wraps(original)
+            def dispatch(*kernel_args, **kernel_kwargs):
+                kernel = tapped if get_ident() == thread else original
+                return kernel(*kernel_args, **kernel_kwargs)
+
+            with _replace_attribute(owner, "torch_chunk_gated_delta_rule", dispatch):
+                return forward(*args, **kwargs)
+
+    return tapped_forward
+
+
 @contextmanager
 def delta_rule_relevance(model: "Model", on_abar: "Callable[[int, Any], None]", *,
                          analyzer: str = "delta-rule relevance") -> "Iterator[dict[int, Any]]":
@@ -195,12 +239,8 @@ def delta_rule_relevance(model: "Model", on_abar: "Callable[[int, Any], None]", 
 
     stack = decoder_stack(torch_module(model, analyzer))
     recorded: dict[int, Any] = {}
-    saved: list = []
 
-    def wrap(layer: int, mod: Any) -> Callable:
-        original = mod.chunk_gated_delta_rule
-        kernel = _torch_kernel(mod)
-
+    def wrap(layer: int, kernel: Callable, original: Callable) -> Callable:
         def wrapped(query, key, value, g=None, beta=None, **kwargs):
             out, final_state = original(query, key, value, g=g, beta=beta, **kwargs)
             if out.requires_grad:
@@ -218,16 +258,21 @@ def delta_rule_relevance(model: "Model", on_abar: "Callable[[int, Any], None]", 
 
         return wrapped
 
-    for layer, mod in enumerate(stack.linear):
-        if mod is not None:
-            saved.append((mod, mod.__dict__.get("chunk_gated_delta_rule", None),
-                          "chunk_gated_delta_rule" in mod.__dict__))
-            mod.chunk_gated_delta_rule = wrap(layer, mod)
-    try:
-        yield recorded
-    finally:
-        for mod, previous, had_instance_attr in saved:
-            if had_instance_attr:
-                mod.chunk_gated_delta_rule = previous
+    # Capture the pure kernel before any forward dispatch is installed; the
+    # backward hooks run after this context exits and must not re-enter a tap.
+    with ExitStack() as patches:
+        for layer, mod in enumerate(stack.linear):
+            if mod is None:
+                continue
+            kernel = _torch_kernel(mod)
+            original = getattr(mod, "chunk_gated_delta_rule", None)
+            if callable(original):
+                patches.enter_context(_replace_attribute(
+                    mod, "chunk_gated_delta_rule", wrap(layer, kernel, original)))
             else:
-                del mod.chunk_gated_delta_rule
+                def wrap_kernel(original, layer=layer, kernel=kernel):
+                    return wrap(layer, kernel, original)
+
+                patches.enter_context(_replace_attribute(
+                    mod, "forward", _module_kernel_forward(mod, wrap_kernel)))
+        yield recorded

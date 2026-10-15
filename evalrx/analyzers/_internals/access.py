@@ -8,6 +8,7 @@ message instead of an ``AttributeError`` three calls deep.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -73,13 +74,15 @@ def check_editable_attention(model: "Model", analyzer: str, stack: "DecoderStack
 def is_delta_rule_mixer(module: Any) -> bool:
     """A gated-delta-rule linear-attention mixer (Qwen3.5 / Qwen3-Next GatedDeltaNet).
 
-    Recognised by what the edits use, not by class name: the per-instance
-    ``chunk_gated_delta_rule`` kernel (the relevance tap wraps it) and an
-    ``out_proj`` over per-head outputs (head attribution reads its input).
+    Recognised by the delta-rule kernel and per-head output projection. Older
+    transformers exposes ``chunk_gated_delta_rule`` on each instance; newer
+    versions call ``torch_chunk_gated_delta_rule`` in the modeling module.
     """
     return (
         module is not None
-        and callable(getattr(module, "chunk_gated_delta_rule", None))
+        and (callable(getattr(module, "chunk_gated_delta_rule", None))
+             or callable(getattr(sys.modules.get(type(module).__module__),
+                                 "torch_chunk_gated_delta_rule", None)))
         and hasattr(getattr(module, "out_proj", None), "weight")
         and getattr(module, "head_v_dim", None) is not None
     )

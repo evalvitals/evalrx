@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — hybrid analyzer compatibility with Transformers 5
+
+Recognize Qwen3.5 / Qwen3-Next linear-attention mixers when Transformers calls
+`torch_chunk_gated_delta_rule` at module scope instead of storing a kernel on
+each instance. Gradient relevance now taps that call during the target mixer's
+forward, restores it on exit or error, and retains the older instance-kernel
+path. Regression tests check native logits and gradients, per-layer relevance,
+model isolation, and cleanup after a failed forward.
+
 ### Added — write-side white-box analyzers (knockout, causal trace, gradients, head attribution)
 
 Four registered stubs are now native implementations, plus three new

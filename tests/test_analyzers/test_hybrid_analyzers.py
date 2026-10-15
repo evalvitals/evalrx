@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 
 import pytest
 
@@ -35,6 +36,7 @@ from evalrx.analyzers._internals.access import (  # noqa: E402
 from evalrx.analyzers._internals.linear_mix import (  # noqa: E402
     _torch_kernel,
     check_linear_fidelity,
+    delta_rule_relevance,
     linear_media_edit,
     mixing_matrix,
 )
@@ -277,3 +279,90 @@ def test_embed_lens_reads_a_placeholder_token_as_itself():
     for row in f["per_case"]:
         assert row["el_mean_max_sim"] == pytest.approx(1.0, abs=1e-4)
     assert all(set(t["top1"]) == {IMAGE_TOKEN} for t in result.artifacts["tokens"].values())
+
+
+# The kernel tap must preserve the native computation and restore both API
+# styles, including when a forward fails. Backward runs after the tap exits.
+def test_delta_rule_tap_preserves_logits_gradients_and_layer_identity(hybrid):
+    from evalrx.core.model import CaptureSpec
+
+    module = hybrid._loaded[0]
+    linear = {i: m for i, m in enumerate(decoder_stack(module).linear) if m is not None}
+    kernels = {i: _torch_kernel(m) for i, m in linear.items()}
+    attributes = {i: dict(m.__dict__) for i, m in linear.items()}
+    inputs = Inputs(prompt="what?", image=image(0))
+    spec = CaptureSpec(with_grad=True)
+    weight = module.get_input_embeddings().weight
+    base = hybrid.forward(inputs, capture={Capability.LOGITS}, spec=spec).logits
+    base_grad, = torch.autograd.grad(base[-1, 0], weight)
+    other = TinyVLM(hybrid.family)
+    abar = {}
+    with delta_rule_relevance(hybrid, lambda layer, value: abar.update({layer: value})) as recorded:
+        other.forward(inputs, capture={Capability.LOGITS}, spec=spec)
+        assert not recorded  # another model of the same family is not tapped
+        logits = hybrid.forward(inputs, capture={Capability.LOGITS}, spec=spec).logits
+        assert set(recorded) == set(linear)
+    assert torch.equal(logits, base)
+    grad, = torch.autograd.grad(logits[-1, 0], weight)
+    torch.testing.assert_close(grad, base_grad)
+    assert set(abar) == set(linear)
+    assert all(a.shape == (logits.shape[0], logits.shape[0]) and torch.isfinite(a).all()
+               for a in abar.values())
+    for i, mod in linear.items():
+        assert _torch_kernel(mod) is kernels[i]
+        for name in ("forward", "chunk_gated_delta_rule"):
+            assert (name in mod.__dict__) == (name in attributes[i])
+            assert mod.__dict__.get(name) is attributes[i].get(name)
+
+
+def test_delta_rule_tap_restores_after_forward_error(hybrid, monkeypatch):
+    linear = [m for m in decoder_stack(hybrid._loaded[0]).linear if m is not None]
+    mod = linear[0]
+    forward = mod.forward
+    kernel = _torch_kernel(mod)
+
+    def failing_forward(*args, **kwargs):
+        forward(*args, **kwargs)
+        raise RuntimeError("injected forward failure")
+
+    monkeypatch.setattr(mod, "forward", failing_forward)
+    attributes = [dict(m.__dict__) for m in linear]
+    with pytest.raises(RuntimeError, match="injected forward failure"):
+        with delta_rule_relevance(hybrid, lambda *_: None):
+            hybrid.forward(Inputs(prompt="what?", image=image(0)), capture={Capability.LOGITS})
+    assert sys.modules[type(mod).__module__].torch_chunk_gated_delta_rule is kernel
+    for m, saved in zip(linear, attributes):
+        for name in ("forward", "chunk_gated_delta_rule"):
+            assert (name in m.__dict__) == (name in saved)
+            assert m.__dict__.get(name) is saved.get(name)
+
+
+def test_module_kernel_dispatch_does_not_tap_another_thread(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from evalrx.analyzers._internals.linear_mix import _module_kernel_forward
+
+    owner = sys.modules[__name__]
+
+    def original(value):
+        return value * 2
+
+    monkeypatch.setattr(owner, "torch_chunk_gated_delta_rule", original, raising=False)
+    calls = []
+
+    def wrap_kernel(kernel):
+        def tapped(value):
+            calls.append(value)
+            return kernel(value)
+        return tapped
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        class Mixer:
+            def forward(self, value):
+                background = pool.submit(owner.torch_chunk_gated_delta_rule, value).result(timeout=5)
+                return owner.torch_chunk_gated_delta_rule(value) + background
+
+        forward = _module_kernel_forward(Mixer(), wrap_kernel)
+        assert forward(3) == 12
+    assert calls == [3]
+    assert owner.torch_chunk_gated_delta_rule is original
