@@ -34,7 +34,7 @@ The llm cells load the language model only (`text_only`), so the vision and audi
 | `hotpotqa_gepa` | GEPA test split (fullwiki/train, seed 1) + the 10-paragraph distractor context | short_answer_em (SQuAD EM) | 300 | hotpotqa/hotpot_qa, arXiv:2507.19457 |
 | `gsm8k` | seeded 500-of-1,319 sample of the test split | exact_or_numeric (0 tolerance) | 500 | openai/gsm8k |
 
-Data is frozen once per modality under [`../_data/`](../_data) (`<dataset>/manifest.json`
+Data is frozen once per modality under the local directory `../_data/` (`<dataset>/manifest.json`
 + media), shared by all families of this modality; outputs go to
 `outputs/<model>/<dataset>[.<tag>]/`.
 

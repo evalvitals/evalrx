@@ -491,6 +491,8 @@ print(mr.significant_pairs)  # [("A", "B"), ...] — pairs that pass Nemenyi CD
 
 ---
 
+<a id="diagnosis-loop"></a>
+
 ## VLDiagnoseLoop — Automated Failure Attribution (Current)
 
 Two diagnosis loops are available. `VLDiagnoseLoop` is the current
@@ -569,6 +571,8 @@ protocol = ExperimentProtocol(
     target_modalities=frozenset({"text", "image"}),
 )
 ```
+
+<a id="agentic-diagnosis-loop"></a>
 
 ## AgenticDiagnoseLoop — Judge-Decided M1-M4 (Alternative to the Fixed Cycle)
 
@@ -823,4 +827,7 @@ result = analyzer._run(model, CaseBatch([case_with_trajectory]))
 # High flip_rate ⇒ that step was causally influential.
 ```
 
-Full runnable example: `examples/preregistered_ab_demo/eval_agent/` (no API key needed, `docker compose up`).
+The former `examples/preregistered_ab_demo/eval_agent/` Docker example has
+been retired. The Python snippets above illustrate the API; use the current
+[full-loop quickstart](#diagnosis-loop)
+for the supported diagnosis workflow.

@@ -253,3 +253,8 @@ This renders one finished run as a single self-contained page (every figure and
 clip inlined) covering all eight `STAGE_IO` stages, including the ones the run
 skipped. It is the supported viewer; `demo_page/index.html` is simply a
 shareable output location. Needs `ffmpeg` to transcode embedded audio.
+
+The generated 91.2 MiB HTML is retained locally and ignored by Git. To recover
+the exact historical export without rerunning the model, follow the
+[demo recovery instructions](demo_page/README.md). The recovery command checks
+its SHA-256 digest and preserves an existing file.

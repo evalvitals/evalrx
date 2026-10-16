@@ -53,7 +53,7 @@ The served `model_version` is written to `baseline.json`.
 | `audiocaps_hallu` | AudioCaps-Hallucination/Random | yes_no | 300 | kuanhuggingface/AudioHallucination_AudioCaps-Random + OpenSound/AudioCaps |
 | `af_reasoning_mcq` | AF-Reasoning-Eval/AQA-MCQ | multiple_choice_letter | 76 | NVIDIA/audio-flamingo (AQA_MCQ) + gijs/clothoaqa (audio) |
 
-Data is frozen once per modality under [`../_data/`](../_data) (`<dataset>/manifest.json`
+Data is frozen once per modality under the local directory `../_data/` (`<dataset>/manifest.json`
 + media), shared by all families of this modality; outputs go to
 `outputs/<model>/<dataset>[.<tag>]/`.
 

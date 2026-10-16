@@ -42,6 +42,10 @@ nav:
   - Architecture: architecture.md
   - Extending: extending.md
   - Roadmap: roadmap.md
+  - Validation:
+      - Gemini agentic run (2026-10-13): gemini_agentic_report_20261013.md
+      - Historical Gemma repairs (2026-08-30): validation/gemma_repair_20260830.md
+  - Local Artifacts: local_artifacts.md
 
 markdown_extensions:
   - pymdownx.highlight:

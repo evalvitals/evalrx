@@ -3,7 +3,7 @@
 > 状态：**Phase A–D 已实现**（2026-06-27）。如何把 LAMBDA 式探索层（`evalrx/analysis/`）接入 M1→M5 诊断-修复链路。
 > 新增模块：[adjudicate.py](adjudicate.py)（宿主裁决）· [operationalize.py](operationalize.py)（recipe→冻结信号 + in-loop 桥接）· [fused_pipeline.py](fused_pipeline.py)（explore→confirm 编排）；in-loop 注入在 [loop.py](../eval_agent/loop.py) `VLDiagnoseLoop._bridge_signals`。测试 `tests/test_analysis/test_{adjudicate,operationalize,fused_pipeline,bridge_inloop,integration_fused}.py`（74 项全过）。
 >
-> **延伸（单轮 viz 管线：图表/观察→M3 + dashboard，含 chat 退役）**：本文档接的是**信号→M2 确证**；让 M3 消费/输出 explorer **图表+观察(机制语言)**、把 viz 提成共享核、退役交互 REPL（只留单轮管线）的设计见 [DESIGN_m3_charts.md](DESIGN_m3_charts.md)（设计提案，未实现）。
+> **延伸（单轮 viz 管线：图表/观察→M3 + dashboard，含 chat 退役）**：本文档接的是**信号→M2 确证**；让 M3 消费/输出 explorer **图表+观察(机制语言)**、把 viz 提成共享核、退役交互 REPL（只留单轮管线）的已实现设计见 [DESIGN_m3_charts.md](DESIGN_m3_charts.md)。历史行号仅用于追溯，当前代码以文件中的函数名为准。
 > 一句话：**LAMBDA 提议、M2 扩族确证、M4（gated on M2）验证、FixAgent 修复——永不用一张图来确证。** 核心新部件是 **operationalization bridge**，把 LAMBDA 发现的复合/切片信号编译成冻结 per-case 信号，使其进入 M2 的 e-BH family。
 > 配套：`/tealab-data/jiaqiliu/evalsmith/LAMBDA/LAMBDA_架构与设计原理.md`。
 
@@ -26,13 +26,13 @@ M1 ProbeAgent      analyzers → probe_results（Result.findings["per_case"] 是
 
 为什么不能删 M2、为什么 LAMBDA 必须在 M2 **上游**：
 
-1. **M2 的信号族只从 `per_case` 构造**（`build_stats_input`，[stats_tools.py:175](../eval_agent/stages/stats_tools.py)，:202-212）。**一个信号若不在某 analyzer 的 `per_case` 里，永远进不了 M2 family、拿不到 e-value、永不出现在 `rejected_tools`。**
+1. **M2 的信号族只从 `per_case` 构造**（`build_stats_input`，[stats_tools.py](stats_tools.py)）。**一个信号若不在某 analyzer 的 `per_case` 里，永远进不了 M2 family、拿不到 e-value、永不出现在 `rejected_tools`。**
 2. **M4 不自洽，gated on M2**（`_decisive`，[hypothesis_tester.py:324-343](../eval_agent/stages/hypothesis_tester.py)）：带 e-value 的结果只有 `tool ∈ rejected_tools` 才算 decisive。
 3. **M3 优先读 M2 的 conclusion/evidence**（[diagnosis.py:402-411](../eval_agent/stages/diagnosis.py)）。
 
 → 推论：若 LAMBDA 只在 M2 **之后**提假设，它发现的任何新信号永远拿不到 e-value，M4 判非 decisive，假设全塌成 INCONCLUSIVE。**必须在 M2 跑之前把信号桥接进它的族。**
 
-**已具备的护栏（漏洞已修）**：充分统计量+宿主重算决策（`_reconstruct_decision`，[stats_tool_generator.py:328](../eval_agent/stages/stats_tool_generator.py)）；候选族 e-BH（`_ebh_survivors`，[fix_agent.py:560](../eval_agent/stages/fix_agent.py)）；留出 CONFIRM split（`_split_explore_confirm`，[loop.py:760](../eval_agent/loop.py)，`(label, probe_type)` 分层、按 id 不相交）。
+**已具备的护栏（漏洞已修）**：充分统计量+宿主重算决策（`_reconstruct_decision`，[stats_tool_generator.py](stats_tool_generator.py)）；候选族 e-BH（`_ebh_survivors`，[fix_agent.py](../eval_agent/stages/fix_agent.py)）；留出 CONFIRM split（`_split_explore_confirm`，[loop.py](../eval_agent/loop.py)，`(label, probe_type)` 分层、按 id 不相交）。
 
 ---
 
@@ -111,7 +111,7 @@ def compile_recipe(recipe, records) -> dict[str, float]:
 
 **Phase A ✅ — 把 chat 每个候选接上已有宿主裁决**
 - [explorer.py](explorer.py)：`CandidateSignal`/`ExploratoryAnalysisReport` 加可选 `sufficient`/`recipe`/host 裁决字段（`to_dict` 向后兼容）；`_GENERATE_PROMPT` 允许附 `sufficient`、明确自报 reject/e_value 被忽略；parser 透传。
-- [adjudicate.py](adjudicate.py)：`adjudicate_signals/adjudicate_report` 复用 `_reconstruct_decision` + `fdr_correct` 做宿主裁决（`paired_binary`→e-BH；`two_group`→CI、标 `fdr_corrected=False`；无 sufficient→`descriptive_only`）。[chat.py](chat.py) 串联，标 `in_sample`。
+- [adjudicate.py](adjudicate.py)：`adjudicate_signals/adjudicate_report` 复用 `_reconstruct_decision` + `fdr_correct` 做宿主裁决（`paired_binary`→e-BH；`two_group`→CI、标 `fdr_corrected=False`；无 sufficient→`descriptive_only`）。原 `chat.py` 已退役；当前由 [explore_run.py](explore_run.py) 单轮入口串联，标 `in_sample`。
 
 **Phase B ✅ — bridge + 双发现源（核心）**
 - [operationalize.py](operationalize.py)：`SignalRecipe` + `compile_recipe`（`kind="expr"` 受限 DSL + safe AST eval，拒 import/attr/subscript/lambda；`kind="code"` 暂 NotImplemented）；`compile_recipes`/`per_case_finding`。

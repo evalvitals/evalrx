@@ -5,16 +5,38 @@
 ```bash
 git clone https://github.com/evalvitals/evalrx.git
 cd evalrx
-pip install -e ".[dev]"
 pip install torch --index-url https://download.pytorch.org/whl/cpu  # CPU torch for tests
+pip install -e ".[dev,local,api,data,finetune,viz,ui,contract]"
 ```
 
 ## Running tests
 
 ```bash
-pytest -m "not gpu"   # fast unit tests, no GPU needed (~165 tests)
+pytest -m "not gpu and not network"  # same selection as CI
 pytest --run-gpu      # GPU integration tests (requires CUDA + cached weights)
 ```
+
+The report tests need the built frontend. Use Node.js 22 and install from its
+lockfile before building, including after a branch change updates dependencies:
+
+```bash
+cd evalrx/reporting/web
+npm ci
+npm run typecheck
+npm run build
+```
+
+From the repository root, validate the generated contracts and documentation:
+
+```bash
+python -m evalrx.contract.export --out docs/contract --check
+pip install mkdocs-material
+mkdocs build --strict
+```
+
+Keep run data, local notebooks, and standalone report exports out of commits.
+The [local artifact policy](docs/local_artifacts.md) lists retained paths and
+provides an inventory command. Generated files are preserved locally.
 
 ## Linting
 
@@ -46,6 +68,8 @@ The new analyzer is instantly discoverable via `registry.analyzers.names_compati
 ## Pull requests
 
 - Keep PRs focused: one analyzer, one model, or one infrastructure change per PR.
-- All CI checks (ruff, mypy, pytest fast suite) must pass.
+- All configured CI checks must pass: Ruff, the frontend build, contract export,
+  documentation build, and the non-GPU/non-network test suite. Mypy is an
+  additional local check, not currently a CI gate.
 - Add or update the relevant entry in `CHANGELOG.md` under `[Unreleased]`.
 - Include paper citations (arXiv link + BibTeX key) for any method from the literature.

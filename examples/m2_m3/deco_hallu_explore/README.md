@@ -3,7 +3,7 @@
 Demonstrates `evalrx explore` (M2 exploratory analysis + M3 hypothesis
 proposal) on **real M1 data**, not a synthetic demo: the per-case VLM
 object-presence probe results already committed at
-[`examples/m1_m5/deco_hallu/data/cases/`](../../diagnosis_loops/deco_hallu/data/cases)
+[`examples/m1_m5/deco_hallu/data/cases/`](../../m1_m5/deco_hallu/data/cases)
 (three Qwen3-VL checkpoints — 2b/4b/8b — answering "Is there a {object} in
 the image?" for COCO images, `label` = pass/fail).
 
@@ -107,7 +107,7 @@ full propose → held-out-test → repair arc, ending in one five-tab web report
 - phases 0-2 need **no GPU** (the enriched data ships with the repo);
 - phase 3 (surgery/fix) needs a **GPU** plus the loop example's frozen M1
   state at
-  [`../../diagnosis_loops/deco_hallu/outputs/m1_state.pkl`](../../diagnosis_loops/deco_hallu)
+  [`../../m1_m5/deco_hallu/outputs/m1_state.pkl`](../../m1_m5/deco_hallu)
   (produce it once with that example's `python run_m1.py --device cuda`).
 
 **Run**
@@ -179,5 +179,5 @@ portable `report.html`; open it locally with `evalrx serve <output-dir>`.
 
 See [`docs/m2_analysis.md`](../../../docs/m2_analysis.md) for the general
 standalone M2/M3 workflow, and
-[`examples/m1_m5/deco_hallu/README.md`](../../diagnosis_loops/deco_hallu/README.md)
+[`examples/m1_m5/deco_hallu/README.md`](../../m1_m5/deco_hallu/README.md)
 for the full M1 → M2 → M3 → M4 → Fix loop this data was built for.

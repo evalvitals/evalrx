@@ -1,7 +1,8 @@
 # Examples
 
-Every example is launched with Docker (`docker compose up` from its own
-directory) — never `python run.py` directly. Examples that exercise the
+Most model examples are launched with Docker (`docker compose up` from their own
+directory); use each example's README for its supported entrypoint. Colab
+notebooks and contract examples have their own instructions. Examples that exercise the
 diagnosis loop are grouped by **which M-stages they actually run**, verified
 against each `run.py`'s own imports, not assumed from the folder name:
 
@@ -18,16 +19,15 @@ against each `run.py`'s own imports, not assumed from the folder name:
   the same call, or a separate script run right after) is noted per example
   below — that distinction matters and doesn't fit in a folder name.
 
-Six more directories don't belong to the M1–M5 progression at all, and are
+Other directories don't belong to the M1–M5 progression, and are
 kept under their own names rather than forced into a stage bucket:
 
 - `analyzer_demos/` — one analyzer, one call, no loop of any kind.
 - `agent_demos/` — agent-under-test trajectory capture (tool-calling `Agent`
   loop, e.g. `image_zoom_in`). Produces data for a *later* diagnosis; does
   not diagnose anything itself.
-- `preregistered_ab_demo/` — `EvalOrchestrator`'s pre-register → mine →
-  validate → confirm protocol. A different orchestrator from
-  `VLDiagnoseLoop` entirely, not M-numbered.
+- `colab/` — accelerator notebooks and their validation status.
+- `contract/` — examples of the stage input/output contract.
 - `dataset_selection/` — pre-M1 utilities: is this (model, dataset) pair
   even diagnosable before you spend a probing budget on it.
 - `paper_diagnosis_benchmark/` — uses `explore` against the **framework's
@@ -52,12 +52,15 @@ kept under their own names rather than forced into a stage bucket:
 | `m2_m3/vtcbench_diagnosis` | bare scripts | M1 → M2/M3 (`explore`) | n/a |
 | `analyzer_demos/*` | none | single analyzer call | n/a |
 | `agent_demos/visual_zoom_agent` | `Agent` (tool-calling) | trajectory capture only | n/a — pre-diagnosis |
-| `preregistered_ab_demo/eval_agent` | `EvalOrchestrator` | mine → hypothesis → validate → confirm | not M-numbered |
 | `dataset_selection/llm_band_probe` | none | pre-M1 | n/a |
 | `benchmark/<modality>/<family>` | `VLDiagnoseLoop` | M1→M2→M3→M4 | `loop.run_m5`/`run_fix`, right after `loop.run()`; pinned M1 per dataset |
 | `paper_diagnosis_benchmark/` | mostly bare `explore()` | M2-ish, meta over papers | one script also uses `FixAgent` |
 
 ## Run
+
+Historical data under `m1_m4/` and smoke-check outputs stay local at their
+original paths. They are not additional supported runnable examples. See the
+[artifact index](../docs/local_artifacts.md) for their provenance and retention.
 
 ```bash
 cd examples/analyzer_demos/qwen_attention && docker compose up

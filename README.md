@@ -50,7 +50,7 @@ supply the question and the ceiling — everything between is unattended.
 </picture>
 
 The held-out split is taken *before* Explore runs, so Verify always scores on
-rows the analysis never touched. [Full-loop quickstart →](docs/quickstart.md#vldiagnoseloop--automated-failure-attribution-current) · [Intervention guide →](docs/intervention.md)
+rows the analysis never touched. [Full-loop quickstart →](docs/quickstart.md#diagnosis-loop) · [Intervention guide →](docs/intervention.md)
 
 ## Quickstart
 

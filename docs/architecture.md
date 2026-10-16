@@ -204,7 +204,7 @@ AgenticDiagnoseLoop  (agentic/loop.py — judge-decided, same M1-M4 stages)
   fixed cycle. The host — not the judge — enforces tool call caps,
   preconditions, and the stop-gate (declaring success requires an
   actually-tested, supported, protocol-consistent hypothesis). See
-  [quickstart](quickstart.md#agenticdiagnoseloop--judge-decided-m1-m4-alternative-to-the-fixed-cycle).
+  [quickstart](quickstart.md#agentic-diagnosis-loop).
 ```
 
 The agent touches models only through the `Model` protocol and stores all
@@ -293,7 +293,7 @@ evalrx.analysis/       M2 lives here now (StatsAnalysisAgent, AnalysisModule,
 that synthesizes and evaluates new test cases (VLM QA in v1) rather than
 analyzing an already-collected dataset; `result.failure_cases` is a `CaseBatch`
 that can seed or extend the data M1 then probes. See
-[m2_analysis.md#probe-search--hierarchical-mcts-failure-discovery-vlm](m2_analysis.md#probe-search--hierarchical-mcts-failure-discovery-vlm).
+[m2_analysis.md#probe-search](m2_analysis.md#probe-search).
 
 **M1 analyzer selection** happens in two tiers:
 
