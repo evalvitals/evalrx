@@ -353,16 +353,31 @@ def check_fidelity(model: "Model", inputs: Any, *, rtol: float = 1e-2,
     return dict(verdict)
 
 
+class FidelityError(RuntimeError):
+    """An edit mechanism failed its edit-free self-check on this model.
+
+    A ``RuntimeError`` so every existing ``except RuntimeError`` still catches
+    it; the subclass lets a caller tell "the measurement cannot be trusted"
+    apart from an ordinary crash without parsing the message. ``verdict`` is
+    the check's own record (engaged layers, logit diff, tolerance).
+    """
+
+    def __init__(self, message: str, verdict: "dict[str, Any]") -> None:
+        super().__init__(message)
+        self.verdict = dict(verdict)
+
+
 def require_fidelity(model: "Model", inputs: Any, *, rtol: float = 1e-2,
                      analyzer: str = "attention tap") -> "dict[str, Any]":
     """:func:`check_fidelity`, raising when the tap cannot be trusted on *model*."""
     verdict = check_fidelity(model, inputs, rtol=rtol, analyzer=analyzer)
     if not verdict["tap_faithful"]:
-        raise RuntimeError(
+        raise FidelityError(
             f"{analyzer}: the evalrx attention tap does not faithfully reproduce this "
             f"model's attention ({verdict}); refusing to report edited-attention effects. "
             "Engaged < expected layers means the architecture bypasses the transformers "
-            "attention interface; a large logit diff means its attention is not eager-equivalent."
+            "attention interface; a large logit diff means its attention is not eager-equivalent.",
+            verdict,
         )
     return verdict
 

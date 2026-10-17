@@ -19,7 +19,13 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Iterable, Iterator
 
 from evalrx.analyzers._internals.access import decoder_stack, torch_module
-from evalrx.analyzers._internals.attn_tap import attention_tap, check_fidelity, knockout, reweight
+from evalrx.analyzers._internals.attn_tap import (
+    FidelityError,
+    attention_tap,
+    check_fidelity,
+    knockout,
+    reweight,
+)
 from evalrx.analyzers._internals.linear_mix import check_linear_fidelity, linear_media_edit
 
 if TYPE_CHECKING:
@@ -69,11 +75,12 @@ def require_edit_fidelity(model: "Model", inputs: Any, media: Iterable[int], *,
         verdict.update(check_linear_fidelity(model, inputs, media, rtol=rtol, analyzer=analyzer))
     verdict["faithful"] = bool(verdict.get("tap_faithful", True) and verdict.get("linear_faithful", True))
     if not verdict["faithful"]:
-        raise RuntimeError(
+        raise FidelityError(
             f"{analyzer}: the attention edits cannot be trusted on this model ({verdict}). "
             "tap: engaged < expected layers means the architecture bypasses the transformers "
             "attention interface, a logit diff means its attention is not eager-equivalent; "
             "linear: the media-absent re-run must engage every linear layer and reproduce "
-            "the outputs before the first media token."
+            "the outputs before the first media token.",
+            verdict,
         )
     return verdict

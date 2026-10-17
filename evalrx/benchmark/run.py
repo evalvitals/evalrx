@@ -144,6 +144,19 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
     p.add_argument("--m1-selection", choices=["pinned", "judge"], default="pinned",
                    help="pinned = the task's static analyzer set; judge = catalog selection "
                         "(modality-gated on the MODEL, so avoid on multimodal specs for text tasks)")
+    p.add_argument("--m1-policy", choices=["judge", "triage_active"], default="judge",
+                   help="judge = the current diagnosis (decision judge over M1-M4, then M5/fix); "
+                        "triage_active = MVP-0 triage controller: after Stage 0, run the fixed "
+                        "triage plan strictly on a matched EXPLORE sample, write the trace, cost "
+                        "ledger and triage report under <run>/probing/, and stop (no judge, no "
+                        "M2-M5, CONFIRM untouched)")
+    p.add_argument("--triage-n-fail", type=int, default=8,
+                   help="triage_active: FAIL cases in the sample (PASS controls are matched per gold answer)")
+    p.add_argument("--triage-seed", type=int, default=0,
+                   help="triage_active: rank seed of the nested sampler")
+    p.add_argument("--triage-budget-sec", type=float, default=0.0,
+                   help="triage_active: wall-clock cap on executed actions (0 = none); a running "
+                        "action is not interrupted, later ones are skipped")
     p.add_argument("--analyzer-max-cases", type=int, default=0, help="cap per analyzer (0 = every case)")
     p.add_argument("--m2-codegen", action=argparse.BooleanOptionalAction, default=None,
                    help="coder-written M2 statistics tools (default: on)")
@@ -211,6 +224,11 @@ def run_args(args) -> int:
         raise ValueError("max-actions must be positive")
     if args.diagnosis_mode == "agentic" and args.held_out:
         raise ValueError("agentic diagnosis uses EXPLORE; --held-out is supported only in fixed mode")
+    triage = getattr(args, "m1_policy", "judge") == "triage_active"
+    if triage and args.held_out:
+        raise ValueError("--m1-policy triage_active works on EXPLORE only; it has no --held-out role yet")
+    if triage and args.triage_n_fail < 1:
+        raise ValueError("--triage-n-fail must be positive")
     dataset = args.dataset or T.DEFAULT_TASK[args.modality]
     task = T.get(dataset)
     if task.modality != args.modality:

@@ -22,6 +22,10 @@ from typing import Any
 from . import tasks as T
 from .models import Resolved
 
+#: Seed of the label-stratified EXPLORE/CONFIRM split, shared by the diagnosis
+#: loop and the triage controller so both see the same EXPLORE cases.
+CONFIRM_SPLIT_SEED = 20260818
+
 
 def model_label(resolved: Resolved) -> str:
     from evalrx.specs import get_spec
@@ -342,6 +346,50 @@ def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
         return loop.run_fix(report, cases, **fix_kwargs)
 
 
+def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs: dict,
+                cases, ctx, run_dir: Path, baseline: dict) -> int:
+    """``--m1-policy triage_active`` (MVP-0): the fixed triage plan on EXPLORE, then stop.
+
+    Same Stage 0 and the same EXPLORE/CONFIRM split as the diagnosis loop; the
+    controller sees EXPLORE only, calls no judge, and runs no M2-M5. Outputs
+    go to ``<run>/probing/``.
+    """
+    from evalrx.eval_agent.probing import explore_confirm_split, run_triage_mvp0
+
+    explore, confirm = explore_confirm_split(cases, float(args.confirm_split), CONFIRM_SPLIT_SEED)
+    runtime = getattr(model, "runtime", None)
+    identity = {
+        "spec": spec.key, "weights": spec.hf_repo, "backend": resolved.backend,
+        "dtype": getattr(runtime, "dtype", args.dtype), "attn_impl": getattr(runtime, "attn_impl", None),
+        "generation": gen_kwargs, "enable_thinking": bool(args.enable_thinking),
+    }
+    ctx.config.update(m1_policy="triage_active", judge_provider=None, judge_model=None)  # none was built
+    report = run_triage_mvp0(
+        model, explore, out_dir=run_dir / "probing", model_identity=identity,
+        n_fail=args.triage_n_fail, seed=args.triage_seed,
+        stratum="gold" if task.kind in ("yes_no", "multiple_choice_letter") else "none",
+        host_assumed_finish=bool(task.short_answer), answer_contract=bool(task.output_contract),
+        analyzer_kwargs={"modality_ablation": {"score_fn": T.score_case}},
+        budget_sec=float(args.triage_budget_sec),
+        stage0_cost={"wall_sec": baseline["seconds"], "calls": {"generate": baseline["n"]},
+                     "n_cases": baseline["n"]},
+        partition={"confirm_split": float(args.confirm_split), "seed": CONFIRM_SPLIT_SEED,
+                   "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
+                   "confirm_visible_to_controller": False},
+        run_logger=ctx.logger,
+    )
+    ctx.finalize()
+    summary = {
+        "model": args.model, "spec": spec.key, "dataset": task.name, "modality": task.modality,
+        "backend": resolved.backend, "n_cases": len(cases), "baseline_accuracy": baseline["accuracy"],
+        "m1_policy": "triage_active", "triage": report["summary"],
+        "triage_steps": [{k: s.get(k) for k in ("analyzer", "status", "reused")} for s in report["steps"]],
+    }
+    (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
+    print(f"Done (triage). {run_dir / 'probing' / 'triage_report.md'}")
+    return 0
+
+
 def run(args, task: T.Task, resolved: Resolved) -> int:
     manifest = ensure_manifest(task, args)
     # Fail fast: the held-out validation manifest must exist before any model
@@ -356,8 +404,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     label = model_label(resolved)
     print(f"[model] {label}; backend={resolved.backend}; benchmark={task.title}; n={len(candidates)}")
 
+    triage = getattr(args, "m1_policy", "judge") == "triage_active"
     judge = coder_provider = coder_model = coder_extra = None
-    if not args.baseline_only:
+    if not args.baseline_only and not triage:  # MVP-0 triage calls no judge
         judge, coder_provider, coder_model, coder_extra = build_judge(args)
 
     model, gen_kwargs, spec = load_model(resolved, args, task)
@@ -485,6 +534,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         return 0
     if not discovery.has_m4_groups:
         raise SystemExit("M4 needs both PASS and FAIL cases; adjust --limit / --seed")
+    if triage:
+        return _run_triage(args, task, resolved, spec, model, gen_kwargs, cases, ctx, run_dir, baseline)
 
     # Held-out validation set (--held-out): a SEPARATE frozen sample, labeled
     # by its own Stage-0 pass. It takes the M4-holdout + fix-development roles;
@@ -646,7 +697,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         diagnosis_agent=DiagnosisAgent(judge=judge),
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
         fix_agent=fix_agent, max_cycles=args.max_cycles, run_logger=ctx.logger,
-        confirm_split=float(args.confirm_split), confirm_split_seed=20260818,
+        confirm_split=float(args.confirm_split), confirm_split_seed=CONFIRM_SPLIT_SEED,
         # Default: the 50/50 explore/confirm design — M1-M4 work on EXPLORE
         # (M4 in-cycle), the fix ladder searches on EXPLORE, and CONFIRM is
         # reserved for the single frozen-winner validation.

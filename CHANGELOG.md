@@ -6,6 +6,38 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — triage probing controller, MVP-0 (`--m1-policy triage_active`)
+
+An opt-in alternative to the judge-selected M1 (`evalrx/eval_agent/probing/`).
+After Stage 0 and the usual EXPLORE/CONFIRM split, a host-side controller runs
+a fixed plan — `answer_extraction_audit`, `termination_audit` (no
+continuation), `modality_ablation(mode="swap")`, `attention_knockout(target="gold")`
+— on a matched, nested FAIL/PASS sample of EXPLORE, exactly as planned (no
+backfill, cap or generated probes), and writes `selection_trace.jsonl`,
+`cost_ledger.jsonl`, per-action observations and a triage report (H/N/X route
+labels traced to case, field, action and fidelity verdict) under
+`<run>/probing/`. Outcomes are typed (`ok` / `unsupported` / `failed` /
+`unfaithful`) and never written as zeros; a rerun reads finished actions back
+instead of re-running them. No judge is called and M2–M5 do not run. The
+default `--m1-policy judge` path is unchanged.
+
+### Fixed — `modality_ablation(mode="swap")` could swap in the same media
+
+The donor was the first other case filling the slot, compared by case id only:
+on POPE (two questions per image, adjacent rows) the first pair swapped the
+same image back in, and every other case shared one donor. Donors are now the
+next case in batch order whose media differs in content (file bytes or
+pixels), each row records `ablation_<slot>_donor` and the compared answers, and
+`n_drop_fallback_<slot>` counts cases that had to fall back to drop. `drop`
+mode output is unchanged.
+
+### Changed — fidelity refusals raise `FidelityError`
+
+`require_fidelity` and `require_edit_fidelity` raise
+`evalrx.analyzers._internals.attn_tap.FidelityError` (a `RuntimeError`
+subclass carrying the check's `verdict`), so callers can tell an untrustworthy
+edit from an ordinary failure without parsing the message.
+
 ### Fixed — hybrid analyzer compatibility with Transformers 5
 
 Recognize Qwen3.5 / Qwen3-Next linear-attention mixers when Transformers calls

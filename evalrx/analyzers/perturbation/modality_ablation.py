@@ -20,7 +20,9 @@ Two ablation modes, because they answer different questions:
   not correct use: the input shape changed too.
 * ``swap`` — substitute another case's media, keeping the input shape intact and
   breaking only the grounding.  Cleaner evidence, and it needs no extra model
-  capability, but it requires at least two cases filling the same slot.
+  capability, but it requires at least two cases filling the same slot with
+  DIFFERENT media: the donor is matched on content, not on case id, and every
+  row records which case it came from.
 
 Reported as reliance, never as correctness.  ``ungrounded_rate_<slot>`` is the
 share of probed cases whose answer survived the ablation; ``by_strategy`` carries
@@ -31,6 +33,8 @@ INTERVENTION-grade rather than one more association.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import os
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from evalrx.analyzers.perturbation.prompt_contrast import _default_score, _norm_answer
@@ -47,6 +51,33 @@ if TYPE_CHECKING:
 BASELINE = "baseline"
 
 
+def _media_key(media: Any) -> Any:
+    """Content identity of one media value, so a swap never substitutes the same media.
+
+    Files hash their bytes (two rows may name the same file, or copies of it),
+    in-memory images/arrays hash their pixels; a URL or unreadable path is its
+    own reference; anything else falls back to its repr.
+    """
+    if isinstance(media, (str, os.PathLike)):
+        path = os.fspath(media)
+        try:
+            with open(path, "rb") as fh:
+                return ("file", hashlib.sha1(fh.read()).hexdigest())
+        except OSError:
+            return ("ref", path)
+    if isinstance(media, (bytes, bytearray)):
+        return ("bytes", hashlib.sha1(bytes(media)).hexdigest())
+    tobytes = getattr(media, "tobytes", None)
+    if callable(tobytes):
+        try:
+            shape = getattr(media, "shape", None) or getattr(media, "size", None)
+            return ("pixels", type(media).__name__, getattr(media, "mode", None), str(shape),
+                    hashlib.sha1(tobytes()).hexdigest())
+        except Exception:  # noqa: BLE001 - an unhashable buffer falls through to repr
+            pass
+    return ("repr", repr(media))
+
+
 @register_analyzer("modality_ablation")
 class ModalityAblationAnalyzer(Analyzer):
     """Per-slot grounding probe: does ablating a modality move the answer?"""
@@ -59,11 +90,18 @@ class ModalityAblationAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image", "audio", "video"})
     signal_docs = {
+        'ablation_base_answer': 'Swap mode: the unablated answer the ablated ones are compared against.',
+        'ablation_audio_answer': 'Swap mode: the answer with the audio swapped (or dropped).',
+        'ablation_image_answer': 'Swap mode: the answer with the image swapped (or dropped).',
+        'ablation_video_answer': 'Swap mode: the answer with the video swapped (or dropped).',
+        'ablation_audio_donor': "Swap mode: the case whose audio was put in (None = no different audio, so it was dropped).",
         'ablation_audio_is_swap': "The audio was replaced with another case's rather than removed.",
+        'ablation_image_donor': "Swap mode: the case whose image was put in (None = no different image, so it was dropped).",
         'ablation_image_is_swap': "The image was replaced with another case's rather than removed.",
         'ablation_mode_audio': 'How the audio was removed for these cases.',
         'ablation_mode_image': 'How the image was removed for these cases.',
         'ablation_mode_video': 'How the video was removed for these cases.',
+        'ablation_video_donor': "Swap mode: the case whose video was put in (None = no different video, so it was dropped).",
         'ablation_video_is_swap': "The video was replaced with another case's rather than removed.",
         'grounded_in_audio': ('Actually listened', 'The answer changed when the audio was taken away — the model was listening.'),
         'grounded_in_image': ('Actually looked', 'The answer changed when the image was taken away — the model was using it.'),
@@ -73,6 +111,9 @@ class ModalityAblationAnalyzer(Analyzer):
         'n_probed_audio': 'How many cases had audio to test.',
         'n_probed_image': 'How many cases had an image to test.',
         'n_probed_video': 'How many cases had video to test.',
+        'n_drop_fallback_audio': 'Swap mode: cases whose audio was dropped because no case held different audio.',
+        'n_drop_fallback_image': 'Swap mode: cases whose image was dropped because no case held a different image.',
+        'n_drop_fallback_video': 'Swap mode: cases whose video was dropped because no case held different video.',
         'probed_slots': 'Which modalities were tested this way.',
         'ungrounded_rate_audio': ('Ignored the audio', 'Share of cases whose answer did NOT change when the audio was removed — the model was not listening.'),
         'ungrounded_rate_image': ('Ignored the image', 'Share of cases whose answer did NOT change when the image was removed — the model was not looking.'),
@@ -114,16 +155,25 @@ class ModalityAblationAnalyzer(Analyzer):
         ]
 
     @staticmethod
-    def _donor(cases: "list[FailureCase]", slot: str, case: "FailureCase") -> Any:
-        """Another case's media for *slot*, or ``None`` when there is no donor.
+    def _donor(cases: "list[FailureCase]", slot: str, case: "FailureCase",
+               key_of: "Callable[[Any], Any]") -> "tuple[str, Any] | None":
+        """``(donor id, media)`` for *slot*, or ``None`` when no case holds different media.
 
-        Deterministic (first non-self filler in batch order) so a rerun of the
-        same batch ablates with the same substitute — a random donor would make
-        the paired comparison irreproducible.
+        The next case in batch order (wrapping) whose media differs in CONTENT
+        from this case's own. Deterministic, so a rerun of the same batch swaps
+        with the same donors — a random donor would make the paired comparison
+        irreproducible — and spread over the batch instead of one shared donor.
+        Comparing case ids is not enough: two rows can carry the same file
+        (POPE asks two questions per COCO image, adjacent in the manifest), and
+        "swapping" the same image back in reads as a model that ignores it.
         """
-        for other in cases:
-            if other.id != case.id and getattr(other.inputs, slot, None) is not None:
-                return getattr(other.inputs, slot)
+        own = key_of(getattr(case.inputs, slot))
+        start = next(i for i, c in enumerate(cases) if c is case)
+        for step in range(1, len(cases)):
+            other = cases[(start + step) % len(cases)]
+            media = getattr(other.inputs, slot, None)
+            if media is not None and other.id != case.id and key_of(media) != own:
+                return str(other.id), media
         return None
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
@@ -136,7 +186,14 @@ class ModalityAblationAnalyzer(Analyzer):
         # per-slot tallies: probed cases, and those whose answer never moved
         probed = {s: 0 for s in MEDIA_SLOTS}
         ungrounded = {s: 0 for s in MEDIA_SLOTS}
-        modes_used: dict[str, str] = {}
+        modes_used: dict[str, set[str]] = {}
+        swap = self.mode == "swap"
+        media_keys: dict[int, Any] = {}
+
+        def key_of(media: Any) -> Any:  # hash each media value once per run
+            if id(media) not in media_keys:
+                media_keys[id(media)] = _media_key(media)
+            return media_keys[id(media)]
 
         for case in selected:
             base_answer = str(model.generate(case.inputs))
@@ -146,13 +203,16 @@ class ModalityAblationAnalyzer(Analyzer):
                 by_strategy[BASELINE][case.id] = float(bool(base_verdict))
 
             row: dict[str, Any] = {"sample_id": case.id}
+            if swap:
+                row["ablation_base_answer"] = base_answer[:120]
             for slot in self._slots_of(case):
-                donor = self._donor(selected, slot, case) if self.mode == "swap" else None
+                found = self._donor(selected, slot, case, key_of) if swap else None
+                donor = found[1] if found else None
                 # swap with no donor degrades to drop rather than skipping: the
                 # weaker evidence is still evidence, and silently probing nothing
                 # would look identical to a fully-grounded model.
                 effective = "swap" if donor is not None else "drop"
-                modes_used[slot] = effective
+                modes_used.setdefault(slot, set()).add(effective)
                 ablated = dataclasses.replace(case.inputs, **{slot: donor})
 
                 answer = str(model.generate(ablated))
@@ -165,6 +225,9 @@ class ModalityAblationAnalyzer(Analyzer):
                 # nested {slot: {...}} here would reach no statistic at all.
                 row[f"grounded_in_{slot}"] = bool(changed)
                 row[f"ablation_{slot}_is_swap"] = effective == "swap"
+                if swap:
+                    row[f"ablation_{slot}_donor"] = found[0] if found else None
+                    row[f"ablation_{slot}_answer"] = answer[:120]
 
                 strategy = f"without_{slot}"
                 verdict = score(case, answer)
@@ -188,7 +251,14 @@ class ModalityAblationAnalyzer(Analyzer):
             # cannot separate them will report the wrong one.
             findings[f"n_probed_{slot}"] = n
             findings[f"ungrounded_rate_{slot}"] = round(ungrounded[slot] / n, 4) if n else None
-            findings[f"ablation_mode_{slot}"] = modes_used.get(slot)
+            used = modes_used.get(slot, set())
+            findings[f"ablation_mode_{slot}"] = (
+                None if not used else next(iter(used)) if len(used) == 1 else "mixed"
+            )
+            if swap:
+                findings[f"n_drop_fallback_{slot}"] = sum(
+                    1 for r in per_case if r.get(f"ablation_{slot}_is_swap") is False
+                )
         return Result(
             analyzer=self.name, model=repr(model), cases=cases,
             findings=findings,

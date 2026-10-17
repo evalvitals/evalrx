@@ -19,6 +19,20 @@ Repair and surgery are excluded from the benchmark controller's tool registry. A
 
 Agentic repair does not inject built-in floor candidates. The agent can still propose known repair methods. The existing repair tier/capability constraints and maximum repair rounds remain enforced. This mode is bounded adaptive diagnosis, not an unlimited autonomous training loop.
 
+## Triage policy (opt-in, MVP-0)
+
+`--m1-policy triage_active` replaces the diagnosis with a host-side triage controller (`evalrx/eval_agent/probing/`, design in `evalsmith/probing/probing_design_mix.md`). The default `--m1-policy judge` is unchanged.
+
+```bash
+python -m evalrx.benchmark.run --modality vlm --model qwen3.5-0.8b-vl --backend hf_local \
+  --dataset pope_adversarial --limit 200 --attn-impl eager \
+  --m1-policy triage_active --run-tag triage0
+```
+
+After Stage 0 and the same EXPLORE/CONFIRM split as the loop, it draws `--triage-n-fail` FAIL cases (default 8) and gold-matched PASS controls from EXPLORE with a nested sampler, then runs a fixed plan exactly as written — `answer_extraction_audit`, `termination_audit` (no continuation), `modality_ablation(mode="swap")`, `attention_knockout(target="gold")` — with no backfill, case cap or generated probes. No judge is called, M2–M5 do not run, and CONFIRM never reaches the controller. Outputs go to `<run>/probing/`: `selection_trace.jsonl`, `cost_ledger.jsonl` (each Stage 0 invocation separate from the actions' new calls), `observations/<action_id>.json`, `split_manifest.json`, and `triage_report.{json,md}` with H/N/X route labels traced to case, field, action and fidelity verdict. Outcomes are typed (`ok`, `unsupported`, `failed`, `unfaithful`) and never written as zeros. Rerunning the same command reads finished actions back by content identity instead of re-running them; `--triage-budget-sec` skips later actions once the wall-clock budget is spent.
+
+White-box edits refuse when their edit-free self-check fails. On Qwen3.5-0.8B in bf16, the attention tap reproduces `--attn-impl eager` exactly but differs from `sdpa` by about 1–2% of the largest logit, above the 1% tolerance, so `attention_knockout` reports `unfaithful` under `sdpa`; use `--attn-impl eager` for edit-based analyzers.
+
 ## Failure and progress semantics
 
 M3 exceptions are recorded as structured error exchanges with exception type, message, attempt, and retry status. The runtime automatically permits one additional attempt; valid empty diagnoses are not retried as transport failures. Exhaustion produces `diagnosis_error`, an error diagnosis status, and benchmark exit code 2 rather than a successful `no_hypotheses` result.
