@@ -7,9 +7,12 @@ seconds, or USD when every executed action has a price), and ``ε`` is that
 axis' metering floor. The definitions are the design's first executable ones,
 written down so a run can show why each action won:
 
-* **D** (prediction disagreement) needs competing explanations with predictions
-  per tool; none are proposed yet, so ``D = 0`` and actions earn budget through
-  T and C (as the design allows with zero or one explanation).
+* **D** (prediction disagreement): with an explainer, the share of pairs of the
+  route's live competing explanations whose predictions for the step conflict
+  (:mod:`.explanations`); the explanations come once per sample revision, and
+  an explanation a prediction already missed on leaves the live set at the next
+  decision. Without one, or with fewer than two live explanations, ``D = 0``
+  and actions earn budget through T and C. An expansion's D is 0.
 * **T** (evidence gap): 1 completes a recorded gap — a layer done on a smaller
   sample whose step only has to run on the route's new cases (a ``reuse``
   step), or a contradiction between two readings of the same check; 0.5 is an
@@ -55,7 +58,7 @@ from typing import Any
 from evalrx.eval_agent.probing.actions import OK, UNSUPPORTED, PlanStep
 from evalrx.eval_agent.probing.evidence import StepEvidence
 
-SCORING_VERSION = "mvp3-score-1"
+SCORING_VERSION = "mvp3-score-2"
 BACKWARD_FORWARDS = 3.0
 
 
@@ -87,6 +90,7 @@ class Scored:
     U: float = 0.0
     gaps: list[str] = field(default_factory=list)
     units: list[str] = field(default_factory=list)
+    d_detail: dict[str, Any] = field(default_factory=dict)   # which live explanations D separates
     note: str = ""
     payload: Any = None                # the proposal / expansion plan; not serialised
 

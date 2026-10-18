@@ -165,3 +165,28 @@ def test_default_runner_constructs_agentic_pipeline_for_every_modality(monkeypat
     monkeypatch.setattr(AgenticDiagnoseLoop, 'run', run)
     with pytest.raises(ReachedController):
         runner.run(args, get(dataset), resolved)
+
+
+def test_triage_explainer_is_the_chain_judge_and_never_the_model_under_test(monkeypatch):
+    from evalrx.eval_agent.probing.explanations import Explainer
+
+    seen = {}
+
+    def build(args):
+        seen.update(allow_codegen=args.allow_codegen, skip_m5=args.skip_m5)
+        return SimpleNamespace(generate=lambda prompt: 'OK'), 'llm', args.judge_model or 'gemini-2.5-flash', ()
+
+    monkeypatch.setattr(runner, 'build_judge', build)
+    spec = SimpleNamespace(key='qwen3.5-0.8b', hf_repo='Qwen/Qwen3.5-0.8B')
+    args = build_parser().parse_args(['--judge-provider', 'gemini', '--m1-policy', 'triage_active',
+                                     '--triage-scheduler', 'scored', '--triage-explanations', 'judge'])
+    explainer = runner._triage_explainer(args, spec)
+    assert isinstance(explainer, Explainer) and seen == {'allow_codegen': False, 'skip_m5': True}
+    assert explainer.identity == {'provider': 'gemini', 'model': 'gemini-2.5-flash', 'effort': 'high'}
+    rules = build_parser().parse_args(['--triage-explanations', 'judge'])
+    with pytest.raises(SystemExit, match='--triage-scheduler scored'):
+        runner._triage_explainer(rules, spec)
+    same = build_parser().parse_args(['--judge-provider', 'gemini', '--judge-model', 'Qwen/Qwen3.5-0.8B',
+                                     '--triage-scheduler', 'scored', '--triage-explanations', 'judge'])
+    with pytest.raises(SystemExit, match='model under test'):
+        runner._triage_explainer(same, spec)

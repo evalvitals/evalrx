@@ -162,11 +162,17 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                    help="triage_active: rules = MVP-2 fixed rounds over the routes' layers; scored = MVP-3 "
                         "value per cost, U = q*[D+T+C-R]+/(c+eps) (report: triage_report.scored.*)")
     p.add_argument("--triage-budget-usd", type=float, default=0.0,
-                   help="triage_active: USD cap on executed actions on priced API models (0 = none)")
+                   help="triage_active: USD cap on priced API models (0 = none), charged like "
+                        "--triage-budget-sec")
+    p.add_argument("--triage-explanations", choices=["none", "judge"], default="none",
+                   help="triage_active with --triage-scheduler scored: judge = the --judge-provider/"
+                        "--judge-model judge proposes competing explanations with predictions once per "
+                        "sample revision, giving D (none = D stays 0, no judge is built)")
     p.add_argument("--triage-seed", type=int, default=0,
                    help="triage_active: rank seed of the nested sampler")
     p.add_argument("--triage-budget-sec", type=float, default=0.0,
-                   help="triage_active: wall-clock cap on executed actions (0 = none); a running "
+                   help="triage_active: wall-clock cap (0 = none) on the evidence the run reads, each "
+                        "observation at its first execution's cost, plus judge calls; a running "
                         "action is not interrupted, later ones are skipped")
     p.add_argument("--analyzer-max-cases", type=int, default=0, help="cap per analyzer (0 = every case)")
     p.add_argument("--m2-codegen", action=argparse.BooleanOptionalAction, default=None,

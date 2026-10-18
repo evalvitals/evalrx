@@ -40,11 +40,15 @@ and the candidates it passed over and why. The run stops when:
 * ``max_actions`` decisions (expansions + follow-ups) have been made; or
 * the wall-clock budget is spent, or an action's estimate exceeds what is left.
 
-No judge is called, no hypothesis is named, and CONFIRM never enters. Outputs
-land in ``out_dir``::
+The rules scheduler calls no judge and names no hypothesis. The scored
+scheduler (MVP-3) may take an explainer: the judge then proposes competing
+explanations once the sample has settled, and their predictions give each
+candidate its D (:mod:`.explanations`); no explanation is a finding. CONFIRM
+never enters. Outputs land in ``out_dir``::
 
-    split_manifest.json  triage_report.json  triage_report.md
+    split_manifest.json  triage_report[.scored].json  triage_report[.scored].md
     selection_trace.jsonl  cost_ledger.jsonl  observations/<action_id>.json
+    explanations/<key>.json   (with an explainer: each judge call's prompt, reply and cost)
 """
 
 from __future__ import annotations
@@ -53,6 +57,7 @@ import hashlib
 import inspect
 import json
 import os
+import random
 import time
 from collections import Counter
 from functools import partial
@@ -63,6 +68,17 @@ from evalrx.analyzers.perturbation.prompt_contrast import _DEFAULT_STRATEGIES as
 from evalrx.eval_agent.probing.actions import OK, SKIPPED, PlanStep, ProbeAction, canonical
 from evalrx.eval_agent.probing.evidence import StepEvidence
 from evalrx.eval_agent.probing.executor import execute, gate
+from evalrx.eval_agent.probing.explanations import (
+    CARDS,
+    EXPLAIN_VERSION,
+    Explainer,
+    ExplanationSet,
+    Hypothesis,
+    Metric,
+    check,
+    disagreement,
+    outcome,
+)
 from evalrx.eval_agent.probing.ledger import Ledger
 from evalrx.eval_agent.probing.rules import (
     LAYERS,
@@ -73,6 +89,7 @@ from evalrx.eval_agent.probing.rules import (
     active_routes,
     candidate_steps,
     expansion_gaps,
+    matched_controls,
     next_for_route,
     next_size,
     public,
@@ -94,7 +111,13 @@ from evalrx.eval_agent.probing.scoring import (
     public_units,
     value,
 )
-from evalrx.eval_agent.probing.triage import ROUTE_STEPS, follow_up_reading, summarize, triage_cases
+from evalrx.eval_agent.probing.triage import (
+    ROUTE_STEPS,
+    follow_up_reading,
+    follow_up_values,
+    summarize,
+    triage_cases,
+)
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
@@ -116,6 +139,15 @@ THRESHOLD_STRATEGIES = {"baseline": "{prompt}", "sensitive": _PROMPT_STRATEGIES[
 
 _BATCH_WORDS = ("the question words (and recurring media words) are inferred from the batch's prompts "
                 "and images")
+
+#: What a FAIL case on each route has shown, as the judge is told.
+ROUTE_MEANING = {
+    "H": "the output lost the answer: an extraction, truncation or format check fired",
+    "N": "the answer did not change when the media was swapped for media on which the correct answer differs",
+    "U": "the answer moved under re-sampling at the host's settings or under a neutral rewording",
+    "S": "a stable error: the output, media-swap and stability checks all ran and none fired",
+    "X": "a required check could not run on the case",
+}
 
 BATTERY: tuple[PlanStep, ...] = (
     PlanStep("answer_extraction_audit", {"reask": False}, "H",
@@ -204,6 +236,7 @@ class _Run:
         self.evidence: dict[str, StepEvidence] = {}
         self.executions: list[dict[str, Any]] = []
         self.blocked: dict[str, str] = {}
+        self.judge_cost: dict[str, float] = {}
 
     def batch(self, ids: "list[str]") -> "CaseBatch":
         from evalrx.core.case import CaseBatch
@@ -255,16 +288,26 @@ class _Run:
         n = sum(k for _, k in rows)
         return round(sum(v for v, _ in rows) / n * n_cases, 6) if n else None
 
+    def charged(self, axis: str) -> float:
+        """What this run's evidence cost when each observation was first executed (a read-back
+        at its original cost, once), plus its judge calls: the same for a resumed run and for
+        a second scheduler on a shared ledger as for the run that executed it."""
+        seen: dict[str, float] = {}
+        for ev in self.evidence.values():
+            for obs in ev.chunks:
+                seen.setdefault(obs.action_id, float((obs.cost or {}).get(axis) or 0.0))
+        return sum(seen.values()) + float(self.judge_cost.get(axis) or 0.0)
+
     def over_budget(self, estimate: "float | None", estimate_usd: "float | None" = None) -> "str | None":
         """Why an action with these estimates may not start (``None`` = it may)."""
         if self.budget_sec > 0:
-            spent = self.ledger.spent("wall_sec")
+            spent = self.charged("wall_sec")
             if spent >= self.budget_sec:
                 return f"wall-clock budget {self.budget_sec}s spent"
             if estimate is not None and spent + estimate > self.budget_sec:
                 return f"estimated {estimate}s exceeds the {round(self.budget_sec - spent, 1)}s left"
         if self.budget_usd > 0:
-            spent = self.ledger.spent("usd")
+            spent = self.charged("usd")
             if spent >= self.budget_usd:
                 return f"USD budget {self.budget_usd} spent"
             if estimate_usd is not None and spent + estimate_usd > self.budget_usd:
@@ -292,6 +335,9 @@ class _Run:
         except Exception:  # noqa: BLE001 - run_step records the construction failure
             return False
         ev = self.evidence.setdefault(step.name, StepEvidence(step))
+        todo = ev.todo(target)
+        if not todo or self.over_budget(self.estimate_sec(step, len(todo)), self.estimate_usd(step, len(todo))):
+            return False   # what a fresh run could not afford is not read back either: run_step records it
         n = len(ev.chunks)
         self._adopt(ev, step_id, target, {"kind": kind, "revision": revision, "key": step.name,
                                           "analyzer": step.analyzer, "rule_id": rule_id, "route": route})
@@ -354,6 +400,21 @@ class _Run:
             record = {**base, "status": "failed", "reused": False, "error": str(exc)}
             self._log(record)
             return record
+        todo = ev.todo(target)
+        if not todo:
+            return None
+        # Checked as if the cases ran fresh, before anything is read back: the budget is
+        # charged with the evidence read, so a resumed run (or a second scheduler on the
+        # same ledger) must skip what the run that executed it could not afford.
+        estimate = self.estimate_sec(step, len(todo))
+        why = None if budget_checked else self.over_budget(estimate, self.estimate_usd(step, len(todo)))
+        if why is not None:
+            self.ledger.trace({**base, "event": "skipped", "status": SKIPPED, "reason": why, "n_cases": len(todo)})
+            self.blocked[step.name] = why
+            record = {**base, "status": SKIPPED, "reused": False, "reason": why, "n_cases": len(todo)}
+            self._log(record)
+            self.say(f"[triage] {step.name}: skipped ({why})")
+            return record
         record = self._adopt(ev, step_id, target, base) if step.reuse else None
 
         todo = ev.todo(target)
@@ -380,15 +441,6 @@ class _Run:
             return record
 
         estimate = self.estimate_sec(step, len(cases))
-        why = None if budget_checked else self.over_budget(estimate, self.estimate_usd(step, len(cases)))
-        if why is not None:
-            self.ledger.trace({**base, "event": "skipped", "status": SKIPPED, "reason": why})
-            self.blocked[step.name] = why
-            record = {**base, "status": SKIPPED, "reused": False, "reason": why}
-            self._log(record)
-            self.say(f"[triage] {step.name}: skipped ({why})")
-            return record
-
         prior = self.ledger.attempts(action_id)
         attempt = prior + 1
         self.ledger.trace({
@@ -453,6 +505,7 @@ def run_triage(
     min_gain: float = 0.01,
     min_cover: int = 8,
     budget_usd: float = 0.0,
+    explainer: "Explainer | None" = None,
     run_logger: Any = None,
     progress: "Callable[[str], None] | None" = print,
 ) -> dict[str, Any]:
@@ -486,9 +539,12 @@ def run_triage(
         analyzer_kwargs:     per-analyzer constructor extras the host supplies
                              (e.g. the task's ``score_fn``, the sampling settings).
         price_fn:            ``api_usage -> USD`` (``None`` = no price on record).
-        budget_sec:          wall-clock cap on executed actions (0 = none). A running
-                             action is not interrupted; one whose estimate (from the
-                             same step's earlier seconds per case) exceeds what is
+        budget_sec:          wall-clock cap (0 = none) on the evidence the run reads,
+                             each observation at the cost of its first execution (so a
+                             resumed run, or a second scheduler on the same ledger, is
+                             charged what the evidence cost), plus its judge calls. A
+                             running action is not interrupted; one whose estimate (from
+                             the same step's earlier seconds per case) exceeds what is
                              left is skipped.
         stage0_cost:         the shared baseline cost, logged once and kept separate.
         partition:           how EXPLORE/CONFIRM were split (recorded, not used).
@@ -503,12 +559,19 @@ def run_triage(
         weights, explore_every, min_gain, min_cover: the scored scheduler's weights,
                              exploration period (every k-th decision), value floor
                              and per-unit coverage target.
-        budget_usd:          USD cap on executed actions (0 = none), checked like
-                             ``budget_sec`` with the step's earlier USD per case.
+        budget_usd:          USD cap (0 = none), charged like ``budget_sec`` and checked
+                             with the step's earlier USD per case.
+        explainer:           the scored scheduler's source of competing explanations
+                             (:mod:`.explanations`): asked once the sample has settled and
+                             again when the evidence has thinned a route's live explanations
+                             (at most ``explainer.max_asks`` times); its predictions give
+                             each candidate its D. ``None`` = D stays 0.
         run_logger:          optional RunLoggerV2 for per-call model logs.
     """
     if scheduler not in SCHEDULERS:
         raise ValueError(f"scheduler must be one of {SCHEDULERS}; got {scheduler!r}")
+    if explainer is not None and scheduler != "scored":
+        raise ValueError("explanations give D to the scored scheduler; the rules scheduler does not read them")
     weights = weights or Weights()
     started = time.monotonic()
     say = progress or (lambda _msg: None)
@@ -612,15 +675,39 @@ def run_triage(
                          budget_checked=True)
 
     by_rule = {x.rule_id: x for x in layers}
+    step_layers: dict[tuple[str, str], Layer] = {}
+    for x in layers:
+        for name in (*x.served_by, *(c.name for c in x.candidates)):
+            step_layers.setdefault((x.route, name), x)
 
-    def scored_pool(records: list[dict[str, Any]], gaps: list[dict[str, Any]]
-                    ) -> tuple[list[Scored], list[dict[str, Any]], str]:
-        """Every feasible candidate with its value, what the budget filtered out, and the cost axis."""
-        nonlocal expansion_note
+    def outcomes_for(records: list[dict[str, Any]]) -> Callable[[str, str, Metric], dict[str, Any]]:
+        """``(route, step key, reading) -> outcome``: the reading's FAIL-minus-control difference
+        on the route's current FAIL cases (the layer's filter applied) and their PASS controls."""
+        groups: dict[Any, tuple[list[str], list[str]]] = {}
+        values: dict[tuple[str, str], dict[str, Any]] = {}
+
+        def get(route: str, key: str, metric: Metric) -> dict[str, Any]:
+            ev = run.evidence.get(key)
+            if ev is None or not ev.chunks:
+                return {"n": [0, 0], "observed": "not_measured"}
+            layer = step_layers.get((route, key))
+            flt = layer.case_filter if layer is not None else None
+            if (route, flt) not in groups:
+                fail_ids = route_fail_ids(records, route, flt)
+                groups[(route, flt)] = (fail_ids, matched_controls(records, fail_ids, rank_of)[0])
+            fail_ids, controls = groups[(route, flt)]
+            for cid in (*fail_ids, *controls):
+                if (key, cid) not in values:
+                    values[(key, cid)] = follow_up_values(ev, run.by_id[cid], answer_fn)
+            return outcome({cid: values[(key, cid)] for cid in (*fail_ids, *controls)}, fail_ids, controls, metric)
+
+        return get
+
+    def route_view(records: list[dict[str, Any]], gaps: list[dict[str, Any]]
+                   ) -> tuple[dict[str, list[dict[str, Any]]], bool]:
+        """Every active route's layer states (pending battery steps first), and whether an
+        expansion can still follow."""
         sample_ids = list(draw.case_ids)
-        # A batch-dependent step's reading is superseded by any later expansion, and no
-        # route reads it: while an expansion can still follow, running it is wasted. Its
-        # layer waits for it (a battery step) rather than falling back to another tool.
         growing = bool(gaps) and expansion_note is None and \
             next_size(len(draw.fail_ids), max_fail, n_available) is not None
         pending = {s.name: (s, sample_ids) for s in deferred
@@ -629,8 +716,131 @@ def run_triage(
         # Decisions read only this scheduler's own evidence and price every candidate as if
         # it ran fresh: chunks in the ledger (an earlier invocation, the other scheduler)
         # save compute when the chosen step runs, never change what is chosen.
-        states = {r["route"]: route_states(r["route"], records, run.evidence, run.gate, rank_of, layers=layers,
-                                           blocked=run.blocked, pending=pending) for r in rows}
+        return {r["route"]: route_states(r["route"], records, run.evidence, run.gate, rank_of, layers=layers,
+                                         blocked=run.blocked, pending=pending) for r in rows}, growing
+
+    explanation_sets: list[ExplanationSet] = []
+
+    def explanation_request(records: list[dict[str, Any]], states: dict[str, list[dict[str, Any]]],
+                            outcome_of: Callable[[str, str, Metric], dict[str, Any]]
+                            ) -> tuple[dict[str, Any], dict[str, dict[str, list[str]]]]:
+        """What the judge sees, and per route the steps (with their readings) it may predict:
+        each open layer's current candidate, in a seeded order. A fallback only becomes a
+        candidate when its layer's first choice fails; predictions on it would mostly go
+        unchecked (a later ask covers it once it is the candidate)."""
+        offered: dict[str, dict[str, list[str]]] = {}
+        routes: dict[str, Any] = {}
+        for route, sts in states.items():
+            to_run: list[dict[str, Any]] = []
+            for st in sts:
+                if st["state"] not in ("open", "extend"):
+                    continue
+                layer, step = by_rule[st["rule_id"]], st["step"]
+                if step.name in CARDS and all(c["step"] != step.name for c in to_run):
+                    to_run.append({"step": step.name, "tool": step.analyzer, "layer": layer.rule_id,
+                                   "question": layer.question, "what": step.purpose,
+                                   **({"caveat": step.caveat} if step.caveat else {}),
+                                   "readings": [m.card() for m in CARDS[step.name]]})
+            if not to_run:
+                continue
+            random.Random(f"{seed}:{revision}:{route}").shuffle(to_run)
+            offered[route] = {c["step"]: [r["field"] for r in c["readings"]] for c in to_run}
+            measured: dict[str, Any] = {}
+            for key in sorted(CARDS):
+                rows = {m.field: {k: v for k, v in o.items() if k != "observed" or v != "not_measured"}
+                        for m in CARDS[key] if (o := outcome_of(route, key, m))["n"] != [0, 0]}
+                if rows:
+                    measured[key] = rows
+            fail_ids = route_fail_ids(records, route)
+            by_id = {r["case_id"]: r for r in records}
+            routes[route] = {"meaning": ROUTE_MEANING.get(route, ""), "n_fail": len(fail_ids),
+                             "fail_by_gold": dict(sorted(Counter(by_id[c]["stratum"] for c in fail_ids).items())),
+                             "measured": measured, "to_run": to_run}
+        previous = []
+        if explanation_sets and explanation_sets[-1].hypotheses:
+            prev = explanation_sets[-1]
+            for hid, row in check(prev.hypotheses, outcome_of).items():
+                h = next(x for x in prev.hypotheses if x.id == hid)
+                previous.append({"id": hid, "route": h.route, "claim": h.claim, "state": row["state"],
+                                 "verdicts": [{"step": p["step"], "reading": p["reading"], "predicted": p["predicted"],
+                                               "observed": p["outcome"].get("observed"), "verdict": p["verdict"]}
+                                              for p in row["predictions"]]})
+        context = {
+            "task": {"kind": task_kind, "controls_matched_on": stratum},
+            "model_under_test": {k: model_identity.get(k) for k in ("spec", "backend")},
+            "sample": {"revision": revision, "n_fail": len(draw.fail_ids), "n_pass": len(draw.pass_ids)},
+            "checks": {"meaning": "FAIL vs PASS cases on which each route's check fired (fired/tested), "
+                                  "with the 95% interval of the difference",
+                       **(revisions[-1]["signals"] if revisions else {})},
+            "measured_meaning": "per reading: FAIL mean, control mean, n [FAIL, control], diff = FAIL - "
+                                "control, its 95% interval, and the direction the whole interval lies in",
+            "routes": routes, "previous": previous,
+        }
+        return context, offered
+
+    def n_asked() -> int:
+        return sum(1 for es in explanation_sets if es.source != "not_asked")
+
+    def ask_reason(states: dict[str, list[dict[str, Any]]], growing: bool, verdicts: dict[str, Any],
+                   current: "ExplanationSet | None") -> "str | None":
+        """Why the judge is asked now (``None`` = it is not).
+
+        Explanations are about the routes, and an expansion revises the routes: the
+        judge is first asked once no expansion can follow (the sample has settled,
+        or the next one is over budget). It is asked again when the evidence has
+        decided a prediction since the last ask and a route with tools left has
+        fewer than two live explanations."""
+        if growing:
+            plan = expansion_plan()
+            if plan is not None and run.over_budget(plan[3]) is None:
+                return None
+        with_cards = sorted(route for route, sts in states.items()
+                            if any(st["state"] in ("open", "extend") and st["step"].name in CARDS for st in sts))
+        if not with_cards or run.over_budget(None) is not None:
+            return None
+        if current is None:
+            return "the sample has settled: no expansion can follow"
+        new = _decided(verdicts) - current.decided_at_ask
+        thin = [route for route in with_cards if sum(1 for h in current.hypotheses if h.route == route
+                                                     and verdicts[h.id]["state"] == "live") < 2]
+        if not new or not thin:
+            return None
+        return (f"the evidence decided {len(new)} prediction(s) since the last ask, and route(s) {thin} "
+                f"with tools left have fewer than two live explanations")
+
+    def explain(records: list[dict[str, Any]], states: dict[str, list[dict[str, Any]]],
+                outcome_of: Callable[[str, str, Metric], dict[str, Any]], reason: str) -> ExplanationSet:
+        context, offered = explanation_request(records, states, outcome_of)
+        if not offered:
+            es = ExplanationSet(revision, "", offered=offered, source="not_asked",
+                                error="no active route has a tool with readings to predict")
+        else:
+            assert explainer is not None
+            es = explainer.propose(out, revision, context, offered)
+            es.seen = {route: sorted(r["measured"]) for route, r in context["routes"].items()}
+            for axis in ("wall_sec", "usd"):
+                if es.cost.get(axis) is not None:
+                    run.judge_cost[axis] = run.judge_cost.get(axis, 0.0) + float(es.cost[axis])
+            if es.source in ("judge", "failed"):
+                ledger.cost({"kind": "judge", "key": es.key, "revision": revision, "source": es.source,
+                             **es.cost})
+        es.reason = reason
+        ledger.trace({"event": "explanations", "revision": revision, "key": es.key, "source": es.source,
+                      "reason": reason, "error": es.error, "by_route": dict(Counter(h.route for h in es.hypotheses)),
+                      "dropped": es.dropped, "cost": es.cost})
+        say(f"[triage] explanations (revision {revision}): {es.source}, "
+            f"{dict(Counter(h.route for h in es.hypotheses)) or 'none'}" + (f" ({es.error})" if es.error else ""))
+        explanation_sets.append(es)
+        return es
+
+    def scored_pool(records: list[dict[str, Any]], gaps: list[dict[str, Any]],
+                    states: dict[str, list[dict[str, Any]]], growing: bool, live: list[Hypothesis]
+                    ) -> tuple[list[Scored], list[dict[str, Any]], str]:
+        """Every feasible candidate with its value, what the budget filtered out, and the cost axis."""
+        nonlocal expansion_note
+        # A batch-dependent step's reading is superseded by any later expansion, and no
+        # route reads it: while an expansion can still follow, running it is wasted. Its
+        # layer waits for it (a battery step) rather than falling back to another tool.
         units = coverage_units(states, records, run.evidence, layers, min_cover=min_cover)
         axis = axis_of(run.evidence)
         rates, wall_rates = method_rates(run.evidence, axis), method_rates(run.evidence, "wall_sec")
@@ -659,8 +869,10 @@ def run_triage(
                 elif layer.route == "H" and any(by_id[c]["H"]["disagreements"] for c in fail_new):
                     T, gap_ids = 1.0, [f"contradiction:{layer.rule_id}"]
                 kind = "battery" if st.get("battery") else ("extend" if st["state"] == "extend" else "follow_up")
+                D, d_detail = disagreement(route, step.name, live) if live else (0.0, {})
                 cand = Scored(kind=kind, key=step.name, route=route, rule_id=layer.rule_id,
-                              order=(ROUTE_ORDER.index(route), li), n_new_cases=len(todo), T=T, C=C,
+                              order=(ROUTE_ORDER.index(route), li), n_new_cases=len(todo), D=D, T=T, C=C,
+                              d_detail=d_detail,
                               q=availability(step.analyzer, run.evidence),
                               cost=estimate_cost(step, len(todo), run.evidence, axis, rates),
                               gaps=gap_ids, units=touched,
@@ -695,19 +907,33 @@ def run_triage(
         return pool, filtered, axis
 
     if scheduler == "scored":
+        current: "ExplanationSet | None" = None
         while stop is None:
             records = triage(sample, run.evidence)
             summary = summarize(records)
             gaps = expansion_gaps(summary, records, min_cohort=min_cohort)
             if not revisions or revisions[-1]["revision"] != revision:
                 revisions.append(_revision_row(revision, draw, summary, records, gaps))
-            pool, filtered, axis = scored_pool(records, gaps)
+            states, growing = route_view(records, gaps)
+            outcome_of = outcomes_for(records)
+            # explanations a prediction already missed on leave the live set: D is recomputed
+            # from the evidence at every decision, without asking the judge again
+            verdicts = check(current.hypotheses, outcome_of) if current is not None else {}
+            if explainer is not None and n_asked() < explainer.max_asks:
+                reason = ask_reason(states, growing, verdicts, current)
+                if reason is not None:
+                    current = explain(records, states, outcome_of, reason)
+                    verdicts = check(current.hypotheses, outcome_of)
+                    current.decided_at_ask = _decided(verdicts)
+            live = [h for h in (current.hypotheses if current is not None else []) if verdicts[h.id]["state"] == "live"]
+            pool, filtered, axis = scored_pool(records, gaps, states, growing, live)
             pick, why = choose(pool, decision_no=n_actions(), seed=seed, explore_every=explore_every,
                                min_gain=min_gain)
             if pick is None:
-                stop = {"reason": "no_candidate" if why == "none" else "below_threshold",
-                        "detail": ("no feasible candidate" if why == "none" else
-                                   f"no candidate reaches the gain floor {min_gain}"),
+                over = [f for f in filtered if not f["reason"].startswith("batch-dependent")]
+                stop = {"reason": "below_threshold" if why != "none" else "budget" if over else "no_candidate",
+                        "detail": (f"no candidate reaches the gain floor {min_gain}" if why != "none" else
+                                   "every remaining candidate is over budget" if over else "no feasible candidate"),
                         "best_gain": max((c.gain for c in pool), default=None), "filtered": filtered}
                 break
             if n_actions() >= max_actions:
@@ -719,6 +945,9 @@ def run_triage(
             extra = {"choice": why, "scoring_version": SCORING_VERSION, "axis": axis,
                      "U": round(pick.U, 6), "gain": round(pick.gain, 6),
                      "candidates": [c.row() for c in ranked], "filtered": filtered,
+                     **({"explanations": {"key": current.key, "revision": current.revision,
+                                          "states": {hid: v["state"] for hid, v in verdicts.items()}}}
+                        if current is not None else {}),
                      **({"soft_order_exception": f"{pick.rule_id} taken before open layer(s) {skipped} of route "
                                                  f"{pick.route}: higher value"} if skipped else {})}
             if pick.kind == "expand":
@@ -819,8 +1048,14 @@ def run_triage(
                                                blocked=run.blocked)
                     for row in active_routes(records, min_route_fail) if row["active"]}
     coverage = public_units(coverage_units(final_states, records, run.evidence, layers, min_cover=min_cover))
+    final_outcome = outcomes_for(records)
+    outcomes = {route: {key: {m.field: final_outcome(route, key, m) for m in CARDS[key]}
+                        for key in sorted(CARDS) if run.evidence.get(key) is not None and run.evidence[key].chunks}
+                for route in final_states}
     executed_wall = sum(float((e.get("cost") or {}).get("wall_sec") or 0.0) for e in run.executions
                         if not e.get("reused"))
+    asked = [es for es in explanation_sets if es.source in ("judge", "failed")]
+    judge_wall = sum(float(es.cost.get("wall_sec") or 0.0) for es in asked)
     report = {
         "policy": POLICY_VERSION,
         "scheduler": scheduler,
@@ -843,18 +1078,34 @@ def run_triage(
         "decisions": decisions,
         "stop": stop,
         "cost": {**_cost_summary(run.executions, stage0_cost), "evidence": _evidence_cost(run),
-                 "controller_sec": round(time.monotonic() - started - executed_wall, 3)},
+                 "judge": _judge_cost(explanation_sets),
+                 "charged": {"wall_sec": round(run.charged("wall_sec"), 3),
+                             **({"usd": round(run.charged("usd"), 6)} if budget_usd > 0 else {}),
+                             "_note": "evidence at its first execution's cost plus judge calls: what the "
+                                      "budgets are checked against"},
+                 "controller_sec": round(time.monotonic() - started - executed_wall - judge_wall, 3)},
         "coverage": coverage,
+        "outcomes": outcomes,
+        **({"explanations": _explanations_report(explanation_sets, explainer, final_outcome)}
+           if explainer is not None else {}),
         "summary": summary,
         "follow_ups": _follow_ups(followed, records, run, sample, rank_of, layers, answer_fn),
         "routes": _route_report(records, run, rank_of, layers, min_route_fail),
         "checks": _acceptance(battery, layers, run, draw, ledger),
         "cases": records,
     }
-    name = "triage_report" if scheduler == "rules" else f"triage_report.{scheduler}"
+    name = report_name(scheduler, explainer is not None)
     _write_json(out / f"{name}.json", report)
     (out / f"{name}.md").write_text(_markdown(report), encoding="utf-8")
     return report
+
+
+def report_name(scheduler: str, explained: bool = False) -> str:
+    """``triage_report`` (rules), ``triage_report.scored``, or ``triage_report.scored_d`` (with D):
+    the arms of a comparison can share one probing directory and its ledger."""
+    if scheduler == "rules":
+        return "triage_report"
+    return f"triage_report.{scheduler}" + ("_d" if explained else "")
 
 
 #: The MVP-0 entry point, now the same controller (no expansion unless ``max_fail`` is given).
@@ -897,6 +1148,46 @@ def _evidence_cost(run: _Run) -> dict[str, Any]:
     return out
 
 
+def _decided(verdicts: dict[str, Any]) -> set[tuple[str, str, str]]:
+    """The predictions the evidence has decided (hit or miss), as (explanation, step, reading)."""
+    return {(hid, p["step"], p["reading"]) for hid, row in verdicts.items() for p in row["predictions"]
+            if p["verdict"] in ("hit", "miss")}
+
+
+def _judge_cost(sets: list[ExplanationSet]) -> dict[str, Any]:
+    """Judge calls this invocation made, and the replies it read back (spent by the run that asked)."""
+    asked = [es for es in sets if es.source in ("judge", "failed")]
+    usd = [es.cost.get("usd") for es in asked if "api_usage" in es.cost]
+    return {"n_calls": len(asked), "n_failed": sum(1 for es in asked if es.source == "failed"),
+            "n_read_back": sum(1 for es in sets if es.source == "read_back"),
+            "wall_sec": round(sum(float(es.cost.get("wall_sec") or 0.0) for es in asked), 3),
+            **({"usd": round(sum(usd), 6) if all(v is not None for v in usd) else None} if usd else {})}
+
+
+def _explanations_report(sets: list[ExplanationSet], explainer: Any,
+                         outcome_of: Callable[[str, str, Metric], dict[str, Any]]) -> dict[str, Any]:
+    """Every explanation set with each prediction checked on the final evidence, and the tally."""
+    rows, tally = [], Counter()
+    for es in sets:
+        final = check(es.hypotheses, outcome_of)
+        for hid, h in final.items():
+            route = hid.split(".", 1)[0]
+            tally[h["state"]] += 1
+            for p in h["predictions"]:
+                p["seen_when_predicted"] = p["step"] in es.seen.get(route, [])
+                tally[f"prediction_{p['verdict']}"] += 1
+                if not p["seen_when_predicted"]:
+                    tally[f"unseen_prediction_{p['verdict']}"] += 1
+        rows.append({**es.to_dict(), "final": final})
+    return {"version": EXPLAIN_VERSION, "judge": explainer.identity, "max_per_route": explainer.max_per_route,
+            "max_asks": explainer.max_asks,
+            "sets": rows, "tally": dict(sorted(tally.items())),
+            "_note": ("predictions are checked by code on the final evidence: hit = the 95% interval of FAIL - "
+                      "control lies in the predicted region, miss = outside it; an explanation with a miss is "
+                      "contradicted. A prediction on a step whose readings the judge already saw in part "
+                      "(seen_when_predicted) is not out of sample; unseen_* counts the others")}
+
+
 def _battery_state(battery: "tuple[PlanStep, ...]", run: _Run, draw: Any) -> list[dict[str, Any]]:
     """Per battery step: which observations the current sample is read from."""
     out = []
@@ -919,8 +1210,6 @@ def _follow_ups(followed: list[tuple[str, str, str]], records: list[dict[str, An
                 rank_of: Callable[[str], Any], layers: "tuple[Layer, ...]",
                 answer_fn: Any) -> list[dict[str, Any]]:
     """Descriptive readings of every follow-up that ran, on the route's current cases."""
-    from evalrx.eval_agent.probing.rules import matched_controls
-
     by_rule = {x.rule_id: x for x in layers}
     out = []
     for route, rule_id, key in followed:
@@ -1175,6 +1464,32 @@ def _markdown(report: dict[str, Any]) -> str:
             lines.append("")
         lines.append("_Means over the route's FAIL cases and their stratum-matched PASS controls; descriptive, "
                      "no test, no mechanism named._")
+    expl = report.get("explanations")
+    if expl:
+        judge, judge_cost = expl["judge"], (report.get("cost") or {}).get("judge") or {}
+        lines += ["", "## Competing explanations (D)", "",
+                  f"Judge `{judge.get('provider')}` / `{judge.get('model')}`: {judge_cost.get('n_calls', 0)} call(s) "
+                  f"({judge_cost.get('n_failed', 0)} failed), {judge_cost.get('wall_sec', 0)} s"
+                  + (f", USD {judge_cost['usd']}" if judge_cost.get("usd") is not None else "")
+                  + f"; {judge_cost.get('n_read_back', 0)} read back. Tally on the final evidence: {expl['tally']}."]
+        for i, es in enumerate(expl["sets"]):
+            lines += ["", f"### Ask {i + 1} (revision {es['revision']}): {es['source']}"
+                      + (f" ({es['error']})" if es.get("error") else ""), "", f"Asked because {es['reason']}.", ""]
+            if not es["hypotheses"]:
+                lines.append("No explanation." + (f" Dropped: {es['dropped']}." if es["dropped"] else ""))
+                continue
+            lines += ["| explanation | claim | state | predictions: predicted -> observed (verdict) |",
+                      "|---|---|---|---|"]
+            for h in es["hypotheses"]:
+                final = es["final"][h["id"]]
+                preds = "; ".join(f"{p['step']}.{p['reading']}: {p['predicted']} -> "
+                                  f"{p['outcome'].get('observed')} ({p['verdict']}"
+                                  + (", seen" if p.get("seen_when_predicted") else "") + ")"
+                                  for p in final["predictions"]) or "none explicit"
+                lines.append(f"| {h['id']} | {h['claim']} | {final['state']} | {preds} |")
+            if es["dropped"]:
+                lines += ["", f"Dropped from the reply: {es['dropped']}."]
+        lines += ["", f"_{expl['_note']}._"]
     if report["routes"]:
         lines += ["", "## Route layers when the run stopped", "",
                   "| route | FAIL | active | layer | state | via / next | passed over |", "|---|---:|---|---|---|---|---|"]
@@ -1184,7 +1499,7 @@ def _markdown(report: dict[str, Any]) -> str:
                 lines.append(f"| {row['route']} | {row['n_fail']} | {row['active']} | {st['rule_id']} | {st['state']} "
                              f"| {st.get('via') or st.get('key') or '-'} | {passed or '-'} |")
     lines += ["", "## Checks", ""]
-    for name, check in report["checks"].items():
-        lines.append(f"- `{name}`: {check}")
+    for name, held in report["checks"].items():
+        lines.append(f"- `{name}`: {held}")
     lines.append("")
     return "\n".join(lines)

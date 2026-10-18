@@ -13,6 +13,7 @@ candidates) and the ``gemini`` family runs through Google's Gen AI API
 
 from __future__ import annotations
 
+import argparse
 import json
 import time
 from dataclasses import replace
@@ -380,14 +381,35 @@ def _price_fn(spec):
     return lambda usage: usd(model_id, usage)
 
 
+def _triage_explainer(args, spec):
+    """The chain's judge as the scored triage's explainer (``--triage-explanations judge``).
+
+    Triage runs no coding stage, so the judge is built without the coder checks
+    the Gemini judge otherwise needs. The judge must not be the model under test."""
+    from evalrx.eval_agent.probing.explanations import Explainer
+    from evalrx.models.backends.api.prices import usd
+
+    if args.triage_scheduler != "scored":
+        raise SystemExit("--triage-explanations judge needs --triage-scheduler scored")
+    judge_args = argparse.Namespace(**{**vars(args), "allow_codegen": False, "explore": False, "m2_codegen": False,
+                                       "skip_m5": True, "coder_provider": None})
+    judge, _, name, _ = build_judge(judge_args)   # the coder slot carries the judge's resolved model name
+    name = name or args.judge_model
+    if name and name in {spec.key, spec.hf_repo}:
+        raise SystemExit(f"the triage judge ({name}) is the model under test; pick another --judge-model")
+    identity = {"provider": args.judge_provider, "model": name, "effort": args.judge_effort}
+    return Explainer(judge, identity=identity, price_fn=(lambda u: usd(name, u)) if name else None)
+
+
 def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs: dict,
                 cases, ctx, run_dir: Path, baseline: dict) -> int:
     """``--m1-policy triage_active``: the triage battery, rule-chosen expansions and
     follow-ups on EXPLORE, then stop.
 
     Same Stage 0 and the same EXPLORE/CONFIRM split as the diagnosis loop; the
-    controller sees EXPLORE only, calls no judge, and runs no M2-M5. Outputs
-    go to ``<run>/probing/``.
+    controller sees EXPLORE only and runs no M2-M5; it calls the judge only with
+    ``--triage-explanations judge`` (scored scheduler: explanations for D, from
+    route summaries, never a case). Outputs go to ``<run>/probing/``.
     """
     from evalrx.eval_agent.probing import explore_confirm_split, run_triage
 
@@ -401,7 +423,12 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
     if not gen_kwargs:
         # API backends carry the sampling (and the output cap) in the runtime, not per call
         identity["runtime_generation"] = generation_settings(task, args)
-    ctx.config.update(m1_policy="triage_active", judge_provider=None, judge_model=None)  # none was built
+    explainer = _triage_explainer(args, spec) if args.triage_explanations == "judge" else None
+    if explainer is None:
+        ctx.config.update(m1_policy="triage_active", judge_provider=None, judge_model=None)  # none was built
+    else:
+        ctx.config.update(m1_policy="triage_active", judge_provider=explainer.identity["provider"],
+                          judge_model=explainer.identity["model"], triage_explanations="judge")
     extras: dict = {"modality_ablation": {"score_fn": T.score_case},
                     "prompt_contrast": {"score_fn": T.score_case}}
     sampling = _sampling_kwargs(resolved, args)
@@ -423,7 +450,7 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
                      **{k: baseline[k] for k in ("api_usage", "usd") if k in baseline}},
         price_fn=_price_fn(spec),
         per_call_generation=sampling is not None,
-        scheduler=args.triage_scheduler, budget_usd=float(args.triage_budget_usd),
+        scheduler=args.triage_scheduler, budget_usd=float(args.triage_budget_usd), explainer=explainer,
         partition={"confirm_split": float(args.confirm_split), "seed": CONFIRM_SPLIT_SEED,
                    "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
                    "confirm_visible_to_controller": False},
@@ -437,9 +464,12 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         "triage_steps": [{k: s.get(k) for k in ("kind", "key", "analyzer", "status", "reused", "n_cases")}
                          for s in report["executions"]],
         "triage_stop": report["stop"], "triage_scheduler": report["scheduler"],
+        "triage_explanations": args.triage_explanations,
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
-    name = "triage_report" if args.triage_scheduler == "rules" else f"triage_report.{args.triage_scheduler}"
+    from evalrx.eval_agent.probing.controller import report_name
+
+    name = report_name(args.triage_scheduler, explainer is not None)
     print(f"Done (triage). {run_dir / 'probing' / (name + '.md')}")
     return 0
 

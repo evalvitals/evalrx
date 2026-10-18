@@ -6,6 +6,43 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — triage competing explanations: D for the scored scheduler (MVP-3, second part)
+
+`--triage-explanations judge` (with `--triage-scheduler scored`) has the
+chain's judge propose, per active route, up to three competing local
+explanations of the route's FAIL cases, each predicting `up` / `down` /
+`same` / `unknown` for the readings of every tool still to run there (FAIL mean
+minus PASS control mean against a band fixed per reading in
+`probing/explanations.py`, version `mvp3-explain-1`). The judge is asked once
+the sample has settled and again, at most three asks, when the evidence has
+decided a prediction and a route with tools left has fewer than two live
+explanations. Code checks each prediction on the 95% interval of the difference
+(hit inside the predicted region, miss outside, else undetermined); a miss
+contradicts the explanation. A candidate's D is the share of pairs of its
+route's live explanations whose predictions for it conflict (scoring version
+`mvp3-score-2`). The judge sees route summaries and readings only, never a
+case or CONFIRM; each call's prompt, reply and cost is stored under
+`probing/explanations/`, so a resumed run reads it back. The report is
+`triage_report.scored_d.*`; every report now carries `outcomes` (each card
+reading's FAIL-vs-control difference per route), and `compare.py` counts the
+pairs of the explaining run's explanations each run's evidence tells apart.
+Only each open layer's current candidate is offered for prediction. On
+Qwen3.5-0.8B POPE (claude-opus-5 judge, two asks, 169 s) D reorders the
+follow-ups but changes neither the set that runs nor the pairs of explanations
+the final evidence tells apart (4/7 for every scheduler); under a tight budget
+the judge's time costs coverage. The re-ask after the first S explanations were
+all contradicted proposed one that patchscope then confirmed out of sample
+(gold readable at no depth: peak probability FAIL - control -0.85). D does not
+yet discount predictions the route's case count cannot decide.
+
+### Changed — triage budgets charge the evidence read
+
+`--triage-budget-sec` / `--triage-budget-usd` are checked against the evidence
+the run reads, each observation at its first execution's cost, plus judge
+calls (`cost.charged` in the report), not against everything the ledger has
+recorded across invocations: a resumed run or a second scheduler on the same
+ledger now decides as the first run did.
+
 ### Added — triage scored scheduler (MVP-3, first part)
 
 `--triage-scheduler scored` replaces the rules' rounds with one decision at a

@@ -314,7 +314,7 @@ def test_expansion_gaps_and_sizes():
     assert next_size(8, 32, 100) == 16 and next_size(16, 32, 20) == 20 and next_size(32, 32, 100) is None
 
 
-def test_budget_estimates_come_from_the_same_steps_earlier_seconds(tmp_path):
+def test_budget_estimates_come_from_the_same_steps_earlier_seconds_and_charge_the_evidence(tmp_path):
     from evalrx.eval_agent.probing.controller import _Run
     from evalrx.eval_agent.probing.ledger import Ledger
 
@@ -326,12 +326,20 @@ def test_budget_estimates_come_from_the_same_steps_earlier_seconds(tmp_path):
     obs = _obs("sc", ["c0-0", "c1-0"])
     obs.cost = {"wall_sec": 4.0, "calls": {"generate": 10}}
     run.evidence[step.name] = StepEvidence(step, [obs])
-    ledger.cost({"kind": "action", "wall_sec": 4.0})
     assert run.estimate_sec(step, 4) == 8.0
     assert "exceeds the 6.0s left" in run.over_budget(8.0)
     assert run.over_budget(5.0) is None
-    ledger.cost({"kind": "action", "wall_sec": 7.0})
-    assert "spent" in run.over_budget(None)
+    # what another invocation spent on the same ledger is not this run's evidence
+    ledger.cost({"kind": "action", "wall_sec": 70.0})
+    assert run.over_budget(5.0) is None
+    other = _obs("sc2", ["c2-0"])
+    other.cost = {"wall_sec": 7.0, "calls": {"generate": 5}}
+    run.evidence[step.name].add(other)
+    assert run.charged("wall_sec") == 11.0 and "spent" in run.over_budget(None)
+    run.evidence[step.name].add(other)   # one observation read twice is charged once
+    assert run.charged("wall_sec") == 11.0
+    run.judge_cost["wall_sec"] = 2.0
+    assert run.charged("wall_sec") == 13.0
 
 
 # -- the reuse declarations hold --------------------------------------------------------
