@@ -382,13 +382,14 @@ def _price_fn(spec):
 
 def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs: dict,
                 cases, ctx, run_dir: Path, baseline: dict) -> int:
-    """``--m1-policy triage_active`` (MVP-0): the fixed triage plan on EXPLORE, then stop.
+    """``--m1-policy triage_active``: the triage battery, rule-chosen expansions and
+    follow-ups on EXPLORE, then stop.
 
     Same Stage 0 and the same EXPLORE/CONFIRM split as the diagnosis loop; the
     controller sees EXPLORE only, calls no judge, and runs no M2-M5. Outputs
     go to ``<run>/probing/``.
     """
-    from evalrx.eval_agent.probing import explore_confirm_split, run_triage_mvp0
+    from evalrx.eval_agent.probing import explore_confirm_split, run_triage
 
     explore, confirm = explore_confirm_split(cases, float(args.confirm_split), CONFIRM_SPLIT_SEED)
     runtime = getattr(model, "runtime", None)
@@ -397,6 +398,9 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         "dtype": getattr(runtime, "dtype", args.dtype), "attn_impl": getattr(runtime, "attn_impl", None),
         "generation": gen_kwargs, "enable_thinking": bool(args.enable_thinking),
     }
+    if not gen_kwargs:
+        # API backends carry the sampling (and the output cap) in the runtime, not per call
+        identity["runtime_generation"] = generation_settings(task, args)
     ctx.config.update(m1_policy="triage_active", judge_provider=None, judge_model=None)  # none was built
     extras: dict = {"modality_ablation": {"score_fn": T.score_case},
                     "prompt_contrast": {"score_fn": T.score_case}}
@@ -405,9 +409,10 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         # API backends ignore per-call kwargs (their runtime samples); without
         # settings here the U sampling check stays untested, never trivially clear
         extras["self_consistency"] = {"gen_kwargs": sampling}
-    report = run_triage_mvp0(
+    report = run_triage(
         model, explore, out_dir=run_dir / "probing", model_identity=identity,
-        n_fail=args.triage_n_fail, seed=args.triage_seed,
+        n_fail=args.triage_n_fail, max_fail=args.triage_max_fail, max_actions=args.triage_max_actions,
+        seed=args.triage_seed,
         stratum="gold" if task.kind in ("yes_no", "multiple_choice_letter") else "none",
         host_assumed_finish=bool(task.short_answer), answer_contract=bool(task.output_contract),
         n_needs_counterfactual=task.kind in ("yes_no", "multiple_choice_letter"),
@@ -427,7 +432,9 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         "model": args.model, "spec": spec.key, "dataset": task.name, "modality": task.modality,
         "backend": resolved.backend, "n_cases": len(cases), "baseline_accuracy": baseline["accuracy"],
         "m1_policy": "triage_active", "triage": report["summary"],
-        "triage_steps": [{k: s.get(k) for k in ("analyzer", "status", "reused")} for s in report["steps"]],
+        "triage_steps": [{k: s.get(k) for k in ("kind", "key", "analyzer", "status", "reused", "n_cases")}
+                         for s in report["executions"]],
+        "triage_stop": report["stop"],
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
     print(f"Done (triage). {run_dir / 'probing' / 'triage_report.md'}")

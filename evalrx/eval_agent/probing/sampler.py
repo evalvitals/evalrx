@@ -41,8 +41,12 @@ def single_stratum(case: Any) -> str:
 STRATA: dict[str, Callable[[Any], str]] = {"gold": gold_stratum, "none": single_stratum}
 
 
-def _rank(seed: int, case_id: str) -> str:
+def rank(seed: int, case_id: str) -> str:
+    """The case's fixed place in every draw with this seed (draws take rank prefixes)."""
     return hashlib.sha1(f"{seed}:{case_id}".encode("utf-8")).hexdigest()
+
+
+_rank = rank
 
 
 @dataclass(frozen=True)

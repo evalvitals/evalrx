@@ -6,6 +6,36 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — triage expansion and rule-chosen follow-ups (MVP-2)
+
+`--m1-policy triage_active` (policy `mvp2-0`) keeps the nine-step battery and
+then lets fixed rules decide what runs next (`probing/rules.py`, version
+`mvp2-rules-1`). **Expansion** is a controller action: while a gap holds that
+more cases can close — a positive FAIL-minus-PASS routing difference whose 95%
+Newcombe interval still includes zero, or a gold stratum with fewer than 8 S
+or stable PASS cases — the nested sample doubles up to `--triage-max-fail`
+(default 32). A step's observations are now chunks over disjoint case sets
+(`probing/evidence.py`): steps whose per-case rows do not depend on the batch
+(`PlanStep.reuse`; audits, counterfactual swap with partition donors,
+knockout, re-sampling, wrappers) run on the new cases only; `embed_lens`
+and `patchscope` (question words inferred from the batch) are not read by any
+route, so they run once, on the sample the expansions settle on. An observation index by step identity without the cases lets a
+later invocation with a larger cap reuse earlier chunks. **Follow-ups**: each
+route with at least 3 FAIL cases proposes, per round, the next candidate of
+its first open layer (default representative, then fallbacks), on its FAIL
+cases plus gold-matched PASS controls; a failed or refused candidate falls
+back within its layer, a valid one advances, candidates the model cannot run
+are passed over at no cost, and a layer done on fewer cases is extended
+first. `--triage-max-actions` (default 12) caps the decisions; `--triage-budget-sec`
+also skips an action whose estimate exceeds what is left. Every decision is a
+trace event naming its rule, condition and what it passed over; the report
+adds sample revisions, decisions, descriptive follow-up readings (route FAIL
+vs controls) and every route's layer states. Report keys changed: `steps` is
+now `executions`; `next_candidates` and `probing/proposals.py` are gone (the
+rules run the candidates instead of listing them). An edit refused on any
+chunk refuses the step on every case. The MVP-0 entry point
+`run_triage_mvp0` is the same controller.
+
 ### Added — triage on API models: provider usage, dollars, next experiments (MVP-1)
 
 The gemini runtime now sums the token counts every response reports
@@ -21,11 +51,8 @@ not reported). The report adds a cost summary for the invocation. On the
 gemini backend the U sampling check now runs: the runtime merges per-call
 kwargs over its own sampling, so `self_consistency` gets `temperature=1.0`
 (the endpoint backend drops per-call kwargs and stays untested). The report
-also lists rule-based next candidates (`probing/proposals.py`) for every route
-with FAIL cases — behavioural follow-ups first, each built and gated on the
-actual model, with `executable` / `unsupported` (and why) / `already_run` /
-`not_applicable`; none is run, and sample expansion is listed as not yet an
-action.
+also listed rule-based next candidates for every route with FAIL cases, each
+gated on the actual model (superseded in MVP-2, which runs them).
 
 ### Fixed — logit margins compared an answer with its own other spelling
 

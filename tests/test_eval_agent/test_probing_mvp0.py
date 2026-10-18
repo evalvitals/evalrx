@@ -451,6 +451,11 @@ def vlm_cases():
     return CaseBatch(out)
 
 
+def _steps(report):
+    """The battery's executions on the first sample, by step key."""
+    return {e["key"]: e for e in report["executions"] if e["kind"] == "battery"}
+
+
 def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
     from tests.tiny_whitebox import TinyVLM
 
@@ -462,8 +467,8 @@ def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
               stage0_cost={"wall_sec": 1.0, "calls": {"generate": 8}}, progress=None)
     report = run_triage_mvp0(model, vlm_cases, **kw)
 
-    steps = {s["key"]: s for s in report["steps"]}
-    assert [s["status"] for s in report["steps"]] == [OK] * 9
+    steps = _steps(report)
+    assert [s["status"] for s in report["executions"]] == [OK] * 9  # 2 FAIL: no route proposes
     assert steps["answer_extraction_audit"]["cost"]["calls"] == {}  # Stage-0 outputs re-read
     assert steps["modality_ablation"]["cost"]["calls"] == {"generate": 8}  # 4 cases x (base + swap)
     assert steps["attention_knockout"]["fidelity"]["status"] == "passed"
@@ -473,8 +478,10 @@ def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
     assert steps["prompt_threshold"]["cost"]["calls"] == {"generate": 8}
     assert steps["patchscope"]["fidelity"]["status"] == "passed"
     checks = report["checks"]
-    assert checks["only_planned_actions"] and checks["stage0_cost_separate"]
-    assert all(checks["case_sets_match_plan"].values()) and all(checks["configs_match_plan"].values())
+    assert checks["only_rule_actions"] and checks["stage0_cost_separate"]
+    assert all(checks["battery_covers_sample"].values()) and all(checks["configs_match_plan"].values())
+    assert all(checks["batch_dependent_read_from_current_sample"].values())
+    assert report["stop"]["reason"] == "no_candidate" and report["decisions"] == []
 
     sample = report["sample"]
     assert len(sample["fail_ids"]) == 2 and sample["strata"]["no"]["pass"] == 2
@@ -507,7 +514,7 @@ def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
     # (only this invocation's Stage 0, which the caller did spend)
     n_forwards = model.n_forwards
     again = run_triage_mvp0(model, vlm_cases, **kw)
-    assert all(s["reused"] for s in again["steps"]) and model.n_forwards == n_forwards
+    assert all(s["reused"] for s in again["executions"]) and model.n_forwards == n_forwards
     costs2 = [json.loads(line) for line in (out / "cost_ledger.jsonl").read_text().splitlines()]
     assert [c["kind"] for c in costs2[len(costs):]] == ["stage0"] and costs2[-1]["invocation"] == 2
     events = [json.loads(line) for line in (out / "selection_trace.jsonl").read_text().splitlines()]
@@ -515,12 +522,12 @@ def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
 
     # a different model identity is a different action: nothing is reused
     other = run_triage_mvp0(model, vlm_cases, **{**kw, "model_identity": {**ident, "dtype": "fp32"}})
-    assert not any(s["reused"] for s in other["steps"])
+    assert not any(s["reused"] for s in other["executions"])
 
 
 def _rerun(report):
     """Steps that executed again instead of being read back (not-applicable steps never run)."""
-    return [s["key"] for s in report["steps"] if s["status"] != "not_applicable" and not s["reused"]]
+    return [s["key"] for s in report["executions"] if s["status"] != "not_applicable" and not s["reused"]]
 
 
 def test_mvp0_changed_tool_code_is_a_new_action(tmp_path, vlm_cases, monkeypatch):
@@ -535,7 +542,7 @@ def test_mvp0_changed_tool_code_is_a_new_action(tmp_path, vlm_cases, monkeypatch
                         lambda a: real(a) + ("-edited" if a.name == "attention_knockout" else ""))
     second = run_triage_mvp0(model, vlm_cases, **kw)
     assert _rerun(second) == ["attention_knockout"]
-    assert second["steps"][3]["action_id"] != first["steps"][3]["action_id"]
+    assert _steps(second)["attention_knockout"]["action_id"] != _steps(first)["attention_knockout"]["action_id"]
 
 
 def test_mvp0_uncertain_attempt_gets_a_new_number(tmp_path, vlm_cases):
@@ -545,7 +552,7 @@ def test_mvp0_uncertain_attempt_gets_a_new_number(tmp_path, vlm_cases):
     model = TinyVLM("qwen2_5_vl")
     kw = dict(out_dir=tmp_path / "p", model_identity={"spec": "tiny"}, n_fail=2, progress=None)
     first = run_triage_mvp0(model, vlm_cases, **kw)
-    ko_id = [s for s in first["steps"] if s["analyzer"] == "attention_knockout"][0]["action_id"]
+    ko_id = _steps(first)["attention_knockout"]["action_id"]
     ledger = Ledger(tmp_path / "p")
     (ledger.obs_dir / f"{ko_id}.json").unlink()  # as if the process died before settling
     second = run_triage_mvp0(model, vlm_cases, **kw)
@@ -559,7 +566,7 @@ def test_mvp0_black_box_gates_off_the_white_box_step(tmp_path, vlm_cases):
     model = _BlackBox()
     report = run_triage_mvp0(model, vlm_cases, out_dir=tmp_path / "bb", model_identity={"spec": "bb"},
                              n_fail=2, progress=None)
-    steps = {s["key"]: s for s in report["steps"]}
+    steps = _steps(report)
     assert steps["attention_knockout"]["status"] == UNSUPPORTED
     assert steps["attention_knockout"]["cost"]["calls"] == {}
     assert steps["modality_ablation"]["status"] == OK
@@ -593,17 +600,17 @@ class _FakeAPI(Model):
         raise NotImplementedError
 
 
-def test_api_run_meters_tokens_and_dollars_and_names_its_next_behavioural_experiments(tmp_path, vlm_cases):
+def test_api_run_meters_tokens_and_dollars_and_runs_its_behavioural_follow_up(tmp_path, vlm_cases):
     from evalrx.models.backends.api.prices import usd
 
     model = _FakeAPI()
     report = run_triage_mvp0(
         model, vlm_cases, out_dir=tmp_path / "api", model_identity={"spec": "fake-api"}, n_fail=2,
-        task_kind="yes_no", n_needs_counterfactual=True, progress=None,
+        min_route_fail=1, task_kind="yes_no", n_needs_counterfactual=True, progress=None,
         analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}},
         price_fn=lambda u: usd("gemini-3.1-flash-lite", u),
         stage0_cost={"wall_sec": 1.0, "calls": {"generate": 8}, "api_usage": {"requests": 8}, "usd": 0.001})
-    steps = {s["key"]: s for s in report["steps"]}
+    steps = _steps(report)
     for key in ("attention_knockout", "embed_lens", "patchscope"):   # no internals: gated, nothing spent
         assert steps[key]["status"] == UNSUPPORTED and steps[key]["cost"]["calls"] == {}
     swap = steps["modality_ablation"]["cost"]
@@ -611,18 +618,30 @@ def test_api_run_meters_tokens_and_dollars_and_names_its_next_behavioural_experi
     assert swap["usd"] == usd("gemini-3.1-flash-lite", swap["api_usage"])
     run = report["cost"]["actions_run"]
     assert run["api_usage"]["requests"] == model.counters["requests"] == sum(run["calls"].values())
-    assert run["usd"] == round(sum(s["cost"].get("usd") or 0 for s in report["steps"] if s.get("cost")), 6)
+    assert run["usd"] == round(sum(s["cost"].get("usd") or 0 for s in report["executions"] if s.get("cost")), 6)
     assert report["cost"]["stage0"]["usd"] == 0.001
     # sampling ran: the U sampling part is tested, not left untested as on greedy settings
     assert all(r["U"]["parts"][0]["state"] in ("fired", "clear") for r in report["cases"])
-    # the FAIL cases keep "Yes" after a swap that should make it "no": N, whose next
-    # behavioural step can run here while the internal one cannot
-    n_next = {c["analyzer"]: c for c in report["next_candidates"]["candidates"] if c["route"] == "N"}
-    assert n_next["prompt_contrast"]["status"] == "executable"
-    assert n_next["causal_trace"]["status"] == "unsupported" and "hidden_states" in n_next["causal_trace"]["reason"]
-    assert n_next["(nested sample expansion)"]["status"] == "not_implemented"
+    # the FAIL cases keep "Yes" after a swap that should make it "no": N. Its internal
+    # layers are gated off at no cost, and the behavioural one runs on the two FAIL
+    # cases and their two matched PASS controls
+    (decision,) = report["decisions"]
+    assert (decision["route"], decision["rule_id"], decision["key"]) == ("N", "N3", "describe_first")
+    passed = {t["key"]: t for t in decision["passed_over"]}
+    assert passed["attention_knockout"]["battery"] and passed["attention_knockout"]["status"] == "unsupported"
+    assert passed["causal_trace"]["status"] == "unsupported" and "hidden_states" in passed["causal_trace"]["reason"]
+    assert passed["attention_temperature"]["status"] == passed["attention_sensitivity"]["status"] == "unsupported"
+    follow = report["executions"][-1]
+    assert follow["kind"] == "follow_up" and follow["n_cases"] == 4 and follow["cost"]["calls"] == {"generate": 8}
+    (fu,) = report["follow_ups"]
+    assert fu["reading"]["route_fail"]["n_measured"] == 2 and fu["reading"]["controls"]["n_measured"] == 2
+    assert fu["reading"]["route_fail"]["means"]["changed_describe_first"] == 0.0  # "Yes" whatever the prompt
+    assert fu["reading"]["route_fail"]["n_by_field"]["changed_describe_first"] == 2
+    assert report["stop"]["reason"] == "no_candidate"
+    layers = {st["rule_id"]: st["state"] for st in report["routes"][0]["layers"]}
+    assert layers == {"N1": "exhausted", "N2": "exhausted", "N3": "done"}
     md = (tmp_path / "api" / "triage_report.md").read_text()
-    assert "Next candidates" in md and "USD" in md
+    assert "## Decisions" in md and "Follow-ups" in md and "USD" in md
     assert "Not measured: unsupported (model lacks capabilities" in md      # knockout, no table of Nones
     assert "Not measured: embed_lens unsupported" in md
 

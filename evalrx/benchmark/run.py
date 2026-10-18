@@ -146,12 +146,18 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "(modality-gated on the MODEL, so avoid on multimodal specs for text tasks)")
     p.add_argument("--m1-policy", choices=["judge", "triage_active"], default="judge",
                    help="judge = the current diagnosis (decision judge over M1-M4, then M5/fix); "
-                        "triage_active = MVP-0 triage controller: after Stage 0, run the fixed "
-                        "triage plan strictly on a matched EXPLORE sample, write the trace, cost "
-                        "ledger and triage report under <run>/probing/, and stop (no judge, no "
+                        "triage_active = triage controller: after Stage 0, run the triage battery "
+                        "strictly on a matched EXPLORE sample, expand it and run route follow-ups "
+                        "chosen by fixed rules, write the trace, cost ledger and triage report "
+                        "under <run>/probing/, and stop (no judge, no "
                         "M2-M5, CONFIRM untouched)")
     p.add_argument("--triage-n-fail", type=int, default=8,
                    help="triage_active: FAIL cases in the sample (PASS controls are matched per gold answer)")
+    p.add_argument("--triage-max-fail", type=int, default=32,
+                   help="triage_active: the most FAIL cases the expansion rule may grow the sample to "
+                        "(doubling from --triage-n-fail; a value at or below it disables expansion)")
+    p.add_argument("--triage-max-actions", type=int, default=12,
+                   help="triage_active: decisions after the battery (expansions + route follow-ups)")
     p.add_argument("--triage-seed", type=int, default=0,
                    help="triage_active: rank seed of the nested sampler")
     p.add_argument("--triage-budget-sec", type=float, default=0.0,
@@ -229,6 +235,8 @@ def run_args(args) -> int:
         raise ValueError("--m1-policy triage_active works on EXPLORE only; it has no --held-out role yet")
     if triage and args.triage_n_fail < 1:
         raise ValueError("--triage-n-fail must be positive")
+    if triage and args.triage_max_actions < 0:
+        raise ValueError("--triage-max-actions must be non-negative")
     dataset = args.dataset or T.DEFAULT_TASK[args.modality]
     task = T.get(dataset)
     if task.modality != args.modality:

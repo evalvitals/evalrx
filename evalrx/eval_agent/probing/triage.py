@@ -36,12 +36,14 @@ verdict are attached to each case as the first N-layer measurement.
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from typing import Any, Callable
 
 from evalrx.analyzers.perturbation.prompt_contrast import _norm_answer
 from evalrx.core.case import MEDIA_SLOTS
 from evalrx.eval_agent.probing.actions import OK, Observation
+from evalrx.eval_agent.probing.evidence import StepEvidence, pick
 
 FIRED, CLEAR, UNTESTED, NOT_APPLICABLE = "fired", "clear", "untested", "not_applicable"
 
@@ -64,6 +66,11 @@ _PATCHSCOPE_FIELDS = ("ps_final_prob", "ps_peak_prob", "ps_peak_depth_frac", "ps
                       "ps_first_depth_frac", "ps_media_query_hits", "ps_media_query_found")
 
 AnswerFn = Callable[[Any, str], "str | None"]
+
+#: The plan steps the H/N/U checks (and so the routes, S and X) are read from.
+#: Every other step only adds descriptive readings to a case.
+ROUTE_STEPS = frozenset({"answer_extraction_audit", "termination_audit", "modality_ablation",
+                         "self_consistency", "prompt_reword"})
 
 
 def default_answer(case: Any, text: str) -> str:
@@ -316,13 +323,16 @@ def _s_patchscope(obs: "Observation | None", cid: str) -> dict[str, Any]:
     return out
 
 
-def triage_cases(cases: Any, observations: dict[str, Observation], *, host_assumed_finish: bool,
+def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence]", *,
+                 host_assumed_finish: bool,
                  answer_contract: bool, n_needs_counterfactual: bool = False,
                  answer_fn: "AnswerFn | None" = None) -> list[dict[str, Any]]:
     """One record per case: label, stratum, every H/N/U check, routes, knockout and S readings.
 
     *observations* are keyed by plan step (``prompt_reword`` and
-    ``prompt_threshold`` are the two ``prompt_contrast`` steps).
+    ``prompt_threshold`` are the two ``prompt_contrast`` steps): one
+    observation, or a :class:`StepEvidence` whose chunks each measured part of
+    the sample (each case is read from the chunk that measured it).
 
     *n_needs_counterfactual* (few-answer tasks: yes/no, letters): a swap only
     tests N when its donor is a counterfactual — the same question's gold on that
@@ -341,7 +351,7 @@ def triage_cases(cases: Any, observations: dict[str, Observation], *, host_assum
         cid = str(case.id)
         provenance = finish_reason_source(case, host_assumed_finish)
         h_fields = [
-            _h_field(observations.get(a), a, f, link, kind, cid, provenance, answer_contract)
+            _h_field(pick(observations, a, cid), a, f, link, kind, cid, provenance, answer_contract)
             for a, f, link, kind in H_FIELDS
         ]
         free = [f for f in h_fields if f["label_link"] is None]
@@ -360,8 +370,9 @@ def triage_cases(cases: Any, observations: dict[str, Observation], *, host_assum
             "fields": h_fields,
             "disagreements": disagreements,
         }
-        n = _n_check(observations.get("modality_ablation"), case, n_needs_counterfactual)
-        u = _u_check(observations.get("self_consistency"), observations.get("prompt_reword"), case, answer)
+        n = _n_check(pick(observations, "modality_ablation", cid), case, n_needs_counterfactual)
+        u = _u_check(pick(observations, "self_consistency", cid), pick(observations, "prompt_reword", cid),
+                     case, answer)
         label = getattr(getattr(case, "label", None), "value", None)
         checks = {"H": h["state"], "N": n["state"], "U": u["state"]}
         routes = [tag for tag, state in checks.items() if state == FIRED]
@@ -386,11 +397,12 @@ def triage_cases(cases: Any, observations: dict[str, Observation], *, host_assum
             "H": h,
             "N": n,
             "U": u,
-            "knockout": _knockout(observations.get("attention_knockout"), cid),
+            "knockout": _knockout(pick(observations, "attention_knockout", cid), cid),
             "S_readings": {
-                "threshold": _s_threshold(observations.get("prompt_threshold"), case, answer),
-                "embed_lens": _measured_row(observations.get("embed_lens"), cid, "embed_lens", _EMBED_FIELDS),
-                "patchscope": _s_patchscope(observations.get("patchscope"), cid),
+                "threshold": _s_threshold(pick(observations, "prompt_threshold", cid), case, answer),
+                "embed_lens": _measured_row(pick(observations, "embed_lens", cid), cid, "embed_lens",
+                                           _EMBED_FIELDS),
+                "patchscope": _s_patchscope(pick(observations, "patchscope", cid), cid),
             },
         })
     return records
@@ -483,9 +495,9 @@ _COHORTS: dict[str, Callable[[dict[str, Any]], bool]] = {
 def _s_readings(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Embed-lens and Patchscope readings per cohort and stratum; descriptive only."""
     out: dict[str, Any] = {}
-    for name, pick in _COHORTS.items():
-        for stratum in sorted({r["stratum"] for r in records if pick(r)}):
-            group = [r for r in records if pick(r) and r["stratum"] == stratum]
+    for name, member in _COHORTS.items():
+        for stratum in sorted({r["stratum"] for r in records if member(r)}):
+            group = [r for r in records if member(r) and r["stratum"] == stratum]
             el = [r["S_readings"]["embed_lens"] for r in group
                   if r["S_readings"]["embed_lens"]["state"] == "measured"]
             ps = [r["S_readings"]["patchscope"] for r in group
@@ -511,12 +523,32 @@ def _s_readings(records: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def _wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    p, z2 = k / n, z * z
+    centre = (p + z2 / (2 * n)) / (1 + z2 / n)
+    half = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / (1 + z2 / n)
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def difference_interval(k1: int, n1: int, k2: int, n2: int) -> "list[float] | None":
+    """95% interval of ``k1/n1 - k2/n2`` (Newcombe's hybrid score method), ``None`` if a side is empty."""
+    if not n1 or not n2:
+        return None
+    p1, p2 = k1 / n1, k2 / n2
+    (l1, u1), (l2, u2) = _wilson(k1, n1), _wilson(k2, n2)
+    d = p1 - p2
+    return [round(d - math.sqrt((p1 - l1) ** 2 + (u2 - p2) ** 2), 4),
+            round(d + math.sqrt((u1 - p1) ** 2 + (p2 - l2) ** 2), 4)]
+
+
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Per-route FAIL/PASS rates on this sample, the S cohort and its descriptive readings.
 
     ``routing_signal = max(0, P(tag|FAIL) - P(tag|PASS))`` steers where the
     next actions go on THIS sample; it is not an explained share of failures
-    and says nothing about causes. H uses only label-free fields here.
+    and says nothing about causes. ``signal_ci95`` is the 95% interval of the
+    unclipped difference: how sure this sample is that the difference is not
+    zero, which the expansion rule reads. H uses only label-free fields here.
     """
     tags = {
         "H_label_free": lambda r: r["H"]["state_label_free"],
@@ -528,7 +560,9 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         fail, pas = _rate(records, "fail", state_of), _rate(records, "pass", state_of)
         signal = (round(max(0.0, fail["rate"] - pas["rate"]), 4)
                   if fail["rate"] is not None and pas["rate"] is not None else None)
-        out[tag] = {"fail": fail, "pass": pas, "routing_signal": signal}
+        out[tag] = {"fail": fail, "pass": pas, "routing_signal": signal,
+                    "signal_ci95": difference_interval(fail["n_fired"], fail["n_tested"],
+                                                       pas["n_fired"], pas["n_tested"])}
     out["H_any_audit_only"] = {
         label: _rate(records, label, lambda r: r["H"]["state"]) for label in ("fail", "pass")
     }
@@ -553,4 +587,80 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     ko["fidelity"] = sorted({str(r["knockout"].get("fidelity")) for r in records})
     ko["_note"] = "descriptive only: margin deltas of the gold first token, no test, no mechanism claim"
     out["attention_knockout"] = ko
+    return out
+
+
+# -- follow-up readings ------------------------------------------------------------
+
+
+def _numeric(row: dict[str, Any]) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for key, value in row.items():
+        if key == "sample_id" or key.startswith("_"):
+            continue
+        if isinstance(value, bool):
+            out[key] = float(value)
+        elif isinstance(value, (int, float)) and math.isfinite(float(value)):
+            out[key] = float(value)
+    return out
+
+
+def _contrast_values(obs: Observation, case: Any, answer_fn: AnswerFn) -> dict[str, float]:
+    """``prompt_contrast``: per strategy, whether the answer moved off the re-asked
+    question (by answer key) and whether that fixed or broke it (by the task's scorer)."""
+    cid = str(case.id)
+    outputs, scored = _outputs(obs), (obs.findings or {}).get("by_strategy") or {}
+    if cid not in (outputs.get("baseline") or {}):
+        return {}
+    base = answer_fn(case, outputs["baseline"][cid])
+    before = (scored.get("baseline") or {}).get(cid)
+    out: dict[str, float] = {}
+    for strategy, texts in outputs.items():
+        if strategy == "baseline" or cid not in texts:
+            continue
+        alt = answer_fn(case, texts[cid])
+        if base and alt:
+            out[f"changed_{strategy}"] = float(alt != base)
+        after = (scored.get(strategy) or {}).get(cid)
+        if before is not None and after is not None:
+            out[f"fixed_{strategy}"] = float(before == 0.0 and after == 1.0)
+            out[f"broken_{strategy}"] = float(before == 1.0 and after == 0.0)
+    return out
+
+
+def follow_up_values(evidence: StepEvidence, case: Any, answer_fn: "AnswerFn | None" = None) -> dict[str, Any]:
+    """One case's numeric readings from a follow-up step, or why there are none."""
+    cid = str(case.id)
+    obs = evidence.for_case(cid)
+    if obs is None:
+        return {"state": UNTESTED, "reason": "not run on this case"}
+    if obs.status != OK:
+        return {"state": UNTESTED, "action_id": obs.action_id, "reason": f"{obs.status}: {obs.error or ''}".strip()}
+    values = _numeric(obs.per_case().get(cid) or {})
+    if evidence.step.analyzer == "prompt_contrast":
+        values.update(_contrast_values(obs, case, answer_fn or default_answer))
+    if not values:
+        return {"state": UNTESTED, "action_id": obs.action_id, "reason": obs.missing.get(cid, "no per_case row")}
+    return {"state": "measured", "action_id": obs.action_id, "values": values}
+
+
+def follow_up_reading(evidence: StepEvidence, cases: Any, route_ids: "list[str]", control_ids: "list[str]",
+                      answer_fn: "AnswerFn | None" = None) -> dict[str, Any]:
+    """Mean of every numeric per-case reading over the route's FAIL cases and their PASS controls.
+
+    Descriptive, like the S readings: no test, and a field is listed even when
+    one cohort has no value for it. ``n_by_field`` counts the cases behind each
+    mean (an answer-change reading needs both answers readable).
+    """
+    by_id = {str(c.id): c for c in cases}
+    rows = {cid: follow_up_values(evidence, by_id[cid], answer_fn) for cid in [*route_ids, *control_ids]}
+    out: dict[str, Any] = {}
+    for name, ids in (("route_fail", route_ids), ("controls", control_ids)):
+        measured = [rows[cid]["values"] for cid in ids if rows[cid]["state"] == "measured"]
+        fields = sorted({k for v in measured for k in v})
+        out[name] = {"n": len(ids), "n_measured": len(measured),
+                     "means": {f: _mean([v[f] for v in measured if f in v]) for f in fields},
+                     "n_by_field": {f: sum(1 for v in measured if f in v) for f in fields},
+                     "untested": dict(Counter(rows[cid]["reason"] for cid in ids
+                                              if rows[cid]["state"] != "measured"))}
     return out

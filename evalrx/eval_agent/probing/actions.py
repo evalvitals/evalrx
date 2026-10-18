@@ -4,6 +4,8 @@ An action is ``(analyzer, configuration, cases, purpose)``. Its identity is a
 content hash over the analyzer, its full configuration, the ordered case ids
 and the execution context (model, policy version), so a resumed run recognises
 a finished action and a changed configuration never reuses an old result.
+A :class:`PlanStep` is the template an action is built from; the cases it
+runs on are chosen when it is executed.
 """
 
 from __future__ import annotations
@@ -64,6 +66,47 @@ def digest(payload: Any) -> str:
 
 
 @dataclass(frozen=True)
+class PlanStep:
+    """What to build, why, and what it may cost: a battery step or a rule's candidate.
+
+    ``key`` names the step when one analyzer serves two steps (default: the
+    analyzer); evidence is stored under it, so two routes asking the same
+    step share its observations. ``per_case`` runs a one-case analyzer once
+    per case; ``keep_artifacts`` keeps those result artifacts with the
+    findings; ``task_kinds`` limits the step to those task kinds (empty =
+    every kind).
+
+    ``reuse`` says that a case's row does not depend on which other cases share
+    the batch, so a larger sample only runs the new cases and keeps the old
+    rows. A step whose rows do depend on the batch (words inferred from the
+    batch's prompts, a fit on the batch, noise seeded by batch position) has
+    ``reuse=False`` and ``reuse_note`` says why: it re-runs on the whole sample.
+
+    ``min_output_tokens``: the step asks for text before the answer (e.g. a
+    description), so a known output cap below this leaves it nothing to read.
+    """
+
+    analyzer: str
+    config: dict[str, Any]
+    route: str
+    purpose: str
+    fidelity_check: "str | None" = None          # "edit" = tap/linear self-check, "patch" = patch self-check
+    calls_per_case: dict[str, int] = field(default_factory=dict)
+    key: str = ""
+    per_case: bool = False
+    keep_artifacts: tuple[str, ...] = ()
+    task_kinds: tuple[str, ...] = ()
+    reuse: bool = True
+    reuse_note: str = ""
+    caveat: str = ""
+    min_output_tokens: int = 0
+
+    @property
+    def name(self) -> str:
+        return self.key or self.analyzer
+
+
+@dataclass(frozen=True)
 class ProbeAction:
     """One planned experiment, executed exactly as written.
 
@@ -93,6 +136,14 @@ class ProbeAction:
             "analyzer": self.analyzer, "config": self.config,
             "case_ids": list(self.case_ids), "context": context,
         })
+
+    def step_identity(self, context: dict[str, Any]) -> str:
+        """The identity without the cases: the same experiment, whichever cases it ran on.
+
+        Observations sharing it may be combined case by case only when the
+        step's rows do not depend on the batch (``PlanStep.reuse``).
+        """
+        return digest({"analyzer": self.analyzer, "config": self.config, "context": context})
 
     def to_dict(self) -> dict[str, Any]:
         # a shallow read: asdict() would deep-copy a donor pool's cases (and media)
