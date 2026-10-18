@@ -99,4 +99,8 @@ class Ledger:
                    if e.get("event") == "planned" and e.get("action_id") == action_id)
 
     def spent_wall_sec(self) -> float:
-        return sum(float(e.get("wall_sec") or 0.0) for e in self.cost_events() if e.get("kind") == "action")
+        return self.spent("wall_sec")
+
+    def spent(self, axis: str) -> float:
+        """Executed actions' spend on *axis* (``wall_sec`` or ``usd``), over every invocation."""
+        return sum(float(e.get(axis) or 0.0) for e in self.cost_events() if e.get("kind") == "action")

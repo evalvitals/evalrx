@@ -158,15 +158,36 @@ def test_rerun_reads_everything_back_and_a_larger_cap_extends_only_to_new_cases(
     assert all(big["checks"]["reused_chunks_disjoint"].values())
 
 
-def test_describe_first_is_not_applicable_under_a_short_output_cap(tmp_path):
+def test_describe_first_asks_for_its_own_output_room_where_the_backend_honours_it(tmp_path):
     cases, table = _pope_like()
     ident = {"spec": "table", "generation": {"max_new_tokens": 16}}
-    report = run_triage(_Table(table), cases, **_kw(tmp_path / "cap", max_fail=4, min_route_fail=1,
-                                                   model_identity=ident))
-    assert not [d for d in report["decisions"] if d["kind"] == "follow_up"]
-    passed = [t for row in report["routes"] for st in row["layers"] for t in st.get("tried") or []
-              if t["key"] == "describe_first"]
-    assert passed and all(t["status"] == "not_applicable" and "output cap of 16" in t["reason"] for t in passed)
+
+    class _Recording(_Table):
+        def generate(self, inputs, **kwargs):
+            self.kwargs = [*getattr(self, "kwargs", []), kwargs]
+            return super().generate(inputs, **kwargs)
+
+    # per-call settings honoured: the describe step asks for 256 tokens and runs
+    model = _Recording(table)
+    report = run_triage(model, cases, **_kw(tmp_path / "room", max_fail=4, min_route_fail=1, model_identity=ident))
+    keys = [d["key"] for d in report["decisions"] if d["kind"] == "follow_up"]
+    assert "describe_first" in keys and {"max_new_tokens": 256} in model.kwargs
+    assert all(report["checks"]["configs_match_plan"].values())
+
+    # dropped per call (an OpenAI-compatible endpoint): the step runs without its
+    # gen_kwargs, so the host's 16-token cap applies and leaves no room
+    from evalrx.eval_agent.probing.controller import _Run
+    from evalrx.eval_agent.probing.ledger import Ledger
+
+    step, ids = _step("describe_first"), [str(c.id) for c in cases][:4]
+    for per_call, expected in ((True, None), (False, "not_applicable")):
+        run = _Run(_Table(table), cases, Ledger(tmp_path / f"g{per_call}"), context={"model": ident}, extras={},
+                   task_kind="yes_no", budget_sec=0.0, price_fn=None, run_logger=None, say=lambda _m: None,
+                   per_call_generation=per_call)
+        why = run.gate(step, ids)
+        assert (why[0] if why else None) == expected
+        assert ("gen_kwargs" in run.config(step)) is per_call
+    assert "output cap of 16" in why[1]
 
 
 def test_max_actions_zero_runs_only_the_battery(tmp_path):

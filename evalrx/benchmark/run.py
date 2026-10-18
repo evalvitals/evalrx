@@ -158,6 +158,11 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "(doubling from --triage-n-fail; a value at or below it disables expansion)")
     p.add_argument("--triage-max-actions", type=int, default=12,
                    help="triage_active: decisions after the battery (expansions + route follow-ups)")
+    p.add_argument("--triage-scheduler", choices=["rules", "scored"], default="rules",
+                   help="triage_active: rules = MVP-2 fixed rounds over the routes' layers; scored = MVP-3 "
+                        "value per cost, U = q*[D+T+C-R]+/(c+eps) (report: triage_report.scored.*)")
+    p.add_argument("--triage-budget-usd", type=float, default=0.0,
+                   help="triage_active: USD cap on executed actions on priced API models (0 = none)")
     p.add_argument("--triage-seed", type=int, default=0,
                    help="triage_active: rank seed of the nested sampler")
     p.add_argument("--triage-budget-sec", type=float, default=0.0,

@@ -55,9 +55,15 @@ _NOISE_BY_POSITION = "the corruption noise is seeded by the case's position in t
 _FIT_ON_BATCH = "the translators are fit on the batch"
 
 
+#: Room for a description before the answer, asked per call (the task's own cap
+#: is sized for the answer alone: 16 tokens on POPE).
+DESCRIBE_OUTPUT_TOKENS = 256
+
+
 def _describe(route: str, question: str) -> PlanStep:
     # one key for N3 and Sb: the routes share its observations (and its PASS controls)
-    return PlanStep("prompt_contrast", {"strategies": DESCRIBE_STRATEGIES}, route, question,
+    return PlanStep("prompt_contrast", {"strategies": DESCRIBE_STRATEGIES,
+                                        "gen_kwargs": {"max_new_tokens": DESCRIBE_OUTPUT_TOKENS}}, route, question,
                     key="describe_first", calls_per_case={"generate": 2}, keep_artifacts=("outputs",),
                     caveat="the runtime's output cap must leave room for the description",
                     min_output_tokens=128)
@@ -185,20 +191,35 @@ class Proposal:
     tried: list[dict[str, Any]]
     before: list[dict[str, Any]]   # the earlier layers' states
 
+    target_override: "list[str] | None" = None   # a battery step runs on the whole sample
+
     @property
     def target_ids(self) -> list[str]:
-        return [*self.fail_ids, *self.control_ids]
+        return list(self.target_override) if self.target_override is not None else [*self.fail_ids, *self.control_ids]
 
 
 Gate = Callable[[PlanStep, list[str]], "tuple[str, str] | None"]
 
 
 def layer_state(layer: Layer, evidence: dict[str, StepEvidence], fail_ids: list[str], target_ids: list[str],
-                gate: Gate, blocked: "dict[str, str] | None" = None) -> dict[str, Any]:
-    """``done`` / ``extend`` / ``open`` / ``exhausted`` for *layer* on these cases, with what was passed over."""
+                gate: Gate, blocked: "dict[str, str] | None" = None,
+                pending: "dict[str, tuple[PlanStep, list[str]]] | None" = None) -> dict[str, Any]:
+    """``done`` / ``extend`` / ``open`` / ``exhausted`` for *layer* on these cases, with what was passed over.
+
+    *pending* names battery steps that serve a layer but have not run on the
+    current sample yet (with that sample): the layer is open on them first,
+    unless the model cannot run them (the battery records that when it settles).
+    """
     blocked = blocked or {}
     if not fail_ids:
         return {"rule_id": layer.rule_id, "state": "no_cases"}
+    for name in layer.served_by:
+        if name in (pending or {}) and gate(pending[name][0], pending[name][1]) is None:
+            step, sample_ids = pending[name]
+            ev = evidence.get(name)
+            return {"rule_id": layer.rule_id, "state": "open", "step": step, "battery": True,
+                    "stale": bool(ev is not None and ev.chunks), "target": list(sample_ids),
+                    "todo": ev.todo(sample_ids) if ev is not None else list(sample_ids), "tried": []}
     for name in layer.served_by:
         ev = evidence.get(name)
         if ev is not None and ev.valid_on(fail_ids):
@@ -235,13 +256,14 @@ def layer_state(layer: Layer, evidence: dict[str, StepEvidence], fail_ids: list[
 
 def route_states(route: str, records: list[dict[str, Any]], evidence: dict[str, StepEvidence], gate: Gate,
                  rank: Callable[[str], Any], *, layers: "tuple[Layer, ...]" = LAYERS,
-                 blocked: "dict[str, str] | None" = None) -> list[dict[str, Any]]:
+                 blocked: "dict[str, str] | None" = None,
+                 pending: "dict[str, tuple[PlanStep, list[str]]] | None" = None) -> list[dict[str, Any]]:
     """Every layer of *route*, in order, with its state on the route's current cases."""
     out = []
     for layer in (x for x in layers if x.route == route):
         fail_ids = route_fail_ids(records, route, layer.case_filter)
         controls, shortfall = matched_controls(records, fail_ids, rank)
-        state = layer_state(layer, evidence, fail_ids, [*fail_ids, *controls], gate, blocked)
+        state = layer_state(layer, evidence, fail_ids, [*fail_ids, *controls], gate, blocked, pending)
         out.append({**state, "question": layer.question, "n_fail": len(fail_ids), "n_controls": len(controls),
                     "control_shortfall": shortfall, "_fail_ids": fail_ids, "_control_ids": controls})
     return out
@@ -266,7 +288,7 @@ def next_for_route(route: str, records: list[dict[str, Any]], evidence: dict[str
 
 def public(state: dict[str, Any]) -> dict[str, Any]:
     """A layer state without its case lists and step object, for the trace and the report."""
-    out = {k: v for k, v in state.items() if not k.startswith("_") and k != "step"}
+    out = {k: v for k, v in state.items() if not k.startswith("_") and k not in ("step", "target")}
     if "todo" in out:
         out["todo"] = len(out["todo"])
     if "step" in state:

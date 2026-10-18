@@ -189,3 +189,22 @@ def test_prompt_sensitivity_is_a_clean_stats_signal():
     # Enters the tested family; not isolated as a label leak.
     assert "prompt_contrast.prompt_sensitivity" in inp.per_case
     assert "prompt_contrast.prompt_sensitivity" not in inp.sanity
+
+
+def test_gen_kwargs_reach_every_re_ask_and_the_identity():
+    seen = []
+
+    class _Recording(InterventionModel):
+        def generate(self, inputs, **kwargs):
+            seen.append(kwargs)
+            return super().generate(inputs, **kwargs)
+
+    cases = CaseBatch([FailureCase(id="c", inputs=Inputs(prompt="Is there a cat?"), expected="yes",
+                                   observed="No.", label=Label.FAIL)])
+    strategies = {"baseline": "{prompt}", "describe_first": "Describe the image, then answer. {prompt}"}
+    PromptContrastAnalyzer(strategies=strategies, gen_kwargs={"max_new_tokens": 256}).run(_Recording(), cases)
+    assert seen == [{"max_new_tokens": 256}] * 2   # baseline included: the same cap for both
+    seen.clear()
+    plain = PromptContrastAnalyzer(strategies=strategies)
+    plain.run(_Recording(), cases)
+    assert seen == [{}, {}] and plain.get_params()["gen_kwargs"] is None

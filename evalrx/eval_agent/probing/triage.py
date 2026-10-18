@@ -605,9 +605,20 @@ def _numeric(row: dict[str, Any]) -> dict[str, float]:
     return out
 
 
-def _contrast_values(obs: Observation, case: Any, answer_fn: AnswerFn) -> dict[str, float]:
+#: Words a strategy that asks for text before the answer must add over the re-asked
+#: question before its answer counts as given after that text.
+COMPLIANCE_WORDS = 5
+
+
+def _contrast_values(obs: Observation, case: Any, answer_fn: AnswerFn,
+                     asks_for_text: bool = False) -> dict[str, float]:
     """``prompt_contrast``: per strategy, whether the answer moved off the re-asked
-    question (by answer key) and whether that fixed or broke it (by the task's scorer)."""
+    question (by answer key) and whether that fixed or broke it (by the task's scorer).
+
+    With *asks_for_text* (a strategy asking for a description before the answer)
+    also how many words it added and whether that reached ``COMPLIANCE_WORDS``:
+    an unchanged answer from a model that never described is not a stable error
+    surviving description."""
     cid = str(case.id)
     outputs, scored = _outputs(obs), (obs.findings or {}).get("by_strategy") or {}
     if cid not in (outputs.get("baseline") or {}):
@@ -621,6 +632,10 @@ def _contrast_values(obs: Observation, case: Any, answer_fn: AnswerFn) -> dict[s
         alt = answer_fn(case, texts[cid])
         if base and alt:
             out[f"changed_{strategy}"] = float(alt != base)
+        if asks_for_text:
+            extra = len(str(texts[cid]).split()) - len(str(outputs["baseline"][cid]).split())
+            out[f"extra_words_{strategy}"] = float(extra)
+            out[f"complied_{strategy}"] = float(extra >= COMPLIANCE_WORDS)
         after = (scored.get(strategy) or {}).get(cid)
         if before is not None and after is not None:
             out[f"fixed_{strategy}"] = float(before == 0.0 and after == 1.0)
@@ -638,7 +653,8 @@ def follow_up_values(evidence: StepEvidence, case: Any, answer_fn: "AnswerFn | N
         return {"state": UNTESTED, "action_id": obs.action_id, "reason": f"{obs.status}: {obs.error or ''}".strip()}
     values = _numeric(obs.per_case().get(cid) or {})
     if evidence.step.analyzer == "prompt_contrast":
-        values.update(_contrast_values(obs, case, answer_fn or default_answer))
+        values.update(_contrast_values(obs, case, answer_fn or default_answer,
+                                       asks_for_text=evidence.step.min_output_tokens > 0))
     if not values:
         return {"state": UNTESTED, "action_id": obs.action_id, "reason": obs.missing.get(cid, "no per_case row")}
     return {"state": "measured", "action_id": obs.action_id, "values": values}

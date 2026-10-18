@@ -422,6 +422,8 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
                      "n_cases": baseline["n"],
                      **{k: baseline[k] for k in ("api_usage", "usd") if k in baseline}},
         price_fn=_price_fn(spec),
+        per_call_generation=sampling is not None,
+        scheduler=args.triage_scheduler, budget_usd=float(args.triage_budget_usd),
         partition={"confirm_split": float(args.confirm_split), "seed": CONFIRM_SPLIT_SEED,
                    "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
                    "confirm_visible_to_controller": False},
@@ -434,10 +436,11 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         "m1_policy": "triage_active", "triage": report["summary"],
         "triage_steps": [{k: s.get(k) for k in ("kind", "key", "analyzer", "status", "reused", "n_cases")}
                          for s in report["executions"]],
-        "triage_stop": report["stop"],
+        "triage_stop": report["stop"], "triage_scheduler": report["scheduler"],
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
-    print(f"Done (triage). {run_dir / 'probing' / 'triage_report.md'}")
+    name = "triage_report" if args.triage_scheduler == "rules" else f"triage_report.{args.triage_scheduler}"
+    print(f"Done (triage). {run_dir / 'probing' / (name + '.md')}")
     return 0
 
 

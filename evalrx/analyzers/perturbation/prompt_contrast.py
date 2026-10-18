@@ -128,6 +128,11 @@ class PromptContrastAnalyzer(Analyzer):
                     to a word-boundary rubric scorer over ``case.expected``
                     (dict ``all_of/any_of/none_of`` or plain string).
         max_cases:  Cap on cases (cost = ``len(strategies)`` generations each); 0 (the default) = every case.
+        gen_kwargs: per-call generation settings for every re-ask, baseline
+                    included (e.g. a larger ``max_new_tokens`` for a strategy that
+                    asks for a description before the answer); ``None`` (the
+                    default) = the model's own settings. A backend that drops
+                    per-call settings (an OpenAI-compatible endpoint) ignores them.
     """
 
     name = "prompt_contrast"
@@ -163,11 +168,13 @@ class PromptContrastAnalyzer(Analyzer):
         # so a small cap leaves too few discordant pairs for M4 to clear the
         # e-value bar. 128 covers typical mined fail counts plus controls.
         max_cases: int = 0,
+        gen_kwargs: "dict[str, Any] | None" = None,
     ) -> None:
         strategies = dict(strategies) if strategies else dict(_DEFAULT_STRATEGIES)
         if "baseline" not in strategies:
             strategies = {"baseline": "{prompt}", **strategies}
-        super().__init__(strategies=strategies, score_fn=score_fn, max_cases=max_cases)
+        super().__init__(strategies=strategies, score_fn=score_fn, max_cases=max_cases,
+                         gen_kwargs=dict(gen_kwargs) if gen_kwargs else None)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         score = self.score_fn or _default_score
@@ -182,6 +189,7 @@ class PromptContrastAnalyzer(Analyzer):
         # mixes both, which the McNemar (flips) and the no-free-lunch check
         # (breaks of correct answers) each need.
         selected = cases.stratified_head(self.max_cases)
+        gen_kwargs = dict(self.gen_kwargs or {})
         for case in selected:
             prompt = str(getattr(case.inputs, "prompt", ""))
             for strat, template in self.strategies.items():
@@ -192,7 +200,7 @@ class PromptContrastAnalyzer(Analyzer):
                 # any modality set that includes text prompts) — a fresh
                 # Inputs(image=...) silently dropped .audio, so the re-ask
                 # would have answered without hearing the clip.
-                out = str(model.generate(dataclasses.replace(case.inputs, prompt=rewritten)))
+                out = str(model.generate(dataclasses.replace(case.inputs, prompt=rewritten), **gen_kwargs))
                 verdict = score(case, out)
                 answers[strat][case.id] = out[:200]
                 outputs[strat][case.id] = out

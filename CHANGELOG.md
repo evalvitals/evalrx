@@ -6,6 +6,53 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — triage scored scheduler (MVP-3, first part)
+
+`--triage-scheduler scored` replaces the rules' rounds with one decision at a
+time: every feasible candidate (each active route's open or stale layer, the
+expansion, the deferred battery steps) gets
+`U = q·[D + T + C − R]₊ / (c + ε)` (`probing/scoring.py`, version
+`mvp3-score-1`) and the highest wins, ties going to the soft order; taking a
+later layer first is recorded as a soft-order exception. D is 0 until
+competing explanations with predictions exist; T is 1 for extending a
+`reuse` step to a route's new cases or a contradiction, 0.5 for an expansion
+that may close a recorded gap; C is the coverage gap over `layer × gold
+stratum` units the action removes; R filters an observation that already
+exists; q is `(successes+1)/(attempts+2)` over the analyzer's distinct
+observations (unsupported is not an attempt); c is the step's own cost per
+case, else measured per-call rates, on the primary axis (USD when every
+action is priced, else wall seconds). Every 10th decision explores with a
+seed; no candidate above the gain floor (0.01) stops the run. While an
+expansion can still follow, no batch-dependent candidate is taken (its reading
+would be superseded; its layer waits rather than falling back). On
+Qwen3.5-0.8B POPE it reaches the rules' follow-ups, readings and call counts
+exactly, with twice the decisions (each expansion makes it extend what it ran
+on the smaller sample): with D = 0 it only reorders. Decisions read
+only the scheduler's own evidence and price candidates as if fresh, so a
+shared ledger saves compute without changing choices; the report
+(`triage_report.scored.*`) lists every candidate's components per decision.
+Both schedulers' reports now carry `cost.evidence` (the first-execution cost
+of every observation read), `cost.controller_sec` and `coverage`;
+`probing/compare.py` compares two reports. `--triage-budget-usd` caps USD the
+way `--triage-budget-sec` caps seconds. Adoption of earlier chunks is limited
+to chunks inside the target, so no case enters the evidence without a
+decision that asked for it.
+
+### Added — `prompt_contrast(gen_kwargs=...)`; describe-first gets its own output room
+
+`prompt_contrast` takes per-call generation settings for every re-ask
+(baseline included); without them it behaves as before (Qwen3.5-0.8B: every
+reworded and threshold answer identical to the earlier run). The triage's
+describe-first candidates ask for `max_new_tokens=256`, so they run under
+POPE's 16-token cap where the backend honours per-call settings; on a
+backend that drops them (OpenAI-compatible endpoint) the step runs without
+them and is gated on the host's cap. Follow-up readings of a strategy that
+asks for text before the answer add `extra_words_*` and `complied_*` (at
+least 5 more words than the re-asked question), and the report warns when
+most route cases did not comply: Qwen3.5-0.8B answers "No" straight away
+(0/17 complied), so its unchanged answers do not test the question;
+gemini-3.1-flash-lite describes first (15/15, about 21 extra words).
+
 ### Added — triage expansion and rule-chosen follow-ups (MVP-2)
 
 `--m1-policy triage_active` (policy `mvp2-0`) keeps the nine-step battery and

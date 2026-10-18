@@ -637,11 +637,12 @@ def test_api_run_meters_tokens_and_dollars_and_runs_its_behavioural_follow_up(tm
     assert fu["reading"]["route_fail"]["n_measured"] == 2 and fu["reading"]["controls"]["n_measured"] == 2
     assert fu["reading"]["route_fail"]["means"]["changed_describe_first"] == 0.0  # "Yes" whatever the prompt
     assert fu["reading"]["route_fail"]["n_by_field"]["changed_describe_first"] == 2
+    assert fu["reading"]["route_fail"]["means"]["complied_describe_first"] == 0.0  # it never described
     assert report["stop"]["reason"] == "no_candidate"
     layers = {st["rule_id"]: st["state"] for st in report["routes"][0]["layers"]}
     assert layers == {"N1": "exhausted", "N2": "exhausted", "N3": "done"}
     md = (tmp_path / "api" / "triage_report.md").read_text()
-    assert "## Decisions" in md and "Follow-ups" in md and "USD" in md
+    assert "## Decisions" in md and "Follow-ups" in md and "USD" in md and "did not add the text" in md
     assert "Not measured: unsupported (model lacks capabilities" in md      # knockout, no table of Nones
     assert "Not measured: embed_lens unsupported" in md
 
