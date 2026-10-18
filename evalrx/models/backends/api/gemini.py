@@ -268,10 +268,14 @@ class _Runtime:
         self.policy = policy
         self.top_logprobs = int(top_logprobs)
         self.sampling = dict(sampling)
-        #: shared, readable through ``fn.state`` on every factory output
+        #: shared, readable through ``fn.state`` on every factory output; ``usage``
+        #: sums the token counts every successful response reports (cumulative,
+        #: so a caller meters a stretch of work by differencing two reads)
         self.state: dict[str, Any] = {
             "model_version": None, "calls": 0, "retries": 0, "thinking_fallback": [],
             "headroom_for": [],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "thought_tokens": 0,
+                      "responses_without_usage": 0},
         }
         self._lock = threading.Lock()
         silence_sdk_chatter()
@@ -342,14 +346,23 @@ class _Runtime:
                     continue
                 if attempt < self.retries and _retryable(exc):
                     delay = min(30.0, 1.5 * (2 ** attempt)) + random.uniform(0.0, 0.5)
-                    self.state["retries"] += 1
+                    with self._lock:
+                        self.state["retries"] += 1
                     logger.warning("gemini %s: %s; retry %d/%d in %.1fs",
                                    model, text[:120], attempt + 1, self.retries, delay)
                     time.sleep(delay)
                     attempt += 1
                     continue
                 raise
-            self.state["calls"] += 1
+            usage = _usage(response)
+            with self._lock:  # discovery fans requests out over threads
+                self.state["calls"] += 1
+                totals = self.state["usage"]
+                if usage is None:
+                    totals["responses_without_usage"] += 1
+                else:
+                    for key, value in usage.items():
+                        totals[key] += value
             version = getattr(response, "model_version", None)
             if version:
                 self.state["model_version"] = version

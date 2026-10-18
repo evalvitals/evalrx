@@ -6,6 +6,114 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — triage on API models: provider usage, dollars, next experiments (MVP-1)
+
+The gemini runtime now sums the token counts every response reports
+(`state["usage"]`: prompt, completion and thought tokens, plus responses that
+reported none), and `APIModel.usage_counters()` exposes them with the request
+and retry counts. The triage executor differences two reads around each
+action (`cost["api_usage"]`), the runner does the same around Stage 0
+(`baseline.json` gains `api_usage` and `usd`), and `usd` comes from a dated
+price table (`models/backends/api/prices.py`: only prices read off the
+provider's page, checked 2026-10-17; an unlisted model's cost is `None`, never
+a guess, and the input part is an upper bound because implicit cache hits are
+not reported). The report adds a cost summary for the invocation. On the
+gemini backend the U sampling check now runs: the runtime merges per-call
+kwargs over its own sampling, so `self_consistency` gets `temperature=1.0`
+(the endpoint backend drops per-call kwargs and stays untested). The report
+also lists rule-based next candidates (`probing/proposals.py`) for every route
+with FAIL cases — behavioural follow-ups first, each built and gated on the
+actual model, with `executable` / `unsupported` (and why) / `already_run` /
+`not_applicable`; none is run, and sample expansion is listed as not yet an
+action.
+
+### Fixed — logit margins compared an answer with its own other spelling
+
+`build_margin` (every white-box analyzer's target: knockout, causal trace,
+patchscope, gradcam, attribution and path patching, ...) compared the target
+token with the strongest OTHER token. A BPE vocabulary holds `"Yes"`,
+`" Yes"`, `"yes"` and `" yes"` as different ids, and a model can split one
+answer across them: Qwen3.5-0.8B on POPE gives `" Yes"` 0.80 and `"Yes"` 0.20
+on a correct case, so the gold `"Yes"` margin compared "Yes" with " Yes" and
+came out negative (−1.375) on a correct answer; `target="prediction"` had the
+same problem with its top-2. The comparison token is now the strongest token
+outside the answer's surface forms (`answer_variants`: with or without a
+leading space, lower-case or capitalised for answers longer than one
+character, each confirmed by the decoder; without a decoder only the literal
+form), the gold target is the form the clean run scores highest, and
+`LogitMargin.variants` lists the forms. On that case the gold margin is now
++7.875 (" Yes" vs " No"). Patchscope sums the readout probability over the
+forms and counts a layer as reading the answer when any form ranks first.
+Knockout and other margins measured with a decoder-backed tokenizer before
+this change are not comparable with new ones.
+
+### Added — triage U and S routes (policy `mvp0-2`)
+
+The triage plan now runs five more actions after the knockout. U (an answer
+that moves) has two required parts: `self_consistency`, run once per case
+(the executor's new `per_case` mode, since the analyzer reads only
+`cases[0]`) at the host's sampling settings (`temperature=1.0` plus the run's
+`top_p`/`top_k` on local backends; greedy settings leave it untested), and
+`prompt_contrast` with the question kept verbatim inside two neutral wrappers
+(a wrapper whose answer is unreadable is an invalid control). Answers are
+compared with the task's new label-blind `answer_key` (`benchmark.scoring`,
+`tasks.answer_key`), never graded. S is a FAIL case on which H, N (cases with
+media; N is now `not_applicable` without media) and both U parts ran and none
+fired; a missing check leaves it in X, and a PASS case with every check clear
+has no route. The S readings on every case are descriptive: a threshold
+instruction (`prompt_contrast` "sensitive", yes/no tasks only; others record
+the step as `not_applicable`), `embed_lens(layer=0.9)` and
+`patchscope(target="gold", media_layers=3)`. Both lenses gain a question-word
+reading — prompt words found in at most half of the batch's distinct prompts
+(`_internals/words.py`), so template words never count: `el_query_sim`, and
+`ps_media_query_hits`/`_share` (media tokens decoded as the case's question
+word). Patchscope's patch self-check now raises `FidelityError` (still a
+`RuntimeError`) and reports `patch_fidelity`, so the triage records an
+unfaithful patch as `unfaithful`. `prompt_contrast` also keeps untruncated
+outputs as an `outputs` artifact, and the executor keeps a step's named
+result artifacts with its findings (`keep_artifacts`).
+
+### Added — counterfactual swap donors (`modality_ablation(donor_rule="counterfactual")`)
+
+An unchanged answer after a media swap is only evidence when the donor's
+media should have changed it. On yes/no and few-option tasks a random donor
+often leaves the correct answer unchanged (a random COCO image usually lacks
+the object POPE asks about, so "No" stays right). The new rule first looks,
+in `donor_pool` (default: the probed batch), for a case asking the identical
+prompt about different-content media whose gold differs from the model's own
+unablated answer (not from the case's gold: on a failed case those differ, and
+a donor whose gold equals the wrong answer makes "unchanged" correct); that
+gold is what a correct answer must become, recorded as
+`ablation_<slot>_donor_expected`. Otherwise it falls back to the content rule
+and records `ablation_<slot>_donor_kind="content"`. `n_counterfactual_<slot>`
+counts the former. The default `donor_rule="content"` is unchanged. The triage
+controller uses the counterfactual rule with the whole EXPLORE partition as
+the pool; on yes/no and letter tasks, N is tested only on counterfactual swaps
+(content-only swaps leave it untested with the reason), and the report adds
+donor kinds and how often a counterfactual swap moved the answer to the
+donor's gold.
+
+### Changed — edit-free self-checks run on every analysed case
+
+`attention_knockout`, `attention_sensitivity`, `attention_temperature` and
+`generic_attention` used to check the attention tap (and, on hybrid stacks, the
+media-absent linear re-run) on the first analysable case only, and the verdict
+was cached on the model — so whether a whole batch was accepted depended on
+which case came first. On Qwen3.5-0.8B in bf16 the tap differs from `sdpa` by
+0.8–2.0% of the largest logit depending on the input, straddling the 1%
+tolerance. A new `FidelityGate` (`analyzers/_internals/edits.py`) now checks
+every analysed case before measuring it; the first failing case refuses the
+whole batch with a `FidelityError` naming it. `tap_fidelity` reports the worst
+case per mechanism, the number of argmax changes and every per-case check.
+`check_fidelity` / `check_linear_fidelity` are no longer cached and
+`check_fidelity` accepts the caller's native logits (`base=`) to save a
+forward. Cost: one extra tapped forward per case (plus one linear re-run on a
+hybrid stack). Under `sdpa` these analyzers will now usually refuse on
+Qwen3.5; use `--attn-impl eager`, where the tap is exact. The triage
+controller's action identity now includes a content hash of the analyzer's
+module and `analyzers/_internals`, so a code change re-runs the action instead
+of reading back an old observation.
+
 ### Added — triage probing controller, MVP-0 (`--m1-policy triage_active`)
 
 An opt-in alternative to the judge-selected M1 (`evalrx/eval_agent/probing/`).

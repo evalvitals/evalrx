@@ -364,6 +364,27 @@ def test_api_model_forwards_only_the_modalities_the_spec_declares():
     assert client.requests[0]["model"] == "gemini-3.5-flash-lite"
 
 
+def test_usage_counters_sum_what_each_response_reports():
+    """The triage meters an action by differencing two reads of these counters."""
+    from evalrx.models.backends.api.prices import usd
+    from evalrx.models.compose import compose
+
+    no_usage = _reply(Part(text="No"))
+    no_usage.usage_metadata = None
+    client = FakeClient([APIError(429, "RESOURCE_EXHAUSTED"), _reply(Part(text="Yes")), no_usage])
+    model = compose("gemini-3.1-flash-lite", "api", _runtime(client))
+    assert model.usage_counters() == {"requests": 0, "retries": 0, "prompt_tokens": 0, "completion_tokens": 0,
+                                      "thought_tokens": 0, "responses_without_usage": 0}
+    model.generate(Inputs(prompt="a?"))
+    model.generate(Inputs(prompt="b?"))
+    counters = model.usage_counters()
+    assert counters == {"requests": 2, "retries": 1, "prompt_tokens": 10, "completion_tokens": 4,
+                        "thought_tokens": 0, "responses_without_usage": 1}
+    assert usd("gemini-3.1-flash-lite", counters) == round((10 * 0.25 + 4 * 1.50) / 1e6, 6)
+    assert usd("models/gemini-3.1-flash-lite", counters) is not None
+    assert usd("gemini-9-unlisted", counters) is None          # no price on record: unknown, not zero
+
+
 # ----------------------------------------------------------------------
 # Failure handling
 # ----------------------------------------------------------------------

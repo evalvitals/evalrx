@@ -59,7 +59,9 @@ class AttentionSensitivityAnalyzer(Analyzer):
         target:        ``"prediction"`` or ``"gold"``.
         fidelity_rtol: tolerance of the edit-free attention tap vs native logits.
         max_cases:     label-stratified cap; 0 (the default) = every case.
-                       Cost: 3 logits-only forwards per case.
+                       Cost: 3 logits-only forwards per case, plus the per-case
+                       edit-free self-check (1 tapped forward; +1 media-absent
+                       re-run on a hybrid stack).
     """
 
     name = "attention_sensitivity"
@@ -95,7 +97,7 @@ class AttentionSensitivityAnalyzer(Analyzer):
             media_positions,
             torch_module,
         )
-        from evalrx.analyzers._internals.edits import media_flow_edit, require_edit_fidelity
+        from evalrx.analyzers._internals.edits import FidelityGate, media_flow_edit
         from evalrx.analyzers._internals.targets import build_margin
         from evalrx.analyzers.patching.attention_knockout import layer_bands
         from evalrx.core.model import CaptureSpec
@@ -108,7 +110,7 @@ class AttentionSensitivityAnalyzer(Analyzer):
 
         per_case: list[dict[str, Any]] = []
         skipped: Counter = Counter()
-        fidelity: "dict | None" = None
+        gate = FidelityGate(model, rtol=self.fidelity_rtol, analyzer=self.name)
         for case in cases.stratified_head(self.max_cases):
             clean = model.forward(case.inputs, capture={Capability.LOGITS}, spec=spec)
             _, media = media_positions(clean)
@@ -120,9 +122,7 @@ class AttentionSensitivityAnalyzer(Analyzer):
             if margin is None:
                 skipped[why] += 1
                 continue
-            if fidelity is None:
-                fidelity = require_edit_fidelity(model, case.inputs, media,
-                                                 rtol=self.fidelity_rtol, analyzer=self.name)
+            gate.check(case.id, case.inputs, media, base=logits)
             media_set = set(media)
             queries = [i for i in range(clean.seq_len) if i not in media_set]
             top1 = int(logits[-1].argmax())
@@ -158,7 +158,7 @@ class AttentionSensitivityAnalyzer(Analyzer):
             "weights": [self.down, self.up],
             "target": self.target,
             "layer_kinds": {"softmax": stack.n_softmax, "linear": stack.n_linear},
-            "tap_fidelity": fidelity,
+            "tap_fidelity": gate.summary(),
             "mean_slope": round(sum(r["rw_slope"] for r in per_case) / n, 4),
             "frac_negative_slope": round(sum(r["rw_slope"] < 0 for r in per_case) / n, 4),
             "per_case": per_case,

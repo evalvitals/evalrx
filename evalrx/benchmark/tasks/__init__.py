@@ -17,6 +17,7 @@ from . import (
 )
 from .base import (  # noqa: F401
     Task,
+    answer_key,
     build_cases,
     label_case,
     load_rows,

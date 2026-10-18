@@ -154,15 +154,55 @@ def test_require_fidelity_refuses_a_bypassed_layer(vlm, monkeypatch):
         return stack
 
     monkeypatch.setattr(attn_tap, "decoder_stack", with_phantom)
-    module = vlm._loaded[0]
-    saved = module.__dict__.pop("_evalrx_tap_fidelity", None)
-    try:
-        with pytest.raises(RuntimeError, match="does not faithfully reproduce"):
-            require_fidelity(vlm, Inputs(prompt="x", image=image(0)))
-    finally:
-        module.__dict__.pop("_evalrx_tap_fidelity", None)
-        if saved is not None:
-            module.__dict__["_evalrx_tap_fidelity"] = saved
+    with pytest.raises(attn_tap.FidelityError, match="does not faithfully reproduce"):
+        require_fidelity(vlm, Inputs(prompt="x", image=image(0)))
+
+
+def test_fidelity_is_measured_on_every_call_not_cached(vlm):
+    inputs = Inputs(prompt="describe", image=image(0))
+    before = vlm.n_forwards
+    check_fidelity(vlm, inputs)
+    check_fidelity(vlm, inputs)
+    assert vlm.n_forwards - before == 4  # native + tapped, twice
+    base = vlm.forward(inputs, capture={Capability.LOGITS}).require(Capability.LOGITS)
+    before = vlm.n_forwards
+    verdict = check_fidelity(vlm, inputs, base=base)
+    assert vlm.n_forwards - before == 1  # the caller's native logits are reused
+    assert verdict["tap_faithful"] and verdict["tap_argmax_same"]
+    assert verdict["tap_rel_diff"] == pytest.approx(verdict["tap_max_logit_diff"] / verdict["tap_scale"], abs=1e-5)
+
+
+def test_knockout_checks_every_analysed_case(vlm):
+    from evalrx.analyzers.patching.attention_knockout import AttentionKnockoutAnalyzer
+
+    batch = CaseBatch(list(_batch(3)) + list(_batch(1, with_gold=False)))
+    fid = AttentionKnockoutAnalyzer(target="gold").run(vlm, batch).findings["tap_fidelity"]
+    assert fid["checked"] == "every analysed case" and fid["n_checked"] == 3  # the no-gold case is skipped
+    assert [c["case"] for c in fid["cases"]] == [c.id for c in list(batch)[:3]]
+    assert fid["faithful"] and fid["tap_worst_case"] in {c.id for c in batch}
+
+
+def test_a_later_unfaithful_case_refuses_the_whole_batch(vlm, monkeypatch):
+    from evalrx.analyzers._internals import edits
+    from evalrx.analyzers.patching.attention_knockout import AttentionKnockoutAnalyzer
+
+    real = edits.check_fidelity
+    calls = []
+
+    def flaky(*args, **kwargs):
+        verdict = real(*args, **kwargs)
+        calls.append(1)
+        if len(calls) == 3:  # the third case's input is off by more than rtol
+            verdict = {**verdict, "tap_faithful": False, "tap_rel_diff": 0.02}
+        return verdict
+
+    monkeypatch.setattr(edits, "check_fidelity", flaky)
+    batch = _batch(4)
+    with pytest.raises(attn_tap.FidelityError) as info:
+        AttentionKnockoutAnalyzer().run(vlm, batch)
+    verdict = info.value.verdict
+    assert verdict["n_checked"] == 3 and verdict["failed_case"] == list(batch)[2].id
+    assert verdict["faithful"] is False and verdict["tap_max_rel_diff"] == 0.02
 
 
 # ── residual hooks ─────────────────────────────────────────────────────────────
@@ -212,6 +252,48 @@ def test_gold_margin_needs_gold_and_tokenizer(vlm):
     margin, why = build_margin("gold", logits, model=vlm, case=FailureCase(inputs=Inputs(prompt="x"),
                                                                             expected="cat"))
     assert why == "" and margin.positive == ord("c") % 90 + 1 and margin.negative != margin.positive
+
+
+class _Vocab:
+    """A BPE-like vocabulary: an answer, its spaced and its lower-case form are three ids."""
+
+    pieces = ["<pad>", "Yes", " Yes", "yes", " yes", "No", " No", "no", " no", " a", "A", " A", "?"]
+
+    def __call__(self, text, add_special_tokens=False):
+        ids, i = [], 0
+        while i < len(text):
+            hits = [j for j, p in enumerate(self.pieces) if p and text.startswith(p, i)]
+            best = max(hits, key=lambda j: len(self.pieces[j])) if hits else len(self.pieces) - 1
+            ids.append(best)
+            i += len(self.pieces[best]) if hits else 1
+        return {"input_ids": ids}
+
+    def decode(self, ids):
+        return self.pieces[int(ids[0])]
+
+
+def test_margins_compare_an_answer_with_other_answers_not_with_its_own_spellings(monkeypatch):
+    # Qwen3.5-0.8B on POPE: " Yes" 0.80, "Yes" 0.20 on a correct case. The old
+    # comparison token was " Yes" -- a gold "Yes" margin was negative there.
+    from evalrx.analyzers._internals.targets import answer_variants
+
+    monkeypatch.setattr(access, "tokenizer_of", lambda model: _Vocab())
+    tok = _Vocab()
+    assert answer_variants(tok, "Yes") == {1, 2, 3, 4}
+    assert answer_variants(tok, "A") == {10, 11}            # never the article " a"
+    logits = torch.zeros(1, len(_Vocab.pieces))
+    logits[0, [2, 1, 5]] = torch.tensor([3.0, 2.0, 1.0])     # " Yes" > "Yes" > "No"
+    gold, _ = build_margin("gold", logits, model=object(), case=FailureCase(inputs=Inputs(prompt="q"),
+                                                                             expected="Yes"))
+    assert (gold.positive, gold.negative, gold.variants) == (2, 5, (1, 2, 3, 4))
+    assert math.isclose(gold.value(logits), 2.0)
+    pred, _ = build_margin("prediction", logits, model=object())
+    assert (pred.positive, pred.negative) == (2, 5)
+
+    class _NoDecoder(_Vocab):
+        decode = None
+
+    assert answer_variants(_NoDecoder(), "Yes") == {1}     # nothing confirms the other forms
 
 
 # ── analyzers ─────────────────────────────────────────────────────────────────
@@ -753,6 +835,60 @@ def test_patchscope_reads_text_only_cases_and_skips_missing_gold(vlm):
     assert f["layers_read"] == [0, 2, 5]
 
 
+class _CharLetters:
+    """CharTokenizer ids with a decoder: every id reads as a distinct three-letter word."""
+
+    def __call__(self, text, add_special_tokens=False):
+        from tests.tiny_whitebox import CharTokenizer
+
+        return CharTokenizer()(text, add_special_tokens)
+
+    def decode(self, ids):
+        return _LetterDecoder().decode(ids)
+
+
+def test_specific_words_tell_a_case_from_the_template():
+    from evalrx.analyzers._internals.words import specific_words
+
+    words = {"a": ("p1", {"is", "snowboard", "image"}), "b": ("p2", {"is", "car", "image"}),
+             "c": ("p3", {"is", "dog", "image"}), "d": ("p3", {"is", "dog", "image"})}  # d asks c's question
+    got, inferred = specific_words(words)
+    assert inferred and got == {"a": {"snowboard"}, "b": {"car"}, "c": {"dog"}, "d": {"dog"}}
+    few, inferred = specific_words({"a": ("p1", {"x"}), "b": ("p2", {"y"})})
+    assert not inferred and few == {"a": set(), "b": set()}
+
+
+def test_patchscope_counts_the_question_word_on_media_and_reports_its_self_check(vlm, monkeypatch):
+    from evalrx.analyzers.lens.patchscope import PatchscopeAnalyzer
+
+    monkeypatch.setattr(access, "tokenizer_of", lambda model: _CharLetters())
+    result = PatchscopeAnalyzer(media_layers=2).run(vlm, _batch())
+    f = result.findings
+    assert f["query_words_inferred"] is True and f["patch_fidelity"]["faithful"] is True
+    for row in f["per_case"]:
+        own = set(result.artifacts["query_words"][row["sample_id"]])
+        assert len(own) == 1  # only the picture number differs between the prompts
+        decoded = [w.strip().lower() for ws in result.artifacts["media_words"][row["sample_id"]].values() for w in ws]
+        assert row["ps_media_query_hits"] == sum(w in own for w in decoded)
+        assert row["ps_media_query_share"] == round(row["ps_media_query_hits"] / len(decoded), 4)
+
+
+def test_patchscope_refuses_when_the_patch_is_not_inert(vlm, monkeypatch):
+    from evalrx.analyzers._internals import residual
+    from evalrx.analyzers.lens.patchscope import PatchscopeAnalyzer
+
+    real = residual.batched_patch
+
+    def scaled(model, patches, analyzer=None):
+        return real(model, {layer: [(r, p, v * 3.0) for r, p, v in rows] for layer, rows in patches.items()},
+                    analyzer=analyzer)
+
+    monkeypatch.setattr(residual, "batched_patch", scaled)
+    with pytest.raises(attn_tap.FidelityError) as info:
+        PatchscopeAnalyzer().run(vlm, _batch(1))
+    assert info.value.verdict["faithful"] is False and "layer" in info.value.verdict
+
+
 # ── head attribution ──────────────────────────────────────────────────────────
 
 def test_per_head_writes_sum_to_the_output_projection(vlm):
@@ -936,6 +1072,11 @@ def test_embed_lens_contract_and_grounding(vlm, monkeypatch):
         assert parts == pytest.approx(1.0, abs=1e-3)
         sims = result.artifacts["prompt_sims"][row["sample_id"]]
         assert row["el_prompt_best_sim"] == max(sims.values()) and row["el_prompt_best_word"] in sims
+        # the question word: only words most of the prompts do not share
+        own = result.artifacts["query_words"][row["sample_id"]]
+        assert own and row["el_query_word"] in own
+        assert row["el_query_sim"] == max(sims[w] for w in own if w in sims)
+    assert f["query_words_inferred"] is True
 
 
 def test_embed_lens_reads_any_depth(vlm):

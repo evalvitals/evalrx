@@ -161,6 +161,37 @@ def squad_em(observed: str, golds: list) -> bool:
     return any(candidate == squad_normalize(g) for g in golds)
 
 
+#: Task kinds whose answers are free text graded by a model or a caption metric:
+#: two outputs can agree without being equal strings, so no answer key is read.
+_UNKEYED = frozenset({"llm_graded", "chair_caption"})
+
+
+def answer_key(kind: str, output: str, *, choices: list | None = None) -> "str | None":
+    """The answer *output* commits to, read the way :func:`score_output` reads it, without the gold.
+
+    Two outputs with the same key give the same answer, so a triage check can tell
+    whether an answer moved across samples or rewordings without grading either.
+    ``""`` means the output commits to no readable answer; ``None`` means the
+    task kind has no categorical answer to compare.
+    """
+    text = str(output if output is not None else "")
+    if kind in _UNKEYED:
+        return None
+    if kind == "multiple_choice_letter":
+        return parsed_choice(text, "".join(str(c)[0] for c in (choices or [])) or "ABCD")
+    if kind == "yes_no":
+        return parsed_yes_no(text).lower()
+    if kind == "short_answer_em":
+        return squad_normalize(extract_final_answer(text)) if text.strip() else ""
+    if kind == "exact_or_numeric":
+        if not text.strip():
+            return ""
+        candidate = normalize_answer(extract_final_answer(text))
+        number = _number(candidate)
+        return f"{number:g}" if number is not None else candidate
+    raise ValueError(f"unknown task kind {kind!r}")
+
+
 def score_output(kind: str, output: str, gold: Any, *, numeric_tolerance: float = 0.0,
                  choices: list | None = None, dataset: str = "") -> bool:
     """``True`` iff *output* is correct for a case of task *kind*."""

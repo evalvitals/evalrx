@@ -67,7 +67,9 @@ class AttentionKnockoutAnalyzer(Analyzer):
                        linear-layer re-run vs the real prefix outputs (relative to
                        the largest value) before the analyzer refuses.
         max_cases:     label-stratified cap; 0 (the default) = every case.
-                       Cost: 5 logits-only forwards per case.
+                       Cost: 5 logits-only forwards per case, plus the per-case
+                       edit-free self-check (1 tapped forward; +1 media-absent
+                       re-run on a hybrid stack).
     """
 
     name = "attention_knockout"
@@ -102,7 +104,7 @@ class AttentionKnockoutAnalyzer(Analyzer):
             media_positions,
             torch_module,
         )
-        from evalrx.analyzers._internals.edits import media_flow_edit, require_edit_fidelity
+        from evalrx.analyzers._internals.edits import FidelityGate, media_flow_edit
         from evalrx.analyzers._internals.targets import build_margin
         from evalrx.core.model import CaptureSpec
 
@@ -118,7 +120,7 @@ class AttentionKnockoutAnalyzer(Analyzer):
         per_case: list[dict[str, Any]] = []
         skipped: Counter = Counter()
         slots: Counter = Counter()
-        fidelity: "dict | None" = None
+        gate = FidelityGate(model, rtol=self.fidelity_rtol, analyzer=self.name)
         for case in cases.stratified_head(self.max_cases):
             clean = model.forward(case.inputs, capture={Capability.LOGITS}, spec=spec)
             slot, media = media_positions(clean)
@@ -130,9 +132,7 @@ class AttentionKnockoutAnalyzer(Analyzer):
             if margin is None:
                 skipped[why] += 1
                 continue
-            if fidelity is None:
-                fidelity = require_edit_fidelity(model, case.inputs, media,
-                                                 rtol=self.fidelity_rtol, analyzer=self.name)
+            gate.check(case.id, case.inputs, media, base=logits)
             media_set = set(media)
             queries = ([clean.seq_len - 1] if self.queries == "last"
                        else [i for i in range(clean.seq_len) if i not in media_set])
@@ -171,7 +171,7 @@ class AttentionKnockoutAnalyzer(Analyzer):
             "target": self.target,
             "queries": self.queries,
             "layer_kinds": {"softmax": stack.n_softmax, "linear": stack.n_linear},
-            "tap_fidelity": fidelity,
+            "tap_fidelity": gate.summary(),
             "mean_delta_full": round(sum(r["ko_delta_full"] for r in per_case) / n, 4),
             "frac_flips_top1": round(sum(bool(r["ko_flips_top1"]) for r in per_case) / n, 4),
             "per_case": per_case,

@@ -167,13 +167,40 @@ def load_model(resolved: Resolved, args, task: T.Task):
 _SAMPLED_M1 = ("self_consistency", "coverage_verification_gap")
 
 
+def _sampling_kwargs(resolved: Resolved, args) -> "dict | None":
+    """Per-call sampling settings for re-sampling analyzers; ``None`` where the
+    backend fixes sampling in its runtime and ignores per-call kwargs.
+
+    The gemini runtime merges per-call kwargs over its own sampling
+    (``_Runtime.config``), so a temperature reaches the request there; the
+    endpoint's generate_fn drops them.
+    """
+    if resolved.backend in ("hf_local", "jax_local"):
+        return {"temperature": 1.0, "top_p": args.top_p, "top_k": args.top_k}
+    if resolved.backend == "gemini":
+        return {"temperature": 1.0}
+    return None
+
+
+def _usage_cost(model, before: "dict | None") -> dict:
+    """Provider usage since *before* and its listed-price USD (``{}`` for a model with no counters)."""
+    from evalrx.eval_agent.probing.metering import usage_counters, usage_delta
+    from evalrx.models.backends.api.prices import usd
+
+    usage = usage_delta(before, usage_counters(model))
+    if usage is None:
+        return {}
+    model_id = getattr(getattr(model, "spec", None), "hf_repo", None) or getattr(getattr(model, "spec", None), "key", None)
+    return {"api_usage": usage, "usd": usd(model_id, usage)}
+
+
 def _sampling_analyzer_overrides(resolved: Resolved, args) -> dict:
-    if resolved.backend not in ("hf_local", "jax_local"):
+    gen = _sampling_kwargs(resolved, args)
+    if gen is None:
         return {}
     from evalrx.analyzers.uncertainty.coverage_gap import CoverageVerificationGap
     from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 
-    gen = {"temperature": 1.0, "top_p": args.top_p, "top_k": args.top_k}
     return {
         "self_consistency": SelfConsistencyAnalyzer(gen_kwargs=dict(gen)),
         "coverage_verification_gap": CoverageVerificationGap(gen_kwargs=dict(gen)),
@@ -346,6 +373,13 @@ def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
         return loop.run_fix(report, cases, **fix_kwargs)
 
 
+def _price_fn(spec):
+    from evalrx.models.backends.api.prices import usd
+
+    model_id = spec.hf_repo or spec.key
+    return lambda usage: usd(model_id, usage)
+
+
 def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs: dict,
                 cases, ctx, run_dir: Path, baseline: dict) -> int:
     """``--m1-policy triage_active`` (MVP-0): the fixed triage plan on EXPLORE, then stop.
@@ -364,15 +398,25 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         "generation": gen_kwargs, "enable_thinking": bool(args.enable_thinking),
     }
     ctx.config.update(m1_policy="triage_active", judge_provider=None, judge_model=None)  # none was built
+    extras: dict = {"modality_ablation": {"score_fn": T.score_case},
+                    "prompt_contrast": {"score_fn": T.score_case}}
+    sampling = _sampling_kwargs(resolved, args)
+    if sampling is not None:
+        # API backends ignore per-call kwargs (their runtime samples); without
+        # settings here the U sampling check stays untested, never trivially clear
+        extras["self_consistency"] = {"gen_kwargs": sampling}
     report = run_triage_mvp0(
         model, explore, out_dir=run_dir / "probing", model_identity=identity,
         n_fail=args.triage_n_fail, seed=args.triage_seed,
         stratum="gold" if task.kind in ("yes_no", "multiple_choice_letter") else "none",
         host_assumed_finish=bool(task.short_answer), answer_contract=bool(task.output_contract),
-        analyzer_kwargs={"modality_ablation": {"score_fn": T.score_case}},
+        n_needs_counterfactual=task.kind in ("yes_no", "multiple_choice_letter"),
+        task_kind=task.kind, answer_fn=T.answer_key, analyzer_kwargs=extras,
         budget_sec=float(args.triage_budget_sec),
         stage0_cost={"wall_sec": baseline["seconds"], "calls": {"generate": baseline["n"]},
-                     "n_cases": baseline["n"]},
+                     "n_cases": baseline["n"],
+                     **{k: baseline[k] for k in ("api_usage", "usd") if k in baseline}},
+        price_fn=_price_fn(spec),
         partition={"confirm_split": float(args.confirm_split), "seed": CONFIRM_SPLIT_SEED,
                    "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
                    "confirm_visible_to_controller": False},
@@ -492,6 +536,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         )
         candidates = candidate_list
 
+    from evalrx.eval_agent.probing.metering import usage_counters
+
+    usage_before = usage_counters(model)
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
         scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
@@ -509,6 +556,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         "accuracy": round(accuracy, 4), "seconds": round(elapsed, 1),
         "generation_kwargs": gen_kwargs, "enable_thinking": bool(args.enable_thinking),
         "manifest": str(manifest), "limit": limit,
+        # what the provider counted for the discovery pass (API models only)
+        **_usage_cost(model, usage_before),
         "cases": [{
             "id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value,
         } for c in cases],

@@ -173,6 +173,7 @@ class PromptContrastAnalyzer(Analyzer):
         score = self.score_fn or _default_score
         by_strategy: dict[str, dict[str, float]] = {s: {} for s in self.strategies}
         answers: dict[str, dict[str, str]] = {s: {} for s in self.strategies}
+        outputs: dict[str, dict[str, str]] = {s: {} for s in self.strategies}  # untruncated
         n_unscored = 0
 
         # Stratified cap: keep FAIL representation so the cases actually carry
@@ -194,6 +195,7 @@ class PromptContrastAnalyzer(Analyzer):
                 out = str(model.generate(dataclasses.replace(case.inputs, prompt=rewritten)))
                 verdict = score(case, out)
                 answers[strat][case.id] = out[:200]
+                outputs[strat][case.id] = out
                 if verdict is None:
                     n_unscored += 1
                     continue
@@ -261,5 +263,5 @@ class PromptContrastAnalyzer(Analyzer):
             model=repr(model),
             cases=cases,
             findings=findings,
-            artifacts={"answers": answers, "per_case": per_case},
+            artifacts={"answers": answers, "outputs": outputs, "per_case": per_case},
         )

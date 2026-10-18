@@ -115,6 +115,19 @@ class APIModel(Model):
         model_name = self.spec.hf_repo or self.spec.key
         return self._generate_fn(prompt, model=model_name, **self._media(inputs), **kwargs)
 
+    def usage_counters(self) -> "dict[str, int] | None":
+        """Cumulative requests, retries and token counts of the runtime, or ``None``.
+
+        Read from the ``state`` a runtime factory exposes on its functions
+        (:mod:`~evalrx.models.backends.api.gemini`); a runtime without one
+        reports nothing rather than zeros.
+        """
+        state = getattr(self._generate_fn, "state", None)
+        if not isinstance(state, dict) or "usage" not in state:
+            return None
+        return {"requests": int(state.get("calls", 0)), "retries": int(state.get("retries", 0)),
+                **{k: int(v) for k, v in (state.get("usage") or {}).items()}}
+
     def chat(self, messages: list, tools=None) -> ChatTurn:
         model_name = self.spec.hf_repo or self.spec.key
         if self._chat_fn is not None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 #: Terminal outcomes of an executed action. ``skipped`` (budget) is never
@@ -27,11 +27,18 @@ def canonical(value: Any) -> Any:
     """A JSON-stable rendering of *value* for hashing and logging.
 
     Callables become their import path (a function's repr carries a memory
-    address, which would give every run a new identity); sets are sorted;
-    anything else unknown falls back to its type name and repr.
+    address, which would give every run a new identity); a case batch (e.g. a
+    donor pool) becomes its ordered case ids; sets are sorted; anything else
+    unknown falls back to its type name and repr.
     """
+    from evalrx.core.case import CaseBatch, FailureCase
+
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
+    if isinstance(value, CaseBatch):
+        return {"case_ids": [str(c.id) for c in value]}
+    if isinstance(value, FailureCase):
+        return f"case:{value.id}"
     if isinstance(value, dict):
         return {str(k): canonical(v) for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))}
     if isinstance(value, (list, tuple)):
@@ -88,7 +95,8 @@ class ProbeAction:
         })
 
     def to_dict(self) -> dict[str, Any]:
-        out = canonical(asdict(self))
+        # a shallow read: asdict() would deep-copy a donor pool's cases (and media)
+        out = canonical({f.name: getattr(self, f.name) for f in fields(self)})
         out["n_cases"] = len(self.case_ids)
         return out
 

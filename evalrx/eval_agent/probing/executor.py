@@ -12,6 +12,12 @@ outcome is typed instead of swallowed —
 * ``ok`` — findings, plus which planned cases actually produced a row.
 
 Only ``ok`` carries findings; the other outcomes carry the reason, never a zero.
+
+An analyzer that measures one case per call (``self_consistency`` reads only
+``cases[0]``) runs with ``per_case=True``: once per planned case, each call's
+findings becoming that case's ``per_case`` row. Artifacts named in
+``keep_artifacts`` (e.g. the raw samples) are kept with the findings, since
+the triage reads answers out of them.
 """
 
 from __future__ import annotations
@@ -28,7 +34,13 @@ from evalrx.eval_agent.probing.actions import (
     ProbeAction,
     canonical,
 )
-from evalrx.eval_agent.probing.metering import MeteredModel, gpu_peak_mb, gpu_peak_reset
+from evalrx.eval_agent.probing.metering import (
+    MeteredModel,
+    gpu_peak_mb,
+    gpu_peak_reset,
+    usage_counters,
+    usage_delta,
+)
 
 if TYPE_CHECKING:
     from evalrx.core.analyzer import Analyzer
@@ -47,20 +59,52 @@ def gate(analyzer: "Analyzer", model: Any, cases: "CaseBatch") -> "str | None":
     return None
 
 
+#: Where each kind of self-check reports its verdict in the findings.
+FIDELITY_KEYS = {"edit": "tap_fidelity", "patch": "patch_fidelity"}
+
+
 def _fidelity(check: "str | None", findings: dict[str, Any]) -> dict[str, Any]:
     if check is None:
         return {"status": "not_applicable"}
-    verdict = findings.get("tap_fidelity")
+    verdict = findings.get(FIDELITY_KEYS[check])
     if not isinstance(verdict, dict):
         return {"status": "unchecked", "reason": "analyzer reported no fidelity verdict"}
     faithful = verdict.get("faithful", verdict.get("tap_faithful"))
     return {"status": "passed" if faithful else "failed", "verdict": canonical(verdict)}
 
 
+def _kept(result: Any, names: "tuple[str, ...]") -> dict[str, Any]:
+    artifacts = getattr(result, "artifacts", None) or {}
+    return {name: canonical(artifacts[name]) for name in names if name in artifacts}
+
+
+def _run_per_case(analyzer: "Analyzer", model: Any, cases: "CaseBatch",
+                  keep_artifacts: "tuple[str, ...]") -> dict[str, Any]:
+    """One call per case; each call's findings (minus ``_`` notes) become its row."""
+    from evalrx.core.case import CaseBatch
+
+    rows, notes = [], {}
+    for case in cases:
+        result = analyzer.run(model, CaseBatch([case]))
+        findings = canonical(result.findings or {})
+        row = {k: v for k, v in findings.items() if not k.startswith("_") and k != "per_case"}
+        row["sample_id"] = str(case.id)
+        if keep_artifacts:
+            row["artifacts"] = _kept(result, keep_artifacts)
+        notes.update({k: v for k, v in findings.items() if k.startswith("_") and k not in notes})
+        rows.append(row)
+    return {"per_case": rows, "per_case_mode": True, **notes}
+
+
 def execute(action: ProbeAction, action_id: str, attempt: int, analyzer: "Analyzer",
             model: Any, cases: "CaseBatch", *, fidelity_check: "str | None" = None,
+            per_case: bool = False, keep_artifacts: "tuple[str, ...]" = (),
             run_logger: Any = None) -> Observation:
-    """Run *analyzer* on *cases* (= ``action.case_ids``) once and type the outcome."""
+    """Run *analyzer* on *cases* (= ``action.case_ids``) once and type the outcome.
+
+    With *per_case*, the analyzer runs once per case instead (see the module
+    docstring); a raise on any case types the whole action, as in batch mode.
+    """
     from evalrx.analyzers._internals.attn_tap import FidelityError
     from evalrx.core.capability import CapabilityError
 
@@ -90,9 +134,16 @@ def execute(action: ProbeAction, action_id: str, attempt: int, analyzer: "Analyz
         )
     metered = MeteredModel(target)
     measured_gpu = gpu_peak_reset()
+    usage_before = usage_counters(model)
     t0 = time.monotonic()
     try:
-        result = analyzer.run(metered, cases)
+        if per_case:
+            raw = _run_per_case(analyzer, metered, cases, tuple(keep_artifacts))
+        else:
+            result = analyzer.run(metered, cases)
+            raw = result.findings or {}
+            if keep_artifacts:
+                raw = {**raw, "artifacts": _kept(result, tuple(keep_artifacts))}
     except CapabilityError as exc:
         obs.status, obs.error_type, obs.error = UNSUPPORTED, type(exc).__name__, str(exc)[:500]
     except FidelityError as exc:
@@ -101,7 +152,7 @@ def execute(action: ProbeAction, action_id: str, attempt: int, analyzer: "Analyz
     except Exception as exc:  # noqa: BLE001 - typed outcome, not a crash of the controller
         obs.status, obs.error_type, obs.error = FAILED, type(exc).__name__, str(exc)[:500]
     else:
-        findings = canonical(result.findings or {})
+        findings = canonical(raw)
         obs.status, obs.findings = OK, findings
         obs.measured_ids = [i for i in planned if i in obs.per_case()]
         skips = findings.get("skip_reasons") or {}
@@ -114,5 +165,7 @@ def execute(action: ProbeAction, action_id: str, attempt: int, analyzer: "Analyz
         "call_errors": dict(metered.errors),
         "model_sec": round(metered.model_sec, 3),
         "gpu_peak_mb": gpu_peak_mb() if measured_gpu else None,
+        # what the provider counted (API models): requests, retries, tokens
+        "api_usage": usage_delta(usage_before, usage_counters(model)),
     }
     return obs

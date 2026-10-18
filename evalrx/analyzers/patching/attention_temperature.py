@@ -62,7 +62,8 @@ class AttentionTemperatureAnalyzer(Analyzer):
         target:        ``"prediction"`` or ``"gold"``.
         fidelity_rtol: tolerance of the edit-free attention tap vs native logits.
         max_cases:     label-stratified cap; 0 (the default) = every case.
-                       Cost: 3 logits-only forwards per case.
+                       Cost: 3 logits-only forwards per case, plus 1 tapped
+                       forward for the per-case edit-free self-check.
     """
 
     name = "attention_temperature"
@@ -104,11 +105,8 @@ class AttentionTemperatureAnalyzer(Analyzer):
             media_positions,
             torch_module,
         )
-        from evalrx.analyzers._internals.attn_tap import (
-            attention_tap,
-            require_fidelity,
-            temperature,
-        )
+        from evalrx.analyzers._internals.attn_tap import attention_tap, temperature
+        from evalrx.analyzers._internals.edits import FidelityGate
         from evalrx.analyzers._internals.targets import build_margin
         from evalrx.analyzers.patching.attention_knockout import layer_bands
         from evalrx.core.model import CaptureSpec
@@ -125,7 +123,8 @@ class AttentionTemperatureAnalyzer(Analyzer):
 
         per_case: list[dict[str, Any]] = []
         skipped: Counter = Counter()
-        fidelity: "dict | None" = None
+        # temperature edits act on softmax layers only: no linear re-run to check
+        gate = FidelityGate(model, rtol=self.fidelity_rtol, analyzer=self.name, linear=False)
         for case in cases.stratified_head(self.max_cases):
             probe = model.forward(case.inputs, capture={Capability.LOGITS}, spec=spec)
             _, media = media_positions(probe)
@@ -133,13 +132,14 @@ class AttentionTemperatureAnalyzer(Analyzer):
                 skipped["no_media_tokens"] += 1
                 continue
             seq_len = probe.seq_len
+            native = probe.require(Capability.LOGITS)[-1:].float()
             del probe
             queries = list(range(max(media) + 1, seq_len))
             if not queries:
                 skipped["no_text_after_media"] += 1
                 continue
-            if fidelity is None:
-                fidelity = require_fidelity(model, case.inputs, rtol=self.fidelity_rtol, analyzer=self.name)
+            gate.check(case.id, case.inputs, base=native)
+            del native
             keys = media if self.scope == "within" else list(range(seq_len))
             entropies: list[float] = []
 
@@ -197,7 +197,7 @@ class AttentionTemperatureAnalyzer(Analyzer):
             "target": self.target,
             "tt_edited_layers": len(layers),
             "layer_kinds": {"softmax": stack.n_softmax, "linear": stack.n_linear},
-            "tap_fidelity": fidelity,
+            "tap_fidelity": gate.summary(),
             "mean_slope": round(sum(r["tt_slope"] for r in per_case) / n, 4),
             "frac_negative_slope": round(sum(r["tt_slope"] < 0 for r in per_case) / n, 4),
             "frac_flips_sharp": round(sum(r["tt_flips_sharp"] for r in per_case) / n, 4),

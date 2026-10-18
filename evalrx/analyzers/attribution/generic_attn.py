@@ -59,7 +59,9 @@ class GenericAttentionExplainability(Analyzer):
         top_k:         relevant tokens listed for the first case.
         fidelity_rtol: tolerance of the edit-free attention tap vs native logits.
         max_cases:     label-stratified cap; 0 (the default) = every case.
-                       Cost: one forward + one backward per case.
+                       Cost: one forward + one backward per case, plus a
+                       native and a tapped forward for the per-case edit-free
+                       self-check when the stack has softmax layers.
     """
 
     name = "generic_attention"
@@ -97,7 +99,8 @@ class GenericAttentionExplainability(Analyzer):
             media_positions,
             torch_module,
         )
-        from evalrx.analyzers._internals.attn_tap import attention_tap, require_fidelity
+        from evalrx.analyzers._internals.attn_tap import attention_tap
+        from evalrx.analyzers._internals.edits import FidelityGate
         from evalrx.analyzers._internals.linear_mix import delta_rule_relevance
         from evalrx.analyzers._internals.maps import (
             SpatialMapResult,
@@ -116,13 +119,11 @@ class GenericAttentionExplainability(Analyzer):
         per_case: list[dict[str, Any]] = []
         per_case_maps: dict[str, Any] = {}
         skipped: Counter = Counter()
-        fidelity: "dict | None" = None
+        # the tap only records here; the linear layers' relevance has no media re-run to check
+        gate = FidelityGate(model, rtol=self.fidelity_rtol, analyzer=self.name, linear=False)
         first: "dict[str, Any] | None" = None
         for case in cases.stratified_head(self.max_cases):
-            if fidelity is None:
-                fidelity = (require_fidelity(model, case.inputs, rtol=self.fidelity_rtol,
-                                             analyzer=self.name) if stack.n_softmax else {})
-                fidelity.update(softmax_layers=stack.n_softmax, linear_layers=stack.n_linear)
+            gate.check(case.id, case.inputs)
             abar: dict[int, Any] = {}
             recorded: dict[int, Any] = {}
 
@@ -208,7 +209,7 @@ class GenericAttentionExplainability(Analyzer):
             "skip_reasons": dict(skipped),
             "n_layers": n_layers,
             "target": self.target,
-            "tap_fidelity": fidelity,
+            "tap_fidelity": gate.summary(),
             "top_relevant_tokens": first["top"] if first else [],
             "mean_media_share": round(sum(shares) / len(shares), 4) if shares else None,
             "per_case": per_case,

@@ -110,3 +110,76 @@ def test_in_memory_images_are_compared_by_pixels():
     a2 = Image.new("RGB", (4, 4), (255, 0, 0))
     b = Image.new("RGB", (4, 4), (0, 0, 255))
     assert _media_key(a) == _media_key(a2) != _media_key(b)
+
+
+# ── counterfactual donors ──────────────────────────────────────────────────────
+
+
+def _q(i, image, obj, gold, label=Label.PASS):
+    return FailureCase(id=f"c{i}", inputs=Inputs(prompt=f"Is there a {obj} in the image?", image=image),
+                       expected=gold, label=label, metadata={"gold": gold})
+
+
+class _Says(Model):
+    """Gives one fixed answer, as a model with a strong yes/no prior would."""
+
+    capabilities = frozenset({Capability.GENERATE})
+    modalities = frozenset({"text", "image"})
+
+    def __init__(self, answer: str) -> None:
+        self.answer = answer
+
+    def generate(self, inputs, **kwargs):
+        return self.answer
+
+    def forward(self, inputs, capture, spec=None):
+        raise NotImplementedError
+
+
+def _pope_pool(img):
+    # per image one Yes and one No question, adjacent; each question repeats across images
+    return CaseBatch([_q(0, img["a"], "cat", "Yes"), _q(1, img["a"], "dog", "No"),
+                      _q(2, img["b"], "cat", "No"), _q(3, img["b"], "dog", "Yes"),
+                      _q(4, img["c"], "cat", "Yes"), _q(5, img["c"], "dog", "No"),
+                      _q(6, img["d"], "cat", "No"), _q(7, img["d"], "dog", "Yes")])
+
+
+def test_counterfactual_donor_needs_a_gold_other_than_the_models_answer(tmp_path):
+    img = _images(tmp_path, ["a", "b", "c", "d"])
+    pool = _pope_pool(img)
+    batch = CaseBatch([list(pool)[i] for i in (1, 2, 5)])  # the probed sample
+    swap = ModalityAblationAnalyzer(mode="swap", donor_rule="counterfactual", donor_pool=pool)
+
+    # answered "Yes" where the object is absent (a FAIL): a correct answer only has to
+    # change on media where the same question's gold is "No" -- not on its own gold's opposite
+    f = swap.run(_Says("Yes"), batch).findings
+    rows = {r["sample_id"]: r for r in f["per_case"]}
+    assert {k: r["ablation_image_donor"] for k, r in rows.items()} == {"c1": "c5", "c2": "c6", "c5": "c1"}
+    assert {r["ablation_image_donor_expected"] for r in rows.values()} == {"no"}
+    assert all(r["ablation_image_donor_kind"] == "counterfactual" for r in rows.values())
+    assert all(r["grounded_in_image"] is False for r in rows.values())  # it said Yes again
+    assert f["n_counterfactual_image"] == 3 and f["donor_rule"] == "counterfactual"
+
+    # answered "No": the donor must be one where the same question's gold is "Yes"
+    row = swap.run(_Says("No"), CaseBatch([list(pool)[1]])).findings["per_case"][0]
+    assert row["ablation_image_donor"] == "c3" and row["ablation_image_donor_expected"] == "yes"
+
+
+def test_counterfactual_falls_back_to_content_and_says_so(tmp_path):
+    img = _images(tmp_path, ["a", "b"])
+    pool = CaseBatch([_q(0, img["a"], "cat", "Yes"),
+                      _q(1, img["b"], "cat", "Yes"),   # same question, gold = the model's answer
+                      _q(2, img["a"], "cat", "No")])   # gold differs, but the SAME image
+    batch = CaseBatch([list(pool)[0]])
+    row = ModalityAblationAnalyzer(mode="swap", donor_rule="counterfactual",
+                                   donor_pool=pool).run(_Says("Yes"), batch).findings["per_case"][0]
+    assert row["ablation_image_donor_kind"] == "content" and row["ablation_image_donor"] == "c1"
+    assert row["ablation_image_donor_expected"] is None
+
+
+def test_content_rule_never_reports_a_counterfactual(tmp_path):
+    img = _images(tmp_path, ["a", "b"])
+    batch = CaseBatch([_q(0, img["a"], "cat", "Yes"), _q(1, img["b"], "cat", "No")])
+    f = ModalityAblationAnalyzer(mode="swap").run(_ByImage(), batch).findings
+    assert {r["ablation_image_donor_kind"] for r in f["per_case"]} == {"content"}
+    assert f["n_counterfactual_image"] == 0 and f["donor_rule"] == "content"

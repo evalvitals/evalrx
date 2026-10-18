@@ -118,6 +118,15 @@ def score_case(case: Any, output: str) -> bool:
     )
 
 
+def answer_key(case: Any, output: str) -> "str | None":
+    """The answer *output* commits to for this case's task, without the gold
+    (see :func:`~evalrx.benchmark.scoring.answer_key`)."""
+    from ..scoring import answer_key as _key
+
+    meta = getattr(case, "metadata", None) or {}
+    return _key(str(meta.get("task", "exact_or_numeric")), output, choices=meta.get("choices"))
+
+
 def label_case(case: Any, output: str):
     from evalrx.core.case import Label
 

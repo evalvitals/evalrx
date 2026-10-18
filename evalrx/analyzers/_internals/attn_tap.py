@@ -15,9 +15,12 @@ Two things this module exists to get right:
   bare registration silently lets every token attend to the future. The tap
   registers eager's additive mask under the same name.
 * **Fidelity.** "The tap is installed" proves nothing on an architecture that
-  bypasses the interface. :func:`check_fidelity` runs one input with an
+  bypasses the interface. :func:`check_fidelity` runs an input with an
   edit-free tap: it must be called on every attention layer AND reproduce the
-  native logits, or :func:`require_fidelity` refuses.
+  native logits, or :func:`require_fidelity` refuses. Whether it reproduces
+  them can depend on the input (bf16 ``sdpa`` sits near the tolerance), so
+  analyzers check every case they report on via
+  :class:`~evalrx.analyzers._internals.edits.FidelityGate`; nothing is cached.
 
 Edits act on the pre-softmax scores, so they compose with the causal mask:
 
@@ -316,41 +319,42 @@ def attention_tap(
 
 
 def check_fidelity(model: "Model", inputs: Any, *, rtol: float = 1e-2,
-                   analyzer: str = "attention tap") -> "dict[str, Any]":
-    """Does an edit-free tap engage on every attention layer and reproduce the logits?
+                   analyzer: str = "attention tap", base: Any = None) -> "dict[str, Any]":
+    """Does an edit-free tap engage on every attention layer and reproduce the logits on *inputs*?
 
-    Cached on the module per native attention implementation: one extra pair
-    of forwards per model, not per analyzer run.
+    Measured on this input every call (not cached): the tapped forward must
+    engage every softmax layer, stay within ``rtol`` of the largest native
+    logit at the last position, and keep the native top-1. *base* — the native
+    logits of this same input, when the caller already has them — saves the
+    native forward.
     """
     from evalrx.core.capability import Capability
 
     module = torch_module(model, analyzer)
     stack = decoder_stack(module)
     native = tuple(str(_get_impl(getattr(a, "config", None))) for a in stack.attn if a is not None)
-    cache = module.__dict__.setdefault("_evalrx_tap_fidelity", {})
-    if native in cache:
-        return dict(cache[native])
-
     n_attn = sum(a is not None for a in stack.attn)
-    base = model.forward(inputs, capture={Capability.LOGITS}).require(Capability.LOGITS)
+    if base is None:
+        base = model.forward(inputs, capture={Capability.LOGITS}).require(Capability.LOGITS)
     with attention_tap(model, analyzer=analyzer) as state:
         tapped = model.forward(inputs, capture={Capability.LOGITS}).require(Capability.LOGITS)
-    b, t = base[-1].float(), tapped[-1].float()
+    b = base[-1].float()
+    t = tapped[-1].float().to(b.device)
     diff = float((b - t).abs().max())
     scale = float(b.abs().max()) or 1.0
     engaged = len(set(state.calls))
-    verdict = {
-        "tap_faithful": bool(
-            engaged == n_attn and diff <= rtol * scale and int(b.argmax()) == int(t.argmax())
-        ),
+    argmax_same = int(b.argmax()) == int(t.argmax())
+    return {
+        "tap_faithful": bool(engaged == n_attn and diff <= rtol * scale and argmax_same),
         "tap_layers_engaged": engaged,
         "tap_layers_expected": n_attn,
         "tap_max_logit_diff": round(diff, 6),
+        "tap_scale": round(scale, 6),
+        "tap_rel_diff": round(diff / scale, 6),
+        "tap_argmax_same": argmax_same,
         "tap_rtol": rtol,
         "native_attn_implementation": native[0] if native else None,
     }
-    cache[native] = verdict
-    return dict(verdict)
 
 
 class FidelityError(RuntimeError):

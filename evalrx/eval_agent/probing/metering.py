@@ -4,6 +4,11 @@
 generate/forward/logprobs/chat call and the seconds spent inside them; the
 wall clock and the GPU peak (when torch is already loaded) bracket the whole
 action. Calls and seconds are reported side by side, never added together.
+
+An API model also reports what the provider counted — requests (retries
+included separately) and prompt / completion / thought tokens — through
+``usage_counters()``; :func:`usage_delta` differences two reads of it. A model
+without counters reports ``None``, not zeros.
 """
 
 from __future__ import annotations
@@ -55,6 +60,25 @@ class MeteredModel:
 
     def chat(self, messages: list, tools: "list | None" = None) -> Any:
         return self._timed("chat", self._metered.chat, messages, tools)
+
+
+def usage_counters(model: Any) -> "dict[str, int] | None":
+    """The model's cumulative provider counters (through any proxy), or ``None``."""
+    read = getattr(model, "usage_counters", None)
+    if not callable(read):
+        return None
+    try:
+        counters = read()
+    except Exception:  # noqa: BLE001 - metering never fails the action
+        return None
+    return dict(counters) if isinstance(counters, dict) else None
+
+
+def usage_delta(before: "dict[str, int] | None", after: "dict[str, int] | None") -> "dict[str, int] | None":
+    """``after - before`` per counter; ``None`` unless both reads exist."""
+    if before is None or after is None:
+        return None
+    return {k: int(after.get(k, 0)) - int(before.get(k, 0)) for k in after}
 
 
 def gpu_peak_reset() -> bool:

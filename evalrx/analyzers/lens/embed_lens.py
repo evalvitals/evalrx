@@ -23,7 +23,10 @@ neighbour ids. Without such ids, the batch supplies the evidence:
 And one grounding readout per case: each content word of the prompt against
 the media tokens — the best cosine similarity any media token reaches to that
 word's embedding. A question about an object the image does contain should
-find a media token close to the object's word.
+find a media token close to the object's word. ``el_query_sim`` keeps only the
+case's own question words — prompt words found in at most half of the batch's
+distinct prompts — so a template word ("image", "answer") cannot be the best
+match on every case.
 
 The paper reads the INPUT (``layer=0``, the default). Whether a model's
 projector writes into vocabulary space there is itself the finding: on a
@@ -46,6 +49,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
+from evalrx.analyzers._internals.words import content_word, decode_word, specific_words
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
@@ -54,17 +58,6 @@ from evalrx.core.result import Result
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
-
-
-def content_word(tokenizer: Any, token_id: int, special: "set[str]") -> "str | None":
-    """The token as a lower-case content word, or ``None`` (punctuation, function word, special)."""
-    from evalrx.analyzers.lens.patchscope import _STOP, _word
-
-    word = _word(tokenizer, token_id)
-    if word is None or word in special:
-        return None
-    key = word.strip().lower()
-    return key if key.isalpha() and len(key) >= 2 and key not in _STOP else None
 
 
 @register_analyzer("embed_lens")
@@ -102,6 +95,7 @@ class EmbedLensAnalyzer(Analyzer):
         "el_frac_high_norm": ("High-norm tokens", "Share of media tokens with norm ≥ norm_ratio × the image's median token norm (sink-like)."),
         "el_prompt_best_word": ("Best-grounded prompt word", "The prompt content word some media token is closest to."),
         "el_prompt_best_sim": ("Its grounding similarity", "Cosine similarity of that word's embedding to its closest media token."),
+        "el_query_sim": ("Question-word grounding", "Best cosine similarity of the case's own question words (not the task template's) to any media token."),
     }
 
     def __init__(self, layer: "int | float" = 0, top_k: int = 5, recurring_frac: float = 0.5,
@@ -126,7 +120,6 @@ class EmbedLensAnalyzer(Analyzer):
         )
         from evalrx.analyzers._internals.residual import residual_hooks
         from evalrx.analyzers.attention.relative_attn import resolve_attention_layer
-        from evalrx.analyzers.lens.patchscope import _word
         from evalrx.core.model import CaptureSpec
 
         module = torch_module(model, self.name)
@@ -161,6 +154,7 @@ class EmbedLensAnalyzer(Analyzer):
         rows: list[dict[str, Any]] = []
         per_token: dict[str, dict[str, Any]] = {}
         prompt_sims: dict[str, dict[str, float]] = {}
+        prompt_words: dict[str, tuple[Any, set[str]]] = {}
         images_with: Counter = Counter()        # top-1 id -> number of DISTINCT images it is top-1 in
         seen_media: set = set()                  # fingerprints of the media already counted
         skipped: Counter = Counter()
@@ -207,6 +201,8 @@ class EmbedLensAnalyzer(Analyzer):
                 "high_norm": [bool(v >= self.norm_ratio * median) for v in norms.tolist()],
             }
             prompt_sims[case.id] = grounding
+            prompt_words[case.id] = (tuple(t for p, t in enumerate(trace.token_ids) if p not in media_set),
+                                     set(words))
             row: dict[str, Any] = {
                 "sample_id": case.id,
                 "el_n_media_tokens": len(media),
@@ -223,10 +219,16 @@ class EmbedLensAnalyzer(Analyzer):
         if not rows:
             raise ValueError(f"{self.name}: no case could be analysed (skipped: {dict(skipped)})")
         n_cases, n_images = len(rows), len(seen_media)
+        query, query_inferred = specific_words(prompt_words)
+        for row in rows:
+            sims = {w: s for w, s in prompt_sims[row["sample_id"]].items() if w in query[row["sample_id"]]}
+            if sims:
+                row["el_query_word"] = max(sims, key=sims.get)
+                row["el_query_sim"] = sims[row["el_query_word"]]
         recurring: set = set()
         if n_images >= self.min_images:
             recurring = {tid for tid, count in images_with.items() if count >= self.recurring_frac * n_images}
-        specific_words: Counter = Counter()
+        specific_counts: Counter = Counter()
         recurring_mass: Counter = Counter()
         total_tokens = 0
         for row in rows:
@@ -243,10 +245,10 @@ class EmbedLensAnalyzer(Analyzer):
                 elif not h and tokenizer is not None:
                     word = content_word(tokenizer, tid, special)
                     if word is not None:
-                        specific_words[word] += 1
+                        specific_counts[word] += 1
 
         def label(tid: int) -> str:
-            word = _word(tokenizer, tid) if tokenizer is not None else None
+            word = decode_word(tokenizer, tid) if tokenizer is not None else None
             return word if word is not None else str(tid)
 
         mean = lambda key: round(sum(r[key] for r in rows) / n_cases, 4)  # noqa: E731
@@ -268,7 +270,8 @@ class EmbedLensAnalyzer(Analyzer):
             "mean_frac_specific": mean("el_frac_specific"),
             "mean_frac_recurring": mean("el_frac_recurring"),
             "mean_frac_high_norm": mean("el_frac_high_norm"),
-            "specific_word_counts": specific_words.most_common(20),
+            "specific_word_counts": specific_counts.most_common(20),
+            "query_words_inferred": query_inferred,
             "per_case": rows,
             "_caveat": (
                 f"Nearest neighbours by cosine similarity in the input-embedding table, read at the "
@@ -280,5 +283,6 @@ class EmbedLensAnalyzer(Analyzer):
             ),
         }
         return Result(analyzer=self.name, model=repr(model), cases=cases,
-                      artifacts={"tokens": per_token, "prompt_sims": prompt_sims},
+                      artifacts={"tokens": per_token, "prompt_sims": prompt_sims,
+                                 "query_words": {cid: sorted(w) for cid, w in query.items()}},
                       findings=findings)

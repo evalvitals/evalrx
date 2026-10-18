@@ -166,6 +166,26 @@ def test_scorers_by_task_kind(common):
         score("bogus", "x", ["x"])
 
 
+def test_answer_keys_read_answers_without_the_gold(common):
+    # the triage U checks compare these keys across samples and rewordings
+    _, tasks, scoring, _ = common
+    key = scoring.answer_key
+    assert key("yes_no", "Yes, a dog barks.") == key("yes_no", "yes") == "yes"
+    assert key("yes_no", "maybe") == ""                                   # committed to nothing
+    assert key("multiple_choice_letter", "the answer: (B)", choices=["A", "B", "C"]) == "B"
+    assert key("exact_or_numeric", "Final answer: 6.80%") == key("exact_or_numeric", "6.8") == "6.8"
+    assert key("exact_or_numeric", "Answer: The Beatles") == "beatles" and key("exact_or_numeric", " ") == ""
+    assert key("short_answer_em", "Answer: The Beatles.") == "beatles"
+    assert key("llm_graded", "anything") is None                          # no categorical answer
+    with pytest.raises(ValueError):
+        key("bogus", "x")
+    from evalrx.core.case import FailureCase, Inputs
+
+    case = FailureCase(id="c", inputs=Inputs(prompt="q"), expected="C",
+                       metadata={"task": "multiple_choice_letter", "choices": ["A", "B", "C", "D", "E"]})
+    assert tasks.answer_key(case, "E") == "E"                             # the case's own choices
+
+
 def test_parsed_choice_refuses_leaked_thought_preambles_and_enumerations(common):
     """gemma-4-e2b/MMAU 2026-08-22: 100/256 outputs were a spontaneous ``thought``
     channel cut at the 64-token cap while restating the options; the old

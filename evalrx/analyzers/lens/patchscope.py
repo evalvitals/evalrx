@@ -13,8 +13,9 @@ Two sources per case:
 
 * ``last`` (always) — the final prompt position, where the answer is formed,
   at every layer (or ``n_points`` of them): the probability the decoder gives
-  the target token (the model's own answer, or the gold one with
-  ``target="gold"``) and whether it ranks first. The depth where the answer
+  the target answer (the model's own, or the gold one with ``target="gold"``),
+  summed over its surface forms (``"Yes"`` / ``" Yes"``, see
+  :mod:`~evalrx.analyzers._internals.targets`), and whether a form of it ranks first. The depth where the answer
   first ranks first; the depth where it peaks; and the gap between that peak
   and what the model finally outputs — positive = the answer was readable more
   confidently mid-stack than at the output (with ``target="gold"`` on failing
@@ -22,10 +23,15 @@ Two sources per case:
 * ``media`` (``media_layers > 0``) — every image / audio token at a few
   evenly spaced layers above the embedding, decoded the same way: the word the
   model's own machinery reads off each media token ("what it sees"), kept as a
-  per-token word map and tallied (content words only) across cases.
+  per-token word map and tallied (content words only) across cases. Per case,
+  ``ps_media_query_hits`` counts the media readouts that are one of the case's
+  own question words — prompt words in at most half of the batch's distinct
+  prompts, so template words ("image", "answer") never count.
 
-The patch is checked once per model: patching a target position with the
-target's own residual must leave its logits unchanged.
+The patch is checked once per run, on the fixed decoding prompt (it does not
+depend on the case): patching the placeholder with its own residual must leave
+its logits unchanged, else :class:`~evalrx.analyzers._internals.attn_tap.FidelityError`.
+The verdict is reported as ``patch_fidelity``.
 
 References:
 - Patchscopes: A Unifying Framework for Inspecting Hidden Representations of
@@ -38,6 +44,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
+from evalrx.analyzers._internals.words import STOP, content_word, decode_word, specific_words
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
@@ -48,17 +55,7 @@ if TYPE_CHECKING:
     from evalrx.core.model import Model
 
 IDENTITY_PROMPT = "cat -> cat; 1135 -> 1135; hello -> hello; ?"
-# Function words the decoder emits for almost any state; kept out of the word tally.
-_STOP = frozenset("""a an and are as at be but by for from has have in into is it its of on or
-that the their there this to was were with""".split())
-
-
-def _word(tokenizer: Any, token_id: int) -> "str | None":
-    try:
-        text = tokenizer.decode([int(token_id)])
-    except Exception:  # noqa: BLE001 - no decoder → no word, never a guess
-        return None
-    return text if isinstance(text, str) else None
+_STOP, _word = STOP, decode_word  # the names embed_lens and older callers import
 
 
 @register_analyzer("patchscope")
@@ -88,12 +85,14 @@ class PatchscopeAnalyzer(Analyzer):
     requires = frozenset({Capability.HIDDEN_STATES, Capability.LOGITS})
     applies_to_modalities = frozenset({"text", "image", "video", "audio"})
     signal_docs = {
-        "ps_final_prob": ("Answer prob. at the output", "Probability the model itself gives the target token."),
-        "ps_first_depth_frac": ("Answer readable from (depth)", "First relative depth at which the Patchscope readout of the answer position ranks the target token first (1.0 = never before the last layer)."),
-        "ps_peak_prob": ("Peak readable answer prob.", "Highest probability the Patchscope readout gives the target token at any depth."),
+        "ps_final_prob": ("Answer prob. at the output", "Probability the model itself gives the target answer (summed over its surface forms, e.g. 'Yes' and ' Yes')."),
+        "ps_first_depth_frac": ("Answer readable from (depth)", "First relative depth at which the Patchscope readout of the answer position ranks a form of the target answer first (1.0 = never before the last layer)."),
+        "ps_peak_prob": ("Peak readable answer prob.", "Highest probability the Patchscope readout gives the target answer at any depth."),
         "ps_peak_depth_frac": ("Peak readout depth", "Relative depth of that peak."),
-        "ps_late_drop": ("Readable answer lost late", "Peak readout probability minus the model's final probability of the target token; positive = more confident mid-stack than at the output (suppressed late)."),
+        "ps_late_drop": ("Readable answer lost late", "Peak readout probability minus the model's final probability of the target answer; positive = more confident mid-stack than at the output (suppressed late)."),
         "ps_agree_mid": ("Mid-stack readout agrees", "Share of the middle third of the layers whose readout ranks the model's final answer first."),
+        "ps_media_query_hits": ("Question word read on media", "Media-token readouts (over the media layers) that are one of this case's own question words."),
+        "ps_media_query_share": ("Share of media read as the question word", "Those readouts as a share of all media-token readouts."),
     }
 
     def __init__(self, target: str = "prediction", target_prompt: str = IDENTITY_PROMPT,
@@ -113,7 +112,7 @@ class PatchscopeAnalyzer(Analyzer):
             torch_module,
         )
         from evalrx.analyzers._internals.residual import batched_patch, residual_hooks
-        from evalrx.analyzers._internals.targets import build_margin
+        from evalrx.analyzers._internals.targets import answer_variants, build_margin
         from evalrx.core.model import CaptureSpec
 
         module = torch_module(model, self.name)
@@ -165,14 +164,22 @@ class PatchscopeAnalyzer(Analyzer):
                 handle.remove()
             patched = decode([(check_layer, own["h"])])[0]
         patch_diff = float((patched - plain).abs().max())
-        if patch_diff > 1e-3 * max(1.0, float(plain.abs().max())):
-            raise RuntimeError(f"{self.name}: re-writing a residual with itself changed the logits "
-                               f"by {patch_diff:.3g}; the patch does not reach the layer input")
+        scale = max(1.0, float(plain.abs().max()))
+        fidelity = {"faithful": patch_diff <= 1e-3 * scale, "max_diff": round(patch_diff, 6),
+                    "rtol": 1e-3, "scale": round(scale, 4), "layer": check_layer,
+                    "scope": "once per run: the decoding prompt is fixed, so the check does not "
+                             "depend on the case"}
+        if not fidelity["faithful"]:
+            from evalrx.analyzers._internals.attn_tap import FidelityError
+
+            raise FidelityError(f"{self.name}: re-writing a residual with itself changed the logits "
+                                f"by {patch_diff:.3g}; the patch does not reach the layer input", fidelity)
 
         per_case: list[dict[str, Any]] = []
         curves: dict[str, dict[str, Any]] = {}
         media_words: dict[str, dict[int, list]] = {}
         word_counts: Counter = Counter()
+        prompt_words: dict[str, tuple[Any, set[str]]] = {}
         skipped: Counter = Counter()
         for case in cases.stratified_head(self.max_cases):
             with torch.no_grad(), residual_hooks(model, capture=dict.fromkeys(set(layers) | set(media_at)),
@@ -180,6 +187,7 @@ class PatchscopeAnalyzer(Analyzer):
                 trace = model.forward(case.inputs, capture={Capability.LOGITS}, spec=spec)
             last = trace.seq_len - 1
             _, media = media_positions(trace) if media_at else (None, [])
+            trace_ids = list(trace.token_ids or [])
             logits = trace.require(Capability.LOGITS)[-1:]
             margin, why = build_margin(self.target, logits, model=model, case=case)
             if margin is None:
@@ -187,31 +195,39 @@ class PatchscopeAnalyzer(Analyzer):
                 continue
             final_probs = torch.softmax(logits[-1].float(), -1)
             final_top = int(final_probs.argmax())
-            target_id = margin.positive
+            # the answer in all its surface forms ("Yes" / " Yes"): probabilities
+            # summed, ranks read as "some form of it is first"
+            forms = list(margin.variants or (margin.positive,))
+            final_forms = set(answer_variants(tokenizer, decode_word(tokenizer, final_top))) | {final_top}
             del trace
 
             states = res.captured  # layer -> (seq, dim)
             readout = torch.softmax(decode([(layer, states[layer][last]) for layer in layers]), -1)
-            p_target = readout[:, target_id].tolist()
+            p_target = readout[:, forms].sum(-1).tolist()
             top1 = readout.argmax(-1).tolist()
             peak = max(range(len(layers)), key=lambda i: p_target[i])
-            p_final = float(final_probs[target_id])
+            p_final = float(final_probs[forms].sum())
             row: dict[str, Any] = {
                 "sample_id": case.id,
                 "ps_final_prob": round(p_final, 4),
                 "ps_first_depth_frac": round(next(
-                    (depth[layer] for layer, t in zip(layers, top1) if t == target_id), 1.0), 4),
+                    (depth[layer] for layer, t in zip(layers, top1) if t in forms), 1.0), 4),
                 "ps_peak_prob": round(p_target[peak], 4),
                 "ps_peak_depth_frac": round(depth[layers[peak]], 4),
                 "ps_late_drop": round(p_target[peak] - p_final, 4),
                 "ps_agree_mid": round(
-                    sum(top1[layers.index(layer)] == final_top for layer in mid) / len(mid), 4),
+                    sum(top1[layers.index(layer)] in final_forms for layer in mid) / len(mid), 4),
             }
             per_case.append(row)
             curves[case.id] = {"p_target": [round(p, 4) for p in p_target],
-                               "top1": [_word(tokenizer, t) or str(t) for t in top1]}
+                               "top1": [_word(tokenizer, t) or str(t) for t in top1],
+                               "answer_forms": forms}
 
             if media_at and media:
+                media_set = set(media)
+                prompt = [tid for pos, tid in enumerate(trace_ids) if pos not in media_set]
+                prompt_words[case.id] = (tuple(prompt), {
+                    w for w in (content_word(tokenizer, t, special) for t in prompt) if w is not None})
                 rows = [(layer, states[layer][pos]) for layer in media_at for pos in media]
                 ids = decode(rows).argmax(-1).tolist()
                 words: dict[int, list] = {}
@@ -226,6 +242,17 @@ class PatchscopeAnalyzer(Analyzer):
 
         if not per_case:
             raise ValueError(f"{self.name}: no case could be analysed (skipped: {dict(skipped)})")
+        query, query_inferred = specific_words(prompt_words)
+        for row in per_case:
+            words = media_words.get(row["sample_id"])
+            own = query.get(row["sample_id"])
+            if words is None or not query_inferred:
+                continue
+            decoded = [(w or "").strip().lower() for layer_words in words.values() for w in layer_words]
+            found = sorted({w for w in decoded if w in own})
+            row["ps_media_query_hits"] = sum(1 for w in decoded if w in own)
+            row["ps_media_query_share"] = round(row["ps_media_query_hits"] / max(1, len(decoded)), 4)
+            row["ps_media_query_found"] = found
         label_of = {c.id: getattr(getattr(c, "label", None), "value", None) for c in cases}
 
         def mean_curve(label: str) -> "list[float] | None":
@@ -244,6 +271,7 @@ class PatchscopeAnalyzer(Analyzer):
             "target": self.target,
             "target_prompt": self.target_prompt,
             "patch_check_max_diff": round(patch_diff, 6),
+            "patch_fidelity": fidelity,
             "mean_late_drop": round(sum(r["ps_late_drop"] for r in per_case) / n, 4),
             "mean_first_depth_frac": round(sum(r["ps_first_depth_frac"] for r in per_case) / n, 4),
             "mean_p_target_curves": {label: mean_curve(label) for label in ("fail", "pass")
@@ -259,6 +287,8 @@ class PatchscopeAnalyzer(Analyzer):
         if media_at:
             findings["media_layers_read"] = media_at
             findings["media_word_counts"] = word_counts.most_common(20)
+            findings["query_words_inferred"] = query_inferred
         return Result(analyzer=self.name, model=repr(model), cases=cases,
-                      artifacts={"readout_curves": curves, "media_words": media_words},
+                      artifacts={"readout_curves": curves, "media_words": media_words,
+                                 "query_words": {cid: sorted(w) for cid, w in query.items()}},
                       findings=findings)
