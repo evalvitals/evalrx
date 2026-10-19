@@ -84,6 +84,10 @@ class PlanStep:
 
     ``min_output_tokens``: the step asks for text before the answer (e.g. a
     description), so a known output cap below this leaves it nothing to read.
+
+    ``deferred``: a battery step no route reads (a descriptive reading): the
+    rules run it once the sample has settled, and the scored scheduler takes it
+    as a candidate of the layer it serves instead of running it up front.
     """
 
     analyzer: str
@@ -100,6 +104,7 @@ class PlanStep:
     reuse_note: str = ""
     caveat: str = ""
     min_output_tokens: int = 0
+    deferred: bool = False
 
     @property
     def name(self) -> str:

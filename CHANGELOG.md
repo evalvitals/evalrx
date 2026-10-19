@@ -25,6 +25,26 @@ earned in proportion to the share of the route's remaining FAIL cases a chunk
 covers, and further chunks of a step it already took do not count against
 `--triage-max-actions`.
 
+### Changed — the batch-dependent analyzers run per case; seeded self-consistency
+
+`embed_lens(reference=...)` and `patchscope(reference=...)` tell a case's own
+question words from a fixed reference set's prompts (`embed_lens` also its
+recurring words, from the reference's first `reference_media` distinct media,
+cached on the model) instead of the batch; `tuned_lens(fit_cases=...)` fits
+its translators on fixed cases (cached per fit set); `causal_trace` and
+`attribution_patching` seed each case's noise from its content (prompt and
+media) instead of its position in the batch. Without the new arguments the
+lenses behave as before. `self_consistency(seed=0)` draws each case's samples
+under torch's random state seeded from the seed and the case's content
+(restored afterwards; `seed=None` keeps the global state): on Qwen3.5-0.8B
+every case's samples at temperature 1.0 are identical whether the cases run in
+chunks, in one batch or in reverse order, where before 7 of 64 route labels
+changed between two runs that executed in a different order. A model that
+samples on the provider's side is not affected. The triage passes EXPLORE in the sampler's rank
+order (the first 32 cases as the tuned lens's fit set), so all four steps are
+`reuse` steps: they run on new cases only and in chunks. `PlanStep.deferred`
+marks the battery steps no route reads (`embed_lens`, `patchscope`).
+
 ### Added — triage competing explanations: D for the scored scheduler (MVP-3, second part)
 
 `--triage-explanations judge` (with `--triage-scheduler scored`) has the

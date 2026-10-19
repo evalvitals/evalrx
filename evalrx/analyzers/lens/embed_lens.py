@@ -11,7 +11,9 @@ the input of decoder layer 0:
 * its activation norm.
 
 The paper sorts tokens into *sink* / *dead* / *alive* by checkpoint-specific
-neighbour ids. Without such ids, the batch supplies the evidence:
+neighbour ids. Without such ids, a set of images supplies the evidence (the
+analysed batch, or the first ``reference_media`` distinct images of
+``reference``):
 
 * **recurring** — the token's nearest word is the nearest word of media tokens
   in at least ``recurring_frac`` of the images: a direction the projector emits
@@ -25,8 +27,13 @@ the media tokens — the best cosine similarity any media token reaches to that
 word's embedding. A question about an object the image does contain should
 find a media token close to the object's word. ``el_query_sim`` keeps only the
 case's own question words — prompt words found in at most half of the batch's
-distinct prompts — so a template word ("image", "answer") cannot be the best
-match on every case.
+distinct prompts (or of ``reference``'s) — so a template word ("image",
+"answer") cannot be the best match on every case.
+
+With ``reference`` (a fixed set of cases, e.g. the whole EXPLORE partition)
+both the template words and the recurring words come from it, not from the
+batch: a case's row is then the same whichever cases share its batch, so the
+lens can run on a growing sample in chunks.
 
 The paper reads the INPUT (``layer=0``, the default). Whether a model's
 projector writes into vocabulary space there is itself the finding: on a
@@ -49,7 +56,12 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
-from evalrx.analyzers._internals.words import content_word, decode_word, specific_words
+from evalrx.analyzers._internals.words import (
+    content_word,
+    decode_word,
+    reference_specific_words,
+    specific_words,
+)
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
@@ -74,8 +86,14 @@ class EmbedLensAnalyzer(Analyzer):
         min_images:     fewest images from which recurring words are inferred.
         norm_ratio:     a token is "high-norm" at ``norm ≥ norm_ratio × median``.
         vocab_chunk:    embedding rows compared per block (bounds memory).
+        reference:      fixed cases the template words (their prompts) and the
+                        recurring words (their first ``reference_media`` distinct
+                        media, forwarded once and cached on the model) are inferred
+                        from instead of the batch; ``None`` = the batch.
+        reference_media: distinct reference media the recurring words come from.
         max_cases:      label-stratified cap; 0 (the default) = every case.
-                        Cost: 1 forward per case + one pass over the embedding table.
+                        Cost: 1 forward per case + one pass over the embedding table
+                        (with ``reference``: once, the same for its media).
     """
 
     name = "embed_lens"
@@ -100,14 +118,17 @@ class EmbedLensAnalyzer(Analyzer):
 
     def __init__(self, layer: "int | float" = 0, top_k: int = 5, recurring_frac: float = 0.5,
                  min_images: int = 3, norm_ratio: float = 4.0, vocab_chunk: int = 32768,
+                 reference: "CaseBatch | None" = None, reference_media: int = 16,
                  max_cases: int = 0) -> None:
         if top_k < 1:
             raise ValueError(f"top_k must be >= 1, got {top_k}")
         if not 0 < recurring_frac <= 1:
             raise ValueError(f"recurring_frac must be in (0, 1], got {recurring_frac}")
+        if reference_media < 1:
+            raise ValueError(f"reference_media must be >= 1, got {reference_media}")
         super().__init__(layer=layer, top_k=top_k, recurring_frac=recurring_frac,
                          min_images=min_images, norm_ratio=norm_ratio, vocab_chunk=vocab_chunk,
-                         max_cases=max_cases)
+                         reference=reference, reference_media=reference_media, max_cases=max_cases)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         import torch
@@ -151,6 +172,41 @@ class EmbedLensAnalyzer(Analyzer):
                     best_s, best_i = s, merged_i.gather(-1, order)
             return best_s, best_i
 
+        def fingerprint(x: Any) -> tuple:
+            # The media tokens precede the question, so several questions about one
+            # image give identical media states: count each image once.
+            return (tuple(x.shape), round(float(x.float().sum()), 2),
+                    tuple(round(v, 3) for v in x[0, :8].float().tolist()))
+
+        def reference_recurring() -> "tuple[set, Counter, int]":
+            """Recurring top-1 ids over the reference's first distinct media, cached on the model."""
+            key = (layer, self.recurring_frac, self.min_images, self.reference_media,
+                   tuple(str(c.id) for c in self.reference))
+            cache = module.__dict__.setdefault("_evalrx_embed_lens_reference", {})
+            if key not in cache:
+                counts: Counter = Counter()
+                seen: set = set()
+                for ref in self.reference:
+                    if len(seen) >= self.reference_media:
+                        break
+                    with torch.no_grad(), residual_hooks(model, capture={layer: None}, analyzer=self.name) as res:
+                        trace = model.forward(ref.inputs, capture={Capability.LOGITS}, spec=spec)
+                    _, positions = media_positions(trace)
+                    if not positions:
+                        continue
+                    with torch.no_grad():
+                        x = res.captured[layer][positions]
+                        mark = fingerprint(x)
+                        if mark not in seen:
+                            seen.add(mark)
+                            counts.update(set(nearest(x)[1][:, 0].tolist()))
+                    del trace, res, x
+                n = len(seen)
+                rec = ({tid for tid, k in counts.items() if k >= self.recurring_frac * n}
+                       if n >= self.min_images else set())
+                cache[key] = (rec, counts, n)
+            return cache[key]
+
         rows: list[dict[str, Any]] = []
         per_token: dict[str, dict[str, Any]] = {}
         prompt_sims: dict[str, dict[str, float]] = {}
@@ -159,6 +215,7 @@ class EmbedLensAnalyzer(Analyzer):
         seen_media: set = set()                  # fingerprints of the media already counted
         skipped: Counter = Counter()
         spec = CaptureSpec(to_cpu=False)
+        texts: dict[str, str] = {}
         for case in cases.stratified_head(self.max_cases):
             with torch.no_grad(), residual_hooks(model, capture={layer: None}, analyzer=self.name) as res:
                 trace = model.forward(case.inputs, capture={Capability.LOGITS}, spec=spec)
@@ -186,12 +243,9 @@ class EmbedLensAnalyzer(Analyzer):
                     best = (xn @ w.T).max(0).values.tolist()
                     grounding = {word: round(s, 4) for word, s in zip(words, best)}
             top1 = ids[:, 0].tolist()
-            # The media tokens precede the question, so several questions about one
-            # image give identical media states: count each image once.
-            fingerprint = (tuple(x.shape), round(float(x.float().sum()), 2),
-                           tuple(round(v, 3) for v in x[0, :8].float().tolist()))
-            if fingerprint not in seen_media:
-                seen_media.add(fingerprint)
+            mark = fingerprint(x)
+            if mark not in seen_media:
+                seen_media.add(mark)
                 images_with.update(set(top1))
             median = float(norms.median()) or 1e-12
             per_token[case.id] = {
@@ -203,6 +257,7 @@ class EmbedLensAnalyzer(Analyzer):
             prompt_sims[case.id] = grounding
             prompt_words[case.id] = (tuple(t for p, t in enumerate(trace.token_ids) if p not in media_set),
                                      set(words))
+            texts[case.id] = str(case.inputs.prompt)
             row: dict[str, Any] = {
                 "sample_id": case.id,
                 "el_n_media_tokens": len(media),
@@ -219,15 +274,23 @@ class EmbedLensAnalyzer(Analyzer):
         if not rows:
             raise ValueError(f"{self.name}: no case could be analysed (skipped: {dict(skipped)})")
         n_cases, n_images = len(rows), len(seen_media)
-        query, query_inferred = specific_words(prompt_words)
+        if self.reference is not None:
+            query, query_inferred = reference_specific_words(texts, [c.inputs.prompt for c in self.reference],
+                                                             tokenizer, special)
+        else:
+            query, query_inferred = specific_words(prompt_words)
         for row in rows:
             sims = {w: s for w, s in prompt_sims[row["sample_id"]].items() if w in query[row["sample_id"]]}
             if sims:
                 row["el_query_word"] = max(sims, key=sims.get)
                 row["el_query_sim"] = sims[row["el_query_word"]]
         recurring: set = set()
-        if n_images >= self.min_images:
-            recurring = {tid for tid, count in images_with.items() if count >= self.recurring_frac * n_images}
+        if self.reference is not None:
+            recurring, images_with, n_recurring_images = reference_recurring()
+        else:
+            n_recurring_images = n_images
+            if n_images >= self.min_images:
+                recurring = {tid for tid, count in images_with.items() if count >= self.recurring_frac * n_images}
         specific_counts: Counter = Counter()
         recurring_mass: Counter = Counter()
         total_tokens = 0
@@ -260,7 +323,9 @@ class EmbedLensAnalyzer(Analyzer):
             "top_k": self.top_k,
             "layer_used": layer,
             "n_layers": n_layers,
-            "recurring_inferred": n_images >= self.min_images,
+            "recurring_inferred": n_recurring_images >= self.min_images,
+            "recurring_from": "reference" if self.reference is not None else "batch",
+            "n_recurring_images": n_recurring_images,
             "recurring_words": [
                 {"word": label(tid), "token_id": int(tid), "n_images": images_with[tid],
                  "token_share": round(recurring_mass[tid] / max(1, total_tokens), 4)}
@@ -275,8 +340,9 @@ class EmbedLensAnalyzer(Analyzer):
             "per_case": rows,
             "_caveat": (
                 f"Nearest neighbours by cosine similarity in the input-embedding table, read at the "
-                f"input of decoder layer {layer}. 'Recurring' is inferred from this batch (a nearest word "
-                "shared across at least recurring_frac of the distinct images), not from "
+                f"input of decoder layer {layer}. 'Recurring' is inferred from "
+                + ("the reference's first distinct images" if self.reference is not None else "this batch")
+                + " (a nearest word shared across at least recurring_frac of the distinct images), not from "
                 "checkpoint-specific token ids; with fewer than min_images distinct images nothing "
                 "is called recurring. The rule is the paper's, for the input layer: read deep, a "
                 "scene word common to most of the batch's images can recur too."

@@ -23,11 +23,13 @@ A run goes through three phases:
    controller decides to expand. The sample then doubles along the sampler's
    rank prefixes, and the battery runs again only where it has to:
 
-   * steps whose per-case rows do not depend on the batch run on the new cases
-     alone, and their old rows stay current;
-   * steps that infer something from the batch (``embed_lens``, ``patchscope``)
-     are not read by the routes, so nothing the expansion rule looks at depends
-     on them: they run once, on the whole sample the expansions settle on.
+   * every step's per-case rows are independent of the batch (the lenses tell
+     question words from a fixed reference, the tuned lens is fit on fixed
+     EXPLORE cases, the causal trace seeds noise per case), so steps run on the
+     new cases alone and the old rows stay current;
+   * the descriptive steps no route reads (``embed_lens``, ``patchscope``) are
+     ``deferred``: nothing the expansion rule looks at depends on them, so they
+     run once the expansions have settled.
 
    Steps run in chunks of ``chunk`` cases (FAIL and PASS alternating), with the
    budget checked before each chunk on the cost measured so far.
@@ -148,8 +150,9 @@ REWORD_STRATEGIES = {
 #: moves when the model is told not to default to it from one that does not.
 THRESHOLD_STRATEGIES = {"baseline": "{prompt}", "sensitive": _PROMPT_STRATEGIES["sensitive"]}
 
-_BATCH_WORDS = ("the question words (and recurring media words) are inferred from the batch's prompts "
-                "and images")
+#: Cases of EXPLORE (in the sampler's rank order) the tuned lens is fit on: fixed, so a
+#: case's readout does not depend on the sample it is read with.
+FIT_CASES = 32
 
 #: What a FAIL case on each route has shown, as the judge is told.
 ROUTE_MEANING = {
@@ -188,12 +191,12 @@ BATTERY: tuple[PlanStep, ...] = (
     PlanStep("embed_lens", {"layer": 0.9}, "S2",
              "nearest vocabulary words of the media tokens late in the stack: how close the "
              "case's own question word gets",
-             calls_per_case={"forward": 1}, reuse=False, reuse_note=_BATCH_WORDS),
+             calls_per_case={"forward": 1}, deferred=True),
     PlanStep("patchscope", {"target": "gold", "media_layers": 3}, "S3",
              "decode the answer position at every layer and the media tokens at three depths: "
              "whether the gold answer was readable before the output, and whether the question "
              "word is read off the media",
-             fidelity_check="patch", calls_per_case={"forward": 1}, reuse=False, reuse_note=_BATCH_WORDS),
+             fidelity_check="patch", calls_per_case={"forward": 1}, deferred=True),
 )
 
 
@@ -635,6 +638,15 @@ def run_triage(
     extras = {k: dict(v) for k, v in (analyzer_kwargs or {}).items()}
     # swap donors come from the whole partition the sample was drawn from
     extras.setdefault("modality_ablation", {}).setdefault("donor_pool", explore)
+    # Fixed references in the sampler's rank order, so a case's row never depends on the
+    # sample it is read with: the lenses tell question words (and embed_lens recurring
+    # words) from them, and the tuned lens is fit on the first FIT_CASES of them.
+    from evalrx.core.case import CaseBatch
+
+    ranked = CaseBatch(sorted(explore, key=lambda c: rank(seed, str(c.id))))
+    for name in ("embed_lens", "patchscope"):
+        extras.setdefault(name, {}).setdefault("reference", ranked)
+    extras.setdefault("tuned_lens", {}).setdefault("fit_cases", CaseBatch(list(ranked)[:FIT_CASES]))
     max_fail = max(int(n_fail), int(max_fail or n_fail))
     n_available = sum(1 for c in explore if getattr(getattr(c, "label", None), "value", None) == "fail")
     run = _Run(model, explore, ledger, context={"policy": POLICY_VERSION, "model": model_identity},
@@ -666,7 +678,7 @@ def run_triage(
     # A step whose rows depend on the batch would have to re-run on every larger
     # sample. When the routes do not read it, nothing the expansion rule looks at
     # depends on it either, so it runs once, on the sample the expansions settle on.
-    deferred = [s for s in battery if not s.reuse and s.name not in ROUTE_STEPS]
+    deferred = [s for s in battery if s.deferred or (not s.reuse and s.name not in ROUTE_STEPS)]
     immediate = [s for s in battery if s not in deferred]
     revision = 0
     for step in immediate:

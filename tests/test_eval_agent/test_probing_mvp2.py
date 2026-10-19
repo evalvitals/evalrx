@@ -111,9 +111,11 @@ def test_expansion_runs_only_new_cases_and_matches_drawing_the_larger_sample_at_
         if e["kind"] == "expansion" and e["status"] != "not_applicable":
             assert next(s for s in BATTERY if s.name == e["key"]).reuse and e["n_cases"] == n_new
     # the batch-dependent steps the routes do not read run once, on the settled sample
+    # the descriptive steps no route reads wait for the settled sample, then run on it once (in chunks)
     for key in ("embed_lens", "patchscope"):
-        (once,) = [e for e in grown["executions"] if e["key"] == key]
-        assert (once["revision"], once["n_cases"]) == (1, len(direct["sample"]["case_ids"]))
+        runs = [e for e in grown["executions"] if e["key"] == key]
+        assert {e["revision"] for e in runs} == {1}
+        assert sum(e["n_cases"] for e in runs) == len(direct["sample"]["case_ids"])
     # every case reads the same as when the 8-FAIL sample is drawn at once, for the same calls
     assert {r["case_id"]: _strip(r) for r in grown["cases"]} == {r["case_id"]: _strip(r) for r in direct["cases"]}
     assert _generated(grown) == _generated(direct) == grown_model.n_generate == direct_model.n_generate
@@ -287,7 +289,10 @@ def test_a_refusal_on_any_chunk_refuses_the_step_on_every_case():
     plain = StepEvidence(_step("self_consistency"), [_obs("sc", ["a", "b"]), _obs("sc", ["c"], status=FAILED)])
     assert plain.for_case("a").status == OK and plain.for_case("c").status == FAILED
     assert plain.todo(["a", "b", "c", "d"]) == ["d"]
-    batchy = StepEvidence(_step("embed_lens"), [_obs("el", ["a", "b"])])
+    from evalrx.eval_agent.probing.actions import PlanStep
+
+    batchy = StepEvidence(PlanStep("x", {}, "S", "reads the batch", reuse=False, reuse_note="test"),
+                          [_obs("el", ["a", "b"])])
     assert batchy.todo(["a", "b"]) == [] and batchy.todo(["a", "b", "c"]) == ["a", "b", "c"]
 
 
@@ -348,7 +353,8 @@ def test_budget_estimates_come_from_the_same_steps_earlier_seconds_and_charge_th
 #: ``per_case`` steps run once per case by construction.
 _CHECKED = {"answer_extraction_audit", "termination_audit", "modality_ablation", "prompt_contrast",
             "attention_knockout", "attention_temperature", "attention_sensitivity", "gradcam",
-            "generic_attention", "layer_contrast", "format_sensitivity"}
+            "generic_attention", "layer_contrast", "format_sensitivity",
+            "embed_lens", "patchscope", "tuned_lens", "causal_trace"}
 
 
 def test_every_reuse_step_is_covered_by_a_decomposability_check():
@@ -395,6 +401,9 @@ def vlm_cases():
     return CaseBatch(out)
 
 
+REF = "<the cases themselves, as a fixed reference>"
+
+
 @pytest.mark.parametrize("name, config", [
     ("attention_knockout", {"target": "gold"}),
     ("attention_temperature", {"target": "gold"}),
@@ -402,12 +411,18 @@ def vlm_cases():
     ("gradcam", {"target": "gold"}),
     ("generic_attention", {"target": "gold"}),
     ("layer_contrast", {}),
+    # with a fixed reference / fit set and per-case noise seeds (the triage passes EXPLORE)
+    ("embed_lens", {"layer": 0.9, "reference": REF}),
+    ("patchscope", {"target": "gold", "media_layers": 2, "reference": REF}),
+    ("tuned_lens", {"steps": 10, "fit_cases": REF}),
+    ("causal_trace", {"target": "gold", "min_effect": 0.0, "n_points": 3}),
 ])
 def test_white_box_reuse_steps_give_the_same_rows_whatever_shares_the_batch(vlm_cases, name, config):
     from evalrx.core.registry import registry
     from tests.tiny_whitebox import TinyVLM
 
     model = TinyVLM("qwen2_5_vl")
+    config = {k: (vlm_cases if v == REF else v) for k, v in config.items()}
     same, rows = _split_equals_whole(registry.analyzers.get(name)(**config), model, vlm_cases)
     assert rows and same
 

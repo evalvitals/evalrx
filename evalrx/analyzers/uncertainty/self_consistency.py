@@ -91,6 +91,11 @@ class SelfConsistencyAnalyzer(Analyzer):
         entailment_fn: ``callable(a, b) -> bool`` equivalence test used for that
                        clustering; defaults to :func:`lexical_equivalent`.
         answer_fn:     ``callable(text) -> str`` applied BEFORE comparing.
+        seed:          the case's samples are drawn under torch's random state seeded
+                       from this and the case's content (prompt and media), so a case
+                       gets the same samples whatever batch it is in and in every
+                       rerun; ``None`` = the global random state as it stands. A model
+                       that samples on the provider's side (an API) is not affected.
 
     ``answer_fn`` is what makes this usable on a reasoning model. Without it the
     comparison is over the whole generation, and two samples of a 3,000-token
@@ -122,15 +127,21 @@ class SelfConsistencyAnalyzer(Analyzer):
         semantic: bool = True,
         entailment_fn: Optional[Callable[[str, str], bool]] = None,
         answer_fn: Optional[Callable[[str], str]] = None,
+        seed: Optional[int] = 0,
     ) -> None:
-        super().__init__(n=n, gen_kwargs=gen_kwargs or {}, semantic=semantic)
+        super().__init__(n=n, gen_kwargs=gen_kwargs or {}, semantic=semantic, seed=seed)
         # ctor name, so sklearn-style get_params() reflection works
         self.entailment_fn = entailment_fn or lexical_equivalent
         self.answer_fn = answer_fn
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
+        from contextlib import nullcontext
+
+        from evalrx.analyzers._internals.seeds import case_seed, seeded
+
         case = cases[0]
-        samples = [model.generate(case.inputs, **self.gen_kwargs) for _ in range(self.n)]
+        with seeded(case_seed(self.seed, case)) if self.seed is not None else nullcontext():
+            samples = [model.generate(case.inputs, **self.gen_kwargs) for _ in range(self.n)]
         raw = [str(s).strip().lower() for s in samples]
         if self.answer_fn is not None:
             norm = [str(self.answer_fn(s) or "").strip().lower() for s in samples]

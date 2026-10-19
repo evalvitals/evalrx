@@ -41,6 +41,7 @@ from collections import Counter
 from contextlib import contextmanager, nullcontext
 from typing import TYPE_CHECKING, Any, Iterator
 
+from evalrx.analyzers._internals.seeds import case_seed
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
@@ -192,7 +193,8 @@ class CausalTraceAnalyzer(Analyzer):
                      ~0.06–0.125 at typical magnitudes, so a smaller effect yields
                      recoveries dominated by rounding.
         target:      ``"prediction"`` or ``"gold"``.
-        seed:        noise seed (offset per case, so reruns reproduce).
+        seed:        noise seed, combined with each case's content: reruns reproduce, and
+                     a case's noise (so its row) does not depend on its batch.
         max_cases:   label-stratified cap; 0 (the default) = every case.
                      Cost per case: 1 + n_noise · (1 + 2 · n_points) logits-only forwards.
     """
@@ -258,7 +260,7 @@ class CausalTraceAnalyzer(Analyzer):
         skipped: Counter = Counter()
         slots: Counter = Counter()
         sites = sorted(set(points) | {0})
-        for index, case in enumerate(cases.stratified_head(self.max_cases)):
+        for case in cases.stratified_head(self.max_cases):
             with residual_hooks(model, capture={layer: None for layer in sites},
                                 analyzer=self.name) as clean:
                 probe = model.forward(case.inputs, capture={Capability.LOGITS}, spec=spec)
@@ -281,7 +283,7 @@ class CausalTraceAnalyzer(Analyzer):
             variants, why = corrupted_variants(
                 case.inputs, self.corruption, slot=slot, media=media, embeddings=clean_media[0][1],
                 deepstack=bool(mergers), noise_scale=self.noise_scale, n_noise=self.n_noise,
-                seed=self.seed * 100003 + index)
+                seed=case_seed(self.seed, case))
             if not variants:
                 skipped[why] += 1
                 continue

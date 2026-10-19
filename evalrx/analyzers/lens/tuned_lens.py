@@ -9,10 +9,13 @@ minimising ``KL(p_final || p_l)``. The fit is label-free: it uses only the
 model's outputs, never PASS/FAIL.
 
 Here the translators are fit on token positions sampled from the batch being
-analysed (a pretraining corpus is not at hand), then each case's final prompt
-position is read through them; ``fit_kl`` in the findings reports how well the
-lens fits. Fitted translators are cached on the model per configuration and can
-be saved to / loaded from ``translators_path``.
+analysed (a pretraining corpus is not at hand), or from a fixed set of
+``fit_cases``, then each case's final prompt position is read through them;
+``fit_kl`` in the findings reports how well the lens fits. With ``fit_cases``
+a case's row does not depend on the rest of its batch, so the lens can run on
+a growing sample in chunks. Fitted translators are cached on the model per
+configuration (and fit set) and can be saved to / loaded from
+``translators_path``.
 
 Per-case columns mirror ``logit_lens`` (decision depth, interim peak, late drop)
 plus the tuned KL to the final distribution in the middle of the stack.
@@ -71,8 +74,10 @@ class TunedLensAnalyzer(Analyzer):
     """Tuned-lens readout of the final prompt position, per case.
 
     Hyper-parameters:
-        train_tokens: token positions sampled (across the analysed cases) to fit
-                      the translators; the final position of every case is included.
+        train_tokens: token positions sampled (across the fit cases) to fit the
+                      translators; the final position of every fit case is included.
+        fit_cases:    fixed cases the translators are fit on; ``None`` = the
+                      analysed batch (then every row depends on the whole batch).
         steps:        Adam steps per layer translator.
         batch_size:   positions per step.
         lr:           Adam learning rate.
@@ -100,9 +105,10 @@ class TunedLensAnalyzer(Analyzer):
 
     def __init__(self, train_tokens: int = 4096, steps: int = 200, batch_size: int = 256,
                  lr: float = 1e-3, seed: int = 0, translators_path: "str | None" = None,
-                 max_cases: int = 0) -> None:
+                 fit_cases: "CaseBatch | None" = None, max_cases: int = 0) -> None:
         super().__init__(train_tokens=train_tokens, steps=steps, batch_size=batch_size, lr=lr,
-                         seed=seed, translators_path=translators_path, max_cases=max_cases)
+                         seed=seed, translators_path=translators_path, fit_cases=fit_cases,
+                         max_cases=max_cases)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         import torch
@@ -116,17 +122,23 @@ class TunedLensAnalyzer(Analyzer):
         norm = model.final_norm() if hasattr(model, "final_norm") else None
 
         # One forward per case: keep every layer's final-position state for the
-        # readout, plus a seeded sample of positions for fitting the translators.
+        # readout, plus a seeded sample of positions for fitting the translators
+        # (from the fit cases instead, when they are given and not fit yet).
         rows = cases.stratified_head(self.max_cases)
         if not rows:
             raise ValueError("tuned_lens: empty case batch")
+        fit_rows = list(self.fit_cases) if self.fit_cases is not None else rows
+        if not fit_rows:
+            raise ValueError("tuned_lens: empty fit_cases")
+        fit_key = None if self.fit_cases is None else (
+            "fit_cases", tuple(str(c.id) for c in fit_rows), self.train_tokens, self.steps, self.batch_size,
+            self.lr, self.seed)
         gen = torch.Generator().manual_seed(self.seed)
-        per_case_budget = max(1, self.train_tokens // len(rows))
-        last_states: list[tuple[str, list]] = []
+        per_case_budget = max(1, self.train_tokens // len(fit_rows))
         train: "list[list] | None" = None
-        for case in rows:
-            hidden = model.forward(case.inputs, capture={Capability.HIDDEN_STATES}).require(
-                Capability.HIDDEN_STATES)
+
+        def sample(hidden: Any) -> None:
+            nonlocal train
             seq = hidden[0].shape[0]
             pick = torch.randperm(seq, generator=gen)[: per_case_budget - 1].tolist()
             pick = sorted(set(pick) | {seq - 1})
@@ -134,13 +146,24 @@ class TunedLensAnalyzer(Analyzer):
                 train = [[] for _ in hidden]
             for layer, h in enumerate(hidden):
                 train[layer].append(h[pick].detach().float().cpu())
-            last_states.append((case.id, [h[-1].detach().float().cpu() for h in hidden]))
-        data = [torch.cat(chunks) for chunks in train]
-        n_layers = len(data) - 1           # entries 0..L-1 premature, L = final (post-norm)
-        dim = data[0].shape[1]
-        apply_norm = _functional_norm(norm, data[0][:1].to(device))
 
-        translators, fit_kl = self._translators(model, data, W, apply_norm, n_layers, dim, device)
+        last_states: list[tuple[str, list]] = []
+        for case in rows:
+            hidden = model.forward(case.inputs, capture={Capability.HIDDEN_STATES}).require(
+                Capability.HIDDEN_STATES)
+            if self.fit_cases is None:
+                sample(hidden)
+            last_states.append((case.id, [h[-1].detach().float().cpu() for h in hidden]))
+        n_layers = len(last_states[0][1]) - 1   # entries 0..L-1 premature, L = final (post-norm)
+        dim = last_states[0][1][0].shape[0]
+        if self.fit_cases is not None and self._cached(model, fit_key) is None:
+            for case in fit_rows:
+                sample(model.forward(case.inputs, capture={Capability.HIDDEN_STATES}).require(
+                    Capability.HIDDEN_STATES))
+        data = [torch.cat(chunks) for chunks in train] if train is not None else None
+        apply_norm = _functional_norm(norm, last_states[0][1][0][None].to(device))
+
+        translators, fit_kl = self._translators(model, data, W, apply_norm, n_layers, dim, device, key=fit_key)
 
         def layer_logprobs(states: list) -> list:
             out = []
@@ -179,35 +202,43 @@ class TunedLensAnalyzer(Analyzer):
             findings={
                 "n_cases_analyzed": len(per_case),
                 "n_layers": n_layers,
-                "n_train_tokens": int(data[0].shape[0]),
+                "n_train_tokens": int(data[0].shape[0]) if data is not None else None,
+                "fit_on": "fit_cases" if self.fit_cases is not None else "batch",
                 "fit_kl_per_layer": [round(k, 4) for k in fit_kl],
                 "fit_kl_mean": round(sum(fit_kl) / max(1, len(fit_kl)), 4),
                 "final_norm_applied": norm is not None,
                 "per_case": per_case,
                 "_caveat": (
-                    "Translators are fit label-free on token positions of the analysed batch "
-                    "itself (no separate corpus), so they are in-sample for these prompts; "
-                    "fit_kl_per_layer is the held-in KL after fitting."
+                    "Translators are fit label-free on token positions of "
+                    + ("the fixed fit_cases" if self.fit_cases is not None else
+                       "the analysed batch itself (no separate corpus), so they are in-sample for these prompts")
+                    + "; fit_kl_per_layer is the held-in KL after fitting."
                 ),
             },
         )
 
-    def _translators(self, model: Any, data: list, W: Any, apply_norm: Any, n_layers: int,
-                     dim: int, device: Any) -> "tuple[list, list[float]]":
-        """Fit (or load / reuse) one affine translator per premature layer."""
-        import os
-
-        import torch
-
-        key = (n_layers, dim, int(data[0].shape[0]), self.steps, self.batch_size, self.lr, self.seed)
-        module = None
+    def _cache(self, model: Any) -> dict:
         try:
             from evalrx.analyzers._internals.access import torch_module
 
             module = torch_module(model, self.name)
         except ValueError:
-            pass
-        cache = module.__dict__.setdefault("_evalrx_tuned_lens", {}) if module is not None else {}
+            return {}
+        return module.__dict__.setdefault("_evalrx_tuned_lens", {})
+
+    def _cached(self, model: Any, key: Any) -> "tuple[list, list[float]] | None":
+        return self._cache(model).get(key)
+
+    def _translators(self, model: Any, data: "list | None", W: Any, apply_norm: Any, n_layers: int,
+                     dim: int, device: Any, key: Any = None) -> "tuple[list, list[float]]":
+        """Fit (or load / reuse) one affine translator per premature layer."""
+        import os
+
+        import torch
+
+        if key is None:
+            key = (n_layers, dim, int(data[0].shape[0]), self.steps, self.batch_size, self.lr, self.seed)
+        cache = self._cache(model)
         if key in cache:
             return cache[key]
         path = self.translators_path

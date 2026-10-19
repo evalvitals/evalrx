@@ -26,7 +26,9 @@ Two sources per case:
   per-token word map and tallied (content words only) across cases. Per case,
   ``ps_media_query_hits`` counts the media readouts that are one of the case's
   own question words — prompt words in at most half of the batch's distinct
-  prompts, so template words ("image", "answer") never count.
+  prompts (or of ``reference``'s), so template words ("image", "answer") never
+  count. With ``reference`` (a fixed set of cases) every row is the same
+  whichever cases share its batch.
 
 The patch is checked once per run, on the fixed decoding prompt (it does not
 depend on the case): patching the placeholder with its own residual must leave
@@ -44,7 +46,13 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
-from evalrx.analyzers._internals.words import STOP, content_word, decode_word, specific_words
+from evalrx.analyzers._internals.words import (
+    STOP,
+    content_word,
+    decode_word,
+    reference_specific_words,
+    specific_words,
+)
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
@@ -70,6 +78,8 @@ class PatchscopeAnalyzer(Analyzer):
         media_layers:  layers at which every media token is decoded too, spread over
                        the stack above the embedding (which decodes to noise); 0 = off.
         batch_rows:    rows per batched decoding forward.
+        reference:     fixed cases whose prompts tell the template words from the
+                       case's own question words (``None`` = the batch's prompts).
         max_cases:     label-stratified cap; 0 (the default) = every case.
                        Cost per case: 1 forward + one batched forward of the
                        short target prompt (+ media tokens × media_layers rows).
@@ -97,9 +107,10 @@ class PatchscopeAnalyzer(Analyzer):
 
     def __init__(self, target: str = "prediction", target_prompt: str = IDENTITY_PROMPT,
                  n_points: int = 0, media_layers: int = 0, batch_rows: int = 64,
-                 max_cases: int = 0) -> None:
+                 reference: "CaseBatch | None" = None, max_cases: int = 0) -> None:
         super().__init__(target=target, target_prompt=target_prompt, n_points=n_points,
-                         media_layers=media_layers, batch_rows=batch_rows, max_cases=max_cases)
+                         media_layers=media_layers, batch_rows=batch_rows, reference=reference,
+                         max_cases=max_cases)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         import torch
@@ -180,6 +191,7 @@ class PatchscopeAnalyzer(Analyzer):
         media_words: dict[str, dict[int, list]] = {}
         word_counts: Counter = Counter()
         prompt_words: dict[str, tuple[Any, set[str]]] = {}
+        texts: dict[str, str] = {}
         skipped: Counter = Counter()
         for case in cases.stratified_head(self.max_cases):
             with torch.no_grad(), residual_hooks(model, capture=dict.fromkeys(set(layers) | set(media_at)),
@@ -228,6 +240,7 @@ class PatchscopeAnalyzer(Analyzer):
                 prompt = [tid for pos, tid in enumerate(trace_ids) if pos not in media_set]
                 prompt_words[case.id] = (tuple(prompt), {
                     w for w in (content_word(tokenizer, t, special) for t in prompt) if w is not None})
+                texts[case.id] = str(case.inputs.prompt)
                 rows = [(layer, states[layer][pos]) for layer in media_at for pos in media]
                 ids = decode(rows).argmax(-1).tolist()
                 words: dict[int, list] = {}
@@ -242,7 +255,11 @@ class PatchscopeAnalyzer(Analyzer):
 
         if not per_case:
             raise ValueError(f"{self.name}: no case could be analysed (skipped: {dict(skipped)})")
-        query, query_inferred = specific_words(prompt_words)
+        if self.reference is not None:
+            query, query_inferred = reference_specific_words(texts, [c.inputs.prompt for c in self.reference],
+                                                             tokenizer, special)
+        else:
+            query, query_inferred = specific_words(prompt_words)
         for row in per_case:
             words = media_words.get(row["sample_id"])
             own = query.get(row["sample_id"])

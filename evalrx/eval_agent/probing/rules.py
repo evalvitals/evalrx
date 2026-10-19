@@ -51,10 +51,6 @@ RULES_VERSION = "mvp2-rules-1"
 ROUTE_ORDER = ("H", "N", "U", "S", "X")
 DESCRIBE_STRATEGIES = {"baseline": "{prompt}", "describe_first": _PROMPT_STRATEGIES["describe_first"]}
 
-_NOISE_BY_POSITION = "the corruption noise is seeded by the case's position in the batch"
-_FIT_ON_BATCH = "the translators are fit on the batch"
-
-
 #: Room for a description before the answer, asked per call (the task's own cap
 #: is sized for the answer alone: 16 tokens on POPE).
 DESCRIBE_OUTPUT_TOKENS = 256
@@ -96,7 +92,7 @@ LAYERS: tuple[Layer, ...] = (
                  key="termination_continue", calls_per_case={"generate": 1}),)),
     Layer("N1", "N", "does the media path carry a measurable effect on the gold answer", (
         PlanStep("causal_trace", {"target": "gold"}, "N1", "corrupt the media, restore one site at a time",
-                 calls_per_case={"forward": 20}, reuse=False, reuse_note=_NOISE_BY_POSITION),),
+                 calls_per_case={"forward": 20}),),
         served_by=("attention_knockout",)),
     Layer("N2", "N", "does reading the media with sharper or flatter attention change the gold margin", (
         PlanStep("attention_temperature", {"target": "gold"}, "N2", "rescale the media attention temperature",
@@ -124,8 +120,8 @@ LAYERS: tuple[Layer, ...] = (
                  fidelity_check="edit", calls_per_case={"backward": 1}))),
     Layer("S2", "S", "is the case's own question word readable off the media tokens", (), served_by=("embed_lens",)),
     Layer("S3", "S", "was the gold answer readable before the output", (
-        PlanStep("tuned_lens", {}, "S3", "fitted per-layer readout of the answer position",
-                 calls_per_case={"forward": 1}, reuse=False, reuse_note=_FIT_ON_BATCH),
+        PlanStep("tuned_lens", {}, "S3", "fitted per-layer readout of the answer position (translators "
+                 "fit once on a fixed set of EXPLORE cases)", calls_per_case={"forward": 1}),
         PlanStep("layer_contrast", {}, "S3", "early-vs-late layer contrast at the answer position",
                  calls_per_case={"forward": 1})),
         served_by=("patchscope",)),
