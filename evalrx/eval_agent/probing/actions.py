@@ -88,6 +88,10 @@ class PlanStep:
     ``deferred``: a battery step no route reads (a descriptive reading): the
     rules run it once the sample has settled, and the scored scheduler takes it
     as a candidate of the layer it serves instead of running it up front.
+
+    ``evidence``: the kind of evidence the step gives (default: its analyzer).
+    Two tools for one layer that give the same kind ask the same question the
+    same way: once one has answered the layer, the other is redundant (R = 0.5).
     """
 
     analyzer: str
@@ -105,10 +109,15 @@ class PlanStep:
     caveat: str = ""
     min_output_tokens: int = 0
     deferred: bool = False
+    evidence: str = ""
 
     @property
     def name(self) -> str:
         return self.key or self.analyzer
+
+    @property
+    def evidence_kind(self) -> str:
+        return self.evidence or self.analyzer
 
 
 @dataclass(frozen=True)

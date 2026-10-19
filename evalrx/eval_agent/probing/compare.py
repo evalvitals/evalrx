@@ -73,6 +73,11 @@ def compare(baseline: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]:
         "controller_sec": {"baseline": (baseline.get("cost") or {}).get("controller_sec"),
                            "other": (other.get("cost") or {}).get("controller_sec")},
         "coverage_gap": gap, "coverage_units": units,
+        "alternatives": {name: [f"{d['route']}:{d['rule_id']}:{d['key']} (to {d['alternative_to']})"
+                                for d in r["decisions"] if d.get("alternative_to") and d["kind"] == "follow_up"]
+                         for name, r in (("baseline", baseline), ("other", other))},
+        "explored": {name: {"decisions": sum(1 for d in r["decisions"] if d.get("choice") == "explore"),
+                            **(r.get("explored") or {})} for name, r in (("baseline", baseline), ("other", other))},
         "stop": {"baseline": baseline["stop"], "other": other["stop"]},
     }
     source = next((r for r in (other, baseline) if r.get("explanations")), None)
@@ -97,6 +102,7 @@ def markdown(diff: dict[str, Any]) -> str:
               f"Controller time outside the actions and the judge: {diff['controller_sec']}.",
               f"Coverage gap left on units some tool can close here (sum): {diff['coverage_gap']} of "
               f"{diff['coverage_units']} units.",
+              f"Alternatives run on answered layers: {diff['alternatives']}; exploration: {diff['explored']}.",
               f"Stop: {diff['stop']}.", ""]
     if "discrimination" in diff:
         d = diff["discrimination"]

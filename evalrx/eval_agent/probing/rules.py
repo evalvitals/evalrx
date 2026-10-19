@@ -51,6 +51,16 @@ RULES_VERSION = "mvp2-rules-1"
 ROUTE_ORDER = ("H", "N", "U", "S", "X")
 DESCRIBE_STRATEGIES = {"baseline": "{prompt}", "describe_first": _PROMPT_STRATEGIES["describe_first"]}
 
+#: Kinds of evidence (``PlanStep.evidence``) that more than one tool of a layer gives:
+#: once one of them has answered the layer, another of the same kind is redundant.
+MEDIA_ATTENTION_CUT = "text-to-media attention cut, gold margin"
+MEDIA_NOISE = "media embeddings noised and restored, gold margin"
+ATTENTION_RESCALING = "attention to the media rescaled, gold margin"
+TOKEN_PROBABILITIES = "output-token probabilities"
+RESAMPLING = "re-sampled answers"
+RELEVANCE_MAP = "relevance map of the gold margin over the media"
+LAYER_READOUT = "answer position read out layer by layer"
+
 #: Room for a description before the answer, asked per call (the task's own cap
 #: is sized for the answer alone: 16 tokens on POPE).
 DESCRIBE_OUTPUT_TOKENS = 256
@@ -92,21 +102,21 @@ LAYERS: tuple[Layer, ...] = (
                  key="termination_continue", calls_per_case={"generate": 1}),)),
     Layer("N1", "N", "does the media path carry a measurable effect on the gold answer", (
         PlanStep("causal_trace", {"target": "gold"}, "N1", "corrupt the media, restore one site at a time",
-                 calls_per_case={"forward": 20}),),
+                 calls_per_case={"forward": 20}, evidence=MEDIA_NOISE),),
         served_by=("attention_knockout",)),
     Layer("N2", "N", "does reading the media with sharper or flatter attention change the gold margin", (
         PlanStep("attention_temperature", {"target": "gold"}, "N2", "rescale the media attention temperature",
-                 fidelity_check="edit", calls_per_case={"forward": 4}),
+                 fidelity_check="edit", calls_per_case={"forward": 4}, evidence=ATTENTION_RESCALING),
         PlanStep("attention_sensitivity", {"target": "gold"}, "N2", "scale attention to the media down and up",
-                 fidelity_check="edit", calls_per_case={"forward": 4}))),
+                 fidelity_check="edit", calls_per_case={"forward": 4}, evidence=ATTENTION_RESCALING))),
     Layer("N3", "N", "asked to describe the media first, does the answer start to follow it", (
         _describe("N3", "describe the media, then answer"),)),
     Layer("U1", "U", "is the answer that moves close to a tie", (
         PlanStep("logprob_entropy", {}, "U1", "answer-token probabilities of the output",
-                 calls_per_case={"logprobs": 1}, per_case=True),
+                 calls_per_case={"logprobs": 1}, per_case=True, evidence=TOKEN_PROBABILITIES),
         PlanStep("self_consistency", {"n": 10}, "U1", "twice the samples: how often the answer moves",
                  key="self_consistency_n10", calls_per_case={"generate": 10}, per_case=True,
-                 keep_artifacts=("samples",)))),
+                 keep_artifacts=("samples",), evidence=RESAMPLING))),
     Layer("U2", "U", "with the options rotated, does the answer follow content or position", (
         PlanStep("format_sensitivity", {}, "U2", "rotate the options", calls_per_case={"generate": 3},
                  task_kinds=("multiple_choice_letter",)),)),
@@ -115,15 +125,16 @@ LAYERS: tuple[Layer, ...] = (
     Layer("S1", "S", "which image regions the gold margin depends on (no reference regions: "
                      "concentration only, not 'mislocalised')", (
         PlanStep("gradcam", {"target": "gold"}, "S1", "gradient x activation map of the gold margin",
-                 calls_per_case={"backward": 1}),
+                 calls_per_case={"backward": 1}, evidence=RELEVANCE_MAP),
         PlanStep("generic_attention", {"target": "gold"}, "S1", "attention relevance of the gold margin",
-                 fidelity_check="edit", calls_per_case={"backward": 1}))),
+                 fidelity_check="edit", calls_per_case={"backward": 1}, evidence=RELEVANCE_MAP))),
     Layer("S2", "S", "is the case's own question word readable off the media tokens", (), served_by=("embed_lens",)),
     Layer("S3", "S", "was the gold answer readable before the output", (
         PlanStep("tuned_lens", {}, "S3", "fitted per-layer readout of the answer position (translators "
-                 "fit once on a fixed set of EXPLORE cases)", calls_per_case={"forward": 1}),
+                 "fit once on a fixed set of EXPLORE cases)", calls_per_case={"forward": 1},
+                 evidence=LAYER_READOUT),
         PlanStep("layer_contrast", {}, "S3", "early-vs-late layer contrast at the answer position",
-                 calls_per_case={"forward": 1})),
+                 calls_per_case={"forward": 1}, evidence=LAYER_READOUT)),
         served_by=("patchscope",)),
     Layer("X1", "X", "with the media removed instead of swapped, does the answer change "
                      "(a different intervention: it does not test N)", (

@@ -190,3 +190,19 @@ def test_triage_explainer_is_the_chain_judge_and_never_the_model_under_test(monk
                                      '--triage-scheduler', 'scored', '--triage-explanations', 'judge'])
     with pytest.raises(SystemExit, match='model under test'):
         runner._triage_explainer(same, spec)
+
+
+def test_triage_weights_and_exploration_share_parse_and_are_checked():
+    from evalrx.benchmark.run import main as run_main
+    from evalrx.benchmark.run import triage_weights
+
+    assert triage_weights('d=1,t=1,c=1,r=1') == {'d': 1.0, 't': 1.0, 'c': 1.0, 'r': 1.0}
+    assert triage_weights('c=0, r=0.5') == {'d': 1.0, 't': 1.0, 'c': 0.0, 'r': 0.5}   # left out = 1
+    for bad in ('x=1', 'd', 'd=-1'):
+        with pytest.raises(ValueError, match='--triage-weights'):
+            triage_weights(bad)
+    args = build_parser().parse_args([])
+    assert (args.triage_weights, args.triage_explore_share) == ('d=1,t=1,c=1,r=1', 0.1)
+    with pytest.raises(ValueError, match='--triage-explore-share'):
+        run_main(['--modality', 'vlm', '--model', 'qwen3.5-0.8b', '--m1-policy', 'triage_active',
+                  '--triage-explore-share', '1.0'])

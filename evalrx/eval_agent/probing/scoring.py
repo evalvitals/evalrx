@@ -7,8 +7,9 @@ seconds, or USD when every executed action has a price), and ``ε`` is that
 axis' metering floor. The definitions are the design's first executable ones,
 written down so a run can show why each action won:
 
-* **D** (prediction disagreement): with an explainer, the share of pairs of the
-  route's live competing explanations whose predictions for the step conflict
+* **D** (prediction disagreement): with an explainer, the pairs of the route's
+  live competing explanations whose predictions for the step conflict, each
+  counted by how decidable the conflict is on the route's cases, over all pairs
   (:mod:`.explanations`); the explanations come once the sample has settled,
   and an explanation a prediction already missed on leaves the live set at the
   next decision. Without one, or with fewer than two live explanations,
@@ -23,17 +24,22 @@ written down so a run can show why each action won:
 
 A ``reuse`` step runs one chunk per decision (a fixed number of cases, FAIL and
 PASS alternating), so a decision spends at most one chunk before the scheduler
-sees the step's measured cost. T and D are about the step on the whole route,
-so a chunk earns them in proportion to the share of the route's remaining FAIL
-cases it covers, and the chunks of a step add up to what it earns unchunked; C
-is counted per chunk already.
+sees the step's measured cost. T, D and R are about the step on the whole
+route, so a chunk earns them in proportion to the share of the route's
+remaining FAIL cases it covers, and the chunks of a step add up to what it
+earns unchunked; C is counted per chunk already.
 * **C** (coverage): units are ``layer × gold stratum`` for every route with FAIL
   cases there. A unit's gap is 1 untested, 0.5 measured on fewer than
   ``min(min_cover, route FAIL cases in the stratum)`` cases, else 0. ``C(a)`` is
   the gap the action is expected to remove, over the number of units.
-* **R** (redundancy): an observation that already exists is filtered out (R = 1);
-  another tool for a layer that is already answered gets 0.5 (same purpose,
-  same kind of evidence); otherwise 0.
+* **R** (redundancy): an observation that already exists is filtered out (R = 1).
+  A layer that is already answered offers its other candidates as
+  *alternatives*: 0.5 when the alternative gives the kind of evidence the tool
+  that answered the layer gave (the same question asked the same way, e.g. a
+  second attention rescaling), 0 when it gives another kind (a different
+  intervention). An alternative closes no gap and covers no unit, so it is
+  only worth its D: a same-kind alternative runs when it tells live
+  explanations apart by more than its redundancy.
 * **q** (execution availability): ``(successes + 1) / (attempts + 2)`` over the
   distinct observations of the analyzer in this run's evidence (a read-back
   counts once, so a resumed run decides the same way); ``ok`` and not refused
@@ -46,15 +52,21 @@ is counted per chunk already.
   models or backends, and a reusable step's first chunk shows its real cost.
 
 Candidates are each route's open or stale layers (the layer's next candidate in
-its fallback order, as in the rules), the expansion, and the batch-dependent
-battery steps not yet run on the current sample. No batch-dependent candidate
-(battery step or follow-up) is taken while an expansion can still follow: any
-expansion supersedes its reading, and no route reads it (the rules' deferral,
-for the same reason); its layer waits instead of falling back. Unlike the rules, the
-scored scheduler may take a later layer first, and says so when it does. Every
-``explore_every``-th decision picks, with a seed, among the feasible candidates
-other than the top one. A gain below ``min_gain`` is not worth an action: when
-no candidate reaches it, the run stops.
+its fallback order, as in the rules), the alternatives of its answered layers,
+the expansion, and the batch-dependent battery steps not yet run on the
+current sample. No batch-dependent candidate (battery step or follow-up) is
+taken while an expansion can still follow: any expansion supersedes its
+reading, and no route reads it (the rules' deferral, for the same reason); its
+layer waits instead of falling back. Unlike the rules, the scored scheduler may
+take a later layer first, and says so when it does.
+
+**Exploration** has a share of the spending, not of the decisions (a decision
+may be one chunk): a feasible candidate other than the top one fits when what
+exploration has spent, plus its estimated cost, stays within ``explore_share``
+of everything spent, and whenever one fits a seeded draw among them runs
+instead of the top one. A gain below ``min_gain`` is not worth an action: when
+no candidate reaches it, every feasible candidate is an exploration candidate,
+and the run stops once none fits in the share (the minimum exploration is met).
 """
 
 from __future__ import annotations
@@ -66,7 +78,7 @@ from typing import Any
 from evalrx.eval_agent.probing.actions import OK, UNSUPPORTED, PlanStep
 from evalrx.eval_agent.probing.evidence import StepEvidence
 
-SCORING_VERSION = "mvp3-score-3"
+SCORING_VERSION = "mvp3-score-4"
 
 
 @dataclass(frozen=True)
@@ -96,6 +108,7 @@ class Scored:
     gain: float = 0.0
     U: float = 0.0
     basis: str = ""                    # what the cost rests on: "own" / "typical" / "none"
+    alternative_to: str = ""           # the step that already answered the layer (an alternative)
     gaps: list[str] = field(default_factory=list)
     units: list[str] = field(default_factory=list)
     d_detail: dict[str, Any] = field(default_factory=dict)   # which live explanations D separates
@@ -233,16 +246,21 @@ def value(s: Scored, weights: Weights, axis: str) -> Scored:
     return s
 
 
-def choose(candidates: list[Scored], *, decision_no: int, seed: int, explore_every: int,
-           min_gain: float) -> "tuple[Scored | None, str]":
-    """The candidate to run, and why: ``best`` / ``explore`` / ``below_threshold`` / ``none``."""
+def choose(candidates: list[Scored], *, decision_no: int, seed: int, explore_share: float, explored: float,
+           spent: float, min_gain: float) -> "tuple[Scored | None, str]":
+    """The candidate to run, and why: ``best`` / ``explore`` / ``below_threshold`` / ``none``.
+
+    *explored* and *spent* are what exploration and the whole run have spent so far, on the
+    candidates' cost axis: a seeded draw among the others that keep exploration within
+    *explore_share* of the spending runs instead of the best."""
     if not candidates:
         return None, "none"
     ranked = sorted(candidates, key=lambda s: (-s.U, s.order))
-    if explore_every and (decision_no + 1) % explore_every == 0 and len(ranked) > 1:
-        rng = random.Random(f"{seed}:{decision_no}")
-        return rng.choice(ranked[1:]), "explore"
     best = ranked[0]
+    others = ranked[1:] if best.gain >= min_gain else ranked
+    fits = [s for s in others if explored + (s.cost or 0.0) <= explore_share * (spent + (s.cost or 0.0))]
+    if explore_share > 0 and fits:
+        return random.Random(f"{seed}:{decision_no}").choice(fits), "explore"
     if best.gain < min_gain:
         return None, "below_threshold"
     return best, "best"

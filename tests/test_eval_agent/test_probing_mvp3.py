@@ -73,19 +73,26 @@ def test_coverage_gain_is_the_gap_removed_over_all_units():
     assert coverage_gain("N2", {"f"}, units) == (0.0, [])
 
 
-def test_choose_takes_the_best_value_breaks_ties_by_soft_order_explores_and_stops_below_threshold():
-    def s(key, U, gain, order):
-        return Scored(kind="follow_up", key=key, U=U, gain=gain, order=order)
+def test_choose_takes_the_best_value_breaks_ties_by_soft_order_explores_within_its_share_and_stops():
+    def s(key, U, gain, order, cost=10.0):
+        return Scored(kind="follow_up", key=key, U=U, gain=gain, order=order, cost=cost)
 
     pool = [s("late", 0.5, 0.2, (1, 2)), s("early", 0.5, 0.2, (1, 0)), s("cheap", 0.1, 0.3, (0, 0))]
-    best, why = choose(pool, decision_no=0, seed=0, explore_every=10, min_gain=0.01)
+    kw = dict(seed=0, explore_share=0.1, min_gain=0.01)
+    # 10 s of exploration would be 10/(50+10) of the spending: over the share, so the best runs
+    best, why = choose(pool, decision_no=0, explored=0.0, spent=50.0, **kw)
     assert (best.key, why) == ("early", "best")
-    picked, why = choose(pool, decision_no=9, seed=0, explore_every=10, min_gain=0.01)
+    # at 90 s spent it fits (10 <= 0.1 * 100): a seeded draw among the others runs instead
+    picked, why = choose(pool, decision_no=3, explored=0.0, spent=90.0, **kw)
     assert why == "explore" and picked.key != "early"
-    assert choose(pool, decision_no=9, seed=0, explore_every=10, min_gain=0.01)[0].key == picked.key  # seeded
-    assert choose([s("x", 0.0, 0.0, (0, 0))], decision_no=0, seed=0, explore_every=10, min_gain=0.01) == (
-        None, "below_threshold")
-    assert choose([], decision_no=0, seed=0, explore_every=10, min_gain=0.01) == (None, "none")
+    assert choose(pool, decision_no=3, explored=0.0, spent=90.0, **kw)[0].key == picked.key   # seeded
+    assert choose(pool, decision_no=3, explored=10.0, spent=100.0, **kw)[1] == "best"         # share used up
+    assert choose(pool, decision_no=3, explored=0.0, spent=1e6, **{**kw, "explore_share": 0.0})[1] == "best"
+    # below the gain floor every candidate is an exploration candidate; once none fits, the run stops
+    low = [s("x", 0.0, 0.0, (0, 0)), s("y", 0.0, 0.0, (0, 1), cost=100.0)]
+    assert choose(low, decision_no=0, explored=0.0, spent=90.0, **kw) == (low[0], "explore")
+    assert choose(low, decision_no=0, explored=0.0, spent=50.0, **kw) == (None, "below_threshold")
+    assert choose([], decision_no=0, explored=0.0, spent=0.0, **kw) == (None, "none")
 
 
 def test_scored_run_is_traceable_deterministic_on_resume_and_comparable_with_the_rules(tmp_path):

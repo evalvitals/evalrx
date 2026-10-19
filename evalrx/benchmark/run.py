@@ -171,8 +171,15 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "scored scheduler decides one chunk at a time")
     p.add_argument("--triage-explanations", choices=["none", "judge"], default="none",
                    help="triage_active with --triage-scheduler scored: judge = the --judge-provider/"
-                        "--judge-model judge proposes competing explanations with predictions once per "
-                        "sample revision, giving D (none = D stays 0, no judge is built)")
+                        "--judge-model judge proposes competing explanations with predictions once the "
+                        "sample has settled (and again when the evidence thins them), giving D (none = D "
+                        "stays 0, no judge is built)")
+    p.add_argument("--triage-weights", default="d=1,t=1,c=1,r=1",
+                   help="triage_active with --triage-scheduler scored: the weights of D, T, C and R in U, "
+                        "as k=v pairs (keys left out keep 1; an ablation sets one to 0)")
+    p.add_argument("--triage-explore-share", type=float, default=0.1,
+                   help="triage_active with --triage-scheduler scored: the share of the spending exploration "
+                        "may take, on candidates other than the best (0 = none)")
     p.add_argument("--triage-seed", type=int, default=0,
                    help="triage_active: rank seed of the nested sampler")
     p.add_argument("--triage-budget-sec", type=float, default=0.0,
@@ -253,6 +260,10 @@ def run_args(args) -> int:
         raise ValueError("--triage-n-fail must be positive")
     if triage and args.triage_max_actions < 0:
         raise ValueError("--triage-max-actions must be non-negative")
+    if triage:
+        triage_weights(args.triage_weights)
+        if not 0.0 <= args.triage_explore_share < 1.0:
+            raise ValueError("--triage-explore-share must be in [0, 1)")
     dataset = args.dataset or T.DEFAULT_TASK[args.modality]
     task = T.get(dataset)
     if task.modality != args.modality:
@@ -262,6 +273,20 @@ def run_args(args) -> int:
     from .runner import run
 
     return run(args, task, resolved)
+
+
+def triage_weights(text: str) -> dict[str, float]:
+    """``"d=1,t=1,c=0"`` -> ``{"d": 1.0, "t": 1.0, "c": 0.0, "r": 1.0}``: the scored scheduler's weights."""
+    out = {"d": 1.0, "t": 1.0, "c": 1.0, "r": 1.0}
+    for part in filter(None, (x.strip() for x in str(text).split(","))):
+        key, sep, value = part.partition("=")
+        key = key.strip().lower()
+        if not sep or key not in out:
+            raise ValueError(f"--triage-weights: {part!r} is not one of d=, t=, c=, r=")
+        out[key] = float(value)
+        if out[key] < 0:
+            raise ValueError(f"--triage-weights: {key} must be non-negative")
+    return out
 
 
 if __name__ == "__main__":

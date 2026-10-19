@@ -73,6 +73,42 @@ def test_disagreement_is_the_share_of_live_pairs_whose_predictions_conflict():
     assert disagreement("S", "patchscope", [a, b, c])[0] == 0.0
     assert disagreement("S", "gradcam", [a])[0] == 0.0
     assert disagreement("N", "gradcam", [a, b])[0] == 0.0          # another route's explanations
+    # a conflict counts by how decidable it is
+    D, detail = disagreement("S", "gradcam", [a, b, c], lambda f, x, y: {"decidable": 0.25})
+    assert D == pytest.approx(0.25 / 3) and detail["conflict_share"] == pytest.approx(1 / 3)
+
+
+def test_decidability_asks_whether_the_routes_cases_can_settle_a_conflict():
+    from evalrx.eval_agent.probing.explanations import (
+        cases_needed,
+        decidability,
+        half_width,
+        spread,
+    )
+
+    assert half_width(9) < 1.0 < half_width(8)       # under one spread from 9 cases a side
+    # a true "up" one spread past the band contradicts "same" from 9 cases a side, whatever the band
+    assert cases_needed("up", "same", 0.0) == cases_needed("up", "same", 2.0) == 9
+    # a true "same" contradicts "up" only once the interval fits in the band: never with no band
+    assert cases_needed("same", "up", 0.0) == float("inf")
+    assert cases_needed("same", "up", 0.5) > cases_needed("same", "up", 1.0) == 9   # a band of one spread
+    assert cases_needed("up", "down", 0.5) < cases_needed("up", "same", 0.5)
+    mean = Metric("x", "a mean", 0.05)
+    # unmeasured mean: only the "up" side can settle; three cases go a third of the way there
+    tiny = decidability("up", "same", 3, mean, None)
+    assert tiny["basis"] == "unmeasured" and tiny["needed"] == [9, None]
+    assert tiny["decidable"] == pytest.approx(3 / 9 / 2, abs=1e-3)
+    assert decidability("up", "same", 16, mean, None)["decidable"] == 0.5
+    assert decidability("up", "same", 16, mean, 0.1)["decidable"] == pytest.approx((1 + 16 / 32) / 2)
+    assert decidability("up", "same", 1, mean, 0.1)["decidable"] == 0.0
+    assert decidability("up", "down", 16, mean, 0.0)["decidable"] == 1.0   # a constant reading
+    # a share's spread is smoothed (0/16 still has one) and taken at its largest before it is measured
+    assert spread([[0.0] * 16, [0.0] * 16], "rate") == pytest.approx(0.3)
+    assert spread([[1.0, 2.0, 3.0], [5.0]], "mean") == pytest.approx(1.0)
+    assert spread([[1.0]], "mean") is None
+    share = Metric("y", "a share", 0.1, "rate")
+    assert decidability("up", "same", 16, share, None)["needed"][1] > decidability(
+        "up", "same", 16, share, 0.3)["needed"][1]
 
 
 def test_check_contradicts_on_a_miss_and_calls_an_explanation_without_predictions_untestable():
@@ -176,7 +212,9 @@ def test_scored_run_asks_once_the_sample_settles_and_resumes_without_asking(tmp_
         if d.get("candidates") and d["revision"] < last:
             assert all(c["D"] == 0.0 for c in d["candidates"]) and "explanations" not in d
     scored = [c for d in report["decisions"] for c in d.get("candidates") or [] if c["kind"] != "expand"]
-    assert any(c["D"] == 1.0 and c["d_detail"]["conflicting"] for c in scored)
+    assert any(c["D"] > 0 and c["d_detail"]["conflict_share"] == 1.0 for c in scored)
+    # each conflict counts by how decidable it is on the route's few cases: never in full here
+    assert all(0 < x["decidable"] < 1 for c in scored for x in c["d_detail"].get("conflicting", []))
     # the judge never sees a case: no case id, no question text, no CONFIRM
     for p in judge.prompts:
         assert not any(str(c.id) in p for c in cases) and "Is there a" not in p and "confirm" not in p.lower()
@@ -273,3 +311,39 @@ def test_a_budgeted_rerun_on_the_same_ledger_decides_as_the_run_that_executed(tm
         assert [(e["key"], e["status"], e.get("n_cases")) for e in again["executions"]] == [
             (e["key"], e["status"], e.get("n_cases")) for e in first["executions"]]
         assert again["cost"]["charged"] == first["cost"]["charged"]
+
+
+class _SlowExplainer(Explainer):
+    """Every judge call is charged 100 seconds."""
+
+    def propose(self, root, revision, context, offered):
+        es = super().propose(root, revision, context, offered)
+        es.cost = {**es.cost, "wall_sec": 100.0}
+        return es
+
+
+def test_a_judge_call_is_asked_only_while_its_estimate_fits_the_budget(tmp_path, monkeypatch):
+    from evalrx.eval_agent.probing import LAYERS
+    from evalrx.eval_agent.probing.actions import PlanStep
+    from evalrx.eval_agent.probing.rules import Layer
+
+    # the re-ask scenario: two asks when nothing binds; the evidence costs milliseconds
+    monkeypatch.setitem(CARDS, "wrapped", (Metric("prompt_sensitivity", "the answer moves with a wrapper", 0.1),))
+    step = PlanStep("prompt_contrast", {"strategies": {"baseline": "{prompt}", "w": "Q: {prompt}"}}, "Z1",
+                    "re-ask inside a wrapper", key="wrapped")
+    at = next(i for i, x in enumerate(LAYERS) if x.rule_id == "Sb")
+    layers = (*LAYERS[:at], Layer("Z1", "S", "does a wrapper move it", (step,)), *LAYERS[at:])
+
+    def run(out, budget):
+        explainer = _SlowExplainer(_Judge(), identity={"provider": "stub", "model": "slow"})
+        return run_triage(_Table(_pope_like()[1]), _pope_like()[0],
+                          **_kw(tmp_path / out, max_fail=8, min_route_fail=1, scheduler="scored", layers=layers,
+                                explainer=explainer, budget_sec=budget))
+
+    assert len(run("full", 0.0)["explanations"]["sets"]) == 2
+    for budget, asks in ((50.0, 1), (150.0, 1), (250.0, 2)):
+        r = run(f"b{budget}", budget)
+        assert len(r["explanations"]["sets"]) == asks, budget
+        # the first call's cost is unknown, so it may overshoot by one call; a later one is not
+        # made unless the largest call so far fits
+        assert r["cost"]["charged"]["wall_sec"] - budget <= 100.0 if asks == 1 else r["cost"]["charged"]["wall_sec"] <= budget

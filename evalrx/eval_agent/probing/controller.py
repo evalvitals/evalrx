@@ -90,12 +90,16 @@ from evalrx.eval_agent.probing.explanations import (
     Hypothesis,
     Metric,
     check,
+    decidability,
     disagreement,
     outcome,
 )
+from evalrx.eval_agent.probing.explanations import spread as reading_spread
 from evalrx.eval_agent.probing.ledger import Ledger
 from evalrx.eval_agent.probing.rules import (
+    LAYER_READOUT,
     LAYERS,
+    MEDIA_ATTENTION_CUT,
     ROUTE_ORDER,
     RULES_VERSION,
     Layer,
@@ -174,7 +178,7 @@ BATTERY: tuple[PlanStep, ...] = (
              calls_per_case={"generate": 2}),
     PlanStep("attention_knockout", {"target": "gold"}, "N1",
              "cut text-to-media attention per layer band; margin change of the gold first token",
-             fidelity_check="edit", calls_per_case={"forward": 5}),
+             fidelity_check="edit", calls_per_case={"forward": 5}, evidence=MEDIA_ATTENTION_CUT),
     PlanStep("self_consistency", {"n": 5}, "U",
              "re-sample each case at the host's frozen sampling settings; an answer that differs "
              "from the Stage-0 answer is the U signal",
@@ -196,7 +200,7 @@ BATTERY: tuple[PlanStep, ...] = (
              "decode the answer position at every layer and the media tokens at three depths: "
              "whether the gold answer was readable before the output, and whether the question "
              "word is read off the media",
-             fidelity_check="patch", calls_per_case={"forward": 1}, deferred=True),
+             fidelity_check="patch", calls_per_case={"forward": 1}, deferred=True, evidence=LAYER_READOUT),
 )
 
 
@@ -553,7 +557,7 @@ def run_triage(
     per_call_generation: bool = True,
     scheduler: str = "rules",
     weights: "Weights | None" = None,
-    explore_every: int = 10,
+    explore_share: float = 0.1,
     min_gain: float = 0.01,
     min_cover: int = 8,
     budget_usd: float = 0.0,
@@ -610,9 +614,9 @@ def run_triage(
                              or ``"scored"`` (MVP-3: the candidate with the highest
                              U = q·[D+T+C−R]₊/(c+ε), see :mod:`.scoring`). Both share
                              the ledger; the scored report is ``triage_report.scored``.
-        weights, explore_every, min_gain, min_cover: the scored scheduler's weights,
-                             exploration period (every k-th decision), value floor
-                             and per-unit coverage target.
+        weights, explore_share, min_gain, min_cover: the scored scheduler's weights,
+                             exploration's share of the spending, value floor and
+                             per-unit coverage target.
         budget_usd:          USD cap (0 = none), charged like ``budget_sec`` and checked
                              with the step's earlier USD per case.
         chunk:               cases per chunk of a ``reuse`` step (FAIL and PASS alternating;
@@ -622,8 +626,9 @@ def run_triage(
         explainer:           the scored scheduler's source of competing explanations
                              (:mod:`.explanations`): asked once the sample has settled and
                              again when the evidence has thinned a route's live explanations
-                             (at most ``explainer.max_asks`` times); its predictions give
-                             each candidate its D. ``None`` = D stays 0.
+                             (at most ``explainer.max_asks`` times, and only while the largest
+                             call so far fits the budget); its predictions give each
+                             candidate its D. ``None`` = D stays 0.
         run_logger:          optional RunLoggerV2 for per-call model logs.
     """
     if scheduler not in SCHEDULERS:
@@ -757,28 +762,108 @@ def run_triage(
         for name in (*x.served_by, *(c.name for c in x.candidates)):
             step_layers.setdefault((x.route, name), x)
 
-    def outcomes_for(records: list[dict[str, Any]]) -> Callable[[str, str, Metric], dict[str, Any]]:
-        """``(route, step key, reading) -> outcome``: the reading's FAIL-minus-control difference
-        on the route's current FAIL cases (the layer's filter applied) and their PASS controls."""
-        groups: dict[Any, tuple[list[str], list[str]]] = {}
-        values: dict[tuple[str, str], dict[str, Any]] = {}
+    class Readings:
+        """The current evidence read per case, once per decision. Called as ``(route, step key,
+        reading) -> outcome``: the reading's FAIL-minus-control difference on the route's current
+        FAIL cases (the layer's filter applied) and their PASS controls."""
 
-        def get(route: str, key: str, metric: Metric) -> dict[str, Any]:
+        def __init__(self, records: list[dict[str, Any]]) -> None:
+            self.records = records
+            self.groups: dict[Any, tuple[list[str], list[str]]] = {}
+            self.values: dict[tuple[str, str], dict[str, Any]] = {}
+            self.spreads: dict[tuple[str, str], "float | None"] = {}
+
+        def value(self, key: str, cid: str) -> dict[str, Any]:
+            if (key, cid) not in self.values:
+                self.values[(key, cid)] = follow_up_values(run.evidence[key], run.by_id[cid], answer_fn)
+            return self.values[(key, cid)]
+
+        def cases(self, route: str, key: str) -> tuple[list[str], list[str]]:
+            """The route's FAIL cases for *key* (its layer's filter applied) and their PASS controls."""
+            layer = step_layers.get((route, key))
+            flt = layer.case_filter if layer is not None else None
+            if (route, flt) not in self.groups:
+                fail_ids = route_fail_ids(self.records, route, flt)
+                self.groups[(route, flt)] = (fail_ids, matched_controls(self.records, fail_ids, rank_of)[0])
+            return self.groups[(route, flt)]
+
+        def __call__(self, route: str, key: str, metric: Metric) -> dict[str, Any]:
             ev = run.evidence.get(key)
             if ev is None or not ev.chunks:
                 return {"n": [0, 0], "observed": "not_measured"}
-            layer = step_layers.get((route, key))
-            flt = layer.case_filter if layer is not None else None
-            if (route, flt) not in groups:
-                fail_ids = route_fail_ids(records, route, flt)
-                groups[(route, flt)] = (fail_ids, matched_controls(records, fail_ids, rank_of)[0])
-            fail_ids, controls = groups[(route, flt)]
-            for cid in (*fail_ids, *controls):
-                if (key, cid) not in values:
-                    values[(key, cid)] = follow_up_values(ev, run.by_id[cid], answer_fn)
-            return outcome({cid: values[(key, cid)] for cid in (*fail_ids, *controls)}, fail_ids, controls, metric)
+            fail_ids, controls = self.cases(route, key)
+            return outcome({cid: self.value(key, cid) for cid in (*fail_ids, *controls)}, fail_ids, controls, metric)
 
-        return get
+        def spread(self, key: str, metric: Metric) -> "float | None":
+            """The reading's spread within FAIL and within PASS cases, over every case the step
+            measured in this run (``None`` before it measured one)."""
+            if (key, metric.field) not in self.spreads:
+                ev = run.evidence.get(key)
+                groups: dict[str, list[float]] = {"fail": [], "pass": []}
+                for cid in sorted(ev.covered()) if ev is not None else ():
+                    v = self.value(key, cid)
+                    if v["state"] == "measured" and metric.field in v["values"]:
+                        label = getattr(getattr(run.by_id[cid], "label", None), "value", None)
+                        groups["fail" if label == "fail" else "pass"].append(float(v["values"][metric.field]))
+                self.spreads[(key, metric.field)] = reading_spread(list(groups.values()), metric.kind)
+            return self.spreads[(key, metric.field)]
+
+        def decidable(self, route: str, key: str) -> Callable[[str, str, str], dict[str, Any]]:
+            """``(reading, direction a, direction b) -> decidability`` of a conflict on *route*'s cases."""
+            fail_ids, controls = self.cases(route, key)
+            n = min(len(fail_ids), len(controls))
+            metrics = {m.field: m for m in CARDS.get(key, ())}
+            return lambda field, a, b: decidability(a, b, n, metrics[field], self.spread(key, metrics[field]))
+
+    outcomes_for = Readings
+    steps_by_name = {s.name: s for s in (*battery, *candidate_steps(layers))}
+
+    def alternatives(st: dict[str, Any]) -> list[tuple[PlanStep, float, str]]:
+        """``(step, R, the step it is an alternative to)`` for a layer's other candidates that can
+        still run on the route: those of an answered layer (to the tool that answered it), and of
+        an open one (to its current candidate). R is 0.5 when the alternative gives the kind of
+        evidence that tool gives, 0 when it gives another kind (see :mod:`.scoring`)."""
+        if st["state"] == "done":
+            base = st.get("via") or ""
+        elif st["state"] in ("open", "extend"):
+            base = st["step"].name
+        else:
+            return []
+        first = steps_by_name.get(base)
+        target = [*st["_fail_ids"], *st["_control_ids"]]
+        out = []
+        for step in by_rule[st["rule_id"]].candidates:
+            if step.name == base or step.name in run.blocked:
+                continue
+            ev = run.evidence.get(step.name)
+            if ev is not None and (ev.refused() is not None or not ev.todo(target)):
+                continue
+            if run.gate(step, target) is not None:
+                continue
+            same = first is not None and step.evidence_kind == first.evidence_kind
+            out.append((step, 0.5 if same else 0.0, base))
+        return out
+
+    Option = tuple[int, dict[str, Any], PlanStep, float, str]   # (layer index, state, step, R, alternative to)
+
+    def runnable(states: dict[str, list[dict[str, Any]]]) -> tuple[dict[str, list[Option]], dict[str, list[Option]]]:
+        """Per route, what the scored scheduler may run (each open or extending layer's current
+        candidate, with R = 0, and the alternatives of its answered layers), and what the judge
+        is offered: those, and the alternatives of the open layers, which become candidates once
+        their layer is answered."""
+        pool: dict[str, list[Option]] = {}
+        offer: dict[str, list[Option]] = {}
+        for route, sts in states.items():
+            rows, extra = [], []
+            for li, st in enumerate(sts):
+                alts = [(li, st, step, R, base) for step, R, base in alternatives(st)]
+                if st["state"] in ("open", "extend"):
+                    rows.append((li, st, st["step"], 0.0, ""))
+                    extra += alts
+                else:
+                    rows += alts
+            pool[route], offer[route] = rows, rows + extra
+        return pool, offer
 
     def route_view(records: list[dict[str, Any]], gaps: list[dict[str, Any]]
                    ) -> tuple[dict[str, list[dict[str, Any]]], bool]:
@@ -799,24 +884,24 @@ def run_triage(
 
     explanation_sets: list[ExplanationSet] = []
 
-    def explanation_request(records: list[dict[str, Any]], states: dict[str, list[dict[str, Any]]],
+    def explanation_request(records: list[dict[str, Any]], options: dict[str, list[Any]],
                             outcome_of: Callable[[str, str, Metric], dict[str, Any]]
                             ) -> tuple[dict[str, Any], dict[str, dict[str, list[str]]]]:
-        """What the judge sees, and per route the steps (with their readings) it may predict:
-        each open layer's current candidate, in a seeded order. A fallback only becomes a
-        candidate when its layer's first choice fails; predictions on it would mostly go
-        unchecked (a later ask covers it once it is the candidate)."""
+        """What the judge sees, and per route the steps (with their readings) it may predict, in a
+        seeded order: each open layer's current candidate, and every layer's other candidates as
+        alternatives (to the tool that answered it, or to its current candidate). An alternative
+        runs once its layer is answered if its D beats its redundancy, so its predictions are
+        asked for up front."""
         offered: dict[str, dict[str, list[str]]] = {}
         routes: dict[str, Any] = {}
-        for route, sts in states.items():
+        for route, rows in options.items():
             to_run: list[dict[str, Any]] = []
-            for st in sts:
-                if st["state"] not in ("open", "extend"):
-                    continue
-                layer, step = by_rule[st["rule_id"]], st["step"]
+            for _, st, step, _, alternative_to in rows:
+                layer = by_rule[st["rule_id"]]
                 if step.name in CARDS and all(c["step"] != step.name for c in to_run):
                     to_run.append({"step": step.name, "tool": step.analyzer, "layer": layer.rule_id,
                                    "question": layer.question, "what": step.purpose,
+                                   **({"alternative_to": alternative_to} if alternative_to else {}),
                                    **({"caveat": step.caveat} if step.caveat else {}),
                                    "readings": [m.card() for m in CARDS[step.name]]})
             if not to_run:
@@ -856,10 +941,14 @@ def run_triage(
         }
         return context, offered
 
+    def judge_estimate(axis: str) -> "float | None":
+        costs = [float(es.cost[axis]) for es in explanation_sets if es.cost.get(axis) is not None]
+        return max(costs) if costs else None
+
     def n_asked() -> int:
         return sum(1 for es in explanation_sets if es.source != "not_asked")
 
-    def ask_reason(states: dict[str, list[dict[str, Any]]], growing: bool, verdicts: dict[str, Any],
+    def ask_reason(options: dict[str, list[Any]], growing: bool, verdicts: dict[str, Any],
                    current: "ExplanationSet | None") -> "str | None":
         """Why the judge is asked now (``None`` = it is not).
 
@@ -872,9 +961,10 @@ def run_triage(
             plan = expansion_plan()
             if plan is not None and run.over_budget(plan[3]) is None:
                 return None
-        with_cards = sorted(route for route, sts in states.items()
-                            if any(st["state"] in ("open", "extend") and st["step"].name in CARDS for st in sts))
-        if not with_cards or run.over_budget(None) is not None:
+        with_cards = sorted(route for route, rows in options.items() if any(row[2].name in CARDS for row in rows))
+        # a judge call is charged like an action: asked only while its estimate fits, the
+        # largest call so far (the first is unknown: a run overshoots by at most one call)
+        if not with_cards or run.over_budget(judge_estimate("wall_sec"), judge_estimate("usd")) is not None:
             return None
         if current is None:
             return "the sample has settled: no expansion can follow"
@@ -886,9 +976,9 @@ def run_triage(
         return (f"the evidence decided {len(new)} prediction(s) since the last ask, and route(s) {thin} "
                 f"with tools left have fewer than two live explanations")
 
-    def explain(records: list[dict[str, Any]], states: dict[str, list[dict[str, Any]]],
+    def explain(records: list[dict[str, Any]], options: dict[str, list[Any]],
                 outcome_of: Callable[[str, str, Metric], dict[str, Any]], reason: str) -> ExplanationSet:
-        context, offered = explanation_request(records, states, outcome_of)
+        context, offered = explanation_request(records, options, outcome_of)
         if not offered:
             es = ExplanationSet(revision, "", offered=offered, source="not_asked",
                                 error="no active route has a tool with readings to predict")
@@ -912,8 +1002,8 @@ def run_triage(
         return es
 
     def scored_pool(records: list[dict[str, Any]], gaps: list[dict[str, Any]],
-                    states: dict[str, list[dict[str, Any]]], growing: bool, live: list[Hypothesis]
-                    ) -> tuple[list[Scored], list[dict[str, Any]], str]:
+                    states: dict[str, list[dict[str, Any]]], options: dict[str, list[Any]], growing: bool,
+                    live: list[Hypothesis], readings: Readings) -> tuple[list[Scored], list[dict[str, Any]], str]:
         """Every feasible candidate with its value, what the budget filtered out, and the cost axis."""
         nonlocal expansion_note
         # A batch-dependent step's reading is superseded by any later expansion, and no
@@ -924,16 +1014,15 @@ def run_triage(
         by_id = {r["case_id"]: r for r in records}
         pool: list[Scored] = []
         filtered: list[dict[str, Any]] = []
-        for route, sts in states.items():
-            for li, st in enumerate(sts):
-                if st["state"] not in ("open", "extend"):
-                    continue
-                layer, step = by_rule[st["rule_id"]], st["step"]
+        for route, rows in options.items():
+            for li, st, step, R, alternative_to in rows:
+                layer = by_rule[st["rule_id"]]
                 if growing and not step.reuse:
                     filtered.append({"key": step.name, "route": route, "rule_id": layer.rule_id,
                                      "reason": "batch-dependent: a pending expansion would supersede it"})
                     continue
-                target = st["target"] if st.get("battery") else [*st["_fail_ids"], *st["_control_ids"]]
+                battery_step = bool(st.get("battery")) and not alternative_to
+                target = st["target"] if battery_step else [*st["_fail_ids"], *st["_control_ids"]]
                 ev = run.evidence.get(step.name)
                 todo = ev.todo(target) if ev is not None else list(target)
                 if not todo:      # the same observation exists: R = 1, not a candidate
@@ -949,22 +1038,24 @@ def run_triage(
                 # chunks); a battery step on part of the sample. Shared PASS controls do not count:
                 # describe-first measured for S has not started N's question
                 started = step.reuse and ev is not None and bool(
-                    ev.covered() & set(target if st.get("battery") else st["_fail_ids"]))
+                    ev.covered() & set(target if battery_step else st["_fail_ids"]))
                 T, gap_ids = 0.0, []
                 if started:
                     T, gap_ids = share, [f"incomplete:{layer.rule_id}:{step.name}"]
                 elif layer.route == "H" and any(by_id[c]["H"]["disagreements"] for c in fail_new):
                     T, gap_ids = share, [f"contradiction:{layer.rule_id}"]
-                kind = "extend" if started else ("battery" if st.get("battery") else "follow_up")
-                D, d_detail = disagreement(route, step.name, live) if live else (0.0, {})
+                kind = "extend" if started else ("battery" if battery_step else "follow_up")
+                D, d_detail = (disagreement(route, step.name, live, readings.decidable(route, step.name))
+                               if live else (0.0, {}))
                 cost, basis = step_cost(step, len(part), run.evidence, axis)
                 cand = Scored(kind=kind, key=step.name, route=route, rule_id=layer.rule_id,
                               order=(ROUTE_ORDER.index(route), li), n_new_cases=len(part), D=D * share, T=T, C=C,
-                              d_detail=d_detail, q=availability(step.analyzer, run.evidence), cost=cost, basis=basis,
-                              gaps=gap_ids, units=touched,
-                              payload=Proposal(layer=layer, step=step, kind=st["state"], fail_ids=st["_fail_ids"],
-                                               control_ids=st["_control_ids"], todo=part, tried=st.get("tried", []),
-                                               before=[], target_override=part))
+                              R=R * share, d_detail=d_detail, q=availability(step.analyzer, run.evidence), cost=cost,
+                              basis=basis, alternative_to=alternative_to, gaps=gap_ids, units=touched,
+                              payload=Proposal(layer=layer, step=step,
+                                               kind="alternative" if alternative_to else st["state"],
+                                               fail_ids=st["_fail_ids"], control_ids=st["_control_ids"], todo=part,
+                                               tried=st.get("tried", []), before=[], target_override=part))
                 why = run.over_budget(run.estimate_sec(step, len(part)), run.estimate_usd(step, len(part)))
                 if why is not None:
                     filtered.append({"key": step.name, "route": route, "rule_id": layer.rule_id, "reason": why})
@@ -991,6 +1082,7 @@ def run_triage(
                     pool.append(value(cand, weights, axis))
         return pool, filtered, axis
 
+    explored: dict[str, float] = {}   # what exploration decisions spent, per cost axis
     if scheduler == "scored":
         current: "ExplanationSet | None" = None
         while stop is None:
@@ -1000,26 +1092,32 @@ def run_triage(
             if not revisions or revisions[-1]["revision"] != revision:
                 revisions.append(_revision_row(revision, draw, summary, records, gaps))
             states, growing = route_view(records, gaps)
+            options, offer = runnable(states)
             outcome_of = outcomes_for(records)
             # explanations a prediction already missed on leave the live set: D is recomputed
             # from the evidence at every decision, without asking the judge again
             verdicts = check(current.hypotheses, outcome_of) if current is not None else {}
             if explainer is not None and n_asked() < explainer.max_asks:
-                reason = ask_reason(states, growing, verdicts, current)
+                reason = ask_reason(offer, growing, verdicts, current)
                 if reason is not None:
-                    current = explain(records, states, outcome_of, reason)
+                    current = explain(records, offer, outcome_of, reason)
                     verdicts = check(current.hypotheses, outcome_of)
                     current.decided_at_ask = _decided(verdicts)
             live = [h for h in (current.hypotheses if current is not None else []) if verdicts[h.id]["state"] == "live"]
-            pool, filtered, axis = scored_pool(records, gaps, states, growing, live)
-            pick, why = choose(pool, decision_no=n_spent(), seed=seed, explore_every=explore_every,
-                               min_gain=min_gain)
+            pool, filtered, axis = scored_pool(records, gaps, states, options, growing, live, outcome_of)
+            spent = run.charged(axis)
+            pick, why = choose(pool, decision_no=n_spent(), seed=seed, explore_share=explore_share,
+                               explored=explored.get(axis, 0.0), spent=spent, min_gain=min_gain)
             if pick is None:
                 over = [f for f in filtered if not f["reason"].startswith("batch-dependent")]
-                stop = {"reason": "below_threshold" if why != "none" else "budget" if over else "no_candidate",
-                        "detail": (f"no candidate reaches the gain floor {min_gain}" if why != "none" else
-                                   "every remaining candidate is over budget" if over else "no feasible candidate"),
-                        "best_gain": max((c.gain for c in pool), default=None), "filtered": filtered}
+                # a candidate the budget filtered out binds before the gain floor does
+                stop = {"reason": "budget" if over else "below_threshold" if why != "none" else "no_candidate",
+                        "detail": ((f"{len(over)} candidate(s) over budget; the rest " +
+                                    (f"below the gain floor {min_gain}" if pool else "none"))
+                                   if over else f"no candidate reaches the gain floor {min_gain}" if why != "none"
+                                   else "no feasible candidate"),
+                        "best_gain": max((c.gain for c in pool), default=None), "filtered": filtered,
+                        "candidates": [c.row() for c in sorted(pool, key=lambda c: (-c.U, c.order))]}
                 break
             if pick.kind != "extend" and n_actions() >= max_actions:
                 stop = {"reason": "max_actions", "max_actions": max_actions,
@@ -1029,14 +1127,24 @@ def run_triage(
             skipped = [c.rule_id for c in pool if pick.route and c.route == pick.route and c.order < pick.order]
             extra = {"choice": why, "scoring_version": SCORING_VERSION, "axis": axis,
                      "U": round(pick.U, 6), "gain": round(pick.gain, 6),
+                     "rationale": _scored_rationale(pick, why, explored.get(axis, 0.0), spent, explore_share),
+                     **({"alternative_to": pick.alternative_to} if pick.alternative_to else {}),
                      "candidates": [c.row() for c in ranked], "filtered": filtered,
                      **({"explanations": {"key": current.key, "revision": current.revision,
                                           "states": {hid: v["state"] for hid, v in verdicts.items()}}}
                         if current is not None else {}),
                      **({"soft_order_exception": f"{pick.rule_id} taken before open layer(s) {skipped} of route "
                                                  f"{pick.route}: higher value"} if skipped else {})}
+            before = {a: run.charged(a) for a in ("wall_sec", "usd")}
+
+            def account() -> None:   # what an exploration decision spent counts against its share
+                if why == "explore":
+                    for a in before:
+                        explored[a] = explored.get(a, 0.0) + run.charged(a) - before[a]
+
             if pick.kind == "expand":
                 do_expand(pick.payload, gaps, extra)
+                account()
                 round_no += 1
                 continue
             proposal = pick.payload
@@ -1046,6 +1154,7 @@ def run_triage(
             record = run.run_step(proposal.step, proposal.target_ids,
                                   kind="battery" if pick.kind == "battery" else "follow_up", revision=revision,
                                   rule_id=pick.rule_id, route=pick.route)
+            account()
             if record is None:
                 run.blocked.setdefault(proposal.step.name, "nothing left to run")
             elif record["status"] == SKIPPED:
@@ -1144,7 +1253,8 @@ def run_triage(
     report = {
         "policy": POLICY_VERSION,
         "scheduler": scheduler,
-        **({"scoring_version": SCORING_VERSION, "weights": weights.__dict__, "explore_every": explore_every,
+        **({"scoring_version": SCORING_VERSION, "weights": weights.__dict__, "explore_share": explore_share,
+            "explored": {a: round(v, 6) for a, v in explored.items()},
             "min_gain": min_gain, "min_cover": min_cover} if scheduler == "scored" else {}),
         "rules_version": RULES_VERSION,
         "model": model_identity,
@@ -1183,6 +1293,17 @@ def run_triage(
     _write_json(out / f"{name}.json", report)
     (out / f"{name}.md").write_text(_markdown(report), encoding="utf-8")
     return report
+
+
+def _scored_rationale(pick: Scored, why: str, explored: float, spent: float, share: float) -> str:
+    """One line saying why the scored scheduler took *pick*."""
+    terms = f"U {pick.U:.4g} = q {pick.q:.2f} x [D {pick.D:.3f} + T {pick.T:.3f} + C {pick.C:.3f} - R {pick.R:.3f}]"
+    terms += f" / cost {pick.cost:.4g}" if pick.cost is not None else " / cost unknown"
+    if why == "explore":
+        return (f"exploration ({explored:.4g} of {spent:.4g} spent so far went to exploration; share {share}): "
+                + terms)
+    alt = f"; an alternative to {pick.alternative_to}" if pick.alternative_to else ""
+    return f"highest value: {terms}{alt}"
 
 
 def report_name(scheduler: str, explained: bool = False) -> str:

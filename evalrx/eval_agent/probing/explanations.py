@@ -24,12 +24,26 @@ undetermined otherwise. An explanation with a miss is contradicted and leaves
 the live set; one without any explicit prediction is untestable and is not in
 it either.
 
-``D(a)`` for a candidate on route r is the share of pairs of r's live
-explanations whose explicit predictions for that step conflict on at least
-one reading; a pair with an ``unknown`` counts in the denominator only. Zero
-or one live explanation gives ``D = 0``. Confidence the judge states is not
-asked for and never weights anything. D is a disagreement heuristic, not a
-posterior or an information gain.
+``D(a)`` for a candidate on route r sums, over the pairs of r's live
+explanations whose explicit predictions for that step conflict, how decidable
+the conflict is on the route's cases, and divides by the number of pairs; a
+pair with an ``unknown`` counts in the denominator only. Zero or one live
+explanation gives ``D = 0``. Confidence the judge states is not asked for and
+never weights anything. D is a disagreement heuristic, not a posterior or an
+information gain.
+
+**Decidability** (``decidability``): a conflict is only worth something if the
+route's sample can settle it. Take one prediction as true at its reference
+difference: 0 for ``same``, one standard deviation of the reading beyond the
+band for ``up``/``down``. The cases needed are the fewest per side at which the
+verdict's interval would then contradict the other prediction. With *n* route
+FAIL cases (and as many controls), each side scores ``min(1, n / needed)``,
+and the conflict scores the mean of the two sides; a pair conflicting on
+several readings takes its most decidable one. The spread comes from every
+case the step measured in this run. Until then a share's spread is taken at
+its largest (0.5) and a mean's band as negligible next to its spread: the
+least favourable values, so that a "same" prediction about an unmeasured mean
+reading counts as unsettleable.
 
 The judge sees the route summaries and readings of EXPLORE only, never a
 case's content, media or CONFIRM. Each call's prompt, reply and cost are
@@ -54,7 +68,7 @@ from typing import Any, Callable
 from evalrx.eval_agent.probing.metering import usage_counters, usage_delta
 from evalrx.eval_agent.probing.triage import difference_interval
 
-EXPLAIN_VERSION = "mvp3-explain-1"
+EXPLAIN_VERSION = "mvp3-explain-2"
 DIRECTIONS = ("up", "down", "same", "unknown")
 _ALIASES = {"↑": "up", "↓": "down", "≈": "same", "=": "same", "~": "same", "?": "unknown",
             "higher": "up", "lower": "down", "increase": "up", "decrease": "down", "none": "unknown"}
@@ -245,6 +259,74 @@ def outcome(values: "dict[str, dict[str, Any]]", fail_ids: list[str], control_id
     return out
 
 
+# -- decidability -------------------------------------------------------------------------------
+
+_MAX_CASES = 1 << 20
+
+
+def half_width(n: int) -> float:
+    """The verdict interval's half-width in standard deviations of the reading, with *n* cases on
+    each side of equal spread (Welch's degrees of freedom are then ``2n - 2``)."""
+    return _t975(2 * n - 2) * math.sqrt(2.0 / n)
+
+
+def spread(groups: "list[list[float]]", kind: str) -> "float | None":
+    """The reading's standard deviation within groups (FAIL, PASS), pooled; ``None`` without data.
+
+    A share's spread is that of its smoothed rate ``(k + 2) / (m + 4)``, so a share
+    measured at 0 still has one (the interval around 0/16 is not empty)."""
+    if kind == "rate":
+        rows = [(len(g), (sum(1 for x in g if x >= 0.5) + 2) / (len(g) + 4)) for g in groups if g]
+        if not rows:
+            return None
+        return math.sqrt(sum(m * p * (1 - p) for m, p in rows) / sum(m for m, _ in rows))
+    rows = [g for g in groups if len(g) >= 2]
+    if not rows:
+        return None
+    ss = sum(sum((x - _mean(g)) ** 2 for x in g) for g in rows)
+    return math.sqrt(ss / sum(len(g) - 1 for g in rows))
+
+
+def cases_needed(true: str, other: str, z: float) -> float:
+    """Fewest cases a side at which, with *true* holding at its reference difference, the
+    interval contradicts *other*; ``inf`` when no sample would. *z* is the band in standard
+    deviations of the reading.
+
+    In units of the spread, with half-width ``h``: ``same`` misses under a true ``up``
+    (one past the band) once ``h < 1``; the opposite direction once ``h <= 2z + 1``; and
+    ``up``/``down`` misses under a true ``same`` only once the whole interval fits in
+    the band, ``h <= z``."""
+    limit = z if true == "same" else 1.0 if other == "same" else 2.0 * z + 1.0
+    if limit <= 0.0:
+        return math.inf
+    if math.isinf(limit) or half_width(MIN_N) <= limit:
+        return float(MIN_N)
+    lo, hi = MIN_N, MIN_N
+    while half_width(hi) > limit:
+        lo, hi = hi, hi * 2
+        if hi > _MAX_CASES:
+            return math.inf
+    while hi - lo > 1:   # half_width falls with n
+        mid = (lo + hi) // 2
+        lo, hi = (mid, hi) if half_width(mid) > limit else (lo, mid)
+    return float(hi)
+
+
+def decidability(a: str, b: str, n: int, metric: Metric, sd: "float | None") -> dict[str, Any]:
+    """How far *n* route FAIL cases (and as many controls) go towards settling predictions *a*
+    against *b* on *metric*, from 0 to 1; with the cases each side would need."""
+    if sd is None:
+        # least favourable: a share at its largest spread, a mean's band negligible next to it
+        z, basis = (metric.band / 0.5 if metric.kind == "rate" else 0.0), "unmeasured"
+    else:
+        z, basis = (math.inf if sd == 0.0 else metric.band / sd), "measured"
+    needed = (cases_needed(a, b, z), cases_needed(b, a, z))
+    score = [0.0 if n < MIN_N or math.isinf(k) else min(1.0, n / k) for k in needed]
+    return {"decidable": round(sum(score) / 2, 4), "n": n, "needed": [None if math.isinf(k) else int(k)
+                                                                      for k in needed],
+            "spread": None if sd is None else round(sd, 4), "basis": basis}
+
+
 # -- explanations -------------------------------------------------------------------------------
 
 
@@ -307,19 +389,33 @@ def check(hypotheses: list[Hypothesis], outcome_of: Outcomes) -> dict[str, dict[
     return out
 
 
-def disagreement(route: str, step: str, live: list[Hypothesis]) -> tuple[float, dict[str, Any]]:
-    """``D`` of running *step* on *route*, and which pairs of live explanations it separates."""
+Decidable = Callable[[str, str, str], dict[str, Any]]   # (reading, direction a, direction b) -> decidability
+
+
+def disagreement(route: str, step: str, live: list[Hypothesis],
+                 decidable: "Decidable | None" = None) -> tuple[float, dict[str, Any]]:
+    """``D`` of running *step* on *route*, and which pairs of live explanations it separates.
+
+    Each conflicting pair counts by how decidable its conflict is on the route's cases
+    (:func:`decidability`; its most decidable reading); without *decidable* every conflict
+    counts in full. ``conflict_share`` is the share of conflicting pairs, undiscounted."""
     hyps = [h for h in live if h.route == route]
     if len(hyps) < 2:
-        return 0.0, {"n_live": len(hyps), "n_pairs": 0, "conflicting": []}
+        return 0.0, {"n_live": len(hyps), "n_pairs": 0, "conflicting": [], "conflict_share": 0.0}
     pairs = list(combinations(hyps, 2))
     conflicting = []
     for a, b in pairs:
         pa, pb = a.predictions.get(step, {}), b.predictions.get(step, {})
         on = sorted(f for f in set(pa) & set(pb) if pa[f] != pb[f])
         if on:
-            conflicting.append({"pair": [a.id, b.id], "readings": on})
-    return len(conflicting) / len(pairs), {"n_live": len(hyps), "n_pairs": len(pairs), "conflicting": conflicting}
+            row: dict[str, Any] = {"pair": [a.id, b.id], "readings": on}
+            if decidable is not None:
+                row["by_reading"] = {f: decidable(f, pa[f], pb[f]) for f in on}
+                row["decidable"] = max(r["decidable"] for r in row["by_reading"].values())
+            conflicting.append(row)
+    D = sum(c.get("decidable", 1.0) for c in conflicting) / len(pairs)
+    return D, {"n_live": len(hyps), "n_pairs": len(pairs), "conflicting": conflicting,
+               "conflict_share": len(conflicting) / len(pairs)}
 
 
 # -- the judge call ---------------------------------------------------------------------------------
@@ -338,6 +434,9 @@ and the mechanisms the tools can see, not the model in general. Competing: they
 should differ in what at least one listed tool would show. Do not split one
 explanation into variants only to disagree, and propose fewer (or none) when you
 have no real alternative.
+
+A tool with "alternative_to" asks a question that another tool (named there)
+has already answered on the route: it runs only if it tells explanations apart.
 
 For each explanation and each tool listed under the route's "to_run", predict
 for each of its readings the direction of (FAIL mean - control mean):

@@ -79,7 +79,8 @@ def _yes_no(case, text):
 def _kw(out, **over):
     kw = dict(out_dir=out, model_identity={"spec": "table"}, n_fail=4, seed=0, host_assumed_finish=True,
               n_needs_counterfactual=True, task_kind="yes_no", answer_fn=_yes_no, min_cohort=100,
-              analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}}, progress=None)
+              analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}}, progress=None,
+              explore_share=0.0)   # the scored scheduler explores only in the tests about exploration
     return {**kw, **over}
 
 

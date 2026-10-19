@@ -6,6 +6,34 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — triage scored scheduler: decidable D, alternatives priced by R, exploration share (MVP-3)
+
+D counts each conflicting pair of live explanations by how decidable the
+conflict is on the route's cases (`explanations.decidability`, version
+`mvp3-explain-2`): taking each prediction as true at a reference difference (0
+for `same`, one standard deviation of the reading past the band for
+`up`/`down`), the cases a side the verdict's interval needs to contradict the
+other; each side scores `min(1, n / needed)` and the conflict the mean. The
+spread comes from the step's own measurements in this run, else the least
+favourable value, so three FAIL cases settle an unmeasured up-versus-same
+conflict to 1/6 where they counted in full before. An answered layer offers its
+other candidates as alternatives with R = 0.5 when they give the same kind of
+evidence as the tool that answered it (`PlanStep.evidence`) and 0 otherwise;
+they close no gap and cover no unit, so they run only on a D above their R, and
+the judge is offered them (`alternative_to`) from the first ask. Exploration
+takes a share of the spending (`--triage-explore-share`, default 0.1) instead
+of every 10th decision, and below the gain floor the run explores until no
+candidate fits the share. `--triage-weights` sets the weights of D, T, C and R
+for ablations (scoring `mvp3-score-4`). A judge call is asked only while the
+largest call so far fits the budget, so a run overshoots by at most its first
+call; a run whose remaining candidates are over budget stops for `budget`
+even when cheaper zero-gain alternatives are left. On Qwen3.5-0.8B POPE
+decidability cut D on the 3-case N route from 0.67-1.0 to 0.11-0.22 and the
+unbudgeted D arm's evidence from 1603 s to 1350 s; of 19 alternatives the D arms
+ran, 7 were chosen on value and 12 by exploration, so the extra evidence
+mostly comes from exploration, and whether D pays for its judge (about 30% of
+the evidence cost) still needs MVP-4's validated metric.
+
 ### Changed — triage spends by measurement: chunked steps, no per-analyzer cost prior
 
 Steps run in chunks of `--triage-chunk` cases (default 8, FAIL and PASS
