@@ -157,13 +157,18 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                    help="triage_active: the most FAIL cases the expansion rule may grow the sample to "
                         "(doubling from --triage-n-fail; a value at or below it disables expansion)")
     p.add_argument("--triage-max-actions", type=int, default=12,
-                   help="triage_active: decisions after the battery (expansions + route follow-ups)")
+                   help="triage_active: decisions after the battery (expansions + route follow-ups; the "
+                        "scored scheduler's further chunks of a step it already took do not count)")
     p.add_argument("--triage-scheduler", choices=["rules", "scored"], default="rules",
                    help="triage_active: rules = MVP-2 fixed rounds over the routes' layers; scored = MVP-3 "
                         "value per cost, U = q*[D+T+C-R]+/(c+eps) (report: triage_report.scored.*)")
     p.add_argument("--triage-budget-usd", type=float, default=0.0,
                    help="triage_active: USD cap on priced API models (0 = none), charged like "
                         "--triage-budget-sec")
+    p.add_argument("--triage-chunk", type=int, default=8,
+                   help="triage_active: cases per chunk of a reusable step (FAIL and PASS alternating; 0 = one "
+                        "piece). The budget is checked before every chunk on the cost measured so far, and the "
+                        "scored scheduler decides one chunk at a time")
     p.add_argument("--triage-explanations", choices=["none", "judge"], default="none",
                    help="triage_active with --triage-scheduler scored: judge = the --judge-provider/"
                         "--judge-model judge proposes competing explanations with predictions once per "

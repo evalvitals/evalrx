@@ -23,8 +23,8 @@ from evalrx.eval_agent.probing.scoring import (
     availability,
     choose,
     coverage_gain,
-    estimate_cost,
-    method_rates,
+    per_case_costs,
+    step_cost,
 )
 from tests.test_eval_agent.test_probing_mvp2 import _kw, _pope_like, _Table
 
@@ -47,16 +47,20 @@ def test_availability_counts_each_observation_once_and_a_refusal_as_a_failure():
     assert availability("gradcam", ev) == 0.5   # never tried
 
 
-def test_costs_come_from_the_steps_own_history_else_measured_rates():
-    sc = _step("self_consistency")
+def test_costs_come_from_the_steps_own_measurement_else_the_runs_typical_or_worst_case():
+    sc, ko = _step("self_consistency"), _step("attention_knockout")
     ev = {"self_consistency": StepEvidence(sc, [_obs("s", ["a", "b"], cost={"wall_sec": 10.0, "calls": {"generate": 10}})]),
-          "attention_knockout": StepEvidence(_step("attention_knockout"),
-                                             [_obs("k", ["a"], cost={"wall_sec": 4.0, "calls": {"forward": 8}})])}
-    rates = method_rates(ev, "wall_sec")
-    assert rates == {"generate": 1.0, "forward": 0.5, "backward": 1.5, "logprobs": 1.0}
-    assert estimate_cost(sc, 3, ev, "wall_sec", rates) == 15.0                 # 5 s per case, its own
-    assert estimate_cost(_step("gradcam"), 2, ev, "wall_sec", rates) == 3.0     # 1 backward per case
-    assert estimate_cost(_step("causal_trace"), 2, {}, "wall_sec", {}) is None
+          "attention_knockout": StepEvidence(ko, [_obs("k", ["a"], cost={"wall_sec": 4.0, "calls": {"forward": 8}}),
+                                                  _obs("k2", ["b", "c"], cost={"wall_sec": 2.0, "calls": {"forward": 16}})]),
+          "answer_extraction_audit": StepEvidence(_step("answer_extraction_audit"),
+                                                  [_obs("x", ["a", "b"], cost={"wall_sec": 0.0, "calls": {}})])}
+    assert sorted(per_case_costs(ev, "wall_sec")) == [1.0, 4.0, 5.0]   # no model call: not a cost sample
+    assert step_cost(sc, 3, ev, "wall_sec") == (15.0, "own")                 # 5 s per case, its own
+    assert step_cost(ko, 3, ev, "wall_sec") == (6.0, "own")                  # 6 s over 3 cases
+    # never run: priced at the run's median case when ranking, its worst case in a budget check
+    assert step_cost(_step("gradcam"), 2, ev, "wall_sec") == (8.0, "typical")
+    assert step_cost(_step("gradcam"), 2, ev, "wall_sec", unmeasured="max") == (10.0, "max")
+    assert step_cost(_step("causal_trace"), 2, {}, "wall_sec") == (None, "none")
 
 
 def test_coverage_gain_is_the_gap_removed_over_all_units():

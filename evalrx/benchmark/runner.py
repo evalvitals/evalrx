@@ -451,6 +451,7 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         price_fn=_price_fn(spec),
         per_call_generation=sampling is not None,
         scheduler=args.triage_scheduler, budget_usd=float(args.triage_budget_usd), explainer=explainer,
+        chunk=int(args.triage_chunk),
         partition={"confirm_split": float(args.confirm_split), "seed": CONFIRM_SPLIT_SEED,
                    "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
                    "confirm_visible_to_controller": False},

@@ -9,17 +9,24 @@ written down so a run can show why each action won:
 
 * **D** (prediction disagreement): with an explainer, the share of pairs of the
   route's live competing explanations whose predictions for the step conflict
-  (:mod:`.explanations`); the explanations come once per sample revision, and
-  an explanation a prediction already missed on leaves the live set at the next
-  decision. Without one, or with fewer than two live explanations, ``D = 0``
-  and actions earn budget through T and C. An expansion's D is 0.
-* **T** (evidence gap): 1 completes a recorded gap — a layer done on a smaller
-  sample whose step only has to run on the route's new cases (a ``reuse``
-  step), or a contradiction between two readings of the same check; 0.5 is an
-  expansion that may close a recorded uncertainty (an uncertain routing
-  signal, a small S cohort); 0 otherwise. A batch-dependent step that went
-  stale re-runs on the whole sample: its value is the coverage it restores (C),
-  not a gap of its own. Every T names the gap ids it serves.
+  (:mod:`.explanations`); the explanations come once the sample has settled,
+  and an explanation a prediction already missed on leaves the live set at the
+  next decision. Without one, or with fewer than two live explanations,
+  ``D = 0`` and actions earn budget through T and C. An expansion's D is 0.
+* **T** (evidence gap): 1 completes a recorded gap — a ``reuse`` step measured
+  on part of the route's FAIL cases (a smaller sample, or earlier chunks) that
+  still has to run on the rest, or a contradiction between two readings of the
+  same check; 0.5 is an expansion that may close a recorded uncertainty (an
+  uncertain routing signal, a small S cohort); 0 otherwise. A batch-dependent
+  step that went stale re-runs on the whole sample: its value is the coverage
+  it restores (C), not a gap of its own. Every T names the gap ids it serves.
+
+A ``reuse`` step runs one chunk per decision (a fixed number of cases, FAIL and
+PASS alternating), so a decision spends at most one chunk before the scheduler
+sees the step's measured cost. T and D are about the step on the whole route,
+so a chunk earns them in proportion to the share of the route's remaining FAIL
+cases it covers, and the chunks of a step add up to what it earns unchunked; C
+is counted per chunk already.
 * **C** (coverage): units are ``layer × gold stratum`` for every route with FAIL
   cases there. A unit's gap is 1 untested, 0.5 measured on fewer than
   ``min(min_cover, route FAIL cases in the stratum)`` cases, else 0. ``C(a)`` is
@@ -32,10 +39,11 @@ written down so a run can show why each action won:
   counts once, so a resumed run decides the same way); ``ok`` and not refused
   by its own check is a success, and ``unsupported`` (a gate result, filtered
   before scoring) is not an attempt.
-* **c** (marginal cost): the step's own earlier cost per case, else the per-call
-  rate of each method it calls (measured on this run), times the new cases.
-  ``backward`` has no measured rate until a gradient tool runs; it is priced at
-  three forwards (a prior, stated here).
+* **c** (marginal cost): the step's own measured cost per case in this run,
+  times the new cases; a step that has not run yet is priced at the run's
+  median cost per case (budget checks use the maximum). There is no
+  per-analyzer prior: measured costs do not transfer across input sizes,
+  models or backends, and a reusable step's first chunk shows its real cost.
 
 Candidates are each route's open or stale layers (the layer's next candidate in
 its fallback order, as in the rules), the expansion, and the batch-dependent
@@ -58,8 +66,7 @@ from typing import Any
 from evalrx.eval_agent.probing.actions import OK, UNSUPPORTED, PlanStep
 from evalrx.eval_agent.probing.evidence import StepEvidence
 
-SCORING_VERSION = "mvp3-score-2"
-BACKWARD_FORWARDS = 3.0
+SCORING_VERSION = "mvp3-score-3"
 
 
 @dataclass(frozen=True)
@@ -88,6 +95,7 @@ class Scored:
     cost: "float | None" = None
     gain: float = 0.0
     U: float = 0.0
+    basis: str = ""                    # what the cost rests on: "own" / "typical" / "none"
     gaps: list[str] = field(default_factory=list)
     units: list[str] = field(default_factory=list)
     d_detail: dict[str, Any] = field(default_factory=dict)   # which live explanations D separates
@@ -131,39 +139,39 @@ def _amount(cost: dict[str, Any], axis: str) -> float:
     return float(cost.get(axis) or 0.0)
 
 
-def method_rates(evidence: dict[str, StepEvidence], axis: str) -> dict[str, float]:
-    """Cost per call by method, from observations that called one method only."""
-    spent: dict[str, float] = {}
-    calls: dict[str, int] = {}
-    seen = set()
+def per_case_costs(evidence: dict[str, StepEvidence], axis: str) -> list[float]:
+    """Cost per planned case of every distinct observation that called the model."""
+    seen: dict[str, float] = {}
     for ev in evidence.values():
         for obs in ev.chunks:
-            used = {k: int(v) for k, v in (obs.cost.get("calls") or {}).items() if v}
-            if obs.action_id in seen or len(used) != 1:
+            cost = obs.cost or {}
+            if obs.action_id in seen or not cost.get("calls") or not obs.planned_ids or cost.get(axis) is None:
                 continue
-            seen.add(obs.action_id)
-            (method, n), = used.items()
-            spent[method] = spent.get(method, 0.0) + _amount(obs.cost, axis)
-            calls[method] = calls.get(method, 0) + n
-    rates = {m: spent[m] / calls[m] for m in calls if calls[m]}
-    if "backward" not in rates and "forward" in rates:
-        rates["backward"] = BACKWARD_FORWARDS * rates["forward"]
-    if "logprobs" not in rates and "generate" in rates:
-        rates["logprobs"] = rates["generate"]
-    return rates
+            seen[obs.action_id] = _amount(cost, axis) / len(obs.planned_ids)
+    return list(seen.values())
 
 
-def estimate_cost(step: PlanStep, n_cases: int, evidence: dict[str, StepEvidence], axis: str,
-                  rates: dict[str, float]) -> "float | None":
-    """Marginal cost of running *step* on *n_cases* new cases (``None`` = no basis yet)."""
+def step_cost(step: PlanStep, n_cases: int, evidence: dict[str, StepEvidence], axis: str, *,
+              unmeasured: str = "typical") -> "tuple[float | None, str]":
+    """Cost of running *step* on *n_cases* new cases, and its basis.
+
+    No analyzer-specific prior: a step that has run in this run is priced at its
+    own measured cost per case (``own``). One that has not is priced at the
+    run's ``typical`` (median) cost per case when ranking, or its ``max`` when
+    checking a budget, so an unknown tool cannot look cheap; ``None`` before
+    anything was measured.
+    """
     ev = evidence.get(step.name)
     rows = [(_amount(o.cost, axis), len(o.planned_ids)) for o in (ev.chunks if ev else [])
-            if (o.cost or {}).get("calls") and o.planned_ids]
+            if (o.cost or {}).get("calls") and o.planned_ids and o.cost.get(axis) is not None]
     if rows and sum(k for _, k in rows):
-        return sum(s for s, _ in rows) / sum(k for _, k in rows) * n_cases
-    if step.calls_per_case and all(m in rates for m in step.calls_per_case):
-        return sum(rates[m] * k for m, k in step.calls_per_case.items()) * n_cases
-    return None
+        return sum(s for s, _ in rows) / sum(k for _, k in rows) * n_cases, "own"
+    pool = per_case_costs(evidence, axis)
+    if not pool:
+        return None, "none"
+    pool.sort()
+    per_case = pool[-1] if unmeasured == "max" else (pool[(len(pool) - 1) // 2] + pool[len(pool) // 2]) / 2
+    return per_case * n_cases, unmeasured
 
 
 # -- C: coverage units -------------------------------------------------------------------

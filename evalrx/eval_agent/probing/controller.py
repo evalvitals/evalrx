@@ -29,6 +29,9 @@ A run goes through three phases:
      are not read by the routes, so nothing the expansion rule looks at depends
      on them: they run once, on the whole sample the expansions settle on.
 
+   Steps run in chunks of ``chunk`` cases (FAIL and PASS alternating), with the
+   budget checked before each chunk on the cost measured so far.
+
 3. **Follow-ups.** Each active route proposes its next layer's candidate (see
    :mod:`~evalrx.eval_agent.probing.rules`), and the candidate runs on the
    route's FAIL cases plus matched PASS controls.
@@ -38,7 +41,9 @@ and the candidates it passed over and why. The run stops when:
 
 * no route has a candidate left;
 * ``max_actions`` decisions (expansions + follow-ups) have been made; or
-* the wall-clock budget is spent, or an action's estimate exceeds what is left.
+* the budget is spent, or the next chunk's estimate exceeds what is left (a
+  step's own measured cost per case, else the most expensive case measured in
+  this run; there is no per-analyzer cost prior).
 
 The rules scheduler calls no judge and names no hypothesis. The scored
 scheduler (MVP-3) may take an explainer: the judge then proposes competing
@@ -65,7 +70,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from evalrx.analyzers.perturbation.prompt_contrast import _DEFAULT_STRATEGIES as _PROMPT_STRATEGIES
-from evalrx.eval_agent.probing.actions import OK, SKIPPED, PlanStep, ProbeAction, canonical
+from evalrx.eval_agent.probing.actions import (
+    FAILED,
+    OK,
+    SKIPPED,
+    PlanStep,
+    ProbeAction,
+    canonical,
+)
 from evalrx.eval_agent.probing.evidence import StepEvidence
 from evalrx.eval_agent.probing.executor import execute, gate
 from evalrx.eval_agent.probing.explanations import (
@@ -106,9 +118,8 @@ from evalrx.eval_agent.probing.scoring import (
     choose,
     coverage_gain,
     coverage_units,
-    estimate_cost,
-    method_rates,
     public_units,
+    step_cost,
     value,
 )
 from evalrx.eval_agent.probing.triage import (
@@ -226,9 +237,9 @@ class _Run:
     def __init__(self, model: Any, explore: "CaseBatch", ledger: Ledger, *, context: dict[str, Any],
                  extras: dict[str, dict[str, Any]], task_kind: "str | None", budget_sec: float,
                  price_fn: Any, run_logger: Any, say: Callable[[str], None],
-                 per_call_generation: bool = True, budget_usd: float = 0.0) -> None:
+                 per_call_generation: bool = True, budget_usd: float = 0.0, chunk: int = 0) -> None:
         self.model, self.ledger, self.context, self.extras = model, ledger, context, extras
-        self.per_call_generation, self.budget_usd = per_call_generation, budget_usd
+        self.per_call_generation, self.budget_usd, self.chunk = per_call_generation, budget_usd, chunk
         self.task_kind, self.budget_sec, self.price_fn, self.run_logger, self.say = (
             task_kind, budget_sec, price_fn, run_logger, say)
         self.by_id = {str(c.id): c for c in explore}
@@ -277,16 +288,29 @@ class _Run:
         return ("unsupported", why) if why else None
 
     def estimate_sec(self, step: PlanStep, n_cases: int) -> "float | None":
-        ev = self.evidence.get(step.name)
-        per_case = ev.sec_per_case() if ev is not None else None
-        return round(per_case * n_cases, 1) if per_case is not None else None
+        """Seconds a budget check assumes: the step's own cost per case, else the most
+        expensive case measured in this run (``None`` before anything was measured)."""
+        cost, _ = step_cost(step, n_cases, self.evidence, "wall_sec", unmeasured="max")
+        return round(cost, 1) if cost is not None else None
 
     def estimate_usd(self, step: PlanStep, n_cases: int) -> "float | None":
-        ev = self.evidence.get(step.name)
-        rows = [(float(o.cost.get("usd") or 0.0), len(o.planned_ids)) for o in (ev.chunks if ev else [])
-                if o.cost.get("usd") is not None and o.planned_ids]
-        n = sum(k for _, k in rows)
-        return round(sum(v for v, _ in rows) / n * n_cases, 6) if n else None
+        cost, _ = step_cost(step, n_cases, self.evidence, "usd", unmeasured="max")
+        return round(cost, 6) if cost is not None else None
+
+    def chunks(self, step: PlanStep, ids: "list[str]") -> "list[list[str]]":
+        """*ids* in the order a step runs them: a ``reuse`` step in chunks of ``self.chunk``
+        cases with FAIL and PASS alternating (so every chunk can be compared with its
+        controls); any other step, or no chunk size, in one piece."""
+        if not step.reuse or self.chunk <= 0 or len(ids) <= self.chunk:
+            return [list(ids)] if ids else []
+        def is_fail(cid: str) -> bool:
+            return getattr(getattr(self.by_id[cid], "label", None), "value", None) == "fail"
+
+        fails = [c for c in ids if is_fail(c)]
+        passes = [c for c in ids if not is_fail(c)]
+        order = [c for pair in zip(fails, passes) for c in pair]
+        order += fails[len(passes):] + passes[len(fails):]
+        return [order[i:i + self.chunk] for i in range(0, len(order), self.chunk)]
 
     def charged(self, axis: str) -> float:
         """What this run's evidence cost when each observation was first executed (a read-back
@@ -374,8 +398,12 @@ class _Run:
     def run_step(self, step: PlanStep, target: "list[str]", *, kind: str, revision: int,
                  rule_id: "str | None" = None, route: "str | None" = None,
                  budget_checked: bool = False) -> "dict[str, Any] | None":
-        """Bring *step*'s evidence up to date on *target*; the execution record, or ``None``
-        when every case is already covered."""
+        """Bring *step*'s evidence up to date on *target*; the last execution record, or
+        ``None`` when every case is already covered.
+
+        A ``reuse`` step runs in chunks (:meth:`chunks`) with the budget checked before
+        each one on the cost measured so far, so an action overshoots by at most one
+        chunk; a refusal by the step's own check stops the remaining chunks."""
         ev = self.evidence.setdefault(step.name, StepEvidence(step))
         base = {"kind": kind, "revision": revision, "key": step.name, "analyzer": step.analyzer,
                 "rule_id": rule_id, "route": route}
@@ -400,6 +428,27 @@ class _Run:
             record = {**base, "status": "failed", "reused": False, "error": str(exc)}
             self._log(record)
             return record
+        todo = ev.todo(target)
+        if not todo:
+            return None
+        record = None
+        for part in self.chunks(step, todo):
+            out = self._run_part(step, part, ev, base, analyzer, version, context, step_id, config,
+                                 kind=kind, revision=revision, rule_id=rule_id, budget_checked=budget_checked)
+            record = out if out is not None else record
+            if out is not None and out["status"] == FAILED and not out.get("reused"):
+                # an execution that raised costs time and would likely raise again on the rest
+                # (an unsupported chunk costs nothing: the rest still get their own verdict)
+                self.blocked.setdefault(step.name, f"failed: {out.get('error') or ''}".strip())
+                break
+            if (out is not None and out["status"] == SKIPPED) or ev.refused() is not None:
+                break
+        return record
+
+    def _run_part(self, step: PlanStep, target: "list[str]", ev: StepEvidence, base: dict[str, Any],
+                  analyzer: Any, version: str, context: dict[str, Any], step_id: str, config: dict[str, Any], *,
+                  kind: str, revision: int, rule_id: "str | None", budget_checked: bool) -> "dict[str, Any] | None":
+        """One case set of :meth:`run_step`: read back what exists, else execute."""
         todo = ev.todo(target)
         if not todo:
             return None
@@ -505,6 +554,7 @@ def run_triage(
     min_gain: float = 0.01,
     min_cover: int = 8,
     budget_usd: float = 0.0,
+    chunk: int = 8,
     explainer: "Explainer | None" = None,
     run_logger: Any = None,
     progress: "Callable[[str], None] | None" = print,
@@ -521,7 +571,8 @@ def run_triage(
         n_fail:              FAIL cases in the first sample (PASS controls are matched to them).
         max_fail:            the most FAIL cases expansion may reach (``None`` = *n_fail*:
                              no expansion).
-        max_actions:         decisions after the battery (expansions + follow-ups).
+        max_actions:         decisions after the battery (expansions + follow-ups); the scored
+                             scheduler's further chunks of a step it already took do not count.
         min_route_fail:      FAIL cases a route needs before it proposes follow-ups.
         min_cohort:          S cohort / stable-PASS size per stratum below which the
                              expansion rule counts a gap.
@@ -561,6 +612,10 @@ def run_triage(
                              and per-unit coverage target.
         budget_usd:          USD cap (0 = none), charged like ``budget_sec`` and checked
                              with the step's earlier USD per case.
+        chunk:               cases per chunk of a ``reuse`` step (FAIL and PASS alternating;
+                             0 = one piece). The budget is checked before each chunk on the
+                             cost measured so far, so an action overshoots by at most one
+                             chunk; the scored scheduler decides one chunk at a time.
         explainer:           the scored scheduler's source of competing explanations
                              (:mod:`.explanations`): asked once the sample has settled and
                              again when the evidence has thinned a route's live explanations
@@ -584,7 +639,8 @@ def run_triage(
     n_available = sum(1 for c in explore if getattr(getattr(c, "label", None), "value", None) == "fail")
     run = _Run(model, explore, ledger, context={"policy": POLICY_VERSION, "model": model_identity},
                extras=extras, task_kind=task_kind, budget_sec=budget_sec, price_fn=price_fn,
-               run_logger=run_logger, say=say, per_call_generation=per_call_generation, budget_usd=budget_usd)
+               run_logger=run_logger, say=say, per_call_generation=per_call_generation, budget_usd=budget_usd,
+               chunk=chunk)
     rank_of = partial(rank, seed)
     triage = partial(triage_cases, host_assumed_finish=host_assumed_finish, answer_contract=answer_contract,
                      n_needs_counterfactual=n_needs_counterfactual, answer_fn=answer_fn)
@@ -633,8 +689,17 @@ def run_triage(
         ledger.trace(record)
         decisions.append(record)
 
-    def n_actions() -> int:  # decisions that spend: expansions, follow-ups, scheduled battery steps
-        return sum(1 for d in decisions if d["kind"] in ("expand", "follow_up", "extend", "battery"))
+    spending = ("expand", "follow_up", "extend", "battery")
+
+    def n_spent() -> int:  # every decision that spends
+        return sum(1 for d in decisions if d["kind"] in spending)
+
+    def n_actions() -> int:
+        """What ``max_actions`` caps: expansions, follow-ups and scheduled battery steps. The scored
+        scheduler's further chunks of a step it already took (``extend``) do not count: chunking a
+        step must not use up the cap a whole step used before."""
+        kinds = ("expand", "follow_up", "battery") if scheduler == "scored" else spending
+        return sum(1 for d in decisions if d["kind"] in kinds)
 
     def expansion_plan() -> "tuple[Any, Any, list[str], float | None] | None":
         """The next nested sample, its new cases and the battery's estimated seconds; ``None`` at the cap."""
@@ -710,8 +775,9 @@ def run_triage(
         sample_ids = list(draw.case_ids)
         growing = bool(gaps) and expansion_note is None and \
             next_size(len(draw.fail_ids), max_fail, n_available) is not None
-        pending = {s.name: (s, sample_ids) for s in deferred
-                   if s.name not in run.evidence or run.evidence[s.name].todo(sample_ids)}
+        pending = {s.name: (s, sample_ids) for s in deferred if s.name not in run.blocked and (
+            s.name not in run.evidence or (run.evidence[s.name].refused() is None
+                                           and run.evidence[s.name].todo(sample_ids)))}
         rows = [r for r in active_routes(records, min_route_fail) if r["active"]]
         # Decisions read only this scheduler's own evidence and price every candidate as if
         # it ran fresh: chunks in the ledger (an earlier invocation, the other scheduler)
@@ -843,7 +909,6 @@ def run_triage(
         # layer waits for it (a battery step) rather than falling back to another tool.
         units = coverage_units(states, records, run.evidence, layers, min_cover=min_cover)
         axis = axis_of(run.evidence)
-        rates, wall_rates = method_rates(run.evidence, axis), method_rates(run.evidence, "wall_sec")
         by_id = {r["case_id"]: r for r in records}
         pool: list[Scored] = []
         filtered: list[dict[str, Any]] = []
@@ -861,26 +926,34 @@ def run_triage(
                 todo = ev.todo(target) if ev is not None else list(target)
                 if not todo:      # the same observation exists: R = 1, not a candidate
                     continue
-                fail_new = set(todo) & set(st["_fail_ids"])
+                # a reuse step runs its next chunk; T and D are about the step on the whole route,
+                # so the chunk earns them for the share of the route's remaining FAIL cases it covers
+                part = run.chunks(step, todo)[0]
+                fail_left = set(todo) & set(st["_fail_ids"])
+                fail_new = set(part) & fail_left
+                share = len(fail_new) / len(fail_left) if fail_left else len(part) / len(todo)
                 C, touched = coverage_gain(layer.rule_id, fail_new, units)
+                # a step already measured on part of the route's FAIL cases (a smaller sample, earlier
+                # chunks); a battery step on part of the sample. Shared PASS controls do not count:
+                # describe-first measured for S has not started N's question
+                started = step.reuse and ev is not None and bool(
+                    ev.covered() & set(target if st.get("battery") else st["_fail_ids"]))
                 T, gap_ids = 0.0, []
-                if st["state"] == "extend" and step.reuse:
-                    T, gap_ids = 1.0, [f"stale:{layer.rule_id}:{step.name}"]
+                if started:
+                    T, gap_ids = share, [f"incomplete:{layer.rule_id}:{step.name}"]
                 elif layer.route == "H" and any(by_id[c]["H"]["disagreements"] for c in fail_new):
-                    T, gap_ids = 1.0, [f"contradiction:{layer.rule_id}"]
-                kind = "battery" if st.get("battery") else ("extend" if st["state"] == "extend" else "follow_up")
+                    T, gap_ids = share, [f"contradiction:{layer.rule_id}"]
+                kind = "extend" if started else ("battery" if st.get("battery") else "follow_up")
                 D, d_detail = disagreement(route, step.name, live) if live else (0.0, {})
+                cost, basis = step_cost(step, len(part), run.evidence, axis)
                 cand = Scored(kind=kind, key=step.name, route=route, rule_id=layer.rule_id,
-                              order=(ROUTE_ORDER.index(route), li), n_new_cases=len(todo), D=D, T=T, C=C,
-                              d_detail=d_detail,
-                              q=availability(step.analyzer, run.evidence),
-                              cost=estimate_cost(step, len(todo), run.evidence, axis, rates),
+                              order=(ROUTE_ORDER.index(route), li), n_new_cases=len(part), D=D * share, T=T, C=C,
+                              d_detail=d_detail, q=availability(step.analyzer, run.evidence), cost=cost, basis=basis,
                               gaps=gap_ids, units=touched,
                               payload=Proposal(layer=layer, step=step, kind=st["state"], fail_ids=st["_fail_ids"],
-                                               control_ids=st["_control_ids"], todo=todo, tried=st.get("tried", []),
-                                               before=[], target_override=st.get("target")))
-                why = run.over_budget(estimate_cost(step, len(todo), run.evidence, "wall_sec", wall_rates),
-                                      run.estimate_usd(step, len(todo)))
+                                               control_ids=st["_control_ids"], todo=part, tried=st.get("tried", []),
+                                               before=[], target_override=part))
+                why = run.over_budget(run.estimate_sec(step, len(part)), run.estimate_usd(step, len(part)))
                 if why is not None:
                     filtered.append({"key": step.name, "route": route, "rule_id": layer.rule_id, "reason": why})
                     continue
@@ -894,7 +967,7 @@ def run_triage(
                 steps = [s for s in immediate if not (s.task_kinds and task_kind not in s.task_kinds)]
                 qs = [availability(s.analyzer, run.evidence) for s in steps
                       if any(o.status != "unsupported" for o in run.evidence[s.name].chunks)]
-                costs = [estimate_cost(s, len(plan[2]), run.evidence, axis, rates) for s in steps]
+                costs = [step_cost(s, len(plan[2]), run.evidence, axis)[0] for s in steps]
                 cand = Scored(kind="expand", key="expand", rule_id="E1", order=(-1, 0), n_new_cases=len(plan[2]),
                               T=0.5, q=sum(qs) / len(qs) if qs else 0.5,
                               cost=sum(c for c in costs if c is not None) if any(c is not None for c in costs) else None,
@@ -927,7 +1000,7 @@ def run_triage(
                     current.decided_at_ask = _decided(verdicts)
             live = [h for h in (current.hypotheses if current is not None else []) if verdicts[h.id]["state"] == "live"]
             pool, filtered, axis = scored_pool(records, gaps, states, growing, live)
-            pick, why = choose(pool, decision_no=n_actions(), seed=seed, explore_every=explore_every,
+            pick, why = choose(pool, decision_no=n_spent(), seed=seed, explore_every=explore_every,
                                min_gain=min_gain)
             if pick is None:
                 over = [f for f in filtered if not f["reason"].startswith("batch-dependent")]
@@ -936,7 +1009,7 @@ def run_triage(
                                    "every remaining candidate is over budget" if over else "no feasible candidate"),
                         "best_gain": max((c.gain for c in pool), default=None), "filtered": filtered}
                 break
-            if n_actions() >= max_actions:
+            if pick.kind != "extend" and n_actions() >= max_actions:
                 stop = {"reason": "max_actions", "max_actions": max_actions,
                         "pending": f"{pick.route}:{pick.rule_id}:{pick.key}"}
                 break
@@ -1068,7 +1141,7 @@ def run_triage(
                      "n_needs_counterfactual": n_needs_counterfactual, "budget_sec": budget_sec,
                      "task_kind": task_kind, "answer_fn": canonical(answer_fn), "n_fail": n_fail,
                      "max_fail": max_fail, "max_actions": max_actions, "min_route_fail": min_route_fail,
-                     "min_cohort": min_cohort, "per_call_generation": per_call_generation},
+                     "min_cohort": min_cohort, "per_call_generation": per_call_generation, "chunk": chunk},
         "executions": run.executions,
         "battery": _battery_state(battery, run, draw),
         "revisions": revisions,

@@ -212,7 +212,8 @@ def test_a_decided_prediction_that_thins_a_route_asks_the_judge_again(tmp_path, 
     assert first["final"]["S.h1"]["state"] == "contradicted" and first["final"]["S.h2"]["state"] == "live"
     previous = json.loads(judge.prompts[1][judge.prompts[1].index("Evidence (JSON):") + 16:])["previous"]
     assert {p["id"]: p["state"] for p in previous}["S.h1"] == "contradicted"
-    assert "wrapped" not in second["offered"]["S"]   # what ran is no longer offered
+    # what ran is shown to the judge as measured (still offered while chunks of it are left)
+    assert "wrapped" in second["seen"]["S"]
 
 
 def test_a_failed_judge_call_leaves_D_at_zero_and_the_run_completes(tmp_path):

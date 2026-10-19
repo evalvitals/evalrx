@@ -6,6 +6,25 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — triage spends by measurement: chunked steps, no per-analyzer cost prior
+
+Steps run in chunks of `--triage-chunk` cases (default 8, FAIL and PASS
+alternating); the budget is checked before every chunk on the cost measured
+so far, so a step whose cost nobody knew overshoots by at most one chunk, and
+a chunk that raises stops the rest of the step. Cost estimates no longer use
+per-call rates or `calls_per_case` (kept for reservations only): a step that
+has run is priced at its own measured cost per case, one that has not at the
+run's median case (ranking) or its most expensive case (budget checks). A
+calibration on Qwen3.5-0.8B showed why: tools' cost ratios hold within a
+family on one model (generate tools ~ the number of generate calls, forward
+tools within ~15% against `embed_lens`) but not across input sizes
+(`patchscope` 3.9-16.7x `embed_lens` between 72 and 985 media tokens), and
+per-case cost also grows with batch size for several tools. The scored
+scheduler decides one chunk at a time (scoring `mvp3-score-3`): T and D are
+earned in proportion to the share of the route's remaining FAIL cases a chunk
+covers, and further chunks of a step it already took do not count against
+`--triage-max-actions`.
+
 ### Added — triage competing explanations: D for the scored scheduler (MVP-3, second part)
 
 `--triage-explanations judge` (with `--triage-scheduler scored`) has the
