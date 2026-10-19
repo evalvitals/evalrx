@@ -93,6 +93,13 @@ def test_choose_takes_the_best_value_breaks_ties_by_soft_order_explores_within_i
     assert choose(low, decision_no=0, explored=0.0, spent=90.0, **kw) == (low[0], "explore")
     assert choose(low, decision_no=0, explored=0.0, spent=50.0, **kw) == (None, "below_threshold")
     assert choose([], decision_no=0, explored=0.0, spent=0.0, **kw) == (None, "none")
+    # with targets, exploration draws only from them, even with no candidate left
+    target = s("t", 0.0, 0.0, (2, 99), cost=5.0)
+    assert choose(pool, decision_no=3, explored=0.0, spent=90.0, targets=[target], **kw) == (target, "explore")
+    assert choose(pool, decision_no=3, explored=0.0, spent=10.0, targets=[target], **kw)[1] == "best"   # no fit
+    assert choose(pool, decision_no=3, explored=0.0, spent=90.0, targets=[], **kw)[1] == "best"
+    assert choose([], decision_no=0, explored=0.0, spent=90.0, targets=[target], **kw) == (target, "explore")
+    assert choose(low, decision_no=0, explored=0.0, spent=90.0, targets=[], **kw) == (None, "below_threshold")
 
 
 def test_scored_run_is_traceable_deterministic_on_resume_and_comparable_with_the_rules(tmp_path):

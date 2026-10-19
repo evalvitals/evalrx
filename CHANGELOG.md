@@ -6,6 +6,19 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — triage exploration draws from its own targets, on the evidence spending
+
+Exploration's share (`--triage-explore-share`) is now of the evidence spending,
+not including the judge's calls, and it draws only from targets the value never
+takes: the next candidate of a route too small to be active, and on each active
+route the representative of every other route's layer it does not own (steps
+with readings to compare with the controls), priced at a budget check's
+conservative estimate. Completing a target on its route is paid from the share
+until its readings so far show a difference outside the band; from then on it
+is completed on value (T, an incomplete step). Alternatives run only on
+their D; `--triage-explore-from candidates` keeps the previous draw (the other
+candidates, alternatives included) for ablations.
+
 ### Changed — triage scored scheduler: decidable D, alternatives priced by R, exploration share (MVP-3)
 
 D counts each conflicting pair of live explanations by how decidable the

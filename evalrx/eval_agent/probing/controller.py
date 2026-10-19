@@ -558,6 +558,7 @@ def run_triage(
     scheduler: str = "rules",
     weights: "Weights | None" = None,
     explore_share: float = 0.1,
+    explore_from: str = "targets",
     min_gain: float = 0.01,
     min_cover: int = 8,
     budget_usd: float = 0.0,
@@ -615,8 +616,11 @@ def run_triage(
                              U = q·[D+T+C−R]₊/(c+ε), see :mod:`.scoring`). Both share
                              the ledger; the scored report is ``triage_report.scored``.
         weights, explore_share, min_gain, min_cover: the scored scheduler's weights,
-                             exploration's share of the spending, value floor and
-                             per-unit coverage target.
+                             exploration's share of the evidence spending, value floor
+                             and per-unit coverage target.
+        explore_from:        ``"targets"`` (exploration takes inactive routes' next candidates
+                             and other routes' representatives, see :mod:`.scoring`) or
+                             ``"candidates"`` (an ablation: the candidates other than the top).
         budget_usd:          USD cap (0 = none), charged like ``budget_sec`` and checked
                              with the step's earlier USD per case.
         chunk:               cases per chunk of a ``reuse`` step (FAIL and PASS alternating;
@@ -635,6 +639,8 @@ def run_triage(
         raise ValueError(f"scheduler must be one of {SCHEDULERS}; got {scheduler!r}")
     if explainer is not None and scheduler != "scored":
         raise ValueError("explanations give D to the scored scheduler; the rules scheduler does not read them")
+    if explore_from not in ("targets", "candidates"):
+        raise ValueError(f"explore_from must be 'targets' or 'candidates'; got {explore_from!r}")
     weights = weights or Weights()
     started = time.monotonic()
     say = progress or (lambda _msg: None)
@@ -864,6 +870,88 @@ def run_triage(
                     rows += alts
             pool[route], offer[route] = rows, rows + extra
         return pool, offer
+
+    explored_on: set[tuple[str, str]] = set()   # (route, step key) an exploration decision started
+
+    def exploration_targets(records: list[dict[str, Any]], states: dict[str, list[dict[str, Any]]], growing: bool,
+                            axis: str, readings: Readings
+                            ) -> tuple[list[Scored], list[Scored], list[dict[str, Any]], list[dict[str, Any]]]:
+        """What only exploration takes (gain 0), the completions of what it found something with, and
+        what the budget filtered out of each.
+
+        A target is priced at the conservative estimate a budget check uses (exploration's share
+        is a budget). Completing a target exploration started on a route is exploration too, and
+        counts against its share, until the cases measured so far show a reading outside its band
+        (the verdicts' 95% interval): the step has found something, and its completion is then an
+        incomplete step that T values like any other.
+
+        Targets: the first open layer's candidate of every route with FAIL cases too few to be
+        active (a low-frequency problem the rules do not pursue), and on every active route the
+        representative of each other route's layer it does not own (outside its method family),
+        when it has readings to compare with the PASS controls (a card: the H re-ask and
+        continuation only mean something where their check fired) and the layer does not narrow
+        its cases."""
+        rows = []
+        for row in active_routes(records, min_route_fail):
+            if row["active"]:
+                continue
+            sts = route_states(row["route"], records, run.evidence, run.gate, rank_of, layers=layers,
+                               blocked=run.blocked)
+            for li, st in enumerate(sts):
+                if st["state"] in ("open", "extend") and not st.get("battery"):
+                    rows.append((row["route"], li, by_rule[st["rule_id"]], st["step"], st["_fail_ids"],
+                                 st["_control_ids"], f"a route too small to be active ({row['n_fail']} FAIL)"))
+                    break
+        for route, sts in states.items():
+            own = {n for st in sts for n in (*by_rule[st["rule_id"]].served_by,
+                                             *(c.name for c in by_rule[st["rule_id"]].candidates))}
+            fail_ids = route_fail_ids(records, route)
+            controls = matched_controls(records, fail_ids, rank_of)[0]
+            for layer in layers:
+                if layer.route != route and layer.case_filter is None and layer.candidates \
+                        and layer.candidates[0].name not in own and layer.candidates[0].name in CARDS:
+                    rows.append((route, 99, layer, layer.candidates[0], fail_ids, controls,
+                                 f"outside the route's method family (the representative of {layer.rule_id})"))
+        targets: list[Scored] = []
+        completions: list[Scored] = []
+        held: list[dict[str, Any]] = []
+        held_targets: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for route, li, layer, step, fail_ids, controls, why in rows:
+            if (route, step.name) in seen or step.name in run.blocked or not step.reuse:
+                continue
+            seen.add((route, step.name))
+            target = [*fail_ids, *controls]
+            ev = run.evidence.get(step.name)
+            if ev is not None and ev.refused() is not None:
+                continue
+            todo = ev.todo(target) if ev is not None else list(target)
+            if not todo or run.gate(step, target) is not None:
+                continue
+            part = run.chunks(step, todo)[0]
+            fail_left = set(todo) & set(fail_ids)
+            share = len(set(part) & fail_left) / len(fail_left) if fail_left else len(part) / len(todo)
+            started = (route, step.name) in explored_on
+            found = [f"{m.field} {o['observed']}" for m in CARDS.get(step.name, ())
+                     if (o := readings(route, step.name, m)).get("observed") in ("up", "down")] if started else []
+            if started:
+                why = (f"completing an exploration that found {', '.join(found)}" if found else
+                       f"completing an exploration ({why}); no reading outside its band yet")
+            cost, basis = step_cost(step, len(part), run.evidence, axis, unmeasured="typical" if found else "max")
+            cand = Scored(kind="extend" if started else "follow_up", key=step.name, route=route,
+                          rule_id=layer.rule_id, order=(ROUTE_ORDER.index(route), li), n_new_cases=len(part),
+                          T=share if found else 0.0, q=availability(step.analyzer, run.evidence), cost=cost,
+                          basis=basis, gaps=[f"incomplete:{route}:{step.name}"] if found else [], note=why,
+                          payload=Proposal(layer=layer, step=step, kind="explore", fail_ids=fail_ids,
+                                           control_ids=controls, todo=part, tried=[], before=[],
+                                           target_override=part))
+            over = run.over_budget(run.estimate_sec(step, len(part)), run.estimate_usd(step, len(part)))
+            if over is not None:
+                (held if found else held_targets).append({"key": step.name, "route": route,
+                                                          "rule_id": layer.rule_id, "reason": over})
+                continue
+            (completions if found else targets).append(value(cand, weights, axis))
+        return targets, completions, held, held_targets
 
     def route_view(records: list[dict[str, Any]], gaps: list[dict[str, Any]]
                    ) -> tuple[dict[str, list[dict[str, Any]]], bool]:
@@ -1105,9 +1193,16 @@ def run_triage(
                     current.decided_at_ask = _decided(verdicts)
             live = [h for h in (current.hypotheses if current is not None else []) if verdicts[h.id]["state"] == "live"]
             pool, filtered, axis = scored_pool(records, gaps, states, options, growing, live, outcome_of)
-            spent = run.charged(axis)
+            targets: "list[Scored] | None" = None
+            held_targets: list[dict[str, Any]] = []
+            if explore_from == "targets":
+                targets, completions, held, held_targets = exploration_targets(records, states, growing, axis,
+                                                                               outcome_of)
+                pool, filtered = pool + completions, filtered + held
+            # exploration's share is of the evidence: the judge's calls are not an opportunity to explore
+            spent = run.charged(axis) - float(run.judge_cost.get(axis) or 0.0)
             pick, why = choose(pool, decision_no=n_spent(), seed=seed, explore_share=explore_share,
-                               explored=explored.get(axis, 0.0), spent=spent, min_gain=min_gain)
+                               explored=explored.get(axis, 0.0), spent=spent, min_gain=min_gain, targets=targets)
             if pick is None:
                 over = [f for f in filtered if not f["reason"].startswith("batch-dependent")]
                 # a candidate the budget filtered out binds before the gain floor does
@@ -1124,12 +1219,16 @@ def run_triage(
                         "pending": f"{pick.route}:{pick.rule_id}:{pick.key}"}
                 break
             ranked = sorted(pool, key=lambda c: (-c.U, c.order))
-            skipped = [c.rule_id for c in pool if pick.route and c.route == pick.route and c.order < pick.order]
+            skipped = [c.rule_id for c in pool if why == "best" and pick.route and c.route == pick.route
+                       and c.order < pick.order]
             extra = {"choice": why, "scoring_version": SCORING_VERSION, "axis": axis,
                      "U": round(pick.U, 6), "gain": round(pick.gain, 6),
                      "rationale": _scored_rationale(pick, why, explored.get(axis, 0.0), spent, explore_share),
                      **({"alternative_to": pick.alternative_to} if pick.alternative_to else {}),
+                     **({"explore_target": pick.note} if why == "explore" and pick.note else {}),
                      "candidates": [c.row() for c in ranked], "filtered": filtered,
+                     **({"explore_targets": [c.row() for c in targets], "explore_filtered": held_targets}
+                        if targets else {}),
                      **({"explanations": {"key": current.key, "revision": current.revision,
                                           "states": {hid: v["state"] for hid, v in verdicts.items()}}}
                         if current is not None else {}),
@@ -1160,6 +1259,8 @@ def run_triage(
             elif record["status"] == SKIPPED:
                 stop = {"reason": "budget", "detail": record.get("reason")}
                 break
+            if why == "explore" and targets is not None and pick in targets:
+                explored_on.add((pick.route, pick.key))
             if pick.kind != "battery" and (pick.route, pick.rule_id, pick.key) not in followed:
                 followed.append((pick.route, pick.rule_id, pick.key))
             round_no += 1
@@ -1254,6 +1355,7 @@ def run_triage(
         "policy": POLICY_VERSION,
         "scheduler": scheduler,
         **({"scoring_version": SCORING_VERSION, "weights": weights.__dict__, "explore_share": explore_share,
+            "explore_from": explore_from,
             "explored": {a: round(v, 6) for a, v in explored.items()},
             "min_gain": min_gain, "min_cover": min_cover} if scheduler == "scored" else {}),
         "rules_version": RULES_VERSION,
@@ -1300,8 +1402,9 @@ def _scored_rationale(pick: Scored, why: str, explored: float, spent: float, sha
     terms = f"U {pick.U:.4g} = q {pick.q:.2f} x [D {pick.D:.3f} + T {pick.T:.3f} + C {pick.C:.3f} - R {pick.R:.3f}]"
     terms += f" / cost {pick.cost:.4g}" if pick.cost is not None else " / cost unknown"
     if why == "explore":
-        return (f"exploration ({explored:.4g} of {spent:.4g} spent so far went to exploration; share {share}): "
-                + terms)
+        target = f" of {pick.note}" if pick.note else ""
+        return (f"exploration{target} ({explored:.4g} of the {spent:.4g} spent on evidence so far went to "
+                f"exploration; share {share}): " + terms)
     alt = f"; an alternative to {pick.alternative_to}" if pick.alternative_to else ""
     return f"highest value: {terms}{alt}"
 

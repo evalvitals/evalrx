@@ -60,13 +60,22 @@ reading, and no route reads it (the rules' deferral, for the same reason); its
 layer waits instead of falling back. Unlike the rules, the scored scheduler may
 take a later layer first, and says so when it does.
 
-**Exploration** has a share of the spending, not of the decisions (a decision
-may be one chunk): a feasible candidate other than the top one fits when what
-exploration has spent, plus its estimated cost, stays within ``explore_share``
-of everything spent, and whenever one fits a seeded draw among them runs
-instead of the top one. A gain below ``min_gain`` is not worth an action: when
-no candidate reaches it, every feasible candidate is an exploration candidate,
-and the run stops once none fits in the share (the minimum exploration is met).
+**Exploration** has a share of the evidence spending (the judge's calls are not
+an opportunity to explore), not of the decisions (a decision may be one
+chunk). It draws from its own targets, the actions the rules and the value
+never take: the next candidate of each route with FAIL cases too few to be
+active (a low-frequency problem), and on each active route the representative
+of every other route's layer (outside the route's method family). A target fits
+when what exploration has spent, plus its conservative estimate (a budget
+check's), stays within ``explore_share`` of the evidence spent; whenever one
+fits, a seeded draw among them runs instead of the top candidate. Completing a
+target on its route is exploration too, until the cases measured so far show a
+reading outside its band: then the step has found something, and its
+completion is an incomplete step that T values like any other. A gain below
+``min_gain`` is not worth an action: the run stops once no candidate reaches it
+and no target fits (the minimum exploration is met). ``explore_from="candidates"``
+(an ablation) draws from the candidates other than the top one instead,
+alternatives included.
 """
 
 from __future__ import annotations
@@ -247,20 +256,25 @@ def value(s: Scored, weights: Weights, axis: str) -> Scored:
 
 
 def choose(candidates: list[Scored], *, decision_no: int, seed: int, explore_share: float, explored: float,
-           spent: float, min_gain: float) -> "tuple[Scored | None, str]":
+           spent: float, min_gain: float, targets: "list[Scored] | None" = None) -> "tuple[Scored | None, str]":
     """The candidate to run, and why: ``best`` / ``explore`` / ``below_threshold`` / ``none``.
 
-    *explored* and *spent* are what exploration and the whole run have spent so far, on the
-    candidates' cost axis: a seeded draw among the others that keep exploration within
-    *explore_share* of the spending runs instead of the best."""
-    if not candidates:
-        return None, "none"
+    *explored* and *spent* are what exploration and the run's evidence have cost so far, on the
+    candidates' cost axis. Exploration draws from *targets*, the candidates only it takes; with
+    ``targets=None`` it draws from the other candidates instead (below the gain floor, from all
+    of them). A seeded draw among those that keep exploration within *explore_share* of the
+    spending runs instead of the best."""
     ranked = sorted(candidates, key=lambda s: (-s.U, s.order))
-    best = ranked[0]
-    others = ranked[1:] if best.gain >= min_gain else ranked
+    best = ranked[0] if ranked else None
+    if targets is None:
+        others = ranked[1:] if best is not None and best.gain >= min_gain else ranked
+    else:
+        others = sorted(targets, key=lambda s: s.order)
     fits = [s for s in others if explored + (s.cost or 0.0) <= explore_share * (spent + (s.cost or 0.0))]
     if explore_share > 0 and fits:
         return random.Random(f"{seed}:{decision_no}").choice(fits), "explore"
+    if best is None:
+        return None, "none"
     if best.gain < min_gain:
         return None, "below_threshold"
     return best, "best"

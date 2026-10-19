@@ -178,8 +178,12 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                    help="triage_active with --triage-scheduler scored: the weights of D, T, C and R in U, "
                         "as k=v pairs (keys left out keep 1; an ablation sets one to 0)")
     p.add_argument("--triage-explore-share", type=float, default=0.1,
-                   help="triage_active with --triage-scheduler scored: the share of the spending exploration "
-                        "may take, on candidates other than the best (0 = none)")
+                   help="triage_active with --triage-scheduler scored: the share of the evidence spending "
+                        "exploration may take (0 = none)")
+    p.add_argument("--triage-explore-from", choices=["targets", "candidates"], default="targets",
+                   help="triage_active with --triage-scheduler scored: what exploration draws from: targets = "
+                        "inactive routes' next candidates and other routes' representatives (actions the value "
+                        "never takes); candidates = the candidates other than the best (an ablation)")
     p.add_argument("--triage-seed", type=int, default=0,
                    help="triage_active: rank seed of the nested sampler")
     p.add_argument("--triage-budget-sec", type=float, default=0.0,
