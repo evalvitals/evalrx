@@ -8,16 +8,20 @@ A run goes through three phases:
    1. ``answer_extraction_audit``: re-reads the Stage-0 outputs (no model call).
    2. ``termination_audit`` without continuation: re-reads the outputs too.
    3. ``modality_ablation(mode="swap")``: the N check.
-   4. ``attention_knockout(target="gold")``: the first N-layer measurement.
+   4. ``attention_knockout(target="prediction")``: the first N-layer measurement.
    5. ``self_consistency``: re-samples each case (U).
    6. ``prompt_contrast`` with the question kept verbatim in neutral wrappers (U).
    7. ``prompt_contrast`` with an instruction not to default to "no" (yes/no
       tasks only), descriptive S.
    8. ``embed_lens(layer=0.9)``: is the case's own question word near the
       media tokens late in the stack (S2).
-   9. ``patchscope(target="gold", media_layers=3)``: was the gold answer
-      readable before the output, and is the question word read off the
+   9. ``patchscope(target="prediction", media_layers=3)``: how early the
+      model's own answer was readable, and is the question word read off the
       media tokens (S3, S2).
+
+   Steps with a target read the model's own answer, never gold: their
+   readings are compared between FAIL cases and PASS controls, and a FAIL
+   output is not gold by definition.
 
 2. **Expansion.** While an evidence gap holds that more cases can close, the
    controller decides to expand. The sample then doubles along the sampler's
@@ -92,6 +96,7 @@ from evalrx.eval_agent.probing.explanations import (
     check,
     decidability,
     disagreement,
+    label_bound,
     outcome,
 )
 from evalrx.eval_agent.probing.explanations import spread as reading_spread
@@ -176,8 +181,8 @@ BATTERY: tuple[PlanStep, ...] = (
              "re-ask with media on which the same question's gold differs from the model's answer "
              "(else any different media); an answer that should change but does not is the N signal",
              calls_per_case={"generate": 2}),
-    PlanStep("attention_knockout", {"target": "gold"}, "N1",
-             "cut text-to-media attention per layer band; margin change of the gold first token",
+    PlanStep("attention_knockout", {"target": "prediction"}, "N1",
+             "cut text-to-media attention per layer band; margin change of the model's own first answer token",
              fidelity_check="edit", calls_per_case={"forward": 5}, evidence=MEDIA_ATTENTION_CUT),
     PlanStep("self_consistency", {"n": 5}, "U",
              "re-sample each case at the host's frozen sampling settings; an answer that differs "
@@ -196,10 +201,10 @@ BATTERY: tuple[PlanStep, ...] = (
              "nearest vocabulary words of the media tokens late in the stack: how close the "
              "case's own question word gets",
              calls_per_case={"forward": 1}, deferred=True),
-    PlanStep("patchscope", {"target": "gold", "media_layers": 3}, "S3",
+    PlanStep("patchscope", {"target": "prediction", "media_layers": 3}, "S3",
              "decode the answer position at every layer and the media tokens at three depths: "
-             "whether the gold answer was readable before the output, and whether the question "
-             "word is read off the media",
+             "how early the model's own answer was readable, and whether the question word is "
+             "read off the media",
              fidelity_check="patch", calls_per_case={"forward": 1}, deferred=True, evidence=LAYER_READOUT),
 )
 
@@ -208,6 +213,28 @@ def _write_json(path: Path, payload: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(canonical(payload), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
+
+
+def analyzer_extras(analyzer_kwargs: "dict[str, dict[str, Any]] | None", discovery: "CaseBatch", seed: int, *,
+                    donor_pool: "CaseBatch | None" = None) -> dict[str, dict[str, Any]]:
+    """Per-analyzer constructor extras: the host's, plus what is fixed on DISCOVERY.
+
+    The lenses tell question words (and embed_lens recurring words) from a fixed reference,
+    DISCOVERY in the sampler's rank order, and the tuned lens is fit on the first ``FIT_CASES``
+    of it, so a case's row never depends on the sample it is read with; a validation run on
+    other cases uses the same frozen artefacts. Swap donors come from the partition the cases
+    are drawn from (*donor_pool*, default DISCOVERY).
+    """
+    from evalrx.core.case import CaseBatch
+
+    extras = {k: dict(v) for k, v in (analyzer_kwargs or {}).items()}
+    extras.setdefault("modality_ablation", {}).setdefault("donor_pool", donor_pool if donor_pool is not None
+                                                          else discovery)
+    ranked = CaseBatch(sorted(discovery, key=lambda c: rank(seed, str(c.id))))
+    for name in ("embed_lens", "patchscope"):
+        extras.setdefault(name, {}).setdefault("reference", ranked)
+    extras.setdefault("tuned_lens", {}).setdefault("fit_cases", CaseBatch(list(ranked)[:FIT_CASES]))
+    return extras
 
 
 def tool_version(analyzer: Any) -> str:
@@ -646,18 +673,10 @@ def run_triage(
     say = progress or (lambda _msg: None)
     out = Path(out_dir)
     ledger = Ledger(out)
-    extras = {k: dict(v) for k, v in (analyzer_kwargs or {}).items()}
-    # swap donors come from the whole partition the sample was drawn from
-    extras.setdefault("modality_ablation", {}).setdefault("donor_pool", explore)
-    # Fixed references in the sampler's rank order, so a case's row never depends on the
-    # sample it is read with: the lenses tell question words (and embed_lens recurring
-    # words) from them, and the tuned lens is fit on the first FIT_CASES of them.
-    from evalrx.core.case import CaseBatch
-
-    ranked = CaseBatch(sorted(explore, key=lambda c: rank(seed, str(c.id))))
-    for name in ("embed_lens", "patchscope"):
-        extras.setdefault(name, {}).setdefault("reference", ranked)
-    extras.setdefault("tuned_lens", {}).setdefault("fit_cases", CaseBatch(list(ranked)[:FIT_CASES]))
+    extras = analyzer_extras(analyzer_kwargs, explore, seed)
+    if bound := label_bound((*battery, *candidate_steps(layers)), extras):
+        raise ValueError(f"steps {bound} read the gold answer (target='gold'): their readings are compared "
+                         "between FAIL and PASS, where that restates the label; use target='prediction'")
     max_fail = max(int(n_fail), int(max_fail or n_fail))
     n_available = sum(1 for c in explore if getattr(getattr(c, "label", None), "value", None) == "fail")
     run = _Run(model, explore, ledger, context={"policy": POLICY_VERSION, "model": model_identity},
@@ -1736,7 +1755,7 @@ def _markdown(report: dict[str, Any]) -> str:
                   f"patchscope {_why_not(report, 'patchscope')}. Cohort sizes: {sizes}."]
     elif cohorts:
         lines += ["", "## S readings (descriptive)", "",
-                  "| cohort | stratum | n | mean el_query_sim | gold first before last | mean peak / final prob "
+                  "| cohort | stratum | n | mean el_query_sim | answer first before last | mean peak / final prob "
                   "| mean late drop | question word on media |", "|---|---|---:|---:|---:|---|---:|---:|"]
         for name, stratum, row in cohorts:
             ps = row["patchscope"]

@@ -499,7 +499,7 @@ def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
         assert rec["routes"] == ["N", "U"] and not rec["stable"]
         assert rec["S_readings"]["threshold"]["state"] == "measured"
         assert rec["S_readings"]["patchscope"]["state"] == "measured"
-        assert rec["S_readings"]["patchscope"]["target"] == "gold"
+        assert rec["S_readings"]["patchscope"]["target"] == "prediction"
     assert report["summary"]["N_donors"]["fail"]["counterfactual"] == 2
     assert report["summary"]["S"] == {"fail": 0, "stable_pass": 0}
 

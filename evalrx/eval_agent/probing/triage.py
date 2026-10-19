@@ -24,8 +24,8 @@ on this task) — so a missing measurement is never read as a negative one.
 * **S** (a stable failure): a FAIL case on which every required check ran and
   none fired — H, N (cases with media) and both U parts. S is an
   investigation route, not a cause; the S readings attached to every case
-  (the threshold instruction, the question word on the media tokens, whether
-  the gold answer was readable before the output) are descriptive.
+  (the threshold instruction, the question word on the media tokens, how early
+  the model's own answer was readable) are descriptive.
 * **X**: no route fired and a required check is missing, with the reasons. A
   missing check never makes a case S. A PASS case with every check clear has
   no route (it is a stable control).
@@ -518,8 +518,8 @@ def _s_readings(records: list[dict[str, Any]]) -> dict[str, Any]:
                 },
             }
     out["_note"] = ("descriptive only, no test: el_query_sim = the case's own question word against the media "
-                    "tokens; target_first_before_last = the patchscope target (gold) ranked first at some layer "
-                    "before the last; media_query_hit = the question word decoded off some media token")
+                    "tokens; target_first_before_last = the patchscope target (the model's own answer) ranked first at "
+                    "some layer before the last; media_query_hit = the question word decoded off some media token")
     return out
 
 
@@ -530,12 +530,13 @@ def _wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return max(0.0, centre - half), min(1.0, centre + half)
 
 
-def difference_interval(k1: int, n1: int, k2: int, n2: int) -> "list[float] | None":
-    """95% interval of ``k1/n1 - k2/n2`` (Newcombe's hybrid score method), ``None`` if a side is empty."""
+def difference_interval(k1: int, n1: int, k2: int, n2: int, z: float = 1.96) -> "list[float] | None":
+    """Interval of ``k1/n1 - k2/n2`` (Newcombe's hybrid score method; 95% at the default *z*),
+    ``None`` if a side is empty."""
     if not n1 or not n2:
         return None
     p1, p2 = k1 / n1, k2 / n2
-    (l1, u1), (l2, u2) = _wilson(k1, n1), _wilson(k2, n2)
+    (l1, u1), (l2, u2) = _wilson(k1, n1, z), _wilson(k2, n2, z)
     d = p1 - p2
     return [round(d - math.sqrt((p1 - l1) ** 2 + (u2 - p2) ** 2), 4),
             round(d + math.sqrt((u1 - p1) ** 2 + (p2 - l2) ** 2), 4)]
@@ -585,7 +586,7 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
                      "mean_ko_delta_full": _mean([float(r["ko_delta_full"]) for r in rows if "ko_delta_full" in r]),
                      "mean_ko_delta_late": _mean([float(r["ko_delta_late"]) for r in rows if "ko_delta_late" in r])}
     ko["fidelity"] = sorted({str(r["knockout"].get("fidelity")) for r in records})
-    ko["_note"] = "descriptive only: margin deltas of the gold first token, no test, no mechanism claim"
+    ko["_note"] = "descriptive only: margin deltas of the model's own first answer token, no test, no mechanism claim"
     out["attention_knockout"] = ko
     return out
 

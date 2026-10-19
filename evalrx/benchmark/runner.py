@@ -410,13 +410,26 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
     controller sees EXPLORE only and runs no M2-M5; it calls the judge only with
     ``--triage-explanations judge`` (scored scheduler: explanations for D, from
     route summaries, never a case). Outputs go to ``<run>/probing/``.
+
+    The data roles are fixed first (``<run>/partition_bundle.json``): DISCOVERY is
+    EXPLORE, DIAGNOSTIC_VALIDATION the CONFIRM cases on media EXPLORE does not
+    contain. With ``--triage-validate`` the issues the report supports are frozen
+    and validated once on DIAGNOSTIC_VALIDATION (``<run>/validation/``).
     """
     from evalrx.eval_agent.probing import explore_confirm_split, run_triage
     from evalrx.eval_agent.probing.scoring import Weights
+    from evalrx.eval_agent.probing.validation import freeze_issues, partition_bundle, validate
 
     from .run import triage_weights
 
     explore, confirm = explore_confirm_split(cases, float(args.confirm_split), CONFIRM_SPLIT_SEED)
+    bundle, validation = partition_bundle(explore, confirm, seed=CONFIRM_SPLIT_SEED,
+                                          confirm_split=float(args.confirm_split), manifest=baseline.get("manifest"))
+    if args.triage_validate and not len(validation):
+        raise SystemExit("--triage-validate needs CONFIRM cases on media EXPLORE does not contain; "
+                         "set --confirm-split above 0")
+    bundle_row = bundle.to_dict()
+    (run_dir / "partition_bundle.json").write_text(json.dumps(bundle_row, indent=2) + "\n", encoding="utf-8")
     runtime = getattr(model, "runtime", None)
     identity = {
         "spec": spec.key, "weights": spec.hf_repo, "backend": resolved.backend,
@@ -439,29 +452,37 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         # API backends ignore per-call kwargs (their runtime samples); without
         # settings here the U sampling check stays untested, never trivially clear
         extras["self_consistency"] = {"gen_kwargs": sampling}
+    # what discovery and validation run with alike
+    shared = dict(seed=args.triage_seed,
+                  stratum="gold" if task.kind in ("yes_no", "multiple_choice_letter") else "none",
+                  host_assumed_finish=bool(task.short_answer), answer_contract=bool(task.output_contract),
+                  n_needs_counterfactual=task.kind in ("yes_no", "multiple_choice_letter"),
+                  task_kind=task.kind, answer_fn=T.answer_key, analyzer_kwargs=extras, price_fn=_price_fn(spec),
+                  per_call_generation=sampling is not None, chunk=int(args.triage_chunk))
     report = run_triage(
         model, explore, out_dir=run_dir / "probing", model_identity=identity,
         n_fail=args.triage_n_fail, max_fail=args.triage_max_fail, max_actions=args.triage_max_actions,
-        seed=args.triage_seed,
-        stratum="gold" if task.kind in ("yes_no", "multiple_choice_letter") else "none",
-        host_assumed_finish=bool(task.short_answer), answer_contract=bool(task.output_contract),
-        n_needs_counterfactual=task.kind in ("yes_no", "multiple_choice_letter"),
-        task_kind=task.kind, answer_fn=T.answer_key, analyzer_kwargs=extras,
         budget_sec=float(args.triage_budget_sec),
         stage0_cost={"wall_sec": baseline["seconds"], "calls": {"generate": baseline["n"]},
                      "n_cases": baseline["n"],
                      **{k: baseline[k] for k in ("api_usage", "usd") if k in baseline}},
-        price_fn=_price_fn(spec),
-        per_call_generation=sampling is not None,
         scheduler=args.triage_scheduler, budget_usd=float(args.triage_budget_usd), explainer=explainer,
-        chunk=int(args.triage_chunk),
         weights=Weights(**triage_weights(args.triage_weights)), explore_share=float(args.triage_explore_share),
         explore_from=args.triage_explore_from,
         partition={"confirm_split": float(args.confirm_split), "seed": CONFIRM_SPLIT_SEED,
                    "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
+                   "n_validation": len(validation), "bundle_sha1": bundle_row["sha1"],
                    "confirm_visible_to_controller": False},
-        run_logger=ctx.logger,
+        run_logger=ctx.logger, **shared,
     )
+    from evalrx.eval_agent.probing.controller import report_name
+
+    name = report_name(args.triage_scheduler, explainer is not None)
+    checked = None
+    if args.triage_validate:
+        checked = validate(model, explore, validation, {name: freeze_issues(report)}, {name: report},
+                           out_dir=run_dir / "validation", model_identity=identity, bundle=bundle,
+                           budget_sec=float(args.triage_validation_budget_sec), run_logger=ctx.logger, **shared)
     ctx.finalize()
     summary = {
         "model": args.model, "spec": spec.key, "dataset": task.name, "modality": task.modality,
@@ -471,12 +492,11 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
                          for s in report["executions"]],
         "triage_stop": report["stop"], "triage_scheduler": report["scheduler"],
         "triage_explanations": args.triage_explanations,
+        **({"validation": {"frozen_sha1": checked["frozen_sha1"], **checked["arms"][name]}} if checked else {}),
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
-    from evalrx.eval_agent.probing.controller import report_name
-
-    name = report_name(args.triage_scheduler, explainer is not None)
-    print(f"Done (triage). {run_dir / 'probing' / (name + '.md')}")
+    print(f"Done (triage). {run_dir / 'probing' / (name + '.md')}"
+          + (f"; validation: {run_dir / 'validation' / 'validation_report.md'}" if checked else ""))
     return 0
 
 

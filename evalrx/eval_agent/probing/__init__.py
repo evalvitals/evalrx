@@ -20,6 +20,9 @@ rules, with no judge and no M2-M5:
   triage.py     H/N/U/S/X route labels traced back to case, field and action
   rules.py      route layers, follow-up choice, and the expansion rule
   controller.py the battery and run_triage()
+  scoring.py    the scored scheduler's value of a candidate (MVP-3)
+  explanations.py competing explanations, their predictions and D (MVP-3)
+  validation.py the data roles, frozen issues and their one validation (MVP-4)
 
 Nothing here is imported by the default ``judge`` path.
 """

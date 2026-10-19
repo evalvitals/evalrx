@@ -6,6 +6,37 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — triage diagnostic validation (MVP-4, first version)
+
+The triage run fixes its data roles before the controller sees a case
+(`<run>/partition_bundle.json`): DISCOVERY = EXPLORE, DIAGNOSTIC_VALIDATION =
+the CONFIRM cases on media DISCOVERY does not contain. `--triage-validate`
+freezes the issues the report supports (route signals and reading differences
+on routes, `probing/validation.py`), writes the family and a power plan from
+DISCOVERY to `<run>/validation/frozen.json`, then validates every issue once
+at a Bonferroni-adjusted level: supported / refuted / inconclusive /
+unavailable. Readings that go together case by case within FAIL and within the
+controls (pooled within-group Spearman |rho| >= 0.5, same route) are grouped
+into one phenomenon, and each arm is credited with its own issues' verdicts
+grouped that way (supported phenomena is the main count). Interval helpers
+take a level (`explanations.t_quantile` inverts the t distribution exactly;
+`triage.difference_interval(z=...)`); `controller.analyzer_extras` gives the
+validator DISCOVERY's frozen lens references and fit set; the validator
+refuses a report from another rules version.
+
+### Changed — triage readings use the model's own answer, not gold
+
+Card readings compare FAIL cases with PASS controls, and a FAIL output is not
+gold by definition, so a gold margin lower on FAIL restated the label. The
+triage steps with a target (`attention_knockout`, `causal_trace`,
+`attention_temperature`, `attention_sensitivity`, `gradcam`,
+`generic_attention`, `patchscope`) now use `target="prediction"`; the
+"wrong before, right after" readings (`fixed_*`) stay in the step output but
+are off the cards; `run_triage` and the validator refuse a carded step whose
+target, in its config or the host's analyzer kwargs, is gold
+(`explanations.label_bound`). Rules version `mvp4-rules-2`, explanations
+`mvp4-explain-3`.
+
 ### Changed — triage exploration draws from its own targets, on the evidence spending
 
 Exploration's share (`--triage-explore-share`) is now of the evidence spending,

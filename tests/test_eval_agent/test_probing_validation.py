@@ -1,0 +1,201 @@
+"""MVP-4: issues frozen from a diagnosis and validated once on cases it never saw.
+
+* the partition keeps every validation case off the media DISCOVERY saw;
+* freezing keeps route signals and readings whose discovery interval clears the
+  band, one issue per route and step (its reading furthest outside the band),
+  and drops a step that re-measures the check its route is cut on;
+* the family is written before the validation partition is read, every issue is
+  tested at 1 - alpha/K, and each arm is credited with its own issues' verdicts:
+  an effect that holds on new cases is supported, one that held only on the
+  discovery cases is refuted;
+* no carded reading reads the label (a step targeting the gold answer is
+  refused), and the validator refuses a report from another rules version;
+* readings whose per-case values go together within FAIL and within the
+  controls are one phenomenon (a FAIL-vs-control shift alone does not join
+  them), and an arm's phenomenon takes the verdicts of its own issues only.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from evalrx.eval_agent.probing import LAYERS, explore_confirm_split, run_triage
+from evalrx.eval_agent.probing.controller import BATTERY
+from evalrx.eval_agent.probing.explanations import CARDS, Metric, label_bound
+from evalrx.eval_agent.probing.rules import Layer, candidate_steps
+from evalrx.eval_agent.probing.validation import (
+    ALPHA,
+    IssueRecord,
+    credit_arms,
+    freeze_issues,
+    group_phenomena,
+    partition_bundle,
+    source_key,
+    validate,
+    within_group_rho,
+)
+from tests.test_eval_agent.test_probing_alternatives import FIRST, _Flipper
+from tests.test_eval_agent.test_probing_mvp2 import _kw, _pope_like, _yes_no
+
+SEED = 7
+
+
+def _split(n_images=96):
+    cases, table = _pope_like(n_images)
+    explore, confirm = explore_confirm_split(cases, 0.5, SEED)
+    return cases, table, explore, confirm
+
+
+def test_the_partition_keeps_every_validation_case_off_the_media_discovery_saw():
+    cases, _, explore, confirm = _split()
+    bundle, validation = partition_bundle(explore, confirm, seed=SEED, confirm_split=0.5)
+    seen = {source_key(c) for c in explore}
+    assert validation and not {source_key(c) for c in validation} & seen
+    assert set(bundle.validation_ids) <= {str(c.id) for c in confirm}
+    assert len(bundle.validation_ids) + bundle.excluded["shares_a_source_with_discovery"] == len(confirm)
+    assert bundle.excluded["shares_a_source_with_discovery"] > 0   # a POPE image has a yes and a no question
+    assert bundle.roles["repair_confirm"] is None and bundle.to_dict()["sha1"] == bundle.to_dict()["sha1"]
+
+
+def _outcome(observed, ci, n=(8, 8), diff=None):
+    return {"n": list(n), "observed": observed, "ci95": ci, "diff": diff if diff is not None else sum(ci) / 2,
+            "fail_mean": 0.5, "control_mean": 0.2}
+
+
+def test_freezing_keeps_what_clears_the_band_one_issue_per_route_and_step():
+    report = {
+        "summary": {"U": {"signal_ci95": [0.2, 0.5], "fail": {"n_fired": 5, "n_tested": 10, "rate": 0.5},
+                          "pass": {"n_fired": 1, "n_tested": 10, "rate": 0.1}},
+                    "N": {"signal_ci95": [0.05, 0.3], "fail": {"n_fired": 3, "n_tested": 10, "rate": 0.3},
+                          "pass": {"n_fired": 1, "n_tested": 10, "rate": 0.1}}},
+        "outcomes": {
+            "S": {"gradcam": {"gc_entropy": _outcome("down", [-0.4, -0.2]),
+                              "gc_top5_share": _outcome("up", [0.1, 0.4]),
+                              "gc_media_grad_share": _outcome("undetermined", [-0.1, 0.2])},
+                  "self_consistency_n10": {"consistency": _outcome("up", [0.2, 0.4])}},
+            "U": {"logprob_entropy": {"mean_top_entropy": _outcome("up", [0.1, 0.25])}},
+            "X": {"media_drop": {"grounded_in_image": _outcome("up", [0.3, 0.9])}},
+            "N": {"patchscope": {"ps_peak_prob": _outcome("undetermined", [-0.2, 0.1])}},
+        },
+    }
+    issues = {(i.kind, i.route, i.check or i.step): i for i in freeze_issues(report)}
+    assert set(issues) == {("route_signal", "U", "U"), ("reading", "S", "gradcam"),
+                           ("reading", "U", "logprob_entropy"), ("reading", "X", "media_drop")}
+    gc = issues[("reading", "S", "gradcam")]
+    # the reading furthest outside its band (0.15 past 0.05) is tested, the other is listed
+    assert (gc.reading, gc.direction, gc.secondary) == ("gc_entropy", "down", ["gc_top5_share: up"])
+    assert gc.spread is not None and gc.rule_id is None
+    assert issues[("reading", "X", "media_drop")].rule_id == "X1"     # X1 narrows its cases
+    assert len({i.issue_id for i in issues.values()}) == 4
+
+
+@pytest.fixture
+def wrapper_on_s(monkeypatch):
+    monkeypatch.setitem(CARDS, FIRST.name, (Metric("prompt_sensitivity", "the answer moves with a wrapper", 0.1),))
+    at = next(i for i, x in enumerate(LAYERS) if x.rule_id == "Sb")
+    return (*LAYERS[:at], Layer("Z1", "S", "does a wrapper move it", (FIRST,)), *LAYERS[at:])
+
+
+class _DiscoveryOnly(_Flipper):
+    """Wrong cases come out right inside the wrapper only on the discovery cases: an effect that
+    does not hold on new cases."""
+
+    def __init__(self, table, cases, only):
+        super().__init__(table, [c for c in cases if str(c.id) in only])
+
+
+def _diagnose_and_validate(tmp_path, model, layers, explore, validation, bundle, name):
+    report = run_triage(model, explore, **_kw(tmp_path / "probing", max_fail=8, min_route_fail=1, layers=layers))
+    issues = freeze_issues(report, layers)
+    out = validate(model, explore, validation, {name: issues}, {name: report}, out_dir=tmp_path / "validation",
+                   model_identity={"spec": "table"}, bundle=bundle, seed=0, host_assumed_finish=True,
+                   n_needs_counterfactual=True, task_kind="yes_no", answer_fn=_yes_no, layers=layers,
+                   analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}}, progress=None)
+    return report, issues, out
+
+
+def test_an_effect_that_holds_on_new_cases_is_supported_and_frozen_before_validation(tmp_path, wrapper_on_s):
+    cases, table, explore, confirm = _split()
+    bundle, validation = partition_bundle(explore, confirm, seed=SEED, confirm_split=0.5)
+    report, issues, out = _diagnose_and_validate(tmp_path, _Flipper(table, cases), wrapper_on_s, explore,
+                                                 validation, bundle, "rules")
+    (wrap,) = [i for i in issues if i.step == "wrap_a"]
+    assert (wrap.route, wrap.direction) == ("S", "up")
+    row = next(r for r in out["issues"] if r["issue_id"] == wrap.issue_id)
+    assert row["validation"]["verdict"] == "supported"
+    assert out["level"] == pytest.approx(1 - ALPHA / out["k"]) and out["arms"]["rules"]["supported"] >= 1
+    frozen = json.loads((tmp_path / "validation" / "frozen.json").read_text())
+    assert frozen["sha1"] == out["frozen_sha1"] and wrap.issue_id in frozen["arms"]["rules"]
+    # the diagnosis never touched a validation case; the validator wrote to its own directory
+    val_ids = set(bundle.validation_ids)
+    planned = [json.loads(line) for line in (tmp_path / "probing" / "selection_trace.jsonl").read_text().splitlines()
+               if '"planned"' in line]
+    ran_on = {cid for e in planned for cid in e["action"]["case_ids"]}
+    assert planned and ran_on and not val_ids & ran_on
+    assert not val_ids & set(report["sample"]["case_ids"])
+    assert set(out["sample"]["case_ids"]) <= val_ids
+    assert (tmp_path / "validation" / "selection_trace.jsonl").is_file()
+    assert "## Arms" in (tmp_path / "validation" / "validation_report.md").read_text()
+
+
+def test_an_effect_that_held_only_on_the_discovery_cases_is_refuted(tmp_path, wrapper_on_s):
+    cases, table, explore, confirm = _split()
+    bundle, validation = partition_bundle(explore, confirm, seed=SEED, confirm_split=0.5)
+    model = _DiscoveryOnly(table, cases, {str(c.id) for c in explore})
+    _, issues, out = _diagnose_and_validate(tmp_path, model, wrapper_on_s, explore, validation, bundle, "rules")
+    (wrap,) = [i for i in issues if i.step == "wrap_a"]
+    row = next(r for r in out["issues"] if r["issue_id"] == wrap.issue_id)
+    assert row["validation"]["verdict"] == "refuted" and row["validation"]["diff"] == 0.0
+
+
+def test_no_carded_reading_reads_the_label_and_a_gold_target_is_refused(tmp_path):
+    assert not label_bound((*BATTERY, *candidate_steps(LAYERS)))
+    assert not any(m.field.startswith("fixed_") for ms in CARDS.values() for m in ms)
+    cases, table, explore, _ = _split(16)
+    with pytest.raises(ValueError, match="read the gold answer"):
+        run_triage(_Flipper(table, cases), explore,
+                   **_kw(tmp_path, analyzer_kwargs={"attention_knockout": {"target": "gold"}}))
+
+
+def test_the_validator_refuses_a_report_from_another_rules_version(tmp_path):
+    _, _, explore, confirm = _split(16)
+    _, validation = partition_bundle(explore, confirm, seed=SEED, confirm_split=0.5)
+    with pytest.raises(ValueError, match="another rules version"):
+        validate(None, explore, validation, {"old": []}, {"old": {"rules_version": "mvp2-rules-1"}},
+                 out_dir=tmp_path, model_identity={}, progress=None)
+
+
+def _reading(route, step):
+    return IssueRecord(kind="reading", route=route, direction="up", band=0.1, metric_kind="mean", claim="-",
+                       step=step, reading="r")
+
+
+def test_readings_that_go_together_within_groups_are_one_phenomenon_and_a_shift_is_not():
+    fail, ctrl = [f"f{i}" for i in range(6)], [f"c{i}" for i in range(6)]
+    base = dict(zip(fail + ctrl, [1, 2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16]))
+    same = {c: 2 * v + 10 for c, v in base.items()}              # the same order inside each group
+    order = [3, 6, 1, 5, 2, 4]                                   # FAIL and controls far apart, order unrelated
+    shifted = {**dict(zip(fail, order)), **{c: 100 + v for c, v in zip(ctrl, order)}}
+    a, b, c, d = (_reading("S", "knockout"), _reading("S", "causal_trace"), _reading("S", "gradcam"),
+                  _reading("U", "knockout"))
+    signal = IssueRecord(kind="route_signal", route="U", direction="up", band=0.1, metric_kind="rate", claim="-",
+                         check="U")
+    per_case = {a.issue_id: (base, fail, ctrl), b.issue_id: (same, fail, ctrl), c.issue_id: (shifted, fail, ctrl),
+                d.issue_id: (base, fail, ctrl)}
+    assert within_group_rho(base, same, [fail, ctrl]) == pytest.approx(1.0)
+    assert within_group_rho(base, shifted, [fail, ctrl]) == pytest.approx(-3 / 35)
+    results = {signal.issue_id: {"verdict": "inconclusive"}, a.issue_id: {"verdict": "supported"},
+               b.issue_id: {"verdict": "inconclusive"}, c.issue_id: {"verdict": "supported"},
+               d.issue_id: {"verdict": "refuted"}}
+    phenomena, links = group_phenomena([signal, a, b, c, d], results, per_case)
+    assert len(links) == 3                                       # every pair on route S; d is alone on U
+    assert {frozenset(ph["issues"]): ph["verdict"] for ph in phenomena} == {
+        frozenset({signal.issue_id}): "inconclusive", frozenset({a.issue_id, b.issue_id}): "supported",
+        frozenset({c.issue_id}): "supported", frozenset({d.issue_id}): "refuted"}   # d: same values, other route
+    of = {i: ph["id"] for ph in phenomena for i in ph["issues"]}
+    credit = credit_arms({"both": [a, b], "twin_only": [b]}, results, of, {})
+    assert (credit["both"]["n_phenomena"], credit["both"]["phenomena_supported"], credit["both"]["n_issues"]) == (1, 1, 2)
+    # the twin's phenomenon is supported through the knockout, which this arm did not freeze
+    assert (credit["twin_only"]["phenomena_supported"], credit["twin_only"]["phenomena_inconclusive"]) == (0, 1)

@@ -47,18 +47,18 @@ from evalrx.analyzers.perturbation.prompt_contrast import _DEFAULT_STRATEGIES as
 from evalrx.eval_agent.probing.actions import PlanStep
 from evalrx.eval_agent.probing.evidence import StepEvidence
 
-RULES_VERSION = "mvp2-rules-1"
+RULES_VERSION = "mvp4-rules-2"
 ROUTE_ORDER = ("H", "N", "U", "S", "X")
 DESCRIBE_STRATEGIES = {"baseline": "{prompt}", "describe_first": _PROMPT_STRATEGIES["describe_first"]}
 
 #: Kinds of evidence (``PlanStep.evidence``) that more than one tool of a layer gives:
 #: once one of them has answered the layer, another of the same kind is redundant.
-MEDIA_ATTENTION_CUT = "text-to-media attention cut, gold margin"
-MEDIA_NOISE = "media embeddings noised and restored, gold margin"
-ATTENTION_RESCALING = "attention to the media rescaled, gold margin"
+MEDIA_ATTENTION_CUT = "text-to-media attention cut, answer margin"
+MEDIA_NOISE = "media embeddings noised and restored, answer margin"
+ATTENTION_RESCALING = "attention to the media rescaled, answer margin"
 TOKEN_PROBABILITIES = "output-token probabilities"
 RESAMPLING = "re-sampled answers"
-RELEVANCE_MAP = "relevance map of the gold margin over the media"
+RELEVANCE_MAP = "relevance map of the answer margin over the media"
 LAYER_READOUT = "answer position read out layer by layer"
 
 #: Room for a description before the answer, asked per call (the task's own cap
@@ -100,14 +100,14 @@ LAYERS: tuple[Layer, ...] = (
     Layer("H2", "H", "continued past where it stopped, does the output reach an answer", (
         PlanStep("termination_audit", {"continue_non_clean": True}, "H2", "continue the outputs that did not end cleanly",
                  key="termination_continue", calls_per_case={"generate": 1}),)),
-    Layer("N1", "N", "does the media path carry a measurable effect on the gold answer", (
-        PlanStep("causal_trace", {"target": "gold"}, "N1", "corrupt the media, restore one site at a time",
+    Layer("N1", "N", "does the media path carry a measurable effect on the answer", (
+        PlanStep("causal_trace", {"target": "prediction"}, "N1", "corrupt the media, restore one site at a time",
                  calls_per_case={"forward": 20}, evidence=MEDIA_NOISE),),
         served_by=("attention_knockout",)),
-    Layer("N2", "N", "does reading the media with sharper or flatter attention change the gold margin", (
-        PlanStep("attention_temperature", {"target": "gold"}, "N2", "rescale the media attention temperature",
+    Layer("N2", "N", "does reading the media with sharper or flatter attention change the answer margin", (
+        PlanStep("attention_temperature", {"target": "prediction"}, "N2", "rescale the media attention temperature",
                  fidelity_check="edit", calls_per_case={"forward": 4}, evidence=ATTENTION_RESCALING),
-        PlanStep("attention_sensitivity", {"target": "gold"}, "N2", "scale attention to the media down and up",
+        PlanStep("attention_sensitivity", {"target": "prediction"}, "N2", "scale attention to the media down and up",
                  fidelity_check="edit", calls_per_case={"forward": 4}, evidence=ATTENTION_RESCALING))),
     Layer("N3", "N", "asked to describe the media first, does the answer start to follow it", (
         _describe("N3", "describe the media, then answer"),)),
@@ -122,14 +122,14 @@ LAYERS: tuple[Layer, ...] = (
                  task_kinds=("multiple_choice_letter",)),)),
     Layer("Sb", "S", "does a stable error survive when the model first states what it sees", (
         _describe("Sb", "describe the media, then answer"),)),
-    Layer("S1", "S", "which image regions the gold margin depends on (no reference regions: "
+    Layer("S1", "S", "which image regions the answer margin depends on (no reference regions: "
                      "concentration only, not 'mislocalised')", (
-        PlanStep("gradcam", {"target": "gold"}, "S1", "gradient x activation map of the gold margin",
+        PlanStep("gradcam", {"target": "prediction"}, "S1", "gradient x activation map of the answer margin",
                  calls_per_case={"backward": 1}, evidence=RELEVANCE_MAP),
-        PlanStep("generic_attention", {"target": "gold"}, "S1", "attention relevance of the gold margin",
+        PlanStep("generic_attention", {"target": "prediction"}, "S1", "attention relevance of the answer margin",
                  fidelity_check="edit", calls_per_case={"backward": 1}, evidence=RELEVANCE_MAP))),
     Layer("S2", "S", "is the case's own question word readable off the media tokens", (), served_by=("embed_lens",)),
-    Layer("S3", "S", "was the gold answer readable before the output", (
+    Layer("S3", "S", "how early in the stack the answer was readable", (
         PlanStep("tuned_lens", {}, "S3", "fitted per-layer readout of the answer position (translators "
                  "fit once on a fixed set of EXPLORE cases)", calls_per_case={"forward": 1},
                  evidence=LAYER_READOUT),

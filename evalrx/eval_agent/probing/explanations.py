@@ -17,7 +17,12 @@ on the route's FAIL cases against their PASS controls:
 
 The readings, their meaning, sign and band are fixed here, per step, in
 ``CARDS``: the judge picks a direction, never the metric, the comparison or
-the threshold. Code, not the judge, checks the predictions against the
+the threshold. A card compares FAIL with PASS, so no reading on it may be
+computed from the correctness label or the gold answer: a FAIL case's output
+is not gold by definition, so "the gold margin is lower on FAIL" restates the
+label. Steps with a target read the model's own answer (``target="prediction"``),
+and readings such as "wrong before, right after" stay in the step's output but
+off the cards. Code, not the judge, checks the predictions against the
 evidence (``verdict``): a prediction is a hit when the 95% interval of the
 difference lies inside its region, a miss when it lies outside, and
 undetermined otherwise. An explanation with a miss is contradicted and leaves
@@ -63,12 +68,12 @@ import time
 from dataclasses import dataclass, field
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from evalrx.eval_agent.probing.metering import usage_counters, usage_delta
 from evalrx.eval_agent.probing.triage import difference_interval
 
-EXPLAIN_VERSION = "mvp3-explain-2"
+EXPLAIN_VERSION = "mvp4-explain-3"
 DIRECTIONS = ("up", "down", "same", "unknown")
 _ALIASES = {"↑": "up", "↓": "down", "≈": "same", "=": "same", "~": "same", "?": "unknown",
             "higher": "up", "lower": "down", "increase": "up", "decrease": "down", "none": "unknown"}
@@ -89,11 +94,24 @@ class Metric:
                 "kind": "share of cases" if self.kind == "rate" else "mean"}
 
 
+#: Analyzer targets that are the correctness label in another form.
+LABEL_TARGETS = ("gold",)
+
+
+def label_bound(steps: "Iterable[Any]", extras: "dict[str, dict[str, Any]] | None" = None) -> list[str]:
+    """The carded steps whose target (in the step's config or the host's constructor extras) is the
+    gold answer: their FAIL-vs-PASS difference would restate the label."""
+    extras = extras or {}
+    return sorted({s.name for s in steps if s.name in CARDS and any(
+        (d or {}).get("target") in LABEL_TARGETS for d in (s.config, extras.get(s.analyzer)))})
+
+
 def _rate(field_: str, meaning: str, band: float = 0.1) -> Metric:
     return Metric(field_, meaning, band, "rate")
 
 
-_MARGIN = "the gold first-token logit margin (gold vs its strongest competitor, fixed on the clean run)"
+_MARGIN = ("the answer margin: the logit of the model's own first answer token minus its strongest "
+           "competitor's, both fixed on the clean run")
 
 #: The readings each step's predictions may name, by step key (``PlanStep.name``).
 #: Bands are fixed before any run: 0.1 for shares of cases, 0.5 for logit
@@ -101,27 +119,27 @@ _MARGIN = "the gold first-token logit margin (gold vs its strongest competitor, 
 #: predictions (D = 0): the H re-ask and continuation run on FAIL cases only,
 #: so their readings have no PASS control to compare with.
 CARDS: dict[str, tuple[Metric, ...]] = {
-    # N: does the media path carry the gold answer
+    # N: does the media path carry the answer
     "attention_knockout": (
         Metric("ko_delta_full", f"{_MARGIN}, clean minus with text-to-media attention cut in every layer; "
-                                ">0 = the media reading supported gold", 0.5),
+                                ">0 = the media reading supported the answer", 0.5),
         Metric("ko_delta_late", "the same with the cut in the last third of layers only", 0.5)),
     "causal_trace": (
         Metric("ct_media_effect", f"{_MARGIN}, clean minus with the media embeddings noised; >0 = the media "
-                                  "supported gold", 0.5),
+                                  "supported the answer", 0.5),
         _rate("ct_effect_traceable", "the noising moved the margin by at least 1 logit")),
     "attention_temperature": (
-        Metric("tt_slope", "change of the gold margin per log-unit of attention temperature over the media "
-                           "(flat minus sharp over ln 4); <0 = sharper focus on the media helps gold", 0.25),
+        Metric("tt_slope", "change of the answer margin per log-unit of attention temperature over the media "
+                           "(flat minus sharp over ln 4); <0 = sharper focus on the media strengthens the "
+                           "answer", 0.25),
         Metric("tt_delta_sharp", f"{_MARGIN} with media attention sharpened (temperature 0.5) minus clean", 0.5),
         Metric("tt_media_entropy", "normalised entropy of text-to-media attention (1 = spread evenly)", 0.05)),
     "attention_sensitivity": (
-        Metric("rw_slope", "change of the gold margin per log-unit of media attention scaling (x2 vs x0.5); "
-                           ">0 = more attention to the media helps gold", 0.25),
+        Metric("rw_slope", "change of the answer margin per log-unit of media attention scaling (x2 vs x0.5); "
+                           ">0 = more attention to the media strengthens the answer", 0.25),
         Metric("rw_delta_up", f"{_MARGIN} with media attention doubled minus clean", 0.5)),
     "describe_first": (
-        _rate("changed_describe_first", "the answer changes when asked to describe the media first"),
-        _rate("fixed_describe_first", "wrong before, right after describing first")),
+        _rate("changed_describe_first", "the answer changes when asked to describe the media first"),),
     # U: is the answer near a tie, does it follow content
     "logprob_entropy": (
         Metric("mean_top_entropy", "entropy (nats) over the top alternatives per output token, mean; "
@@ -136,16 +154,15 @@ CARDS: dict[str, tuple[Metric, ...]] = {
                                   "content", 0.1)),
     # S: where the stable error sits
     "prompt_threshold": (
-        _rate("changed_sensitive", "the answer changes when told not to default to a negative answer"),
-        _rate("fixed_sensitive", "wrong before, right after that instruction")),
+        _rate("changed_sensitive", "the answer changes when told not to default to a negative answer"),),
     "gradcam": (
         Metric("gc_media_grad_share", "share of gradient x activation on the media tokens (at mid depth) of "
-                                      "the gold margin; low = the margin hinges on the text", 0.05),
+                                      "the answer margin; low = the margin hinges on the text", 0.05),
         Metric("gc_top5_share", "share of the media map's positive mass in its top 5% of positions; "
                                 "higher = more concentrated", 0.05),
         Metric("gc_entropy", "normalised entropy of the media map (1 = diffuse)", 0.05)),
     "generic_attention": (
-        Metric("rel_media_share", "share of propagated attention relevance of the gold margin on the media "
+        Metric("rel_media_share", "share of propagated attention relevance of the answer margin on the media "
                                   "tokens; low = built from the text", 0.05),
         Metric("rel_top5_share", "share of the media relevance map in its top 5% of positions", 0.05),
         Metric("rel_entropy", "normalised entropy of the media relevance map (1 = diffuse)", 0.05)),
@@ -155,10 +172,10 @@ CARDS: dict[str, tuple[Metric, ...]] = {
         Metric("el_frac_specific", "share of media tokens decoding to case-specific (not recurring, not "
                                    "high-norm) words", 0.05)),
     "patchscope": (
-        Metric("ps_peak_prob", "highest probability of the gold answer read off the answer position at any "
-                               "layer", 0.05),
-        Metric("ps_late_drop", "that peak minus the output's gold probability; >0 = gold was more readable "
-                               "mid-stack than at the output", 0.05),
+        Metric("ps_peak_prob", "highest probability of the model's own answer read off the answer position at "
+                               "any layer", 0.05),
+        Metric("ps_late_drop", "that peak minus the answer's probability at the output; >0 = the answer was "
+                               "more readable mid-stack than at the output", 0.05),
         Metric("ps_media_query_share", "share of media-token readouts that are the case's question word", 0.05)),
     "tuned_lens": (
         Metric("tl_late_drop", "peak minus final probability of the model's own final answer across fitted "
@@ -190,18 +207,72 @@ def _t975(df: float) -> float:
     return 2.021 if k < 60 else 2.000 if k < 120 else 1.960
 
 
+def z_quantile(level: float) -> float:
+    """Two-sided normal quantile: ``z`` with ``P(|Z| <= z) = level``."""
+    from statistics import NormalDist
+
+    return NormalDist().inv_cdf(0.5 + level / 2)
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    """Continued fraction of the regularised incomplete beta function (modified Lentz)."""
+    tiny, qab, qap, qam = 1e-300, a + b, a + 1.0, a - 1.0
+    c, d = 1.0, 1.0 - qab * x / qap
+    d = 1.0 / (d if abs(d) > tiny else tiny)
+    h = d
+    for m in range(1, 300):
+        m2 = 2 * m
+        for aa in (m * (b - m) * x / ((qam + m2) * (a + m2)), -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))):
+            d = 1.0 + aa * d
+            d = 1.0 / (d if abs(d) > tiny else tiny)
+            c = 1.0 + aa / c
+            c = c if abs(c) > tiny else tiny
+            h *= d * c
+        if abs(d * c - 1.0) < 1e-14:
+            break
+    return h
+
+
+def _t_two_sided(t: float, k: int) -> float:
+    """``P(|T| <= t)`` for Student's t with *k* degrees of freedom: ``1 - I_{k/(k+t^2)}(k/2, 1/2)``."""
+    x = k / (k + t * t)
+    a, b = k / 2.0, 0.5
+    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log1p(-x))
+    ibeta = front * _betacf(a, b, x) / a if x < (a + 1) / (a + b + 2) else 1.0 - front * _betacf(b, a, 1 - x) / b
+    return 1.0 - ibeta
+
+
+def t_quantile(level: float, df: float) -> float:
+    """Two-sided Student-t quantile at ``floor(df)`` degrees of freedom (conservative): the table
+    above at 95%, else the CDF (incomplete beta) inverted by bisection, e.g. for a family-wise
+    adjusted interval."""
+    if abs(level - 0.95) < 1e-12:
+        return _t975(df)
+    k = max(1, int(math.floor(df)))
+    lo, hi = 0.0, 1.0
+    while _t_two_sided(hi, k) < level:
+        hi *= 2.0
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if _t_two_sided(mid, k) < level else (lo, mid)
+        if hi - lo < 1e-10:
+            break
+    return hi
+
+
 def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs)
 
 
-def difference(fail: list[float], control: list[float], kind: str) -> "tuple[float, list[float]] | None":
-    """``(FAIL mean - control mean, 95% interval)``; ``None`` below ``MIN_N`` cases a side."""
+def difference(fail: list[float], control: list[float], kind: str,
+               level: float = 0.95) -> "tuple[float, list[float]] | None":
+    """``(FAIL mean - control mean, interval at *level*)``; ``None`` below ``MIN_N`` cases a side."""
     if len(fail) < MIN_N or len(control) < MIN_N:
         return None
     diff = _mean(fail) - _mean(control)
     if kind == "rate":
         ci = difference_interval(sum(1 for x in fail if x >= 0.5), len(fail),
-                                 sum(1 for x in control if x >= 0.5), len(control))
+                                 sum(1 for x in control if x >= 0.5), len(control), z=z_quantile(level))
         return diff, list(ci or [diff, diff])
     vf = sum((x - _mean(fail)) ** 2 for x in fail) / (len(fail) - 1) / len(fail)
     vc = sum((x - _mean(control)) ** 2 for x in control) / (len(control) - 1) / len(control)
@@ -209,7 +280,7 @@ def difference(fail: list[float], control: list[float], kind: str) -> "tuple[flo
     if se == 0.0:
         return diff, [diff, diff]
     df = (vf + vc) ** 2 / ((vf ** 2 / (len(fail) - 1) if vf else 0.0) + (vc ** 2 / (len(control) - 1) if vc else 0.0))
-    half = _t975(df) * se
+    half = t_quantile(level, df) * se
     return diff, [diff - half, diff + half]
 
 
@@ -238,8 +309,9 @@ def verdict(direction: str, ci: "list[float] | None", band: float) -> str:
 
 
 def outcome(values: "dict[str, dict[str, Any]]", fail_ids: list[str], control_ids: list[str],
-            metric: Metric) -> dict[str, Any]:
-    """The reading's FAIL-vs-control difference on these cases, from per-case ``follow_up_values``."""
+            metric: Metric, level: float = 0.95) -> dict[str, Any]:
+    """The reading's FAIL-vs-control difference on these cases, from per-case ``follow_up_values``,
+    with its interval at *level*."""
     def take(ids: list[str]) -> list[float]:
         return [float(values[c]["values"][metric.field]) for c in ids
                 if values.get(c, {}).get("state") == "measured" and metric.field in values[c]["values"]]
@@ -250,7 +322,7 @@ def outcome(values: "dict[str, dict[str, Any]]", fail_ids: list[str], control_id
         out["fail_mean"] = round(_mean(f), 4)
     if c:
         out["control_mean"] = round(_mean(c), 4)
-    res = difference(f, c, metric.kind)
+    res = difference(f, c, metric.kind, level)
     if res is None:
         out["observed"] = "not_measured" if not f and not c else "undetermined"
         return out

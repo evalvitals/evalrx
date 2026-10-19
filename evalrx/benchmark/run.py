@@ -184,6 +184,11 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                    help="triage_active with --triage-scheduler scored: what exploration draws from: targets = "
                         "inactive routes' next candidates and other routes' representatives (actions the value "
                         "never takes); candidates = the candidates other than the best (an ablation)")
+    p.add_argument("--triage-validate", action=argparse.BooleanOptionalAction, default=False,
+                   help="triage_active: freeze the issues the triage report supports and validate them once on "
+                        "the CONFIRM cases whose media EXPLORE does not contain (<run>/validation/)")
+    p.add_argument("--triage-validation-budget-sec", type=float, default=0.0,
+                   help="triage_active with --triage-validate: wall-clock cap on the validation's evidence (0 = none)")
     p.add_argument("--triage-seed", type=int, default=0,
                    help="triage_active: rank seed of the nested sampler")
     p.add_argument("--triage-budget-sec", type=float, default=0.0,
