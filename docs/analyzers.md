@@ -22,13 +22,13 @@ model, not by a black-box / white-box label.
 | [Uncertainty](#uncertainty) | `uncertainty/` | 6 | 0 |
 | [Hallucination](#hallucination) | `hallucination/` | 5 | 2 |
 | [Attention](#attention) | `attention/` | 4 | 0 |
-| [Attribution](#attribution) | `attribution/` | 2 | 2 |
-| [Lens](#lens) | `lens/` | 3 | 1 |
-| [Patching](#patching) | `patching/` | 1 | 1 |
+| [Attribution](#attribution) | `attribution/` | 2 | 0 |
+| [Lens](#lens) | `lens/` | 6 | 0 |
+| [Patching](#patching) | `patching/` | 6 | 0 |
 | [Geometry](#geometry) | `geometry/` | 2 | 0 |
 | [Reasoning](#reasoning) | `reasoning/` | 7 | 0 |
 | [Agent](#agent) | `agent/` | 7 | 0 |
-| **Total** | | **46** | **6** |
+| **Total** | | **54** | **2** |
 <!-- END GENERATED -->
 
 How to read the columns:
@@ -116,39 +116,90 @@ on the light (API-only) install it is skipped and these analyzers are not offere
 ### Attribution
 
 `evalrx/analyzers/attribution/`: gradient-based saliency (`GRADIENTS`, a backward
-pass through a white-box model).
+pass through a white-box model: `hf_local` keeps the autograd graph when asked with
+`CaptureSpec(with_grad=True)`). Both explain the next-token logit margin and map the
+result back onto the image's patch grid, with overlays on the case photo. Grad-CAM
+reads the decoder's image-token states rather than the vision tower.
 
 <!-- BEGIN GENERATED: analyzers/attribution -->
 | Analyzer | Key | Requires | Modality | Paper | Status |
 |---|---|---|---|---|---|
-| Grad-CAM | `gradcam` | `GRADIENTS` | image | [Selvaraju et al. 2017](https://arxiv.org/abs/1610.02391) | stub |
-| Generic attention explainability | `generic_attention` | `ATTENTION` + `GRADIENTS` | text + image | [Chefer et al. 2021](https://arxiv.org/abs/2103.15679) | stub |
+| Grad-CAM | `gradcam` | `GRADIENTS` + `LOGITS` | **image** + **video** | [Selvaraju et al. 2017](https://arxiv.org/abs/1610.02391) | ✓ |
+| Generic attention explainability | `generic_attention` | `ATTENTION` + `GRADIENTS` + `LOGITS` | text + image | [Chefer et al. 2021](https://arxiv.org/abs/2103.15679) | ✓ |
 <!-- END GENERATED -->
 
 ### Lens
 
 `evalrx/analyzers/lens/`: project intermediate hidden states through the
 unembedding (`HIDDEN_STATES`) to see at which layer a prediction forms, and where
-premature layers disagree with the final one.
+premature layers disagree with the final one; or project each attention head's own
+write, to see which heads write the answer. `patchscope` lets the model decode its
+own states instead: each layer's residual at the answer position (and optionally
+each image / audio token) is patched into a token-identity prompt at the same
+layer. On Qwen3.5-0.8B it reads the final answer about five layers earlier than
+the logit lens. `embed_lens` reads the media tokens where they ENTER the language
+model, through their nearest vocabulary embeddings: which carry image-specific
+words, which repeat across every image (recurring / high-norm, the sink- and
+dead-like tokens of Fan et al., inferred from the batch rather than from
+checkpoint-specific ids), and how close the image comes to each prompt word.
+On Qwen3.5-0.8B the input is not in vocabulary space (90% recurring, object
+grounding at chance); `layer=0.9` reads the same lens deep, where 87% of image
+tokens are specific and the queried object is grounded (POPE AUROC 0.76).
 
 <!-- BEGIN GENERATED: analyzers/lens -->
 | Analyzer | Key | Requires | Modality | Paper | Status |
 |---|---|---|---|---|---|
 | Logit lens | `logit_lens` | `HIDDEN_STATES` | text + image | [nostalgebraist 2020](https://www.lesswrong.com/posts/AcKRB8wDpdaN6v6ru/interpreting-gpt-the-logit-lens) | ✓ |
-| Tuned lens | `tuned_lens` | `HIDDEN_STATES` | text + image | [Belrose et al. 2023](https://arxiv.org/abs/2303.08112) | stub |
+| Tuned lens | `tuned_lens` | `HIDDEN_STATES` | text + image | [Belrose et al. 2023](https://arxiv.org/abs/2303.08112) | ✓ |
 | Layer contrast | `layer_contrast` | `HIDDEN_STATES` | text + image | [Chuang et al. 2024](https://arxiv.org/abs/2309.03883); [Wang et al. 2025](https://arxiv.org/abs/2410.11779) | ✓ |
+| Head logit attribution | `head_attribution` | `HIDDEN_STATES` + `LOGITS` | text + image | [Elhage et al. 2021](https://transformer-circuits.pub/2021/framework/index.html); [Wang et al. 2023](https://arxiv.org/abs/2211.00593) | ✓ |
+| Patchscope | `patchscope` | `HIDDEN_STATES` + `LOGITS` | text + image + audio + video | [Ghandeharioun et al. 2024](https://arxiv.org/abs/2401.06102) | ✓ |
+| EmbedLens | `embed_lens` | `HIDDEN_STATES` | **image** + **audio** + **video** | [Fan et al. 2026](https://arxiv.org/abs/2603.00510) | ✓ |
 <!-- END GENERATED -->
 
 ### Patching
 
 `evalrx/analyzers/patching/`: causal interventions. Write a clean run's
 activations into a corrupted run to localise where information is used
-(`HIDDEN_STATES`, read and write hooks).
+(`HIDDEN_STATES`, read and write hooks), or cut attention edges and measure what
+the answer loses. These act on the live torch module of a local `hf_local` model
+through `evalrx/analyzers/_internals/` (an attention function registered with
+transformers, and decoder-layer pre-hooks), and verify, once per model, that the
+edit-free path reproduces the native logits. Hybrid stacks (Qwen3.5, Qwen3-Next:
+softmax + gated-delta-rule linear attention) are edited on every layer: a linear
+layer's text positions get its output re-run on the sequence without the media
+tokens (`_internals/linear_mix.py`). Latent / unverified attention is refused.
+Qwen3.5 needs transformers 5 (the `vllm35` environment), not the `[local]` extra.
+
+`attribution_patching` estimates `causal_trace`'s patch for every single token
+at every layer from gradients (`GRADIENTS`), averaged along the corrupt → clean
+media path (EAP-IG). It reports single tokens only — the answer position, and
+the question / template token that relays the media's information — because the
+media tokens' joint patch is not additive and a sum of gradient estimates does
+not track it. Each case is checked against exact patches of the sites it
+reports, and only cases that pass enter the aggregates.
+
+`path_patching` asks which heads carry the media's effect DIRECTLY to the answer:
+one head's output under corrupted media, every other head (linear-attention value
+heads included) frozen at its clean output, MLPs recomputed. Heads are screened
+by direct logit attribution and the top `top_k` patched exactly; patching every
+head at once reproduces the whole effect at the answer position (a tested
+identity), so the shares are exact fractions of it.
+
+`attention_temperature` divides the text's pre-softmax scores on the media by a
+temperature while keeping each row's total media weight (`scope="within"`): the
+model looks at the image as much as before, only more sharply or more broadly —
+FOCUS, where `attention_sensitivity` changes the AMOUNT. Softmax layers only.
 
 <!-- BEGIN GENERATED: analyzers/patching -->
 | Analyzer | Key | Requires | Modality | Paper | Status |
 |---|---|---|---|---|---|
-| Causal trace | `causal_trace` | `HIDDEN_STATES` | text + image | [Meng et al. 2022](https://arxiv.org/abs/2202.05262) | stub |
+| Causal trace | `causal_trace` | `HIDDEN_STATES` + `LOGITS` | **image** + **audio** + **video** | [Meng et al. 2022](https://arxiv.org/abs/2202.05262); [Basu et al. 2024](https://arxiv.org/abs/2406.04236) | ✓ |
+| Attention knockout | `attention_knockout` | `ATTENTION` + `LOGITS` | **image** + **audio** + **video** | [Geva et al. 2023](https://arxiv.org/abs/2304.14767); [Zhang et al. 2025](https://arxiv.org/abs/2411.18620) | ✓ |
+| Attention sensitivity | `attention_sensitivity` | `ATTENTION` + `LOGITS` | **image** + **audio** + **video** | [Liu et al. 2024 (PAI)](https://arxiv.org/abs/2407.21771) | ✓ |
+| Attribution patching | `attribution_patching` | `GRADIENTS` + `HIDDEN_STATES` + `LOGITS` | **image** + **audio** + **video** | [Syed et al. 2023](https://arxiv.org/abs/2310.10348); [Kramár et al. 2024 (AtP*)](https://arxiv.org/abs/2403.00745); [Hanna et al. 2024 (EAP-IG)](https://arxiv.org/abs/2403.17806) | ✓ |
+| Path patching | `path_patching` | `HIDDEN_STATES` + `LOGITS` | **image** + **audio** + **video** | [Wang et al. 2023 (IOI)](https://arxiv.org/abs/2211.00593) | ✓ |
+| Attention temperature | `attention_temperature` | `ATTENTION` + `LOGITS` | **image** + **audio** + **video** | — (an intervention; cf. [Liu et al. 2024 (PAI)](https://arxiv.org/abs/2407.21771)) | ✓ |
 <!-- END GENERATED -->
 
 ### Geometry
@@ -263,6 +314,7 @@ chat template renders tools, which grants `TOOL_CALLS` on the local backend) and
 | `llama-4-scout` | `llama4` | text + image | MoE | — |
 | `llava-1.5-7b-hf` | `llava` | text + image | — | reference architecture for ViCrop |
 | `instructblip-vicuna-7b` | `instructblip` | text + image | — | reference Q-Former architecture |
+| `qwen3.5-0.8b-vl` | `qwen3_5` | text + image | reasoning, tool calling | hybrid linear / full attention stack; smallest Qwen3.5 VLM (fast white-box checks) |
 <!-- END GENERATED -->
 
 ### Audio and omni models

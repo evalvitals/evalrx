@@ -6,6 +6,192 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — hybrid analyzer compatibility with Transformers 5
+
+Recognize Qwen3.5 / Qwen3-Next linear-attention mixers when Transformers calls
+`torch_chunk_gated_delta_rule` at module scope instead of storing a kernel on
+each instance. Gradient relevance now taps that call during the target mixer's
+forward, restores it on exit or error, and retains the older instance-kernel
+path. Regression tests check native logits and gradients, per-layer relevance,
+model isolation, and cleanup after a failed forward.
+
+### Added — write-side white-box analyzers (knockout, causal trace, gradients, head attribution)
+
+Four registered stubs are now native implementations, plus three new
+analyzers. All explain the next-token logit margin at the end of the prompt
+(`target="prediction"`: clean top-1 vs top-2, label-free; or `"gold"`) and emit
+`per_case` columns for M2:
+
+- `attention_knockout` (new, `patching/`) — cut text→media attention in all
+  layers and per third of the stack (Geva et al. 2023).
+- `attention_sensitivity` (new, `patching/`) — rescale text→media attention
+  (×0.5 / ×2, renormalised) and report the margin's slope; negative = more
+  looking weakens the answer (PAI-style repair signal).
+- `causal_trace` (was a stub) — Meng-style corruption of the media tokens
+  (noise, incl. Qwen3-VL DeepStack injections; or a same-size gray image) and
+  per-layer restoration at the media tokens and at the answer position.
+- `gradcam` (was a stub) — Grad-CAM over the decoder's image tokens at a
+  fractional depth, mapped onto the patch grid with photo overlays.
+- `generic_attention` (was a stub) — Chefer et al. 2021 relevance, propagated
+  as one row from the top layer down.
+- `head_attribution` (new, `lens/`) — direct logit attribution per attention
+  head with the final norm frozen at the clean run.
+- `tuned_lens` (was a stub) — per-layer affine translators fit label-free to the
+  model's own final distribution; cached per model, optional save/load.
+
+`attention` and `attention_sink` now run over the batch (`max_cases`) and emit
+`per_case` columns (`media_mass_mid`, `sink_mass_mean`, …) instead of reading
+only the first case.
+
+Plumbing lives in `evalrx/analyzers/_internals/`: an attention function
+registered with transformers' `AttentionInterface` (plus the matching mask
+function — without it transformers builds no causal mask) that reproduces eager
+attention and can block / reweight / record it, verified once per model to
+engage on every layer and reproduce the native logits; decoder-layer pre-hooks
+for reading/replacing the residual stream; per-head output capture.
+Attention-editing analyzers refuse latent attention (hybrid stacks: see below).
+
+### Added — the write-side analyzers run on hybrid stacks (Qwen3.5 / Qwen3-Next)
+
+Qwen3.5 interleaves softmax attention with gated-delta-rule (GatedDeltaNet)
+layers that have no attention matrix; the analyzers used to refuse it. New
+`_internals/linear_mix.py` covers those layers with the module's own code:
+
+- media edits (`attention_knockout`, `attention_sensitivity`) re-run a linear
+  layer on the sequence WITHOUT the media tokens and blend its output at the
+  text positions (`w = 0` = knockout); `_internals/edits.py` applies the tap
+  and this re-run together, and checks both once per model (the re-run must
+  reproduce the outputs before the first media token);
+- `generic_attention` materialises each linear layer's token-mixing matrix
+  (the delta rule is linear in its values: `o = A·v`) and uses
+  `∇A = (∂y/∂o) vᵀ` in Chefer's rule;
+- `head_attribution` attributes the linear layers' value heads too
+  (`dla_linear_share`, `layer_kinds`, `heads_per_layer`).
+
+`causal_trace`, `gradcam` and `tuned_lens` were already architecture-agnostic.
+Verified on Qwen3.5-2B (transformers 5.14): tap 6/6 softmax layers exact,
+re-run 18/18 linear layers within 0.24% (bf16). Tests: a tiny Qwen3-Next
+(transformers ≥ 4.57) and a tiny Qwen3.5 VLM (transformers 5).
+
+### Added — `attribution_patching`: causal tracing of single tokens, from gradients
+
+New `patching/attribution_patching` estimates the effect of restoring each
+single token at each layer — `causal_trace`'s residual-stream site, corruptions
+and noise draws — as `(h_clean − h_corrupt) · ∂margin/∂h`, with the gradient
+averaged along the corrupt → clean media path (EAP-IG, `ig_steps=5`;
+`ig_steps=1` = plain attribution patching, `direction="denoise" | "noise"`).
+It reports the answer position's share of the media's effect per layer
+(`ap_last_rise_frac`, `ap_last_share_mid`) and the strongest single relay token
+(`ap_relay_token`, `ap_relay_share`, `ap_relay_depth_frac`), with a
+cross-case tally of relay tokens.
+
+- Each case is checked against exact patches of the sites it reports (the last
+  position at `n_verify` layers, the relay token at its peak). Cases whose mean
+  gap exceeds `verify_tol` (0.25) are flagged `ap_verified=False` and kept out
+  of the aggregates.
+- Measured on Qwen3-VL-2B and Qwen3.5-2B (8 deco_pope cases): the media tokens'
+  joint patch is not additive, and the sum of their gradient estimates does not
+  track it (r < 0.4 under every setting), so it is not reported. Single-token
+  estimates do track the exact patch where corrupting the media lowers the
+  margin (last position r 0.92–0.96), and fail where it makes the model more
+  confident (a saturated margin). With the shipped defaults, 2/6 (Qwen3-VL) and
+  4/6 (Qwen3.5) traced cases pass their own check; 19 s / 55 s per 8 cases.
+- `causal_trace`: the corrupted-variant construction is now
+  `corrupted_variants`, shared with the new analyzer (behaviour unchanged; the
+  exact checks reproduce `causal_trace`'s numbers digit for digit).
+- `_internals/residual.py`: `keep_grad` also works with frozen weights (the
+  captured state becomes a leaf).
+
+### Added — `attention_temperature` and `embed_lens`
+
+- `patching/attention_temperature`: divides the pre-softmax scores of the text
+  after the media by a temperature (`sharp` 0.5 / `flat` 2.0, by band) and
+  reports the margin's slope in log T. Default `scope="within"` tempers only the
+  media keys and keeps each row's total media weight — the model looks at the
+  image as much as before, only more focused or more spread out (FOCUS; the
+  AMOUNT is `attention_sensitivity`'s). `scope="all"` is plain temperature.
+  New tap edit kinds `temp` / `temp_within` (`attn_tap.temperature`), exact to
+  float precision (tested: `T=1` no-op, media mass kept, `p^(1/T)` inside,
+  `softmax(s/T)`). Softmax layers only: on Qwen3.5 6 of 24 layers are edited.
+- `lens/embed_lens` (Fan et al., CVPR 2026): each media token at the decoder
+  input, read through its nearest input-embedding words (cosine). Tokens are
+  split into recurring (nearest word shared across ≥ `recurring_frac` of the
+  batch's images), high-norm (≥ `norm_ratio` × the image's median) and specific
+  — the paper's sink / dead / alive, inferred from the batch's DISTINCT images
+  instead of checkpoint-specific ids — and each prompt content word gets the
+  best cosine any media token reaches to it (grounding). `layer` reads any
+  depth (default 0, the decoder input, as in the paper).
+- Measured on Qwen3.5-0.8B (POPE adversarial):
+  - `attention_temperature` (16 cases; tap exact; within-media mean slope
+    +0.33, no flips; plain temperature flips 19% when flattened).
+  - `embed_lens` (100 cases): at the input Qwen3.5's image tokens are not in
+    vocabulary space — best cosine 0.15, 90% recurring (space, digits,
+    `<|endoftext|>`), the queried object's word no closer when present
+    (AUROC 0.47). At `layer=0.9` 87% are image-specific (rocky, snow, wooden,
+    buses, ...) and object grounding reaches AUROC 0.76 (0.82 at the last layer).
+- Routing: `attention_temperature` after `attention_sensitivity` and under
+  `attention_sink` / `insufficient_visual_attention` / `mislocalized_attention`;
+  `embed_lens` after the gradient maps and under `attention_sink` /
+  `visual_information_loss` / `grounding_error`.
+
+### Added — `path_patching` and `patchscope`
+
+- `patching/path_patching` (Wang et al., IOI): which heads carry the media's
+  effect directly to the answer. One head's output from the media-corrupted run
+  (`causal_trace`'s corruptions), every other token-mixing head frozen at its
+  clean output (the value heads of linear-attention layers included), MLPs and
+  norms recomputed. Heads are screened by direct logit attribution of their
+  media-dependent output and the `top_k` (8) patched exactly; per case the top
+  direct-path head, the joint direct / total share of the top-k, the screen's
+  rank agreement and (hybrids) the linear-attention share; across cases the
+  recurring heads. Patching every head at once reproduces the full effect at the
+  answer position — tested as an identity, on hybrids too.
+- `lens/patchscope` (Ghandeharioun et al.): each layer's residual at the answer
+  position is patched into a token-identity prompt at the same layer and decoded
+  by the model: the depth where the answer first ranks first, its peak, and
+  `ps_late_drop` (peak minus the output probability; with `target="gold"`, a
+  right answer formed then suppressed). `media_layers > 0` also decodes every
+  image / audio token into a word ("what it sees").
+- Shared plumbing: `_internals/heads.mixer_hooks` (read / overwrite every
+  head's output at every position), `heads.readout_direction` (the frozen-norm
+  margin direction, now also used by `head_attribution`),
+  `residual.batched_patch` (a different residual patch per batch row).
+- Measured on Qwen3.5-0.8B (16 POPE-adversarial cases): the screen ranks heads
+  like the exact patch (Spearman 0.86); the direct carriers recur in the last
+  two layers (`L23.H6` +0.33 of the effect in 8 cases; `L23.H0` −0.24 in 10 —
+  it consistently works against the image's effect). Patchscope's top-1 matches
+  the model's answer from layer 18 in 14/16 cases; the logit lens only at the
+  last layer, 6/16. Image tokens decode to scene words ("snow", "board",
+  "skiing", "slope" for a snowboarding photo).
+- New spec `qwen3.5-0.8b-vl` (same 24-layer hybrid layout as the 2B; the fast
+  real-model check).
+- Routing: `path_patching` after `attribution_patching` in the image / audio /
+  video lists and under `answer_head_conflict` / `visual_information_loss`;
+  `patchscope` after `tuned_lens` in the text list and under `late_suppression`,
+  `premature_layer_divergence`, `logit_lens`.
+
+### Changed — routing reaches the white-box analyzers
+
+`StrategyProbe` ranks the new analyzers for white-box image / audio / video
+runs (`attention_knockout` right after `modality_ablation`), and M3 failure
+modes promote them: `language_prior_bias` and `hallucination` now include the
+media interventions, and new tags `visual_neglect`, `audio_neglect`,
+`insufficient_visual_attention`, `visual_information_loss`,
+`mislocalized_attention`, `late_suppression` (also offered to the M3 prompt)
+route to the analyzer that tests them. The video list named the unregistered
+`relative_attn` (silently dropped); it is now `relative_attention`, and a test
+fails on any unregistered name in the routing tables. `attribution_patching`
+follows `causal_trace` in the image / audio / video lists (the video list now
+has both) and under `visual_information_loss` / `late_visual_integration`.
+
+### Changed — `hf_local` provides `GRADIENTS`
+
+`HFLocalModel.forward(spec=CaptureSpec(with_grad=True))` now keeps the autograd
+graph (it was always `no_grad`, and `with_grad` was ignored), and `hf_local`
+declares `Capability.GRADIENTS`, so `gradcam` / `generic_attention` are offered
+for local models. The default forward is still `no_grad`. Gradient analyzers use
+`torch.autograd.grad` on hooked activations and never write parameter `.grad`.
+
 ### Docs — analyzer zoo regenerated from the registries
 
 `docs/analyzers.md` listed 29 of the 46 registered analyzers and 16 of the 57
