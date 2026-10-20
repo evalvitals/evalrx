@@ -9,7 +9,7 @@
   <img src="docs/assets/figures/model-health-teaser.svg" alt="A model-health signal enters an auto-research loop that probes, explains and intervenes; only a held-out verified pass updates the model to n+1, which recurs as the next research subject." width="640">
 </picture>
 
-[![Paper](https://img.shields.io/badge/Paper-PDF-3D8DFF)](https://github.com/evalvitals/evalvitals-pages/blob/main/docs/assets/Evalvitals.pdf)
+[![Paper](https://img.shields.io/badge/arXiv-pdf-b31b1b.svg)](https://arxiv.org/pdf/2610.25767)
 [![PyPI version](https://img.shields.io/pypi/v/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
 [![Python versions](https://img.shields.io/pypi/pyversions/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
 [![CI](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml/badge.svg)](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml)
