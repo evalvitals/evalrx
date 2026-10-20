@@ -1,0 +1,2608 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Failure case analysis for LLMs and VLMs">
+      
+      
+      
+        <link rel="canonical" href="https://evalvitals.github.io/evalrx/analyzers/">
+      
+      
+        <link rel="prev" href="../stage_io/">
+      
+      
+        <link rel="next" href="../architecture/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Analyzer Zoo - EvalRX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#analyzer-zoo-model-registry" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="EvalRX" class="md-header__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EvalRX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Analyzer Zoo
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Overview
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quickstart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quickstart
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../colab_tpu/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Colab TPU Tutorial
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Command-Line Interface
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../m2_analysis/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Exploratory Analysis (M2/M3)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../intervention/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Verification & Intervention (M4/M5)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../stage_io/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Stage Input/Output Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Analyzer Zoo
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../extending/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Extending
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="EvalRX" class="md-nav__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EvalRX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../colab_tpu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Colab TPU Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-Line Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../m2_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exploratory Analysis (M2/M3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intervention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verification & Intervention (M4/M5)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage_io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Input/Output Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyzer Zoo
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyzer Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#analyzers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analyzers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Analyzers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#perturbation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Perturbation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uncertainty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uncertainty
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hallucination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hallucination
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attribution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lens
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#patching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Patching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Geometry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reasoning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reasoning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Registry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Registry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#text-only-llms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Text-only LLMs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vision-language-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vision-language models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audio-and-omni-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audio and omni models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-only-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API-only models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keeping-this-page-current" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping this page current
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#analyzers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analyzers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Analyzers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#perturbation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Perturbation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uncertainty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uncertainty
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hallucination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hallucination
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attention
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attribution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lens
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#patching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Patching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#geometry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Geometry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reasoning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reasoning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Registry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Registry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#text-only-llms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Text-only LLMs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vision-language-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vision-language models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audio-and-omni-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audio and omni models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-only-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API-only models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keeping-this-page-current" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping this page current
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="analyzer-zoo-model-registry">Analyzer Zoo &amp; Model Registry</h1>
+<!-- The tables between "BEGIN GENERATED" / "END GENERATED" markers are generated from
+the registries by tools/gen_analyzer_docs.py. Edit the prose and the hand-written cells
+(analyzer name and Paper, model Notes) freely, then run `python tools/gen_analyzer_docs.py`;
+every other column is overwritten on each run. -->
+
+<p>Reference tables for every registered analyzer and model spec. Discover the same
+information at runtime via <code>evalrx.list_specs()</code> and <code>evalrx.registry.analyzers</code>
+(see <a href="../quickstart/#discovery">Discovery</a>).</p>
+<h2 id="analyzers">Analyzers</h2>
+<p>Analyzers are grouped the way the code is: one section per subpackage of
+<code>evalrx/analyzers/</code>. Each analyzer is keyed by the capability it needs from the
+model, not by a black-box / white-box label.</p>
+<!-- BEGIN GENERATED: analyzer-index -->
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Package</th>
+<th>Analyzers</th>
+<th>Stubs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#perturbation">Perturbation</a></td>
+<td><code>perturbation/</code></td>
+<td>9</td>
+<td>0</td>
+</tr>
+<tr>
+<td><a href="#uncertainty">Uncertainty</a></td>
+<td><code>uncertainty/</code></td>
+<td>6</td>
+<td>0</td>
+</tr>
+<tr>
+<td><a href="#hallucination">Hallucination</a></td>
+<td><code>hallucination/</code></td>
+<td>5</td>
+<td>2</td>
+</tr>
+<tr>
+<td><a href="#attention">Attention</a></td>
+<td><code>attention/</code></td>
+<td>4</td>
+<td>0</td>
+</tr>
+<tr>
+<td><a href="#attribution">Attribution</a></td>
+<td><code>attribution/</code></td>
+<td>2</td>
+<td>0</td>
+</tr>
+<tr>
+<td><a href="#lens">Lens</a></td>
+<td><code>lens/</code></td>
+<td>6</td>
+<td>0</td>
+</tr>
+<tr>
+<td><a href="#patching">Patching</a></td>
+<td><code>patching/</code></td>
+<td>6</td>
+<td>0</td>
+</tr>
+<tr>
+<td><a href="#geometry">Geometry</a></td>
+<td><code>geometry/</code></td>
+<td>2</td>
+<td>0</td>
+</tr>
+<tr>
+<td><a href="#reasoning">Reasoning</a></td>
+<td><code>reasoning/</code></td>
+<td>7</td>
+<td>0</td>
+</tr>
+<tr>
+<td><a href="#agent">Agent</a></td>
+<td><code>agent/</code></td>
+<td>7</td>
+<td>0</td>
+</tr>
+<tr>
+<td><strong>Total</strong></td>
+<td></td>
+<td><strong>54</strong></td>
+<td><strong>2</strong></td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<p>How to read the columns:</p>
+<ul>
+<li><strong>Key</strong>: the registered name, as in <code>evalrx.registry.analyzers.get(key)</code>.</li>
+<li><strong>Requires</strong>: capabilities the model must provide (<code>Analyzer.requires</code>).
+  <code>trajectories</code> means the batch must carry agent trajectories
+  (<code>requires_trajectories</code>). A dash means nothing is required of the model: the
+  analyzer reads stored outputs, or re-runs cases through an injected runner or judge.</li>
+<li><strong>Modality</strong>: <code>applies_to_modalities</code>. It is matched by intersection with the
+  model's modalities, so <code>text</code> covers every text-capable model, VLMs and omni
+  models included. <strong>Bold</strong> slots must also be filled in the batch
+  (<code>requires_modalities</code>); selection drops the analyzer when none of them is.</li>
+<li><strong>Status</strong>: ✓ = implemented; <em>stub</em> = registered, but <code>_run</code> raises
+  <code>NotImplementedError</code> (Stage 2).</li>
+</ul>
+<h3 id="perturbation">Perturbation</h3>
+<p><code>evalrx/analyzers/perturbation/</code>: re-query the model on masked, ablated or
+rewritten inputs and measure what moves. Black-box (<code>GENERATE</code> / <code>LOGPROBS</code>), so
+these run on API models too; the cost is the number of extra model calls per case.</p>
+<!-- BEGIN GENERATED: analyzers/perturbation -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RISE</td>
+<td><code>rise</code></td>
+<td><code>GENERATE</code></td>
+<td>text</td>
+<td><a href="https://arxiv.org/abs/1806.07421">Petsiuk et al. 2018</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>VL-SHAP</td>
+<td><code>vl_shap</code></td>
+<td><code>LOGPROBS</code></td>
+<td><strong>image</strong></td>
+<td><a href="https://arxiv.org/abs/1705.07874">Lundberg &amp; Lee 2017</a>; <a href="https://arxiv.org/abs/2212.08158">Parcalabescu &amp; Frank 2022</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>MM-SHAP</td>
+<td><code>mm_shap</code></td>
+<td><code>LOGPROBS</code></td>
+<td>text + <strong>image</strong> + <strong>audio</strong> + <strong>video</strong></td>
+<td><a href="https://arxiv.org/abs/2212.08158">Parcalabescu &amp; Frank 2022</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Modality ablation</td>
+<td><code>modality_ablation</code></td>
+<td><code>GENERATE</code></td>
+<td>text + <strong>image</strong> + <strong>audio</strong> + <strong>video</strong></td>
+<td>—</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Prompt contrast</td>
+<td><code>prompt_contrast</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td>—</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>MC format sensitivity</td>
+<td><code>format_sensitivity</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2309.03882">Zheng et al. 2024</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>CoT faithfulness</td>
+<td><code>cot_faithfulness</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2307.13702">Lanham et al. 2023</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Context Shapley</td>
+<td><code>context_shap</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2407.10114">Goldshmidt &amp; Horovicz 2024</a>; <a href="https://arxiv.org/abs/2409.00729">Cohen-Wang et al. 2024</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Perturbation battery</td>
+<td><code>perturbation_battery</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2410.05229">Mirzadeh et al. 2025</a></td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="uncertainty">Uncertainty</h3>
+<p><code>evalrx/analyzers/uncertainty/</code>: cheap signals of how sure the model was, read
+from logits or logprobs, from repeated samples, or from what the model says about
+itself, and checked against PASS/FAIL labels (calibration, coverage gap).</p>
+<!-- BEGIN GENERATED: analyzers/uncertainty -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Token entropy</td>
+<td><code>token_entropy</code></td>
+<td><code>LOGITS</code></td>
+<td>text</td>
+<td><a href="https://arxiv.org/abs/2002.07650">Malinin &amp; Gales 2021</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Logprob entropy</td>
+<td><code>logprob_entropy</code></td>
+<td><code>LOGPROBS</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2207.05221">Kadavath et al. 2022</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Self-consistency</td>
+<td><code>self_consistency</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2203.11171">Wang et al. 2023</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Verbalized confidence</td>
+<td><code>verbalized_confidence</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2205.14334">Lin et al. 2022</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Calibration</td>
+<td><code>calibration</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/1706.04599">Guo et al. 2017</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Coverage–verification gap</td>
+<td><code>coverage_verification_gap</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2407.21787">Brown et al. 2024</a></td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="hallucination">Hallucination</h3>
+<p><code>evalrx/analyzers/hallucination/</code>: the dominant MLLM failure mode. Black-box
+object probes (POPE, CHAIR) and sampled-passage consistency for text (SelfCheck),
+plus decoding-side white-box diagnostics (OPERA, VCD).</p>
+<!-- BEGIN GENERATED: analyzers/hallucination -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POPE</td>
+<td><code>pope</code></td>
+<td><code>GENERATE</code></td>
+<td><strong>image</strong></td>
+<td><a href="https://arxiv.org/abs/2305.10355">Li et al. 2023</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>CHAIR</td>
+<td><code>chair</code></td>
+<td><code>GENERATE</code></td>
+<td><strong>image</strong></td>
+<td><a href="https://arxiv.org/abs/1809.02156">Rohrbach et al. 2018</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>SelfCheck consistency</td>
+<td><code>selfcheck_consistency</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2303.08896">Manakul et al. 2023</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>OPERA</td>
+<td><code>opera</code></td>
+<td><code>ATTENTION</code></td>
+<td><strong>image</strong></td>
+<td><a href="https://arxiv.org/abs/2311.17911">Huang et al. 2024</a></td>
+<td>stub</td>
+</tr>
+<tr>
+<td>VCD</td>
+<td><code>vcd</code></td>
+<td><code>LOGITS</code></td>
+<td><strong>image</strong></td>
+<td><a href="https://arxiv.org/abs/2311.16922">Leng et al. 2024</a></td>
+<td>stub</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="attention">Attention</h3>
+<p><code>evalrx/analyzers/attention/</code>: read the attention maps of a white-box model
+(<code>ATTENTION</code>, HF eager attention). The subpackage imports torch at load time, so
+on the light (API-only) install it is skipped and these analyzers are not offered.</p>
+<!-- BEGIN GENERATED: analyzers/attention -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Attention summary</td>
+<td><code>attention</code></td>
+<td><code>ATTENTION</code></td>
+<td>text</td>
+<td>—</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Attention rollout</td>
+<td><code>attention_rollout</code></td>
+<td><code>ATTENTION</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2005.00928">Abnar &amp; Zuidema 2020</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Attention sink</td>
+<td><code>attention_sink</code></td>
+<td><code>ATTENTION</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2309.17453">Xiao et al. 2024</a>; <a href="https://arxiv.org/abs/2410.10781">Gu et al. 2025</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Relative attention</td>
+<td><code>relative_attention</code></td>
+<td><code>ATTENTION</code></td>
+<td><strong>image</strong> + <strong>video</strong></td>
+<td><a href="https://arxiv.org/abs/2502.17422">"MLLMs Know Where to Look", 2025</a></td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="attribution">Attribution</h3>
+<p><code>evalrx/analyzers/attribution/</code>: gradient-based saliency (<code>GRADIENTS</code>, a backward
+pass through a white-box model: <code>hf_local</code> keeps the autograd graph when asked with
+<code>CaptureSpec(with_grad=True)</code>). Both explain the next-token logit margin and map the
+result back onto the image's patch grid, with overlays on the case photo. Grad-CAM
+reads the decoder's image-token states rather than the vision tower.</p>
+<!-- BEGIN GENERATED: analyzers/attribution -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Grad-CAM</td>
+<td><code>gradcam</code></td>
+<td><code>GRADIENTS</code> + <code>LOGITS</code></td>
+<td><strong>image</strong> + <strong>video</strong></td>
+<td><a href="https://arxiv.org/abs/1610.02391">Selvaraju et al. 2017</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Generic attention explainability</td>
+<td><code>generic_attention</code></td>
+<td><code>ATTENTION</code> + <code>GRADIENTS</code> + <code>LOGITS</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2103.15679">Chefer et al. 2021</a></td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="lens">Lens</h3>
+<p><code>evalrx/analyzers/lens/</code>: project intermediate hidden states through the
+unembedding (<code>HIDDEN_STATES</code>) to see at which layer a prediction forms, and where
+premature layers disagree with the final one; or project each attention head's own
+write, to see which heads write the answer. <code>patchscope</code> lets the model decode its
+own states instead: each layer's residual at the answer position (and optionally
+each image / audio token) is patched into a token-identity prompt at the same
+layer. On Qwen3.5-0.8B it reads the final answer about five layers earlier than
+the logit lens. <code>embed_lens</code> reads the media tokens where they ENTER the language
+model, through their nearest vocabulary embeddings: which carry image-specific
+words, which repeat across every image (recurring / high-norm, the sink- and
+dead-like tokens of Fan et al., inferred from the batch rather than from
+checkpoint-specific ids), and how close the image comes to each prompt word.
+On Qwen3.5-0.8B the input is not in vocabulary space (90% recurring, object
+grounding at chance); <code>layer=0.9</code> reads the same lens deep, where 87% of image
+tokens are specific and the queried object is grounded (POPE AUROC 0.76).</p>
+<!-- BEGIN GENERATED: analyzers/lens -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Logit lens</td>
+<td><code>logit_lens</code></td>
+<td><code>HIDDEN_STATES</code></td>
+<td>text + image</td>
+<td><a href="https://www.lesswrong.com/posts/AcKRB8wDpdaN6v6ru/interpreting-gpt-the-logit-lens">nostalgebraist 2020</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Tuned lens</td>
+<td><code>tuned_lens</code></td>
+<td><code>HIDDEN_STATES</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2303.08112">Belrose et al. 2023</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Layer contrast</td>
+<td><code>layer_contrast</code></td>
+<td><code>HIDDEN_STATES</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2309.03883">Chuang et al. 2024</a>; <a href="https://arxiv.org/abs/2410.11779">Wang et al. 2025</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Head logit attribution</td>
+<td><code>head_attribution</code></td>
+<td><code>HIDDEN_STATES</code> + <code>LOGITS</code></td>
+<td>text + image</td>
+<td><a href="https://transformer-circuits.pub/2021/framework/index.html">Elhage et al. 2021</a>; <a href="https://arxiv.org/abs/2211.00593">Wang et al. 2023</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Patchscope</td>
+<td><code>patchscope</code></td>
+<td><code>HIDDEN_STATES</code> + <code>LOGITS</code></td>
+<td>text + image + audio + video</td>
+<td><a href="https://arxiv.org/abs/2401.06102">Ghandeharioun et al. 2024</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>EmbedLens</td>
+<td><code>embed_lens</code></td>
+<td><code>HIDDEN_STATES</code></td>
+<td><strong>image</strong> + <strong>audio</strong> + <strong>video</strong></td>
+<td><a href="https://arxiv.org/abs/2603.00510">Fan et al. 2026</a></td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="patching">Patching</h3>
+<p><code>evalrx/analyzers/patching/</code>: causal interventions. Write a clean run's
+activations into a corrupted run to localise where information is used
+(<code>HIDDEN_STATES</code>, read and write hooks), or cut attention edges and measure what
+the answer loses. These act on the live torch module of a local <code>hf_local</code> model
+through <code>evalrx/analyzers/_internals/</code> (an attention function registered with
+transformers, and decoder-layer pre-hooks), and verify, once per model, that the
+edit-free path reproduces the native logits. Hybrid stacks (Qwen3.5, Qwen3-Next:
+softmax + gated-delta-rule linear attention) are edited on every layer: a linear
+layer's text positions get its output re-run on the sequence without the media
+tokens (<code>_internals/linear_mix.py</code>). Latent / unverified attention is refused.
+Qwen3.5 needs transformers 5 (the <code>vllm35</code> environment), not the <code>[local]</code> extra.</p>
+<p><code>attribution_patching</code> estimates <code>causal_trace</code>'s patch for every single token
+at every layer from gradients (<code>GRADIENTS</code>), averaged along the corrupt → clean
+media path (EAP-IG). It reports single tokens only — the answer position, and
+the question / template token that relays the media's information — because the
+media tokens' joint patch is not additive and a sum of gradient estimates does
+not track it. Each case is checked against exact patches of the sites it
+reports, and only cases that pass enter the aggregates.</p>
+<p><code>path_patching</code> asks which heads carry the media's effect DIRECTLY to the answer:
+one head's output under corrupted media, every other head (linear-attention value
+heads included) frozen at its clean output, MLPs recomputed. Heads are screened
+by direct logit attribution and the top <code>top_k</code> patched exactly; patching every
+head at once reproduces the whole effect at the answer position (a tested
+identity), so the shares are exact fractions of it.</p>
+<p><code>attention_temperature</code> divides the text's pre-softmax scores on the media by a
+temperature while keeping each row's total media weight (<code>scope="within"</code>): the
+model looks at the image as much as before, only more sharply or more broadly —
+FOCUS, where <code>attention_sensitivity</code> changes the AMOUNT. Softmax layers only.</p>
+<!-- BEGIN GENERATED: analyzers/patching -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Causal trace</td>
+<td><code>causal_trace</code></td>
+<td><code>HIDDEN_STATES</code> + <code>LOGITS</code></td>
+<td><strong>image</strong> + <strong>audio</strong> + <strong>video</strong></td>
+<td><a href="https://arxiv.org/abs/2202.05262">Meng et al. 2022</a>; <a href="https://arxiv.org/abs/2406.04236">Basu et al. 2024</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Attention knockout</td>
+<td><code>attention_knockout</code></td>
+<td><code>ATTENTION</code> + <code>LOGITS</code></td>
+<td><strong>image</strong> + <strong>audio</strong> + <strong>video</strong></td>
+<td><a href="https://arxiv.org/abs/2304.14767">Geva et al. 2023</a>; <a href="https://arxiv.org/abs/2411.18620">Zhang et al. 2025</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Attention sensitivity</td>
+<td><code>attention_sensitivity</code></td>
+<td><code>ATTENTION</code> + <code>LOGITS</code></td>
+<td><strong>image</strong> + <strong>audio</strong> + <strong>video</strong></td>
+<td><a href="https://arxiv.org/abs/2407.21771">Liu et al. 2024 (PAI)</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Attribution patching</td>
+<td><code>attribution_patching</code></td>
+<td><code>GRADIENTS</code> + <code>HIDDEN_STATES</code> + <code>LOGITS</code></td>
+<td><strong>image</strong> + <strong>audio</strong> + <strong>video</strong></td>
+<td><a href="https://arxiv.org/abs/2310.10348">Syed et al. 2023</a>; <a href="https://arxiv.org/abs/2403.00745">Kramár et al. 2024 (AtP*)</a>; <a href="https://arxiv.org/abs/2403.17806">Hanna et al. 2024 (EAP-IG)</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Path patching</td>
+<td><code>path_patching</code></td>
+<td><code>HIDDEN_STATES</code> + <code>LOGITS</code></td>
+<td><strong>image</strong> + <strong>audio</strong> + <strong>video</strong></td>
+<td><a href="https://arxiv.org/abs/2211.00593">Wang et al. 2023 (IOI)</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Attention temperature</td>
+<td><code>attention_temperature</code></td>
+<td><code>ATTENTION</code> + <code>LOGITS</code></td>
+<td><strong>image</strong> + <strong>audio</strong> + <strong>video</strong></td>
+<td>— (an intervention; cf. <a href="https://arxiv.org/abs/2407.21771">Liu et al. 2024 (PAI)</a>)</td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="geometry">Geometry</h3>
+<p><code>evalrx/analyzers/geometry/</code>: representation geometry over hidden states
+(<code>HIDDEN_STATES</code>). Cross-modal CKA readings were validated on CLIP-style two-tower
+encoders; on a decoder-only MLLM, read them as within-stream layer similarity.</p>
+<!-- BEGIN GENERATED: analyzers/geometry -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Linear CKA</td>
+<td><code>cka</code></td>
+<td><code>HIDDEN_STATES</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/1905.00414">Kornblith et al. 2019</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Linear probe</td>
+<td><code>linear_probe</code></td>
+<td><code>HIDDEN_STATES</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/1610.01644">Alain &amp; Bengio 2016</a></td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="reasoning">Reasoning</h3>
+<p><code>evalrx/analyzers/reasoning/</code>: text-chain diagnostics, all black-box. Read the
+two hygiene probes first: <code>answer_extraction_audit</code> (is the FAIL label real, or
+did the grader miss the answer?) and <code>termination_audit</code> (did the generation stop
+cleanly, or hit the token budget or a repetition loop?). Both produce confounds
+that mimic every other probe's "bad" column. The rest decompose <em>how</em> a chain
+failed.</p>
+<!-- BEGIN GENERATED: analyzers/reasoning -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Answer-extraction audit</td>
+<td><code>answer_extraction_audit</code></td>
+<td>—</td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2305.20050">Lightman et al. 2024</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Termination audit</td>
+<td><code>termination_audit</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/1904.09751">Holtzman et al. 2020</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Arithmetic audit</td>
+<td><code>arith_audit</code></td>
+<td>—</td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2110.14168">Cobbe et al. 2021</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Self-repair</td>
+<td><code>self_repair</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2310.01798">Huang et al. 2024</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Step rollout value</td>
+<td><code>step_rollout_value</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2312.08935">Wang et al. 2024 (Math-Shepherd)</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Knowledge / reasoning split</td>
+<td><code>knowledge_reasoning_split</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2210.03350">Press et al. 2023</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Contamination</td>
+<td><code>contamination_score</code></td>
+<td><code>GENERATE</code></td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2308.08493">Golchin &amp; Surdeanu 2024</a></td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="agent">Agent</h3>
+<p><code>evalrx/analyzers/agent/</code>: read multi-step agent runs (<code>Trajectory</code>) rather than
+single turns. Ordered cheapest first: deterministic heuristics, then LLM judges,
+then probes that re-run the agent through an injected runner (<code>counterfactual</code>,
+<code>reliability_probe</code>, <code>tool_shap</code>). Trajectories are usually loaded from disk with
+<code>model=None</code>, which is why most of these require nothing of the model.</p>
+<!-- BEGIN GENERATED: analyzers/agent -->
+<table>
+<thead>
+<tr>
+<th>Analyzer</th>
+<th>Key</th>
+<th>Requires</th>
+<th>Modality</th>
+<th>Paper</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Loop detect</td>
+<td><code>loop_detect</code></td>
+<td>trajectories</td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2503.13657">MAST, Cemri et al. 2025</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Ignored observation</td>
+<td><code>ignored_obs</code></td>
+<td>trajectories</td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2503.13657">MAST, Cemri et al. 2025</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>First-error judge</td>
+<td><code>first_error_judge</code></td>
+<td>trajectories</td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2505.00212">Who&amp;When, Zhang et al. 2025</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Trajectory rubric</td>
+<td><code>trajectory_rubric</code></td>
+<td>trajectories</td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2503.13657">MAST, Cemri et al. 2025</a></td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Counterfactual replay</td>
+<td><code>counterfactual</code></td>
+<td><code>TOOL_CALLS</code> + trajectories</td>
+<td>text + image</td>
+<td>Pearl 2000</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Reliability probe</td>
+<td><code>reliability_probe</code></td>
+<td>—</td>
+<td>text + image</td>
+<td>pass@k vs pass^k</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Tool Shapley</td>
+<td><code>tool_shap</code></td>
+<td>trajectories</td>
+<td>text + image</td>
+<td><a href="https://arxiv.org/abs/2407.10114">AgentSHAP / TokenSHAP</a></td>
+<td>✓</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h2 id="model-registry">Model Registry</h2>
+<p>From <code>list_specs()</code> (<code>evalrx/specs.py</code>). <strong>Modalities</strong> are derived from the
+components a spec declares (vision tower → image, audio tower → audio, video) and
+are what analyzer selection matches on. <strong>Traits</strong> come from the spec flags:
+<code>MoE</code> (<code>is_moe</code>), <code>reasoning</code> (<code>is_reasoning</code>), <code>tool calling</code> (<code>tool_calling</code>: the
+chat template renders tools, which grants <code>TOOL_CALLS</code> on the local backend) and
+<code>JAX</code> (also runnable on the <code>jax_local</code> backend).</p>
+<h3 id="text-only-llms">Text-only LLMs</h3>
+<!-- BEGIN GENERATED: models/text -->
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Family</th>
+<th>Modalities</th>
+<th>Traits</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>qwen2.5-7b-instruct</code></td>
+<td><code>qwen2</code></td>
+<td>text</td>
+<td>tool calling</td>
+<td>reference checkpoint</td>
+</tr>
+<tr>
+<td><code>qwen2.5-14b-instruct</code></td>
+<td><code>qwen2</code></td>
+<td>text</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen2.5-32b-instruct</code></td>
+<td><code>qwen2</code></td>
+<td>text</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen2.5-72b-instruct</code></td>
+<td><code>qwen2</code></td>
+<td>text</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-4b</code></td>
+<td><code>qwen3</code></td>
+<td>text</td>
+<td>reasoning, tool calling</td>
+<td>small smoke-test checkpoint; thinking off</td>
+</tr>
+<tr>
+<td><code>qwen3-8b</code></td>
+<td><code>qwen3</code></td>
+<td>text</td>
+<td>reasoning, tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-14b</code></td>
+<td><code>qwen3</code></td>
+<td>text</td>
+<td>reasoning, tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-32b</code></td>
+<td><code>qwen3</code></td>
+<td>text</td>
+<td>reasoning, tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-30b-a3b</code></td>
+<td><code>qwen3_moe</code></td>
+<td>text</td>
+<td>MoE, tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-235b-a22b</code></td>
+<td><code>qwen3_moe</code></td>
+<td>text</td>
+<td>MoE, reasoning, tool calling</td>
+<td>multi-GPU / FP8</td>
+</tr>
+<tr>
+<td><code>qwen3.5-2b</code></td>
+<td><code>qwen3_5</code></td>
+<td>text</td>
+<td>reasoning, tool calling</td>
+<td>hybrid linear / full attention stack</td>
+</tr>
+<tr>
+<td><code>qwen3.5-4b</code></td>
+<td><code>qwen3_5</code></td>
+<td>text</td>
+<td>reasoning, tool calling</td>
+<td>hybrid linear / full attention stack</td>
+</tr>
+<tr>
+<td><code>qwen3.5-9b</code></td>
+<td><code>qwen3_5</code></td>
+<td>text</td>
+<td>reasoning, tool calling</td>
+<td>hybrid linear / full attention stack</td>
+</tr>
+<tr>
+<td><code>deepseek-v3</code></td>
+<td><code>deepseek_v3</code></td>
+<td>text</td>
+<td>MoE, tool calling</td>
+<td>MLA</td>
+</tr>
+<tr>
+<td><code>llama-3.1-8b-instruct</code></td>
+<td><code>llama</code></td>
+<td>text</td>
+<td>tool calling</td>
+<td>also loads in TransformerLens</td>
+</tr>
+<tr>
+<td><code>gemma-3-1b-it</code></td>
+<td><code>gemma3</code></td>
+<td>text</td>
+<td>—</td>
+<td>tied embeddings</td>
+</tr>
+<tr>
+<td><code>nemotron-3-nano-4b</code></td>
+<td><code>nemotron_h</code></td>
+<td>text</td>
+<td>reasoning</td>
+<td>hybrid Mamba / attention stack</td>
+</tr>
+<tr>
+<td><code>nemotron-3-nano-4b-fp8</code></td>
+<td><code>nemotron_h</code></td>
+<td>text</td>
+<td>reasoning</td>
+<td>endpoint only (FP8 export)</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="vision-language-models">Vision-language models</h3>
+<!-- BEGIN GENERATED: models/vision -->
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Family</th>
+<th>Modalities</th>
+<th>Traits</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>qwen2-vl-7b-instruct</code></td>
+<td><code>qwen2_vl</code></td>
+<td>text + image</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen2.5-vl-3b-instruct</code></td>
+<td><code>qwen2_5_vl</code></td>
+<td>text + image</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen2.5-vl-7b-instruct</code></td>
+<td><code>qwen2_5_vl</code></td>
+<td>text + image</td>
+<td>tool calling</td>
+<td>reference for relative attention</td>
+</tr>
+<tr>
+<td><code>qwen2.5-vl-32b-instruct</code></td>
+<td><code>qwen2_5_vl</code></td>
+<td>text + image</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen2.5-vl-72b-instruct</code></td>
+<td><code>qwen2_5_vl</code></td>
+<td>text + image</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-vl-2b-instruct</code></td>
+<td><code>qwen3_vl</code></td>
+<td>text + image</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-vl-4b-instruct</code></td>
+<td><code>qwen3_vl</code></td>
+<td>text + image</td>
+<td>tool calling</td>
+<td>small smoke-test checkpoint</td>
+</tr>
+<tr>
+<td><code>qwen3-vl-8b-instruct</code></td>
+<td><code>qwen3_vl</code></td>
+<td>text + image</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-vl-30b-a3b-instruct</code></td>
+<td><code>qwen3_vl_moe</code></td>
+<td>text + image</td>
+<td>MoE, tool calling</td>
+<td>multi-GPU / FP8</td>
+</tr>
+<tr>
+<td><code>qwen3-vl-235b-a22b-instruct</code></td>
+<td><code>qwen3_vl_moe</code></td>
+<td>text + image</td>
+<td>MoE, tool calling</td>
+<td>multi-GPU / FP8</td>
+</tr>
+<tr>
+<td><code>qwen3.5-2b-vl</code></td>
+<td><code>qwen3_5</code></td>
+<td>text + image</td>
+<td>reasoning, tool calling</td>
+<td>hybrid linear / full attention stack</td>
+</tr>
+<tr>
+<td><code>qwen3.5-4b-vl</code></td>
+<td><code>qwen3_5</code></td>
+<td>text + image</td>
+<td>reasoning, tool calling</td>
+<td>hybrid linear / full attention stack</td>
+</tr>
+<tr>
+<td><code>qwen3.5-9b-vl</code></td>
+<td><code>qwen3_5</code></td>
+<td>text + image</td>
+<td>reasoning, tool calling</td>
+<td>hybrid linear / full attention stack</td>
+</tr>
+<tr>
+<td><code>glm-4.1v-9b-thinking</code></td>
+<td><code>glm4v</code></td>
+<td>text + image</td>
+<td>reasoning, tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>glm-4.5v</code></td>
+<td><code>glm4v_moe</code></td>
+<td>text + image</td>
+<td>MoE, reasoning, tool calling</td>
+<td>106B; multi-GPU / FP8</td>
+</tr>
+<tr>
+<td><code>kimi-vl-a3b-thinking</code></td>
+<td><code>kimi_vl</code></td>
+<td>text + image</td>
+<td>MoE, reasoning</td>
+<td>MLA; remote code</td>
+</tr>
+<tr>
+<td><code>llama-4-scout</code></td>
+<td><code>llama4</code></td>
+<td>text + image</td>
+<td>MoE</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>llava-1.5-7b-hf</code></td>
+<td><code>llava</code></td>
+<td>text + image</td>
+<td>—</td>
+<td>reference architecture for ViCrop</td>
+</tr>
+<tr>
+<td><code>instructblip-vicuna-7b</code></td>
+<td><code>instructblip</code></td>
+<td>text + image</td>
+<td>—</td>
+<td>reference Q-Former architecture</td>
+</tr>
+<tr>
+<td><code>qwen3.5-0.8b-vl</code></td>
+<td><code>qwen3_5</code></td>
+<td>text + image</td>
+<td>reasoning, tool calling</td>
+<td>hybrid linear / full attention stack; smallest Qwen3.5 VLM (fast white-box checks)</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="audio-and-omni-models">Audio and omni models</h3>
+<!-- BEGIN GENERATED: models/omni -->
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Family</th>
+<th>Modalities</th>
+<th>Traits</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>qwen2-audio-7b-instruct</code></td>
+<td><code>qwen2_audio</code></td>
+<td>text + audio</td>
+<td>—</td>
+<td>audio in, text out</td>
+</tr>
+<tr>
+<td><code>qwen2.5-omni-7b</code></td>
+<td><code>qwen2_5_omni</code></td>
+<td>text + image + audio + video</td>
+<td>tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-omni-30b-a3b-instruct</code></td>
+<td><code>qwen3_omni_moe</code></td>
+<td>text + image + audio + video</td>
+<td>MoE, tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-omni-30b-a3b-thinking</code></td>
+<td><code>qwen3_omni_moe</code></td>
+<td>text + image + audio + video</td>
+<td>MoE, reasoning, tool calling</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>qwen3-omni-30b-a3b-captioner</code></td>
+<td><code>qwen3_omni_moe</code></td>
+<td>text + audio</td>
+<td>MoE</td>
+<td>audio captioning only</td>
+</tr>
+<tr>
+<td><code>gemma-4-e2b-it</code></td>
+<td><code>gemma4</code></td>
+<td>text + image + audio</td>
+<td>reasoning, JAX</td>
+<td>thinking off</td>
+</tr>
+<tr>
+<td><code>gemma-4-e4b-it</code></td>
+<td><code>gemma4</code></td>
+<td>text + image + audio</td>
+<td>reasoning, JAX</td>
+<td>thinking off</td>
+</tr>
+<tr>
+<td><code>gemma-4-12b-it</code></td>
+<td><code>gemma4</code></td>
+<td>text + image + audio</td>
+<td>reasoning</td>
+<td>thinking off</td>
+</tr>
+<tr>
+<td><code>nemotron-3-nano-omni-30b-a3b-reasoning</code></td>
+<td><code>nemotron_h_omni</code></td>
+<td>text + image + audio + video</td>
+<td>MoE, reasoning</td>
+<td>BF16 needs two 48 GB GPUs</td>
+</tr>
+<tr>
+<td><code>nemotron-3-nano-omni-30b-a3b-reasoning-fp8</code></td>
+<td><code>nemotron_h_omni</code></td>
+<td>text + image + audio + video</td>
+<td>MoE, reasoning</td>
+<td>endpoint only (FP8 export)</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h3 id="api-only-models">API-only models</h3>
+<p>Closed weights served through an API backend: no internals, so only the
+black-box analyzers apply. The Gemini specs use <code>google-genai</code> with
+<code>GEMINI_API_KEY</code>.</p>
+<!-- BEGIN GENERATED: models/api -->
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Family</th>
+<th>Modalities</th>
+<th>Traits</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gemini-2.5-flash-lite</code></td>
+<td><code>gemini</code></td>
+<td>text + image + audio + video</td>
+<td>reasoning</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>gemini-2.5-flash</code></td>
+<td><code>gemini</code></td>
+<td>text + image + audio + video</td>
+<td>reasoning</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>gemini-2.5-pro</code></td>
+<td><code>gemini</code></td>
+<td>text + image + audio + video</td>
+<td>reasoning</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>gemini-3.1-flash-lite</code></td>
+<td><code>gemini</code></td>
+<td>text + image + audio + video</td>
+<td>reasoning</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>gemini-3.1-pro-preview</code></td>
+<td><code>gemini</code></td>
+<td>text + image + audio + video</td>
+<td>reasoning</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>gemini-3.5-flash-lite</code></td>
+<td><code>gemini</code></td>
+<td>text + image + audio + video</td>
+<td>reasoning</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>gemini-3.5-flash</code></td>
+<td><code>gemini</code></td>
+<td>text + image + audio + video</td>
+<td>reasoning</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>gemini-3.6-flash</code></td>
+<td><code>gemini</code></td>
+<td>text + image + audio + video</td>
+<td>reasoning</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>gemini-3.7-flash</code></td>
+<td><code>gemini</code></td>
+<td>text + image + audio + video</td>
+<td>reasoning</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>step-1o-vision</code></td>
+<td><code>step</code></td>
+<td>text</td>
+<td>—</td>
+<td>spec declares no vision component, so it matches as text-only</td>
+</tr>
+</tbody>
+</table>
+<!-- END GENERATED -->
+
+<h2 id="keeping-this-page-current">Keeping this page current</h2>
+<p>The tables above are generated from the analyzer registry and <code>evalrx/specs.py</code> by
+<code>tools/gen_analyzer_docs.py</code>. After adding an analyzer or a model spec, run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python<span class="w"> </span>tools/gen_analyzer_docs.py<span class="w">           </span><span class="c1"># add new rows, refresh the derived columns</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>python<span class="w"> </span>tools/gen_analyzer_docs.py<span class="w"> </span>--check<span class="w">   </span><span class="c1"># exit 1 if the page is stale</span>
+</code></pre></div>
+<p>A new key gets a placeholder row in its section; fill in its name and Paper (or
+Notes) by hand. A new <code>analyzers/</code> subpackage or model group needs its own heading
+and marker pair first. The test suite runs the same check
+(<code>tests/test_analyzers/test_analyzer_docs.py</code>).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

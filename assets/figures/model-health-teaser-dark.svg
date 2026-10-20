@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180mm" height="99mm" viewBox="0 0 1200 660" role="img" aria-labelledby="title desc"><title id="title">Evidence-gated recursive model health</title>
+  <desc id="desc">A model-health signal enters an autonomous research loop. Candidate interventions are tested at an evidence gate. Failed candidates return for revision without updating the model; a verified intervention produces the next model, which becomes the subject of the next research cycle.</desc>
+  <defs>
+    
+    <marker id="arrow-blue" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#58a6ff"></path></marker>
+    <marker id="arrow-green" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#3fb950"></path></marker>
+    <marker id="arrow-red" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto"><path d="M1 1l10 5-10 5z" fill="#f85149"></path></marker>
+    
+  </defs>
+
+  <rect width="1200" height="660" fill="#0d1117"></rect>
+
+  <path d="M1048 240C1044 118 894 76 795 72" fill="none" stroke="#58a6ff" stroke-width="4" stroke-dasharray="10 11"></path>
+  <path d="M405 72C286 79 164 124 151 238" fill="none" stroke="#58a6ff" stroke-width="4" stroke-dasharray="10 11" marker-end="url(#arrow-blue)"></path>
+  <rect x="460" y="43" width="280" height="53" rx="26.5" fill="#0d2847"></rect>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#58a6ff" x="600" y="77" text-anchor="middle">VERIFIED UPDATE</text>
+
+  <circle cx="150" cy="355" r="112" fill="#161b22" stroke="#30363d" stroke-width="3"></circle>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#8b949e" x="150" y="292" text-anchor="middle">MODEL</text>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="50" font-weight="700" fill="#e6edf3" x="150" y="340" text-anchor="middle">n</text>
+  <path d="M86 414h28l13-19 19 41 22-76 21 54h28" fill="none" stroke="#58a6ff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="26" font-weight="400" fill="#8b949e" x="150" y="500" text-anchor="middle">health signals</text>
+
+  <path d="M262 355h38l13-25 20 55 23-100 22 70h35" fill="none" stroke="#58a6ff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"></path>
+
+  <rect x="410" y="227" width="360" height="256" rx="128" fill="#0d2847" stroke="#58a6ff" stroke-width="4"></rect>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#58a6ff" x="590" y="285" text-anchor="middle">AUTO-RESEARCH</text>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="30" font-weight="700" fill="#e6edf3" x="590" y="350" text-anchor="middle">Probe</text>
+  <path d="M542 379h96" stroke="#6e7681" stroke-width="3"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="30" font-weight="700" fill="#e6edf3" x="590" y="416" text-anchor="middle">Explain → Intervene</text>
+  <circle cx="473" cy="355" r="9" fill="#58a6ff"></circle><circle cx="707" cy="355" r="9" fill="#58a6ff"></circle>
+  <path d="M770 355h78" fill="none" stroke="#58a6ff" stroke-width="7" stroke-linecap="round"></path>
+
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#e6edf3" x="858" y="260" text-anchor="middle">GATE</text>
+  <line x1="858" y1="275" x2="858" y2="488" stroke="#8b949e" stroke-width="7" stroke-linecap="round"></line>
+  <rect x="838" y="333" width="40" height="44" rx="11" fill="#0d1117" stroke="#8b949e" stroke-width="3"></rect>
+
+  <path d="M878 355h60" fill="none" stroke="#3fb950" stroke-width="7" stroke-linecap="round" marker-end="url(#arrow-green)"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="21" font-weight="700" letter-spacing="1.7" fill="#3fb950" x="912" y="310" text-anchor="middle">✓ PASS</text>
+  <circle cx="1047" cy="355" r="99" fill="#0d2818" stroke="#3fb950" stroke-width="4"></circle>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#3fb950" x="1047" y="292" text-anchor="middle">MODEL</text>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="50" font-weight="700" fill="#e6edf3" x="1047" y="340" text-anchor="middle">n+1</text>
+  <path d="M993 414h25l12-18 17 38 20-70 19 50h23" fill="none" stroke="#3fb950" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"></path>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="26" font-weight="400" fill="#3fb950" x="1047" y="486" text-anchor="middle">verified update</text>
+
+  <path d="M858 488v82c0 16-12 28-28 28h-31" fill="none" stroke="#f85149" stroke-width="4" stroke-dasharray="9 10" marker-end="url(#arrow-red)"></path>
+  <path d="M515 598h-42c-16 0-28-12-28-28v-72" fill="none" stroke="#f85149" stroke-width="4" stroke-dasharray="9 10" marker-end="url(#arrow-red)"></path>
+  <rect x="515" y="575" width="350" height="47" rx="23.5" fill="#2d1214"></rect>
+  <text font-family="IBM Plex Sans, Plex Sans, -apple-system, Helvetica, Arial, sans-serif" font-size="24" font-weight="700" letter-spacing="3.2" fill="#f85149" x="690" y="606" text-anchor="middle">× REVISE · NO UPDATE</text>
+</svg>

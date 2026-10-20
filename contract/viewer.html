@@ -1,0 +1,564 @@
+<title>Run Adjudication Record</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Public+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#F6F8FA; --surface:#FFFFFF; --sunken:#EFF3F6;
+  --ink:#141C24; --muted:#5A6B7B; --faint:#8B9AA8; --line:#DCE4EA;
+  --accent:#2D5F8B; --accent-soft:#E4EDF5;
+  --ok:#1C7A66; --ok-soft:#E0F0EB;
+  --warn:#9A6212; --warn-soft:#F7EDDD;
+  --bad:#9C3A4B; --bad-soft:#F7E4E7;
+  --shadow:0 1px 2px rgba(20,28,36,.06), 0 8px 24px -16px rgba(20,28,36,.25);
+  --display:"Newsreader",Georgia,serif;
+  --body:"Public Sans",system-ui,-apple-system,sans-serif;
+  --mono:"DM Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0D1318; --surface:#141C23; --sunken:#101820;
+    --ink:#DFE7EE; --muted:#93A4B3; --faint:#6B7C8B; --line:#243039;
+    --accent:#77ABDA; --accent-soft:#182833;
+    --ok:#4FBFA3; --ok-soft:#12271F;
+    --warn:#D69B4A; --warn-soft:#2A2013;
+    --bad:#E0788A; --bad-soft:#2B171B;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0D1318; --surface:#141C23; --sunken:#101820;
+  --ink:#DFE7EE; --muted:#93A4B3; --faint:#6B7C8B; --line:#243039;
+  --accent:#77ABDA; --accent-soft:#182833;
+  --ok:#4FBFA3; --ok-soft:#12271F;
+  --warn:#D69B4A; --warn-soft:#2A2013;
+  --bad:#E0788A; --bad-soft:#2B171B;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font:400 15px/1.6 var(--body);
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:48px 28px 96px}
+h1,h2,h3{font-family:var(--display);font-weight:500;text-wrap:balance;margin:0}
+h1{font-size:clamp(30px,4.4vw,44px);letter-spacing:-.01em;line-height:1.12}
+h2{font-size:24px;line-height:1.2}
+h3{font-size:17px;line-height:1.3}
+p{margin:0}
+a{color:var(--accent)}
+.lede{color:var(--muted);max-width:62ch;font-size:16px}
+.eyebrow{font:500 10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+
+/* ---- intake ------------------------------------------------------- */
+header.intake{display:flex;flex-direction:column;gap:18px;margin-bottom:34px}
+.drop{margin-top:12px;border:1.5px dashed var(--line);border-radius:14px;background:var(--surface);
+  padding:40px 32px;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;
+  transition:border-color .16s,background .16s}
+.drop.hot{border-color:var(--accent);background:var(--accent-soft)}
+.drop p{color:var(--muted);font-size:13.5px;max-width:52ch}
+button.pick{font:500 14px var(--body);color:var(--surface);background:var(--accent);border:0;
+  border-radius:8px;padding:10px 20px;cursor:pointer}
+button.pick:hover{filter:brightness(1.08)}
+:is(button,summary,[tabindex]):focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.hint{font:400 11.5px/1.5 var(--mono);color:var(--faint)}
+.err{border-left:3px solid var(--bad);background:var(--bad-soft);color:var(--bad);
+  padding:12px 16px;border-radius:0 8px 8px 0;font-size:13.5px}
+
+/* ---- run header ---------------------------------------------------- */
+.runbar{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:12px}
+.runbar div{background:var(--surface);padding:14px 16px;display:flex;flex-direction:column;gap:5px;min-width:0}
+.runbar b{font:500 14px var(--mono);overflow-wrap:anywhere}
+
+/* ---- qualifications ------------------------------------------------ */
+.quals{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 6px}
+.chip{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:6px 13px;
+  font:500 12px var(--body);border:1px solid transparent}
+.chip.warn{background:var(--warn-soft);color:var(--warn);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+.chip.bad{background:var(--bad-soft);color:var(--bad);border-color:color-mix(in srgb,var(--bad) 30%,transparent)}
+.chip.ok{background:var(--ok-soft);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 30%,transparent)}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+
+/* ---- stage spine --------------------------------------------------- */
+.spine{display:flex;flex-direction:column;gap:16px;margin-top:26px}
+.stage{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--shadow);overflow:hidden}
+.stage>summary{list-style:none;cursor:pointer;display:grid;
+  grid-template-columns:auto 1fr auto;gap:16px;align-items:center;padding:18px 22px}
+.stage>summary::-webkit-details-marker{display:none}
+.code{font:500 12px var(--mono);letter-spacing:.06em;color:var(--surface);background:var(--accent);
+  border-radius:6px;padding:6px 9px;min-width:42px;text-align:center}
+.stage[data-state="partial"] .code,.stage[data-state="empty"] .code{background:var(--warn)}
+.stage[data-state="failed"] .code{background:var(--bad)}
+.summary-txt{display:flex;flex-direction:column;gap:3px;min-width:0}
+.summary-txt small{color:var(--muted);font-size:12.5px}
+.state{font:500 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.body{padding:0 22px 24px;display:flex;flex-direction:column;gap:20px;border-top:1px solid var(--line);padding-top:20px}
+.note{border-left:3px solid var(--warn);background:var(--warn-soft);color:var(--warn);
+  padding:12px 15px;border-radius:0 8px 8px 0;font-size:13.5px}
+.note.bad{border-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
+.note b{display:block;margin-bottom:3px}
+
+/* ---- data ---------------------------------------------------------- */
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:9px}
+table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums}
+th{text-align:left;font:500 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--faint);background:var(--sunken);padding:10px 13px;white-space:nowrap;position:sticky;top:0}
+td{padding:10px 13px;border-top:1px solid var(--line);vertical-align:top;font-family:var(--mono);
+  font-size:12px;max-width:380px;overflow-wrap:anywhere}
+td.txt{font-family:var(--body);font-size:13px}
+tr:last-child td{border-bottom:0}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.kv div{background:var(--surface);padding:11px 14px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.kv small{font:500 9.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.kv b{font:500 13px var(--mono);overflow-wrap:anywhere}
+.claim{border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:12px}
+.claim.supported{border-left:3px solid var(--ok)}
+.claim.refuted{border-left:3px solid var(--bad)}
+.claim.inconclusive{border-left:3px solid var(--warn)}
+.claim h3{font-family:var(--body);font-weight:600;font-size:14.5px;line-height:1.45}
+.verdict{font-size:13px;color:var(--muted)}
+.mono-sm{font:400 11.5px/1.5 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.empty{color:var(--faint);font-size:13.5px;font-style:italic}
+details.raw{border-top:1px solid var(--line);padding-top:14px}
+details.raw>summary{cursor:pointer;font:500 11px var(--mono);letter-spacing:.07em;
+  text-transform:uppercase;color:var(--accent)}
+pre{margin:12px 0 0;background:var(--sunken);border-radius:8px;padding:14px;overflow-x:auto;
+  font:400 11.5px/1.55 var(--mono);color:var(--muted)}
+footer{margin-top:52px;padding-top:22px;border-top:1px solid var(--line);
+  color:var(--faint);font-size:12.5px;display:flex;flex-direction:column;gap:6px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+<header class="intake">
+  <span class="eyebrow">EvalRX · M1–M5 contract</span>
+  <h1>Run adjudication record</h1>
+  <p class="lede">Drop a run archive. This reads the <code>contract/</code> payloads each stage
+    validated on its way to disk, and shows the diagnosis together with everything that qualifies it —
+    because a conclusion and its caveats have to arrive at the same time.</p>
+  <div class="drop" id="drop">
+    <button class="pick" id="pick" type="button">Choose a .zip</button>
+    <p>Or drag one here. Nothing is uploaded — the archive is read in this tab.</p>
+    <span class="hint">looks for **/contract/*.json at any depth</span>
+    <input type="file" id="file" accept=".zip,application/zip" hidden>
+  </div>
+  <div id="err"></div>
+</header>
+<main id="out"></main>
+<footer>
+  <span>Payload shapes are defined in <code>evalrx/contract/</code>; TypeScript for all of them is generated into <code>docs/contract/contract.d.ts</code>.</span>
+  <span>Unknown fields are ignored, never rejected — adding a field does not bump <code>schema_version</code>.</span>
+</footer>
+</div>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const el = (t, c, txt) => { const n = document.createElement(t); if (c) n.className = c;
+  if (txt !== undefined) n.textContent = txt; return n; };
+
+/* ---------- zip, without a library ---------------------------------- */
+/* The archive is parsed here rather than by JSZip because the artifact CSP
+   admits no external script host, and a run zip only needs stored + deflate. */
+async function readZip(buffer){
+  const dv = new DataView(buffer), n = buffer.byteLength;
+  let eocd = -1;
+  for (let i = n - 22; i >= Math.max(0, n - 65557); i--)
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("Not a zip archive (no end-of-central-directory record).");
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const entries = [];
+  for (let i = 0; i < count; i++){
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true);
+    const compressed = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true);
+    const extraLen = dv.getUint16(p + 30, true);
+    const commentLen = dv.getUint16(p + 32, true);
+    const localAt = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(new Uint8Array(buffer, p + 46, nameLen));
+    entries.push({ name, method, compressed, localAt });
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
+async function extract(buffer, entry){
+  const dv = new DataView(buffer);
+  if (dv.getUint32(entry.localAt, true) !== 0x04034b50)
+    throw new Error(`Corrupt local header for ${entry.name}`);
+  const start = entry.localAt + 30
+    + dv.getUint16(entry.localAt + 26, true)
+    + dv.getUint16(entry.localAt + 28, true);
+  const raw = new Uint8Array(buffer, start, entry.compressed);
+  if (entry.method === 0) return new TextDecoder().decode(raw);
+  if (entry.method !== 8)
+    throw new Error(`${entry.name} uses compression method ${entry.method}; only stored and deflate are supported.`);
+  const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return await new Response(stream).text();
+}
+
+/* ---------- rendering ------------------------------------------------ */
+const STAGE_TITLE = {
+  m1: ["Measure", "Runs analyzers over the cases and emits per-case numbers. Makes no judgement."],
+  m2: ["Screen", "Joins those numbers to pass/fail labels and tests which signals track failure."],
+  m3: ["Explain", "Proposes falsifiable mechanisms. Proposals only — no verdicts live here."],
+  m4: ["Adjudicate", "Decides each claim against corrected statistics AND the stated protocol."],
+  m5_surgery: ["Intervene", "Changes one variable and re-runs, as causal evidence. Not a repair."],
+  m5_fix: ["Repair", "Validates candidate repairs paired against the unmodified baseline."],
+  pre_m1: ["Search", "Synthesises new failing cases. Its output is data, not a verdict."],
+};
+const num = v => v === null || v === undefined ? "—"
+  : typeof v === "number" ? (Number.isInteger(v) ? v : v.toFixed(4)) : String(v);
+
+function kv(pairs){
+  const g = el("div", "kv");
+  for (const [k, v] of pairs){
+    const d = el("div"); d.append(el("small", null, k), el("b", null, num(v))); g.append(d);
+  }
+  return g;
+}
+function table(cols, rows){
+  const wrap = el("div", "scroll"), t = el("table"), thead = el("thead"), tr = el("tr");
+  cols.forEach(c => tr.append(el("th", null, c.label)));
+  thead.append(tr); t.append(thead);
+  const tb = el("tbody");
+  rows.forEach(r => {
+    const row = el("tr");
+    cols.forEach(c => { const td = el("td", c.text ? "txt" : null, num(c.get(r))); row.append(td); });
+    tb.append(row);
+  });
+  t.append(tb); wrap.append(t); return wrap;
+}
+function note(title, body, bad){
+  const d = el("div", bad ? "note bad" : "note");
+  d.append(el("b", null, title)); d.append(el("span", null, body)); return d;
+}
+function raw(label, obj){
+  const d = el("details", "raw"); d.append(el("summary", null, label));
+  d.append(el("pre", null, JSON.stringify(obj, null, 2))); return d;
+}
+
+/* Cross-stage qualifications: the things that limit how far a reader may take
+   the conclusion. Collected once, at the top, because a caveat found three
+   screens below the headline has already failed to do its job. */
+function qualifications(byStage){
+  const out = [];
+  const m1 = byStage.m1?.[0], m2 = last(byStage.m2), m3 = last(byStage.m3), m4 = last(byStage.m4);
+  if (m2){
+    if (m2.descriptive_only)
+      out.push(["warn", "Descriptive only — no validity verdict was computed"]);
+    const cr = m2.corrected_rejections || {};
+    if (cr.deferred) out.push(["warn", "Multiplicity correction deferred"]);
+    if (cr.n_tested && !(cr.rejected_result_keys || []).length)
+      out.push(["warn", `${cr.n_tested} signals tested, none survived ${cr.method}`]);
+    (m2.joins || []).forEach(j => {
+      if (j.n_left > 0 && j.n_matched === 0)
+        out.push(["bad", `Broken join: ${j.left} matched nothing in ${j.right}`]);
+      else if (j.coverage < 0.5)
+        out.push(["warn", `Low join coverage ${(j.coverage*100).toFixed(0)}% on ${j.left}`]);
+    });
+    (Array.isArray(m2.stats_results) ? m2.stats_results : []).forEach(r => {
+      const total = (r.n_signal||0) + (r.n_control||0);
+      if (r.n_imputed_absent && total && r.n_imputed_absent/total > .5)
+        out.push(["warn", `${r.tool}: ${Math.round(100*r.n_imputed_absent/total)}% of the sample was never measured`]);
+    });
+  }
+  if (m3){
+    const untestable = (m3.hypotheses||[]).filter(h => !(h.test_design||"").trim());
+    if (untestable.length)
+      out.push(["bad", `${untestable.length} hypothes${untestable.length===1?"is names":"es name"} no test — undecidable by any evidence`]);
+  }
+  if (m4){
+    if (m4.split === "explore")
+      out.push(["warn", "Adjudicated in-sample — the claims were generated on these same cases"]);
+    (m4.results||[]).forEach(r => {
+      if (!r.is_consistent_with_protocol)
+        out.push(["warn", `${r.hypothesis_id} is off-protocol`]);
+    });
+  }
+  if (m1 && m1.failed_analyzers && Object.keys(m1.failed_analyzers).length)
+    out.push(["warn", `${Object.keys(m1.failed_analyzers).length} analyzer(s) errored at runtime`]);
+  if (!out.length) out.push(["ok", "No qualifications recorded on this run"]);
+  return out;
+}
+const last = arr => arr && arr.length ? arr[arr.length - 1] : null;
+
+function renderM1(d){
+  const box = el("div", "body"), s = d.selection || {};
+  const slots = a => (a && a.length ? a.join(" + ") : "text");
+  box.append(kv([
+    ["routed on", slots(s.routed_on)],
+    ["model accepts", slots(s.model_modalities)],
+    ["cases carried", slots(s.probed_modalities)],
+    ["agent run", s.is_agent ? "yes — trajectories" : "no"],
+    ["chosen by", s.selector],
+  ]));
+  if ((s.model_modalities||[]).length > (s.routed_on||[]).length)
+    box.append(note("Narrowed to what the cases contain",
+      "The model accepts more modalities than this benchmark exercises, so analyzer selection followed the batch rather than the model's declaration."));
+  const rows = Object.entries(d.results || {}).map(([name, r]) => ({
+    name, n: r.n_cases,
+    per_case: (r.findings?.per_case || []).length,
+    signals: Object.keys(r.findings || {}).filter(k =>
+      typeof r.findings[k] === "number" || typeof r.findings[k] === "boolean").length,
+    paired: r.findings?.by_strategy ? "yes" : "—",
+  }));
+  if (rows.length) box.append(table([
+    {label:"Analyzer", get:r=>r.name}, {label:"Cases", get:r=>r.n},
+    {label:"Per-case rows", get:r=>r.per_case}, {label:"Scalar signals", get:r=>r.signals},
+    {label:"Paired table", get:r=>r.paired},
+  ], rows));
+  else box.append(el("p", "empty", "This stage ran and produced no analyzer results."));
+  const failed = Object.entries(d.failed_analyzers || {});
+  if (failed.length) box.append(table(
+    [{label:"Failed analyzer", get:r=>r[0]}, {label:"Error", get:r=>r[1], text:true}], failed));
+  return box;
+}
+
+function renderM2(d){
+  const box = el("div", "body"), cr = d.corrected_rejections || {};
+  box.append(kv([
+    ["tool", d.stats_tool], ["correction", cr.method], ["alpha", cr.alpha],
+    ["signals tested", cr.n_tested], ["survived", (cr.rejected_result_keys||[]).length],
+    ["descriptive only", d.descriptive_only ? "yes" : "no"],
+  ]));
+  if (d.descriptive_only) box.append(note("Effect sizes only",
+    "The validity verdict is deferred to the confirm phase. Nothing here may be read as supported or rejected."));
+  const stats = Array.isArray(d.stats_results) ? d.stats_results : [];
+  if (stats.length) box.append(table([
+    {label:"Test", get:r=>r.tool}, {label:"Signal", get:r=>r.config?.signal ?? r.analysis_key ?? "—"},
+    {label:"Effect", get:r=>r.effect}, {label:"CI", get:r=>r.ci ? `${num(r.ci[0])} … ${num(r.ci[1])}` : "—"},
+    {label:"p", get:r=>r.p_value}, {label:"e", get:r=>r.e_value},
+    {label:"Raw reject", get:r=>r.reject ? "yes" : "no"},
+    {label:"After correction", get:r=>r.fdr_corrected === null ? "not run" : r.fdr_corrected ? "survived" : "no"},
+  ], stats));
+  else if (d.stats_results && d.stats_results.kind === "external_ref")
+    box.append(note("Results were externalised",
+      `${d.stats_results.n_items ?? "?"} results live at ${d.stats_results.path} rather than inline.`));
+  else box.append(el("p", "empty", "No statistical test results reached this payload."));
+  const f = d.findings || [];
+  if (f.length) box.append(table([
+    {label:"Analyzer", get:r=>r.analyzer}, {label:"Metric", get:r=>r.metric},
+    {label:"Value", get:r=>r.value}, {label:"Threshold", get:r=>`${r.direction} ${num(r.threshold)}`},
+    {label:"Severity", get:r=>r.severity}, {label:"Message", get:r=>r.message, text:true},
+  ], f));
+  (d.joins||[]).forEach(j => {
+    if (j.n_left > 0 && j.n_matched === 0)
+      box.append(note("Broken join", `${j.left} → ${j.right}: ${j.n_left} rows matched nothing. This is a plumbing failure, not a null result.`, true));
+  });
+  if (d.conclusion){
+    const c = el("div", "claim");
+    c.append(el("span", "eyebrow", "Judge-written · presentation only"));
+    c.append(el("p", "verdict", d.conclusion));
+    (d.evidence_chain||[]).forEach(e => c.append(el("p", "mono-sm", "• " + e)));
+    box.append(c);
+  }
+  return box;
+}
+
+function renderM3(d){
+  const box = el("div", "body");
+  const hyps = d.hypotheses || [];
+  const untestable = hyps.filter(h => !(h.test_design||"").trim());
+  if (untestable.length) box.append(note(
+    untestable.length === 1 ? "One proposal names no test" : `${untestable.length} proposals name no test`,
+    "A hypothesis with no test design cannot be decided by any amount of evidence. Read the matching M4 verdict as “never testable”, not as “not enough data”.", true));
+  if (!hyps.length) box.append(el("p", "empty", "No hypotheses were proposed. That is a completed, empty result — not an error."));
+  hyps.forEach(h => {
+    const routable = !!(h.test_design||"").trim();
+    const c = el("div", "claim");
+    const head = el("div", "quals");
+    head.append(chip(routable ? "ok" : "bad", routable ? "Testable" : "No test proposed"));
+    head.append(chip("", h.predicted_failure_mode));
+    c.append(head);
+    c.append(el("h3", null, h.statement));
+    const d2 = el("div", "kv");
+    [["id", h.id], ["status", h.status], ["target", h.target_model],
+     ["what would refute it", routable ? h.test_design : "nothing — none was named"]]
+      .forEach(([k,v]) => { const x = el("div"); x.append(el("small",null,k), el("b",null,String(v))); d2.append(x); });
+    c.append(d2);
+    box.append(c);
+  });
+  return box;
+}
+function chip(kind, label){
+  const c = el("span", "chip" + (kind ? " " + kind : ""));
+  if (kind) c.append(el("span", "dot"));
+  c.append(document.createTextNode(label)); return c;
+}
+
+function renderM4(d, byStage){
+  const box = el("div", "body");
+  const m3 = last(byStage.m3);
+  const untestable = new Set((m3?.hypotheses||[]).filter(h => !(h.test_design||"").trim()).map(h => h.id));
+  const proposed = new Set((m3?.hypotheses||[]).map(h => h.id));
+  const results = d.results || [];
+  box.append(kv([
+    ["split", d.split], ["claims judged", results.length],
+    ["supported", results.filter(r=>r.status==="supported").length],
+    ["refuted", results.filter(r=>r.status==="refuted").length],
+    ["inconclusive", results.filter(r=>r.status==="inconclusive").length],
+    ["loop may stop", d.stopping_criteria_met ? "yes" : "no"],
+  ]));
+  if (d.split === "explore") box.append(note("In-sample adjudication",
+    "These claims were generated on the very cases they were tested on. That is an internal consistency check, not held-out evidence."));
+  const orphans = results.filter(r => proposed.size && !proposed.has(r.hypothesis_id));
+  if (orphans.length) box.append(note("Verdicts point at unknown claims",
+    `${orphans.map(r=>r.hypothesis_id).join(", ")} were adjudicated but appear in no M3 payload. The join is broken.`, true));
+  const stuck = results.filter(r => r.status === "inconclusive" && untestable.has(r.hypothesis_id));
+  if (stuck.length) box.append(note(
+    stuck.length === 1 ? "One “inconclusive” is not a shortage of evidence" : `${stuck.length} “inconclusive” verdicts are not a shortage of evidence`,
+    `${stuck.map(r=>r.hypothesis_id).join(", ")} came back inconclusive because the proposal named no test. Re-running with more cases returns the same verdict; the fix belongs in M3.`));
+  if (!results.length) box.append(el("p", "empty", "Nothing reached adjudication."));
+  results.forEach(r => {
+    const c = el("div", "claim " + r.status);
+    const q = el("div", "quals");
+    q.append(chip(r.status === "supported" ? "ok" : r.status === "refuted" ? "bad" : "warn", r.status));
+    q.append(chip(r.evidence_grade === "intervention" ? "ok" : r.evidence_grade === "none" ? "bad" : "", r.evidence_grade + " evidence"));
+    if (!r.is_consistent_with_protocol) q.append(chip("warn", "off-protocol"));
+    if (untestable.has(r.hypothesis_id)) q.append(chip("bad", "was never testable"));
+    c.append(q);
+    const claim = (m3?.hypotheses||[]).find(h => h.id === r.hypothesis_id);
+    c.append(el("h3", null, claim ? claim.statement : r.hypothesis_id));
+    c.append(kv([["test", r.test_name], ["effect size", r.effect_size],
+      ["confidence", r.confidence], ["evidence from", r.evidence?.source],
+      ["routed by", r.evidence?.routed_by || "—"],
+      ["after correction", r.evidence?.fdr_corrected === null ? "not run" : r.evidence?.fdr_corrected ? "survived" : "no"]]));
+    if (r.verdict) c.append(el("p", "mono-sm", r.verdict));
+    box.append(c);
+  });
+  return box;
+}
+
+function renderM5Fix(d){
+  const box = el("div", "body");
+  box.append(kv([["ceiling tier", d.max_tier], ["candidates", (d.attempted||[]).length],
+    ["winner", d.best ?? "none"], ["shipped", d.fixed ? "yes" : "no"],
+    ["e-BH survivors", (d.ebh_survivors||[]).length], ["rounds", d.repair_rounds]]));
+  if (!d.fixed && d.recommendation)
+    box.append(note("Nothing validated at this ceiling",
+      `${d.recommendation.recommend_tier ? "Recommended next tier: " + d.recommendation.recommend_tier + ". " : ""}${d.recommendation.reason || ""} Escalation is never automatic.`));
+  const a = d.attempted || [];
+  if (a.length) box.append(table([
+    {label:"Tier", get:r=>r.tier}, {label:"Candidate", get:r=>r.name},
+    {label:"Verdict", get:r=>r.verdict}, {label:"Pairs", get:r=>r.n_pairs},
+    {label:"Fixed", get:r=>r.n_fixed}, {label:"Broke", get:r=>r.n_broken},
+    {label:"Effect", get:r=>r.effect}, {label:"e-value", get:r=>r.e_value},
+    {label:"Explained", get:r=>r.methodology ? "yes" : "no"},
+  ], a));
+  else box.append(el("p", "empty", "No repair candidate was validated."));
+  return box;
+}
+
+const RENDER = { m1: renderM1, m2: renderM2, m3: renderM3, m4: renderM4, m5_fix: renderM5Fix };
+
+function render(payloads, invalid, meta){
+  const out = $("#out"); out.textContent = "";
+  const byStage = {};
+  payloads.forEach(p => (byStage[p.stage] ||= []).push(p.data));
+
+  const m1 = byStage.m1?.[0];
+  out.append(...[(() => {
+    const bar = el("div", "runbar");
+    [["run", meta.name], ["trace", (m1?.trace_id || "—").slice(0, 8)],
+     ["schema", "v" + (m1?.schema_version ?? "?")],
+     ["stages", [...new Set(payloads.map(p=>p.stage))].join(" · ")],
+     ["cycles", [...new Set(payloads.map(p=>p.cycle).filter(c=>c!==null))].sort((a,b)=>a-b).join(", ") || "—"]]
+      .forEach(([k,v]) => { const d = el("div"); d.append(el("small","eyebrow",k), el("b",null,String(v))); bar.append(d); });
+    return bar;
+  })()]);
+
+  const quals = el("div", "quals");
+  qualifications(byStage).forEach(([k, t]) => quals.append(chip(k, t)));
+  out.append(quals);
+
+  if (invalid.length){
+    const d = el("div", "note bad");
+    d.append(el("b", null, `${invalid.length} stage payload(s) failed validation`));
+    invalid.forEach(i => d.append(el("p", "mono-sm", `${i.file}: ${i.error}`)));
+    out.append(d);
+  }
+
+  const spine = el("div", "spine");
+  const ORDER = ["pre_m1", "m1", "m2", "m3", "m4", "m5_surgery", "m5_fix"];
+  payloads
+    .slice()
+    .sort((a, b) => (a.cycle ?? 99) - (b.cycle ?? 99) || ORDER.indexOf(a.stage) - ORDER.indexOf(b.stage))
+    .forEach(p => {
+      const [title, blurb] = STAGE_TITLE[p.stage] || [p.stage, ""];
+      const st = p.data.status || {};
+      const d = el("details", "stage");
+      d.dataset.state = st.state || "";
+      if (p.stage !== "m1") d.open = false; else d.open = true;
+      const sum = el("summary");
+      const label = p.cycle === null || p.cycle === undefined ? p.stage.toUpperCase()
+        : `${p.stage.toUpperCase()}·c${p.cycle}`;
+      sum.append(el("span", "code", label));
+      const txt = el("div", "summary-txt");
+      txt.append(el("h2", null, title), el("small", null, blurb));
+      sum.append(txt, el("span", "state", st.state || ""));
+      d.append(sum);
+      const fn = RENDER[p.stage];
+      const body = fn ? fn(p.data, byStage) : (() => { const b = el("div","body");
+        b.append(el("p","empty","No dedicated view for this stage yet.")); return b; })();
+      if (st.reason) body.prepend(note("Why this state", st.reason, st.state === "failed"));
+      body.append(raw("Raw payload", p.data));
+      d.append(body);
+      spine.append(d);
+    });
+  out.append(spine);
+}
+
+/* ---------- intake --------------------------------------------------- */
+const drop = $("#drop"), input = $("#file"), errBox = $("#err");
+$("#pick").onclick = () => input.click();
+input.onchange = e => e.target.files[0] && load(e.target.files[0]);
+["dragenter","dragover"].forEach(t => drop.addEventListener(t, e => {
+  e.preventDefault(); drop.classList.add("hot"); }));
+["dragleave","drop"].forEach(t => drop.addEventListener(t, e => {
+  e.preventDefault(); drop.classList.remove("hot"); }));
+drop.addEventListener("drop", e => {
+  const f = e.dataTransfer?.files?.[0]; if (f) load(f); });
+
+function fail(msg){
+  errBox.textContent = ""; const d = el("div", "err", msg); errBox.append(d);
+}
+
+async function load(file){
+  errBox.textContent = ""; $("#out").textContent = "";
+  try {
+    const buf = await file.arrayBuffer();
+    const entries = await readZip(buf);
+    const wanted = entries.filter(e => /(^|\/)contract\/[^/]+\.json$/.test(e.name));
+    if (!wanted.length){
+      const dirs = [...new Set(entries.map(e => e.name.split("/")[0]))].slice(0, 6);
+      return fail(`No contract/ payloads in this archive. It holds: ${dirs.join(", ") || "nothing"}. ` +
+        `A run emits them under <run>/contract/ — zip the run directory, or the logs/ folder inside it.`);
+    }
+    const payloads = [], invalid = [];
+    for (const e of wanted){
+      const text = await extract(buf, e);
+      const base = e.name.split("/").pop();
+      if (base === "index.json") continue;
+      let data;
+      try { data = JSON.parse(text); }
+      catch (err){ invalid.push({ file: base, error: "not valid JSON" }); continue; }
+      if (base.endsWith(".invalid.json")){
+        invalid.push({ file: base, error: data.error || "validation failed" }); continue;
+      }
+      const stem = base.slice(0, -5);
+      const dot = stem.lastIndexOf(".");
+      const stage = dot < 0 ? stem : stem.slice(dot + 1);
+      const span = dot < 0 ? "" : stem.slice(0, dot);
+      const cycle = /^c-?\d+$/.test(span) ? parseInt(span.slice(1), 10) : null;
+      payloads.push({ stage, cycle, data });
+    }
+    if (!payloads.length && !invalid.length) return fail("The contract/ folder held no stage payloads.");
+    render(payloads, invalid, { name: file.name });
+  } catch (err){
+    fail(err.message || String(err));
+  }
+}
+</script>
