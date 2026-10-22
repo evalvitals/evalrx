@@ -117,9 +117,12 @@ on the light (API-only) install it is skipped and these analyzers are not offere
 
 `evalrx/analyzers/attribution/`: gradient-based saliency (`GRADIENTS`, a backward
 pass through a white-box model: `hf_local` keeps the autograd graph when asked with
-`CaptureSpec(with_grad=True)`). Both explain the next-token logit margin and map the
-result back onto the image's patch grid, with overlays on the case photo. Grad-CAM
-reads the decoder's image-token states rather than the vision tower.
+`CaptureSpec(with_grad=True)`; the graph starts at the decoder, the media encoders run
+without one unless `media_grad=True` asks for it, since a vision tower's attention over a
+large image kept for backward is tens of GB). Both explain the next-token logit margin and
+map the result back onto the image's patch grid, with overlays on the case photo. Grad-CAM
+reads the decoder's image-token states rather than the vision tower. A case whose graph
+does not fit in memory is skipped (`skip_reasons: out_of_memory`); the others are measured.
 
 <!-- BEGIN GENERATED: analyzers/attribution -->
 | Analyzer | Key | Requires | Modality | Paper | Status |

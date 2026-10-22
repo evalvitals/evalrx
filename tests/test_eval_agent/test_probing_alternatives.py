@@ -58,7 +58,12 @@ class _Judge:
         ctx = json.loads(prompt[prompt.index("Evidence (JSON):") + len("Evidence (JSON):"):])
         routes = {}
         for route, r in ctx["routes"].items():
-            routes[route] = [{"id": f"h{i}", "claim": f"claim {i}",
+            if not r["to_run"]:
+                continue
+            # they stand on the alternatives' first readings (without one offered they cannot be told apart)
+            alts = [[c["step"], c["readings"][0]["field"]] for c in r["to_run"] if c.get("alternative_to")]
+            primary = alts[:2] or [[r["to_run"][0]["step"], r["to_run"][0]["readings"][0]["field"]]]
+            routes[route] = [{"id": f"h{i}", "claim": f"claim {i}", "primary": primary,
                               "predictions": {c["step"]: {c["readings"][0]["field"]: d if c.get("alternative_to")
                                                           else "same"} for c in r["to_run"]}}
                              for i, d in enumerate(("up", "same"), 1)]

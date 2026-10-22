@@ -298,6 +298,7 @@ def test_cli_no_model_paths(common, capsys):
         "claude", None, "high"
     )
     assert defaults.held_out is False
+    assert defaults.triage_validation_source is None
     assert defaults.fix_repair_rounds == 2
     assert defaults.allow_adapted_paper_methods is False
     assert run.build_parser().parse_args([
@@ -678,6 +679,51 @@ def test_pope_download_keeps_first_yes_first_no_per_image_and_reuses_sibling_ima
     ra = tasks.load_rows(tmp_path / "pope_adversarial" / "manifest.json")
     rb = tasks.load_rows(tmp_path / "pope_adv_again" / "manifest.json")
     assert a["kept"] == b["kept"] == 4 and [r["id"] for r in ra] == [r["id"] for r in rb]
+
+
+def _chartqa_parquet(path, n):
+    """A ChartQA-shaped parquet: rows at even indices are human-authored."""
+    import io
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from PIL import Image
+
+    rows = []
+    for i in range(n):
+        buf = io.BytesIO()
+        Image.new("RGB", (4, 4), (i * 20 % 256, 0, 0)).save(buf, format="PNG")
+        rows.append({"query": f"Question {i}?", "label": [str(i)], "image": {"bytes": buf.getvalue(), "path": None},
+                     "human_or_machine": 0 if i % 2 == 0 else 1})
+    pq.write_table(pa.Table.from_pylist(rows), path)
+
+
+def test_chartqa_validation_source_is_every_human_row_the_pool_left(common, tmp_path, monkeypatch):
+    _, tasks, _, _ = common
+    import huggingface_hub
+
+    from evalrx.benchmark.tasks import chartqa
+
+    files = {chartqa.TEST_PARQUET: tmp_path / "test.parquet", chartqa.VAL_PARQUET: tmp_path / "val.parquet"}
+    _chartqa_parquet(files[chartqa.TEST_PARQUET], 8)   # human rows 0, 2, 4, 6
+    _chartqa_parquet(files[chartqa.VAL_PARQUET], 6)    # human rows 0, 2, 4
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda repo, name, **kw: str(files[name]))
+    pool = chartqa.download(tmp_path / "pool", limit=2, seed=1)
+    pool_rows = tasks.load_rows(pool["manifest"])
+    assert len(pool_rows) == 2 and all(r["subset"] == "test_human" for r in pool_rows)
+
+    out = chartqa.validation_source(tmp_path / "source", exclude=[pool["manifest"]])
+    rows = tasks.load_rows(tmp_path / "source" / "manifest.json")
+    assert (out["kept"], out["by_subset"], out["excluded"]) == (5, {"test_human": 2, "val_human": 3}, 2)
+    assert not {r["id"] for r in pool_rows} & {r["id"] for r in rows} and len({r["id"] for r in rows}) == 5
+    assert [r["subset"] for r in rows] == ["test_human"] * 2 + ["val_human"] * 3
+    assert [r["id"] for r in rows if r["subset"] == "val_human"] == ["chartqa-val-human-0", "chartqa-val-human-2",
+                                                                      "chartqa-val-human-4"]
+    assert all(r["image"].startswith("images/chartqa-val-") for r in rows if r["subset"] == "val_human")
+    assert all((tmp_path / "source" / r["image"]).is_file() and r["sample_seed"] is None for r in rows)
+    # the same case protocol as the pool: the source builds and scores like any manifest
+    batch, _ = tasks.build_cases(tasks.get("chartqa"), tmp_path / "source" / "manifest.json")
+    assert len(batch) == 5 and tasks.score_case(list(batch)[-1], "4")
 
 
 def test_pope_cases_score_through_the_yes_no_grader(common, tmp_path, monkeypatch):

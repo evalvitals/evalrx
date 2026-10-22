@@ -251,6 +251,23 @@ def test_few_answer_tasks_test_n_only_with_counterfactual_donors():
     assert donors["fail"]["counterfactual_followed_donor"] == 1 and donors["pass"]["content"] == 1
 
 
+def test_open_answer_records_match_controls_without_the_gold_answer():
+    from evalrx.eval_agent.probing.rules import matched_controls
+
+    cases = CaseBatch([
+        FailureCase(id="f1", inputs=Inputs(prompt="q1"), expected="1.577", observed="1.5", label=Label.FAIL),
+        FailureCase(id="f2", inputs=Inputs(prompt="q2"), expected="Taiwan", observed="China", label=Label.FAIL),
+        FailureCase(id="p1", inputs=Inputs(prompt="q3"), expected="47", observed="47", label=Label.PASS),
+        FailureCase(id="p2", inputs=Inputs(prompt="q4"), expected="2019", observed="2019", label=Label.PASS),
+    ])
+    gold = triage_cases(cases, {}, host_assumed_finish=True, answer_contract=False)
+    assert matched_controls(gold, ["f1", "f2"], str) == ([], {"1.577": 1, "taiwan": 1})
+    # the sampler's rule for open answers: every PASS case can be a FAIL case's control
+    none = triage_cases(cases, {}, host_assumed_finish=True, answer_contract=False, stratum="none")
+    assert {r["stratum"] for r in none} == {"all"}
+    assert matched_controls(none, ["f1", "f2"], str) == (["p1", "p2"], {})
+
+
 def test_triage_truncation_counts_when_the_backend_reported_it():
     cases = CaseBatch([FailureCase(id="f", inputs=Inputs(prompt="q"), expected="1", observed="1 2 3",
                                    label=Label.FAIL, metadata={"finish_reason": "length"})])
@@ -335,7 +352,9 @@ def _yn_case(cid, label, gold, observed):
 def test_u_needs_both_parts_and_s_is_a_fully_checked_stable_failure():
     cases = CaseBatch([
         _yn_case("s", Label.FAIL, "Yes", "No"),    # every check clear -> S
-        _yn_case("u", Label.FAIL, "Yes", "No"),    # one sample says Yes -> U
+        _yn_case("u", Label.FAIL, "Yes", "No"),    # most samples say Yes -> U
+        _yn_case("m", Label.FAIL, "Yes", "No"),    # one sample says Yes: noise, the Stage-0 answer is modal -> S
+        _yn_case("t", Label.FAIL, "Yes", "No"),    # a tie with the Stage-0 answer stays clear -> S
         _yn_case("w", Label.FAIL, "Yes", "No"),    # a wrapper flips it -> U
         _yn_case("i", Label.FAIL, "Yes", "No"),    # wrappers unreadable -> invalid controls -> X
         _yn_case("p", Label.PASS, "Yes", "Yes"),   # every check clear -> stable control, no route
@@ -343,17 +362,22 @@ def test_u_needs_both_parts_and_s_is_a_fully_checked_stable_failure():
     ids = [c.id for c in cases]
     obs = _clean_h_and_n(ids, {i: "No" if i == "p" else "Yes" for i in ids})
     obs.update(_u_obs(
-        samples={"s": ["No"] * 5, "u": ["No", "Yes, there is", "No", "no", "No."], "w": ["No"] * 5,
-                 "i": ["No"] * 5, "p": ["Yes"] * 4 + ["I cannot tell"]},
-        reworded={"s": ["No", "No.", "no"], "u": ["No", "No", "No"], "w": ["No", "Yes", "No"],
-                  "i": ["No", "Maybe", "Hard to say"], "p": ["Yes", "Yes", "Yes"]},
+        samples={"s": ["No"] * 5, "u": ["Yes", "Yes, there is", "No", "yes", "No."],
+                 "m": ["No", "Yes, there is", "No", "no", "No."], "t": ["No", "Yes", "no", "yes", "I cannot tell"],
+                 "w": ["No"] * 5, "i": ["No"] * 5, "p": ["Yes"] * 4 + ["I cannot tell"]},
+        reworded={"s": ["No", "No.", "no"], "u": ["No", "No", "No"], "m": ["No", "No", "No"], "t": ["No", "No", "No"],
+                  "w": ["No", "Yes", "No"], "i": ["No", "Maybe", "Hard to say"], "p": ["Yes", "Yes", "Yes"]},
         gen_kwargs={"temperature": 1.0}))
     rec = {r["case_id"]: r for r in triage_cases(cases, obs, host_assumed_finish=True, answer_contract=True,
                                                 n_needs_counterfactual=True, answer_fn=_yes_no)}
     assert rec["s"]["routes"] == ["S"] and rec["s"]["stable"]
     sampling, reword = rec["u"]["U"]["parts"]
-    assert sampling["state"] == "fired" and sampling["agreement"] == 0.8 and sampling["answers"] == {"no": 4, "yes": 1}
+    assert sampling["state"] == "fired" and sampling["agreement"] == 0.4 and sampling["answers"] == {"yes": 3, "no": 2}
     assert rec["u"]["routes"] == ["U"]
+    minority, tie = rec["m"]["U"]["parts"][0], rec["t"]["U"]["parts"][0]
+    assert minority["state"] == "clear" and minority["agreement"] == 0.8 and minority["base_is_modal"]
+    assert tie["state"] == "clear" and tie["answers"] == {"no": 2, "yes": 2}
+    assert rec["m"]["routes"] == rec["t"]["routes"] == ["S"]
     assert rec["w"]["routes"] == ["U"] and rec["w"]["U"]["parts"][1]["changed"] == ["question_frame"]
     assert rec["i"]["routes"] == ["X"] and rec["i"]["U"]["parts"][1]["invalid_controls"] == [
         "instruction_frame", "question_frame"]
@@ -362,8 +386,8 @@ def test_u_needs_both_parts_and_s_is_a_fully_checked_stable_failure():
     assert rec["p"]["U"]["parts"][0]["n_unreadable"] == 1 and rec["p"]["U"]["state"] == "clear"
     assert rec["p"]["routes"] == [] and rec["p"]["stable"]
     s = summarize(list(rec.values()))
-    assert s["S"] == {"fail": 1, "stable_pass": 1} and s["X"] == {"fail": 1, "pass": 0}
-    assert s["U"]["fail"] == {"n": 4, "n_tested": 3, "n_fired": 2, "rate": 0.6667}
+    assert s["S"] == {"fail": 3, "stable_pass": 1} and s["X"] == {"fail": 1, "pass": 0}
+    assert s["U"]["fail"] == {"n": 6, "n_tested": 5, "n_fired": 2, "rate": 0.4}
 
     # greedy sampling settings: the sampling part is untested, so nothing becomes S
     obs.update(_u_obs(samples={i: ["No"] * 5 for i in ids}, reworded={i: ["No"] * 3 for i in ids}, gen_kwargs={}))

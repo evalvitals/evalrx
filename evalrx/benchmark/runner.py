@@ -401,8 +401,43 @@ def _triage_explainer(args, spec):
     return Explainer(judge, identity=identity, price_fn=(lambda u: usd(name, u)) if name else None)
 
 
+def _validation_source(args, task: T.Task, model, gen_kwargs: dict, protocol, run_dir: Path, ctx):
+    """``--triage-validation-source``: cases used only for DIAGNOSTIC_VALIDATION, labelled by
+    their own Stage 0 pass (``<run>/baseline_validation_source.json``). The controller and the
+    judge never see them; the partition leaves out those on media DISCOVERY contains."""
+    from evalrx.eval_agent import CaseDiscoveryAgent
+
+    manifest = Path(args.triage_validation_source)
+    if not manifest.is_file():
+        raise SystemExit(f"--triage-validation-source: {manifest} is missing")
+    candidates, _ = T.build_cases(task, manifest)
+    t0 = time.monotonic()
+    found = CaseDiscoveryAgent(
+        scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
+        concurrency=getattr(args, "concurrency", 1),
+    ).discover(model, candidates, protocol=protocol)
+    elapsed = time.monotonic() - t0
+    source = found.cases
+    if task.short_answer:
+        for case in source:
+            case.metadata["finish_reason"] = "stop"
+    (run_dir / "baseline_validation_source.json").write_text(json.dumps({
+        "model": args.model, "dataset": task.name, "role": "validation source", "manifest": str(manifest),
+        "n": len(source), "n_pass": found.n_pass, "n_fail": found.n_fail, "n_unknown": found.n_unknown,
+        "accuracy": round(found.n_pass / max(1, len(source)), 4), "seconds": round(elapsed, 1),
+        "cases": [{
+            "id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value,
+        } for c in source],
+    }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Validation source: PASS={found.n_pass}, FAIL={found.n_fail}, n={len(source)} "
+          f"({elapsed:.0f}s) from {manifest}")
+    if ctx is not None:
+        ctx.config.update(triage_validation_source=str(manifest), n_validation_source_cases=len(source))
+    return source, manifest
+
+
 def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs: dict,
-                cases, ctx, run_dir: Path, baseline: dict) -> int:
+                cases, ctx, run_dir: Path, baseline: dict, source=None) -> int:
     """``--m1-policy triage_active``: the triage battery, rule-chosen expansions and
     follow-ups on EXPLORE, then stop.
 
@@ -413,8 +448,10 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
 
     The data roles are fixed first (``<run>/partition_bundle.json``): DISCOVERY is
     EXPLORE, DIAGNOSTIC_VALIDATION the CONFIRM cases on media EXPLORE does not
-    contain. With ``--triage-validate`` the issues the report supports are frozen
-    and validated once on DIAGNOSTIC_VALIDATION (``<run>/validation/``).
+    contain, plus the cases of a validation-only *source* (``(cases, manifest)``
+    from :func:`_validation_source`) under the same rule. With ``--triage-validate``
+    the issues the report supports are frozen and validated once on
+    DIAGNOSTIC_VALIDATION (``<run>/validation/``).
     """
     from evalrx.eval_agent.probing import explore_confirm_split, run_triage
     from evalrx.eval_agent.probing.scoring import Weights
@@ -424,10 +461,12 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
 
     explore, confirm = explore_confirm_split(cases, float(args.confirm_split), CONFIRM_SPLIT_SEED)
     bundle, validation = partition_bundle(explore, confirm, seed=CONFIRM_SPLIT_SEED,
-                                          confirm_split=float(args.confirm_split), manifest=baseline.get("manifest"))
+                                          confirm_split=float(args.confirm_split), manifest=baseline.get("manifest"),
+                                          source=source[0] if source else None,
+                                          source_manifest=source[1] if source else None)
     if args.triage_validate and not len(validation):
         raise SystemExit("--triage-validate needs CONFIRM cases on media EXPLORE does not contain; "
-                         "set --confirm-split above 0")
+                         "set --confirm-split above 0 or give a --triage-validation-source")
     bundle_row = bundle.to_dict()
     (run_dir / "partition_bundle.json").write_text(json.dumps(bundle_row, indent=2) + "\n", encoding="utf-8")
     runtime = getattr(model, "runtime", None)
@@ -471,7 +510,8 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         explore_from=args.triage_explore_from,
         partition={"confirm_split": float(args.confirm_split), "seed": CONFIRM_SPLIT_SEED,
                    "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
-                   "n_validation": len(validation), "bundle_sha1": bundle_row["sha1"],
+                   "n_validation": len(validation), "n_validation_source": len(source[0]) if source else 0,
+                   "bundle_sha1": bundle_row["sha1"],
                    "confirm_visible_to_controller": False},
         run_logger=ctx.logger, **shared,
     )
@@ -650,7 +690,11 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     if not discovery.has_m4_groups:
         raise SystemExit("M4 needs both PASS and FAIL cases; adjust --limit / --seed")
     if triage:
-        return _run_triage(args, task, resolved, spec, model, gen_kwargs, cases, ctx, run_dir, baseline)
+        source = None
+        if getattr(args, "triage_validation_source", None):
+            source = _validation_source(args, task, model, gen_kwargs, protocol, run_dir, ctx)
+        return _run_triage(args, task, resolved, spec, model, gen_kwargs, cases, ctx, run_dir, baseline,
+                           source=source)
 
     # Held-out validation set (--held-out): a SEPARATE frozen sample, labeled
     # by its own Stage-0 pass. It takes the M4-holdout + fix-development roles;

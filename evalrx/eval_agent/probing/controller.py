@@ -93,11 +93,13 @@ from evalrx.eval_agent.probing.explanations import (
     ExplanationSet,
     Hypothesis,
     Metric,
+    carry_over,
     check,
     decidability,
     disagreement,
     label_bound,
     outcome,
+    restates_route,
 )
 from evalrx.eval_agent.probing.explanations import spread as reading_spread
 from evalrx.eval_agent.probing.ledger import Ledger
@@ -167,7 +169,7 @@ FIT_CASES = 32
 ROUTE_MEANING = {
     "H": "the output lost the answer: an extraction, truncation or format check fired",
     "N": "the answer did not change when the media was swapped for media on which the correct answer differs",
-    "U": "the answer moved under re-sampling at the host's settings or under a neutral rewording",
+    "U": "re-sampling at the host's settings mostly gave another answer, or a neutral rewording moved it",
     "S": "a stable error: the output, media-swap and stability checks all ran and none fired",
     "X": "a required check could not run on the case",
 }
@@ -185,8 +187,8 @@ BATTERY: tuple[PlanStep, ...] = (
              "cut text-to-media attention per layer band; margin change of the model's own first answer token",
              fidelity_check="edit", calls_per_case={"forward": 5}, evidence=MEDIA_ATTENTION_CUT),
     PlanStep("self_consistency", {"n": 5}, "U",
-             "re-sample each case at the host's frozen sampling settings; an answer that differs "
-             "from the Stage-0 answer is the U signal",
+             "re-sample each case at the host's frozen sampling settings; another answer sampled "
+             "more often than the Stage-0 answer is the U signal",
              calls_per_case={"generate": 5}, per_case=True, keep_artifacts=("samples",)),
     PlanStep("prompt_contrast", {"strategies": REWORD_STRATEGIES}, "U",
              "re-ask with the question verbatim inside two neutral wrappers; an answer that "
@@ -685,7 +687,7 @@ def run_triage(
                chunk=chunk)
     rank_of = partial(rank, seed)
     triage = partial(triage_cases, host_assumed_finish=host_assumed_finish, answer_contract=answer_contract,
-                     n_needs_counterfactual=n_needs_counterfactual, answer_fn=answer_fn)
+                     n_needs_counterfactual=n_needs_counterfactual, answer_fn=answer_fn, stratum=stratum)
 
     sample, draw = matched_sample(explore, n_fail, seed=seed, stratum=stratum)
     draws = [draw]
@@ -998,34 +1000,39 @@ def run_triage(
         seeded order: each open layer's current candidate, and every layer's other candidates as
         alternatives (to the tool that answered it, or to its current candidate). An alternative
         runs once its layer is answered if its D beats its redundancy, so its predictions are
-        asked for up front."""
+        asked for up front. Then every other carded step measured on the route (``already_run``):
+        a prediction on it is checked on new cases by the validator, and gives no D."""
         offered: dict[str, dict[str, list[str]]] = {}
         routes: dict[str, Any] = {}
         for route, rows in options.items():
             to_run: list[dict[str, Any]] = []
             for _, st, step, _, alternative_to in rows:
                 layer = by_rule[st["rule_id"]]
-                if step.name in CARDS and all(c["step"] != step.name for c in to_run):
+                # a reading the route is cut on cannot tell explanations of that route apart
+                if (step.name in CARDS and not restates_route(route, step.name)
+                        and all(c["step"] != step.name for c in to_run)):
                     to_run.append({"step": step.name, "tool": step.analyzer, "layer": layer.rule_id,
                                    "question": layer.question, "what": step.purpose,
                                    **({"alternative_to": alternative_to} if alternative_to else {}),
                                    **({"caveat": step.caveat} if step.caveat else {}),
                                    "readings": [m.card() for m in CARDS[step.name]]})
-            if not to_run:
-                continue
-            random.Random(f"{seed}:{revision}:{route}").shuffle(to_run)
-            offered[route] = {c["step"]: [r["field"] for r in c["readings"]] for c in to_run}
             measured: dict[str, Any] = {}
             for key in sorted(CARDS):
                 rows = {m.field: {k: v for k, v in o.items() if k != "observed" or v != "not_measured"}
                         for m in CARDS[key] if (o := outcome_of(route, key, m))["n"] != [0, 0]}
                 if rows:
                     measured[key] = rows
+            ran = [{"step": key, "readings": [m.card() for m in CARDS[key]]} for key in measured
+                   if not restates_route(route, key) and all(c["step"] != key for c in to_run)]
+            if not to_run and not ran:
+                continue
+            random.Random(f"{seed}:{revision}:{route}").shuffle(to_run)
+            offered[route] = {c["step"]: [r["field"] for r in c["readings"]] for c in [*to_run, *ran]}
             fail_ids = route_fail_ids(records, route)
             by_id = {r["case_id"]: r for r in records}
             routes[route] = {"meaning": ROUTE_MEANING.get(route, ""), "n_fail": len(fail_ids),
-                             "fail_by_gold": dict(sorted(Counter(by_id[c]["stratum"] for c in fail_ids).items())),
-                             "measured": measured, "to_run": to_run}
+                             "fail_by_stratum": dict(sorted(Counter(by_id[c]["stratum"] for c in fail_ids).items())),
+                             "measured": measured, "to_run": to_run, "already_run": ran}
         previous = []
         if explanation_sets and explanation_sets[-1].hypotheses:
             prev = explanation_sets[-1]
@@ -1061,20 +1068,23 @@ def run_triage(
 
         Explanations are about the routes, and an expansion revises the routes: the
         judge is first asked once no expansion can follow (the sample has settled,
-        or the next one is over budget). It is asked again when the evidence has
-        decided a prediction since the last ask and a route with tools left has
-        fewer than two live explanations."""
+        or the next one is over budget), whatever is left to run: the tools already
+        run on a route are explained too. It is asked again when the evidence has
+        decided a prediction since the last ask and a route with tools left that the
+        judge can be asked about (as ``explanation_request`` offers them) has fewer
+        than two live explanations: only a tool still to run brings evidence."""
         if growing:
             plan = expansion_plan()
             if plan is not None and run.over_budget(plan[3]) is None:
                 return None
-        with_cards = sorted(route for route, rows in options.items() if any(row[2].name in CARDS for row in rows))
         # a judge call is charged like an action: asked only while its estimate fits, the
         # largest call so far (the first is unknown: a run overshoots by at most one call)
-        if not with_cards or run.over_budget(judge_estimate("wall_sec"), judge_estimate("usd")) is not None:
+        if run.over_budget(judge_estimate("wall_sec"), judge_estimate("usd")) is not None:
             return None
         if current is None:
             return "the sample has settled: no expansion can follow"
+        with_cards = sorted(route for route, rows in options.items()
+                            if any(row[2].name in CARDS and not restates_route(route, row[2].name) for row in rows))
         new = _decided(verdicts) - current.decided_at_ask
         thin = [route for route in with_cards if sum(1 for h in current.hypotheses if h.route == route
                                                      and verdicts[h.id]["state"] == "live") < 2]
@@ -1100,6 +1110,14 @@ def run_triage(
                 ledger.cost({"kind": "judge", "key": es.key, "revision": revision, "source": es.source,
                              **es.cost})
         es.reason = reason
+        if explanation_sets:
+            # what is still live stays: a re-ask (or a failed one) adds explanations, it does not replace them
+            prev = explanation_sets[-1]
+            states = check(prev.hypotheses, outcome_of)
+            kept = [h for h in prev.hypotheses if states[h.id]["state"] == "live"]
+            taken = {h.id for x in explanation_sets for h in x.hypotheses}
+            es.hypotheses, extra = carry_over(kept, es.hypotheses, taken)
+            es.dropped, es.carried = es.dropped + extra, [h.id for h in kept]
         ledger.trace({"event": "explanations", "revision": revision, "key": es.key, "source": es.source,
                       "reason": reason, "error": es.error, "by_route": dict(Counter(h.route for h in es.hypotheses)),
                       "dropped": es.dropped, "cost": es.cost})
@@ -1477,9 +1495,9 @@ def _evidence_cost(run: _Run) -> dict[str, Any]:
 
 
 def _decided(verdicts: dict[str, Any]) -> set[tuple[str, str, str]]:
-    """The predictions the evidence has decided (hit or miss), as (explanation, step, reading)."""
+    """The primary predictions the evidence has decided (hit or miss), as (explanation, step, reading)."""
     return {(hid, p["step"], p["reading"]) for hid, row in verdicts.items() for p in row["predictions"]
-            if p["verdict"] in ("hit", "miss")}
+            if p["verdict"] in ("hit", "miss") and p.get("primary", True)}
 
 
 def _judge_cost(sets: list[ExplanationSet]) -> dict[str, Any]:
@@ -1806,11 +1824,14 @@ def _markdown(report: dict[str, Any]) -> str:
             if not es["hypotheses"]:
                 lines.append("No explanation." + (f" Dropped: {es['dropped']}." if es["dropped"] else ""))
                 continue
+            if es.get("carried"):
+                lines += [f"Kept from the last ask (still live): {', '.join(es['carried'])}.", ""]
             lines += ["| explanation | claim | state | predictions: predicted -> observed (verdict) |",
                       "|---|---|---|---|"]
             for h in es["hypotheses"]:
                 final = es["final"][h["id"]]
-                preds = "; ".join(f"{p['step']}.{p['reading']}: {p['predicted']} -> "
+                preds = "; ".join(("**primary** " if p.get("primary") else "")
+                                  + f"{p['step']}.{p['reading']}: {p['predicted']} -> "
                                   f"{p['outcome'].get('observed')} ({p['verdict']}"
                                   + (", seen" if p.get("seen_when_predicted") else "") + ")"
                                   for p in final["predictions"]) or "none explicit"

@@ -189,6 +189,12 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "the CONFIRM cases whose media EXPLORE does not contain (<run>/validation/)")
     p.add_argument("--triage-validation-budget-sec", type=float, default=0.0,
                    help="triage_active with --triage-validate: wall-clock cap on the validation's evidence (0 = none)")
+    p.add_argument("--triage-validation-source", default=None, metavar="MANIFEST",
+                   help="triage_active with --triage-validate: a manifest of cases used only for DIAGNOSTIC_VALIDATION, "
+                        "beside the CONFIRM cases: labelled by their own Stage 0 pass "
+                        "(<run>/baseline_validation_source.json), never seen by the controller or the judge, and left "
+                        "out where their media DISCOVERY contains (ChartQA: python -m evalrx.benchmark.tasks.chartqa "
+                        "<dir> --exclude <pool>/manifest.json freezes the human rows the pool left)")
     p.add_argument("--triage-seed", type=int, default=0,
                    help="triage_active: rank seed of the nested sampler")
     p.add_argument("--triage-budget-sec", type=float, default=0.0,

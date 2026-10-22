@@ -4,8 +4,11 @@
 controller sees any case. DISCOVERY is the EXPLORE partition the controller
 works on; DIAGNOSTIC_VALIDATION is the CONFIRM partition minus every case that
 shares a source with DISCOVERY (a source is the media content: a question about
-an image the diagnosis saw is not a new image). Repair CONFIRM is not part of
-this protocol (repair is out of scope), so the bundle says so.
+an image the diagnosis saw is not a new image), plus, when a validation-only
+source is given (``--triage-validation-source``: cases labelled by their own
+Stage 0 pass, never seen by the controller or the judge), its cases under the
+same rule. Repair CONFIRM is not part of this protocol (repair is out of
+scope), so the bundle says so.
 
 **Issues.** :func:`freeze_issues` turns a triage report into issue versions
 whose cohort, signal, direction, band and test can be applied to new cases:
@@ -18,16 +21,18 @@ whose cohort, signal, direction, band and test can be applied to new cases:
   reading's band (discovery: the whole 95% interval outside it). One issue per
   route and step: the reading furthest outside its band, in band units; the
   step's other readings outside their bands are listed, not tested. A step that
-  re-measures the check that defines the route (``DEFINITIONAL``) is not an
-  issue: the route was cut on it.
+  re-measures the check that defines the route, or reads what that check
+  implies (``DEFINITIONAL``), is not an issue: the route was cut on it.
 
 No reading reads the label: the controller refuses a carded step whose target is
 the gold answer (a FAIL output is not gold by definition, so a gold margin lower
 on FAIL restates the label), and the validator refuses a report from another
 rules version (it re-runs the steps as they are defined now).
 
-The judge's explanations are not issues: their predictions are checked on the
-validation evidence and reported apart (mechanism claims, not counted).
+The judge's explanations are not issues: the ones live at an arm's stop are
+frozen with the family, and their predictions are checked on the validation
+cases of their route, the validator running the steps they name that no issue
+ran there (mechanism claims: reported apart, not counted).
 
 **Plan.** :func:`plan_validation` estimates, from DISCOVERY alone (before any
 validation output is read), the validation cases each issue will have and the
@@ -37,11 +42,15 @@ and the cost.
 **Validation.** :func:`validate` runs once, on the union of the frozen families
 of the given arms: the route checks on the validation FAIL cases and their
 matched PASS controls, then each reading issue's step on its route. The family
-is written to ``frozen.json`` before anything runs. Every issue's interval is
-taken at ``1 - ALPHA / K`` (Bonferroni over the K issues of the family), and
-its verdict is ``supported`` (inside the predicted region), ``refuted``
-(outside it), ``inconclusive`` (neither) or ``unavailable`` (the step could not
-run, or too few cases).
+is written to ``frozen.json`` before anything runs. Every issue claims a
+direction, so its verdict is a one-sided test at ``ALPHA / K`` on each side
+(Bonferroni over the K issues of the family): its interval is taken at
+``1 - 2 * ALPHA / K``, and the verdict is ``supported`` (inside the predicted
+region), ``refuted`` (outside it), ``inconclusive`` (neither) or
+``unavailable`` (the step could not run, or too few cases). A false
+``supported`` anywhere in the family then has probability at most ALPHA, and so
+does a false ``refuted``: the side that can only refute no longer spends half of
+the error the supported side may.
 
 **Phenomena.** Several readings can say one thing (an attention cut and a noised
 image both measuring how much the media carries the answer). Two reading issues
@@ -51,8 +60,13 @@ within-group Spearman, ``|rho| >= SAME_PHENOMENON_RHO``; a difference between
 the two groups does not count, since every issue has one); phenomena are the
 connected groups. The rule is frozen with the family. Each arm is credited with
 its own issues, grouped into phenomena: a phenomenon is supported for an arm
-when one of the arm's own issues in it is. The main metric is the number of
-supported phenomena; the per-issue tally is kept beside it.
+when one of the arm's own issues in it is; the per-issue tally is kept beside it.
+
+**Main metric.** The number of supported phenomena depends on where the
+threshold sits when a correlation lies near it, so it is reported over a grid
+of thresholds (:data:`RHO_GRID`, :func:`supported_curve`), and an arm found
+more than another only where it has more supported phenomena at every
+threshold of the grid. The reference threshold only names the phenomena table.
 """
 
 from __future__ import annotations
@@ -74,6 +88,8 @@ from evalrx.eval_agent.probing.explanations import (
     Metric,
     label_bound,
     outcome,
+    primary_readings,
+    restates_route,
     t_quantile,
     verdict,
     z_quantile,
@@ -98,15 +114,16 @@ from evalrx.eval_agent.probing.triage import (
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
 
-VALIDATION_VERSION = "mvp4-validate-2"
+VALIDATION_VERSION = "mvp4-validate-5"
 ALPHA = 0.05
 #: A route signal is a difference of shares of cases: the band the CARDS use for shares.
 ROUTE_BAND = 0.1
 ROUTE_CHECKS = {"H_label_free": "H", "N": "N", "U": "U"}
-#: Steps that re-measure the check a route is cut on: their difference on that route is the cut.
-DEFINITIONAL = {"self_consistency_n10": ("U", "S")}
-#: Two reading issues of one route are one phenomenon at this pooled within-group |Spearman rho|.
+#: Two reading issues of one route are one phenomenon at this pooled within-group |Spearman rho| (the
+#: reference grouping, which names the phenomena table).
 SAME_PHENOMENON_RHO = 0.5
+#: The grouping thresholds the main metric is reported over.
+RHO_GRID = (0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7)
 #: Paired cases a group needs before it enters that correlation.
 MIN_PAIRED = 5
 VERDICT_ORDER = ("supported", "refuted", "inconclusive", "unavailable")
@@ -139,7 +156,7 @@ def source_key(case: Any) -> str:
 class PartitionBundle:
     """The data roles of one protocol, fixed before the controller sees a case."""
 
-    diagnostic_val_source: str          # "internal" (from the main manifest) | "external"
+    diagnostic_val_source: str          # "internal" (CONFIRM) | "internal+source" (plus a validation-only manifest)
     generalisation_unit: str            # what a validated issue generalises to
     discovery_ids: list[str]
     validation_ids: list[str]
@@ -149,6 +166,8 @@ class PartitionBundle:
     seed: int
     confirm_split: float
     manifest: dict[str, Any] = field(default_factory=dict)
+    validation_from: dict[str, int] = field(default_factory=dict)   # validation cases by origin (confirm, source)
+    source_manifest: dict[str, Any] = field(default_factory=dict)   # the validation-only manifest, when given
     roles: dict[str, Any] = field(default_factory=lambda: {
         "controller": "DISCOVERY", "judge": "DISCOVERY (route summaries only)",
         "validator": "DIAGNOSTIC_VALIDATION", "repair_confirm": None})
@@ -160,29 +179,53 @@ class PartitionBundle:
         return out
 
 
+def _file_info(path: "str | Path | None") -> dict[str, Any]:
+    if path is None or not Path(path).is_file():
+        return {}
+    return {"path": str(path), "sha1": hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]}
+
+
 def partition_bundle(discovery: "CaseBatch", confirm: "CaseBatch | None", *, seed: int, confirm_split: float,
-                     manifest: "str | Path | None" = None) -> "tuple[PartitionBundle, CaseBatch]":
-    """DIAGNOSTIC_VALIDATION = CONFIRM minus the cases sharing a source with DISCOVERY."""
+                     manifest: "str | Path | None" = None, source: "CaseBatch | None" = None,
+                     source_manifest: "str | Path | None" = None) -> "tuple[PartitionBundle, CaseBatch]":
+    """DIAGNOSTIC_VALIDATION = CONFIRM minus the cases sharing a source with DISCOVERY, plus the cases of
+    a validation-only *source* (a manifest the controller never sees) that share none with it either."""
     from evalrx.core.case import CaseBatch
 
     seen = {source_key(c) for c in discovery}
-    kept, shared = [], 0
-    for c in confirm or []:
-        if source_key(c) in seen:
-            shared += 1
-        else:
-            kept.append(c)
-    info: dict[str, Any] = {}
-    if manifest is not None and Path(manifest).is_file():
-        info = {"path": str(manifest), "sha1": hashlib.sha1(Path(manifest).read_bytes()).hexdigest()[:16]}
+    taken = {str(c.id) for c in discovery} | {str(c.id) for c in confirm or []}
+    kept: list = []
+    excluded: dict[str, int] = {}
+    origin: dict[str, int] = {}
+    for name, batch in (("confirm", confirm), ("source", source)):
+        if batch is None:
+            continue
+        origin[name] = 0
+        shared = "shares_a_source_with_discovery" if name == "confirm" else "source_shares_a_source_with_discovery"
+        excluded[shared] = 0
+        for c in batch:
+            if source_key(c) in seen:
+                excluded[shared] += 1
+            elif name == "source" and str(c.id) in taken:   # a row the pool already holds, or a repeat: one id, one case
+                excluded["source_repeats_an_id"] = excluded.get("source_repeats_an_id", 0) + 1
+            else:
+                kept.append(c)
+                origin[name] += 1
+                if name == "source":
+                    taken.add(str(c.id))
     bundle = PartitionBundle(
-        diagnostic_val_source="internal", generalisation_unit="new media (no source shared with DISCOVERY)",
+        diagnostic_val_source="internal" if source is None else "internal+source",
+        generalisation_unit="new media (no source shared with DISCOVERY)",
         discovery_ids=[str(c.id) for c in discovery], validation_ids=[str(c.id) for c in kept],
-        excluded={"shares_a_source_with_discovery": shared},
+        excluded=excluded,
         n_sources={"discovery": len(seen), "validation": len({source_key(c) for c in kept})},
         rule=("DISCOVERY = EXPLORE; DIAGNOSTIC_VALIDATION = CONFIRM minus every case whose media content "
-              "also appears in DISCOVERY; repair CONFIRM: none (repair is out of scope)"),
-        seed=int(seed), confirm_split=float(confirm_split), manifest=info)
+              "also appears in DISCOVERY"
+              + ("; plus every case of the validation-only source whose media content does not"
+                 if source is not None else "")
+              + "; repair CONFIRM: none (repair is out of scope)"),
+        seed=int(seed), confirm_split=float(confirm_split), manifest=_file_info(manifest),
+        validation_from=origin, source_manifest=_file_info(source_manifest))
     return bundle, CaseBatch(kept)
 
 
@@ -258,7 +301,7 @@ def freeze_issues(report: dict[str, Any], layers: "tuple[Layer, ...]" = LAYERS) 
                        "diff": round((f["rate"] or 0.0) - (p["rate"] or 0.0), 4), "ci95": ci}))
     for route, by_key in sorted((report.get("outcomes") or {}).items()):
         for key, by_field in sorted(by_key.items()):
-            if route in DEFINITIONAL.get(key, ()) or key not in CARDS:
+            if restates_route(route, key) or key not in CARDS:
                 continue
             bands = {m.field: m for m in CARDS[key]}
             outside = [(f, o) for f, o in sorted(by_field.items())
@@ -410,14 +453,6 @@ def group_phenomena(family: list[IssueRecord], results: dict[str, dict[str, Any]
     """Connected groups of a route's reading issues whose validation values go together (see the module
     docstring); a route signal, or a reading without validation values, is a phenomenon of its own.
     Returns the phenomena and every within-route correlation computed (joined or not)."""
-    parent = {i.issue_id: i.issue_id for i in family}
-
-    def root(x: str) -> str:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
     links = []
     readings = [i for i in family if i.kind == "reading" and i.issue_id in per_case]
     for n, a in enumerate(readings):
@@ -426,14 +461,12 @@ def group_phenomena(family: list[IssueRecord], results: dict[str, dict[str, Any]
                 continue
             va, fail_ids, controls = per_case[a.issue_id]
             rho = within_group_rho(va, per_case[b.issue_id][0], [fail_ids, controls])
-            if rho is None:
-                continue
-            links.append({"issues": [a.issue_id, b.issue_id], "rho": round(rho, 3)})
-            if abs(rho) >= SAME_PHENOMENON_RHO:
-                parent[root(b.issue_id)] = root(a.issue_id)
+            if rho is not None:
+                links.append({"issues": [a.issue_id, b.issue_id], "rho": round(rho, 3)})
+    root = _components([i.issue_id for i in family], links, SAME_PHENOMENON_RHO)
     groups: dict[str, list[IssueRecord]] = {}
     for i in family:
-        groups.setdefault(root(i.issue_id), []).append(i)
+        groups.setdefault(root[i.issue_id], []).append(i)
     out = []
     for n, members in enumerate(groups.values(), 1):
         ids = {i.issue_id for i in members}
@@ -442,6 +475,43 @@ def group_phenomena(family: list[IssueRecord], results: dict[str, dict[str, Any]
                     "verdict": _best(results[i.issue_id]["verdict"] for i in members),
                     "links": [lk for lk in links if set(lk["issues"]) <= ids]})
     return out, links
+
+
+def _components(ids: list[str], links: list[dict[str, Any]], threshold: float) -> dict[str, str]:
+    """Each issue's connected group, joining the issues of every link with ``|rho| >= threshold``."""
+    parent = {i: i for i in ids}
+
+    def root(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for lk in links:
+        if abs(lk["rho"]) >= threshold:
+            a, b = lk["issues"]
+            parent[root(b)] = root(a)
+    return {i: root(i) for i in ids}
+
+
+def supported_curve(arms: dict[str, list[str]], verdicts: dict[str, str], links: list[dict[str, Any]],
+                    grid: tuple[float, ...] = RHO_GRID) -> dict[str, Any]:
+    """Each arm's supported phenomena at every grouping threshold of *grid*, and the differences between
+    arms that hold at all of them (*arms*: issue ids per arm; *verdicts*: per issue of the family;
+    *links*: the within-route correlations). A difference that appears at some thresholds only says how
+    readings were grouped, not which arm found more."""
+    curves: dict[str, list[int]] = {arm: [] for arm in arms}
+    for t in grid:
+        root = _components(list(verdicts), links, t)
+        for arm, ids in arms.items():
+            own: dict[str, list[str]] = {}
+            for i in ids:
+                own.setdefault(root[i], []).append(verdicts[i])
+            curves[arm].append(sum(1 for v in own.values() if "supported" in v))
+    names = sorted(arms)
+    holds = [{"higher": a, "lower": b, "by": [x - y for x, y in zip(curves[a], curves[b])]}
+             for a in names for b in names if a != b and all(x > y for x, y in zip(curves[a], curves[b]))]
+    return {"grid": list(grid), "supported": curves, "differences": holds}
 
 
 def credit_arms(families: dict[str, list[IssueRecord]], results: dict[str, dict[str, Any]],
@@ -495,18 +565,23 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
             union.setdefault(issue.issue_id, issue)
     family = sorted(union.values(), key=lambda i: (i.kind != "route_signal", i.route, i.step, i.reading))
     k = max(1, len(family))
-    level = 1 - ALPHA / k
+    level = 1 - 2 * ALPHA / k   # one-sided at ALPHA / K on the claimed side
     n_disc = len(discovery)
     fail_rate = sum(1 for c in discovery if getattr(getattr(c, "label", None), "value", None) == "fail") / max(1, n_disc)
     plan = plan_validation(family, list(reports.values()), n_validation=len(validation),
                            discovery_fail_rate=fail_rate, level=level)
     frozen = {"version": VALIDATION_VERSION, "alpha": ALPHA, "k": k, "level": level,
+              "test": "one-sided at alpha/K on the claimed side of each issue (and of each primary prediction)",
               "family": [i.to_dict() for i in family], "plan": plan,
               "arms": {arm: [i.issue_id for i in issues] for arm, issues in families.items()},
               "phenomenon_rule": {"statistic": "pooled within-group Spearman rho of the per-case values on the "
                                                "validation FAIL cases and on their controls, same route",
-                                  "threshold": SAME_PHENOMENON_RHO, "min_paired_per_group": MIN_PAIRED},
-              "partition": bundle.to_dict() if bundle is not None else None}
+                                  "threshold": SAME_PHENOMENON_RHO, "min_paired_per_group": MIN_PAIRED,
+                                  "grid": list(RHO_GRID),
+                                  "comparison": "an arm found more than another only where its supported "
+                                                "phenomena are more at every threshold of the grid"},
+              "partition": bundle.to_dict() if bundle is not None else None,
+              "explanations": live_explanations(reports)}
     frozen["sha1"] = hashlib.sha1(json.dumps(frozen, sort_keys=True, default=str).encode()).hexdigest()[:16]
     (out / "frozen.json").write_text(json.dumps(frozen, indent=2, default=str) + "\n", encoding="utf-8")
     say(f"[validate] froze {k} issue(s) from {len(families)} arm(s) (sha1 {frozen['sha1']}); level {level:.4f}")
@@ -524,7 +599,7 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
             run.run_step(step, list(draw.case_ids), kind="validation", revision=0)
     records = triage_cases(sample, run.evidence, host_assumed_finish=host_assumed_finish,
                            answer_contract=answer_contract, n_needs_counterfactual=n_needs_counterfactual,
-                           answer_fn=answer_fn)
+                           answer_fn=answer_fn, stratum=stratum)
     rank_of = partial(rank, seed)
     by_rule = {x.rule_id: x for x in layers}
     steps = {s.name: s for s in (*battery, *candidate_steps(layers))}
@@ -571,10 +646,27 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
                                    "ci95": o95.get("ci95"), "verdict": _verdict(issue.direction, o["ci95"], issue.band)}
     say(f"[validate] verdicts: {dict(Counter(r['verdict'] for r in results.values()))}")
 
+    # a live explanation's primary predictions can name steps no issue ran on its route: run those too,
+    # on the route's validation FAIL cases and controls, so every mechanism claim meets new cases
+    for route, key in sorted({(h["route"], step) for rows in frozen["explanations"].values() for h in rows
+                              for step, _ in h["primary"]}):
+        if (route, key) in measured or key not in steps or restates_route(route, key):
+            continue
+        layer = _layer_for(route, key, layers)
+        fail_ids = route_fail_ids(records, route, layer.case_filter if layer is not None else None)
+        controls = matched_controls(records, fail_ids, rank_of)[0]
+        if len(fail_ids) < MIN_N or len(controls) < MIN_N:
+            continue
+        run.run_step(steps[key], [*fail_ids, *controls], kind="validation", revision=0, route=route)
+        ev = run.evidence.get(key)
+        if ev is not None and ev.chunks and ev.refused() is None:
+            measured[(route, key)] = (fail_ids, controls)
+
     phenomena, links = group_phenomena(family, results, per_case)
     phenomenon_of = {i: ph["id"] for ph in phenomena for i in ph["issues"]}
     say(f"[validate] {len(phenomena)} phenomena: {dict(Counter(ph['verdict'] for ph in phenomena))}")
     credit = credit_arms(families, results, phenomenon_of, reports)
+    curve = supported_curve(frozen["arms"], {i: r["verdict"] for i, r in results.items()}, links)
     report = {
         "version": VALIDATION_VERSION, "frozen_sha1": frozen["sha1"], "alpha": ALPHA, "k": k, "level": level,
         "partition": frozen["partition"],
@@ -584,9 +676,11 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
         "phenomena": phenomena,
         "phenomenon_links": links,
         "arms": credit,
-        "explanations": _check_explanations(reports, run, measured, answer_fn),
+        "phenomenon_curve": curve,
+        "explanations": _check_explanations(frozen["explanations"], run, measured, answer_fn),
         "cost": {"charged_sec": round(run.charged("wall_sec"), 3), "executions": len(run.executions)},
-        "_note": ("each issue's interval is at 1 - alpha/K (Bonferroni over the K issues of the family); ci95 "
+        "_note": ("each issue's interval is at 1 - 2 alpha/K: a one-sided test at alpha/K on its claimed side "
+                  "(Bonferroni over the K issues of the family); ci95 "
                   "is the unadjusted interval, for reference. Verdicts: supported = inside the claimed region, "
                   "refuted = outside it, inconclusive = neither, unavailable = the step or the cases were missing. "
                   "A phenomenon is supported for an arm when one of the arm's own issues in it is"),
@@ -596,47 +690,79 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
     return report
 
 
-def _check_explanations(reports: dict[str, dict[str, Any]], run: Any, measured: dict[tuple[str, str], Any],
-                        answer_fn: Any) -> dict[str, Any]:
-    """The predictions of each arm's explanations live at its stop, checked on the validation evidence
-    where it exists (mechanism claims: reported, not counted)."""
-    out: dict[str, Any] = {}
+def live_explanations(reports: dict[str, dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Each arm's explanations still live at its stop, with their predictions (frozen with the family)."""
+    out: dict[str, list[dict[str, Any]]] = {}
     for arm, r in reports.items():
         sets = ((r.get("explanations") or {}).get("sets")) or []
         if not sets or not sets[-1]["hypotheses"]:
             continue
         last = sets[-1]
+        out[arm] = [{**{k: h[k] for k in ("id", "route", "claim", "predictions")},
+                     "primary": sorted(primary_readings(h))} for h in last["hypotheses"]
+                    if last["final"][h["id"]]["state"] == "live"]
+    return out
+
+
+def _check_explanations(explanations: dict[str, list[dict[str, Any]]], run: Any,
+                        measured: dict[tuple[str, str], Any], answer_fn: Any) -> dict[str, Any]:
+    """The frozen live explanations, judged on the validation evidence of their route by their primary
+    predictions (mechanism claims: reported, not counted).
+
+    The distinct primary predictions of all arms are one family: each is a one-sided test at
+    ``ALPHA / K_e`` (its interval at ``1 - 2 * ALPHA / K_e``). An explanation is ``supported`` when
+    every primary prediction hits, ``refuted`` when one misses, else ``undecided``; ``untestable``
+    without a primary prediction off its route's cut. Other predictions are reported at 95%,
+    unadjusted, where their step ran anyway. A prediction on a reading the route is cut on is
+    ``definitional`` (never measured, neither support nor contradiction); any other stays ``not
+    measured`` only where its step could not run there (too few cases, the budget, or a refused
+    fidelity check)."""
+    tests = sorted({(h["route"], step, f, h["predictions"][step][f]) for hyps in explanations.values()
+                    for h in hyps for step, f in h["primary"] if not restates_route(h["route"], step)})
+    k_e = max(1, len(tests))
+    level = 1 - 2 * ALPHA / k_e
+    arms: dict[str, Any] = {}
+    for arm, hyps in explanations.items():
         rows = []
-        for h in last["hypotheses"]:
-            if last["final"][h["id"]]["state"] != "live":
-                continue
+        for h in hyps:
+            primary = {tuple(x) for x in h["primary"]}
             preds = []
             for step, by in sorted(h["predictions"].items()):
                 for f, d in sorted(by.items()):
+                    row = {"step": step, "reading": f, "predicted": d, "primary": (step, f) in primary}
+                    if restates_route(h["route"], step):
+                        # the route is cut on this reading: it can neither support nor contradict
+                        preds.append({**row, "verdict": "definitional"})
+                        continue
                     if (h["route"], step) not in measured:
-                        preds.append({"step": step, "reading": f, "predicted": d, "verdict": "not measured"})
+                        preds.append({**row, "verdict": "not measured"})
                         continue
                     fail_ids, controls = measured[(h["route"], step)]
                     metric = next(m for m in CARDS[step] if m.field == f)
                     ev = run.evidence[step]
                     values = {cid: follow_up_values(ev, run.by_id[cid], answer_fn) for cid in (*fail_ids, *controls)}
-                    o = outcome(values, fail_ids, controls, metric)
-                    preds.append({"step": step, "reading": f, "predicted": d, "observed": o.get("observed"),
-                                  "verdict": verdict(d, o.get("ci95"), metric.band)})
-            rows.append({"id": h["id"], "claim": h["claim"], "predictions": preds,
-                         "state": ("contradicted" if any(p["verdict"] == "miss" for p in preds) else
-                                   "consistent" if any(p["verdict"] == "hit" for p in preds) else "untested")})
-        out[arm] = rows
-    return out
+                    o = outcome(values, fail_ids, controls, metric, level=level if row["primary"] else 0.95)
+                    preds.append({**row, "observed": o.get("observed"), "n": o.get("n"), "diff": o.get("diff"),
+                                  "ci": o.get("ci95"), "verdict": verdict(d, o.get("ci95"), metric.band)})
+            decisive = [p for p in preds if p["primary"] and p["verdict"] != "definitional"]
+            state = ("untestable" if not decisive else
+                     "refuted" if any(p["verdict"] == "miss" for p in decisive) else
+                     "supported" if all(p["verdict"] == "hit" for p in decisive) else "undecided")
+            rows.append({"id": h["id"], "route": h["route"], "claim": h["claim"], "predictions": preds,
+                         "state": state})
+        arms[arm] = rows
+    return {"k": k_e, "level": level, "arms": arms}
 
 
 def markdown(report: dict[str, Any]) -> str:
     part = report.get("partition") or {}
     lines = [f"# Diagnostic validation ({report['version']})", "",
              f"Frozen family sha1 `{report['frozen_sha1']}`: {report['k']} issue(s), intervals at "
-             f"{report['level']:.4f} (Bonferroni, alpha {report['alpha']}).",
+             f"{report['level']:.4f} (one-sided Bonferroni, alpha {report['alpha']}).",
              f"Partition: {part.get('rule', '-')}; {len(part.get('validation_ids') or [])} validation cases "
-             f"({(part.get('excluded') or {})}); sample {len(report['sample']['fail_ids'])} FAIL + "
+             f"({(part.get('excluded') or {})}"
+             + (f"; from {part['validation_from']}" if part.get("validation_from") else "")
+             + f"); sample {len(report['sample']['fail_ids'])} FAIL + "
              f"{len(report['sample']['pass_ids'])} PASS. Validation cost {report['cost']['charged_sec']} s.", "",
              "## Issues", "", "| issue | phenomenon | claim | discovery | plan: expected / needed | validation "
              "| verdict |", "|---|---|---|---|---|---|---|"]
@@ -657,12 +783,27 @@ def markdown(report: dict[str, Any]) -> str:
         lines.append(f"| {arm} | {c['n_phenomena']} | {c['phenomena_supported']} | {c['phenomena_refuted']} "
                      f"| {c['phenomena_inconclusive']} | {c['phenomena_unavailable']} | {c['n_issues']} "
                      f"| {c['supported']} | {c['charged_sec']} |")
-    if report.get("explanations"):
-        lines += ["", "## Explanations (mechanism claims: reported, not counted)", ""]
-        for arm, rows in report["explanations"].items():
+    curve = report.get("phenomenon_curve")
+    if curve:
+        lines += ["", "## Supported phenomena over the grouping threshold (main metric)", "",
+                  "| arm | " + " | ".join(f"{t:g}" for t in curve["grid"]) + " |",
+                  "|---|" + "---:|" * len(curve["grid"])]
+        lines += [f"| {arm} | " + " | ".join(map(str, counts)) + " |" for arm, counts in curve["supported"].items()]
+        higher: dict[str, list[str]] = {}
+        for d in curve["differences"]:
+            higher.setdefault(d["higher"], []).append(d["lower"])
+        lines += ["", "Differences that hold at every threshold: "
+                  + ("; ".join(f"{a} > {', '.join(sorted(bs))}" for a, bs in sorted(higher.items())) if higher
+                     else "none (every difference between arms depends on how readings are grouped).")]
+    expl = report.get("explanations") or {}
+    if expl.get("arms"):
+        lines += ["", "## Explanations (mechanism claims: reported, not counted)", "",
+                  f"Judged by their primary predictions: {expl['k']} distinct test(s), one-sided at "
+                  f"{expl['level']:.4f} (Bonferroni); other predictions at 95%, reported only.", ""]
+        for arm, rows in expl["arms"].items():
             for h in rows:
-                checked = [f"{p['step']}.{p['reading']} {p['predicted']} -> {p['verdict']}" for p in h["predictions"]
-                           if p["verdict"] != "not measured"]
+                checked = [("**primary** " if p["primary"] else "") + f"{p['step']}.{p['reading']} {p['predicted']} "
+                           f"-> {p['verdict']}" for p in h["predictions"] if p["verdict"] != "not measured"]
                 lines.append(f"- {arm} {h['id']} [{h['state']}]: {h['claim']} ({'; '.join(checked) or 'unmeasured'})")
     lines += ["", f"_{report['_note']}._", ""]
     return "\n".join(lines)

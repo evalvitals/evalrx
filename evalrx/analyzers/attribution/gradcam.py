@@ -101,19 +101,20 @@ class GradCAMAnalyzer(Analyzer):
         per_case_maps: dict[str, Any] = {}
         skipped: Counter = Counter()
         first_id: "str | None" = None
-        for case in cases.stratified_head(self.max_cases):
+        def measure(case: Any) -> None:
+            nonlocal first_id
             with residual_hooks(model, capture={layer: None}, keep_grad=True,
                                 analyzer=self.name) as hooks:
                 trace = model.forward(case.inputs, capture={Capability.LOGITS}, spec=spec)
             slot, media = media_positions(trace)
             if slot != "image":
                 skipped["no_image_tokens"] += 1
-                continue
+                return
             logits = trace.require(Capability.LOGITS)[-1:]
             margin, why = build_margin(self.target, logits, model=model, case=case)
             if margin is None:
                 skipped[why] += 1
-                continue
+                return
             hidden = hooks.captured[layer]
             if not hidden.requires_grad:
                 raise RuntimeError(
@@ -141,6 +142,18 @@ class GradCAMAnalyzer(Analyzer):
             per_case_maps[case.id] = np.asarray(spatial, dtype=np.float16)
             if first_id is None:
                 first_id = case.id
+
+        for case in cases.stratified_head(self.max_cases):
+            try:
+                measure(case)
+            except torch.cuda.OutOfMemoryError:
+                # one case's graph did not fit (a long media sequence); the rest still get their reading
+                skipped["out_of_memory"] += 1
+                oom = True
+            else:
+                oom = False
+            if oom:   # the case's tensors went with the except clause's traceback; now the cache can go
+                torch.cuda.empty_cache()
 
         if not per_case:
             raise ValueError(f"{self.name}: no case could be analysed (skipped: {dict(skipped)})")

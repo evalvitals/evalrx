@@ -5,10 +5,13 @@ for every active route, for up to ``max_per_route`` local explanations of why
 that route's FAIL cases fail. It is asked once the sample has settled (an
 expansion revises the routes, as it supersedes batch-dependent readings), and
 again, up to ``max_asks`` times in all, when the evidence has decided a
-prediction and a route with tools left has fewer than two live explanations;
-each ask sees the previous explanations' verdicts. For each tool still to run
-on the route, every explanation predicts the direction of the tool's readings
-on the route's FAIL cases against their PASS controls:
+prediction and a route with tools left that it can be asked about has fewer
+than two live explanations; each ask sees the previous explanations' verdicts,
+and the ones still live are kept: an ask adds explanations that compete with
+them, it never replaces them (``carry_over``), so a failed ask loses nothing
+either. For each tool still to run on the route, and each tool that has already
+run there, every explanation predicts the direction of the tool's readings on
+the route's FAIL cases against their PASS controls:
 
 * ``up``: FAIL mean - control mean > the reading's band;
 * ``down``: < -band;
@@ -17,7 +20,11 @@ on the route's FAIL cases against their PASS controls:
 
 The readings, their meaning, sign and band are fixed here, per step, in
 ``CARDS``: the judge picks a direction, never the metric, the comparison or
-the threshold. A card compares FAIL with PASS, so no reading on it may be
+the threshold. A prediction on a tool that has already run is made with its
+readings in view: it is checked against them here (a fit, not a test) and on
+new cases by the validator, and it gives no D, as the tool is not run again. A
+route whose own tools have all run (or are all ones it is cut on) is still
+explained that way. A card compares FAIL with PASS, so no reading on it may be
 computed from the correctness label or the gold answer: a FAIL case's output
 is not gold by definition, so "the gold margin is lower on FAIL" restates the
 label. Steps with a target read the model's own answer (``target="prediction"``),
@@ -25,12 +32,18 @@ and readings such as "wrong before, right after" stay in the step's output but
 off the cards. Code, not the judge, checks the predictions against the
 evidence (``verdict``): a prediction is a hit when the 95% interval of the
 difference lies inside its region, a miss when it lies outside, and
-undetermined otherwise. An explanation with a miss is contradicted and leaves
-the live set; one without any explicit prediction is untestable and is not in
-it either.
+undetermined otherwise. Each explanation names one or two of its predictions as
+primary, the ones it stands or falls on, and only those decide: an explanation
+with a miss on a primary prediction is contradicted and leaves the live set,
+and one without a primary prediction is dropped when the reply is read. The
+other predictions are reported only. Competing explanations of a route must
+differ on a primary prediction (see ``parse``). A reading the route is cut on,
+or one the cut implies (``DEFINITIONAL``), is not offered for that route: it
+cannot tell explanations of the route apart.
 
 ``D(a)`` for a candidate on route r sums, over the pairs of r's live
-explanations whose explicit predictions for that step conflict, how decidable
+explanations whose explicit predictions for that step conflict on a reading
+primary for one of the two, how decidable
 the conflict is on the route's cases, and divides by the number of pairs; a
 pair with an ``unknown`` counts in the denominator only. Zero or one live
 explanation gives ``D = 0``. Confidence the judge states is not asked for and
@@ -65,7 +78,7 @@ import math
 import os
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import combinations
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -73,7 +86,7 @@ from typing import Any, Callable, Iterable
 from evalrx.eval_agent.probing.metering import usage_counters, usage_delta
 from evalrx.eval_agent.probing.triage import difference_interval
 
-EXPLAIN_VERSION = "mvp4-explain-3"
+EXPLAIN_VERSION = "mvp4-explain-6"
 DIRECTIONS = ("up", "down", "same", "unknown")
 _ALIASES = {"↑": "up", "↓": "down", "≈": "same", "=": "same", "~": "same", "?": "unknown",
             "higher": "up", "lower": "down", "increase": "up", "decrease": "down", "none": "unknown"}
@@ -96,6 +109,15 @@ class Metric:
 
 #: Analyzer targets that are the correctness label in another form.
 LABEL_TARGETS = ("gold",)
+#: Steps that re-measure the check a route is cut on (U: another answer sampled more often; S: none
+#: was), on that route, or read it off the output distribution (an answer another one out-samples has
+#: a close-call token): their difference there is the cut, so neither an issue nor a prediction.
+DEFINITIONAL = {"self_consistency_n10": ("U", "S"), "logprob_entropy": ("U",)}
+
+
+def restates_route(route: str, step: str) -> bool:
+    """Whether *step*'s readings on *route* re-measure the check the route is cut on."""
+    return route in DEFINITIONAL.get(step, ())
 
 
 def label_bound(steps: "Iterable[Any]", extras: "dict[str, dict[str, Any]] | None" = None) -> list[str]:
@@ -409,13 +431,27 @@ class Hypothesis:
     claim: str
     predictions: dict[str, dict[str, str]]   # step key -> reading -> direction (explicit ones only)
     basis: str = ""
+    primary: tuple[tuple[str, str], ...] = ()   # (step, reading): the predictions it stands or falls on
 
     def explicit(self) -> list[tuple[str, str, str]]:
         return [(step, f, d) for step, by in sorted(self.predictions.items()) for f, d in sorted(by.items())]
 
+    def primaries(self) -> set[tuple[str, str]]:
+        return primary_readings(self.to_dict())
+
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "route": self.route, "claim": self.claim, "basis": self.basis,
-                "predictions": self.predictions}
+                "predictions": self.predictions, "primary": [list(x) for x in self.primary]}
+
+
+def primary_readings(h: dict[str, Any]) -> set[tuple[str, str]]:
+    """The (step, reading) pairs an explanation (as a dict) stands or falls on. One written before
+    explanations named them (``mvp4-explain-3`` and earlier) stands on every explicit prediction."""
+    preds = h.get("predictions") or {}
+    named = h.get("primary")
+    if not named:
+        return {(step, f) for step, by in preds.items() for f in by}
+    return {(str(step), str(f)) for step, f in named if f in (preds.get(step) or {})}
 
 
 @dataclass
@@ -433,10 +469,11 @@ class ExplanationSet:
     source: str = "judge"            # "judge" | "read_back" | "failed"
     cost: dict[str, Any] = field(default_factory=dict)
     error: "str | None" = None
+    carried: list[str] = field(default_factory=list)            # live explanations kept from the last ask
 
     def to_dict(self) -> dict[str, Any]:
         return {"revision": self.revision, "key": self.key, "source": self.source, "reason": self.reason,
-                "error": self.error,
+                "error": self.error, "carried": self.carried,
                 "cost": self.cost, "offered": self.offered, "seen": self.seen, "dropped": self.dropped,
                 "hypotheses": [h.to_dict() for h in self.hypotheses]}
 
@@ -446,17 +483,21 @@ Outcomes = Callable[[str, str, Metric], dict[str, Any]]   # (route, step key, me
 
 def check(hypotheses: list[Hypothesis], outcome_of: Outcomes) -> dict[str, dict[str, Any]]:
     """Every hypothesis' state on the current evidence: ``live`` / ``contradicted`` / ``untestable``,
-    with each explicit prediction's verdict."""
+    with each explicit prediction's verdict. Only the primary predictions decide the state: a miss on
+    one contradicts the explanation; the others are reported."""
     out = {}
     for h in hypotheses:
         rows = []
+        primary = h.primaries()
         for step, name, direction in h.explicit():
             metric = next(m for m in CARDS[step] if m.field == name)
             o = outcome_of(h.route, step, metric)
             rows.append({"step": step, "reading": name, "predicted": direction, "band": metric.band,
+                         "primary": (step, name) in primary,
                          "outcome": o, "verdict": verdict(direction, o.get("ci95"), metric.band)})
-        state = ("untestable" if not rows else
-                 "contradicted" if any(r["verdict"] == "miss" for r in rows) else "live")
+        decisive = [r for r in rows if r["primary"]]
+        state = ("untestable" if not decisive else
+                 "contradicted" if any(r["verdict"] == "miss" for r in decisive) else "live")
         out[h.id] = {"state": state, "predictions": rows}
     return out
 
@@ -466,7 +507,8 @@ Decidable = Callable[[str, str, str], dict[str, Any]]   # (reading, direction a,
 
 def disagreement(route: str, step: str, live: list[Hypothesis],
                  decidable: "Decidable | None" = None) -> tuple[float, dict[str, Any]]:
-    """``D`` of running *step* on *route*, and which pairs of live explanations it separates.
+    """``D`` of running *step* on *route*, and which pairs of live explanations it separates: a pair
+    conflicts on a reading both predict differently that is primary for one of them.
 
     Each conflicting pair counts by how decidable its conflict is on the route's cases
     (:func:`decidability`; its most decidable reading); without *decidable* every conflict
@@ -478,7 +520,8 @@ def disagreement(route: str, step: str, live: list[Hypothesis],
     conflicting = []
     for a, b in pairs:
         pa, pb = a.predictions.get(step, {}), b.predictions.get(step, {})
-        on = sorted(f for f in set(pa) & set(pb) if pa[f] != pb[f])
+        decisive = {f for s, f in a.primaries() | b.primaries() if s == step}
+        on = sorted(f for f in set(pa) & set(pb) if pa[f] != pb[f] and f in decisive)
         if on:
             row: dict[str, Any] = {"pair": [a.id, b.id], "readings": on}
             if decidable is not None:
@@ -498,7 +541,8 @@ controller has run checks on a sample of the model's EXPLORE cases and grouped
 the wrong (FAIL) cases into routes; each route's FAIL cases are compared with
 correct (PASS) cases of the same gold answer (its controls). Some tools have not
 run on a route yet. The controller will run them one at a time and wants to run
-first the ones whose result would tell competing explanations apart.
+first the ones whose result would tell competing explanations apart. Every
+explanation is later checked on new cases, on the readings it predicts.
 
 For every route listed under "routes", propose at most {max_per_route} competing
 local explanations of why that route's FAIL cases fail. Local: about these cases
@@ -510,20 +554,39 @@ have no real alternative.
 A tool with "alternative_to" asks a question that another tool (named there)
 has already answered on the route: it runs only if it tells explanations apart.
 
-For each explanation and each tool listed under the route's "to_run", predict
-for each of its readings the direction of (FAIL mean - control mean):
+For each explanation and each tool listed under the route's "to_run" or
+"already_run", predict for each of its readings the direction of
+(FAIL mean - control mean):
   "up"      the difference is above +band
   "down"    the difference is below -band
   "same"    the difference is within +-band
   "unknown" the explanation does not imply a direction (the default)
-Only predict a direction the explanation implies; a wrong confident prediction
-counts against it. Readings measured so far are under "measured"; use them, and
-the previous explanations' verdicts under "previous", to revise.
+Only predict a direction the explanation implies. Readings measured so far are
+under "measured"; use them, and the previous explanations' verdicts under
+"previous", to revise. A tool under "already_run" has run on the route: its
+readings under "measured" are what a prediction on it is checked against now,
+and new cases are the test that counts; it will not run again here, so it
+cannot decide which tool runs next. The previous explanations whose state is "live" are kept
+as they are: propose only new ones, each told apart from the kept ones of its
+route on a primary prediction (one that is not is dropped), and none for a route
+whose kept explanations already cover the alternatives you see.
+
+Name one or two of each explanation's predictions as "primary": the readings it
+stands or falls on, the ones that would show it wrong if they came out otherwise.
+Only primary predictions decide whether an explanation is kept or rejected, here
+and later on new cases; the others are reported only, so leave a reading
+"unknown" rather than guess. Competing explanations of a route must be told
+apart on a primary prediction: on at least one reading that is primary for one
+of the two, both predict a direction and the directions differ (so also predict
+the readings that are the other explanations' primary ones). An explanation
+that cannot be told apart from an earlier one this way is dropped. Make "same"
+primary only when the explanation says the FAIL cases do not differ there.
 
 Answer with JSON only, no prose, in this shape:
 {{"routes": {{"<route>": [{{"id": "h1", "claim": "<one sentence>",
   "basis": "<which readings it rests on>",
-  "predictions": {{"<step>": {{"<reading>": "up|down|same|unknown"}}}}}}]}}}}
+  "predictions": {{"<step>": {{"<reading>": "up|down|same|unknown"}}}},
+  "primary": [["<step>", "<reading>"]]}}]}}}}
 
 Evidence (JSON):
 """
@@ -550,9 +613,12 @@ def parse(reply: str, offered: dict[str, dict[str, list[str]]],
     """The valid explanations in *reply*, and what was dropped and why.
 
     Kept: routes and steps that were offered, readings on the step's card,
-    the four directions (arrows accepted). A second explanation with the same
-    explicit predictions as an earlier one is a duplicate (it can never be told
-    apart from it); explanations beyond *max_per_route* are dropped.
+    the four directions (arrows accepted), and one or two primary predictions
+    among the explicit ones (an explanation without one is dropped; beyond two,
+    the first two are kept). An explanation that cannot be told apart from an
+    earlier one of its route on a primary prediction (one of the two names it,
+    both predict it, and they differ) does not compete with it and is dropped,
+    as are explanations beyond *max_per_route*.
     """
     dropped: list[dict[str, Any]] = []
     try:
@@ -592,16 +658,62 @@ def parse(reply: str, offered: dict[str, dict[str, list[str]]],
                         dropped.append({"what": f"{hid} {step}.{reading}", "reason": f"direction {raw!r}"})
                     elif d != "unknown":
                         preds.setdefault(step, {})[reading] = d
+            primary: list[tuple[str, str]] = []
+            for pair in item.get("primary") or []:
+                step, reading = (list(pair) + [None, None])[:2] if isinstance(pair, (list, tuple)) else (None, None)
+                if reading not in (preds.get(step) or {}):
+                    dropped.append({"what": f"{hid} primary {pair!r}", "reason": "not one of its explicit predictions"})
+                elif (step, reading) not in primary:
+                    primary.append((step, reading))
+            if len(primary) > 2:
+                dropped.append({"what": f"{hid} primary {primary[2:]}", "reason": "more than two primary predictions"})
+                primary = primary[:2]
+            if not primary:
+                dropped.append({"what": hid, "reason": "no primary prediction among its explicit predictions"})
+                continue
             h = Hypothesis(id=hid, route=route, claim=str(item["claim"]).strip(), predictions=preds,
-                           basis=str(item.get("basis") or "").strip())
-            if preds and any(k.predictions == preds for k in kept):
-                dropped.append({"what": hid, "reason": "same explicit predictions as an earlier explanation"})
+                           basis=str(item.get("basis") or "").strip(), primary=tuple(primary))
+            same = next((k for k in kept if not _told_apart(h, k)), None)
+            if same is not None:
+                dropped.append({"what": hid, "reason": f"cannot be told apart from {same.id} on a primary prediction"})
                 continue
             if len(kept) >= max_per_route:
                 dropped.append({"what": hid, "reason": f"more than {max_per_route} explanations"})
                 continue
             kept.append(h)
         out += kept
+    return out, dropped
+
+
+def _told_apart(a: Hypothesis, b: Hypothesis) -> bool:
+    """Whether a reading primary for *a* or *b* has a direction from both, and they differ."""
+    return any(f in a.predictions.get(step, {}) and f in b.predictions.get(step, {})
+               and a.predictions[step][f] != b.predictions[step][f] for step, f in a.primaries() | b.primaries())
+
+
+def carry_over(kept: list[Hypothesis], new: list[Hypothesis],
+               taken: "Iterable[str]" = ()) -> tuple[list[Hypothesis], list[dict[str, Any]]]:
+    """The explanations still live at a new ask, then the new ones that compete with them.
+
+    A new explanation that cannot be told apart from a kept one of its route on a primary
+    prediction is dropped; one whose id an explanation already had (kept, or in an earlier
+    set: *taken*) is renumbered, so an id names one explanation for the whole run.
+    """
+    out, dropped = list(kept), []
+    used = {*taken, *(h.id for h in kept)}
+    for h in new:
+        same = next((k for k in kept if k.route == h.route and not _told_apart(h, k)), None)
+        if same is not None:
+            dropped.append({"what": h.id, "reason": f"cannot be told apart from {same.id} (kept from the last "
+                                                    "ask) on a primary prediction"})
+            continue
+        if h.id in used:
+            n = 1
+            while f"{h.route}.h{n}" in used:
+                n += 1
+            h = replace(h, id=f"{h.route}.h{n}")
+        used.add(h.id)
+        out.append(h)
     return out, dropped
 
 

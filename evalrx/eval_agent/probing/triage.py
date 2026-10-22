@@ -214,6 +214,11 @@ def _samples_vary(gen: dict[str, Any]) -> bool:
 
 
 def _u_sampling(obs: "Observation | None", case: Any, answer_fn: AnswerFn) -> dict[str, Any]:
+    """Fires when another answer was sampled more often than the Stage-0 answer (a tie stays clear).
+
+    One differing sample is ordinary sampling noise at temperature 1.0, most of all on open answers;
+    the signal is that the model's greedy answer is not what it usually says.
+    """
     why = _unavailable(obs, "self_consistency")
     if why is not None:
         return {"part": "sampling", "state": UNTESTED, "reason": why}
@@ -237,8 +242,10 @@ def _u_sampling(obs: "Observation | None", case: Any, answer_fn: AnswerFn) -> di
                answers=dict(Counter(readable)))
     if not readable:
         return {**out, "state": UNTESTED, "reason": "no sample commits to a readable answer"}
-    out["agreement"] = round(sum(a == base for a in readable) / len(readable), 4)
-    return {**out, "state": FIRED if out["agreement"] < 1.0 else CLEAR}
+    counts = Counter(readable)
+    out["agreement"] = round(counts[base] / len(readable), 4)
+    out["base_is_modal"] = counts[base] == max(counts.values())
+    return {**out, "state": CLEAR if out["base_is_modal"] else FIRED}
 
 
 def _outputs(obs: Observation) -> dict[str, dict[str, str]]:
@@ -326,7 +333,7 @@ def _s_patchscope(obs: "Observation | None", cid: str) -> dict[str, Any]:
 def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence]", *,
                  host_assumed_finish: bool,
                  answer_contract: bool, n_needs_counterfactual: bool = False,
-                 answer_fn: "AnswerFn | None" = None) -> list[dict[str, Any]]:
+                 answer_fn: "AnswerFn | None" = None, stratum: str = "gold") -> list[dict[str, Any]]:
     """One record per case: label, stratum, every H/N/U check, routes, knockout and S readings.
 
     *observations* are keyed by plan step (``prompt_reword`` and
@@ -342,10 +349,15 @@ def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence
     *answer_fn* ``(case, output) -> key`` reads the answer an output commits to
     (``""``: none; ``None``: the task has no categorical answer); default
     :func:`default_answer`.
+
+    *stratum* is the sampler's rule (``"gold"`` or ``"none"``): controls are matched within a record's
+    stratum, so it must be the rule the sample was drawn with. Open-answer tasks draw with ``"none"``;
+    a gold stratum there leaves almost no PASS case with a FAIL case's gold to serve as its control.
     """
-    from evalrx.eval_agent.probing.sampler import gold_stratum
+    from evalrx.eval_agent.probing.sampler import STRATA
 
     answer = answer_fn or default_answer
+    stratum_of = STRATA[stratum]
     records = []
     for case in cases:
         cid = str(case.id)
@@ -390,7 +402,7 @@ def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence
         records.append({
             "case_id": cid,
             "label": label,
-            "stratum": gold_stratum(case),
+            "stratum": stratum_of(case),
             "routes": routes,
             "stable": stable,
             "x_reasons": x_reasons,

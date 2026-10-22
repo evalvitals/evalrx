@@ -33,6 +33,7 @@ from evalrx.eval_agent.probing.validation import (
     group_phenomena,
     partition_bundle,
     source_key,
+    supported_curve,
     validate,
     within_group_rho,
 )
@@ -57,6 +58,35 @@ def test_the_partition_keeps_every_validation_case_off_the_media_discovery_saw()
     assert len(bundle.validation_ids) + bundle.excluded["shares_a_source_with_discovery"] == len(confirm)
     assert bundle.excluded["shares_a_source_with_discovery"] > 0   # a POPE image has a yes and a no question
     assert bundle.roles["repair_confirm"] is None and bundle.to_dict()["sha1"] == bundle.to_dict()["sha1"]
+    assert bundle.diagnostic_val_source == "internal" and bundle.validation_from == {"confirm": len(validation)}
+
+
+def test_a_validation_only_source_joins_the_validation_cases_under_the_same_media_rule(tmp_path):
+    from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
+
+    cases, _, explore, confirm = _split()
+    seen = sorted({c.inputs.image for c in explore})[:3]
+    (taken,) = [str(c.id) for c in confirm][:1]
+    source = CaseBatch([
+        FailureCase(id=f"s{i}" if img != "repeat" else taken, expected="Yes", observed="No", label=Label.FAIL,
+                    inputs=Inputs(prompt="Is there a dog in the image?", image="new9" if img == "repeat" else img),
+                    metadata={"gold": "Yes", "finish_reason": "stop"})
+        for i, img in enumerate([*seen, "new0", "new1", "new2", "new3", "repeat"])])
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("[]")
+    base, _ = partition_bundle(explore, confirm, seed=SEED, confirm_split=0.5)
+    bundle, validation = partition_bundle(explore, confirm, seed=SEED, confirm_split=0.5, source=source,
+                                          source_manifest=manifest)
+    # the confirm half is unchanged; the source adds its cases on media discovery never saw, once per id
+    assert bundle.validation_ids[:len(base.validation_ids)] == base.validation_ids
+    assert bundle.validation_ids[len(base.validation_ids):] == ["s3", "s4", "s5", "s6"]
+    assert bundle.excluded == {"shares_a_source_with_discovery": base.excluded["shares_a_source_with_discovery"],
+                               "source_shares_a_source_with_discovery": 3, "source_repeats_an_id": 1}
+    assert bundle.validation_from == {"confirm": len(base.validation_ids), "source": 4}
+    assert not {source_key(c) for c in validation} & {source_key(c) for c in explore}
+    assert bundle.diagnostic_val_source == "internal+source" and "validation-only source" in bundle.rule
+    assert bundle.source_manifest["path"] == str(manifest) and bundle.manifest == {}
+    assert bundle.to_dict()["sha1"] != base.to_dict()["sha1"]
 
 
 def _outcome(observed, ci, n=(8, 8), diff=None):
@@ -75,14 +105,16 @@ def test_freezing_keeps_what_clears_the_band_one_issue_per_route_and_step():
                               "gc_top5_share": _outcome("up", [0.1, 0.4]),
                               "gc_media_grad_share": _outcome("undetermined", [-0.1, 0.2])},
                   "self_consistency_n10": {"consistency": _outcome("up", [0.2, 0.4])}},
-            "U": {"logprob_entropy": {"mean_top_entropy": _outcome("up", [0.1, 0.25])}},
+            "U": {"logprob_entropy": {"mean_top_entropy": _outcome("up", [0.1, 0.25])},
+                  "patchscope": {"ps_peak_prob": _outcome("down", [-0.3, -0.1])}},
             "X": {"media_drop": {"grounded_in_image": _outcome("up", [0.3, 0.9])}},
             "N": {"patchscope": {"ps_peak_prob": _outcome("undetermined", [-0.2, 0.1])}},
         },
     }
     issues = {(i.kind, i.route, i.check or i.step): i for i in freeze_issues(report)}
+    # re-sampling on S and the output's close calls on U read the check the route is cut on
     assert set(issues) == {("route_signal", "U", "U"), ("reading", "S", "gradcam"),
-                           ("reading", "U", "logprob_entropy"), ("reading", "X", "media_drop")}
+                           ("reading", "U", "patchscope"), ("reading", "X", "media_drop")}
     gc = issues[("reading", "S", "gradcam")]
     # the reading furthest outside its band (0.15 past 0.05) is tested, the other is listed
     assert (gc.reading, gc.direction, gc.secondary) == ("gc_entropy", "down", ["gc_top5_share: up"])
@@ -125,7 +157,8 @@ def test_an_effect_that_holds_on_new_cases_is_supported_and_frozen_before_valida
     assert (wrap.route, wrap.direction) == ("S", "up")
     row = next(r for r in out["issues"] if r["issue_id"] == wrap.issue_id)
     assert row["validation"]["verdict"] == "supported"
-    assert out["level"] == pytest.approx(1 - ALPHA / out["k"]) and out["arms"]["rules"]["supported"] >= 1
+    # one-sided at alpha / K on the claimed side: the interval at 1 - 2 alpha / K
+    assert out["level"] == pytest.approx(1 - 2 * ALPHA / out["k"]) and out["arms"]["rules"]["supported"] >= 1
     frozen = json.loads((tmp_path / "validation" / "frozen.json").read_text())
     assert frozen["sha1"] == out["frozen_sha1"] and wrap.issue_id in frozen["arms"]["rules"]
     # the diagnosis never touched a validation case; the validator wrote to its own directory
@@ -148,6 +181,34 @@ def test_an_effect_that_held_only_on_the_discovery_cases_is_refuted(tmp_path, wr
     (wrap,) = [i for i in issues if i.step == "wrap_a"]
     row = next(r for r in out["issues"] if r["issue_id"] == wrap.issue_id)
     assert row["validation"]["verdict"] == "refuted" and row["validation"]["diff"] == 0.0
+
+
+def test_a_live_explanation_is_checked_on_new_cases_even_where_no_issue_ran_its_step(tmp_path, wrapper_on_s):
+    cases, table, explore, confirm = _split()
+    bundle, validation = partition_bundle(explore, confirm, seed=SEED, confirm_split=0.5)
+    model = _Flipper(table, cases)
+    report = run_triage(model, explore, **_kw(tmp_path / "probing", max_fail=8, min_route_fail=1,
+                                               layers=wrapper_on_s))
+    claim = {"id": "S.h1", "route": "S", "claim": "a neutral wrapper moves these errors",
+             "predictions": {FIRST.name: {"prompt_sensitivity": "up"}}, "primary": [[FIRST.name, "prompt_sensitivity"]]}
+    tie = {"id": "U.h1", "route": "U", "claim": "a near tie", "primary": [["self_consistency_n10", "consistency"]],
+           "predictions": {"self_consistency_n10": {"consistency": "down"}}}
+    report["explanations"] = {"sets": [{"hypotheses": [claim, {**claim, "id": "S.h2"}, tie],
+                                        "final": {"S.h1": {"state": "live"}, "S.h2": {"state": "contradicted"},
+                                                  "U.h1": {"state": "live"}}}]}
+    out = validate(model, explore, validation, {"d": []}, {"d": report}, out_dir=tmp_path / "validation",
+                   model_identity={"spec": "table"}, bundle=bundle, seed=0, host_assumed_finish=True,
+                   n_needs_counterfactual=True, task_kind="yes_no", answer_fn=_yes_no, layers=wrapper_on_s,
+                   analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}}, progress=None)
+    frozen = json.loads((tmp_path / "validation" / "frozen.json").read_text())
+    assert [h["id"] for h in frozen["explanations"]["d"]] == ["S.h1", "U.h1"]     # the live ones, frozen first
+    row, tied = out["explanations"]["arms"]["d"]
+    assert row["state"] == "supported" and row["predictions"][0]["verdict"] == "hit" and row["predictions"][0]["primary"]
+    # one test in the primary family (the definitional one is not a test): one-sided at alpha
+    assert out["explanations"]["k"] == 1 and out["explanations"]["level"] == pytest.approx(1 - 2 * ALPHA)
+    # U is cut on re-sampling: re-sampling more cannot support or contradict an explanation of U
+    assert tied["state"] == "untestable" and tied["predictions"][0]["verdict"] == "definitional"
+    assert "self_consistency_n10" not in (tmp_path / "validation" / "selection_trace.jsonl").read_text()
 
 
 def test_no_carded_reading_reads_the_label_and_a_gold_target_is_refused(tmp_path):
@@ -199,3 +260,17 @@ def test_readings_that_go_together_within_groups_are_one_phenomenon_and_a_shift_
     assert (credit["both"]["n_phenomena"], credit["both"]["phenomena_supported"], credit["both"]["n_issues"]) == (1, 1, 2)
     # the twin's phenomenon is supported through the knockout, which this arm did not freeze
     assert (credit["twin_only"]["phenomena_supported"], credit["twin_only"]["phenomena_inconclusive"]) == (0, 1)
+
+
+def test_an_arm_found_more_only_where_it_holds_at_every_grouping_threshold():
+    verdicts = {"a": "supported", "b": "supported", "c": "inconclusive"}
+    links = [{"issues": ["a", "b"], "rho": 0.55}, {"issues": ["b", "c"], "rho": -0.35}]
+    arms = {"two": ["a", "b"], "one": ["a"], "none": ["c"]}
+    curve = supported_curve(arms, verdicts, links)
+    # a and b are one phenomenon up to 0.55 and two above it
+    assert curve["supported"]["two"] == [1, 1, 1, 1, 1, 1, 2, 2, 2]
+    assert curve["supported"]["one"] == [1] * 9 and curve["supported"]["none"] == [0] * 9
+    # "two" beats "one" only above 0.55, so that difference does not count; both beat "none" everywhere
+    assert {(d["higher"], d["lower"]) for d in curve["differences"]} == {("two", "none"), ("one", "none")}
+    above = supported_curve(arms, verdicts, links, grid=(0.6, 0.7))
+    assert ("two", "one") in {(d["higher"], d["lower"]) for d in above["differences"]}

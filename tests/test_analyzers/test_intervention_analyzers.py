@@ -422,6 +422,36 @@ def test_generic_attention_contract(vlm):
     assert "spatial_map" in result.artifacts
 
 
+def _out_of_memory_on(vlm, monkeypatch, prompt: str):
+    """The model raises CUDA's out-of-memory error on the gradient pass of one case."""
+    real = vlm.forward
+
+    def forward(inputs, capture, spec=None):
+        if spec is not None and getattr(spec, "with_grad", False) and inputs.prompt == prompt:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory (test)")
+        return real(inputs, capture, spec)
+
+    monkeypatch.setattr(vlm, "forward", forward)
+
+
+@pytest.mark.parametrize("name", ["gradcam", "generic_attention"])
+def test_a_case_whose_graph_does_not_fit_is_skipped_and_the_rest_are_measured(vlm, monkeypatch, name):
+    from evalrx.analyzers.attribution.generic_attn import GenericAttentionExplainability
+    from evalrx.analyzers.attribution.gradcam import GradCAMAnalyzer
+
+    batch = _batch()
+    victim = list(batch)[1]
+    _out_of_memory_on(vlm, monkeypatch, victim.inputs.prompt)
+    analyzer = GradCAMAnalyzer() if name == "gradcam" else GenericAttentionExplainability()
+    result = analyzer.run(vlm, batch)
+    f = result.findings
+    assert f["n_cases_analyzed"] == 3 and f["skip_reasons"] == {"out_of_memory": 1}
+    assert victim.id not in {r["sample_id"] for r in f["per_case"]}
+    assert victim.id not in result.artifacts["per_case_maps"] and len(result.artifacts["per_case_maps"]) == 3
+    if name == "generic_attention":
+        assert f["tap_fidelity"]["tap_faithful"] is True   # the tap was restored around the failed case
+
+
 def test_generic_attention_runs_text_only(vlm):
     from evalrx.analyzers.attribution.generic_attn import GenericAttentionExplainability
 

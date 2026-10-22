@@ -19,6 +19,7 @@ lazily so this module imports on a torch-free install.
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from typing import Any
 
 from evalrx.core.capability import Capability, CapabilityError
@@ -35,6 +36,7 @@ from evalrx.models.backends.hf._util import (  # noqa: F401
     _populate_audio_extras,
     _populate_vision_extras,
     _read_nested_attr,
+    media_encoders_without_grad,
 )
 from evalrx.models.backends.hf.decoding import ContrastiveDecodingMixin
 from evalrx.models.backends.hf.specialists import SpecialistRepairsMixin
@@ -613,8 +615,14 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
         # GRADIENTS: CaptureSpec.with_grad keeps the graph so a caller can
         # differentiate the returned logits (pair it with to_cpu=False). Default
         # stays no_grad: an attention capture with a live graph costs gigabytes.
+        # The graph starts at the decoder: the media encoders run without one
+        # unless CaptureSpec.media_grad asks for it (a vision tower's attention
+        # over a large image, kept for backward, is tens of GB).
         with_grad = bool(spec is not None and getattr(spec, "with_grad", False))
-        with torch.set_grad_enabled(with_grad):
+        media_grad = bool(spec is not None and getattr(spec, "media_grad", False))
+        audio_hint = self.spec.audio.audio_tower if self.spec.audio is not None else None
+        encoders = media_encoders_without_grad(model, audio_hint) if with_grad and not media_grad else nullcontext()
+        with torch.set_grad_enabled(with_grad), encoders:
             outputs = model(**enc, **flags)
 
         layers = spec.layers if spec is not None else None

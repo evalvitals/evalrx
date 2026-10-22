@@ -11,7 +11,7 @@ from __future__ import annotations
 from itertools import combinations
 from typing import Any
 
-from evalrx.eval_agent.probing.explanations import CARDS, verdict
+from evalrx.eval_agent.probing.explanations import CARDS, primary_readings, verdict
 
 
 def discrimination(explained: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
@@ -29,9 +29,10 @@ def discrimination(explained: dict[str, Any], report: dict[str, Any]) -> dict[st
     for a, b in combinations(last["hypotheses"], 2):
         if a["route"] != b["route"]:
             continue
+        decisive = primary_readings(a) | primary_readings(b)
         on = [(step, f) for step in sorted(set(a["predictions"]) & set(b["predictions"]))
               for f in sorted(set(a["predictions"][step]) & set(b["predictions"][step]))
-              if a["predictions"][step][f] != b["predictions"][step][f]]
+              if a["predictions"][step][f] != b["predictions"][step][f] and (step, f) in decisive]
         if not on:
             continue
         resolved = [f"{step}.{f}" for step, f in on

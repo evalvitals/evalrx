@@ -6,6 +6,115 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — a gradient pass keeps no graph through the media encoders; a case that does not fit is skipped
+
+`hf_local` ran the whole model under autograd when `CaptureSpec(with_grad=True)`
+was asked, so a vision tower's attention over a large image was kept for the
+backward pass: on Qwen3.5-2B (24 full-attention vision layers, no window, a
+16.7 MP pixel cap) a 918x1811 chart is 6400 patches and the process peaked at
+75 GB, out of memory on an 80 GB card, where other images took 16-20 GB. The
+decoder analyzers (`gradcam`, `generic_attention`, `attribution_patching`)
+differentiate towards decoder activations only, so the media encoders now run
+without a graph (`media_encoders_without_grad`, found by the towers' names and
+the spec's audio hint; `CaptureSpec(media_grad=True)` keeps the old behaviour).
+Readings are unchanged; the pixel cap is the model's own and stays. `gradcam`
+and `generic_attention` also skip a case whose graph still does not fit
+(`skip_reasons: out_of_memory`) instead of failing the chunk: in the ChartQA
+validation (`triage17`) the failed chunk stopped both steps on the S route at
+12 of 135 cases.
+
+### Added — a validation-only source for the diagnostic validation
+
+`--triage-validation-source MANIFEST` (with `--triage-validate`) adds cases used
+only for DIAGNOSTIC_VALIDATION: labelled by their own Stage 0 pass
+(`<run>/baseline_validation_source.json`), never seen by the controller or the
+judge, and joining the CONFIRM cases under the same rule (a case on media
+DISCOVERY contains is left out; a source row repeating an id of the pool is
+left out too). The partition bundle records where the validation cases came
+from and the source manifest's hash. On ChartQA (1000-case pool) the validation
+cases were 293 with 100 FAILs, 7 of them on the N route: nothing there could be
+decided. `python -m evalrx.benchmark.tasks.chartqa <dir> --exclude
+<pool>/manifest.json` freezes the human-authored rows the pool left (the rest
+of the test split, then the val split) as such a source.
+
+### Changed — the judge explains what already ran, and is re-asked only about what it can predict
+
+A re-ask fired when a route with carded tools left had fewer than two live
+explanations. It counted the steps a route is cut on, which are never offered
+to the judge, so a route whose only tools left were such steps asked a question
+that could not include it (ChartQA, Qwen3.5-2B: the full-budget D arm's second
+ask, for U with only `self_consistency_n10` left). The trigger now counts the
+steps the request offers. `logprob_entropy` on U joins `DEFINITIONAL`: an
+answer another one out-samples has a close-call token, so U's low confidence is
+its cut read off the output distribution, neither an issue nor a prediction on
+U.
+
+That left U on ChartQA with no tool the judge could predict: its rule layers
+hold only those two (the option rotation is for letter answers), and the judge
+was offered only tools still to run on a route. The tools that already ran on
+a route's cases (knockout, patchscope, tuned_lens, ...) are now offered too,
+under `already_run`, with their readings in view: a prediction on one is
+checked against them during the triage (a fit, not a test), tested on new cases
+by the validator, and gives no D, as the tool is not run again. The first ask
+no longer needs a tool left to run; a re-ask still does, as only such a tool
+brings new evidence. Explanations `mvp4-explain-6`, validation
+`mvp4-validate-5`.
+
+### Changed — triage validation: supported phenomena over a grid of thresholds; explanations met on new cases
+
+Whether two readings are one phenomenon was decided at one threshold (|rho| >=
+0.5), and correlations near it decided which arm found more. The main metric is
+now each arm's supported phenomena at every threshold of `RHO_GRID` (0.3 to 0.7
+by 0.05, `validation.supported_curve`, report `phenomenon_curve`). An arm found
+more than another only where it has more at every threshold. The live
+explanations at each arm's stop are frozen with the family, and the validator
+runs the steps their predictions name that no issue ran on that route, so each
+prediction is checked on new cases unless its step cannot run there. A
+reading a route is cut on (`DEFINITIONAL`, now in `explanations.py`; e.g.
+`self_consistency_n10` on U) is neither offered to the judge for that route
+nor measured for an explanation: the validator labels such a prediction
+`definitional`, neither support nor contradiction.
+
+Verdicts are one-sided: every issue claims a direction, so it is tested at
+alpha/K on its claimed side (its interval at 1 - 2 alpha/K) rather than at
+alpha/2K; a false `supported` anywhere in the family still has probability at
+most alpha. Each explanation the judge proposes now names one or two primary
+predictions, the readings it stands or falls on; competing explanations of a
+route must differ on one, and an explanation without one, or that cannot be told
+apart from an earlier one, is dropped when the reply is read. Only primary
+predictions keep an explanation live during the triage and enter D. The
+validator runs the steps of the frozen explanations' primary predictions, tests
+the distinct primary predictions as one family (one-sided Bonferroni), and calls
+an explanation `supported` (every primary prediction hits), `refuted` (one
+misses), `undecided` or `untestable`; other predictions are reported at 95%. An
+explanation from an earlier version, without primaries, stands on all its
+predictions. A re-ask of the judge keeps the explanations still live and adds
+the new ones that compete with them (`explanations.carry_over`; a new one that
+cannot be told apart from a kept one is dropped, a reused id is renumbered), so
+an explanation live at the stop is frozen however many asks came after it, and
+a failed re-ask loses nothing. Validation version `mvp4-validate-4`,
+explanations `mvp4-explain-5`.
+
+### Changed — the U re-sampling check needs another answer to be the most frequent
+
+The re-sampling part of U fired when any one of the 5 samples differed from
+the Stage-0 answer. At temperature 1.0 that is ordinary noise on open answers
+(ChartQA, Qwen3.5-0.8B: 16/32 PASS cases fired). It now fires when another
+answer was sampled more often than the Stage-0 answer; a tie stays clear. The
+check also records `base_is_modal`. The rewording part is unchanged. Rules
+version `mvp4-rules-4`.
+
+### Fixed — triage controls on open-answer tasks
+
+`triage_cases` gave every record its gold answer as stratum, whatever rule the
+sample was drawn with, and controls are matched within a stratum. On an
+open-answer task (sampled with `stratum="none"`) almost no PASS case shares a
+FAIL case's gold, so route readings had few controls (ChartQA: 5 for 30 U
+FAIL cases) and the follow-up steps ran on those few. `triage_cases` takes the
+sampler's rule (`stratum=`), passed by `run_triage` and the validator; yes/no
+and letter tasks are unchanged. Rules version `mvp4-rules-3`; the judge
+context's `fail_by_gold` is now `fail_by_stratum`.
+
 ### Added — triage diagnostic validation (MVP-4, first version)
 
 The triage run fixes its data roles before the controller sees a case

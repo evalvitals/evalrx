@@ -43,6 +43,10 @@ class CaptureSpec:
     heads: "list[int] | None" = None     # which attention heads to keep (None = all)
     to_cpu: bool = True                   # move captured tensors to CPU (frees GPU mem)
     with_grad: bool = False               # keep the graph for GRADIENTS (else no_grad)
+    # with_grad: also keep the media encoders' graph (gradients towards pixels or audio). Off, their
+    # outputs enter the decoder as constants: a vision tower's attention over a 6000-patch image
+    # kept for backward is tens of GB, and the decoder analyzers never differentiate through it.
+    media_grad: bool = False
 
 
 @dataclass
