@@ -403,6 +403,58 @@ def test_u_needs_both_parts_and_s_is_a_fully_checked_stable_failure():
     assert t["N"]["state"] == "not_applicable" and t["routes"] == ["S"]
 
 
+def _num_case(cid, observed):
+    return FailureCase(id=cid, inputs=Inputs(prompt=f"How much in {cid}?", image=f"{cid}.png"), expected=["12.5"],
+                       observed=observed, label=Label.FAIL,
+                       metadata={"task": "exact_or_numeric", "numeric_tolerance": 0.05})
+
+
+def test_u_and_s_compare_answers_under_the_tasks_tolerance():
+    """ChartQA grades 12.6 against 12.5 as right (5 %), so the triage must not call them two answers:
+    the host's agreement rule (``agree_fn``) decides, and the samples are clustered by it."""
+    from evalrx.benchmark import tasks
+    from evalrx.eval_agent.probing.triage import _contrast_values
+
+    cases = CaseBatch([_num_case("r", "100"), _num_case("p", "12.5"), _num_case("w", "12.4")])
+    ids = [c.id for c in cases]
+    obs = _clean_h_and_n(ids, {i: "7" for i in ids})
+    obs.update(_u_obs(
+        samples={"r": ["101", "102", "99", "250", "250"],    # roundings of the base vs a twice-sampled rival
+                 "p": ["12.6", "13.5", "13.6", "13.7", "12.5"],  # a rival the model gives in three roundings
+                 "w": ["12.4"] * 5},
+        reworded={"r": ["100", "100", "100"], "p": ["12.5", "12.5", "12.5"], "w": ["12.5", "12.6", "13.5"]},
+        gen_kwargs={"temperature": 1.0}))
+    th = _obs("prompt_contrast", [{"sample_id": i} for i in ids])
+    th.findings.update(artifacts={"outputs": {"baseline": {"w": "12.5"}, "sensitive": {"w": "12.6"}}},
+                       by_strategy={"baseline": {"w": 0.0}, "sensitive": {"w": 0.0}})
+    obs["prompt_threshold"] = th
+    kw = dict(host_assumed_finish=True, answer_contract=True, stratum="none", answer_fn=tasks.answer_key)
+    exact = {r["case_id"]: r for r in triage_cases(cases, obs, **kw)}
+    within = {r["case_id"]: r for r in triage_cases(cases, obs, agree_fn=tasks.same_answer, **kw)}
+
+    # r: by key the base was never sampled (fires); within 5 % three samples are the base, two the rival
+    assert exact["r"]["U"]["parts"][0]["state"] == "fired" and exact["r"]["U"]["parts"][0]["agreement"] == 0.0
+    r = within["r"]["U"]["parts"][0]
+    assert r["state"] == "clear" and r["agreement"] == 0.6 and r["rivals"] == {"250": 2} and r["base_is_modal"]
+    assert r["answers"] == {"101": 1, "102": 1, "99": 1, "250": 2}      # the exact counts stay on record
+    # p: by key five different answers tie (clear); within 5 % the rival 13.5-13.7 outnumbers the base 3 to 2
+    assert exact["p"]["U"]["parts"][0]["state"] == "clear"
+    p = within["p"]["U"]["parts"][0]
+    assert p["state"] == "fired" and p["agreement"] == 0.4 and p["rivals"] == {"13.7": 3}
+    # w: a wrapper that moved the answer by less than the tolerance did not move it; the Stage-0 answer
+    # 12.4 is the re-asked 12.5; the threshold instruction's 12.6 is no change
+    assert exact["w"]["U"]["parts"][1]["changed"] == ["instruction_frame", "question_frame"]
+    w = within["w"]["U"]["parts"][1]
+    assert w["changed"] == ["instruction_frame"] and w["baseline_matches_stage0"]
+    assert not exact["w"]["U"]["parts"][1]["baseline_matches_stage0"]
+    assert exact["w"]["S_readings"]["threshold"]["changed"] and not within["w"]["S_readings"]["threshold"]["changed"]
+    assert within["r"]["routes"] == ["S"] and within["p"]["routes"] == within["w"]["routes"] == ["U"]
+    # the follow-up reading of a prompt_contrast step uses the same rule
+    case_w = next(c for c in cases if c.id == "w")
+    assert _contrast_values(th, case_w, tasks.answer_key, tasks.same_answer)["changed_sensitive"] == 0.0
+    assert _contrast_values(th, case_w, tasks.answer_key, lambda c, a, b: a == b)["changed_sensitive"] == 1.0
+
+
 def test_s_readings_are_summarised_per_cohort_and_stratum():
     cases = CaseBatch([
         _yn_case("s1", Label.FAIL, "Yes", "No"), _yn_case("s2", Label.FAIL, "Yes", "No"),

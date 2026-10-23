@@ -576,6 +576,7 @@ def run_triage(
     n_needs_counterfactual: bool = False,
     task_kind: "str | None" = None,
     answer_fn: "Callable[[Any, str], str | None] | None" = None,
+    agree_fn: "Callable[[Any, str, str], bool] | None" = None,
     analyzer_kwargs: "dict[str, dict[str, Any]] | None" = None,
     price_fn: "Callable[[dict[str, Any] | None], float | None] | None" = None,
     battery: "tuple[PlanStep, ...]" = BATTERY,
@@ -624,6 +625,9 @@ def run_triage(
                              recorded as ``not_applicable`` and not run.
         answer_fn:           ``(case, output) -> answer key`` (``""`` = no readable
                              answer, ``None`` = the task has no categorical answer).
+        agree_fn:            ``(case, candidate, reference) -> bool``: when two keys are
+                             one answer, as the task grades (default: equal keys); every
+                             answer comparison of the checks and readings uses it.
         analyzer_kwargs:     per-analyzer constructor extras the host supplies
                              (e.g. the task's ``score_fn``, the sampling settings).
         price_fn:            ``api_usage -> USD`` (``None`` = no price on record).
@@ -687,7 +691,8 @@ def run_triage(
                chunk=chunk)
     rank_of = partial(rank, seed)
     triage = partial(triage_cases, host_assumed_finish=host_assumed_finish, answer_contract=answer_contract,
-                     n_needs_counterfactual=n_needs_counterfactual, answer_fn=answer_fn, stratum=stratum)
+                     n_needs_counterfactual=n_needs_counterfactual, answer_fn=answer_fn, agree_fn=agree_fn,
+                     stratum=stratum)
 
     sample, draw = matched_sample(explore, n_fail, seed=seed, stratum=stratum)
     draws = [draw]
@@ -802,7 +807,7 @@ def run_triage(
 
         def value(self, key: str, cid: str) -> dict[str, Any]:
             if (key, cid) not in self.values:
-                self.values[(key, cid)] = follow_up_values(run.evidence[key], run.by_id[cid], answer_fn)
+                self.values[(key, cid)] = follow_up_values(run.evidence[key], run.by_id[cid], answer_fn, agree_fn)
             return self.values[(key, cid)]
 
         def cases(self, route: str, key: str) -> tuple[list[str], list[str]]:
@@ -1400,7 +1405,8 @@ def run_triage(
         "sample": draw.to_dict(),
         "settings": {"host_assumed_finish": host_assumed_finish, "answer_contract": answer_contract,
                      "n_needs_counterfactual": n_needs_counterfactual, "budget_sec": budget_sec,
-                     "task_kind": task_kind, "answer_fn": canonical(answer_fn), "n_fail": n_fail,
+                     "task_kind": task_kind, "answer_fn": canonical(answer_fn), "agree_fn": canonical(agree_fn),
+                     "n_fail": n_fail,
                      "max_fail": max_fail, "max_actions": max_actions, "min_route_fail": min_route_fail,
                      "min_cohort": min_cohort, "per_call_generation": per_call_generation, "chunk": chunk},
         "executions": run.executions,
@@ -1423,7 +1429,7 @@ def run_triage(
         **({"explanations": _explanations_report(explanation_sets, explainer, final_outcome)}
            if explainer is not None else {}),
         "summary": summary,
-        "follow_ups": _follow_ups(followed, records, run, sample, rank_of, layers, answer_fn),
+        "follow_ups": _follow_ups(followed, records, run, sample, rank_of, layers, answer_fn, agree_fn),
         "routes": _route_report(records, run, rank_of, layers, min_route_fail),
         "checks": _acceptance(battery, layers, run, draw, ledger),
         "cases": records,
@@ -1554,7 +1560,7 @@ def _battery_state(battery: "tuple[PlanStep, ...]", run: _Run, draw: Any) -> lis
 
 def _follow_ups(followed: list[tuple[str, str, str]], records: list[dict[str, Any]], run: _Run, sample: Any,
                 rank_of: Callable[[str], Any], layers: "tuple[Layer, ...]",
-                answer_fn: Any) -> list[dict[str, Any]]:
+                answer_fn: Any, agree_fn: Any) -> list[dict[str, Any]]:
     """Descriptive readings of every follow-up that ran, on the route's current cases."""
     by_rule = {x.rule_id: x for x in layers}
     out = []
@@ -1571,7 +1577,7 @@ def _follow_ups(followed: list[tuple[str, str, str]], records: list[dict[str, An
             "n_route_fail": len(fail_ids), "n_controls": len(controls), "control_shortfall": shortfall,
             "not_run_on": len(ev.todo([*fail_ids, *controls])) if ev.step.reuse else None,
             **({"caveat": ev.step.caveat} if ev.step.caveat else {}),
-            "reading": follow_up_reading(ev, sample, fail_ids, controls, answer_fn),
+            "reading": follow_up_reading(ev, sample, fail_ids, controls, answer_fn, agree_fn),
         })
     return out
 

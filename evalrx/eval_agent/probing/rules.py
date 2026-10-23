@@ -47,7 +47,7 @@ from evalrx.analyzers.perturbation.prompt_contrast import _DEFAULT_STRATEGIES as
 from evalrx.eval_agent.probing.actions import PlanStep
 from evalrx.eval_agent.probing.evidence import StepEvidence
 
-RULES_VERSION = "mvp4-rules-4"
+RULES_VERSION = "mvp4-rules-5"
 ROUTE_ORDER = ("H", "N", "U", "S", "X")
 DESCRIBE_STRATEGIES = {"baseline": "{prompt}", "describe_first": _PROMPT_STRATEGIES["describe_first"]}
 

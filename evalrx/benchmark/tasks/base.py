@@ -127,6 +127,17 @@ def answer_key(case: Any, output: str) -> "str | None":
     return _key(str(meta.get("task", "exact_or_numeric")), output, choices=meta.get("choices"))
 
 
+def same_answer(case: Any, candidate: "str | None", reference: "str | None") -> bool:
+    """Whether two answer keys are one answer for this case's task: equal, or within the case's
+    numeric tolerance of the reference (see :func:`~evalrx.benchmark.scoring.same_answer`) — the
+    rule :func:`score_case` grades with, so a triage check does not call 12.5 and 12.8 two
+    answers when the grader would call both right."""
+    from ..scoring import same_answer as _same
+
+    meta = getattr(case, "metadata", None) or {}
+    return _same(candidate, reference, numeric_tolerance=float(meta.get("numeric_tolerance", 0.0)))
+
+
 def label_case(case: Any, output: str):
     from evalrx.core.case import Label
 

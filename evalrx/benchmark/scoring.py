@@ -9,6 +9,11 @@ grader in ``examples/dataset_selection`` (see ``tasks/llm.py``);
 ``short_answer_em`` is SQuAD's normalisation (HotpotQA's official metric and
 dspy's ``answer_exact_match``) on the extracted answer — unlike
 ``normalize_answer`` it REMOVES punctuation, so ``"Paris."`` == ``"Paris"``.
+
+:func:`answer_key` reads the answer an output commits to without the gold, and
+:func:`same_answer` says when two such keys are one answer under the same
+relaxed rule the grader uses: the triage checks compare answers with these two,
+so an answer that moved by less than the task's tolerance has not moved.
 """
 
 from __future__ import annotations
@@ -51,23 +56,32 @@ def extract_final_answer(raw: str) -> str:
     return tagged[-1] if tagged else (lines[-1] if lines else raw)
 
 
+#: ChartQA labels: a yes/no answer and a true/false label are one answer.
+_ALIASES = {"yes": "true", "no": "false"}
+#: An ``exact_or_numeric`` answer key that is a number (``f"{x:g}"``: plain or exponent form).
+_KEY_NUMBER = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+
+
+def _within(candidate: float, target: float, tolerance: float) -> bool:
+    """ChartQA's relaxed match: within *tolerance* (relative) of *target*; a zero target needs a zero."""
+    if target == 0:
+        return abs(candidate) <= 1e-9
+    return abs(candidate - target) <= tolerance * abs(target)
+
+
 def answer_matches(observed: str, expected: Any, *, numeric_tolerance: float) -> bool:
     golds = expected if isinstance(expected, list) else [expected]
     candidate = normalize_answer(extract_final_answer(observed))
-    aliases = {"yes": "true", "no": "false"}
-    candidate = aliases.get(candidate, candidate)
+    candidate = _ALIASES.get(candidate, candidate)
     for gold in golds:
         target = normalize_answer(gold)
-        target = aliases.get(target, target)
+        target = _ALIASES.get(target, target)
         if candidate == target:
             return True
         candidate_number, target_number = _number(candidate), _number(target)
         if candidate_number is None or target_number is None:
             continue
-        if target_number == 0:
-            if abs(candidate_number) <= 1e-9:
-                return True
-        elif abs(candidate_number - target_number) <= numeric_tolerance * abs(target_number):
+        if _within(candidate_number, target_number, numeric_tolerance):
             return True
     return False
 
@@ -187,9 +201,27 @@ def answer_key(kind: str, output: str, *, choices: list | None = None) -> "str |
         if not text.strip():
             return ""
         candidate = normalize_answer(extract_final_answer(text))
+        candidate = _ALIASES.get(candidate, candidate)
         number = _number(candidate)
         return f"{number:g}" if number is not None else candidate
     raise ValueError(f"unknown task kind {kind!r}")
+
+
+def same_answer(candidate: "str | None", reference: "str | None", *, numeric_tolerance: float = 0.0) -> bool:
+    """Whether two answer keys (:func:`answer_key`) commit to the same answer, the way
+    :func:`score_output` holds a candidate against a gold: equal keys, or two numbers with the
+    candidate within *numeric_tolerance* (relative) of the *reference*, a zero reference needing a
+    zero. The reference is the answer the candidate is held against (the Stage-0 answer, the
+    re-asked baseline), so the relation is read from it, not symmetric at the band's edge. A zero
+    tolerance is key equality, and a non-numeric key only ever equals itself.
+    """
+    if candidate == reference:
+        return True
+    if not numeric_tolerance or not candidate or not reference:
+        return False
+    if not (_KEY_NUMBER.fullmatch(candidate) and _KEY_NUMBER.fullmatch(reference)):
+        return False
+    return _within(float(candidate), float(reference), float(numeric_tolerance))
 
 
 def score_output(kind: str, output: str, gold: Any, *, numeric_tolerance: float = 0.0,

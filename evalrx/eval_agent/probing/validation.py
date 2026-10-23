@@ -541,7 +541,7 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
              reports: dict[str, dict[str, Any]], *, out_dir: "str | Path", model_identity: dict[str, Any],
              bundle: "PartitionBundle | None" = None, seed: int = 0, stratum: str = "gold",
              host_assumed_finish: bool = False, answer_contract: bool = False, n_needs_counterfactual: bool = False,
-             task_kind: "str | None" = None, answer_fn: Any = None,
+             task_kind: "str | None" = None, answer_fn: Any = None, agree_fn: Any = None,
              analyzer_kwargs: "dict[str, dict[str, Any]] | None" = None, price_fn: Any = None,
              per_call_generation: bool = True, chunk: int = 8, budget_sec: float = 0.0,
              battery: "tuple[PlanStep, ...] | None" = None, layers: "tuple[Layer, ...]" = LAYERS,
@@ -599,7 +599,7 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
             run.run_step(step, list(draw.case_ids), kind="validation", revision=0)
     records = triage_cases(sample, run.evidence, host_assumed_finish=host_assumed_finish,
                            answer_contract=answer_contract, n_needs_counterfactual=n_needs_counterfactual,
-                           answer_fn=answer_fn, stratum=stratum)
+                           answer_fn=answer_fn, agree_fn=agree_fn, stratum=stratum)
     rank_of = partial(rank, seed)
     by_rule = {x.rule_id: x for x in layers}
     steps = {s.name: s for s in (*battery, *candidate_steps(layers))}
@@ -631,7 +631,7 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
             continue
         measured[(issue.route, step.name)] = (fail_ids, controls)
         metric = Metric(issue.reading, "", issue.band, issue.metric_kind)
-        values = {cid: follow_up_values(ev, run.by_id[cid], answer_fn) for cid in (*fail_ids, *controls)}
+        values = {cid: follow_up_values(ev, run.by_id[cid], answer_fn, agree_fn) for cid in (*fail_ids, *controls)}
         o = outcome(values, fail_ids, controls, metric, level=level)
         o95 = outcome(values, fail_ids, controls, metric)
         per_case[issue.issue_id] = ({cid: float(v["values"][issue.reading]) for cid, v in values.items()
@@ -677,7 +677,7 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
         "phenomenon_links": links,
         "arms": credit,
         "phenomenon_curve": curve,
-        "explanations": _check_explanations(frozen["explanations"], run, measured, answer_fn),
+        "explanations": _check_explanations(frozen["explanations"], run, measured, answer_fn, agree_fn),
         "cost": {"charged_sec": round(run.charged("wall_sec"), 3), "executions": len(run.executions)},
         "_note": ("each issue's interval is at 1 - 2 alpha/K: a one-sided test at alpha/K on its claimed side "
                   "(Bonferroni over the K issues of the family); ci95 "
@@ -705,7 +705,7 @@ def live_explanations(reports: dict[str, dict[str, Any]]) -> dict[str, list[dict
 
 
 def _check_explanations(explanations: dict[str, list[dict[str, Any]]], run: Any,
-                        measured: dict[tuple[str, str], Any], answer_fn: Any) -> dict[str, Any]:
+                        measured: dict[tuple[str, str], Any], answer_fn: Any, agree_fn: Any) -> dict[str, Any]:
     """The frozen live explanations, judged on the validation evidence of their route by their primary
     predictions (mechanism claims: reported, not counted).
 
@@ -740,7 +740,7 @@ def _check_explanations(explanations: dict[str, list[dict[str, Any]]], run: Any,
                     fail_ids, controls = measured[(h["route"], step)]
                     metric = next(m for m in CARDS[step] if m.field == f)
                     ev = run.evidence[step]
-                    values = {cid: follow_up_values(ev, run.by_id[cid], answer_fn) for cid in (*fail_ids, *controls)}
+                    values = {cid: follow_up_values(ev, run.by_id[cid], answer_fn, agree_fn) for cid in (*fail_ids, *controls)}
                     o = outcome(values, fail_ids, controls, metric, level=level if row["primary"] else 0.95)
                     preds.append({**row, "observed": o.get("observed"), "n": o.get("n"), "diff": o.get("diff"),
                                   "ci": o.get("ci95"), "verdict": verdict(d, o.get("ci95"), metric.band)})

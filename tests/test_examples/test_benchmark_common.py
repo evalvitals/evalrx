@@ -184,6 +184,30 @@ def test_answer_keys_read_answers_without_the_gold(common):
     case = FailureCase(id="c", inputs=Inputs(prompt="q"), expected="C",
                        metadata={"task": "multiple_choice_letter", "choices": ["A", "B", "C", "D", "E"]})
     assert tasks.answer_key(case, "E") == "E"                             # the case's own choices
+    # ChartQA's label aliases hold for the key as for the grader
+    assert key("exact_or_numeric", "Yes") == key("exact_or_numeric", "TRUE") == "true"
+
+
+def test_two_answer_keys_are_one_answer_within_the_tasks_tolerance(common):
+    """The grader calls 12.6 right against a gold of 12.5 (ChartQA's 5 %), so two keys that
+    close are one answer for the triage checks too; the rule is read from the reference."""
+    _, tasks, scoring, _ = common
+    same = scoring.same_answer
+    assert same("12.6", "12.5", numeric_tolerance=0.05) and same("12.4", "12.5", numeric_tolerance=0.05)
+    assert not same("13.5", "12.5", numeric_tolerance=0.05)              # 8 % off
+    assert same("1.5e+06", "1.52e+06", numeric_tolerance=0.05)           # keys of large numbers (``:g``)
+    assert same("0", "0", numeric_tolerance=0.05) and not same("0.001", "0", numeric_tolerance=0.05)
+    assert same("-3", "-3.1", numeric_tolerance=0.05)
+    assert same("beatles", "beatles", numeric_tolerance=0.05) and not same("beatles", "beatle", numeric_tolerance=0.05)
+    assert not same("12.6", "12.5") and not same("12.6", "12.5", numeric_tolerance=0.0)   # zero tolerance = equality
+    assert not same("", "12.5", numeric_tolerance=0.05) and not same("12.5", "", numeric_tolerance=0.05)
+    from evalrx.core.case import FailureCase, Inputs
+
+    chart = FailureCase(id="c", inputs=Inputs(prompt="q"), expected=["12.5"],
+                        metadata={"task": "exact_or_numeric", "numeric_tolerance": 0.05})
+    plain = FailureCase(id="p", inputs=Inputs(prompt="q"), expected=["12.5"], metadata={"task": "exact_or_numeric"})
+    assert tasks.same_answer(chart, "12.6", "12.5") and not tasks.same_answer(plain, "12.6", "12.5")
+    assert tasks.same_answer(plain, "12.5", "12.5")
 
 
 def test_parsed_choice_refuses_leaked_thought_preambles_and_enumerations(common):

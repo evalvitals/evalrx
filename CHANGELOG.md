@@ -6,6 +6,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — the triage compares answers under the task's tolerance
+
+The U and S checks and the follow-up readings compared answers by key equality,
+while the grader holds a numeric answer to ChartQA's relaxed 5 % rule: two
+samples of 12.5 and 12.8 were two answers for the triage and one verdict for the
+scorer, so the re-sampling part of U fired on rounding jitter (ChartQA
+`triage17`: 287 of 450 validation FAILs were on U). The host now passes an
+agreement rule next to the answer key (`tasks.same_answer`, built on
+`scoring.same_answer`: equal keys, or two numbers with the candidate within the
+case's `numeric_tolerance` of the reference; `run_triage` / `validate` /
+`triage_cases(agree_fn=)`, default: equal keys). The re-sampling check counts
+the samples agreeing with the Stage-0 answer as that answer and clusters the
+rest the same way (`rivals`), so nearby roundings neither split the base nor
+pile up as rivals; the rewording, threshold and `prompt_contrast` "changed"
+readings use the rule too. `answer_key` also applies the grader's yes/true
+aliases on `exact_or_numeric`. Rules version `mvp4-rules-5`; `agree_fn` is
+recorded in the report settings.
+
 ### Fixed — a gradient pass keeps no graph through the media encoders; a case that does not fit is skipped
 
 `hf_local` ran the whole model under autograd when `CaptureSpec(with_grad=True)`

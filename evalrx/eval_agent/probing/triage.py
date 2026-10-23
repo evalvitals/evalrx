@@ -20,7 +20,9 @@ on this task) — so a missing measurement is never read as a negative one.
   ``prompt_contrast`` wrappers that keep the question verbatim against the
   re-asked baseline (a wrapper whose answer is unreadable is an invalid
   control, not an unstable answer). Answers are compared by the task's answer
-  key, never graded. Any readable answer that differs fires U.
+  key under its agreement rule (two numbers within the task's tolerance of each
+  other are one answer, as its grader would hold), never graded against the
+  gold. Any readable answer that differs fires U.
 * **S** (a stable failure): a FAIL case on which every required check ran and
   none fired — H, N (cases with media) and both U parts. S is an
   investigation route, not a cause; the S readings attached to every case
@@ -66,6 +68,8 @@ _PATCHSCOPE_FIELDS = ("ps_final_prob", "ps_peak_prob", "ps_peak_depth_frac", "ps
                       "ps_first_depth_frac", "ps_media_query_hits", "ps_media_query_found")
 
 AnswerFn = Callable[[Any, str], "str | None"]
+#: ``(case, candidate, reference) -> bool``: whether two answer keys are one answer for the case.
+AgreeFn = Callable[[Any, str, str], bool]
 
 #: The plan steps the H/N/U checks (and so the routes, S and X) are read from.
 #: Every other step only adds descriptive readings to a case.
@@ -76,6 +80,28 @@ ROUTE_STEPS = frozenset({"answer_extraction_audit", "termination_audit", "modali
 def default_answer(case: Any, text: str) -> str:
     """Coarse answer key when the host gives none: yes/no, else a normalised prefix."""
     return _norm_answer(str(text or ""))
+
+
+def exact_answer(case: Any, candidate: str, reference: str) -> bool:
+    """Agreement rule when the host gives none: the keys are equal."""
+    return candidate == reference
+
+
+def _answer_clusters(case: Any, keys: list[str], base: str, agree: AgreeFn) -> tuple[int, dict[str, int]]:
+    """How many of *keys* agree with *base*, and the rest clustered: each remaining answer joins the
+    most frequent key it agrees with (most frequent first, ties by key), so an answer the model gives
+    in several nearby roundings is counted once, as one rival. Under :func:`exact_answer` the
+    clusters are the distinct keys."""
+    rest = [k for k in keys if not agree(case, k, base)]
+    n_base = len(keys) - len(rest)
+    rivals: dict[str, int] = {}
+    while rest:
+        counts = Counter(rest)
+        centre = max(counts, key=lambda k: (counts[k], k))
+        members = [k for k in rest if agree(case, k, centre)]      # the centre agrees with itself
+        rivals[centre] = len(members)
+        rest = [k for k in rest if not agree(case, k, centre)]
+    return n_base, rivals
 
 
 def _has_media(case: Any) -> bool:
@@ -213,11 +239,13 @@ def _samples_vary(gen: dict[str, Any]) -> bool:
     return bool(gen.get("do_sample")) or temperature > 0.0
 
 
-def _u_sampling(obs: "Observation | None", case: Any, answer_fn: AnswerFn) -> dict[str, Any]:
+def _u_sampling(obs: "Observation | None", case: Any, answer_fn: AnswerFn, agree_fn: AgreeFn) -> dict[str, Any]:
     """Fires when another answer was sampled more often than the Stage-0 answer (a tie stays clear).
 
     One differing sample is ordinary sampling noise at temperature 1.0, most of all on open answers;
-    the signal is that the model's greedy answer is not what it usually says.
+    the signal is that the model's greedy answer is not what it usually says. Samples agreeing with
+    the Stage-0 answer under *agree_fn* are that answer; the others are clustered the same way
+    (:func:`_answer_clusters`), so nearby roundings neither split the base nor pile up as rivals.
     """
     why = _unavailable(obs, "self_consistency")
     if why is not None:
@@ -242,9 +270,9 @@ def _u_sampling(obs: "Observation | None", case: Any, answer_fn: AnswerFn) -> di
                answers=dict(Counter(readable)))
     if not readable:
         return {**out, "state": UNTESTED, "reason": "no sample commits to a readable answer"}
-    counts = Counter(readable)
-    out["agreement"] = round(counts[base] / len(readable), 4)
-    out["base_is_modal"] = counts[base] == max(counts.values())
+    n_base, rivals = _answer_clusters(case, readable, base, agree_fn)
+    out.update(agreement=round(n_base / len(readable), 4), rivals=rivals,
+               base_is_modal=n_base >= max(rivals.values(), default=0))
     return {**out, "state": CLEAR if out["base_is_modal"] else FIRED}
 
 
@@ -252,7 +280,7 @@ def _outputs(obs: Observation) -> dict[str, dict[str, str]]:
     return ((obs.findings or {}).get("artifacts") or {}).get("outputs") or {}
 
 
-def _u_reword(obs: "Observation | None", case: Any, answer_fn: AnswerFn) -> dict[str, Any]:
+def _u_reword(obs: "Observation | None", case: Any, answer_fn: AnswerFn, agree_fn: AgreeFn) -> dict[str, Any]:
     why = _unavailable(obs, "prompt_contrast (rewording)")
     if why is not None:
         return {"part": "reword", "state": UNTESTED, "reason": why}
@@ -268,19 +296,20 @@ def _u_reword(obs: "Observation | None", case: Any, answer_fn: AnswerFn) -> dict
         return {**out, "state": UNTESTED, "reason": "the re-asked question commits to no readable answer"}
     variants = {s: answer_fn(case, texts[cid]) for s, texts in outputs.items() if s != "baseline" and cid in texts}
     valid = {s: a for s, a in variants.items() if a}
+    stage0 = answer_fn(case, str(getattr(case, "observed", "") or ""))
     out.update(base_answer=base, answers=valid, invalid_controls=sorted(s for s in variants if s not in valid),
-               baseline_matches_stage0=answer_fn(case, str(getattr(case, "observed", "") or "")) == base)
+               baseline_matches_stage0=bool(stage0) and agree_fn(case, stage0, base))
     if not valid:
         return {**out, "state": UNTESTED,
                 "reason": f"no wrapper gave a readable answer (invalid controls: {out['invalid_controls']})"}
-    out["changed"] = sorted(s for s, a in valid.items() if a != base)
+    out["changed"] = sorted(s for s, a in valid.items() if not agree_fn(case, a, base))
     return {**out, "state": FIRED if out["changed"] else CLEAR}
 
 
 def _u_check(sampling: "Observation | None", reword: "Observation | None", case: Any,
-             answer_fn: AnswerFn) -> dict[str, Any]:
+             answer_fn: AnswerFn, agree_fn: AgreeFn) -> dict[str, Any]:
     """U fires when either part fires; it is clear only when both parts ran and are clear."""
-    parts = [_u_sampling(sampling, case, answer_fn), _u_reword(reword, case, answer_fn)]
+    parts = [_u_sampling(sampling, case, answer_fn, agree_fn), _u_reword(reword, case, answer_fn, agree_fn)]
     states = [p["state"] for p in parts]
     state = FIRED if FIRED in states else CLEAR if all(st == CLEAR for st in states) else UNTESTED
     out: dict[str, Any] = {"state": state, "parts": parts}
@@ -289,7 +318,7 @@ def _u_check(sampling: "Observation | None", reword: "Observation | None", case:
     return out
 
 
-def _s_threshold(obs: "Observation | None", case: Any, answer_fn: AnswerFn) -> dict[str, Any]:
+def _s_threshold(obs: "Observation | None", case: Any, answer_fn: AnswerFn, agree_fn: AgreeFn) -> dict[str, Any]:
     """The answer under the changed decision criterion, against the re-asked baseline."""
     if obs is None:
         return {"state": UNTESTED, "reason": "threshold instruction not in the plan for this task"}
@@ -306,7 +335,8 @@ def _s_threshold(obs: "Observation | None", case: Any, answer_fn: AnswerFn) -> d
     if not base or not alt:
         return {**out, "state": UNTESTED, "reason": "an answer was unreadable or the task has no answer key"}
     before, after = (scored.get("baseline") or {}).get(cid), (scored.get(variant) or {}).get(cid)
-    out.update(changed=alt != base, fixed=before == 0.0 and after == 1.0, broken=before == 1.0 and after == 0.0)
+    out.update(changed=not agree_fn(case, alt, base), fixed=before == 0.0 and after == 1.0,
+               broken=before == 1.0 and after == 0.0)
     return {**out, "state": "measured"}
 
 
@@ -333,7 +363,8 @@ def _s_patchscope(obs: "Observation | None", cid: str) -> dict[str, Any]:
 def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence]", *,
                  host_assumed_finish: bool,
                  answer_contract: bool, n_needs_counterfactual: bool = False,
-                 answer_fn: "AnswerFn | None" = None, stratum: str = "gold") -> list[dict[str, Any]]:
+                 answer_fn: "AnswerFn | None" = None, agree_fn: "AgreeFn | None" = None,
+                 stratum: str = "gold") -> list[dict[str, Any]]:
     """One record per case: label, stratum, every H/N/U check, routes, knockout and S readings.
 
     *observations* are keyed by plan step (``prompt_reword`` and
@@ -348,7 +379,11 @@ def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence
 
     *answer_fn* ``(case, output) -> key`` reads the answer an output commits to
     (``""``: none; ``None``: the task has no categorical answer); default
-    :func:`default_answer`.
+    :func:`default_answer`. *agree_fn* ``(case, candidate, reference) -> bool`` says
+    when two keys are one answer, the way the task grades (two numbers within its
+    tolerance of each other); default :func:`exact_answer`, equal keys. Every
+    answer comparison of the U and S checks and of the follow-up readings goes
+    through it, so the tolerance belongs here, not in the key.
 
     *stratum* is the sampler's rule (``"gold"`` or ``"none"``): controls are matched within a record's
     stratum, so it must be the rule the sample was drawn with. Open-answer tasks draw with ``"none"``;
@@ -356,7 +391,7 @@ def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence
     """
     from evalrx.eval_agent.probing.sampler import STRATA
 
-    answer = answer_fn or default_answer
+    answer, agree = answer_fn or default_answer, agree_fn or exact_answer
     stratum_of = STRATA[stratum]
     records = []
     for case in cases:
@@ -384,7 +419,7 @@ def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence
         }
         n = _n_check(pick(observations, "modality_ablation", cid), case, n_needs_counterfactual)
         u = _u_check(pick(observations, "self_consistency", cid), pick(observations, "prompt_reword", cid),
-                     case, answer)
+                     case, answer, agree)
         label = getattr(getattr(case, "label", None), "value", None)
         checks = {"H": h["state"], "N": n["state"], "U": u["state"]}
         routes = [tag for tag, state in checks.items() if state == FIRED]
@@ -411,7 +446,7 @@ def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence
             "U": u,
             "knockout": _knockout(pick(observations, "attention_knockout", cid), cid),
             "S_readings": {
-                "threshold": _s_threshold(pick(observations, "prompt_threshold", cid), case, answer),
+                "threshold": _s_threshold(pick(observations, "prompt_threshold", cid), case, answer, agree),
                 "embed_lens": _measured_row(pick(observations, "embed_lens", cid), cid, "embed_lens",
                                            _EMBED_FIELDS),
                 "patchscope": _s_patchscope(pick(observations, "patchscope", cid), cid),
@@ -623,10 +658,11 @@ def _numeric(row: dict[str, Any]) -> dict[str, float]:
 COMPLIANCE_WORDS = 5
 
 
-def _contrast_values(obs: Observation, case: Any, answer_fn: AnswerFn,
+def _contrast_values(obs: Observation, case: Any, answer_fn: AnswerFn, agree_fn: AgreeFn,
                      asks_for_text: bool = False) -> dict[str, float]:
     """``prompt_contrast``: per strategy, whether the answer moved off the re-asked
-    question (by answer key) and whether that fixed or broke it (by the task's scorer).
+    question (by answer key, under the task's agreement rule) and whether that fixed
+    or broke it (by the task's scorer).
 
     With *asks_for_text* (a strategy asking for a description before the answer)
     also how many words it added and whether that reached ``COMPLIANCE_WORDS``:
@@ -644,7 +680,7 @@ def _contrast_values(obs: Observation, case: Any, answer_fn: AnswerFn,
             continue
         alt = answer_fn(case, texts[cid])
         if base and alt:
-            out[f"changed_{strategy}"] = float(alt != base)
+            out[f"changed_{strategy}"] = float(not agree_fn(case, alt, base))
         if asks_for_text:
             extra = len(str(texts[cid]).split()) - len(str(outputs["baseline"][cid]).split())
             out[f"extra_words_{strategy}"] = float(extra)
@@ -656,7 +692,8 @@ def _contrast_values(obs: Observation, case: Any, answer_fn: AnswerFn,
     return out
 
 
-def follow_up_values(evidence: StepEvidence, case: Any, answer_fn: "AnswerFn | None" = None) -> dict[str, Any]:
+def follow_up_values(evidence: StepEvidence, case: Any, answer_fn: "AnswerFn | None" = None,
+                     agree_fn: "AgreeFn | None" = None) -> dict[str, Any]:
     """One case's numeric readings from a follow-up step, or why there are none."""
     cid = str(case.id)
     obs = evidence.for_case(cid)
@@ -666,7 +703,7 @@ def follow_up_values(evidence: StepEvidence, case: Any, answer_fn: "AnswerFn | N
         return {"state": UNTESTED, "action_id": obs.action_id, "reason": f"{obs.status}: {obs.error or ''}".strip()}
     values = _numeric(obs.per_case().get(cid) or {})
     if evidence.step.analyzer == "prompt_contrast":
-        values.update(_contrast_values(obs, case, answer_fn or default_answer,
+        values.update(_contrast_values(obs, case, answer_fn or default_answer, agree_fn or exact_answer,
                                        asks_for_text=evidence.step.min_output_tokens > 0))
     if not values:
         return {"state": UNTESTED, "action_id": obs.action_id, "reason": obs.missing.get(cid, "no per_case row")}
@@ -674,7 +711,7 @@ def follow_up_values(evidence: StepEvidence, case: Any, answer_fn: "AnswerFn | N
 
 
 def follow_up_reading(evidence: StepEvidence, cases: Any, route_ids: "list[str]", control_ids: "list[str]",
-                      answer_fn: "AnswerFn | None" = None) -> dict[str, Any]:
+                      answer_fn: "AnswerFn | None" = None, agree_fn: "AgreeFn | None" = None) -> dict[str, Any]:
     """Mean of every numeric per-case reading over the route's FAIL cases and their PASS controls.
 
     Descriptive, like the S readings: no test, and a field is listed even when
@@ -682,7 +719,7 @@ def follow_up_reading(evidence: StepEvidence, cases: Any, route_ids: "list[str]"
     mean (an answer-change reading needs both answers readable).
     """
     by_id = {str(c.id): c for c in cases}
-    rows = {cid: follow_up_values(evidence, by_id[cid], answer_fn) for cid in [*route_ids, *control_ids]}
+    rows = {cid: follow_up_values(evidence, by_id[cid], answer_fn, agree_fn) for cid in [*route_ids, *control_ids]}
     out: dict[str, Any] = {}
     for name, ids in (("route_fail", route_ids), ("controls", control_ids)):
         measured = [rows[cid]["values"] for cid in ids if rows[cid]["state"] == "measured"]
