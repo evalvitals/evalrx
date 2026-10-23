@@ -459,11 +459,13 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
 
     from .run import triage_weights
 
-    explore, confirm = explore_confirm_split(cases, float(args.confirm_split), CONFIRM_SPLIT_SEED)
+    explore, confirm = explore_confirm_split(cases, float(args.confirm_split), CONFIRM_SPLIT_SEED,
+                                             by=args.confirm_split_by)
     bundle, validation = partition_bundle(explore, confirm, seed=CONFIRM_SPLIT_SEED,
                                           confirm_split=float(args.confirm_split), manifest=baseline.get("manifest"),
                                           source=source[0] if source else None,
-                                          source_manifest=source[1] if source else None)
+                                          source_manifest=source[1] if source else None,
+                                          split_by=args.confirm_split_by)
     if args.triage_validate and not len(validation):
         raise SystemExit("--triage-validate needs CONFIRM cases on media EXPLORE does not contain; "
                          "set --confirm-split above 0 or give a --triage-validation-source")
@@ -508,7 +510,8 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         scheduler=args.triage_scheduler, budget_usd=float(args.triage_budget_usd), explainer=explainer,
         weights=Weights(**triage_weights(args.triage_weights)), explore_share=float(args.triage_explore_share),
         explore_from=args.triage_explore_from,
-        partition={"confirm_split": float(args.confirm_split), "seed": CONFIRM_SPLIT_SEED,
+        partition={"confirm_split": float(args.confirm_split), "split_by": args.confirm_split_by,
+                   "seed": CONFIRM_SPLIT_SEED,
                    "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
                    "n_validation": len(validation), "n_validation_source": len(source[0]) if source else 0,
                    "bundle_sha1": bundle_row["sha1"],

@@ -138,6 +138,11 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                    help="fraction of the main batch reserved as CONFIRM (label-stratified, seed "
                         "20260818); the rest is EXPLORE where M1-M4 and the fix search run. "
                         "0.5 = the 50/50 default; 1/3 with --limit 192 = 128 explore / 64 confirm")
+    p.add_argument("--confirm-split-by", choices=["case", "media"], default="case",
+                   help="triage_active: what the explore/confirm draw is over. case = the loop's own "
+                        "stratified split (a judge-driven run on the same batch sees the same EXPLORE); media = "
+                        "whole media groups (cases on the same image, by content) go to one side, so "
+                        "DISCOVERY and CONFIRM never share an image and the validation leaves nothing out")
     p.add_argument("--val-limit", type=int, default=0,
                    help="with --held-out: cases taken from the top of manifest_val.json "
                         "(0 = the whole validation manifest)")

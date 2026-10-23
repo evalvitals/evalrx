@@ -168,6 +168,7 @@ class PartitionBundle:
     manifest: dict[str, Any] = field(default_factory=dict)
     validation_from: dict[str, int] = field(default_factory=dict)   # validation cases by origin (confirm, source)
     source_manifest: dict[str, Any] = field(default_factory=dict)   # the validation-only manifest, when given
+    split_by: str = "case"              # what the explore/confirm draw was over: "case" | "media"
     roles: dict[str, Any] = field(default_factory=lambda: {
         "controller": "DISCOVERY", "judge": "DISCOVERY (route summaries only)",
         "validator": "DIAGNOSTIC_VALIDATION", "repair_confirm": None})
@@ -187,9 +188,11 @@ def _file_info(path: "str | Path | None") -> dict[str, Any]:
 
 def partition_bundle(discovery: "CaseBatch", confirm: "CaseBatch | None", *, seed: int, confirm_split: float,
                      manifest: "str | Path | None" = None, source: "CaseBatch | None" = None,
-                     source_manifest: "str | Path | None" = None) -> "tuple[PartitionBundle, CaseBatch]":
+                     source_manifest: "str | Path | None" = None, split_by: str = "case") -> "tuple[PartitionBundle, CaseBatch]":
     """DIAGNOSTIC_VALIDATION = CONFIRM minus the cases sharing a source with DISCOVERY, plus the cases of
-    a validation-only *source* (a manifest the controller never sees) that share none with it either."""
+    a validation-only *source* (a manifest the controller never sees) that share none with it either.
+    *split_by* records how the explore/confirm draw was made (``"media"``: whole sources on one side, so
+    the CONFIRM exclusion is empty by construction and is kept only as a check)."""
     from evalrx.core.case import CaseBatch
 
     seen = {source_key(c) for c in discovery}
@@ -219,13 +222,15 @@ def partition_bundle(discovery: "CaseBatch", confirm: "CaseBatch | None", *, see
         discovery_ids=[str(c.id) for c in discovery], validation_ids=[str(c.id) for c in kept],
         excluded=excluded,
         n_sources={"discovery": len(seen), "validation": len({source_key(c) for c in kept})},
-        rule=("DISCOVERY = EXPLORE; DIAGNOSTIC_VALIDATION = CONFIRM minus every case whose media content "
-              "also appears in DISCOVERY"
+        rule=(("DISCOVERY = EXPLORE, split from CONFIRM by media content (a source is on one side only); "
+               "DIAGNOSTIC_VALIDATION = CONFIRM" if split_by == "media" else
+               "DISCOVERY = EXPLORE; DIAGNOSTIC_VALIDATION = CONFIRM minus every case whose media content "
+               "also appears in DISCOVERY")
               + ("; plus every case of the validation-only source whose media content does not"
                  if source is not None else "")
               + "; repair CONFIRM: none (repair is out of scope)"),
         seed=int(seed), confirm_split=float(confirm_split), manifest=_file_info(manifest),
-        validation_from=origin, source_manifest=_file_info(source_manifest))
+        validation_from=origin, source_manifest=_file_info(source_manifest), split_by=str(split_by))
     return bundle, CaseBatch(kept)
 
 

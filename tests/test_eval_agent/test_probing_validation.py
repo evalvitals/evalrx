@@ -61,6 +61,31 @@ def test_the_partition_keeps_every_validation_case_off_the_media_discovery_saw()
     assert bundle.diagnostic_val_source == "internal" and bundle.validation_from == {"confirm": len(validation)}
 
 
+def test_a_media_split_keeps_every_image_on_one_side_so_the_validation_drops_nothing():
+    from evalrx.core.case import Label
+
+    cases, _, by_case_explore, by_case_confirm = _split()
+    explore, confirm = explore_confirm_split(cases, 0.5, SEED, by="media")
+    assert not {source_key(c) for c in explore} & {source_key(c) for c in confirm}
+    assert len(explore) + len(confirm) == len(cases) and {c.id for c in explore} | {c.id for c in confirm} == {c.id for c in cases}
+    assert abs(len(confirm) - len(cases) / 2) <= 4                         # 96 images, 2 questions each: 48 a side
+    fail = lambda batch: sum(c.label == Label.FAIL for c in batch) / len(batch)  # noqa: E731
+    assert abs(fail(confirm) - fail(cases)) <= 0.1                        # stratified by the group's labels
+    # the per-case split of the same batch shares images across the sides; this one is deterministic and
+    # moves whole images at a time
+    assert {source_key(c) for c in by_case_explore} & {source_key(c) for c in by_case_confirm}
+    again = explore_confirm_split(cases, 0.5, SEED, by="media")
+    assert [c.id for c in again[1]] == [c.id for c in confirm]
+    bundle, validation = partition_bundle(explore, confirm, seed=SEED, confirm_split=0.5, split_by="media")
+    assert bundle.excluded["shares_a_source_with_discovery"] == 0 and len(validation) == len(confirm)
+    assert bundle.split_by == "media" and bundle.rule.startswith("DISCOVERY = EXPLORE, split from CONFIRM by media")
+    assert bundle.to_dict()["split_by"] == "media"
+    # too small to split, or everything on one image: no split, as the loop
+    assert explore_confirm_split(cases[:3], 0.5, SEED, by="media")[1] is None
+    one_image = [c for c in cases if c.inputs.image == "img0"]
+    assert explore_confirm_split(one_image + one_image, 0.5, SEED, by="media")[1] is None
+
+
 def test_a_validation_only_source_joins_the_validation_cases_under_the_same_media_rule(tmp_path):
     from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 

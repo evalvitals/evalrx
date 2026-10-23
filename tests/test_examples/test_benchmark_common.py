@@ -323,6 +323,7 @@ def test_cli_no_model_paths(common, capsys):
     )
     assert defaults.held_out is False
     assert defaults.triage_validation_source is None
+    assert defaults.confirm_split_by == "case"
     assert defaults.fix_repair_rounds == 2
     assert defaults.allow_adapted_paper_methods is False
     assert run.build_parser().parse_args([

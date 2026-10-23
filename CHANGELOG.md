@@ -41,6 +41,17 @@ and `generic_attention` also skip a case whose graph still does not fit
 validation (`triage17`) the failed chunk stopped both steps on the S route at
 12 of 135 cases.
 
+### Added — the pool can be split into EXPLORE and CONFIRM by media content
+
+`--confirm-split-by media` (default `case`) draws the explore/confirm split over
+media groups: cases on the same image (by content) go to one side, stratified by
+the labels the group holds, so DISCOVERY and CONFIRM never share an image and
+the diagnostic validation leaves nothing out. Under the per-case split 207 of
+ChartQA's 500 CONFIRM cases shared a chart with DISCOVERY and were dropped, not
+at random (charts with two questions). The bundle records `split_by`; the
+per-case split stays the default because a judge-driven run splits by case and
+the two policies are compared case for case.
+
 ### Added — a validation-only source for the diagnostic validation
 
 `--triage-validation-source MANIFEST` (with `--triage-validate`) adds cases used

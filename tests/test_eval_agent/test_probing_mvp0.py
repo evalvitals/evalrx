@@ -82,6 +82,10 @@ def test_explore_split_is_the_loops_split():
     got_e, got_c = explore_confirm_split(cases, 0.5, 20260818)
     assert [c.id for c in got_e] == [c.id for c in want_e]
     assert [c.id for c in got_c] == [c.id for c in want_c]
+    by_case = explore_confirm_split(cases, 0.5, 20260818, by="case")
+    assert [c.id for c in by_case[0]] == [c.id for c in got_e] and [c.id for c in by_case[1]] == [c.id for c in got_c]
+    with pytest.raises(ValueError):
+        explore_confirm_split(cases, 0.5, 20260818, by="chart")
 
 
 # -- executor --------------------------------------------------------------------
