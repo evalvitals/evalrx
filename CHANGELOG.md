@@ -24,6 +24,22 @@ readings use the rule too. `answer_key` also applies the grader's yes/true
 aliases on `exact_or_numeric`. Rules version `mvp4-rules-5`; `agree_fn` is
 recorded in the report settings.
 
+### Fixed — a budget check priced a step that ran without model calls at the run's worst case
+
+`step_cost` took a step's own measurement only from observations that called
+the model, so the two audits of stored outputs (`answer_extraction_audit`,
+`termination_audit`: no calls, next to no time) counted as never measured and a
+budget check priced them at the run's most expensive case per case. An
+expansion's estimate carried both over every new case: on ChartQA `triage18`
+the 32 → 64 FAIL expansion (912 s when run) was estimated at 3205 s after
+`patchscope` had run and at 22215 s after an exploring arm had fitted
+`tuned_lens` on 4 cases (167.7 s per case), so every budget-tier arm stopped on
+"expand over budget" with budget to spare, the exploring arms at 32 FAIL cases
+whatever the tier (4000, 5500 or 7100 s). A step's own cost now covers every
+observation that called the model or completed without calling it; the typical
+and worst-case prices of a step that never ran still come from model-calling
+observations only (scoring `mvp3-score-5`).
+
 ### Fixed — a gradient pass keeps no graph through the media encoders; a case that does not fit is skipped
 
 `hf_local` ran the whole model under autograd when `CaptureSpec(with_grad=True)`
@@ -40,6 +56,18 @@ and `generic_attention` also skip a case whose graph still does not fit
 (`skip_reasons: out_of_memory`) instead of failing the chunk: in the ChartQA
 validation (`triage17`) the failed chunk stopped both steps on the S route at
 12 of 135 cases.
+
+### Added — random and cheapest-first controls for the scored scheduler
+
+`--triage-scheduler random` and `--triage-scheduler cheapest` (reports
+`triage_report.random.*` / `triage_report.cheapest.*`) take the scored
+scheduler's candidate pool, budget, gain floor and stop rules and differ in the
+pick only: a seeded uniform draw among the candidates at or above the gain
+floor, or the lowest-cost one (an unpriced candidate last, ties by soft order).
+Neither explores nor takes an explainer, so the scored scheduler without
+exploration is their nearest value arm and the comparison isolates the value
+ordering. Decisions record `choice: random | cheapest` and a rationale;
+`scoring.choose(policy=)` carries the rule.
 
 ### Added — the pool can be split into EXPLORE and CONFIRM by media content
 

@@ -76,10 +76,18 @@ completion is an incomplete step that T values like any other. A gain below
 and no target fits (the minimum exploration is met). ``explore_from="candidates"``
 (an ablation) draws from the candidates other than the top one instead,
 alternatives included.
+
+**Controls.** Two schedulers take the scored scheduler's candidates and stop
+rules and differ only in the pick, so a comparison with them isolates the
+value ordering: ``random`` draws uniformly (seeded) among the candidates at or
+above the gain floor, ``cheapest`` takes the lowest-cost one (an unpriced
+candidate last, ties by soft order). Neither explores or reads explanations
+(D is 0): their nearest value arm is the scored scheduler without exploration.
 """
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass, field
 from typing import Any
@@ -87,7 +95,7 @@ from typing import Any
 from evalrx.eval_agent.probing.actions import OK, UNSUPPORTED, PlanStep
 from evalrx.eval_agent.probing.evidence import StepEvidence
 
-SCORING_VERSION = "mvp3-score-4"
+SCORING_VERSION = "mvp3-score-5"
 
 
 @dataclass(frozen=True)
@@ -178,14 +186,17 @@ def step_cost(step: PlanStep, n_cases: int, evidence: dict[str, StepEvidence], a
     """Cost of running *step* on *n_cases* new cases, and its basis.
 
     No analyzer-specific prior: a step that has run in this run is priced at its
-    own measured cost per case (``own``). One that has not is priced at the
-    run's ``typical`` (median) cost per case when ranking, or its ``max`` when
-    checking a budget, so an unknown tool cannot look cheap; ``None`` before
-    anything was measured.
+    own measured cost per case (``own``) over every observation that called the
+    model or completed without calling it (an audit of stored outputs costs what
+    it measured: next to nothing). One that has not run is priced at the run's
+    ``typical`` (median) cost per case of the model-calling observations when
+    ranking, or their ``max`` when checking a budget, so an unknown tool cannot
+    look cheap; ``None`` before anything was measured.
     """
     ev = evidence.get(step.name)
     rows = [(_amount(o.cost, axis), len(o.planned_ids)) for o in (ev.chunks if ev else [])
-            if (o.cost or {}).get("calls") and o.planned_ids and o.cost.get(axis) is not None]
+            if ((o.cost or {}).get("calls") or o.status == OK) and o.planned_ids
+            and (o.cost or {}).get(axis) is not None]
     if rows and sum(k for _, k in rows):
         return sum(s for s, _ in rows) / sum(k for _, k in rows) * n_cases, "own"
     pool = per_case_costs(evidence, axis)
@@ -255,15 +266,34 @@ def value(s: Scored, weights: Weights, axis: str) -> Scored:
     return s
 
 
+#: How a decision picks among the scored candidates: the value (the scored scheduler) or a control.
+POLICIES = ("value", "random", "cheapest")
+
+
 def choose(candidates: list[Scored], *, decision_no: int, seed: int, explore_share: float, explored: float,
-           spent: float, min_gain: float, targets: "list[Scored] | None" = None) -> "tuple[Scored | None, str]":
-    """The candidate to run, and why: ``best`` / ``explore`` / ``below_threshold`` / ``none``.
+           spent: float, min_gain: float, targets: "list[Scored] | None" = None,
+           policy: str = "value") -> "tuple[Scored | None, str]":
+    """The candidate to run, and why: ``best`` / ``explore`` / ``random`` / ``cheapest`` /
+    ``below_threshold`` / ``none``.
 
     *explored* and *spent* are what exploration and the run's evidence have cost so far, on the
     candidates' cost axis. Exploration draws from *targets*, the candidates only it takes; with
     ``targets=None`` it draws from the other candidates instead (below the gain floor, from all
     of them). A seeded draw among those that keep exploration within *explore_share* of the
-    spending runs instead of the best."""
+    spending runs instead of the best.
+
+    *policy* ``"value"`` is the scored scheduler. The controls take the candidates at or above the
+    gain floor and never explore: ``"random"`` a seeded uniform draw among them, ``"cheapest"``
+    the lowest-cost one (an unpriced candidate last, ties by soft order)."""
+    if policy not in POLICIES:
+        raise ValueError(f"policy must be one of {POLICIES}; got {policy!r}")
+    if policy != "value":
+        eligible = [s for s in candidates if s.gain >= min_gain]
+        if not eligible:
+            return None, "below_threshold" if candidates else "none"
+        if policy == "random":
+            return random.Random(f"{seed}:{decision_no}").choice(eligible), "random"
+        return min(eligible, key=lambda s: (s.cost if s.cost is not None else math.inf, s.order)), "cheapest"
     ranked = sorted(candidates, key=lambda s: (-s.U, s.order))
     best = ranked[0] if ranked else None
     if targets is None:

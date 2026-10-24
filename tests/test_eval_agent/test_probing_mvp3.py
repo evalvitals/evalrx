@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 
 from evalrx.eval_agent.probing import BATTERY, LAYERS, run_triage
-from evalrx.eval_agent.probing.actions import OK, UNFAITHFUL, Observation
+from evalrx.eval_agent.probing.actions import OK, UNFAITHFUL, UNSUPPORTED, Observation
 from evalrx.eval_agent.probing.compare import compare
 from evalrx.eval_agent.probing.evidence import StepEvidence
 from evalrx.eval_agent.probing.rules import candidate_steps
@@ -57,10 +57,42 @@ def test_costs_come_from_the_steps_own_measurement_else_the_runs_typical_or_wors
     assert sorted(per_case_costs(ev, "wall_sec")) == [1.0, 4.0, 5.0]   # no model call: not a cost sample
     assert step_cost(sc, 3, ev, "wall_sec") == (15.0, "own")                 # 5 s per case, its own
     assert step_cost(ko, 3, ev, "wall_sec") == (6.0, "own")                  # 6 s over 3 cases
+    # ran without calling the model: priced at what it measured (nothing), not as unmeasured --
+    # else a budget check prices every audit of the next expansion at the run's worst case
+    assert step_cost(_step("answer_extraction_audit"), 64, ev, "wall_sec", unmeasured="max") == (0.0, "own")
+    unsupported = {"gradcam": StepEvidence(_step("gradcam"), [_obs("g", ["a"], status=UNSUPPORTED,
+                                                                   cost={"wall_sec": 0.0, "calls": {}})])}
+    assert step_cost(_step("gradcam"), 2, {**ev, **unsupported}, "wall_sec", unmeasured="max") == (10.0, "max")
     # never run: priced at the run's median case when ranking, its worst case in a budget check
     assert step_cost(_step("gradcam"), 2, ev, "wall_sec") == (8.0, "typical")
     assert step_cost(_step("gradcam"), 2, ev, "wall_sec", unmeasured="max") == (10.0, "max")
     assert step_cost(_step("causal_trace"), 2, {}, "wall_sec") == (None, "none")
+
+
+def test_the_random_and_cheapest_controls_pick_among_the_same_candidates_without_exploring():
+    import pytest
+
+    def s(key, U, gain, order, cost=10.0):
+        return Scored(kind="follow_up", key=key, U=U, gain=gain, order=order, cost=cost)
+
+    pool = [s("late", 0.5, 0.2, (1, 2), cost=10.0), s("early", 0.5, 0.2, (1, 0), cost=30.0),
+            s("cheap", 0.1, 0.3, (0, 0), cost=1.0), s("zero", 0.0, 0.0, (0, 1), cost=0.5)]
+    # exploration would fit here (90 spent, share 0.5): the controls still never explore
+    kw = dict(seed=0, explore_share=0.5, min_gain=0.01, explored=0.0, spent=90.0)
+    assert choose(pool, decision_no=0, **kw)[1] == "explore"
+    draws = [choose(pool, decision_no=n, policy="random", **kw) for n in range(30)]
+    assert {why for _, why in draws} == {"random"} and {p.key for p, _ in draws} == {"late", "early", "cheap"}
+    assert choose(pool, decision_no=3, policy="random", **kw) == choose(pool, decision_no=3, policy="random", **kw)
+    assert choose(pool, decision_no=0, policy="cheapest", **kw) == (pool[2], "cheapest")   # not "zero": below the floor
+    # cheapest: ties by soft order, an unpriced candidate last
+    tie = [s("b", 0.5, 0.2, (1, 1), cost=5.0), s("a", 0.5, 0.2, (1, 0), cost=5.0), s("u", 0.9, 0.9, (0, 0), cost=None)]
+    assert choose(tie, decision_no=0, policy="cheapest", **kw)[0].key == "a"
+    assert choose([tie[2]], decision_no=0, policy="cheapest", **kw)[0].key == "u"
+    # the same stops as the scored scheduler
+    assert choose([pool[3]], decision_no=0, policy="random", **kw) == (None, "below_threshold")
+    assert choose([], decision_no=0, policy="cheapest", **kw) == (None, "none")
+    with pytest.raises(ValueError):
+        choose(pool, decision_no=0, policy="greedy", **kw)
 
 
 def test_coverage_gain_is_the_gap_removed_over_all_units():

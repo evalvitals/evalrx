@@ -109,3 +109,34 @@ def test_further_chunks_of_a_taken_step_do_not_use_up_max_actions(tmp_path):
     route_cases = [r for r in report["routes"] if r["route"] == taken["route"]][0]
     layer = next(x for x in route_cases["layers"] if x["rule_id"] == taken["rule_id"])
     assert layer["state"] == "done"   # the step ran on all of its route's cases
+
+
+def test_the_control_schedulers_run_over_the_scored_pool_and_never_explore(tmp_path):
+    import pytest
+
+    from evalrx.eval_agent.probing.controller import report_name
+    from tests.test_eval_agent.test_probing_mvp2 import _kw, _pope_like, _Table
+
+    cases, table = _pope_like()
+    reports = {}
+    for scheduler in ("random", "cheapest"):
+        reports[scheduler] = run_triage(_Table(table), cases, **_kw(tmp_path / scheduler, max_fail=4, min_route_fail=1,
+                                                                    chunk=2, scheduler=scheduler, explore_share=0.5))
+    for scheduler, report in reports.items():
+        assert report["scheduler"] == scheduler and report["explore_share"] == 0.0 and report["explored"] == {}
+        chosen = [d for d in report["decisions"] if "choice" in d]
+        assert chosen and {d["choice"] for d in chosen} == {scheduler}
+        assert all(d["rationale"].startswith("control:") for d in chosen)
+        assert report["stop"]["reason"] in ("below_threshold", "no_candidate", "max_actions", "budget")
+        assert report_name(scheduler) == f"triage_report.{scheduler}"
+    # the cheapest control takes the lowest-cost candidate at or above the gain floor at every decision
+    floor = reports["cheapest"]["min_gain"]
+    steps = [d for d in reports["cheapest"]["decisions"]
+             if d.get("choice") == "cheapest" and d["kind"] in ("follow_up", "battery", "extend")]
+    assert steps
+    for d in steps:
+        priced = [c for c in d["candidates"] if c["cost"] is not None and c["gain"] >= floor]
+        taken = next(c for c in priced if c["key"] == d["key"] and c.get("route") == d.get("route"))
+        assert taken["cost"] == min(c["cost"] for c in priced)
+    with pytest.raises(ValueError):
+        run_triage(_Table(table), cases, **_kw(tmp_path / "x", scheduler="random", explainer=object()))

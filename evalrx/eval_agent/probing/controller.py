@@ -147,7 +147,9 @@ if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
 
 POLICY_VERSION = "mvp2-0"
-SCHEDULERS = ("rules", "scored")
+SCHEDULERS = ("rules", "scored", "random", "cheapest")
+#: The schedulers that decide over the scored candidate pool: the value, or a control differing in the pick only.
+VALUE_SCHEDULERS = ("scored", "random", "cheapest")
 
 #: Neutral wrappers around the question, kept verbatim (with its output
 #: contract): the meaning cannot change, only the surface. A wrapper whose
@@ -644,7 +646,11 @@ def run_triage(
                              OpenAI-compatible endpoint drops them): when it does
                              not, steps run without their ``gen_kwargs`` and are gated
                              on the host's output cap.
-        scheduler:           ``"rules"`` (MVP-2: rounds over the routes' soft layer order)
+        scheduler:           ``"rules"`` (MVP-2: rounds over the routes' soft layer order);
+                             ``"random"`` / ``"cheapest"``: controls over the scored scheduler's
+                             candidates and stop rules, differing in the pick only (a seeded
+                             uniform draw, or the lowest cost); they never explore and take no
+                             explainer (report ``triage_report.random`` / ``.cheapest``)
                              or ``"scored"`` (MVP-3: the candidate with the highest
                              U = q·[D+T+C−R]₊/(c+ε), see :mod:`.scoring`). Both share
                              the ledger; the scored report is ``triage_report.scored``.
@@ -671,7 +677,8 @@ def run_triage(
     if scheduler not in SCHEDULERS:
         raise ValueError(f"scheduler must be one of {SCHEDULERS}; got {scheduler!r}")
     if explainer is not None and scheduler != "scored":
-        raise ValueError("explanations give D to the scored scheduler; the rules scheduler does not read them")
+        raise ValueError("explanations give D to the scored scheduler; the other schedulers do not read them")
+    share = float(explore_share) if scheduler == "scored" else 0.0   # the controls never explore
     if explore_from not in ("targets", "candidates"):
         raise ValueError(f"explore_from must be 'targets' or 'candidates'; got {explore_from!r}")
     weights = weights or Weights()
@@ -747,7 +754,7 @@ def run_triage(
         """What ``max_actions`` caps: expansions, follow-ups and scheduled battery steps. The scored
         scheduler's further chunks of a step it already took (``extend``) do not count: chunking a
         step must not use up the cap a whole step used before."""
-        kinds = ("expand", "follow_up", "battery") if scheduler == "scored" else spending
+        kinds = ("expand", "follow_up", "battery") if scheduler in VALUE_SCHEDULERS else spending
         return sum(1 for d in decisions if d["kind"] in kinds)
 
     def expansion_plan() -> "tuple[Any, Any, list[str], float | None] | None":
@@ -1213,7 +1220,8 @@ def run_triage(
         return pool, filtered, axis
 
     explored: dict[str, float] = {}   # what exploration decisions spent, per cost axis
-    if scheduler == "scored":
+    if scheduler in VALUE_SCHEDULERS:
+        policy = "value" if scheduler == "scored" else scheduler
         current: "ExplanationSet | None" = None
         while stop is None:
             records = triage(sample, run.evidence)
@@ -1237,14 +1245,15 @@ def run_triage(
             pool, filtered, axis = scored_pool(records, gaps, states, options, growing, live, outcome_of)
             targets: "list[Scored] | None" = None
             held_targets: list[dict[str, Any]] = []
-            if explore_from == "targets":
+            if explore_from == "targets" and policy == "value":
                 targets, completions, held, held_targets = exploration_targets(records, states, growing, axis,
                                                                                outcome_of)
                 pool, filtered = pool + completions, filtered + held
             # exploration's share is of the evidence: the judge's calls are not an opportunity to explore
             spent = run.charged(axis) - float(run.judge_cost.get(axis) or 0.0)
-            pick, why = choose(pool, decision_no=n_spent(), seed=seed, explore_share=explore_share,
-                               explored=explored.get(axis, 0.0), spent=spent, min_gain=min_gain, targets=targets)
+            pick, why = choose(pool, decision_no=n_spent(), seed=seed, explore_share=share,
+                               explored=explored.get(axis, 0.0), spent=spent, min_gain=min_gain, targets=targets,
+                               policy=policy)
             if pick is None:
                 over = [f for f in filtered if not f["reason"].startswith("batch-dependent")]
                 # a candidate the budget filtered out binds before the gain floor does
@@ -1265,7 +1274,7 @@ def run_triage(
                        and c.order < pick.order]
             extra = {"choice": why, "scoring_version": SCORING_VERSION, "axis": axis,
                      "U": round(pick.U, 6), "gain": round(pick.gain, 6),
-                     "rationale": _scored_rationale(pick, why, explored.get(axis, 0.0), spent, explore_share),
+                     "rationale": _scored_rationale(pick, why, explored.get(axis, 0.0), spent, share),
                      **({"alternative_to": pick.alternative_to} if pick.alternative_to else {}),
                      **({"explore_target": pick.note} if why == "explore" and pick.note else {}),
                      "candidates": [c.row() for c in ranked], "filtered": filtered,
@@ -1396,10 +1405,10 @@ def run_triage(
     report = {
         "policy": POLICY_VERSION,
         "scheduler": scheduler,
-        **({"scoring_version": SCORING_VERSION, "weights": weights.__dict__, "explore_share": explore_share,
+        **({"scoring_version": SCORING_VERSION, "weights": weights.__dict__, "explore_share": share,
             "explore_from": explore_from,
             "explored": {a: round(v, 6) for a, v in explored.items()},
-            "min_gain": min_gain, "min_cover": min_cover} if scheduler == "scored" else {}),
+            "min_gain": min_gain, "min_cover": min_cover} if scheduler in VALUE_SCHEDULERS else {}),
         "rules_version": RULES_VERSION,
         "model": model_identity,
         "sample": draw.to_dict(),
@@ -1448,13 +1457,18 @@ def _scored_rationale(pick: Scored, why: str, explored: float, spent: float, sha
         target = f" of {pick.note}" if pick.note else ""
         return (f"exploration{target} ({explored:.4g} of the {spent:.4g} spent on evidence so far went to "
                 f"exploration; share {share}): " + terms)
+    if why == "random":
+        return f"control: a seeded uniform draw among the candidates at or above the gain floor: {terms}"
+    if why == "cheapest":
+        return f"control: the cheapest candidate at or above the gain floor: {terms}"
     alt = f"; an alternative to {pick.alternative_to}" if pick.alternative_to else ""
     return f"highest value: {terms}{alt}"
 
 
 def report_name(scheduler: str, explained: bool = False) -> str:
-    """``triage_report`` (rules), ``triage_report.scored``, or ``triage_report.scored_d`` (with D):
-    the arms of a comparison can share one probing directory and its ledger."""
+    """``triage_report`` (rules), ``triage_report.scored``, ``triage_report.scored_d`` (with D), or
+    ``triage_report.random`` / ``triage_report.cheapest`` (the controls): the arms of a comparison can
+    share one probing directory and its ledger."""
     if scheduler == "rules":
         return "triage_report"
     return f"triage_report.{scheduler}" + ("_d" if explained else "")

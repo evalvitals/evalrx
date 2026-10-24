@@ -164,9 +164,11 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
     p.add_argument("--triage-max-actions", type=int, default=12,
                    help="triage_active: decisions after the battery (expansions + route follow-ups; the "
                         "scored scheduler's further chunks of a step it already took do not count)")
-    p.add_argument("--triage-scheduler", choices=["rules", "scored"], default="rules",
+    p.add_argument("--triage-scheduler", choices=["rules", "scored", "random", "cheapest"], default="rules",
                    help="triage_active: rules = MVP-2 fixed rounds over the routes' layers; scored = MVP-3 "
-                        "value per cost, U = q*[D+T+C-R]+/(c+eps) (report: triage_report.scored.*)")
+                        "value per cost, U = q*[D+T+C-R]+/(c+eps) (report: triage_report.scored.*); random / "
+                        "cheapest = controls over the scored candidates and stop rules that differ in the pick "
+                        "only (a seeded uniform draw, or the lowest cost), never exploring")
     p.add_argument("--triage-budget-usd", type=float, default=0.0,
                    help="triage_active: USD cap on priced API models (0 = none), charged like "
                         "--triage-budget-sec")
