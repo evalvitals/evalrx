@@ -8,7 +8,10 @@ was built from, at the cost the observation had when it was first executed
 
 from __future__ import annotations
 
+import argparse
+import json
 from itertools import combinations
+from pathlib import Path
 from typing import Any
 
 from evalrx.eval_agent.probing.explanations import CARDS, primary_readings, verdict
@@ -111,3 +114,22 @@ def markdown(diff: dict[str, Any]) -> str:
                   f"apart: {a_name} {d['baseline']['n_resolved']}/{d['baseline']['n_conflicting_pairs']}, "
                   f"{b_name} {d['other']['n_resolved']}/{d['other']['n_conflicting_pairs']}.", ""]
     return "\n".join(lines)
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    """``python -m evalrx.eval_agent.probing.compare <baseline.json> <other.json> [--json]``: two arms'
+    triage reports side by side, as Markdown (default) or as the JSON diff."""
+    p = argparse.ArgumentParser(description="two triage reports side by side: selection order, evidence cost, "
+                                            "coverage and, with an explaining run, the explanations told apart")
+    p.add_argument("baseline", type=Path, help="the baseline arm's triage_report*.json")
+    p.add_argument("other", type=Path, help="the other arm's triage_report*.json")
+    p.add_argument("--json", action="store_true", help="print the diff as JSON instead of Markdown")
+    args = p.parse_args(argv)
+    diff = compare(json.loads(args.baseline.read_text(encoding="utf-8")),
+                   json.loads(args.other.read_text(encoding="utf-8")))
+    print(json.dumps(diff, indent=2, default=str) if args.json else markdown(diff))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -450,3 +450,14 @@ def test_behavioural_reuse_steps_give_the_same_rows_whatever_shares_the_batch():
 
     same, rows = _split_equals_whole(registry.analyzers.get("format_sensitivity")(), _Letters({}), mc, cut=2)
     assert rows and same
+
+
+def test_a_layer_that_narrows_its_route_states_its_filter():
+    from evalrx.eval_agent.probing.rules import public, route_states
+
+    records = _records() + [{"case_id": f"x{i}", "label": "fail", "stratum": "no", "routes": ["X"], "stable": False,
+                             "N": {"state": "untested", "reason": "no counterfactual donor"}} for i in range(3)]
+    x1 = route_states("X", records, {}, _no_gate, str)[0]
+    assert x1["rule_id"] == "X1" and x1["n_fail"] == 3
+    assert x1["case_filter"].startswith("X cases whose N check is missing") and "case_filter" in public(x1)
+    assert all("case_filter" not in st for st in route_states("N", records, {}, _no_gate, str))

@@ -18,7 +18,7 @@ import pytest
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
-from evalrx.eval_agent.probing import explore_confirm_split, matched_sample, run_triage_mvp0
+from evalrx.eval_agent.probing import explore_confirm_split, matched_sample, run_triage
 from evalrx.eval_agent.probing.actions import (
     FAILED,
     OK,
@@ -545,7 +545,7 @@ def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
               host_assumed_finish=True, n_needs_counterfactual=True, task_kind="yes_no",
               analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}},
               stage0_cost={"wall_sec": 1.0, "calls": {"generate": 8}}, progress=None)
-    report = run_triage_mvp0(model, vlm_cases, **kw)
+    report = run_triage(model, vlm_cases, **kw)
 
     steps = _steps(report)
     assert [s["status"] for s in report["executions"]] == [OK] * 9  # 2 FAIL: no route proposes
@@ -593,7 +593,7 @@ def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
     # resume: same identities -> read back, no model calls, no new action cost
     # (only this invocation's Stage 0, which the caller did spend)
     n_forwards = model.n_forwards
-    again = run_triage_mvp0(model, vlm_cases, **kw)
+    again = run_triage(model, vlm_cases, **kw)
     assert all(s["reused"] for s in again["executions"]) and model.n_forwards == n_forwards
     costs2 = [json.loads(line) for line in (out / "cost_ledger.jsonl").read_text().splitlines()]
     assert [c["kind"] for c in costs2[len(costs):]] == ["stage0"] and costs2[-1]["invocation"] == 2
@@ -601,7 +601,7 @@ def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
     assert [e["event"] for e in events].count("reused") == 9
 
     # a different model identity is a different action: nothing is reused
-    other = run_triage_mvp0(model, vlm_cases, **{**kw, "model_identity": {**ident, "dtype": "fp32"}})
+    other = run_triage(model, vlm_cases, **{**kw, "model_identity": {**ident, "dtype": "fp32"}})
     assert not any(s["reused"] for s in other["executions"])
 
 
@@ -616,11 +616,11 @@ def test_mvp0_changed_tool_code_is_a_new_action(tmp_path, vlm_cases, monkeypatch
 
     model = TinyVLM("qwen2_5_vl")
     kw = dict(out_dir=tmp_path / "v", model_identity={"spec": "tiny"}, n_fail=2, progress=None)
-    first = run_triage_mvp0(model, vlm_cases, **kw)
+    first = run_triage(model, vlm_cases, **kw)
     real = controller.tool_version
     monkeypatch.setattr(controller, "tool_version",
                         lambda a: real(a) + ("-edited" if a.name == "attention_knockout" else ""))
-    second = run_triage_mvp0(model, vlm_cases, **kw)
+    second = run_triage(model, vlm_cases, **kw)
     assert _rerun(second) == ["attention_knockout"]
     assert _steps(second)["attention_knockout"]["action_id"] != _steps(first)["attention_knockout"]["action_id"]
 
@@ -631,11 +631,11 @@ def test_mvp0_uncertain_attempt_gets_a_new_number(tmp_path, vlm_cases):
 
     model = TinyVLM("qwen2_5_vl")
     kw = dict(out_dir=tmp_path / "p", model_identity={"spec": "tiny"}, n_fail=2, progress=None)
-    first = run_triage_mvp0(model, vlm_cases, **kw)
+    first = run_triage(model, vlm_cases, **kw)
     ko_id = _steps(first)["attention_knockout"]["action_id"]
     ledger = Ledger(tmp_path / "p")
     (ledger.obs_dir / f"{ko_id}.json").unlink()  # as if the process died before settling
-    second = run_triage_mvp0(model, vlm_cases, **kw)
+    second = run_triage(model, vlm_cases, **kw)
     planned = [e for e in ledger.trace_events() if e.get("event") == "planned" and e["action_id"] == ko_id]
     assert [e["attempt"] for e in planned] == [1, 2]
     assert planned[1]["previous_attempts_uncertain"] == 1
@@ -644,7 +644,7 @@ def test_mvp0_uncertain_attempt_gets_a_new_number(tmp_path, vlm_cases):
 
 def test_mvp0_black_box_gates_off_the_white_box_step(tmp_path, vlm_cases):
     model = _BlackBox()
-    report = run_triage_mvp0(model, vlm_cases, out_dir=tmp_path / "bb", model_identity={"spec": "bb"},
+    report = run_triage(model, vlm_cases, out_dir=tmp_path / "bb", model_identity={"spec": "bb"},
                              n_fail=2, progress=None)
     steps = _steps(report)
     assert steps["attention_knockout"]["status"] == UNSUPPORTED
@@ -684,7 +684,7 @@ def test_api_run_meters_tokens_and_dollars_and_runs_its_behavioural_follow_up(tm
     from evalrx.models.backends.api.prices import usd
 
     model = _FakeAPI()
-    report = run_triage_mvp0(
+    report = run_triage(
         model, vlm_cases, out_dir=tmp_path / "api", model_identity={"spec": "fake-api"}, n_fail=2,
         min_route_fail=1, task_kind="yes_no", n_needs_counterfactual=True, progress=None,
         analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}},

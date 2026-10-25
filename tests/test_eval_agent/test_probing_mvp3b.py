@@ -320,8 +320,8 @@ def test_the_rules_scheduler_does_not_take_an_explainer(tmp_path):
                    **_kw(tmp_path / "r", explainer=Explainer(_Judge(), identity={})))
 
 
-def test_compare_applies_the_explaining_runs_explanations_to_both_runs_evidence(tmp_path):
-    from evalrx.eval_agent.probing.compare import compare, markdown
+def test_compare_applies_the_explaining_runs_explanations_to_both_runs_evidence(tmp_path, capsys):
+    from evalrx.eval_agent.probing.compare import compare, main, markdown
 
     out = tmp_path / "c"
     rules = run_triage(_Table(_pope_like()[1]), _pope_like()[0], **_kw(out, max_fail=8, min_route_fail=1))
@@ -333,6 +333,10 @@ def test_compare_applies_the_explaining_runs_explanations_to_both_runs_evidence(
         "n_conflicting_pairs"]
     assert diff["judge"]["other"]["n_calls"] == 1 and "tells apart" in markdown(diff)
     json.dumps(diff)
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(json.dumps(rules, default=str)), b.write_text(json.dumps(explained, default=str))
+    assert main([str(a), str(b)]) == 0 and "tells apart" in capsys.readouterr().out
+    assert main([str(a), str(b), "--json"]) == 0 and json.loads(capsys.readouterr().out)["same_sample"] is True
 
 
 @pytest.mark.parametrize("scheduler", ["rules", "scored"])

@@ -80,7 +80,8 @@ class Layer:
     """One question of a route, its candidates in fallback order, and where the prior comes from.
 
     ``served_by`` names battery steps that already answer it. ``case_filter``
-    narrows the route's FAIL cases to the ones the question is about.
+    narrows the route's FAIL cases to the ones the question is about, and
+    ``filter_note`` says so in the layer's state (the trace and the report).
     """
 
     rule_id: str
@@ -272,7 +273,9 @@ def route_states(route: str, records: list[dict[str, Any]], evidence: dict[str, 
         controls, shortfall = matched_controls(records, fail_ids, rank)
         state = layer_state(layer, evidence, fail_ids, [*fail_ids, *controls], gate, blocked, pending)
         out.append({**state, "question": layer.question, "n_fail": len(fail_ids), "n_controls": len(controls),
-                    "control_shortfall": shortfall, "_fail_ids": fail_ids, "_control_ids": controls})
+                    "control_shortfall": shortfall,
+                    **({"case_filter": layer.filter_note} if layer.case_filter is not None else {}),
+                    "_fail_ids": fail_ids, "_control_ids": controls})
     return out
 
 

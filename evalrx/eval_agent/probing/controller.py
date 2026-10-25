@@ -1,4 +1,4 @@
-"""MVP-2: the triage battery, nested expansion and route follow-ups chosen by fixed rules.
+"""The triage controller: the battery, nested expansion and follow-ups, chosen by rules or by value.
 
 A run goes through three phases:
 
@@ -55,13 +55,16 @@ and the candidates it passed over and why. The run stops when:
   step's own measured cost per case, else the most expensive case measured in
   this run; there is no per-analyzer cost prior).
 
-The rules scheduler calls no judge and names no hypothesis. The scored
-scheduler (MVP-3) may take an explainer: the judge then proposes competing
-explanations once the sample has settled, and their predictions give each
-candidate its D (:mod:`.explanations`); no explanation is a finding. CONFIRM
-never enters. Outputs land in ``out_dir``::
+Four schedulers decide after the battery (``scheduler``): ``rules`` (rounds over
+the routes' soft layer order; no judge, no hypothesis), ``scored`` (the candidate
+of highest value, :mod:`.scoring`), and the controls ``random`` and ``cheapest``
+over the same candidates. The scored scheduler may take an explainer: the judge
+then proposes competing explanations once the sample has settled, and their
+predictions give each candidate its D (:mod:`.explanations`); no explanation is a
+finding. CONFIRM never enters the controller (:mod:`.validation` reads it after
+the stop, when asked). Outputs land in ``out_dir``::
 
-    split_manifest.json  triage_report[.scored].json  triage_report[.scored].md
+    split_manifest.json  triage_report[.<scheduler>[_d]].json  triage_report[.<scheduler>[_d]].md
     selection_trace.jsonl  cost_ledger.jsonl  observations/<action_id>.json
     explanations/<key>.json   (with an explainer: each judge call's prompt, reply and cost)
 """
@@ -150,6 +153,9 @@ from evalrx.eval_agent.probing.triage import (
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
 
+#: Part of every action identity (with the model identity and the tool version): bumped only
+#: when the controller changes what an action executes or records, never for a rename, since a
+#: bump re-executes every stored observation on resume. The label dates from MVP-2.
 POLICY_VERSION = "mvp2-0"
 SCHEDULERS = ("rules", "scored", "random", "cheapest")
 #: The schedulers that decide over the scored candidate pool: the value, or a control differing in the pick only.
@@ -1514,10 +1520,6 @@ def report_name(scheduler: str, explained: bool = False) -> str:
     if scheduler == "rules":
         return "triage_report"
     return f"triage_report.{scheduler}" + ("_d" if explained else "")
-
-
-#: The MVP-0 entry point, now the same controller (no expansion unless ``max_fail`` is given).
-run_triage_mvp0 = run_triage
 
 
 def _revision_row(revision: int, draw: Any, summary: dict[str, Any], records: list[dict[str, Any]],

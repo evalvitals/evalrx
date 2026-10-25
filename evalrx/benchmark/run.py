@@ -154,8 +154,9 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "triage_active = triage controller: after Stage 0, run the triage battery "
                         "strictly on a matched EXPLORE sample, expand it and run route follow-ups "
                         "chosen by fixed rules, write the trace, cost ledger and triage report "
-                        "under <run>/probing/, and stop (no judge, no "
-                        "M2-M5, CONFIRM untouched)")
+                        "under <run>/probing/, and stop. M2-M5 do not run; a judge is built only with "
+                        "--triage-explanations judge; the controller never sees CONFIRM (only "
+                        "--triage-validate reads it, after the stop)")
     p.add_argument("--triage-n-fail", type=int, default=8,
                    help="triage_active: FAIL cases in the sample (PASS controls are matched per gold answer)")
     p.add_argument("--triage-max-fail", type=int, default=32,

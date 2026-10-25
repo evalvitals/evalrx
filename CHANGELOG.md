@@ -6,6 +6,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — probing: protocol scripts kept in the repo, dead code removed, `compare` has a CLI
+
+The drivers of the multi-arm scheduler comparison (`run_triage17.sh`, `run_triage18.sh`
+and its phase 2 and 3 variants, the GPU launcher) and the analysis scripts behind the
+design document's tables (the union validation `validate_arms.py`, the budget-matched
+discovery curve, the U re-count under the tolerant agreement rule) lived in a job's
+scratch directory; they are now `examples/benchmark/tools/triage/` with a README, the
+machine-specific paths taken from the environment.
+
+Removed what later code had superseded: `Ledger.spent` / `spent_wall_sec` (the budget
+is charged by `_Run.charged`), `StepEvidence.sec_per_case` (costs come from
+`scoring.step_cost`), the `run_triage_mvp0` alias (tests call `run_triage`) and the
+sampler's `_rank` alias. `python -m evalrx.eval_agent.probing.compare <a.json> <b.json>`
+prints two arms' reports side by side (`--json` for the diff). A layer that narrows its
+route's cases (X1) states its filter in its state (`case_filter`), where only the rule's
+source had carried it. Stale strings updated: the package and controller docstrings no
+longer describe MVP-2, `--m1-policy` says when a judge is built and that CONFIRM reaches
+only the validator, and `evalsmith/probing/probing_design_mix.md` has a current status
+header and a list of the remaining gaps between the design and the implementation.
+`POLICY_VERSION` stays `mvp2-0`: it is part of every action identity, and a bump would
+re-execute every stored observation.
+
 ### Changed — the triage compares answers under the task's tolerance
 
 The U and S checks and the follow-up readings compared answers by key equality,

@@ -46,8 +46,6 @@ def rank(seed: int, case_id: str) -> str:
     return hashlib.sha1(f"{seed}:{case_id}".encode("utf-8")).hexdigest()
 
 
-_rank = rank
-
 
 @dataclass(frozen=True)
 class SampleDraw:
@@ -80,8 +78,8 @@ def matched_sample(cases: "CaseBatch", n_fail: int, *, seed: int,
 
     key = STRATA[stratum]
     pool = list(cases)
-    fails = sorted((c for c in pool if c.label == Label.FAIL), key=lambda c: _rank(seed, str(c.id)))
-    passes = sorted((c for c in pool if c.label == Label.PASS), key=lambda c: _rank(seed, str(c.id)))
+    fails = sorted((c for c in pool if c.label == Label.FAIL), key=lambda c: rank(seed, str(c.id)))
+    passes = sorted((c for c in pool if c.label == Label.PASS), key=lambda c: rank(seed, str(c.id)))
     chosen_fail = fails[:max(0, int(n_fail))]
 
     need: dict[str, int] = {}

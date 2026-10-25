@@ -72,13 +72,6 @@ class StepEvidence:
     def statuses_on(self, ids: Iterable[str]) -> list[str]:
         return sorted({obs.status for cid in ids if (obs := self.for_case(cid)) is not None})
 
-    def sec_per_case(self) -> "float | None":
-        """Wall seconds per planned case over the chunks that executed, for budget estimates."""
-        rows = [(float(o.cost.get("wall_sec") or 0.0), len(o.planned_ids)) for o in self.chunks
-                if o.cost.get("calls") and o.planned_ids]
-        n = sum(k for _, k in rows)
-        return sum(s for s, _ in rows) / n if n else None
-
 
 def pick(evidence: "dict[str, Any]", key: str, cid: str) -> "Observation | None":
     """The observation for *cid* under *key*: a plain :class:`Observation` (one batch) or a
