@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import evalrx.eval_agent.probing.controller as controller
@@ -140,3 +142,68 @@ def test_the_control_schedulers_run_over_the_scored_pool_and_never_explore(tmp_p
         assert taken["cost"] == min(c["cost"] for c in priced)
     with pytest.raises(ValueError):
         run_triage(_Table(table), cases, **_kw(tmp_path / "x", scheduler="random", explainer=object()))
+
+
+EXPANSION_SEC = 4.0   # an expansion's cases cost four times what the first draw's did
+
+
+@pytest.fixture
+def dearer_expansion(monkeypatch):
+    """One second per case on the first draw, four on an expansion's new cases: the estimate the
+    decision to expand is checked on (the cases measured so far) undershoots by a factor of four."""
+    real = controller.execute
+
+    def execute(action, *args, **kwargs):
+        obs = real(action, *args, **kwargs)
+        if obs.cost.get("calls"):
+            obs.cost["wall_sec"] = (EXPANSION_SEC if action.source == "E1" else 1.0) * len(obs.planned_ids)
+        return obs
+
+    monkeypatch.setattr(controller, "execute", execute)
+
+
+def _planned(out, report, kind):
+    """Case sets of the executions of *kind* that ran fresh, in execution order."""
+    ledger = controller.Ledger(out)
+    return [frozenset(ledger.settled(e["action_id"]).planned_ids) for e in report["executions"]
+            if e["kind"] == kind and e["status"] == "ok" and not e["reused"]]
+
+
+@pytest.mark.parametrize("scheduler", ["rules", "scored"])
+def test_an_expansion_dearer_than_its_estimate_stops_at_the_budget_with_whole_cases_measured(
+        tmp_path, dearer_expansion, scheduler):
+    cases, table = _pope_like()
+    kw = dict(max_fail=8, min_route_fail=1, chunk=4, scheduler=scheduler)
+    full = run_triage(_Table(table), cases, **_kw(tmp_path / "full", **kw))
+    (expand,) = [d for d in full["decisions"] if d["kind"] == "expand"]
+    rows = full["executions"]
+    first = next(i for i, e in enumerate(rows) if e["kind"] == "expansion")
+    cost = lambda e: float((e.get("cost") or {}).get("wall_sec") or 0.0) if not e["reused"] else 0.0  # noqa: E731
+    before, actual = sum(cost(e) for e in rows[:first]), sum(cost(e) for e in rows if e["kind"] == "expansion")
+    # twice the estimate fits the budget, the real cost does not: an unchecked battery would overshoot
+    budget = before + 2 * expand["estimate_sec"] + 1.0
+    assert expand["estimate_sec"] < actual / 2 and before + actual > budget + 4 * EXPANSION_SEC
+
+    report = run_triage(_Table(table), cases, **_kw(tmp_path / "b", budget_sec=budget, **kw))
+    assert report["stop"]["reason"] == "budget" and report["stop"]["pending"] == "expansion"
+    assert [d["kind"] for d in report["decisions"] if d["kind"] == "expand"] == ["expand"]
+    assert report["cost"]["charged"]["wall_sec"] <= budget + 4 * EXPANSION_SEC   # at most one chunk of one step
+    # chunk-major: every step ran on the first chunk of new cases before any step took the second
+    parts = _planned(tmp_path / "b", report, "expansion")
+    order = [p for i, p in enumerate(parts) if i == 0 or p != parts[i - 1]]
+    assert len(order) == len(set(order)) and len(parts) > 1
+    # the chunk measured in full is routed on every check; at most one chunk is part-measured, and a
+    # check that never ran on it is untested, not read off anything
+    manifest = json.loads((tmp_path / "b" / "split_manifest.json").read_text())
+    new = set(manifest["revisions"][1]["case_ids"]) - set(manifest["revisions"][0]["case_ids"])
+    by_id = {r["case_id"]: r for r in report["cases"]}
+    covered: dict[str, set[str]] = {}
+    for e, ids in zip([e for e in report["executions"] if e["kind"] == "expansion" and e["status"] == "ok"
+                       and not e["reused"]], parts):
+        covered.setdefault(e["key"], set()).update(ids)
+    whole = set.intersection(*covered.values())
+    assert whole and len(new - whole) <= 4 and whole < new
+    assert all(by_id[cid]["U"]["state"] != "untested" and not by_id[cid]["x_reasons"] for cid in whole)
+    assert all((by_id[cid]["U"]["state"] == "untested") == (cid not in covered["self_consistency"]) for cid in new)
+    skipped = [e for e in report["executions"] if e["kind"] == "expansion" and e["status"] == "skipped"]
+    assert len(skipped) == 1 and "exceeds" in skipped[0]["reason"]

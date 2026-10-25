@@ -36,7 +36,11 @@ A run goes through three phases:
      run once the expansions have settled.
 
    Steps run in chunks of ``chunk`` cases (FAIL and PASS alternating), with the
-   budget checked before each chunk on the cost measured so far.
+   budget checked before each chunk on the cost measured so far. An expansion's
+   battery runs every step on one chunk of the new cases before any step moves to
+   the next, so a refusal part-way stops the run with whole cases measured; a check
+   that never ran on the rest of the new cases is untested (a case with no fired
+   check is X).
 
 3. **Follow-ups.** Each active route proposes its next layer's candidate (see
    :mod:`~evalrx.eval_agent.probing.rules`), and the candidate runs on the
@@ -434,8 +438,7 @@ class _Run:
         return record
 
     def run_step(self, step: PlanStep, target: "list[str]", *, kind: str, revision: int,
-                 rule_id: "str | None" = None, route: "str | None" = None,
-                 budget_checked: bool = False) -> "dict[str, Any] | None":
+                 rule_id: "str | None" = None, route: "str | None" = None) -> "dict[str, Any] | None":
         """Bring *step*'s evidence up to date on *target*; the last execution record, or
         ``None`` when every case is already covered.
 
@@ -472,7 +475,7 @@ class _Run:
         record = None
         for part in self.chunks(step, todo):
             out = self._run_part(step, part, ev, base, analyzer, version, context, step_id, config,
-                                 kind=kind, revision=revision, rule_id=rule_id, budget_checked=budget_checked)
+                                 kind=kind, revision=revision, rule_id=rule_id)
             record = out if out is not None else record
             if out is not None and out["status"] == FAILED and not out.get("reused"):
                 # an execution that raised costs time and would likely raise again on the rest
@@ -485,7 +488,7 @@ class _Run:
 
     def _run_part(self, step: PlanStep, target: "list[str]", ev: StepEvidence, base: dict[str, Any],
                   analyzer: Any, version: str, context: dict[str, Any], step_id: str, config: dict[str, Any], *,
-                  kind: str, revision: int, rule_id: "str | None", budget_checked: bool) -> "dict[str, Any] | None":
+                  kind: str, revision: int, rule_id: "str | None") -> "dict[str, Any] | None":
         """One case set of :meth:`run_step`: read back what exists, else execute."""
         todo = ev.todo(target)
         if not todo:
@@ -494,7 +497,7 @@ class _Run:
         # charged with the evidence read, so a resumed run (or a second scheduler on the
         # same ledger) must skip what the run that executed it could not afford.
         estimate = self.estimate_sec(step, len(todo))
-        why = None if budget_checked else self.over_budget(estimate, self.estimate_usd(step, len(todo)))
+        why = self.over_budget(estimate, self.estimate_usd(step, len(todo)))
         if why is not None:
             self.ledger.trace({**base, "event": "skipped", "status": SKIPPED, "reason": why, "n_cases": len(todo)})
             self.blocked[step.name] = why
@@ -777,7 +780,16 @@ def run_triage(
                 "reason": (f"the sample has the cap of {max_fail} FAIL cases" if len(draw.fail_ids) >= max_fail
                            else f"EXPLORE has no FAIL case beyond the {n_available} drawn")}
 
-    def do_expand(plan: Any, gaps: list[dict[str, Any]], extra: dict[str, Any]) -> None:
+    def do_expand(plan: Any, gaps: list[dict[str, Any]], extra: dict[str, Any]) -> "dict[str, Any] | None":
+        """Adopt the next nested sample and run the immediate battery on its new cases; the
+        execution record the budget refused when that cut the battery short, else ``None``.
+
+        The decision to expand was checked on an estimate from the cases measured so far;
+        the battery then runs chunk by chunk, every step on one chunk of the new cases
+        before any step moves to the next, each chunk checked against the budget on the
+        cost measured so far. A refusal stops the run there: the chunks measured so far are
+        routed on every check, and a check that never ran on the remaining new cases is
+        untested (a case with no fired check is X)."""
         nonlocal sample, draw, revision
         bigger, bigger_draw, new_ids, estimate = plan
         decide({"kind": "expand", "rule_id": "E1", "from_fail": len(draw.fail_ids),
@@ -791,9 +803,33 @@ def run_triage(
         manifest()
         ledger.trace({"event": "revision", "revision": revision, "n_fail": len(draw.fail_ids),
                       "n_pass": len(draw.pass_ids), "n_new_cases": len(new_ids), "scheduler": scheduler})
+        reuse_steps = [s for s in immediate if s.reuse]
+        failed: set[str] = set()   # a step that raised on a chunk is not run on the rest of this expansion
+
+        def skip(step: PlanStep) -> bool:
+            ev = run.evidence.get(step.name)
+            return step.name in failed or (ev is not None and ev.refused() is not None)
+
+        for part in (run.chunks(reuse_steps[0], new_ids) if reuse_steps else []):
+            for step in reuse_steps:
+                if skip(step):
+                    continue
+                record = run.run_step(step, part, kind="expansion", revision=revision, rule_id="E1")
+                if record is None:
+                    continue
+                if record["status"] == SKIPPED:
+                    return record
+                if record["status"] == FAILED and not record.get("reused"):
+                    failed.add(step.name)
+        # the batch-dependent route steps run on the whole sample, once; and a reuse step takes
+        # up any case an earlier revision left uncovered (its chunks raised or were refused then)
         for step in immediate:
-            run.run_step(step, list(draw.case_ids), kind="expansion", revision=revision, rule_id="E1",
-                         budget_checked=True)
+            if skip(step):
+                continue
+            record = run.run_step(step, list(draw.case_ids), kind="expansion", revision=revision, rule_id="E1")
+            if record is not None and record["status"] == SKIPPED:
+                return record
+        return None
 
     by_rule = {x.rule_id: x for x in layers}
     step_layers: dict[tuple[str, str], Layer] = {}
@@ -1293,8 +1329,11 @@ def run_triage(
                         explored[a] = explored.get(a, 0.0) + run.charged(a) - before[a]
 
             if pick.kind == "expand":
-                do_expand(pick.payload, gaps, extra)
+                cut = do_expand(pick.payload, gaps, extra)
                 account()
+                if cut is not None:
+                    stop = {"reason": "budget", "detail": cut["reason"], "pending": "expansion"}
+                    break
                 round_no += 1
                 continue
             proposal = pick.payload
@@ -1334,8 +1373,11 @@ def run_triage(
                     decide({"kind": "expand_skipped", "rule_id": "E1", "reason": why, "gaps": gaps,
                             "estimate_sec": plan[3]})
                     continue
-                do_expand(plan, gaps, {"rationale": "an evidence gap a larger nested sample can close; expansion "
-                                                    "precedes the routes' candidates because it revises the routes"})
+                cut = do_expand(plan, gaps, {"rationale": "an evidence gap a larger nested sample can close; expansion "
+                                                          "precedes the routes' candidates because it revises the routes"})
+                if cut is not None:
+                    stop = {"reason": "budget", "detail": cut["reason"], "pending": "expansion"}
+                    break
                 continue
             expansion_note = not_possible(gaps)
             decide({"kind": "expand_not_possible", "rule_id": "E1", **expansion_note})

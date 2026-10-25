@@ -40,6 +40,20 @@ observation that called the model or completed without calling it; the typical
 and worst-case prices of a step that never ran still come from model-calling
 observations only (scoring `mvp3-score-5`).
 
+### Fixed — an expansion's battery ran past the budget
+
+The decision to expand was checked once, on the sum of the battery steps'
+estimates over the new cases, and the battery then ran unchecked: on ChartQA
+`triage18` the 64 → 128 FAIL expansion was estimated at 1668 s from the cases
+measured so far and cost 2413 s (the later cases were dearer), so the 4000 s
+arms that expanded charged 4220–4548 s. The battery now runs chunk by chunk,
+every immediate step on one chunk of the new cases before any step moves to the
+next, with the budget checked before each chunk on the cost measured so far,
+like every other action; a refusal stops the run (`stop: budget`, pending
+`expansion`) with the chunks measured so far routed and a check that never ran
+on the remaining new cases untested (a case with no fired check is X), so an
+expansion overshoots by at most one chunk of one step.
+
 ### Fixed — a gradient pass keeps no graph through the media encoders; a case that does not fit is skipped
 
 `hf_local` ran the whole model under autograd when `CaptureSpec(with_grad=True)`
