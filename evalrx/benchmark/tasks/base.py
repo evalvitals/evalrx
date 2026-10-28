@@ -38,6 +38,9 @@ class Task:
     max_new_tokens: int = 64
     output_contract: dict | None = None        # copied into protocol + case metadata when set
     short_answer: bool = True                  # terse EOS answers: mark finish_reason="stop"
+    few_answers: bool = False                  # answers from a small closed set (beyond yes/no and letters):
+                                               # an unchanged answer on unrelated media may be right, so a
+                                               # triage swap tests N only with a counterfactual donor
     source: str = ""                           # citation / hub id for the README matrix
 
 
