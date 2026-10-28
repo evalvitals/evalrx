@@ -22,9 +22,12 @@ on this task) — so a missing measurement is never read as a negative one.
   control, not an unstable answer). Answers are compared by the task's answer
   key under its agreement rule (two numbers within the task's tolerance of each
   other are one answer, as its grader would hold), never graded against the
-  gold. Any readable answer that differs fires U.
+  gold. Any readable answer that differs fires U. On a task whose outputs
+  commit to no categorical answer (open captions) U is not applicable: there
+  is no answer to compare, and its two steps do not run.
 * **S** (a stable failure): a FAIL case on which every required check ran and
-  none fired — H, N (cases with media) and both U parts. S is an
+  none fired — H, N (cases with media) and both U parts (tasks whose outputs
+  commit to an answer). S is an
   investigation route, not a cause; the S readings attached to every case
   (the threshold instruction, the question word on the media tokens, how early
   the model's own answer was readable) are descriptive.
@@ -80,6 +83,14 @@ ROUTE_STEPS = frozenset({"answer_extraction_audit", "termination_audit", "modali
 def default_answer(case: Any, text: str) -> str:
     """Coarse answer key when the host gives none: yes/no, else a normalised prefix."""
     return _norm_answer(str(text or ""))
+
+
+def commits_to_answers(cases: Any, answer_fn: "AnswerFn | None") -> bool:
+    """Whether the task's outputs commit to a categorical answer: *answer_fn* gives ``None`` on a task
+    with none (open captions), whatever the output. Read off the Stage-0 outputs, no model call."""
+    answer = answer_fn or default_answer
+    cases = list(cases)
+    return not cases or any(answer(c, str(getattr(c, "observed", "") or "")) is not None for c in cases)
 
 
 def exact_answer(case: Any, candidate: str, reference: str) -> bool:
@@ -309,6 +320,10 @@ def _u_reword(obs: "Observation | None", case: Any, answer_fn: AnswerFn, agree_f
 def _u_check(sampling: "Observation | None", reword: "Observation | None", case: Any,
              answer_fn: AnswerFn, agree_fn: AgreeFn) -> dict[str, Any]:
     """U fires when either part fires; it is clear only when both parts ran and are clear."""
+    if answer_fn(case, str(getattr(case, "observed", "") or "")) is None:
+        why = "the task has no categorical answer to compare"
+        return {"state": NOT_APPLICABLE, "reason": why,
+                "parts": [{"part": part, "state": NOT_APPLICABLE, "reason": why} for part in ("sampling", "reword")]}
     parts = [_u_sampling(sampling, case, answer_fn, agree_fn), _u_reword(reword, case, answer_fn, agree_fn)]
     states = [p["state"] for p in parts]
     state = FIRED if FIRED in states else CLEAR if all(st == CLEAR for st in states) else UNTESTED

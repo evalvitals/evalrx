@@ -255,6 +255,31 @@ def test_few_answer_tasks_test_n_only_with_counterfactual_donors():
     assert donors["fail"]["counterfactual_followed_donor"] == 1 and donors["pass"]["content"] == 1
 
 
+def _no_answer(case, output):
+    """The answer key of a task whose outputs commit to no categorical answer (open captions)."""
+    return None
+
+
+def test_u_is_not_applicable_where_outputs_commit_to_no_answer_and_s_needs_h_and_n():
+    from evalrx.eval_agent.probing.triage import commits_to_answers
+
+    cases = CaseBatch([
+        _yn_case("s", Label.FAIL, "Yes", "A cat on a sofa."),   # H and N clear: S without U
+        _yn_case("p", Label.PASS, "Yes", "A dog on a rug."),    # a stable control
+    ])
+    obs = _clean_h_and_n([c.id for c in cases], {"s": "No", "p": "No"})
+    assert not commits_to_answers(cases, _no_answer) and commits_to_answers(cases, None)
+    kw = dict(host_assumed_finish=True, answer_contract=False, n_needs_counterfactual=False)
+    recs = {r["case_id"]: r for r in triage_cases(cases, obs, answer_fn=_no_answer, **kw)}
+    assert recs["s"]["U"]["state"] == "not_applicable"
+    assert [(u["part"], u["state"]) for u in recs["s"]["U"]["parts"]] == [("sampling", "not_applicable"),
+                                                                          ("reword", "not_applicable")]
+    assert recs["s"]["routes"] == ["S"] and recs["s"]["stable"] and recs["p"]["stable"]
+    # with an answer key and no U observations, U is untested and the case is X
+    keyed = {r["case_id"]: r for r in triage_cases(cases, obs, **kw)}
+    assert keyed["s"]["U"]["state"] == "untested" and keyed["s"]["routes"] == ["X"]
+
+
 def test_open_answer_records_match_controls_without_the_gold_answer():
     from evalrx.eval_agent.probing.rules import matched_controls
 
@@ -646,6 +671,22 @@ def test_mvp0_code_version_is_recorded_but_not_part_of_the_identity(tmp_path, vl
     assert not _rerun(second) and second["code"]["tree"] == "000000000000"
     costs = [json.loads(line) for line in (out / "cost_ledger.jsonl").read_text().splitlines()]
     assert [c["code"] for c in costs if c["kind"] == "stage0"] == [code["tree"], "000000000000"]
+
+
+def test_mvp0_steps_that_compare_answers_do_not_run_where_outputs_commit_to_none(tmp_path, vlm_cases):
+    from tests.tiny_whitebox import TinyVLM
+
+    model = TinyVLM("qwen2_5_vl")
+    report = run_triage(model, vlm_cases, out_dir=tmp_path / "cap", model_identity={"spec": "tiny"}, n_fail=2,
+                        task_kind="chair_caption", answer_fn=_no_answer, progress=None,
+                        analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}})
+    steps = _steps(report)
+    for key in ("self_consistency", "prompt_reword", "prompt_threshold"):
+        assert steps[key]["status"] == "not_applicable" and "cost" not in steps[key]
+    assert steps["self_consistency"]["reason"] == ("step is for tasks whose outputs commit to a categorical "
+                                                   "answer; this task's do not")
+    assert steps["modality_ablation"]["status"] == steps["attention_knockout"]["status"] == OK
+    assert {r["U"]["state"] for r in report["cases"]} == {"not_applicable"}
 
 
 def test_code_version_hashes_per_package_directory_and_reads_a_snapshot_ref(tmp_path):

@@ -72,7 +72,7 @@ def _describe(route: str, question: str) -> PlanStep:
                                         "gen_kwargs": {"max_new_tokens": DESCRIBE_OUTPUT_TOKENS}}, route, question,
                     key="describe_first", calls_per_case={"generate": 2}, keep_artifacts=("outputs",),
                     caveat="the runtime's output cap must leave room for the description",
-                    min_output_tokens=128)
+                    min_output_tokens=128, needs_answer=True)
 
 
 @dataclass(frozen=True)
@@ -117,10 +117,10 @@ LAYERS: tuple[Layer, ...] = (
                  calls_per_case={"logprobs": 1}, per_case=True, evidence=TOKEN_PROBABILITIES),
         PlanStep("self_consistency", {"n": 10}, "U1", "twice the samples: how often the answer moves",
                  key="self_consistency_n10", calls_per_case={"generate": 10}, per_case=True,
-                 keep_artifacts=("samples",), evidence=RESAMPLING))),
+                 keep_artifacts=("samples",), evidence=RESAMPLING, needs_answer=True))),
     Layer("U2", "U", "with the options rotated, does the answer follow content or position", (
         PlanStep("format_sensitivity", {}, "U2", "rotate the options", calls_per_case={"generate": 3},
-                 task_kinds=("multiple_choice_letter",)),)),
+                 task_kinds=("multiple_choice_letter",), needs_answer=True),)),
     Layer("Sb", "S", "does a stable error survive when the model first states what it sees", (
         _describe("Sb", "describe the media, then answer"),)),
     Layer("S1", "S", "which image regions the answer margin depends on (no reference regions: "

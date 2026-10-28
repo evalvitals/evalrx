@@ -85,6 +85,10 @@ class PlanStep:
     ``min_output_tokens``: the step asks for text before the answer (e.g. a
     description), so a known output cap below this leaves it nothing to read.
 
+    ``needs_answer``: the step's readings compare the answers outputs commit to
+    (the task's answer key), so it is not applicable on a task whose outputs
+    commit to none (open captions).
+
     ``deferred``: a battery step no route reads (a descriptive reading): the
     rules run it once the sample has settled, and the scored scheduler takes it
     as a candidate of the layer it serves instead of running it up front.
@@ -108,6 +112,7 @@ class PlanStep:
     reuse_note: str = ""
     caveat: str = ""
     min_output_tokens: int = 0
+    needs_answer: bool = False
     deferred: bool = False
     evidence: str = ""
 

@@ -11,6 +11,8 @@ A run goes through three phases:
    4. ``attention_knockout(target="prediction")``: the first N-layer measurement.
    5. ``self_consistency``: re-samples each case (U).
    6. ``prompt_contrast`` with the question kept verbatim in neutral wrappers (U).
+      Both compare answers, so neither runs on a task whose outputs commit to
+      no categorical answer (open captions): U is not applicable there.
    7. ``prompt_contrast`` with an instruction not to default to "no" (yes/no
       tasks only), descriptive S.
    8. ``embed_lens(layer=0.9)``: is the case's own question word near the
@@ -144,6 +146,7 @@ from evalrx.eval_agent.probing.scoring import (
 )
 from evalrx.eval_agent.probing.triage import (
     ROUTE_STEPS,
+    commits_to_answers,
     follow_up_reading,
     follow_up_values,
     summarize,
@@ -201,16 +204,17 @@ BATTERY: tuple[PlanStep, ...] = (
     PlanStep("self_consistency", {"n": 5}, "U",
              "re-sample each case at the host's frozen sampling settings; another answer sampled "
              "more often than the Stage-0 answer is the U signal",
-             calls_per_case={"generate": 5}, per_case=True, keep_artifacts=("samples",)),
+             calls_per_case={"generate": 5}, per_case=True, keep_artifacts=("samples",), needs_answer=True),
     PlanStep("prompt_contrast", {"strategies": REWORD_STRATEGIES}, "U",
              "re-ask with the question verbatim inside two neutral wrappers; an answer that "
              "moves is the U signal",
-             calls_per_case={"generate": 3}, key="prompt_reword", keep_artifacts=("outputs",)),
+             calls_per_case={"generate": 3}, key="prompt_reword", keep_artifacts=("outputs",),
+             needs_answer=True),
     PlanStep("prompt_contrast", {"strategies": THRESHOLD_STRATEGIES}, "S",
              "re-ask with an instruction not to default to a negative answer: which errors move, "
              "and which correct answers it breaks",
              calls_per_case={"generate": 2}, key="prompt_threshold", keep_artifacts=("outputs",),
-             task_kinds=("yes_no",)),
+             task_kinds=("yes_no",), needs_answer=True),
     PlanStep("embed_lens", {"layer": 0.9}, "S2",
              "nearest vocabulary words of the media tokens late in the stack: how close the "
              "case's own question word gets",
@@ -349,8 +353,10 @@ class _Run:
     def __init__(self, model: Any, explore: "CaseBatch", ledger: Ledger, *, context: dict[str, Any],
                  extras: dict[str, dict[str, Any]], task_kind: "str | None", budget_sec: float,
                  price_fn: Any, run_logger: Any, say: Callable[[str], None],
-                 per_call_generation: bool = True, budget_usd: float = 0.0, chunk: int = 0) -> None:
+                 per_call_generation: bool = True, budget_usd: float = 0.0, chunk: int = 0,
+                 answer_keyed: bool = True) -> None:
         self.model, self.ledger, self.context, self.extras = model, ledger, context, extras
+        self.answer_keyed = answer_keyed  # the task's outputs commit to a categorical answer
         self.per_call_generation, self.budget_usd, self.chunk = per_call_generation, budget_usd, chunk
         self.task_kind, self.budget_sec, self.price_fn, self.run_logger, self.say = (
             task_kind, budget_sec, price_fn, run_logger, say)
@@ -384,10 +390,19 @@ class _Run:
 
         return registry.analyzers.get(step.analyzer)(**self.config(step))
 
+    def inapplicable(self, step: PlanStep) -> "str | None":
+        """Why *step* has no meaning on this task (``None``: it has one)."""
+        if step.task_kinds and self.task_kind not in step.task_kinds:
+            return f"for task kinds {list(step.task_kinds)}; this task is {self.task_kind!r}"
+        if step.needs_answer and not self.answer_keyed:
+            return "for tasks whose outputs commit to a categorical answer; this task's do not"
+        return None
+
     def gate(self, step: PlanStep, ids: "list[str]") -> "tuple[str, str] | None":
         """Why *step* cannot run on *ids* here — ``(status, reason)`` — before anything is spent."""
-        if step.task_kinds and self.task_kind not in step.task_kinds:
-            return "not_applicable", f"for task kinds {list(step.task_kinds)}; this task is {self.task_kind!r}"
+        why = self.inapplicable(step)
+        if why is not None:
+            return "not_applicable", why
         cap = self.output_cap(step)
         if step.min_output_tokens and cap is not None and cap < step.min_output_tokens:
             return "not_applicable", (f"the output cap of {cap} tokens is below the {step.min_output_tokens} "
@@ -518,10 +533,11 @@ class _Run:
         ev = self.evidence.setdefault(step.name, StepEvidence(step))
         base = {"kind": kind, "revision": revision, "key": step.name, "analyzer": step.analyzer,
                 "rule_id": rule_id, "route": route}
-        if step.task_kinds and self.task_kind not in step.task_kinds:
+        why = self.inapplicable(step)
+        if why is not None:
             if any(e["key"] == step.name and e["status"] == "not_applicable" for e in self.executions):
                 return None
-            reason = f"step is for task kinds {list(step.task_kinds)}; this task is {self.task_kind!r}"
+            reason = f"step is {why}"
             self.ledger.trace({**base, "event": "not_applicable", "reason": reason})
             record = {**base, "status": "not_applicable", "reused": False, "reason": reason}
             self._log(record)
@@ -769,7 +785,7 @@ def run_triage(
     run = _Run(model, explore, ledger, context={"policy": POLICY_VERSION, "model": model_identity},
                extras=extras, task_kind=task_kind, budget_sec=budget_sec, price_fn=price_fn,
                run_logger=run_logger, say=say, per_call_generation=per_call_generation, budget_usd=budget_usd,
-               chunk=chunk)
+               chunk=chunk, answer_keyed=commits_to_answers(explore, answer_fn))
     rank_of = partial(rank, seed)
     triage = partial(triage_cases, host_assumed_finish=host_assumed_finish, answer_contract=answer_contract,
                      n_needs_counterfactual=n_needs_counterfactual, answer_fn=answer_fn, agree_fn=agree_fn,
@@ -842,7 +858,7 @@ def run_triage(
             raise RuntimeError("nested sampler returned a draw that does not contain the previous one")
         new_ids = [cid for cid in bigger_draw.case_ids if cid not in set(draw.case_ids)]
         estimates = [run.estimate_sec(s, len(new_ids) if s.reuse else len(bigger_draw.case_ids))
-                     for s in immediate if not (s.task_kinds and task_kind not in s.task_kinds)]
+                     for s in immediate if run.inapplicable(s) is None]
         estimate = round(sum(e for e in estimates if e is not None), 1) if any(
             e is not None for e in estimates) else None
         return bigger, bigger_draw, new_ids, estimate
@@ -1312,7 +1328,7 @@ def run_triage(
                 expansion_note = not_possible(gaps)
                 decide({"kind": "expand_not_possible", "rule_id": "E1", **expansion_note})
             else:
-                steps = [s for s in immediate if not (s.task_kinds and task_kind not in s.task_kinds)]
+                steps = [s for s in immediate if run.inapplicable(s) is None]
                 qs = [availability(s.analyzer, run.evidence) for s in steps
                       if any(o.status != "unsupported" for o in run.evidence[s.name].chunks)]
                 costs = [step_cost(s, len(plan[2]), run.evidence, axis)[0] for s in steps]

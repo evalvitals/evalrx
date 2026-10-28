@@ -106,6 +106,7 @@ from evalrx.eval_agent.probing.rules import (
 from evalrx.eval_agent.probing.sampler import matched_sample, rank
 from evalrx.eval_agent.probing.triage import (
     ROUTE_STEPS,
+    commits_to_answers,
     difference_interval,
     follow_up_values,
     triage_cases,
@@ -602,7 +603,8 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
     run = _Run(model, validation, Ledger(out), context={"policy": POLICY_VERSION, "model": model_identity,
                                                          "role": "validation"},
                extras=extras, task_kind=task_kind, budget_sec=budget_sec, price_fn=price_fn,
-               run_logger=run_logger, say=say, per_call_generation=per_call_generation, chunk=chunk)
+               run_logger=run_logger, say=say, per_call_generation=per_call_generation, chunk=chunk,
+               answer_keyed=commits_to_answers(validation, answer_fn))
     n_fail = sum(1 for c in validation if getattr(getattr(c, "label", None), "value", None) == "fail")
     sample, draw = matched_sample(validation, n_fail, seed=seed, stratum=stratum)
     for step in battery:
