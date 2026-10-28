@@ -107,6 +107,7 @@ from evalrx.eval_agent.probing.sampler import matched_sample, rank
 from evalrx.eval_agent.probing.triage import (
     ROUTE_STEPS,
     commits_to_answers,
+    common_answers,
     difference_interval,
     follow_up_values,
     triage_cases,
@@ -612,7 +613,8 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
             run.run_step(step, list(draw.case_ids), kind="validation", revision=0)
     records = triage_cases(sample, run.evidence, host_assumed_finish=host_assumed_finish,
                            answer_contract=answer_contract, n_needs_counterfactual=n_needs_counterfactual,
-                           answer_fn=answer_fn, agree_fn=agree_fn, stratum=stratum)
+                           answer_fn=answer_fn, agree_fn=agree_fn, stratum=stratum,
+                           common=common_answers(discovery, answer_fn))
     rank_of = partial(rank, seed)
     by_rule = {x.rule_id: x for x in layers}
     steps = {s.name: s for s in (*battery, *candidate_steps(layers))}

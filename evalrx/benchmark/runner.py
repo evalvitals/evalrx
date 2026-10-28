@@ -436,13 +436,6 @@ def _validation_source(args, task: T.Task, model, gen_kwargs: dict, protocol, ru
     return source, manifest
 
 
-def _needs_counterfactual(task: T.Task) -> bool:
-    """Whether a triage swap tests N only with a counterfactual donor (the same question on other media,
-    gold different from the model's answer): tasks whose answers come from a few values, where an
-    unchanged answer on unrelated media may simply be right."""
-    return task.kind in ("yes_no", "multiple_choice_letter") or task.few_answers
-
-
 def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs: dict,
                 cases, ctx, run_dir: Path, baseline: dict, source=None) -> int:
     """``--m1-policy triage_active``: the triage battery, rule-chosen expansions and
@@ -504,7 +497,7 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
     shared = dict(seed=args.triage_seed,
                   stratum="gold" if task.kind in ("yes_no", "multiple_choice_letter") else "none",
                   host_assumed_finish=bool(task.short_answer), answer_contract=bool(task.output_contract),
-                  n_needs_counterfactual=_needs_counterfactual(task),
+                  n_needs_counterfactual=task.kind in ("yes_no", "multiple_choice_letter"),
                   task_kind=task.kind, answer_fn=T.answer_key, agree_fn=T.same_answer, analyzer_kwargs=extras, price_fn=_price_fn(spec),
                   per_call_generation=sampling is not None, chunk=int(args.triage_chunk))
     report = run_triage(

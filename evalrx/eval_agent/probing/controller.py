@@ -147,6 +147,7 @@ from evalrx.eval_agent.probing.scoring import (
 from evalrx.eval_agent.probing.triage import (
     ROUTE_STEPS,
     commits_to_answers,
+    common_answers,
     follow_up_reading,
     follow_up_values,
     summarize,
@@ -712,7 +713,9 @@ def run_triage(
         answer_contract:     the task declares an answer tag or output contract.
         n_needs_counterfactual: few-answer task (yes/no, letters): a swap only tests N
                              with a counterfactual donor. Donors are drawn from the
-                             whole of *explore*, never from outside it.
+                             whole of *explore*, never from outside it. Elsewhere the
+                             same holds per case for an answer that is a common gold
+                             of *explore* (:func:`~.triage.common_answers`).
         task_kind:           the task's kind; steps limited to other kinds are
                              recorded as ``not_applicable`` and not run.
         answer_fn:           ``(case, output) -> answer key`` (``""`` = no readable
@@ -789,6 +792,7 @@ def run_triage(
     rank_of = partial(rank, seed)
     triage = partial(triage_cases, host_assumed_finish=host_assumed_finish, answer_contract=answer_contract,
                      n_needs_counterfactual=n_needs_counterfactual, answer_fn=answer_fn, agree_fn=agree_fn,
+                     common=common_answers(explore, answer_fn),
                      stratum=stratum)
 
     sample, draw = matched_sample(explore, n_fail, seed=seed, stratum=stratum)
@@ -1545,6 +1549,7 @@ def run_triage(
         "sample": draw.to_dict(),
         "settings": {"host_assumed_finish": host_assumed_finish, "answer_contract": answer_contract,
                      "n_needs_counterfactual": n_needs_counterfactual, "budget_sec": budget_sec,
+                     "common_answers": common_answers(explore, answer_fn),
                      "task_kind": task_kind, "answer_fn": canonical(answer_fn), "agree_fn": canonical(agree_fn),
                      "n_fail": n_fail,
                      "max_fail": max_fail, "max_actions": max_actions, "min_route_fail": min_route_fail,

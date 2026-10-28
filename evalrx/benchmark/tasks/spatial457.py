@@ -95,6 +95,5 @@ TASK = Task(
     download=download, protocol=protocol,
     pinned_m1=("answer_extraction_audit", "selfcheck_consistency", "coverage_verification_gap"),
     default_limit=256, val_limit=128, default_seed=457, max_new_tokens=64,
-    few_answers=True,   # 39 answers over 1837 questions (small/large, 2/3, colours); no question asked twice
     source="RyanWW/Spatial457 (L5_6d_spatial)",
 )

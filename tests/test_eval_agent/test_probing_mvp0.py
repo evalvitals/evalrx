@@ -280,6 +280,38 @@ def test_u_is_not_applicable_where_outputs_commit_to_no_answer_and_s_needs_h_and
     assert keyed["s"]["U"]["state"] == "untested" and keyed["s"]["routes"] == ["X"]
 
 
+def test_common_answers_are_the_golds_a_share_of_discovery_has():
+    from evalrx.eval_agent.probing.triage import common_answers
+
+    golds = ["small"] * 3 + ["large"] * 2 + [f"x{i}" for i in range(95)]
+    cases = CaseBatch([FailureCase(id=f"c{i}", inputs=Inputs(prompt="q"), expected=g, observed=g, label=Label.PASS)
+                       for i, g in enumerate(golds)])
+    assert common_answers(cases) == {"large": 0.02, "small": 0.03}
+    assert common_answers(cases, share=0.025) == {"small": 0.03}
+    assert common_answers(cases, _no_answer) == {}
+
+
+def test_a_content_swap_does_not_test_n_where_the_answer_is_a_common_gold():
+    cases = CaseBatch([
+        FailureCase(id="c", inputs=Inputs(prompt="What size is it?", image="c.png"), expected="large",
+                    observed="small", label=Label.FAIL),
+        FailureCase(id="r", inputs=Inputs(prompt="How many are there?", image="r.png"), expected="7",
+                    observed="5", label=Label.FAIL),
+    ])
+    swap = _obs("modality_ablation", [
+        {"sample_id": i, "ablation_base_answer": a, "grounded_in_image": False, "ablation_image_is_swap": True,
+         "ablation_image_donor": "d", "ablation_image_answer": a, "ablation_image_donor_kind": "content"}
+        for i, a in (("c", "small"), ("r", "5"))], params={"mode": "swap"})
+    kw = dict(host_assumed_finish=True, answer_contract=False, stratum="none")
+    recs = {r["case_id"]: r for r in triage_cases(cases, {"modality_ablation": swap}, common={"small": 0.16}, **kw)}
+    # "small" survived other media, but it is the gold of 16% of DISCOVERY: it may simply be right there
+    assert recs["c"]["N"]["state"] == "untested" and "common gold (16.0% of DISCOVERY)" in recs["c"]["N"]["reason"]
+    assert recs["c"]["N"]["common_answer"] == {"answer": "small", "gold": "small", "share": 0.16}
+    assert recs["r"]["N"]["state"] == "fired"    # a rare answer that survived other media
+    before = {r["case_id"]: r for r in triage_cases(cases, {"modality_ablation": swap}, **kw)}
+    assert before["c"]["N"]["state"] == before["r"]["N"]["state"] == "fired"
+
+
 def test_open_answer_records_match_controls_without_the_gold_answer():
     from evalrx.eval_agent.probing.rules import matched_controls
 

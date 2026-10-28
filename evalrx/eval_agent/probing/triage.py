@@ -14,6 +14,10 @@ on this task) — so a missing measurement is never read as a negative one.
   swap with a non-empty baseline answer counts, and on few-answer tasks only a
   counterfactual donor (the same question's gold on that media differs from the model's answer);
   a content-only swap there, or a swap that fell back to drop, leaves N untested.
+  On other tasks a content-only swap counts unless the model's answer is a
+  common gold (:func:`common_answers`: at least 2% of DISCOVERY has it, as
+  yes/no or a small count does on ChartQA): on unrelated media such an answer
+  may well be right again, so N stays untested on that case.
 * **U** (an answer that moves): two parts, both required. ``self_consistency``
   samples at the host's sampling settings against the Stage-0 answer (greedy
   settings leave it untested: identical samples are not a measurement), and
@@ -91,6 +95,30 @@ def commits_to_answers(cases: Any, answer_fn: "AnswerFn | None") -> bool:
     answer = answer_fn or default_answer
     cases = list(cases)
     return not cases or any(answer(c, str(getattr(c, "observed", "") or "")) is not None for c in cases)
+
+
+#: A gold answer at least this share of DISCOVERY has is common: on unrelated media it may well be the
+#: right answer again, so an unchanged one after a content-only swap is no N evidence.
+COMMON_ANSWER_SHARE = 0.02
+
+
+def common_answers(cases: Any, answer_fn: "AnswerFn | None" = None,
+                   share: float = COMMON_ANSWER_SHARE) -> dict[str, float]:
+    """The gold answers (as answer keys) that at least *share* of *cases* have, with their shares.
+
+    Read off the cases' golds, never an output; ``{}`` on a task with no categorical answer.
+    """
+    answer = answer_fn or default_answer
+    cases = list(cases)
+    keys: Counter = Counter()
+    for case in cases:
+        gold = (getattr(case, "metadata", None) or {}).get("gold", getattr(case, "expected", None))
+        if isinstance(gold, (list, tuple)):
+            gold = gold[0] if gold else None
+        key = None if gold is None else answer(case, str(gold))
+        if key:
+            keys[key] += 1
+    return {k: round(n / len(cases), 4) for k, n in sorted(keys.items()) if n / len(cases) >= share}
 
 
 def exact_answer(case: Any, candidate: str, reference: str) -> bool:
@@ -176,7 +204,9 @@ def _combine(fields: list[dict[str, Any]]) -> str:
     return UNTESTED
 
 
-def _n_check(obs: "Observation | None", case: Any, needs_counterfactual: bool) -> dict[str, Any]:
+def _n_check(obs: "Observation | None", case: Any, needs_counterfactual: bool,
+             common: "dict[str, float] | None" = None, answer_fn: "AnswerFn | None" = None,
+             agree_fn: "AgreeFn | None" = None) -> dict[str, Any]:
     cid = str(case.id)
     if not _has_media(case):
         return {"state": NOT_APPLICABLE, "reason": "the case has no media to swap"}
@@ -192,6 +222,10 @@ def _n_check(obs: "Observation | None", case: Any, needs_counterfactual: bool) -
     out["base_answer"] = row.get("ablation_base_answer")
     if not str(out["base_answer"] or "").strip():
         return {**out, "state": UNTESTED, "reason": "empty baseline answer; the comparison is not reliable"}
+    base_key = answer_fn(case, str(out["base_answer"])) if common and answer_fn else None
+    hit = next((g for g in common or {} if base_key and agree_fn(case, base_key, g)), None)
+    if hit is not None:
+        out["common_answer"] = {"answer": base_key, "gold": hit, "share": common[hit]}
     slots = []
     for key in sorted(row):
         if not key.startswith("grounded_in_"):
@@ -217,6 +251,11 @@ def _n_check(obs: "Observation | None", case: Any, needs_counterfactual: bool) -
                          reason="no counterfactual donor in the partition (same question, different "
                                 "media, gold different from the model's answer); on a few-answer task "
                                 "an unchanged answer after a content-only swap may simply be correct")
+        elif hit is not None:
+            entry.update(state=UNTESTED,
+                         reason=f"no counterfactual donor in the partition, and the model's answer is a "
+                                f"common gold ({common[hit]:.1%} of DISCOVERY): an unchanged answer after a "
+                                f"content-only swap may simply be correct")
         else:
             entry.update(state=FIRED if row[key] is False else CLEAR,
                          assumption="open-answer task: different media is assumed to change the answer")
@@ -379,7 +418,7 @@ def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence
                  host_assumed_finish: bool,
                  answer_contract: bool, n_needs_counterfactual: bool = False,
                  answer_fn: "AnswerFn | None" = None, agree_fn: "AgreeFn | None" = None,
-                 stratum: str = "gold") -> list[dict[str, Any]]:
+                 stratum: str = "gold", common: "dict[str, float] | None" = None) -> list[dict[str, Any]]:
     """One record per case: label, stratum, every H/N/U check, routes, knockout and S readings.
 
     *observations* are keyed by plan step (``prompt_reword`` and
@@ -390,7 +429,9 @@ def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence
     *n_needs_counterfactual* (few-answer tasks: yes/no, letters): a swap only
     tests N when its donor is a counterfactual — the same question's gold on that
     media differs from the model's answer — because a content-only swap there often leaves the
-    correct answer unchanged.
+    correct answer unchanged. *common* (:func:`common_answers` of DISCOVERY) does the
+    same per case elsewhere: a content-only swap does not test N on a case whose answer
+    is a common gold.
 
     *answer_fn* ``(case, output) -> key`` reads the answer an output commits to
     (``""``: none; ``None``: the task has no categorical answer); default
@@ -432,7 +473,8 @@ def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence
             "fields": h_fields,
             "disagreements": disagreements,
         }
-        n = _n_check(pick(observations, "modality_ablation", cid), case, n_needs_counterfactual)
+        n = _n_check(pick(observations, "modality_ablation", cid), case, n_needs_counterfactual, common,
+                     answer, agree)
         u = _u_check(pick(observations, "self_consistency", cid), pick(observations, "prompt_reword", cid),
                      case, answer, agree)
         label = getattr(getattr(case, "label", None), "value", None)

@@ -192,14 +192,6 @@ def test_triage_explainer_is_the_chain_judge_and_never_the_model_under_test(monk
         runner._triage_explainer(same, spec)
 
 
-def test_triage_n_needs_a_counterfactual_donor_where_answers_are_few():
-    from evalrx.benchmark import tasks as T
-
-    assert runner._needs_counterfactual(T.get("pope_adversarial"))   # yes/no
-    assert runner._needs_counterfactual(T.get("spatial457"))         # 39 attribute values, no question twice
-    assert not runner._needs_counterfactual(T.get("chartqa"))        # open answers: other media changes them
-
-
 def test_triage_weights_and_exploration_share_parse_and_are_checked():
     from evalrx.benchmark.run import main as run_main
     from evalrx.benchmark.run import triage_weights
