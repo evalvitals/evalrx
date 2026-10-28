@@ -196,6 +196,12 @@ def test_an_effect_that_holds_on_new_cases_is_supported_and_frozen_before_valida
     assert set(out["sample"]["case_ids"]) <= val_ids
     assert (tmp_path / "validation" / "selection_trace.jsonl").is_file()
     assert "## Arms" in (tmp_path / "validation" / "validation_report.md").read_text()
+    # both reports and every planned action say which code ran
+    from evalrx.eval_agent.probing.controller import code_version
+
+    assert out["code"] == report["code"] == code_version()
+    assert all(e["code"] == out["code"]["tree"] for e in planned)
+    assert f"code tree `{out['code']['tree']}`" in (tmp_path / "validation" / "validation_report.md").read_text()
 
 
 def test_an_effect_that_held_only_on_the_discovery_cases_is_refuted(tmp_path, wrapper_on_s):

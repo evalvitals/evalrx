@@ -78,7 +78,7 @@ import os
 import random
 import time
 from collections import Counter
-from functools import partial
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -268,6 +268,70 @@ def tool_version(analyzer: Any) -> str:
             h.update(path.name.encode())
             h.update(path.read_bytes())
     return h.hexdigest()[:12]
+
+
+@lru_cache(maxsize=1)
+def code_version() -> dict[str, Any]:
+    """The code this process runs: recorded in the reports and on every planned action.
+
+    ``tree`` hashes every ``*.py`` file of the evalrx package, ``parts`` the same per
+    package directory (``models``, ``eval_agent/probing``, ...; ``.`` = the top-level
+    modules), so a reader can tell a backend change from a scheduler change. Neither
+    enters an action identity (only :func:`tool_version` does): a change outside the
+    analyzer still reads the ledger back, and these hashes are what tells such
+    observations apart. ``git`` is the checkout's commit, else the ``CODE_REF.json`` a
+    code snapshot carries, else ``None``. Computed once per process.
+    """
+    import evalrx
+
+    return _code_version(Path(evalrx.__file__).parent)
+
+
+def _code_version(root: Path) -> dict[str, Any]:
+    files = []
+    for here, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in ("__pycache__", "node_modules")]
+        files += [Path(here, n).relative_to(root) for n in names if n.endswith(".py")]
+    tree = hashlib.sha1()
+    parts: dict[str, Any] = {}
+    for rel in sorted(files):
+        data = (root / rel).read_bytes()
+        for h in (tree, parts.setdefault(rel.parent.as_posix(), hashlib.sha1())):
+            h.update(rel.as_posix().encode())
+            h.update(data)
+    return {"tree": tree.hexdigest()[:12], "parts": {k: h.hexdigest()[:12] for k, h in sorted(parts.items())},
+            "git": _git_ref(root.parent)}
+
+
+def _git_ref(top: Path) -> "dict[str, Any] | None":
+    """``{"commit", "dirty"}`` when *top* is a checkout's root (dirty = tracked files under
+    ``evalrx`` differ from the commit), else what its ``CODE_REF.json`` says."""
+    import subprocess
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-C", str(top), *args], capture_output=True, text=True,
+                              timeout=10, check=True).stdout.strip()
+
+    try:
+        if Path(git("rev-parse", "--show-toplevel")).resolve() == top.resolve():
+            return {"commit": git("rev-parse", "HEAD"),
+                    "dirty": bool(git("status", "--porcelain", "--untracked-files=no", "--", "evalrx"))}
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        return json.loads((top / "CODE_REF.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def code_label(code: "dict[str, Any] | None") -> str:
+    """The code line of a markdown report: the tree hash, plus the commit when known."""
+    if not code:
+        return "code not recorded"
+    git = code.get("git") or {}
+    return (f"code tree `{code['tree']}`"
+            + (f", commit `{str(git['commit'])[:10]}`{' + uncommitted changes' if git.get('dirty') else ''}"
+               if git.get("commit") else ", commit unknown"))
 
 
 def output_cap(model_identity: dict[str, Any]) -> "int | None":
@@ -542,6 +606,7 @@ class _Run:
         self.ledger.trace({
             **base, "event": "planned", "attempt": attempt, "action": action.to_dict(),
             "params": canonical(analyzer.get_params()), "tool_version": version,
+            "code": code_version()["tree"],
             "fidelity_check": step.fidelity_check, "reuse": step.reuse, "estimate_sec": estimate,
             **({"previous_attempts_uncertain": prior} if prior else {}),
         })
@@ -724,7 +789,8 @@ def run_triage(
         # Every invocation's Stage 0 is spent compute (the runner does not cache
         # it), even when every action is then read back from an earlier run.
         n_prior = sum(1 for e in ledger.cost_events() if e.get("kind") == "stage0")
-        ledger.cost({"kind": "stage0", "shared": True, "invocation": n_prior + 1, **stage0_cost})
+        ledger.cost({"kind": "stage0", "shared": True, "invocation": n_prior + 1,
+                     "code": code_version()["tree"], **stage0_cost})
     say(f"[triage] sample: {len(draw.fail_ids)} FAIL + {len(draw.pass_ids)} PASS "
         f"(stratum={stratum}, shortfall={draw.shortfall or 'none'})")
 
@@ -1458,6 +1524,7 @@ def run_triage(
             "explored": {a: round(v, 6) for a, v in explored.items()},
             "min_gain": min_gain, "min_cover": min_cover} if scheduler in VALUE_SCHEDULERS else {}),
         "rules_version": RULES_VERSION,
+        "code": code_version(),
         "model": model_identity,
         "sample": draw.to_dict(),
         "settings": {"host_assumed_finish": host_assumed_finish, "answer_contract": answer_contract,
@@ -1727,7 +1794,8 @@ def _markdown(report: dict[str, Any]) -> str:
     s = report["summary"]
     lines = [
         f"# Triage report ({report['policy']}, {report['rules_version']})", "",
-        f"Model: `{report['model'].get('spec')}` on `{report['model'].get('backend')}`. "
+        f"Model: `{report['model'].get('spec')}` on `{report['model'].get('backend')}`; "
+        f"{code_label(report.get('code'))}. "
         f"Sample: {len(report['sample']['fail_ids'])} FAIL + {len(report['sample']['pass_ids'])} PASS, "
         f"stratum `{report['sample']['stratum_rule']}`, shortfall {report['sample']['shortfall'] or 'none'}. "
         f"Stopped: {report['stop']['reason']}"

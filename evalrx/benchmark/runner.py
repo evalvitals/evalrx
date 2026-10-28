@@ -534,6 +534,7 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
         "triage_steps": [{k: s.get(k) for k in ("kind", "key", "analyzer", "status", "reused", "n_cases")}
                          for s in report["executions"]],
         "triage_stop": report["stop"], "triage_scheduler": report["scheduler"],
+        "code": report["code"],
         "triage_explanations": args.triage_explanations,
         **({"validation": {"frozen_sha1": checked["frozen_sha1"], **checked["arms"][name]}} if checked else {}),
     }

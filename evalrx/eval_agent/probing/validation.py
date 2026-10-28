@@ -552,7 +552,13 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
              battery: "tuple[PlanStep, ...] | None" = None, layers: "tuple[Layer, ...]" = LAYERS,
              run_logger: Any = None, progress: "Callable[[str], None] | None" = print) -> dict[str, Any]:
     """Validate the union of the arms' frozen *families* once on *validation*; credit every arm."""
-    from evalrx.eval_agent.probing.controller import BATTERY, POLICY_VERSION, _Run, analyzer_extras
+    from evalrx.eval_agent.probing.controller import (
+        BATTERY,
+        POLICY_VERSION,
+        _Run,
+        analyzer_extras,
+        code_version,
+    )
 
     battery = battery or BATTERY
     stale = sorted(arm for arm, r in reports.items() if r.get("rules_version") != RULES_VERSION)
@@ -674,6 +680,7 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
     curve = supported_curve(frozen["arms"], {i: r["verdict"] for i, r in results.items()}, links)
     report = {
         "version": VALIDATION_VERSION, "frozen_sha1": frozen["sha1"], "alpha": ALPHA, "k": k, "level": level,
+        "code": code_version(),
         "partition": frozen["partition"],
         "sample": draw.to_dict(),
         "issues": [{**i.to_dict(), "plan": next(p for p in plan if p["issue_id"] == i.issue_id),
@@ -760,8 +767,10 @@ def _check_explanations(explanations: dict[str, list[dict[str, Any]]], run: Any,
 
 
 def markdown(report: dict[str, Any]) -> str:
+    from evalrx.eval_agent.probing.controller import code_label
+
     part = report.get("partition") or {}
-    lines = [f"# Diagnostic validation ({report['version']})", "",
+    lines = [f"# Diagnostic validation ({report['version']}; {code_label(report.get('code'))})", "",
              f"Frozen family sha1 `{report['frozen_sha1']}`: {report['k']} issue(s), intervals at "
              f"{report['level']:.4f} (one-sided Bonferroni, alpha {report['alpha']}).",
              f"Partition: {part.get('rule', '-')}; {len(part.get('validation_ids') or [])} validation cases "

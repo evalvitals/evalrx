@@ -625,6 +625,50 @@ def test_mvp0_changed_tool_code_is_a_new_action(tmp_path, vlm_cases, monkeypatch
     assert _steps(second)["attention_knockout"]["action_id"] != _steps(first)["attention_knockout"]["action_id"]
 
 
+def test_mvp0_code_version_is_recorded_but_not_part_of_the_identity(tmp_path, vlm_cases, monkeypatch):
+    from evalrx.eval_agent.probing import controller
+    from tests.tiny_whitebox import TinyVLM
+
+    model = TinyVLM("qwen2_5_vl")
+    kw = dict(out_dir=tmp_path / "c", model_identity={"spec": "tiny"}, n_fail=2,
+              stage0_cost={"wall_sec": 1.0, "calls": {"generate": 8}}, progress=None)
+    first = run_triage(model, vlm_cases, **kw)
+    code = controller.code_version()
+    assert first["code"] == code and "eval_agent/probing" in code["parts"]
+    out = tmp_path / "c"
+    planned = [json.loads(line) for line in (out / "selection_trace.jsonl").read_text().splitlines()
+               if '"planned"' in line]
+    assert planned and all(e["code"] == code["tree"] for e in planned)
+    assert f"code tree `{code['tree']}`" in (out / "triage_report.md").read_text()
+    # other code (a backend, the scheduler) changed: the ledger is still read back, the new tree recorded
+    monkeypatch.setattr(controller, "code_version", lambda: {**code, "tree": "000000000000"})
+    second = run_triage(model, vlm_cases, **kw)
+    assert not _rerun(second) and second["code"]["tree"] == "000000000000"
+    costs = [json.loads(line) for line in (out / "cost_ledger.jsonl").read_text().splitlines()]
+    assert [c["code"] for c in costs if c["kind"] == "stage0"] == [code["tree"], "000000000000"]
+
+
+def test_code_version_hashes_per_package_directory_and_reads_a_snapshot_ref(tmp_path):
+    from evalrx.eval_agent.probing.controller import _code_version, code_label
+
+    root = tmp_path / "evalrx"
+    for rel, text in {"__init__.py": "", "models/hf.py": "a = 1\n", "eval_agent/probing/rules.py": "b = 2\n",
+                      "reporting/web/node_modules/gyp/x.py": "", "models/__pycache__/hf.py": ""}.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    first = _code_version(root)
+    assert sorted(first["parts"]) == [".", "eval_agent/probing", "models"]
+    assert first["git"] is None and code_label(first).endswith("commit unknown")
+    (root / "models" / "hf.py").write_text("a = 3\n")
+    (tmp_path / "CODE_REF.json").write_text('{"commit": "0123456789abcdef", "dirty": true}')
+    second = _code_version(root)
+    assert second["tree"] != first["tree"] and second["parts"]["models"] != first["parts"]["models"]
+    assert second["parts"]["eval_agent/probing"] == first["parts"]["eval_agent/probing"]
+    assert second["git"] == {"commit": "0123456789abcdef", "dirty": True}
+    assert code_label(second) == f"code tree `{second['tree']}`, commit `0123456789` + uncommitted changes"
+    assert code_label(None) == "code not recorded"
+
+
 def test_mvp0_uncertain_attempt_gets_a_new_number(tmp_path, vlm_cases):
     from evalrx.eval_agent.probing.ledger import Ledger
     from tests.tiny_whitebox import TinyVLM
