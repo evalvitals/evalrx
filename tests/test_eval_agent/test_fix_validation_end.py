@@ -566,15 +566,12 @@ def test_candidate_repeats_apply_to_declarative_candidates_only(tmp_path):
                             'import json\ncases=json.load(open("fix_cases.json"))["cases"]\n'
                             'out=[{"sample_id":c["id"],"output":model_generate(c["id"])} for c in cases]\n'
                             'print("FIX_PIPELINE_RESULT_JSON="+json.dumps({"per_case":out}))\n')})
-    agent._sandbox = None
-    agent._run_context = None
-    import evalrx.eval_agent.stages.fix_agent as fa
     from evalrx.agent_runtime.sandbox import ExperimentSandbox
 
-    agent._sandbox = ExperimentSandbox(workdir=tmp_path / "sb", cleanup=False)
+    agent.coder.run_context = None
+    agent.coder.sandbox = ExperimentSandbox(workdir=tmp_path / "sb", cleanup=False)
     v2 = agent._validate(code, model, batch, baseline, unstable)
     assert v2.n_candidate_samples == 1  # coded pipelines never repeat
-    del fa
 
 
 def test_rates_mode_power_ceiling_uses_baseline_rates():
@@ -800,7 +797,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": [
 
 
 def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
-    from evalrx.eval_agent.stages import fix_agent as fa
+    from evalrx.eval_agent.stages import fix_codegen
     from evalrx.eval_agent.stages.fix_pipeline import CodedPipelineResult
 
     seen = {}
@@ -809,10 +806,10 @@ def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
         seen.update(kw)
         return CodedPipelineResult(outputs={c.id: "Answer: (B)" for c in data}, ok=True)
 
-    monkeypatch.setattr(fa, "run_coded_pipeline", fake_run)
+    monkeypatch.setattr(fix_codegen, "run_coded_pipeline", fake_run)
     agent = FixAgent(judge=ScriptedJudge("[]"), max_tier="L2", concurrency=5)
-    cand = fa.FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded", payload={"code": "x"})
-    agent._run_coded(cand, CountingModel(), _mc_batch())
+    cand = FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded", payload={"code": "x"})
+    agent.coder.run(cand, CountingModel(), _mc_batch())
     assert seen["concurrency"] == 5
 
 

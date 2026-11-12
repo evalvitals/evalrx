@@ -515,6 +515,13 @@ IMAGE_TOOLS: "dict[str, tuple[Callable, str, str]]" = {
 }
 
 
+#: Shown in place of :func:`catalog_text` for a text-only batch, where the
+#: image-tool catalog is noise and an invitation to propose a no-op.
+TEXT_ONLY_CATALOG_NOTE = (
+    "(this batch is text-only: there are NO image tools; leave image_ops empty)"
+)
+
+
 def catalog_text() -> str:
     """Render the tool catalog for inclusion in a judge prompt."""
     return "\n".join(

@@ -26,10 +26,9 @@ from evalrx.eval_agent.stages.fix_agent import (
     FixValidation,
     _chart_arithmetic_predicate,
     _chart_count_extract_predicate,
-    _code_copies_example,
-    _code_redefines_model_bridge,
     _malformed_choice_predicate,
 )
+from evalrx.eval_agent.stages.fix_codegen import code_copies_example, code_redefines_model_bridge
 from evalrx.eval_agent.stages.fix_verdict import recommend
 from evalrx.eval_agent.stages.repair_catalog import discover_methods
 
@@ -1886,17 +1885,17 @@ def test_generated_code_cannot_memorize_example_ids_or_prompt_phrases():
 PROMPT: There is a blue thing that is in front of the object right of the tiny bike.
 MODEL OUTPUT (baseline): small
 """
-    assert _code_copies_example("gate = 'spatial457-123'", examples)
-    assert _code_copies_example(
+    assert code_copies_example("gate = 'spatial457-123'", examples)
+    assert code_copies_example(
         "gate = 'blue thing that is in front of the object right of the tiny bike'",
         examples,
     )
-    assert not _code_copies_example(
+    assert not code_copies_example(
         'question = case["prompt"]; gate = "left right front behind"', examples
     )
-    assert _code_redefines_model_bridge("def model_generate(case_id):\n    return 'x'")
-    assert _code_redefines_model_bridge("async def model_attend(case_id):\n    pass")
-    assert not _code_redefines_model_bridge("answer = model_generate(case_id)")
+    assert code_redefines_model_bridge("def model_generate(case_id):\n    return 'x'")
+    assert code_redefines_model_bridge("async def model_attend(case_id):\n    pass")
+    assert not code_redefines_model_bridge("answer = model_generate(case_id)")
 
 
 def test_single_round_does_not_retry_on_failure():
@@ -3614,9 +3613,9 @@ def test_the_coder_is_told_the_rule():
 
 
 def test_coder_guidance_distinguishes_explore_revision_and_one_shot():
-    explore = FixAgent(max_repair_rounds=2)._code_selection_guidance()
-    revision = FixAgent(max_repair_rounds=2)._code_selection_guidance("prior result")
-    one_shot = FixAgent(max_repair_rounds=1)._code_selection_guidance()
+    explore = FixAgent(max_repair_rounds=2).coder.selection_guidance()
+    revision = FixAgent(max_repair_rounds=2).coder.selection_guidance("prior result")
+    one_shot = FixAgent(max_repair_rounds=1).coder.selection_guidance()
 
     assert "controlled 2-of-3" in explore
     assert "FEEDBACK-DRIVEN" in revision and "abandon" in revision
@@ -3833,8 +3832,8 @@ def test_the_coder_is_told_the_anchor_semantics():
     assert "IS the direct baseline" in _REPAIR_PROMPT_BODY
 
     agent = FixAgent(max_repair_rounds=2)
-    for variant in (agent._code_selection_guidance(), agent._code_selection_guidance("prior"),
-                    FixAgent(max_repair_rounds=1)._code_selection_guidance()):
+    for variant in (agent.coder.selection_guidance(), agent.coder.selection_guidance("prior"),
+                    FixAgent(max_repair_rounds=1).coder.selection_guidance()):
         assert "baseline_output" in variant
 
 
