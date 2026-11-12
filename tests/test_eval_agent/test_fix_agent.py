@@ -29,6 +29,7 @@ from evalrx.eval_agent.stages.fix_agent import (
     _malformed_choice_predicate,
 )
 from evalrx.eval_agent.stages.fix_codegen import code_copies_example, code_redefines_model_bridge
+from evalrx.eval_agent.stages.fix_validation import Baseline
 from evalrx.eval_agent.stages.fix_verdict import recommend
 from evalrx.eval_agent.stages.repair_catalog import discover_methods
 
@@ -960,7 +961,7 @@ def test_chart_arithmetic_candidate_is_gold_free_and_skips_out_of_scope_calls():
             raise NotImplementedError
 
     model = CountingModel()
-    agent._candidate_scores(candidates[0], model, batch)
+    agent.validator.scores(candidates[0], model, batch)
     assert model.calls == 3  # one chain-of-verification; lookup was never run
 
 
@@ -1027,7 +1028,7 @@ def test_image_l1_candidates_start_with_visual_grounding_control():
 
     assert candidates[0].name == "visual_grounding"
     assert "visible evidence" in candidates[0].payload["prompt_template"]
-    assert FixAgent()._strategy(candidates[0])(BaselineFailsModel(), batch[0]) is True
+    assert FixAgent().validator.strategy(candidates[0])(BaselineFailsModel(), batch[0]) is True
 
 
 def test_video_only_batch_is_treated_as_having_visual_content():
@@ -2982,8 +2983,8 @@ def test_predicate_scopes_validation_to_applicable_cases():
         predicate=lambda c: c.id in {"c0", "c1"},
     )
     model = BaselineFailsModel()
-    baseline, unstable = agent._baseline(model, data)
-    v = agent._validate(cand, model, data, baseline, unstable)
+    baseline = agent._baseline(model, data)
+    v = agent._validate(cand, model, data, baseline)
     assert v.n_applicable == 2 and v.n_fixed == 2 and v.n_broken == 0
     assert set(v.fixed_cases) == {"c0", "c1"}
     assert v.coverage == 0.5  # repaired 2 of the 4 failures it was scoped to
@@ -3099,8 +3100,8 @@ def test_baseline_repeats_flags_unstable_cases_and_weighs_them():
     agent = FixAgent(judge=None, max_tier="L1", baseline_repeats=2)
     data = _gold_yes_batch(n=2)
     model = _OneFlakyModel()
-    baseline, unstable = agent._baseline(model, data)
-    assert "c0" in unstable and "c1" not in unstable
+    baseline = agent._baseline(model, data)
+    assert "c0" in baseline.unstable and "c1" not in baseline.unstable
     assert agent._baseline_rates["c0"] == 0.5 and agent._baseline_rates["c1"] == 0.0
 
     from evalrx.eval_agent.stages.fix_agent import FixCandidate
@@ -3111,7 +3112,7 @@ def test_baseline_repeats_flags_unstable_cases_and_weighs_them():
         kind="template",
         payload={"prompt_template": "Look carefully. {prompt}"},
     )
-    v = agent._validate(cand, model, data, baseline, unstable)
+    v = agent._validate(cand, model, data, baseline)
     assert v.noise_model == "paired_rates" and v.n_baseline_samples == 2
     assert v.n_unstable == 1 and v.n_pairs == 2          # reported, NOT dropped
     assert v.baseline_rate == 0.25 and v.candidate_rate == 1.0
@@ -3425,7 +3426,7 @@ def test_safe_format_leaves_non_placeholder_braces_alone():
         "{prompt} ${~m}$"       KeyError: '~m'
         "{prompt} {}"           IndexError: Replacement index 0
     """
-    from evalrx.eval_agent.stages.fix_agent import safe_format
+    from evalrx.eval_agent.stages.fix_tools import safe_format
 
     ctx = {"prompt": "P", "failure_axis": "AX"}
     assert safe_format(r"{prompt} solve \frac{a}{b}", ctx) == r"P solve \frac{a}{b}"
@@ -3435,14 +3436,14 @@ def test_safe_format_leaves_non_placeholder_braces_alone():
 
 
 def test_safe_format_still_substitutes_the_known_fields():
-    from evalrx.eval_agent.stages.fix_agent import safe_format
+    from evalrx.eval_agent.stages.fix_tools import safe_format
 
     ctx = {"prompt": "P", "failure_axis": "AX", "n": 3}
     assert safe_format("{prompt} focus on {failure_axis} ({n})", ctx) == "P focus on AX (3)"
 
 
 def test_safe_format_never_raises_on_arbitrary_text():
-    from evalrx.eval_agent.stages.fix_agent import safe_format
+    from evalrx.eval_agent.stages.fix_tools import safe_format
 
     for template in ("{", "}", "{{", "{unclosed", r"\boxed{}", "{a}{b}{c}", ""):
         safe_format(template, {"prompt": "P"})
@@ -3461,7 +3462,7 @@ def test_a_template_case_that_cannot_render_scores_none_not_a_crash():
     agent = FixAgent()
     candidate = FixCandidate(tier=None, name="t", kind="template",
                              payload={"prompt_template": r"{prompt} ${~m}$"})
-    strategy = agent._strategy(candidate)
+    strategy = agent.validator.strategy(candidate)
     case = FailureCase(inputs=Inputs(prompt="q"), observed="o", expected="e",
                        label=Label.FAIL)
     assert strategy(_Boom(), case) is None
@@ -3532,8 +3533,8 @@ def test_a_pipeline_that_solves_the_task_itself_is_not_a_fix(tmp_path):
     agent = FixAgent(judge=None, max_tier="L2", exec_timeout_sec=30)
     data = _observed_no_batch()
     model = BaselineFailsModel()
-    baseline, unstable = agent._baseline(model, data)
-    v = agent._validate(_code_candidate(_SOLVER_PIPELINE), model, data, baseline, unstable)
+    baseline = agent._baseline(model, data)
+    v = agent._validate(_code_candidate(_SOLVER_PIPELINE), model, data, baseline)
 
     assert v.fixed is False
     assert v.verdict == "model_independent"
@@ -3552,8 +3553,8 @@ def test_a_pipeline_that_needs_the_model_keeps_its_credit(tmp_path):
     agent = FixAgent(judge=None, max_tier="L2", exec_timeout_sec=30)
     data = _observed_no_batch()
     model = BaselineFailsModel()
-    baseline, unstable = agent._baseline(model, data)
-    v = agent._validate(_code_candidate(_REPROMPT_PIPELINE), model, data, baseline, unstable)
+    baseline = agent._baseline(model, data)
+    v = agent._validate(_code_candidate(_REPROMPT_PIPELINE), model, data, baseline)
 
     assert v.fixed is True and v.verdict == "fixed"
     assert v.n_model_independent == 0 and v.n_pairs == len(data)
@@ -3566,9 +3567,8 @@ def test_a_solver_fallback_only_loses_the_cases_it_solved(tmp_path):
     agent = FixAgent(judge=None, max_tier="L2", exec_timeout_sec=30)
     data = _observed_no_batch()
     model = BaselineFailsModel()
-    baseline, unstable = agent._baseline(model, data)
-    v = agent._validate(_code_candidate(_PARTIAL_SOLVER_PIPELINE), model, data,
-                        baseline, unstable)
+    baseline = agent._baseline(model, data)
+    v = agent._validate(_code_candidate(_PARTIAL_SOLVER_PIPELINE), model, data, baseline)
 
     assert v.n_model_independent == 3 and v.n_pairs == len(data) - 3
     assert v.fixed is True
@@ -3594,8 +3594,8 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps(
     {"per_case": [{"sample_id": c["id"], "output": "No."} for c in cases]}))
 ''')
     model = BaselineFailsModel()
-    baseline, unstable = agent._baseline(model, data)
-    v = agent._validate(cand, model, data, baseline, unstable)
+    baseline = agent._baseline(model, data)
+    v = agent._validate(cand, model, data, baseline)
     assert v.n_model_independent == 0
     assert v.n_broken == 6 and v.verdict in {"regressed", "unsafe"}
 
@@ -4002,7 +4002,7 @@ def test_progress_survives_suppressed_result_logger_and_never_includes_labels():
                              payload={"prompt_template": "{prompt}"}, source="test")
     model = FakeModel()
     model.generate = lambda *args, **kwargs: "A"
-    agent._validate(candidate, model, CaseBatch([case]), {case.id: False})
+    agent._validate(candidate, model, CaseBatch([case]), Baseline.from_scores({case.id: False}))
     assert events[0]["phase"] == "candidate_started"
     assert events[-1]["phase"] == "candidate_completed"
     assert events[-1]["completed"] == 1

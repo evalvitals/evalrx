@@ -377,7 +377,7 @@ def run_lora_repair(
     ``eval_protocol`` field's "held-out repair effect" half is satisfied by
     that comparison; the "regression battery on baseline-passing cases" half
     is ``n_broken`` on whatever baseline-passing cases the caller's ``data``
-    batch includes, which :meth:`~.fix_agent.FixAgent._validate` already
+    batch includes, which :meth:`~.fix_validation.CandidateValidator.validate` already
     computes. No second validation path is built here.
 
     Executes exactly one recipe shape (``method="lora"``, ``target="llm"``);

@@ -509,13 +509,13 @@ def test_paired_rates_uses_frozen_sample_plus_fresh_and_weighs_unstable():
     # fresh baseline samples: alternate right/wrong -> every case ends unstable
     model = _CoinModel([True, False])
     agent = FixAgent(judge=None, max_tier="L1", baseline_repeats=3, floor_candidates=())
-    baseline, unstable = agent._baseline(model, batch)
+    baseline = agent._baseline(model, batch)
     assert len(model.calls) == 2 * len(batch)  # k-1 fresh per case; frozen counted
     assert all(0.0 < agent._baseline_rates[c.id] < 1.0 for c in batch)
-    assert len(unstable) == len(batch)
+    assert len(baseline.unstable) == len(batch)
     cand = FixCandidate(tier=FixTier.L1_PROMPT, name="careful", kind="template",
                         payload={"prompt_template": "Carefully. {prompt}"})
-    v = agent._validate(cand, model, batch, baseline, unstable)
+    v = agent._validate(cand, model, batch, baseline)
     assert v.noise_model == "paired_rates"
     assert v.n_pairs == len(batch) and v.n_unstable == len(batch)  # weighed, not dropped
     assert v.candidate_rate == 1.0 and 0.0 < v.baseline_rate < 1.0
@@ -555,10 +555,10 @@ def test_candidate_repeats_apply_to_declarative_candidates_only(tmp_path):
     batch = _mc_batch(2, 2)
     agent = FixAgent(judge=None, max_tier="L2", candidate_repeats=3, floor_candidates=())
     model = CountingModel()
-    baseline, unstable = agent._baseline(model, batch)
+    baseline = agent._baseline(model, batch)
     tmpl = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind="template",
                         payload={"prompt_template": "Carefully. {prompt}"})
-    v = agent._validate(tmpl, model, batch, baseline, unstable)
+    v = agent._validate(tmpl, model, batch, baseline)
     assert v.n_candidate_samples == 3 and len(model.calls) == 3 * len(batch)
     assert v.noise_model == "paired_rates"
     code = FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded_pipeline", kind="code",
@@ -570,7 +570,7 @@ def test_candidate_repeats_apply_to_declarative_candidates_only(tmp_path):
 
     agent.coder.run_context = None
     agent.coder.sandbox = ExperimentSandbox(workdir=tmp_path / "sb", cleanup=False)
-    v2 = agent._validate(code, model, batch, baseline, unstable)
+    v2 = agent._validate(code, model, batch, baseline)
     assert v2.n_candidate_samples == 1  # coded pipelines never repeat
 
 
@@ -623,10 +623,10 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
             raise KeyError("boom")
         return True
 
-    agent._strategy = lambda candidate: raising_strategy  # type: ignore[assignment]
+    agent.validator.strategy = lambda candidate: raising_strategy  # type: ignore[assignment]
     cand = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind="template",
                         payload={"prompt_template": "x {prompt}"})
-    scores = agent._candidate_scores(cand, Exploding(), _mc_batch(2, 1))
+    scores = agent.validator.scores(cand, Exploding(), _mc_batch(2, 1))
     assert scores["q1"] is None and scores["q0"] is True and scores["q2"] is True
 
 
