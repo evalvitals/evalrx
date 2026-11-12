@@ -79,6 +79,7 @@ class _RecordingFixAgent:
     run_logger = None
     max_tier = FixTier.L2_SCAFFOLD
     max_validation_cases = 5
+    alpha = 0.05
 
     def __init__(self):
         self.seen_ids = None
@@ -126,12 +127,6 @@ class _RecordingFixAgent:
             effect=0.1,
             e_value=1.0,
         )
-
-    def _ebh_survivors(self, tested):
-        return set()
-
-    def _refine_signal(self, attempted, data):
-        return None
 
 
 def _report():

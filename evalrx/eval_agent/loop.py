@@ -1720,6 +1720,7 @@ class VLDiagnoseLoop:
                             records a skipped stage instead.
         """
         from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier
+        from evalrx.eval_agent.stages.fix_verdict import ebh_survivors
 
         # Validate the fix on a held-out partition (leak #3): the hypotheses
         # were generated on EXPLORE, so the deployed repair must be confirmed on
@@ -1954,7 +1955,7 @@ class VLDiagnoseLoop:
                 last_outcome.attempted = all_attempted
                 last_outcome.max_tier = ceiling
                 tested = [v for v in all_attempted if v.e_value is not None]
-                survivors = agent._ebh_survivors(tested)
+                survivors = ebh_survivors(tested, agent.alpha)
                 last_outcome.ebh_survivors = sorted(
                     v.candidate.name for v in tested if id(v) in survivors)
                 winners = [v for v in all_attempted
@@ -2036,6 +2037,7 @@ def _confirm_from_explore(
     """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
     from evalrx.eval_agent.stages.fix_descriptions import plain_description
     from evalrx.eval_agent.stages.fix_types import FixOutcome
+    from evalrx.eval_agent.stages.fix_verdict import ebh_survivors, refine_signal
 
     def _recommend(reason: str, validations: "list[Any]") -> "dict[str, Any] | None":
         routed = sorted({v.candidate.tier for v in validations})
@@ -2124,8 +2126,8 @@ def _confirm_from_explore(
     finally:
         if selection_cap is not None:
             agent.max_validation_cases = selection_cap
-    survivors = agent._ebh_survivors(
-        [validation] if validation.e_value is not None else []
+    survivors = ebh_survivors(
+        [validation] if validation.e_value is not None else [], agent.alpha
     )
     survived = id(validation) in survivors
     outcome = FixOutcome(
@@ -2139,7 +2141,7 @@ def _confirm_from_explore(
         selected_on_explore=selected.candidate.name,
     )
     if not outcome.fixed:
-        no_fix = getattr(agent, "_no_fix_recommendation", None)
+        no_fix = getattr(agent, "no_fix_recommendation", None)
         if callable(no_fix):
             outcome.recommendation = no_fix(
                 [validation], [selected.candidate.tier], confirm, model
@@ -2154,7 +2156,7 @@ def _confirm_from_explore(
                 "the candidate selected on EXPLORE did not validate on untouched CONFIRM",
                 [validation],
             )
-    outcome.refine_signal = agent._refine_signal([validation], confirm)
+    outcome.refine_signal = refine_signal([validation], confirm)
     return outcome
 
 

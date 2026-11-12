@@ -443,6 +443,7 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
         FixTier,
         RunContext,
     )
+    from evalrx.eval_agent.stages.fix_verdict import verdict
 
     ctx = RunContext(
         args.run_dir,
@@ -546,7 +547,7 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
         validation.reject = bool(stat.reject)
         validation.e_value = stat.e_value
         validation.fixed = validation.reject and (validation.effect or 0.0) > 0
-        validation.verdict = FixAgent._verdict(validation)
+        validation.verdict = verdict(validation)
         validation.summary = f"{stat.summary()} [{validation.verdict}, coverage=100%]"
         candidate.source = "preregistered_paper_default_sequential"
         (ctx.artifacts_dir / "incremental_result.json").write_text(

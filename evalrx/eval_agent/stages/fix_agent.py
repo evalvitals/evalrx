@@ -115,15 +115,19 @@ from evalrx.eval_agent.stages.fix_types import (
     FixValidation,
     truncated_count,
 )
+from evalrx.eval_agent.stages.fix_verdict import (
+    ebh_survivors,
+    no_fix_recommendation,
+    recommend,
+    refine_signal,
+    verdict,
+)
 from evalrx.eval_agent.stages.probe_generator import _extract_code
 from evalrx.eval_agent.stages.repair_catalog import (
     discover_methods,
     method_names,
-    supports_tier,
 )
 from evalrx.stats import compare, compare_paired_rates
-from evalrx.stats.ebh import ebh
-from evalrx.stats.evalue import evalue_bernoulli
 
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
@@ -504,7 +508,7 @@ class FixAgent:
         self._candidate_repeats = max(1, int(candidate_repeats))
         self._baseline_rates: "dict[str, Optional[float]]" = {}
         self._baseline_n: "dict[str, int]" = {}
-        self._alpha = float(alpha)
+        self.alpha = float(alpha)
         self.max_repair_rounds = max(1, int(max_repair_rounds))
         self.max_judge_candidates = max(1, int(max_judge_candidates))
         self._allow_adapted_paper_methods = bool(allow_adapted_paper_methods)
@@ -599,11 +603,14 @@ class FixAgent:
         baseline, unstable = self._baseline(baseline_model, data)
         if not any(v is not None for v in baseline.values()):
             logger.warning("FixAgent: no scorable case (no rubrics); nothing to validate")
-            outcome.recommendation = self._recommend(
+            outcome.recommendation = recommend(
                 routed_tiers,
+                self.max_tier,
                 model=model,
                 data=data,
                 reason_prefix=("no case carries a scoring rubric, so no fix can be validated"),
+                allow_adapted=self._allow_adapted_paper_methods,
+                allow_codegen=self._allow_codegen,
             )
             self._emit(outcome)
             return outcome
@@ -638,7 +645,7 @@ class FixAgent:
                 "reason": (
                     f"nothing to repair: all {n_scorable} scorable validation case(s) pass "
                     f"the fresh baseline, so even a perfect candidate tops out at e=1.0 "
-                    f"(< {1.0 / self._alpha:.0f} needed) — collect failing cases instead of "
+                    f"(< {1.0 / self.alpha:.0f} needed) — collect failing cases instead of "
                     "spending the candidate budget."
                 ),
             }
@@ -723,14 +730,14 @@ class FixAgent:
                     round_idx + 2,
                 )
 
-        outcome.refine_signal = self._refine_signal(outcome.attempted, data)
+        outcome.refine_signal = refine_signal(outcome.attempted, data)
         # Multiplicity control over the candidate family (best-of-N): every
         # candidate cleared only its OWN paired gate (e >= 1/alpha) against the
         # SAME baseline, so picking the max is a multiple-comparisons hazard.
         # e-BH composes the family's e-values into one FDR guarantee; a candidate
         # is a winner only if it is BOTH individually `fixed` AND an e-BH survivor.
         tested = [v for v in outcome.attempted if v.e_value is not None]
-        survivors = self._ebh_survivors(tested)
+        survivors = ebh_survivors(tested, self.alpha)
         outcome.ebh_survivors = sorted(v.candidate.name for v in tested if id(v) in survivors)
         winners = [v for v in outcome.attempted if v.fixed and id(v) in survivors]
         if winners:
@@ -751,7 +758,7 @@ class FixAgent:
                     ),
                 }
             else:
-                outcome.recommendation = self._no_fix_recommendation(
+                outcome.recommendation = self.no_fix_recommendation(
                     outcome.attempted, routed_tiers, data, model
                 )
         self._emit(outcome)
@@ -781,174 +788,28 @@ class FixAgent:
         baseline, unstable = self._baseline(baseline_model, data)
         return self._validate(candidate, model, data, baseline, unstable)
 
-    def _ebh_survivors(self, tested: "list[FixValidation]") -> "set[int]":
-        """id()s of validations whose e-value survives e-BH across the family.
-
-        The e-values come from compare() (the validated core), never from an
-        LLM, so e-BH is sound. With m candidates, the sole-survivor bar rises to
-        m/alpha (vs the per-candidate 1/alpha) — the correct best-of-N tax.
-        A single tested candidate (m=1) reduces to the per-candidate gate, so
-        non-competitive runs are unaffected.
-        """
-        if not tested:
-            return set()
-        evalues = [float(v.e_value) for v in tested]
-        return {id(tested[i]) for i in ebh(evalues, alpha=self._alpha)}
-
-    # -- no-fix recommendation (escalate vs. gather data vs. retry exec) ----
-
-    def _no_fix_recommendation(
+    def no_fix_recommendation(
         self,
         attempted: "list[FixValidation]",
         routed_tiers: "list[FixTier]",
         data: "CaseBatch",
         model: "Model",
     ) -> "dict[str, Any] | None":
-        """Decide what 'no candidate validated' actually means.
+        """What to do when none of *attempted* validated, under this agent's settings.
 
-        Three distinct causes the old single-path recommendation conflated:
-
-        * **never executed** — engineering failure; retry within the tier, do
-          not escalate (a crash is not evidence the tier is exhausted).
-        * **underpowered by design** — even a flawless fix of every failure
-          could not reach significance with this few failures; gather more
-          failing cases instead of climbing the (more invasive) tier ladder.
-        * **genuinely exhausted** — executed, powered, still no fix; escalate.
+        See :func:`~.fix_verdict.no_fix_recommendation`.
         """
-        executed = [v for v in attempted if v.n_pairs > 0]
-        # A model-independent candidate DID execute; it just is not a repair of
-        # the model. It is neither an engineering failure nor evidence the tier
-        # is exhausted, so it sits in neither list.
-        never_ran = [v for v in attempted
-                     if v.n_pairs == 0 and v.verdict != "model_independent"]
-        if never_ran and not executed:
-            return {
-                "recommend_tier": self.max_tier.label,
-                "action": "fix_execution",
-                "reason": (
-                    "no candidate EXECUTED — escalating would be premature; "
-                    f"fix candidate execution and retry within {self.max_tier.label}. "
-                    "Failures: "
-                    + "; ".join(
-                        f"{v.candidate.name}: {(v.exec_error or v.summary)[:120]}"
-                        for v in never_ran[:3]
-                    )
-                ),
-            }
+        return no_fix_recommendation(
+            attempted, routed_tiers, data, model,
+            max_tier=self.max_tier,
+            alpha=self.alpha,
+            baseline_rates=self._baseline_rates,
+            paired_rates=self._baseline_repeats > 1 or self._candidate_repeats > 1,
+            allow_adapted=self._allow_adapted_paper_methods,
+            allow_codegen=self._allow_codegen,
+        )
 
-        # Underpowered-by-design: with n_fail failures the best possible result
-        # (every failure repaired, nothing broken) yields an e-value ceiling of
-        # evalue_bernoulli(n_fail, n_fail); if that cannot clear 1/alpha, no fix
-        # of any tier can be certified here — the bottleneck is sample size, and
-        # a "promising" candidate (helped more than it hurt) confirms the lead.
-        n_fail = sum(1 for c in data if getattr(c.label, "value", None) == "fail")
-        if self._baseline_repeats > 1 or self._candidate_repeats > 1:
-            # Paired rates: the best any candidate can do is lift every case's
-            # rate to 1.0 -> the e-value of those differences is the ceiling.
-            from evalrx.stats.evalue import evalue_bounded_mean
-
-            diffs = [
-                1.0 - r for c in data
-                for r in [self._baseline_rates.get(c.id)] if r is not None
-            ]
-            ceiling = evalue_bounded_mean(diffs) if diffs else 1.0
-        else:
-            ceiling = evalue_bernoulli(n_fail, n_fail, p0=0.5) if n_fail > 0 else 1.0
-        promising = [v for v in executed if (v.n_fixed - v.n_broken) > 0 and not v.reject]
-        if ceiling < 1.0 / self._alpha:
-            need = self._min_failures_for_power()
-            evidence = ""
-            if promising:
-                best = max(
-                    promising,
-                    key=lambda v: (v.n_fixed - v.n_broken, v.effect or 0.0),
-                )
-                evidence = (
-                    f" {best.candidate.name!r} already helps net "
-                    f"{best.n_fixed - best.n_broken} case(s);"
-                )
-            return {
-                "recommend_tier": None,
-                "action": "gather_more_failures",
-                "reason": (
-                    f"underpowered by design: only {n_fail} failure case(s) — even a "
-                    f"perfect fix tops out at e={ceiling:.1f} (< {1.0 / self._alpha:.0f} "
-                    f"needed).{evidence} collect >= {need} failing "
-                    "cases and re-validate before escalating the tier."
-                ),
-            }
-
-        rec = self._recommend(routed_tiers, model=model, data=data)
-        if promising and rec is not None:
-            best = max(promising, key=lambda v: (v.n_fixed - v.n_broken, v.effect or 0.0))
-            eff = f"{best.effect:+.3f}" if best.effect is not None else "n/a"
-            ev = f"{best.e_value:.1f}" if best.e_value is not None else "n/a"
-            rec["promising"] = {
-                "candidate": best.candidate.name,
-                "n_fixed": best.n_fixed,
-                "n_broken": best.n_broken,
-                "effect": best.effect,
-                "e_value": best.e_value,
-            }
-            rec["reason"] += (
-                f" (note: {best.candidate.name!r} is INCONCLUSIVE, not refuted — "
-                f"{best.n_fixed} fixed / {best.n_broken} broken, effect {eff}, "
-                f"e={ev} < {1.0 / self._alpha:.0f}; re-validating it on more or cleaner "
-                "pairs (baseline_repeats>1 to drop sampling-unstable cases, or a larger "
-                "confirm split) is a cheaper next step than escalating the tier)"
-            )
-        solo = [v for v in attempted if v.verdict == "model_independent"]
-        if solo and rec is not None:
-            rec["reason"] += (
-                f" (note: {len(solo)} candidate(s) solved the task without the model "
-                "and were not counted as repairs: "
-                + ", ".join(v.candidate.name for v in solo[:3])
-                + ")"
-            )
-        if never_ran and rec is not None:
-            rec["reason"] += (
-                f" (caveat: {len(never_ran)} candidate(s) never executed: "
-                + ", ".join(v.candidate.name for v in never_ran[:3])
-                + ")"
-            )
-        return rec
-
-    def _min_failures_for_power(self) -> int:
-        """Smallest n where a flawless fix could clear the e-value gate."""
-        threshold = 1.0 / self._alpha
-        for n in range(1, 200):
-            if evalue_bernoulli(n, n, p0=0.5) >= threshold:
-                return n
-        return 200
-
-    @staticmethod
-    def _refine_signal(
-        attempted: "list[FixValidation]", data: "CaseBatch"
-    ) -> "dict[str, Any] | None":
-        """Heterogeneity feedback for re-diagnosis (defect 3).
-
-        A candidate that repairs one subset while breaking another is evidence
-        the failure mode is *not* homogeneous: the right next move is to split
-        the population by sub-mechanism and re-diagnose, not to keep proposing
-        whole-population transforms.  Surface the partition so the loop (or a
-        human) can re-scope the hypothesis.
-        """
-        split = [v for v in attempted if v.n_fixed > 0 and v.n_broken > 0]
-        if not split:
-            return None
-        v = max(split, key=lambda x: min(x.n_fixed, x.n_broken))
-        return {
-            "kind": "heterogeneous_failure_mode",
-            "candidate": v.candidate.name,
-            "helped_cases": list(v.fixed_cases),
-            "hurt_cases": list(v.broken_cases),
-            "message": (
-                f"{v.candidate.name!r} repaired {v.n_fixed} case(s) but broke "
-                f"{v.n_broken} — the failure mode is likely subset-specific. "
-                "Re-diagnose: what distinguishes the helped cases from the hurt "
-                "ones, and gate the fix on that predicate."
-            ),
-        }
+    # -- no-fix recommendation (escalate vs. gather data vs. retry exec) ----
 
     def _validation_subset(self, data: "CaseBatch") -> "CaseBatch":
         """Label-stratified, deterministic subset for candidate validation."""
@@ -3279,7 +3140,7 @@ class FixAgent:
         baseline: "dict[str, Optional[bool]]",
         unstable: "set[str] | None" = None,
     ) -> FixValidation:
-        v = FixValidation(candidate=candidate, e_threshold=1.0 / self._alpha)
+        v = FixValidation(candidate=candidate, e_threshold=1.0 / self.alpha)
         unstable = unstable or set()
         rates_mode = self._baseline_repeats > 1 or self._candidate_repeats > 1
         v.noise_model = "paired_rates" if rates_mode else "mcnemar"
@@ -3392,11 +3253,11 @@ class FixAgent:
             return v
         try:
             if rates_mode:
-                stat = compare_paired_rates(base_vec, cand_vec, alpha=self._alpha)
+                stat = compare_paired_rates(base_vec, cand_vec, alpha=self.alpha)
                 v.e_value_regression = stat.details.get("e_value_regression")
             else:
                 stat = compare([x >= 0.5 for x in base_vec], [x >= 0.5 for x in cand_vec],
-                               paired=True, alpha=self._alpha)
+                               paired=True, alpha=self.alpha)
         except Exception as exc:
             v.verdict = "not_executed"
             v.summary = f"stats failed: {exc}"
@@ -3407,7 +3268,7 @@ class FixAgent:
         # Fixed = the paired test rejects with a net-positive effect: the
         # candidate repairs significantly more cases than it breaks.
         v.fixed = v.reject and (v.effect or 0.0) > 0
-        v.verdict = self._verdict(v)
+        v.verdict = verdict(v)
         cov = "" if v.coverage is None else f", coverage={v.coverage:.0%}"
         if rates_mode:
             noise = (f", {v.n_unstable} unstable weighed (k={v.n_baseline_samples} baseline"
@@ -3422,127 +3283,7 @@ class FixAgent:
         v.summary = f"{stat.summary()} [{v.verdict}{cov}{noise}{solo}{trunc}]"
         return v
 
-    @staticmethod
-    def _verdict(v: FixValidation) -> str:
-        """Coarse triage label (defect 4): why a candidate did/didn't pass."""
-        if v.fixed:
-            return "fixed"
-        if v.reject and (v.effect or 0.0) < 0:
-            return "regressed"  # significantly worse
-        net = v.n_fixed - v.n_broken
-        if net > 0:
-            return "partial"  # helped more than hurt, not significant
-        if v.n_broken > v.n_fixed:
-            return "unsafe"  # breaks more than it fixes
-        return "no_effect"
-
     # -- recommendation + logging ------------------------------------------
-
-    def _recommend(
-        self,
-        routed: "list[FixTier]",
-        *,
-        model: "Model | None" = None,
-        data: "CaseBatch | None" = None,
-        reason_prefix: str = "",
-    ) -> "dict[str, Any] | None":
-        above = sorted(t for t in routed if t > self.max_tier)
-        if above:
-            target = above[0]
-            reason = (
-                f"verified hypotheses route to {target.label} "
-                f"({target.describe()}), beyond the allowed {self.max_tier.label}"
-            )
-        elif self.max_tier < FixTier.L4_PARAMETERS:
-            target = FixTier(self.max_tier + 1)
-            reason = (
-                f"no candidate within {self.max_tier.label} validated; the next "
-                f"intervention space is {target.describe()}"
-            )
-        else:
-            return None  # already at L4 — nothing above to recommend
-        skipped: "list[str]" = []
-        while (
-            model is not None
-            and target
-            in {
-                FixTier.L3A_INTERNALS_READ,
-                FixTier.L3B_INTERNALS_WRITE,
-            }
-            and not self._tier_available(target, model, data=data)
-        ):
-            skipped.append(target.label)
-            if target >= FixTier.L4_PARAMETERS:
-                return None
-            target = FixTier(target + 1)
-        if skipped:
-            reason += (
-                f"; skipped unsupported tier(s) {', '.join(skipped)} for this model "
-                f"and routed to {target.describe()}"
-            )
-        if reason_prefix:
-            reason = f"{reason_prefix}; {reason}"
-        return {"recommend_tier": target.label, "reason": reason}
-
-    def _tier_available(
-        self,
-        tier: FixTier,
-        model: "Model",
-        *,
-        data: "CaseBatch | None" = None,
-    ) -> bool:
-        """Whether an invasive tier has an executor compatible with this task."""
-        if data is not None and tier in {
-            FixTier.L3A_INTERNALS_READ,
-            FixTier.L3B_INTERNALS_WRITE,
-        }:
-            has_images = any(
-                getattr(c.inputs, "image", None) is not None
-                or getattr(c.inputs, "video", None) is not None
-                for c in data
-            )
-            has_audio = any(getattr(c.inputs, "audio", None) is not None for c in data)
-            tasks = {str((getattr(c, "metadata", {}) or {}).get("task", "")) for c in data}
-            registered = any(
-                method.tier == tier
-                for method in discover_methods(
-                    model,
-                    max_tier=tier,
-                    has_images=has_images,
-                    has_audio=has_audio,
-                    tasks=tasks,
-                    allow_adapted=self._allow_adapted_paper_methods,
-                )
-            )
-            if registered:
-                return True
-            if tier == FixTier.L3A_INTERNALS_READ:
-                from evalrx.core.capability import Capability
-
-                return bool(
-                    self._allow_codegen
-                    and Capability.ATTENTION in getattr(model, "capabilities", frozenset())
-                )
-            return bool(
-                has_images
-                and any(
-                    primitive.tier == tier and primitive.available(model)
-                    for primitive in INTERNALS_PRIMITIVES.values()
-                )
-            )
-        if tier == FixTier.L3A_INTERNALS_READ:
-            from evalrx.core.capability import Capability
-
-            return (
-                Capability.ATTENTION in getattr(model, "capabilities", frozenset())
-                or supports_tier(model, tier)
-            )
-        if tier == FixTier.L3B_INTERNALS_WRITE:
-            return any(
-                primitive.tier == tier and primitive.available(model)
-                for primitive in INTERNALS_PRIMITIVES.values()
-            )
-        return True
 
     def _emit(self, outcome: FixOutcome) -> None:
         if self.run_logger is None:

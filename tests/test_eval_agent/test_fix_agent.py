@@ -30,6 +30,7 @@ from evalrx.eval_agent.stages.fix_agent import (
     _code_redefines_model_bridge,
     _malformed_choice_predicate,
 )
+from evalrx.eval_agent.stages.fix_verdict import recommend
 from evalrx.eval_agent.stages.repair_catalog import discover_methods
 
 # ── tiers ─────────────────────────────────────────────────────────────────────
@@ -2016,8 +2017,9 @@ def test_audio_recommendation_skips_incompatible_internals_tiers():
             return "adapted_truncated_layer_stability" if method == "tcd" else "unavailable"
 
     batch = _gold_audio_batch()
-    agent = FixAgent(judge=None, max_tier="L2", allow_codegen=False)
-    rec = agent._recommend([], model=AdaptedOnlyTCD(), data=batch)
+    rec = recommend(
+        [], FixTier.L2_SCAFFOLD, model=AdaptedOnlyTCD(), data=batch, allow_codegen=False
+    )
     assert rec["recommend_tier"] == "L4"
     assert "skipped unsupported tier(s) L3a, L3b" in rec["reason"]
 
@@ -3541,7 +3543,7 @@ def test_a_pipeline_that_solves_the_task_itself_is_not_a_fix(tmp_path):
     ctrl = v.candidate.payload["frozen_model_control"]
     assert ctrl["ok"] is True and len(ctrl["solved"]) == len(data)
 
-    rec = agent._no_fix_recommendation([v], [FixTier.L2_SCAFFOLD], data, model)
+    rec = agent.no_fix_recommendation([v], [FixTier.L2_SCAFFOLD], data, model)
     assert rec is not None and rec.get("action") != "fix_execution"
     assert "without the model" in rec["reason"]
 

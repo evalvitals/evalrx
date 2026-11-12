@@ -448,7 +448,7 @@ def test_recommendation_surfaces_inconclusive_positive_candidate():
                          n_pairs=80, n_fixed=11, n_broken=2, effect=0.1125, e_value=7.5,
                          reject=False, verdict="partial")
     batch = _mc_batch(11, 69)
-    rec = agent._no_fix_recommendation([good], [FixTier.L1_PROMPT], batch, CountingModel())
+    rec = agent.no_fix_recommendation([good], [FixTier.L1_PROMPT], batch, CountingModel())
     assert rec is not None and rec.get("promising", {}).get("candidate") == "good"
     assert "INCONCLUSIVE, not refuted" in rec["reason"]
     assert "baseline_repeats" in rec["reason"]
@@ -588,11 +588,11 @@ def test_rates_mode_power_ceiling_uses_baseline_rates():
                                                 kind="template"),
                          n_pairs=42, n_fixed=2, n_broken=0, effect=0.02, e_value=1.5,
                          reject=False, verdict="partial")
-    rec = agent._no_fix_recommendation([weak], [FixTier.L1_PROMPT], batch, CountingModel())
+    rec = agent.no_fix_recommendation([weak], [FixTier.L1_PROMPT], batch, CountingModel())
     assert rec is not None  # ceiling with 42 cases of headroom is high -> not 'underpowered'
     tiny = _mc_batch(1, 1)
     agent._baseline_rates = {c.id: 0.9 for c in tiny}
-    rec2 = agent._no_fix_recommendation([weak], [FixTier.L1_PROMPT], tiny, CountingModel())
+    rec2 = agent.no_fix_recommendation([weak], [FixTier.L1_PROMPT], tiny, CountingModel())
     assert rec2 is not None and rec2.get("action") == "gather_more_failures"
 
 
