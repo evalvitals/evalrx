@@ -1,7 +1,8 @@
 """Plain-language descriptions of repair candidates.
 
-Kept apart from :mod:`fix_agent` so readers of a run (``reporting``,
-``contract``) can label a candidate without importing the agent itself.
+One home for the plain-language wording, shared by the fix agent, the
+dynamic report and the contract emitter instead of each reaching into the
+agent's private names.
 """
 
 from __future__ import annotations
