@@ -1739,7 +1739,6 @@ class VLDiagnoseLoop:
                             records a skipped stage instead.
         """
         from evalrx.eval_agent.stages.fix.tiers import FixTier, parse_tier
-        from evalrx.eval_agent.stages.fix.verdict import ebh_survivors
 
         # Validate the fix on a held-out partition (leak #3): the hypotheses
         # were generated on EXPLORE, so the deployed repair must be confirmed on
@@ -1760,273 +1759,239 @@ class VLDiagnoseLoop:
             dev_data, final_data, dev_label = self.val_data, confirm, "VAL"
         elif test is not None:
             dev_data, final_data, dev_label = confirm, test, "VAL"
-        else:
+        elif confirm is not None:
             dev_data, final_data, dev_label = explore, confirm, "EXPLORE"
-        if confirm is not None:
-            data = final_data
+        else:
+            dev_data, final_data, dev_label = data, None, "ALL"
 
         agent = fix_agent or self.fix_agent
-        # M5's intervention experiment (run_m5) can REFUTE the very hypothesis
-        # M4 verified. A refuted hypothesis must not reach the proposer as
-        # "verified": on qwen3.5-2b/bbh_tracking7 the fix judge/coder were told
-        # the M5-refuted grading-mismatch hypothesis was verified and half the
-        # coded pipeline's design served it. Refuted ones are dropped from the
-        # list and passed to the proposer as "do not build on these".
-        refuted_ids, refuted_notes = _m5_refuted(report)
-        hypotheses = [
-            tr.hypothesis for tr in report.verified_hypotheses
-            if _hyp_key(tr.hypothesis) not in refuted_ids
-        ]
-        hypotheses_note = ""
-        if allow_unverified:
-            # Opt-in exploratory repair keeps strong inconclusive leads even
-            # when M4 happened to verify a different, narrower hypothesis. A
-            # secondary supported symptom must not crowd the plausible causal
-            # mechanisms out of the intervention search. They remain clearly
-            # marked as leads; only the final candidate validation is a fix.
-            leads = [
-                h for h in _unverified_hypotheses(report)
-                if _hyp_key(h) not in refuted_ids
-                and _hyp_key(h) not in {_hyp_key(v) for v in hypotheses}
-            ][:3]
-            had_verified = bool(hypotheses)
-            hypotheses.extend(leads)
-            supported = _m5_supported_key(report)
-            if leads:
-                hypotheses_note = (
-                    ("MIXED EVIDENCE: verified hypotheses come first; the remaining "
-                     if had_verified else
-                     "UNVERIFIED: M4 found no statistically significant evidence for these ")
-                    + "hypotheses; they are best-scoring leads, not established "
-                    "mechanisms"
-                    + ("; the M5 intervention experiment SUPPORTED the first lead"
-                       if supported and _hyp_key(leads[0]) == supported else "")
-                    + ". Treat inconclusive leads only as hints about WHERE to intervene; "
-                    "the final candidate validation decides."
-                )
+        hypotheses, hypotheses_note, refuted_ids, refuted_notes = _fix_hypotheses(
+            report, allow_unverified
+        )
         if not hypotheses:
-            # A repair proposal is an intervention, not another exploratory
-            # probe.  Do not turn an unreviewed/unsupported M3 lead into a
-            # misleading empty M5 outcome.  The caller gets a stable outcome
-            # object for compatibility, while the audit records a skipped stage.
-            from evalrx.eval_agent.stages.fix.types import FixOutcome
-
-            outcome = FixOutcome(
-                max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
-                stage_status="skipped",
-                skip_reason=("diagnosis_error" if report.stopped_by == "diagnosis_error"
-                             else "no_accepted_hypothesis"),
-                recommendation={
-                    "reason": ("Repair was not attempted because diagnosis failed; inspect M3 errors."
-                               if report.stopped_by == "diagnosis_error" else
-                               "Repair was not attempted because no hypothesis passed the evidence gate."),
-                    "next_step": ("Inspect the recorded M3 error, fix its cause, and retry diagnosis."
-                                  if report.stopped_by == "diagnosis_error" else
-                                  "Run the targeted diagnostic probe proposed by M3."),
-                },
-            )
-            if self.run_logger is not None:
-                self.run_logger.log_stage_skipped(
-                    "M5", outcome.skip_reason,
-                    detail=outcome.recommendation["reason"],
-                )
-            self._set_fix_outcome(report, outcome)
-            return outcome
+            return self._skip_fix(report, agent)
 
         context = _fix_context_from_report(
             report,
-            example_cases=explore if confirm is not None else None,
+            example_cases=explore if final_data is not None else None,
             explore_context=self._explore_context,
             protocol=self.protocol,
             refuted=refuted_notes,
             refuted_ids=refuted_ids,
         )
         context.hypotheses_note = hypotheses_note
-
-        # With a held-out split, the entire tier ladder is searched on the
-        # development partition (EXPLORE, or VAL in train/val/test mode).
-        # Feedback may adapt the next tier there; the final partition remains
-        # untouched until one candidate is frozen and evaluated exactly once.
-        # This keeps automatic L0 -> L1 -> L2 -> L3a -> L3b escalation without
-        # tuning on the holdout.  Each ceiling is tried separately: cheaper
-        # candidates are not pooled with a newly opened, more invasive tier.
-        if auto_escalate and confirm is not None:
-            ladder = [
-                FixTier.L0_RUNTIME_CONFIG,
-                FixTier.L1_PROMPT,
-                FixTier.L2_SCAFFOLD,
-                FixTier.L3A_INTERNALS_READ,
-                FixTier.L3B_INTERNALS_WRITE,
-            ]
-            ceiling = (
-                parse_tier(max_tier) if max_tier is not None
-                else FixTier.L3B_INTERNALS_WRITE
-            )
-            agent_logger = getattr(agent, "run_logger", None)
-            attempted: "list" = []
-            prior: "list" = []
-            repair_rounds = 0
-            for tier in ladder:
-                if tier > ceiling:
-                    break
-                logger.info(
-                    "run_fix: %s trying tier %s (%d prior attempt(s))",
-                    dev_label,
-                    tier.label,
-                    len(prior),
-                )
-                selection = _propose_and_validate(
-                    agent,
-                    self.model,
-                    dev_data,
-                    hypotheses,
-                    prior_attempts=prior if prior else None,
-                    context=context,
-                    max_tier=tier,
-                    min_tier=tier,
-                    record=False,
-                )
-                if not hasattr(selection, "attempted"):
-                    self._set_fix_outcome(report, selection)
-                    return selection
-                attempted.extend(selection.attempted)
-                repair_rounds += int(getattr(selection, "repair_rounds", 0) or 0)
-                if selection.fixed:
-                    logger.info("run_fix: %s fixed at tier %s", dev_label, tier.label)
-                    break
-                prior.extend(v for v in selection.attempted if not v.fixed)
-                logger.info("run_fix: %s tier %s exhausted — escalating", dev_label, tier.label)
-
-            outcome = _confirm_from_explore(
-                agent,
-                self.model,
-                final_data,
-                attempted,
-                max_tier=ceiling,
-                repair_rounds=repair_rounds,
-            )
-            try:
-                if agent_logger is not None:
-                    agent_logger.log_fix(outcome)
-            except Exception as exc:
-                logger.debug("run_fix: held-out escalation log_fix failed: %s", exc)
-            self._set_fix_outcome(report, outcome)
-            return outcome
+        requested = parse_tier(max_tier) if max_tier is not None else None
+        agent_logger = getattr(agent, "run_logger", None)
 
         if auto_escalate:
-            _LADDER = [
-                FixTier.L0_RUNTIME_CONFIG,
-                FixTier.L1_PROMPT,
-                FixTier.L2_SCAFFOLD,
-                FixTier.L3A_INTERNALS_READ,
-                FixTier.L3B_INTERNALS_WRITE,
-            ]
-            ceiling = (
-                parse_tier(max_tier) if max_tier is not None
-                else FixTier.L3B_INTERNALS_WRITE
-            )
-            # Rounds record nothing (record=False) so we can emit one combined outcome.
-            agent_logger = getattr(agent, "run_logger", None)
-            all_attempted: "list" = []
-            all_prior: "list" = []
-            last_outcome = None
-
-            for tier in _LADDER:
-                if tier > ceiling:
-                    break
-                logger.info("run_fix: trying tier %s (%d prior attempt(s))",
-                            tier.label, len(all_prior))
-                outcome = _propose_and_validate(
-                    agent, self.model, data, hypotheses,
-                    prior_attempts=all_prior if all_prior else None,
-                    context=context,
-                    max_tier=tier,
-                    min_tier=tier,
-                    record=False,
+            # With a held-out split the entire ladder is searched on the
+            # development partition; feedback may adapt the next tier there,
+            # and the final partition stays untouched until one candidate is
+            # frozen and evaluated exactly once.  Without a split the rungs are
+            # merged into one outcome under e-BH over the whole union.
+            ceiling = requested if requested is not None else FixTier.L3B_INTERNALS_WRITE
+            rungs = _climb_ladder(agent, self.model, dev_data, hypotheses, context,
+                                  ceiling, dev_label)
+            if not hasattr(rungs[-1], "attempted"):  # opaque custom-agent result
+                return self._set_fix_outcome(report, rungs[-1])
+            if final_data is None:
+                outcome = _merge_rungs(rungs, ceiling, agent.alpha)
+            else:
+                outcome = _confirm_from_explore(
+                    agent, self.model, final_data,
+                    [v for rung in rungs for v in rung.attempted],
+                    max_tier=ceiling,
+                    repair_rounds=sum(int(getattr(r, "repair_rounds", 0) or 0) for r in rungs),
                 )
-                all_attempted.extend(outcome.attempted)
-                all_prior.extend(v for v in outcome.attempted if not v.fixed)
-                last_outcome = outcome
-                if outcome.fixed:
-                    logger.info("run_fix: fixed at tier %s", tier.label)
-                    break
-                logger.info("run_fix: tier %s exhausted — escalating", tier.label)
+            _log_fix(agent_logger, outcome)
+            return self._set_fix_outcome(report, outcome)
 
-            # Merge all rounds into one combined outcome and emit once. The
-            # merged set spans every escalated tier, so it is a LARGER best-of-N
-            # family than any single tier — re-apply e-BH FDR control over the
-            # whole union (mirrors FixAgent.propose_and_validate) instead of an
-            # uncorrected max, or auto-escalation would re-open the multiplicity
-            # leak it was meant to respect.
-            if last_outcome is not None:
-                last_outcome.attempted = all_attempted
-                last_outcome.max_tier = ceiling
-                tested = [v for v in all_attempted if v.e_value is not None]
-                survivors = ebh_survivors(tested, agent.alpha)
-                last_outcome.ebh_survivors = sorted(
-                    v.candidate.name for v in tested if id(v) in survivors)
-                winners = [v for v in all_attempted
-                           if v.fixed and id(v) in survivors]
-                if winners:
-                    last_outcome.best = max(
-                        winners, key=lambda v: (v.effect or 0.0, -v.n_broken)
-                    )
-                    last_outcome.fixed = True
-                else:
-                    last_outcome.best = None
-                    last_outcome.fixed = False
-                try:
-                    if agent_logger is not None:
-                        agent_logger.log_fix(last_outcome)
-                except Exception as exc:
-                    logger.debug("run_fix: combined log_fix failed: %s", exc)
+        if final_data is None:
+            outcome = _propose_and_validate(agent, self.model, data, hypotheses,
+                                            context=context, max_tier=requested)
+            return self._set_fix_outcome(report, outcome)
 
-            self._set_fix_outcome(report, last_outcome)
-            return last_outcome
+        # A two-stage repair experiment: the agent may iterate and select on the
+        # development partition, then exactly one frozen candidate is tested on
+        # the final partition.  Selection statistics are descriptive only; the
+        # final paired gate is computed from the final partition alone.
+        selection = _propose_and_validate(agent, self.model, dev_data, hypotheses,
+                                          context=context, max_tier=requested, record=False)
+        # Custom/legacy agents may return an opaque application-specific result
+        # rather than FixOutcome.  They cannot take part in the frozen-candidate
+        # confirmation, but their return contract is kept.
+        if not hasattr(selection, "attempted"):
+            return self._set_fix_outcome(report, selection)
+        outcome = _confirm_from_explore(
+            agent, self.model, final_data, selection.attempted,
+            max_tier=requested if requested is not None else agent.max_tier,
+            repair_rounds=selection.repair_rounds,
+        )
+        _log_fix(agent_logger, outcome)
+        return self._set_fix_outcome(report, outcome)
 
-        # Non-escalating path.  With a held-out split this is a genuine
-        # two-stage repair experiment: the agent may iterate and select on the
-        # development partition (EXPLORE, or VAL in train/val/test mode), then
-        # exactly one frozen candidate is tested on the final partition.
-        # Selection statistics are descriptive only; the final paired gate is
-        # computed from the final partition alone.
-        requested = parse_tier(max_tier) if max_tier is not None else None
-        if confirm is not None:
-            agent_logger = getattr(agent, "run_logger", None)
-            selection = _propose_and_validate(
-                agent, self.model, dev_data, hypotheses, context=context,
-                max_tier=requested, record=False,
+    def _skip_fix(self, report: VLDiagnoseReport, agent: "Any") -> "Any":
+        """Record a skipped M5 stage: no hypothesis passed the evidence gate.
+
+        A repair proposal is an intervention, not another exploratory probe,
+        so an unreviewed/unsupported M3 lead must not become a misleading
+        empty M5 outcome.  The caller still gets a stable outcome object.
+        """
+        from evalrx.eval_agent.stages.fix.tiers import FixTier
+        from evalrx.eval_agent.stages.fix.types import FixOutcome
+
+        diagnosis_failed = report.stopped_by == "diagnosis_error"
+        outcome = FixOutcome(
+            max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
+            stage_status="skipped",
+            skip_reason="diagnosis_error" if diagnosis_failed else "no_accepted_hypothesis",
+            recommendation={
+                "reason": ("Repair was not attempted because diagnosis failed; inspect M3 errors."
+                           if diagnosis_failed else
+                           "Repair was not attempted because no hypothesis passed the evidence gate."),
+                "next_step": ("Inspect the recorded M3 error, fix its cause, and retry diagnosis."
+                              if diagnosis_failed else
+                              "Run the targeted diagnostic probe proposed by M3."),
+            },
+        )
+        if self.run_logger is not None:
+            self.run_logger.log_stage_skipped(
+                "M5", outcome.skip_reason,
+                detail=outcome.recommendation["reason"],
             )
+        return self._set_fix_outcome(report, outcome)
 
-            # Custom/legacy agents may return an opaque application-specific
-            # result rather than FixOutcome.  They cannot participate in the
-            # built-in frozen-candidate confirmation protocol, but preserving
-            # their return contract is preferable to turning a diagnostic run
-            # into an AttributeError.
-            if not hasattr(selection, "attempted"):
-                self._set_fix_outcome(report, selection)
-                return selection
 
-            outcome = _confirm_from_explore(
-                agent,
-                self.model,
-                final_data,
-                selection.attempted,
-                max_tier=requested if requested is not None else agent.max_tier,
-                repair_rounds=selection.repair_rounds,
+def _fix_hypotheses(
+    report: "Any", allow_unverified: bool
+) -> "tuple[list[Any], str, set[str], list[str]]":
+    """What the fix stage may build on: ``(hypotheses, note, refuted_ids, refuted_notes)``.
+
+    M5's intervention experiment (run_m5) can REFUTE the very hypothesis M4
+    verified. A refuted hypothesis must not reach the proposer as "verified":
+    on qwen3.5-2b/bbh_tracking7 the fix judge/coder were told the M5-refuted
+    grading-mismatch hypothesis was verified and half the coded pipeline's
+    design served it. Refuted ones are dropped and passed to the proposer as
+    "do not build on these".
+
+    With *allow_unverified*, strong inconclusive leads are kept even when M4
+    verified a different, narrower hypothesis, so a secondary supported
+    symptom cannot crowd the plausible causal mechanisms out of the search.
+    They stay marked as leads in the note; only candidate validation decides.
+    """
+    refuted_ids, refuted_notes = _m5_refuted(report)
+    hypotheses = [
+        tr.hypothesis for tr in report.verified_hypotheses
+        if _hyp_key(tr.hypothesis) not in refuted_ids
+    ]
+    note = ""
+    if allow_unverified:
+        leads = [
+            h for h in _unverified_hypotheses(report)
+            if _hyp_key(h) not in refuted_ids
+            and _hyp_key(h) not in {_hyp_key(v) for v in hypotheses}
+        ][:3]
+        had_verified = bool(hypotheses)
+        hypotheses.extend(leads)
+        supported = _m5_supported_key(report)
+        if leads:
+            note = (
+                ("MIXED EVIDENCE: verified hypotheses come first; the remaining "
+                 if had_verified else
+                 "UNVERIFIED: M4 found no statistically significant evidence for these ")
+                + "hypotheses; they are best-scoring leads, not established "
+                "mechanisms"
+                + ("; the M5 intervention experiment SUPPORTED the first lead"
+                   if supported and _hyp_key(leads[0]) == supported else "")
+                + ". Treat inconclusive leads only as hints about WHERE to intervene; "
+                "the final candidate validation decides."
             )
-            try:
-                if agent_logger is not None:
-                    agent_logger.log_fix(outcome)
-            except Exception as exc:
-                logger.debug("run_fix: held-out log_fix failed: %s", exc)
-            self._set_fix_outcome(report, outcome)
-            return outcome
+    return hypotheses, note, refuted_ids, refuted_notes
 
-        outcome = _propose_and_validate(agent, self.model, data, hypotheses, context=context,
-                                        max_tier=requested)
-        self._set_fix_outcome(report, outcome)
-        return outcome
+
+def _climb_ladder(
+    agent: "Any",
+    model: "Any",
+    data: "CaseBatch",
+    hypotheses: "list[Any]",
+    context: "Any",
+    ceiling: "Any",
+    label: str,
+) -> "list[Any]":
+    """Propose-and-validate one tier at a time, L0 up to *ceiling* (at most L3b).
+
+    Each rung sees only its own tier (cheaper candidates are not pooled with a
+    newly opened, more invasive tier) plus every failed attempt so far, so the
+    judge can try something fundamentally different.  Stops at the first fix.
+    Rungs record nothing; the caller records one combined outcome.  An opaque
+    custom-agent result ends the climb as the last rung.
+    """
+    from evalrx.eval_agent.stages.fix.tiers import FixTier
+
+    ladder = [
+        FixTier.L0_RUNTIME_CONFIG,
+        FixTier.L1_PROMPT,
+        FixTier.L2_SCAFFOLD,
+        FixTier.L3A_INTERNALS_READ,
+        FixTier.L3B_INTERNALS_WRITE,
+    ]
+    rungs: "list[Any]" = []
+    prior: "list[Any]" = []
+    for tier in ladder:
+        if tier > ceiling:
+            break
+        logger.info("run_fix: %s trying tier %s (%d prior attempt(s))",
+                    label, tier.label, len(prior))
+        rung = _propose_and_validate(
+            agent, model, data, hypotheses,
+            prior_attempts=prior if prior else None,
+            context=context,
+            max_tier=tier,
+            min_tier=tier,
+            record=False,
+        )
+        rungs.append(rung)
+        if not hasattr(rung, "attempted"):
+            break
+        if rung.fixed:
+            logger.info("run_fix: %s fixed at tier %s", label, tier.label)
+            break
+        prior.extend(v for v in rung.attempted if not v.fixed)
+        logger.info("run_fix: %s tier %s exhausted — escalating", label, tier.label)
+    return rungs
+
+
+def _merge_rungs(rungs: "list[Any]", ceiling: "Any", alpha: float) -> "Any":
+    """One outcome for a climb with no held-out partition.
+
+    The merged set spans every escalated tier, so it is a LARGER best-of-N
+    family than any single tier — e-BH FDR control is re-applied over the
+    whole union (mirrors FixAgent.propose_and_validate) instead of an
+    uncorrected max, or escalation would re-open the multiplicity leak.
+    The last rung's outcome carries the merge.
+    """
+    from evalrx.eval_agent.stages.fix.verdict import ebh_survivors
+
+    outcome = rungs[-1]
+    outcome.attempted = [v for rung in rungs for v in rung.attempted]
+    outcome.max_tier = ceiling
+    tested = [v for v in outcome.attempted if v.e_value is not None]
+    survivors = ebh_survivors(tested, alpha)
+    outcome.ebh_survivors = sorted(v.candidate.name for v in tested if id(v) in survivors)
+    winners = [v for v in outcome.attempted if v.fixed and id(v) in survivors]
+    outcome.best = max(winners, key=lambda v: (v.effect or 0.0, -v.n_broken), default=None)
+    outcome.fixed = outcome.best is not None
+    return outcome
+
+
+def _log_fix(run_logger: "Any | None", outcome: "Any") -> None:
+    """Record the one combined fix outcome the unrecorded rounds left out."""
+    if run_logger is None:
+        return
+    try:
+        run_logger.log_fix(outcome)
+    except Exception as exc:  # logging must never break the fix step
+        logger.debug("run_fix: log_fix failed: %s", exc)
 
 
 def _confirm_from_explore(

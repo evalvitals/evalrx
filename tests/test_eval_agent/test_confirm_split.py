@@ -429,3 +429,21 @@ def test_tier_ladder_rejects_an_agent_without_a_tier_window():
         _loop(fix_agent=NoWindow(), confirm_split=0.5).run_fix(
             _report(), _batch(), auto_escalate=True, allow_unverified=True
         )
+
+
+def test_ladder_without_split_returns_an_opaque_custom_result():
+    """A custom agent's application-specific result ends the climb and is
+    returned as-is, with or without a held-out split."""
+    opaque = object()
+
+    class Opaque(_RecordingFixAgent):
+        def propose_and_validate(self, model, data, hypotheses, *, max_tier=None,
+                                 min_tier=None):
+            self.calls += 1
+            return opaque
+
+    stub = Opaque()
+    out = _loop(fix_agent=stub).run_fix(
+        _report(), _batch(), auto_escalate=True, allow_unverified=True
+    )
+    assert out is opaque and stub.calls == 1
