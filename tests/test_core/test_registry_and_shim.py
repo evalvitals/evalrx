@@ -48,7 +48,7 @@ def test_get_set_params():
     from evalrx.analyzers.attention.summary import AttentionAnalyzer
 
     a = AttentionAnalyzer(layer=-1, top_k=5)
-    assert a.get_params() == {"layer": -1, "head": "mean", "top_k": 5}
+    assert a.get_params() == {"layer": -1, "head": "mean", "top_k": 5, "max_cases": 0}
     a.set_params(top_k=2)
     assert a.get_params()["top_k"] == 2
     assert a.top_k == 2

@@ -141,11 +141,12 @@ for _key, _repo in (
 # Qwen3.5 WITH its vision tower -- the same checkpoints as the text specs above,
 # loaded as ``Qwen3_5ForConditionalGeneration`` (``AutoModelForImageTextToText``)
 # for the image benchmarks (examples/m1_m5/*_qwen3_5_2b). Layout verified on
-# transformers 5.15.0: ``model.language_model.layers`` (24 layers on the 2B,
+# transformers 5.15.0: ``model.language_model.layers`` (24 layers on the 0.8B and 2B,
 # ``layer_types`` = [linear x3, full] x 6), ``model.visual.blocks``,
 # ``config.image_token_id`` top-level, ``vision_config.spatial_merge_size`` = 2,
 # processor emits ``image_grid_thw`` -- i.e. the Qwen3-VL shape.
 for _key, _repo, _n_layers in (
+    ("qwen3.5-0.8b-vl", "Qwen/Qwen3.5-0.8B", 24),
     ("qwen3.5-2b-vl", "Qwen/Qwen3.5-2B", 24),
     ("qwen3.5-4b-vl", "Qwen/Qwen3.5-4B", 32),
     ("qwen3.5-9b-vl", "Qwen/Qwen3.5-9B", 32),

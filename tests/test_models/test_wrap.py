@@ -138,7 +138,7 @@ def test_wrap_want_negotiation_rejects_missing_cap():
     from evalrx.core.capability import CapabilityError
 
     with pytest.raises(CapabilityError):
-        evalrx.wrap(FakeCausalLM(), FakeTokenizer(), want={Capability.GRADIENTS})
+        evalrx.wrap(FakeCausalLM(), FakeTokenizer(), want={Capability.EMBEDDINGS})
 
 
 # ----------------------------------------------------------------------

@@ -39,7 +39,8 @@ def test_qwenllm_returns_hf_local_model_with_caps():
     assert Capability.ATTENTION in model.capabilities
     assert Capability.HIDDEN_STATES in model.capabilities
     assert Capability.GENERATE in model.capabilities
-    assert Capability.GRADIENTS not in model.capabilities
+    assert Capability.GRADIENTS in model.capabilities  # forward(with_grad=True)
+    assert Capability.EMBEDDINGS not in model.capabilities
 
 
 def test_qwenllm_checkpoint_override():
