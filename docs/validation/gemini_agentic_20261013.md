@@ -62,7 +62,7 @@ Controller 仅在 EXPLORE 上调查。Host 管理修复搜索，在 EXPLORE 中�
 ## 证据位置
 
 以下均为相对仓库根目录的本地路径；原始运行文件没有发布到文档站点。
-保留规则和清单生成方式见[本地产物索引](local_artifacts.md)。
+保留规则和清单生成方式见[本地产物索引](../local_artifacts.md)。
 
 - 完整机器审计：`examples/benchmark/smoke_checks/agentic-default-20261012/full_chain_audit.json`
 - 命令、哈希和运行说明：`examples/benchmark/smoke_checks/agentic-default-20261012/README.md`

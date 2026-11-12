@@ -58,7 +58,7 @@ cleanup procedure: it would remove the ignored evidence listed above.
 
 ## Validation records
 
-- [Gemini agentic validation, 2026-10-13](gemini_agentic_report_20261013.md).
+- [Gemini agentic validation, 2026-10-13](validation/gemini_agentic_20261013.md).
 - [Gemma repair matrix, historical snapshot from 2026-08-30](validation/gemma_repair_20260830.md).
 
 These reports describe their recorded runs; repository maintenance does not
