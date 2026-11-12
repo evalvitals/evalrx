@@ -10,16 +10,21 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 `stages/fix_agent.py` (3,952 lines, one 3,200-line class) is now an
 orchestrator over modules that each own one job and its state:
-`fix_types` (data model), `fix_proposal` (`FixProposer`; built-in repairs as
-the `BUILTIN_SPECS` / `CONDITIONAL_DEFAULTS` tables), `fix_codegen`
+`fix_types` (data model), `fix_proposal` (`FixProposer`; conditional and
+floor/pre-registered built-ins as the `CONDITIONAL_DEFAULTS` /
+`BUILTIN_SPECS` tables), `fix_codegen`
 (`PipelineCoder`), `fix_validation` (`CandidateValidator`, `Baseline`;
 execution dispatched by candidate kind), `fix_verdict` (verdicts, e-BH,
 recommendations), `fix_recorder` (run-log writes) and `fix_descriptions`.
 The `FixAgent` constructor, `propose_and_validate`, `validate_candidate` and
-its public attributes are unchanged; `FixAgent.alpha` and
-`FixAgent.no_fix_recommendation()` are now public, and the loop no longer
-reaches into `FixAgent` private methods. Code that imported private helpers
-from `fix_agent` must import them from their new modules.
+its public attributes are unchanged; `FixAgent.alpha`,
+`FixAgent.recommend()` and `FixAgent.no_fix_recommendation()` are now public,
+and the loop no longer reaches into `FixAgent` private methods. A custom fix
+agent passed to the loop now needs an `alpha` attribute, and its
+`recommend`/`no_fix_recommendation` (no leading underscore) are what the loop
+calls; `_ebh_survivors`/`_refine_signal` overrides are no longer used. Code
+that imported private helpers from `fix_agent` must import them from their
+new modules.
 
 ### Fixed — RunLoggerV2 outbox on multi-user hosts
 

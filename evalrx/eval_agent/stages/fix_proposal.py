@@ -203,9 +203,12 @@ def _self_consistency_5(baseline_temperature: Any) -> PipelineSpec:
     )
 
 
-#: Built-in L2 specs (the floor, the pre-registered defaults, and the base of
-#: some conditional defaults), by name. Each builder takes the baseline's
-#: sampling temperature. Adding a built-in spec is one entry here.
+#: Built-in L2 specs by name: what the floor and a single-name pre-registered
+#: allowlist resolve to, and the base of some conditional defaults. Each
+#: builder takes the baseline's sampling temperature. The judge-less fallback
+#: list in ``_l2_candidates`` is separate (its self_consistency_5 samples with
+#: do_sample at 0.7), and the reader-facing sentence lives in
+#: ``fix_descriptions.BUILTIN_DESCRIPTIONS``.
 BUILTIN_SPECS: "dict[str, Callable[[Any], PipelineSpec]]" = {
     "self_consistency_5": _self_consistency_5,
     "self_refine": lambda _t: PipelineSpec(
@@ -250,7 +253,7 @@ class ConditionalDefault:
     ``opt_in`` defaults are proposed only when named in the candidate
     allowlist; the others whenever the batch qualifies and no allowlist
     excludes them. Adding a conditional repair is one entry in
-    :data:`CONDITIONAL_DEFAULTS`.
+    :data:`CONDITIONAL_DEFAULTS` (plus its sentence in ``BUILTIN_DESCRIPTIONS``).
     """
 
     name: str

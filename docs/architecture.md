@@ -686,9 +686,12 @@ default `L2_SCAFFOLD`); there is no automatic escalation.
 the baseline and runs each candidate kind, `fix_verdict` turns validations
 into verdicts and recommendations, and `FixRecorder` logs. Each piece of
 per-run state has one owner; the agent passes the tier window, the decode
-floor and the `Baseline` explicitly. To add a built-in repair, add an entry to
-`BUILTIN_SPECS` or `CONDITIONAL_DEFAULTS`; to add a candidate kind, add one
-execution method to `CandidateValidator` and its entry in the kind map.
+floor and the `Baseline` explicitly. A conditional built-in repair is one
+entry in `CONDITIONAL_DEFAULTS`; a spec for the floor or a pre-registered
+allowlist is one entry in `BUILTIN_SPECS` (the judge-less fallback list in
+`FixProposer._l2_candidates` is still separate). Give either a reader-facing
+sentence in `BUILTIN_DESCRIPTIONS`. A new candidate kind is one execution
+method on `CandidateValidator` plus its entry in the kind map.
 
 
 ```text
