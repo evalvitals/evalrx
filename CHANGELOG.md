@@ -52,6 +52,9 @@ unchanged. Visible differences:
 - A custom fix agent whose `propose_and_validate` cannot take
   `max_tier`/`min_tier` now raises `TypeError` under `auto_escalate` or an
   explicit `max_tier`, instead of running every rung at its own tier.
+- Under `auto_escalate` without a held-out split, a custom agent's opaque
+  (non-`FixOutcome`) result is returned as-is, as the held-out ladder
+  already did, instead of raising `AttributeError`.
 
 ### Fixed — RunLoggerV2 outbox on multi-user hosts
 
