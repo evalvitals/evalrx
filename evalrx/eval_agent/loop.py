@@ -223,7 +223,7 @@ def _fix_context_from_report(
     the proposer sees: M4 verdicts + M2 conclusion/tests + exploratory notes,
     the M5-refuted hypotheses, and (when a confirm split is in play) the
     EXPLORE cases in full."""
-    from evalrx.eval_agent.stages.fix_agent import FixContext
+    from evalrx.eval_agent.stages.fix_types import FixContext
 
     lines: list[str] = []
     refuted_ids = set(refuted_ids or ())
@@ -1789,7 +1789,7 @@ class VLDiagnoseLoop:
             # probe.  Do not turn an unreviewed/unsupported M3 lead into a
             # misleading empty M5 outcome.  The caller gets a stable outcome
             # object for compatibility, while the audit records a skipped stage.
-            from evalrx.eval_agent.stages.fix_agent import FixOutcome
+            from evalrx.eval_agent.stages.fix_types import FixOutcome
 
             outcome = FixOutcome(
                 max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
@@ -2034,8 +2034,8 @@ def _confirm_from_explore(
     repair_rounds: int,
 ) -> "Any":
     """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
-    from evalrx.eval_agent.stages.fix_agent import FixOutcome
     from evalrx.eval_agent.stages.fix_descriptions import plain_description
+    from evalrx.eval_agent.stages.fix_types import FixOutcome
 
     def _recommend(reason: str, validations: "list[Any]") -> "dict[str, Any] | None":
         routed = sorted({v.candidate.tier for v in validations})

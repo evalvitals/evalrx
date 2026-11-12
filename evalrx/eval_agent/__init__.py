@@ -173,12 +173,7 @@ from evalrx.eval_agent.stages.experiment_writer import (
     SolutionNode,
     build_model_context,
 )
-from evalrx.eval_agent.stages.fix_agent import (
-    FixAgent,
-    FixCandidate,
-    FixOutcome,
-    FixValidation,
-)
+from evalrx.eval_agent.stages.fix_agent import FixAgent
 from evalrx.eval_agent.stages.fix_internals import (
     INTERNALS_PRIMITIVES,
     FinetuneSpec,
@@ -186,6 +181,7 @@ from evalrx.eval_agent.stages.fix_internals import (
 )
 from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier, route_min_tier
 from evalrx.eval_agent.stages.fix_tools import PipelineSpec
+from evalrx.eval_agent.stages.fix_types import FixCandidate, FixOutcome, FixValidation
 from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester, HypothesisTestResult
 from evalrx.eval_agent.stages.probe import ModelKind, StrategyProbe
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent

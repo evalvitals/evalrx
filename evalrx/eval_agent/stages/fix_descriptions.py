@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from evalrx.eval_agent.stages.fix_agent import FixCandidate
+    from evalrx.eval_agent.stages.fix_types import FixCandidate
 
 
 #: What each of the host's own repairs does, in one sentence, for a reader who
