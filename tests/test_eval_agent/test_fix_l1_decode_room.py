@@ -16,8 +16,8 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent import FixAgent, FixTier
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.stages.fix_agent import FixCandidate
-from evalrx.eval_agent.stages.fix_proposal import enforce_generation_floor
+from evalrx.eval_agent.stages.fix.agent import FixCandidate
+from evalrx.eval_agent.stages.fix.proposal import enforce_generation_floor
 
 
 class ScriptedJudge(Model):

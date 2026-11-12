@@ -203,7 +203,7 @@ raising it rather than climbing on its own.
 | **L2** | Scaffolds around an unchanged model — multi-call, tools, aggregation | ✅ |
 | **L3a** | Read internals — attention-guided cropping, contrastive decoding | ✅ |
 | **L3b** | Write internals — attention reweighting, activation steering | ✅ |
-| **L4** | **Parameter space — build a dataset, fine-tune, re-test** | ✅ LoRA on the LLM ([`fix_internals.py`](evalrx/eval_agent/stages/fix_internals.py)); other recipe shapes recorded, not yet executed |
+| **L4** | **Parameter space — build a dataset, fine-tune, re-test** | ✅ LoRA on the LLM ([`fix_internals.py`](evalrx/eval_agent/stages/fix/internals.py)); other recipe shapes recorded, not yet executed |
 
 **L3b and L4 only exist for open weights** — you cannot modify a forward pass
 or fine-tune through somebody's API.

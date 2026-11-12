@@ -696,7 +696,7 @@ def _headline(candidate: Any) -> str:
     if described:
         return described[:300]
     try:
-        from evalrx.eval_agent.stages.fix_descriptions import BUILTIN_DESCRIPTIONS
+        from evalrx.eval_agent.stages.fix.descriptions import BUILTIN_DESCRIPTIONS
     except Exception:
         return ""
     name = str(_val(candidate, "name", "") or "")

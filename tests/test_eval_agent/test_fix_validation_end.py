@@ -31,10 +31,10 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-from evalrx.eval_agent.stages.fix_agent import FixAgent, FixCandidate, FixContext
-from evalrx.eval_agent.stages.fix_proposal import _format_examples
-from evalrx.eval_agent.stages.fix_tiers import FixTier
-from evalrx.eval_agent.stages.fix_tools import (
+from evalrx.eval_agent.stages.fix.agent import FixAgent, FixCandidate, FixContext
+from evalrx.eval_agent.stages.fix.proposal import _format_examples
+from evalrx.eval_agent.stages.fix.tiers import FixTier
+from evalrx.eval_agent.stages.fix.tools import (
     MAX_TOKENS_CAP,
     PipelineSpec,
     answer_key,
@@ -224,7 +224,7 @@ def test_floor_is_inferred_from_the_model_when_not_given():
 
 
 def test_bridge_enforces_floor_and_passes_generation_kwargs(tmp_path):
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     code = '''
 import json
@@ -436,7 +436,7 @@ def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
 
 
 def test_recommendation_surfaces_inconclusive_positive_candidate():
-    from evalrx.eval_agent.stages.fix_agent import FixValidation
+    from evalrx.eval_agent.stages.fix.agent import FixValidation
 
     agent = FixAgent(judge=None, max_tier="L2", allow_codegen=False, floor_candidates=())
     good = FixValidation(candidate=FixCandidate(tier=FixTier.L2_SCAFFOLD, name="good",
@@ -571,7 +571,7 @@ def test_candidate_repeats_apply_to_declarative_candidates_only(tmp_path):
 
 
 def test_rates_mode_power_ceiling_uses_baseline_rates():
-    from evalrx.eval_agent.stages.fix_agent import FixValidation
+    from evalrx.eval_agent.stages.fix.agent import FixValidation
 
     agent = FixAgent(judge=None, max_tier="L2", baseline_repeats=5, allow_codegen=False,
                      floor_candidates=())
@@ -740,7 +740,7 @@ def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
     and with concurrency>1 the host really services calls in parallel."""
     import time as _t
 
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     model = EchoPromptModel(delay=0.15)
     batch = _mc_batch(n_fail=6, n_pass=6)
@@ -763,7 +763,7 @@ def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
 def test_bridge_reply_carries_rid_and_errors_route_to_the_caller(tmp_path):
     """An unknown case id errors in the calling thread only; the other
     thread's call still succeeds (replies are routed by id, not by order)."""
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     code = """
 import json
@@ -793,8 +793,8 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": [
 
 
 def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
-    from evalrx.eval_agent.stages import fix_codegen
-    from evalrx.eval_agent.stages.fix_pipeline import CodedPipelineResult
+    from evalrx.eval_agent.stages.fix import codegen as fix_codegen
+    from evalrx.eval_agent.stages.fix.pipeline import CodedPipelineResult
 
     seen = {}
 

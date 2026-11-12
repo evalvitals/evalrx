@@ -39,6 +39,8 @@ M5 — Surgery (fix proposal + execution)
                                           ExperimentWriter → label correlation
   experiment_writer.py ExperimentWriter   multi-phase LLM/CLI agent writes + runs
                                           diagnostic Python projects in a sandbox
+  fix/                 FixAgent           post-loop tiered repair (L0 → L4); see
+                                          fix/__init__.py for its modules
 
 M4 — Hypothesis testing (statistical + protocol consistency gate)
   hypothesis_tester.py HypothesisTester   per-case signal extraction → fail-rate comparison

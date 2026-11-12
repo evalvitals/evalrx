@@ -137,7 +137,7 @@ done here.
 `python run.py --smoke-test` builds a synthetic model + 4 synthetic cases and
 runs the **real** `VLDiagnoseLoop` + `FixAgent` code paths (stub M1 probe and
 M3 diagnosis, everything else real) — specifically to catch
-`tcd_temporal_blur`'s admission gate (`fix_agent.py`'s `_l3_candidates`)
+`tcd_temporal_blur`'s admission gate (`fix/proposal.py`'s `_l3_candidates`)
 silently never firing, which would otherwise complete a whole run and produce
 nothing, with no error anywhere. Passing, as of this rewrite:
 

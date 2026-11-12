@@ -65,27 +65,29 @@ stages/ (M1–M4 implementation):
   surgery.py           M5 — SurgeryAgent: correlate / param-sweep / ExperimentWriter
                               → InterventionResult (SUPPORTED / REFUTED / INCONCLUSIVE)
   experiment_writer.py M5 — multi-phase LLM/CLI agent writes + executes fix scripts
-  fix_tiers.py         Fix — FixTier intervention-space ladder (L0 runtime /
-                              L1 prompt / L2 scaffold / L3a read / L3b write /
-                              L4 params)
-                              + hypothesis -> minimum-tier routing
-  fix_tools.py         Fix — L2 tool catalog (zoom/contrast/equalize/upscale)
-                              + PipelineSpec executor around the unchanged model
-  fix_agent.py         Fix — FixAgent: orchestrates propose -> validate ->
+  fix/                 Fix — post-loop tiered repair (FixAgent and collaborators):
+    agent.py             FixAgent: orchestrates propose -> validate ->
                               FixOutcome (+ tier recommendation)
-  fix_types.py         Fix — FixCandidate / FixValidation / FixOutcome / FixContext
-  fix_proposal.py      Fix — FixProposer: candidates per tier, built-in repairs
-  fix_codegen.py       Fix — PipelineCoder: write / run / repair coded pipelines
-  fix_validation.py    Fix — CandidateValidator: baseline + paired validation
-  fix_verdict.py       Fix — verdicts, e-BH, no-fix recommendations
-  fix_recorder.py      Fix — FixRecorder: run-log writes
-  fix_pipeline.py      Fix — L2 coded pipelines: sandboxed agent code with
+    types.py             FixCandidate / FixValidation / FixOutcome / FixContext
+    tiers.py             FixTier ladder (L0 runtime / L1 prompt / L2 scaffold /
+                              L3a read / L3b write / L4 params)
+                              + hypothesis -> minimum-tier routing
+    proposal.py          FixProposer: candidates per tier, built-in repairs
+    codegen.py           PipelineCoder: write / run / repair coded pipelines
+    validation.py        CandidateValidator: baseline + paired validation
+    verdict.py           verdicts, e-BH, no-fix recommendations
+    recorder.py          FixRecorder: run-log writes
+    descriptions.py      plain-language candidate descriptions
+    tools.py             L2 tool catalog (zoom/contrast/equalize/upscale)
+                              + PipelineSpec executor around the unchanged model
+    pipeline.py          L2 coded pipelines: sandboxed agent code with
                               bridged model access (model_generate/model_attend)
-  fix_internals.py     Fix — L3a attention-guided crop, L3b intervention
+    internals.py         L3a attention-guided crop, L3b intervention
                               primitives (visual embedding boost); L4
                               FinetuneSpec + run_lora_repair (v1: LoRA on
                               target="llm" only, trained on a caller-supplied
                               finetune_pool; other recipe shapes recorded only)
+    repair_catalog.py    discovery of pre-audited model repair capabilities
   hypothesis_tester.py M4 — HypothesisTester: statistical test + protocol consistency;
                               stopping_criteria_met() drives the VLDiagnoseLoop exit
 """
@@ -179,15 +181,15 @@ from evalrx.eval_agent.stages.experiment_writer import (
     SolutionNode,
     build_model_context,
 )
-from evalrx.eval_agent.stages.fix_agent import FixAgent
-from evalrx.eval_agent.stages.fix_internals import (
+from evalrx.eval_agent.stages.fix.agent import FixAgent
+from evalrx.eval_agent.stages.fix.internals import (
     INTERNALS_PRIMITIVES,
     FinetuneSpec,
     InternalsPrimitive,
 )
-from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier, route_min_tier
-from evalrx.eval_agent.stages.fix_tools import PipelineSpec
-from evalrx.eval_agent.stages.fix_types import FixCandidate, FixOutcome, FixValidation
+from evalrx.eval_agent.stages.fix.tiers import FixTier, parse_tier, route_min_tier
+from evalrx.eval_agent.stages.fix.tools import PipelineSpec
+from evalrx.eval_agent.stages.fix.types import FixCandidate, FixOutcome, FixValidation
 from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester, HypothesisTestResult
 from evalrx.eval_agent.stages.probe import ModelKind, StrategyProbe
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
-from evalrx.eval_agent.stages.fix_tiers import FixTier
+from evalrx.eval_agent.stages.fix.tiers import FixTier
 
 if TYPE_CHECKING:
     from evalrx.core.case import FailureCase
@@ -24,7 +24,7 @@ class FixCandidate:
         description: One plain sentence saying what this candidate does, for
                      someone with no background in the field.  Supplied by the
                      judge where the judge invented the candidate, and by
-                     :data:`~.fix_descriptions.BUILTIN_DESCRIPTIONS` for the host's own.  Empty
+                     :data:`~.descriptions.BUILTIN_DESCRIPTIONS` for the host's own.  Empty
                      is allowed and means "nothing readable to say" -- readers
                      are shown a blank rather than the slug in title case.
         kind:        ``"template"`` (L1) | ``"spec"`` (L2 declarative) |
@@ -33,7 +33,7 @@ class FixCandidate:
                      ``"visual_search"`` (L2 question-guided crop through an
                      opt-in backend).
         payload:     Kind-specific — template: ``{"prompt_template": ...}``;
-                     spec: a :class:`~.fix_tools.PipelineSpec` dict;
+                     spec: a :class:`~.tools.PipelineSpec` dict;
                      code: ``{"code": "<python source>"}``.
         source:      ``"judge"``, ``"cli:<provider>"`` or ``"default"``.
         predicate:   Optional ``(case) -> bool`` applicability gate.  When set,
@@ -85,7 +85,7 @@ class FixValidation:
     coverage: "float | None" = None  # applicable FAILs / total FAILs in subset
     n_unstable: int = 0  # cases dropped as baseline-unstable (noise)
     # Failing cases a coded pipeline ALSO got right with the model frozen to
-    # its recorded answers (fix_pipeline.frozen_model_control) — the repair was
+    # its recorded answers (PipelineCoder.frozen_model_control) — the repair was
     # the pipeline's own computation, not the model's, so they leave the paired
     # test. Baseline-correct cases are never dropped on this ground.
     n_model_independent: int = 0

@@ -3,7 +3,7 @@
 :class:`FixProposer` turns hypotheses and example cases into repair
 candidates for every allowed tier: telemetry-driven runtime fixes (L0), judge
 prompts (L1), declarative pipelines and the built-in defaults (L2), the coded
-pipeline (via :class:`~.fix_codegen.PipelineCoder`), catalog repairs
+pipeline (via :class:`~.codegen.PipelineCoder`), catalog repairs
 (L3) and fine-tune recipes (L4). The proposer never sees gold answers.
 """
 
@@ -22,23 +22,23 @@ from evalrx.eval_agent.prompts.fix_agent import (
     _L4_PROMPT,
     _REPAIR_CATALOG_PROMPT,
 )
-from evalrx.eval_agent.stages.fix_codegen import PipelineCoder
-from evalrx.eval_agent.stages.fix_descriptions import judge_description
-from evalrx.eval_agent.stages.fix_internals import (
+from evalrx.eval_agent.stages.fix.codegen import PipelineCoder
+from evalrx.eval_agent.stages.fix.descriptions import judge_description
+from evalrx.eval_agent.stages.fix.internals import (
     INTERNALS_PRIMITIVES,
     FinetuneSpec,
     primitives_catalog_text,
 )
-from evalrx.eval_agent.stages.fix_recorder import FixRecorder
-from evalrx.eval_agent.stages.fix_tiers import FixTier
-from evalrx.eval_agent.stages.fix_tools import (
+from evalrx.eval_agent.stages.fix.recorder import FixRecorder
+from evalrx.eval_agent.stages.fix.repair_catalog import discover_methods, method_names
+from evalrx.eval_agent.stages.fix.tiers import FixTier
+from evalrx.eval_agent.stages.fix.tools import (
     TEXT_ONLY_CATALOG_NOTE,
     PipelineSpec,
     _safe_generation_kwargs,
     catalog_text,
 )
-from evalrx.eval_agent.stages.fix_types import FixCandidate, FixContext
-from evalrx.eval_agent.stages.repair_catalog import discover_methods, method_names
+from evalrx.eval_agent.stages.fix.types import FixCandidate, FixContext
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
@@ -208,7 +208,7 @@ def _self_consistency_5(baseline_temperature: Any) -> PipelineSpec:
 #: builder takes the baseline's sampling temperature. The judge-less fallback
 #: list in ``_l2_candidates`` is separate (its self_consistency_5 samples with
 #: do_sample at 0.7), and the reader-facing sentence lives in
-#: ``fix_descriptions.BUILTIN_DESCRIPTIONS``.
+#: ``descriptions.BUILTIN_DESCRIPTIONS``.
 BUILTIN_SPECS: "dict[str, Callable[[Any], PipelineSpec]]" = {
     "self_consistency_5": _self_consistency_5,
     "self_refine": lambda _t: PipelineSpec(
@@ -1132,7 +1132,7 @@ class FixProposer:
             defaults = image_defaults if has_images else text_defaults
             # self_refine/least_to_most were only ever offered for text-only
             # cases, even though run_pipeline already threads the case image
-            # through every call of a multi-call strategy (fix_tools.py) --
+            # through every call of a multi-call strategy (tools.py) --
             # nothing about them is text-specific. On a binary/grounding task
             # (yes_no) the image transforms above are the right first lever;
             # on a genuine multi-step reasoning task (multiple_choice,
@@ -1155,7 +1155,7 @@ class FixProposer:
                 # look would catch; self_consistency helps when greedy decoding
                 # is stuck on one answer but the model's distribution actually
                 # has support elsewhere. Majority-vote aggregation already
-                # exists in run_pipeline (fix_tools.py, n_samples > 1) but had
+                # exists in run_pipeline (tools.py, n_samples > 1) but had
                 # never been registered as a default candidate for any task.
                 reasoning_defaults = []
                 if "self_refine" not in prior_names:

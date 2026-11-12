@@ -59,7 +59,7 @@ docker compose up
 
 ## What "fixed" means here
 
-`fix_agent.py`'s admission gate for AAD (`aad_silence_contrast` /
+`fix/proposal.py`'s admission gate for AAD (`aad_silence_contrast` /
 `aad_silence_contrast_gated_false_yes`, both L3a — they read and combine logits
 from two `generate()`-compatible forward passes) requires
 `case.metadata["task"] == "yes_no"`, `model.generate_aad` to exist, and

@@ -1,6 +1,6 @@
 """L2 coded pipelines — agent-written repair scaffolds with bridged model access.
 
-The declarative :class:`~.fix_tools.PipelineSpec` path covers fixed-shape
+The declarative :class:`~.tools.PipelineSpec` path covers fixed-shape
 scaffolds (catalog tools + one templated call).  Real L2 means the coding
 agent writes a **brand-new pipeline**: multiple model calls per case, branching
 on intermediate outputs (ask for a region → zoom → re-ask, describe → decide,
@@ -53,7 +53,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from evalrx.eval_agent.stages.fix_tools import apply_image_ops, score_to_bool
+from evalrx.eval_agent.stages.fix.tools import apply_image_ops, score_to_bool
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
@@ -598,7 +598,7 @@ def _service_call(
     """Handle one bridged model call; never raises (errors travel as JSON)."""
     import dataclasses
 
-    from evalrx.eval_agent.stages.fix_tools import _safe_generation_kwargs
+    from evalrx.eval_agent.stages.fix.tools import _safe_generation_kwargs
 
     try:
         req = json.loads(raw)
@@ -623,7 +623,7 @@ def _service_call(
             # Strict contract: a malformed op silently skipped hides the bug
             # from the coding agent forever; an error reply becomes a
             # RuntimeError inside the generated code — visible and repairable.
-            from evalrx.eval_agent.stages.fix_tools import IMAGE_TOOLS
+            from evalrx.eval_agent.stages.fix.tools import IMAGE_TOOLS
 
             bad = [op for op in ops if not isinstance(op, dict) or not op.get("tool")]
             unknown = [str(op["tool"]) for op in ops

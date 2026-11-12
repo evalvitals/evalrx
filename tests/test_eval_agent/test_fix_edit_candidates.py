@@ -21,7 +21,7 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent import FixAgent
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
 
 _DEPLOYED = "{prompt}\n\nWork through this in three parts before answering."
 

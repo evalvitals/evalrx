@@ -47,7 +47,7 @@ def test_provider_and_model_implementations_live_in_their_packages():
 def test_codegen_runner_is_the_stage_cli_invocation_boundary():
     production_paths = [
         *(ROOT / "evalrx" / "analysis").glob("*.py"),
-        *(EVAL_AGENT / "stages").glob("*.py"),
+        *(EVAL_AGENT / "stages").rglob("*.py"),
         *(EVAL_AGENT / "agentic").glob("*.py"),
         EVAL_AGENT / "nl_runner.py",
     ]
@@ -147,7 +147,7 @@ def test_stage_prompt_templates_live_in_prompt_modules():
 
     offenders: list[str] = []
     for path in [
-        *(EVAL_AGENT / "stages").glob("*.py"),
+        *(EVAL_AGENT / "stages").rglob("*.py"),
         *(EVAL_AGENT / "agentic").glob("*.py"),
         *ANALYSIS.glob("*.py"),
     ]:

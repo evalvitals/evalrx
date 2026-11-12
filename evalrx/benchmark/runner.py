@@ -297,7 +297,7 @@ def effective_fix_tier(backend: str, requested: str) -> str:
     :data:`API_FIX_CEILING` on the endpoint / gemini backends — and, for now, on
     jax_local too: it reads internals but the L3a executors and L3b hooks are
     still hf_local methods (phases 2-3 of docs/design_jax_backend.md)."""
-    from evalrx.eval_agent.stages.fix_tiers import parse_tier
+    from evalrx.eval_agent.stages.fix.tiers import parse_tier
 
     if backend == "hf_local" or parse_tier(requested) <= parse_tier(API_FIX_CEILING):
         return requested
@@ -388,7 +388,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     # candidates run on the raw model and REPLACE the pipeline.
     raw_model, deployed_spec = model, None
     if getattr(args, "baseline_spec", ""):
-        from evalrx.eval_agent.stages.fix_tools import SpecPipelineModel
+        from evalrx.eval_agent.stages.fix.tools import SpecPipelineModel
 
         payload = json.loads(Path(args.baseline_spec).read_text(encoding="utf-8"))
         if isinstance(payload, dict) and isinstance(payload.get("payload"), dict):
@@ -534,7 +534,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         VLDiagnoseLoop,
     )
     from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
-    from evalrx.eval_agent.stages.repair_catalog import method_names
+    from evalrx.eval_agent.stages.fix.repair_catalog import method_names
 
     # ctx already exists (constructed before Stage-0, above) with held_out/
     # val_manifest/n_val_cases folded into its config as they became known.

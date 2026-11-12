@@ -6,16 +6,24 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Changed — FixAgent split into single-purpose modules
+### Changed — FixAgent split into the `stages/fix/` package
 
 `stages/fix_agent.py` (3,952 lines, one 3,200-line class) is now an
-orchestrator over modules that each own one job and its state:
-`fix_types` (data model), `fix_proposal` (`FixProposer`; conditional and
-floor/pre-registered built-ins as the `CONDITIONAL_DEFAULTS` /
-`BUILTIN_SPECS` tables), `fix_codegen`
-(`PipelineCoder`), `fix_validation` (`CandidateValidator`, `Baseline`;
-execution dispatched by candidate kind), `fix_verdict` (verdicts, e-BH,
-recommendations), `fix_recorder` (run-log writes) and `fix_descriptions`.
+orchestrator over modules that each own one job and its state, and all fix
+modules live in one subpackage, `evalrx.eval_agent.stages.fix`:
+`agent` (`FixAgent`), `types` (data model), `proposal` (`FixProposer`;
+conditional and floor/pre-registered built-ins as the
+`CONDITIONAL_DEFAULTS` / `BUILTIN_SPECS` tables), `codegen`
+(`PipelineCoder`), `validation` (`CandidateValidator`, `Baseline`;
+execution dispatched by candidate kind), `verdict` (verdicts, e-BH,
+recommendations), `recorder` (run-log writes), `descriptions`, plus the
+existing `tiers`, `tools`, `pipeline`, `internals` and `repair_catalog`.
+
+Module paths changed: `evalrx.eval_agent.stages.fix_<name>` is now
+`evalrx.eval_agent.stages.fix.<name>`, and `stages.repair_catalog` is
+`stages.fix.repair_catalog`. No aliases are kept at the old paths;
+`from evalrx.eval_agent import FixAgent, FixTier, ...` is unchanged.
+
 The `FixAgent` constructor, `propose_and_validate`, `validate_candidate` and
 its public attributes are unchanged; `FixAgent.alpha`,
 `FixAgent.recommend()` and `FixAgent.no_fix_recommendation()` are now public,

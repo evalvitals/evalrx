@@ -17,8 +17,8 @@ from evalrx.core.model import Model
 from evalrx.eval_agent.hypothesis import Hypothesis
 from evalrx.eval_agent.loop import VLDiagnoseLoop
 from evalrx.eval_agent.loop_reports import VLDiagnoseReport
-from evalrx.eval_agent.stages.fix_agent import FixCandidate, FixOutcome, FixValidation
-from evalrx.eval_agent.stages.fix_tiers import FixTier
+from evalrx.eval_agent.stages.fix.agent import FixCandidate, FixOutcome, FixValidation
+from evalrx.eval_agent.stages.fix.tiers import FixTier
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
 
@@ -375,7 +375,7 @@ def test_confirm_with_no_explore_lead_routes_the_next_supported_tier():
     """With nothing to freeze, the recommendation comes from the agent's own tier
     router (unsupported L3a/L3b skipped), not a flat "stay at the ceiling"."""
     from evalrx.eval_agent.loop import _confirm_from_explore
-    from evalrx.eval_agent.stages.fix_agent import FixAgent
+    from evalrx.eval_agent.stages.fix.agent import FixAgent
 
     confirm = CaseBatch([
         FailureCase.from_prompt("q", id="c0", expected="yes", observed="no", label=Label.FAIL),

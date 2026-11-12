@@ -246,17 +246,22 @@ eval_agent/
     ├── diagnosis.py      M3  DiagnosisAgent, DiagnosisResult
     ├── surgery.py        M5  SurgeryAgent, InterventionResult
     ├── experiment_writer.py  M5  ExperimentWriter
-    ├── fix_agent.py       M5 (post-loop)  FixAgent — orchestrates the modules below
-    ├── fix_types.py       FixCandidate, FixValidation, FixOutcome, FixContext
-    ├── fix_proposal.py    FixProposer — candidates per tier; BUILTIN_SPECS,
-    │                      CONDITIONAL_DEFAULTS (built-in repairs as data)
-    ├── fix_codegen.py     PipelineCoder — writes/runs/repairs coded pipelines
-    ├── fix_validation.py  CandidateValidator, Baseline — runs candidates by kind,
-    │                      paired test against the baseline
-    ├── fix_verdict.py     verdicts, e-BH survivors, no-fix recommendations
-    ├── fix_recorder.py    FixRecorder — the only writer to the run logger
-    ├── fix_descriptions.py  plain-language candidate descriptions
-    ├── fix_tiers.py       FixTier ladder (L1 prompt → L4 parameter space)
+    ├── fix/              M5 (post-loop) tiered repair
+    │   ├── agent.py       FixAgent — orchestrates the modules below
+    │   ├── types.py       FixCandidate, FixValidation, FixOutcome, FixContext
+    │   ├── proposal.py    FixProposer — candidates per tier; BUILTIN_SPECS,
+    │   │                  CONDITIONAL_DEFAULTS (built-in repairs as data)
+    │   ├── codegen.py     PipelineCoder — writes/runs/repairs coded pipelines
+    │   ├── validation.py  CandidateValidator, Baseline — runs candidates by kind,
+    │   │                  paired test against the baseline
+    │   ├── verdict.py     verdicts, e-BH survivors, no-fix recommendations
+    │   ├── recorder.py    FixRecorder — the only writer to the run logger
+    │   ├── descriptions.py  plain-language candidate descriptions
+    │   ├── tiers.py       FixTier ladder (L0 runtime → L4 parameter space)
+    │   ├── tools.py       L2 tool catalog + PipelineSpec executor
+    │   ├── pipeline.py    L2 coded pipelines (sandbox + model bridge)
+    │   ├── internals.py   L3b intervention primitives, L4 LoRA repair
+    │   └── repair_catalog.py  pre-audited repair capability discovery
     ├── hypothesis_tester.py  M4  HypothesisTester, HypothesisTestResult
     ├── case_discovery.py  CaseDiscoveryAgent — runs candidates through a model,
     │                      labels PASS/FAIL/UNKNOWN (judge or heuristic scorer)
@@ -675,7 +680,7 @@ neither. `RunContext` owns *output* (report/figures/artifacts/fixes/manifest).
 
 ### FixAgent — tiered post-loop repair (M5)
 
-`FixAgent` (`stages/fix_agent.py`) is a second M5 path, invoked via
+`FixAgent` (`stages/fix/agent.py`) is a second M5 path, invoked via
 `loop.run_fix(report, data)` after `loop.run()` — distinct from `SurgeryAgent`
 above, which verifies *why* something fails; `FixAgent` proposes and validates
 candidate *fixes*. The allowed intervention space is an **input** (`FixTier`,
@@ -683,7 +688,7 @@ default `L2_SCAFFOLD`); there is no automatic escalation.
 
 `FixAgent` itself only orchestrates: `FixProposer` builds candidates,
 `PipelineCoder` handles agent-written pipelines, `CandidateValidator` measures
-the baseline and runs each candidate kind, `fix_verdict` turns validations
+the baseline and runs each candidate kind, `fix.verdict` turns validations
 into verdicts and recommendations, and `FixRecorder` logs. Each piece of
 per-run state has one owner; the agent passes the tier window, the decode
 floor and the `Baseline` explicitly. A conditional built-in repair is one

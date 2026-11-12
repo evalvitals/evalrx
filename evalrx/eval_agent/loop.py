@@ -219,11 +219,11 @@ def _fix_context_from_report(
     refuted: "list[str]",
     refuted_ids: "set[str] | None" = None,
 ) -> "Any":
-    """Build the :class:`~evalrx.eval_agent.stages.fix_agent.FixContext`
+    """Build the :class:`~evalrx.eval_agent.stages.fix.agent.FixContext`
     the proposer sees: M4 verdicts + M2 conclusion/tests + exploratory notes,
     the M5-refuted hypotheses, and (when a confirm split is in play) the
     EXPLORE cases in full."""
-    from evalrx.eval_agent.stages.fix_types import FixContext
+    from evalrx.eval_agent.stages.fix.types import FixContext
 
     lines: list[str] = []
     refuted_ids = set(refuted_ids or ())
@@ -429,7 +429,7 @@ class VLDiagnoseLoop:
         diagnosis_retries: int = 1,
     ) -> None:
         from evalrx.analysis.stats_agent import StatsAnalysisAgent
-        from evalrx.eval_agent.stages.fix_agent import FixAgent
+        from evalrx.eval_agent.stages.fix.agent import FixAgent
         from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester
         from evalrx.eval_agent.stages.probe_agent import ProbeAgent
         from evalrx.eval_agent.stages.surgery import SurgeryAgent
@@ -1689,7 +1689,7 @@ class VLDiagnoseLoop:
 
         By default the allowed tier is fixed (default L2) and there is no
         automatic escalation — the returned
-        :class:`~evalrx.eval_agent.stages.fix_agent.FixOutcome` carries a
+        :class:`~evalrx.eval_agent.stages.fix.agent.FixOutcome` carries a
         recommendation when nothing validates.
 
         When ``auto_escalate=True`` the agent steps through the intervention
@@ -1719,8 +1719,8 @@ class VLDiagnoseLoop:
                             hypothesis, so this is safe; the default (False)
                             records a skipped stage instead.
         """
-        from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier
-        from evalrx.eval_agent.stages.fix_verdict import ebh_survivors
+        from evalrx.eval_agent.stages.fix.tiers import FixTier, parse_tier
+        from evalrx.eval_agent.stages.fix.verdict import ebh_survivors
 
         # Validate the fix on a held-out partition (leak #3): the hypotheses
         # were generated on EXPLORE, so the deployed repair must be confirmed on
@@ -1790,7 +1790,7 @@ class VLDiagnoseLoop:
             # probe.  Do not turn an unreviewed/unsupported M3 lead into a
             # misleading empty M5 outcome.  The caller gets a stable outcome
             # object for compatibility, while the audit records a skipped stage.
-            from evalrx.eval_agent.stages.fix_types import FixOutcome
+            from evalrx.eval_agent.stages.fix.types import FixOutcome
 
             outcome = FixOutcome(
                 max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
@@ -2035,9 +2035,9 @@ def _confirm_from_explore(
     repair_rounds: int,
 ) -> "Any":
     """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
-    from evalrx.eval_agent.stages.fix_descriptions import plain_description
-    from evalrx.eval_agent.stages.fix_types import FixOutcome
-    from evalrx.eval_agent.stages.fix_verdict import ebh_survivors, refine_signal
+    from evalrx.eval_agent.stages.fix.descriptions import plain_description
+    from evalrx.eval_agent.stages.fix.types import FixOutcome
+    from evalrx.eval_agent.stages.fix.verdict import ebh_survivors, refine_signal
 
     def _recommend(reason: str, validations: "list[Any]") -> "dict[str, Any] | None":
         routed = sorted({v.candidate.tier for v in validations})

@@ -2,7 +2,7 @@
 
 The coding agent (a CLI coder first, the judge as fallback) writes a brand-new
 pipeline as Python; it runs sandboxed with bridged model access
-(:mod:`fix_pipeline`). A failed run gets one repair round, and a frozen-model
+(:mod:`.pipeline`). A failed run gets one repair round, and a frozen-model
 control records which cases the code solves without the model.
 """
 
@@ -15,16 +15,16 @@ import re
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from evalrx.eval_agent.prompts.fix_agent import _L2_CODE_PROMPT, _REPAIR_PROMPT_BODY
-from evalrx.eval_agent.stages.fix_descriptions import code_description
-from evalrx.eval_agent.stages.fix_pipeline import (
+from evalrx.eval_agent.stages.fix.descriptions import code_description
+from evalrx.eval_agent.stages.fix.pipeline import (
     CodedPipelineResult,
     run_coded_pipeline,
     score_outputs,
 )
-from evalrx.eval_agent.stages.fix_recorder import FixRecorder
-from evalrx.eval_agent.stages.fix_tiers import FixTier
-from evalrx.eval_agent.stages.fix_tools import TEXT_ONLY_CATALOG_NOTE, catalog_text
-from evalrx.eval_agent.stages.fix_types import FixCandidate
+from evalrx.eval_agent.stages.fix.recorder import FixRecorder
+from evalrx.eval_agent.stages.fix.tiers import FixTier
+from evalrx.eval_agent.stages.fix.tools import TEXT_ONLY_CATALOG_NOTE, catalog_text
+from evalrx.eval_agent.stages.fix.types import FixCandidate
 from evalrx.eval_agent.stages.probe_generator import _extract_code
 
 if TYPE_CHECKING:
@@ -191,7 +191,7 @@ class PipelineCoder:
         otherwise create is negligible.
         """
         from evalrx.core.capability import Capability
-        from evalrx.eval_agent.stages.fix_pipeline import (
+        from evalrx.eval_agent.stages.fix.pipeline import (
             CASES_FILENAME,
             RESULT_MARKER,
         )
@@ -420,7 +420,7 @@ class PipelineCoder:
         """
         from pathlib import Path
 
-        from evalrx.eval_agent.stages.fix_pipeline import frozen_model_control
+        from evalrx.eval_agent.stages.fix.pipeline import frozen_model_control
 
         workdir = Path(self._workdir(candidate.trial)) / "frozen_model_control"
         ctrl = frozen_model_control(
@@ -455,7 +455,7 @@ class PipelineCoder:
         """Ask the coder to fix its failed pipeline; returns (code, source, raw)."""
         from pathlib import Path
 
-        from evalrx.eval_agent.stages.fix_pipeline import (
+        from evalrx.eval_agent.stages.fix.pipeline import (
             CASES_FILENAME,
             RESULT_MARKER,
         )

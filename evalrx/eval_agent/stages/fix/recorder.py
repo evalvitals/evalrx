@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
     from evalrx.eval_agent.run_context import Trial
-    from evalrx.eval_agent.stages.fix_types import FixOutcome
+    from evalrx.eval_agent.stages.fix.types import FixOutcome
 
 logger = logging.getLogger(__name__)
 

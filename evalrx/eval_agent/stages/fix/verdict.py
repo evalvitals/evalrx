@@ -1,6 +1,6 @@
 """Verdicts and next-step recommendations for validated repair candidates.
 
-Pure functions over :class:`~.fix_types.FixValidation` results: the triage
+Pure functions over :class:`~.types.FixValidation` results: the triage
 label of one candidate, multiplicity control across the tested family, and
 what to do when nothing validated (retry execution, gather more failures, or
 escalate the intervention tier).
@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from evalrx.eval_agent.stages.fix_internals import INTERNALS_PRIMITIVES
-from evalrx.eval_agent.stages.fix_tiers import FixTier
-from evalrx.eval_agent.stages.fix_types import FixValidation
-from evalrx.eval_agent.stages.repair_catalog import discover_methods, supports_tier
+from evalrx.eval_agent.stages.fix.internals import INTERNALS_PRIMITIVES
+from evalrx.eval_agent.stages.fix.repair_catalog import discover_methods, supports_tier
+from evalrx.eval_agent.stages.fix.tiers import FixTier
+from evalrx.eval_agent.stages.fix.types import FixValidation
 from evalrx.stats.ebh import ebh
 from evalrx.stats.evalue import evalue_bernoulli
 

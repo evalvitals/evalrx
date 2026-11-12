@@ -1,6 +1,6 @@
 """Fix module — tiered, validated repair attempts after the diagnosis loop.
 
-Design (intervention-space tiers, see :mod:`fix_tiers`): the allowed tier is
+Design (intervention-space tiers, see :mod:`.tiers`): the allowed tier is
 an **input** (default L2).  The agent proposes candidate fixes inside the
 allowed tiers, compiles every candidate to the same shape — a per-case success
 function, exactly :mod:`~evalrx.eval_agent.ab_runner`'s *strategy*
@@ -27,24 +27,24 @@ Executors by tier:
   ``max_tokens``. Only proposed from explicit execution telemetry, never from
   an LLM's guess about a response being short.
 * **L1** — prompt transforms (judge-proposed templates).
-* **L2 declarative** — catalog-tool pipelines (:mod:`fix_tools`): cheap,
+* **L2 declarative** — catalog-tool pipelines (:mod:`.tools`): cheap,
   deterministic, validated first.
 * **L2 coded** — the coding agent (CLI agent first, judge fallback) writes a
   brand-new pipeline as Python: multiple model calls per case, branching on
   intermediate outputs — only the model itself is unchanged.  The code runs
-  sandboxed with bridged model access (:mod:`fix_pipeline`); labels and
+  sandboxed with bridged model access (:mod:`.pipeline`); labels and
   rubrics never reach it, so it cannot cheat by echoing gold answers.
-* **L3a** — internals read (:mod:`fix_internals`): contrastive decoders read
+* **L3a** — internals read (:mod:`.internals`): contrastive decoders read
   and combine logits/attention from paired forward passes. Coded pipelines
   are L3a only when their source actually calls the bridged
   ``model_attend()``; merely exposing that optional API does not promote an
   otherwise black-box L2 scaffold.
-* **L3b** — internals write (:mod:`fix_internals`): pre-audited intervention
+* **L3b** — internals write (:mod:`.internals`): pre-audited intervention
   primitives (v1: visual embedding boost via a forward hook) — the judge
   selects and parameterises; never free codegen against the model handle.
-* **L4** — parameter space (:mod:`fix_internals`): the judge writes a
-  :class:`~.fix_internals.FinetuneSpec` recipe. v1's executor
-  (:func:`~.fix_internals.run_lora_repair`) runs exactly one shape —
+* **L4** — parameter space (:mod:`.internals`): the judge writes a
+  :class:`~.internals.FinetuneSpec` recipe. v1's executor
+  (:func:`~.internals.run_lora_repair`) runs exactly one shape —
   ``method="lora"`` on ``target="llm"``, trained on ``finetune_pool`` (a
   caller-supplied diagnosis-only :class:`CaseBatch`, never the validation
   split) and validated through this same paired machinery. Every other
@@ -70,22 +70,22 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional
 
 from evalrx.analyzers.perturbation.prompt_contrast import _default_score
 from evalrx.eval_agent.hypothesis import hypothesis_id
-from evalrx.eval_agent.stages.fix_codegen import PipelineCoder
-from evalrx.eval_agent.stages.fix_proposal import (
+from evalrx.eval_agent.stages.fix.codegen import PipelineCoder
+from evalrx.eval_agent.stages.fix.proposal import (
     MAX_JUDGE_CANDIDATES,
     FixProposer,
     enforce_generation_floor,
 )
-from evalrx.eval_agent.stages.fix_recorder import FixRecorder
-from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier, route_min_tier
-from evalrx.eval_agent.stages.fix_types import (
+from evalrx.eval_agent.stages.fix.recorder import FixRecorder
+from evalrx.eval_agent.stages.fix.tiers import FixTier, parse_tier, route_min_tier
+from evalrx.eval_agent.stages.fix.types import (
     FixCandidate,
     FixContext,
     FixOutcome,
     FixValidation,
 )
-from evalrx.eval_agent.stages.fix_validation import Baseline, CandidateValidator
-from evalrx.eval_agent.stages.fix_verdict import (
+from evalrx.eval_agent.stages.fix.validation import Baseline, CandidateValidator
+from evalrx.eval_agent.stages.fix.verdict import (
     ebh_survivors,
     no_fix_recommendation,
     recommend,
@@ -177,7 +177,7 @@ class FixAgent:
                           the same cases is leakage, not a fix). ``None``
                           (default) means L4 candidates are recorded but not
                           executed, same as before this executor existed.
-                          See :func:`~.fix_internals.run_lora_repair`.
+                          See :func:`~.internals.run_lora_repair`.
         verbose:          When ``True``, print this agent's own tier-routing /
                           candidate-generation / validation-verdict narration
                           to stdout (``evalrx.enable_console_logging()``).
@@ -267,7 +267,7 @@ class FixAgent:
         self._allow_adapted_paper_methods = bool(allow_adapted_paper_methods)
         # Winner-as-new-baseline (spec deploys, recursive rounds): when the
         # caller runs the whole loop against a DEPLOYED pipeline handle
-        # (fix_tools.SpecPipelineModel), `candidate_model` is the raw model —
+        # (tools.SpecPipelineModel), `candidate_model` is the raw model —
         # baseline arms keep measuring the deployed pipeline while proposals
         # and candidate arms run on the raw handle, so every candidate is a
         # full REPLACEMENT pipeline paired against the deployed one.
@@ -595,7 +595,7 @@ class FixAgent:
     ) -> "dict[str, Any] | None":
         """The next tier to try above this agent's ceiling, skipping unsupported ones.
 
-        See :func:`~.fix_verdict.recommend`.
+        See :func:`~.verdict.recommend`.
         """
         return recommend(
             routed, self.max_tier, model=model, data=data, reason_prefix=reason_prefix,
@@ -612,7 +612,7 @@ class FixAgent:
     ) -> "dict[str, Any] | None":
         """What to do when none of *attempted* validated, under this agent's settings.
 
-        See :func:`~.fix_verdict.no_fix_recommendation`.
+        See :func:`~.verdict.no_fix_recommendation`.
         """
         return no_fix_recommendation(
             attempted, routed_tiers, data, model,

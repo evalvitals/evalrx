@@ -5,7 +5,7 @@ agent: pre-audited, parameterised primitives that **write** to the forward pass.
 
 * **L3a (internals, read)** is intentionally NOT here at all.  Reading attention
   needs no privileged model handle, so the capability is exposed to sandboxed
-  coded pipelines via ``model_attend()`` (see :mod:`fix_pipeline`), and the
+  coded pipelines via ``model_attend()`` (see :mod:`.pipeline`), and the
   agent writes its own peak-find → crop → re-ask scaffold.  The host-side
   capture that backs ``model_attend()`` is
   :func:`~evalrx.analyzers.attention.relative_attn.attention_heatmap` — a
@@ -38,7 +38,7 @@ rather than guessing:
   as ``(prompt, image) -> gold answer`` SFT pairs, plus a sample of
   diagnosis-split *passing* cases as anti-forgetting ballast — supplied by
   the caller via a pool that must be disjoint from whatever batch is being
-  validated (see :class:`~.fix_agent.FixAgent`'s ``finetune_pool``).
+  validated (see :class:`~.agent.FixAgent`'s ``finetune_pool``).
 * ``method in {"sft", "full"}`` and ``target in {"vision_encoder",
   "projector"}`` are recorded (for the escalation decision) but not
   executed — the former needs a real SFT training loop rather than a
@@ -54,8 +54,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from evalrx.eval_agent.stages.fix_tiers import FixTier
-from evalrx.eval_agent.stages.fix_tools import score_to_bool
+from evalrx.eval_agent.stages.fix.tiers import FixTier
+from evalrx.eval_agent.stages.fix.tools import score_to_bool
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch, FailureCase
@@ -193,7 +193,7 @@ class FinetuneSpec:
     ``target == "llm"`` and the caller supplied a ``finetune_pool``; recorded
     without running otherwise (TODO: SFT training loop for ``method="sft"``/
     ``"full"``; per-architecture module-naming for ``target="vision_encoder"``/
-    ``"projector"``). :class:`~.fix_agent.FixAgent` always records the recipe
+    ``"projector"``). :class:`~.agent.FixAgent` always records the recipe
     as a candidate either way, so the escalation decision has something
     concrete to act on even when it wasn't executed.
 
@@ -234,7 +234,7 @@ class FinetuneSpec:
 class LoraRepairResult:
     """Outcome of one L4 LoRA train-and-validate cycle.
 
-    Mirrors :class:`~.fix_pipeline.CodedPipelineResult`'s shape (``scores``/
+    Mirrors :class:`~.pipeline.CodedPipelineResult`'s shape (``scores``/
     ``ok``/``error``) so the caller's ``exec_error`` accounting is identical
     across coded and fine-tune candidates.
     """
@@ -281,7 +281,7 @@ def _build_sft_examples(
     """Diagnosis-split-only SFT pairs — never interprets ``dataset_recipe``
     (see module docstring). Failing cases (gold answer as the SFT target)
     teach the correction; a matched sample of already-passing cases is
-    anti-forgetting ballast. The caller (:class:`~.fix_agent.FixAgent`) is
+    anti-forgetting ballast. The caller (:class:`~.agent.FixAgent`) is
     responsible for ``train_cases`` being disjoint from whatever batch is
     being validated — this function has no way to detect contamination.
     """
@@ -377,7 +377,7 @@ def run_lora_repair(
     ``eval_protocol`` field's "held-out repair effect" half is satisfied by
     that comparison; the "regression battery on baseline-passing cases" half
     is ``n_broken`` on whatever baseline-passing cases the caller's ``data``
-    batch includes, which :meth:`~.fix_validation.CandidateValidator.validate` already
+    batch includes, which :meth:`~.validation.CandidateValidator.validate` already
     computes. No second validation path is built here.
 
     Executes exactly one recipe shape (``method="lora"``, ``target="llm"``);

@@ -1368,7 +1368,7 @@ def _repair_headline(value: Mapping[str, Any]) -> str:
     if headline:
         return headline[:300]
     try:
-        from evalrx.eval_agent.stages.fix_descriptions import BUILTIN_DESCRIPTIONS
+        from evalrx.eval_agent.stages.fix.descriptions import BUILTIN_DESCRIPTIONS
     except Exception:
         return ""
     return BUILTIN_DESCRIPTIONS.get(str(value.get("name") or ""), "")
@@ -1598,7 +1598,7 @@ def _backfill_repair_identity(payload: Any) -> None:
     if not isinstance(payload, dict):
         return
     try:
-        from evalrx.eval_agent.stages.fix_descriptions import BUILTIN_DESCRIPTIONS
+        from evalrx.eval_agent.stages.fix.descriptions import BUILTIN_DESCRIPTIONS
     except Exception:
         BUILTIN_DESCRIPTIONS = {}
     refs: dict[str, str] = {}

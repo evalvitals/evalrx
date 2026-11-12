@@ -21,16 +21,16 @@ from evalrx.eval_agent import (
     route_min_tier,
 )
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.stages.fix_agent import FixCandidate, FixValidation
-from evalrx.eval_agent.stages.fix_codegen import code_copies_example, code_redefines_model_bridge
-from evalrx.eval_agent.stages.fix_proposal import (
+from evalrx.eval_agent.stages.fix.agent import FixCandidate, FixValidation
+from evalrx.eval_agent.stages.fix.codegen import code_copies_example, code_redefines_model_bridge
+from evalrx.eval_agent.stages.fix.proposal import (
     _chart_arithmetic_predicate,
     _chart_count_extract_predicate,
     _malformed_choice_predicate,
 )
-from evalrx.eval_agent.stages.fix_validation import Baseline
-from evalrx.eval_agent.stages.fix_verdict import recommend
-from evalrx.eval_agent.stages.repair_catalog import discover_methods
+from evalrx.eval_agent.stages.fix.repair_catalog import discover_methods
+from evalrx.eval_agent.stages.fix.validation import Baseline
+from evalrx.eval_agent.stages.fix.verdict import recommend
 
 # ── tiers ─────────────────────────────────────────────────────────────────────
 
@@ -130,7 +130,7 @@ def _img(size=(64, 48)):
 
 
 def test_image_tools_preserve_or_scale_size():
-    from evalrx.eval_agent.stages.fix_tools import upscale, zoom_center
+    from evalrx.eval_agent.stages.fix.tools import upscale, zoom_center
 
     img = _img()
     assert zoom_center(img, factor=2.0).size == img.size
@@ -138,7 +138,7 @@ def test_image_tools_preserve_or_scale_size():
 
 
 def test_apply_image_ops_skips_unknown_and_loads_paths(tmp_path):
-    from evalrx.eval_agent.stages.fix_tools import apply_image_ops
+    from evalrx.eval_agent.stages.fix.tools import apply_image_ops
 
     path = tmp_path / "x.png"
     _img().save(path)
@@ -156,7 +156,7 @@ def test_crop_salient_region_magnifies_small_content():
     PIL = pytest.importorskip("PIL")
     import numpy as np
 
-    from evalrx.eval_agent.stages.fix_tools import crop_salient_region
+    from evalrx.eval_agent.stages.fix.tools import crop_salient_region
 
     img = PIL.Image.new("RGB", (64, 64), color=(210, 210, 210))
     for y in range(30, 34):
@@ -177,7 +177,7 @@ def test_crop_case_bbox_magnifies_metadata_box():
     import numpy as np
 
     from evalrx.core.case import FailureCase, Inputs
-    from evalrx.eval_agent.stages.fix_tools import crop_case_bbox
+    from evalrx.eval_agent.stages.fix.tools import crop_case_bbox
 
     img = PIL.Image.new("RGB", (100, 100), color=(220, 220, 220))
     for y in range(10, 14):
@@ -202,7 +202,7 @@ def test_crop_case_bbox_no_bbox_is_noop_even_with_enhancement():
     import numpy as np
 
     from evalrx.core.case import FailureCase, Inputs
-    from evalrx.eval_agent.stages.fix_tools import crop_case_bbox
+    from evalrx.eval_agent.stages.fix.tools import crop_case_bbox
 
     img = PIL.Image.new("RGB", (32, 32), color=(120, 130, 140))
     case = FailureCase(id="no_bbox", inputs=Inputs(prompt="q", image=img), metadata={})
@@ -217,7 +217,7 @@ def test_run_pipeline_can_fix_textvqa_style_bbox_case():
     PIL = pytest.importorskip("PIL")
     import numpy as np
 
-    from evalrx.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
 
     img = PIL.Image.new("RGB", (100, 100), color=(220, 220, 220))
     for y in range(10, 14):
@@ -248,7 +248,7 @@ def test_separate_horizontal_bands_adds_visible_gaps():
     PIL = pytest.importorskip("PIL")
     import numpy as np
 
-    from evalrx.eval_agent.stages.fix_tools import separate_horizontal_bands
+    from evalrx.eval_agent.stages.fix.tools import separate_horizontal_bands
 
     colors = [(200, 40, 40), (40, 160, 40), (40, 40, 200), (210, 150, 30), (160, 50, 200)]
     img = PIL.Image.new("RGB", (80, 80), color=(210, 210, 210))
@@ -277,7 +277,7 @@ def test_annotate_horizontal_band_count_overlays_measurement():
     PIL = pytest.importorskip("PIL")
     import numpy as np
 
-    from evalrx.eval_agent.stages.fix_tools import (
+    from evalrx.eval_agent.stages.fix.tools import (
         _horizontal_band_count,
         annotate_horizontal_band_count,
     )
@@ -300,7 +300,7 @@ def test_annotate_horizontal_band_count_overlays_measurement():
 
 
 def test_pipeline_spec_validation():
-    from evalrx.eval_agent.stages.fix_tools import PipelineSpec
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec
 
     assert PipelineSpec.from_dict({"name": "x", "prompt_template": "no placeholder"}) is None
     spec = PipelineSpec.from_dict(
@@ -326,7 +326,7 @@ def test_pipeline_spec_validation():
 
 
 def test_pipeline_passes_bounded_generation_kwargs():
-    from evalrx.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
 
     case = FailureCase(id="decode", inputs=Inputs(prompt="q"), expected="yes")
 
@@ -346,7 +346,7 @@ def test_pipeline_passes_bounded_generation_kwargs():
 
 
 def test_pipeline_normalizes_zero_temperature_and_empty_stop():
-    from evalrx.eval_agent.stages.fix_tools import PipelineSpec
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec
 
     greedy = PipelineSpec.from_dict({
         "name": "greedy",
@@ -363,7 +363,7 @@ def test_pipeline_normalizes_zero_temperature_and_empty_stop():
 
 
 def test_pipeline_self_refine_is_a_label_blind_reviewed_multicall_strategy():
-    from evalrx.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
 
     case = FailureCase(id="review", inputs=Inputs(prompt="What is 2 + 2?"), expected="yes")
 
@@ -389,7 +389,7 @@ def test_pipeline_preserves_non_image_modality_fields():
     raising on the missing modality, every call returning "", run_pipeline
     returning None -> "no applicable scorable pair" for every case, the
     exact failure musicavqa_videollama2's real run hit)."""
-    from evalrx.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
 
     case = FailureCase(
         id="clip", inputs=Inputs(prompt="What instrument is heard?", video="clip.mp4"),
@@ -407,7 +407,7 @@ def test_pipeline_preserves_non_image_modality_fields():
 
 
 def test_pipeline_votes_on_task_declared_output_key_not_hidden_score():
-    from evalrx.eval_agent.stages.fix_tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
 
     case = FailureCase(
         id="structured",
@@ -2193,7 +2193,7 @@ def test_cases_payload_never_leaks_labels_or_rubrics():
     a label, expected answer, or rubric. baseline_output is what the unchanged
     model already said (the frozen-model control replays exactly it), so it
     carries no correctness information."""
-    from evalrx.eval_agent.stages.fix_pipeline import cases_payload
+    from evalrx.eval_agent.stages.fix.pipeline import cases_payload
 
     batch = _gold_yes_batch()
     payload = cases_payload(batch)
@@ -2209,7 +2209,7 @@ def test_cases_payload_never_leaks_labels_or_rubrics():
 def test_coded_pipeline_bridge_round_trip(tmp_path):
     pytest.importorskip("PIL")
     from evalrx.analyzers.perturbation.prompt_contrast import _default_score
-    from evalrx.eval_agent.stages.fix_pipeline import (
+    from evalrx.eval_agent.stages.fix.pipeline import (
         run_coded_pipeline,
         score_outputs,
     )
@@ -2225,7 +2225,7 @@ def test_coded_pipeline_bridge_round_trip(tmp_path):
 
 def test_coded_pipeline_host_guard_rejects_singleton_override(tmp_path):
     """The host, not codegen prompt compliance, owns the consensus invariant."""
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     pipeline = """
 import json
@@ -2254,7 +2254,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_coded_pipeline_host_guard_accepts_two_independent_supporters(tmp_path):
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     pipeline = """
 import json
@@ -2284,7 +2284,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_coded_pipeline_host_guard_requires_direct_baseline(tmp_path):
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     pipeline = """
 import json
@@ -2305,7 +2305,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_coded_pipeline_host_guard_deduplicates_support_and_caps_calls(tmp_path):
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     repeated = """
 import json
@@ -2340,7 +2340,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_score_outputs_coerces_label_scores():
-    from evalrx.eval_agent.stages.fix_pipeline import CodedPipelineResult, score_outputs
+    from evalrx.eval_agent.stages.fix.pipeline import CodedPipelineResult, score_outputs
 
     cases = _gold_yes_batch(n=2)
     result = CodedPipelineResult(
@@ -2358,7 +2358,7 @@ while True:
     model_generate("c0")
 """
     result = __import__(
-        "evalrx.eval_agent.stages.fix_pipeline",
+        "evalrx.eval_agent.stages.fix.pipeline",
         fromlist=["run_coded_pipeline"],
     ).run_coded_pipeline(
         runaway,
@@ -2373,7 +2373,7 @@ while True:
 
 
 def test_coded_pipeline_missing_marker_and_crash(tmp_path):
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     r1 = run_coded_pipeline(
         'print("nothing")', HopelessModel(), _gold_yes_batch(n=1), workdir=tmp_path, timeout_sec=20
@@ -2395,7 +2395,7 @@ def test_coded_pipeline_recovers_result_without_literal_marker_prefix(tmp_path):
     qwen3-vl-8b-instruct: valid ``{"per_case": [...]}"" via bare ``print()``,
     no prefix). That is a compliance slip, not a content error, and should
     not be indistinguishable from a pipeline that produced nothing at all."""
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     cases = _gold_yes_batch(n=2)
     unprefixed = """
@@ -2412,7 +2412,7 @@ print(json.dumps({"per_case": out}))
 def test_coded_pipeline_unrelated_stdout_still_fails(tmp_path):
     """The recovery fallback only accepts a line that actually parses as
     ``{"per_case": [...]}"" — noise on stdout must not be mistaken for it."""
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     noisy = """
 print("starting up")
@@ -2482,7 +2482,7 @@ def test_bridge_rejects_unknown_image_tool(tmp_path):
     """An unknown tool name returns an ERROR reply (RuntimeError in the pipeline),
     instead of being silently skipped — so the coder can see and fix it."""
     pytest.importorskip("PIL")
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     bad_pipeline = (
         "import json\n"
@@ -2636,8 +2636,8 @@ def test_attention_guided_crop_primitive_is_gone():
     """The canned L3a read primitive was removed — reads are not in the
     pre-audited write registry, only the L3b write primitive remains. The
     attention capture itself moved out of the fix module to the analyzers."""
-    from evalrx.eval_agent.stages import fix_internals
-    from evalrx.eval_agent.stages.fix_internals import INTERNALS_PRIMITIVES
+    from evalrx.eval_agent.stages.fix import internals as fix_internals
+    from evalrx.eval_agent.stages.fix.internals import INTERNALS_PRIMITIVES
 
     assert "attention_guided_crop" not in INTERNALS_PRIMITIVES
     assert all(p.tier is FixTier.L3B_INTERNALS_WRITE for p in INTERNALS_PRIMITIVES.values())
@@ -2701,7 +2701,7 @@ def test_visual_embedding_boost_hook_scales_image_tokens():
     torch = pytest.importorskip("torch")
     import types
 
-    from evalrx.eval_agent.stages.fix_internals import visual_embedding_boost
+    from evalrx.eval_agent.stages.fix.internals import visual_embedding_boost
 
     emb = torch.nn.Embedding(10, 4)
     hf = types.SimpleNamespace(
@@ -2720,7 +2720,7 @@ def test_visual_embedding_boost_hook_scales_image_tokens():
 
 def test_boost_unavailable_yields_none_scores():
     from evalrx.analyzers.perturbation.prompt_contrast import _default_score
-    from evalrx.eval_agent.stages.fix_internals import (
+    from evalrx.eval_agent.stages.fix.internals import (
         boost_available,
         run_visual_embedding_boost,
     )
@@ -2915,7 +2915,7 @@ def test_l4_lora_repair_zero_matching_layers_does_not_crash(monkeypatch):
     uncaught exception that aborts the whole FixAgent run."""
     pytest.importorskip("peft")
     from evalrx.core.spec import ModelSpec
-    from evalrx.eval_agent.stages import fix_internals
+    from evalrx.eval_agent.stages.fix import internals as fix_internals
     from evalrx.models.backends.base import RuntimeConfig
     from evalrx.models.backends.hf.model import HFLocalModel
 
@@ -2970,7 +2970,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 def test_predicate_scopes_validation_to_applicable_cases():
     """A candidate with a predicate is only judged on the cases it applies to —
     its safety/coverage exclude cases it never touched."""
-    from evalrx.eval_agent.stages.fix_agent import FixCandidate
+    from evalrx.eval_agent.stages.fix.agent import FixCandidate
 
     agent = FixAgent(judge=None, max_tier="L1")
     data = _gold_yes_batch(n=4)
@@ -2994,7 +2994,7 @@ def test_signature_distinguishes_candidates_sharing_kind_and_payload():
     (e.g. a paper method and its per-case-gated sibling) must not collide in
     the round's dedup ``seen`` set — that would silently drop the gated
     variant as an 'already seen' duplicate of the ungated one."""
-    from evalrx.eval_agent.stages.fix_agent import FixCandidate
+    from evalrx.eval_agent.stages.fix.agent import FixCandidate
 
     agent = FixAgent(judge=None, max_tier="L0")
     payload = {"alpha": 1.0, "beta": 0.1, "qformer_mode": "normal"}
@@ -3044,7 +3044,7 @@ def test_l1_candidates_do_not_use_gold_direction_gates():
 
 def test_spec_noop_cases_are_not_applicable():
     PIL = pytest.importorskip("PIL")
-    from evalrx.eval_agent.stages.fix_tools import PipelineSpec, spec_changes_input
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, spec_changes_input
 
     spec = PipelineSpec.from_dict(
         {"name": "crop", "image_ops": [{"tool": "crop_case_bbox", "params": {}}]}
@@ -3103,7 +3103,7 @@ def test_baseline_repeats_flags_unstable_cases_and_weighs_them():
     assert "c0" in baseline.unstable and "c1" not in baseline.unstable
     assert agent._baseline_rates["c0"] == 0.5 and agent._baseline_rates["c1"] == 0.0
 
-    from evalrx.eval_agent.stages.fix_agent import FixCandidate
+    from evalrx.eval_agent.stages.fix.agent import FixCandidate
 
     cand = FixCandidate(
         tier=FixTier.L1_PROMPT,
@@ -3193,7 +3193,7 @@ def test_bridged_attend_enables_coded_l3a(tmp_path):
     pytest.importorskip("PIL")
     pytest.importorskip("torch")
     from evalrx.analyzers.perturbation.prompt_contrast import _default_score
-    from evalrx.eval_agent.stages.fix_pipeline import (
+    from evalrx.eval_agent.stages.fix.pipeline import (
         run_coded_pipeline,
         score_outputs,
     )
@@ -3425,7 +3425,7 @@ def test_safe_format_leaves_non_placeholder_braces_alone():
         "{prompt} ${~m}$"       KeyError: '~m'
         "{prompt} {}"           IndexError: Replacement index 0
     """
-    from evalrx.eval_agent.stages.fix_tools import safe_format
+    from evalrx.eval_agent.stages.fix.tools import safe_format
 
     ctx = {"prompt": "P", "failure_axis": "AX"}
     assert safe_format(r"{prompt} solve \frac{a}{b}", ctx) == r"P solve \frac{a}{b}"
@@ -3435,14 +3435,14 @@ def test_safe_format_leaves_non_placeholder_braces_alone():
 
 
 def test_safe_format_still_substitutes_the_known_fields():
-    from evalrx.eval_agent.stages.fix_tools import safe_format
+    from evalrx.eval_agent.stages.fix.tools import safe_format
 
     ctx = {"prompt": "P", "failure_axis": "AX", "n": 3}
     assert safe_format("{prompt} focus on {failure_axis} ({n})", ctx) == "P focus on AX (3)"
 
 
 def test_safe_format_never_raises_on_arbitrary_text():
-    from evalrx.eval_agent.stages.fix_tools import safe_format
+    from evalrx.eval_agent.stages.fix.tools import safe_format
 
     for template in ("{", "}", "{{", "{unclosed", r"\boxed{}", "{a}{b}{c}", ""):
         safe_format(template, {"prompt": "P"})
@@ -3452,7 +3452,7 @@ def test_a_template_case_that_cannot_render_scores_none_not_a_crash():
     """The formatting used to sit outside l1's try/except, so one unrenderable
     template aborted the entire validation instead of dropping one case."""
     from evalrx.core.case import FailureCase, Inputs, Label
-    from evalrx.eval_agent.stages.fix_agent import FixAgent, FixCandidate
+    from evalrx.eval_agent.stages.fix.agent import FixAgent, FixCandidate
 
     class _Boom:
         def generate(self, *a, **k):
@@ -3660,7 +3660,7 @@ def test_guard_anchors_on_the_recorded_baseline_without_a_direct_call(tmp_path):
     """No plain ``model_generate(case_id)`` anywhere: the guard anchors on
     ``case.observed`` — a 2-of-3 override stands, a 3-of-3 requirement reverts
     the case to the RECORDED answer — and the candidate is never voided."""
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     def replies(case, prompt):
         return "Final Answer: No." if "(2)" in prompt else "Final Answer: Yes."
@@ -3687,7 +3687,7 @@ def test_only_cases_with_nothing_to_anchor_on_leave_the_result(tmp_path):
     """A case with neither a recorded baseline nor a direct call is excluded
     (scored as not measured); the other cases are guarded as usual. Only when
     EVERY case is unanchorable does the run fail, and it says why."""
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     yes = {"all_of": ["yes"], "none_of": ["no"]}
     cases = CaseBatch([
@@ -3754,7 +3754,7 @@ def test_plain_direct_calls_are_answered_from_the_record_and_are_free(tmp_path):
     """Two plain direct calls per case never reach the model and do not count
     against the per-case cap — in the live run and in the frozen control
     alike — while a direct call with decoding overrides is a live call."""
-    from evalrx.eval_agent.stages.fix_pipeline import (
+    from evalrx.eval_agent.stages.fix.pipeline import (
         frozen_model_control,
         run_coded_pipeline,
     )
@@ -3804,7 +3804,7 @@ def test_answer_key_strips_answer_tags_so_tagged_replies_can_support_an_override
     the model's raw reply carries the tag. Without stripping it no tagged
     reply could ever support an override (chartqa/qwen3.5-2b repair round:
     every override reverted, no_effect 0/0)."""
-    from evalrx.eval_agent.stages.fix_pipeline import _answer_key, _answers_match
+    from evalrx.eval_agent.stages.fix.pipeline import _answer_key, _answers_match
 
     assert _answer_key("I read 42 from the bar.\nFINAL: 42") == "42"
     assert _answer_key("Answer: 42") == "42"
@@ -3931,7 +3931,7 @@ def test_a_judge_that_echoes_the_slug_contributes_nothing():
     reader exactly what the slug already told them, while looking like the run
     had described its own repair.
     """
-    from evalrx.eval_agent.stages.fix_descriptions import judge_description
+    from evalrx.eval_agent.stages.fix.descriptions import judge_description
 
     assert judge_description({
         "name": "audio_evidence_then_answer",
@@ -3948,7 +3948,7 @@ def test_a_judge_that_echoes_the_slug_contributes_nothing():
 def test_a_coded_pipelines_own_header_is_its_description():
     """L2 code has no JSON proposal to carry `what_it_does`, so it declares it
     in the source, where the coding agent is already writing."""
-    from evalrx.eval_agent.stages.fix_descriptions import code_description
+    from evalrx.eval_agent.stages.fix.descriptions import code_description
 
     code = (
         "# WHAT_IT_DOES: Asks the model twice and keeps the answer both tries agree on.\n"
@@ -3973,8 +3973,8 @@ def test_a_coded_pipelines_own_header_is_its_description():
 
 
 def test_plain_description_never_falls_back_to_the_slug():
-    from evalrx.eval_agent.stages.fix_agent import FixCandidate, FixTier
-    from evalrx.eval_agent.stages.fix_descriptions import plain_description
+    from evalrx.eval_agent.stages.fix.agent import FixCandidate, FixTier
+    from evalrx.eval_agent.stages.fix.descriptions import plain_description
 
     judged = FixCandidate(
         tier=FixTier.L1_PROMPT, name="cross_modal_rules_terse", payload={},
@@ -3989,7 +3989,7 @@ def test_plain_description_never_falls_back_to_the_slug():
 
 
 def test_progress_survives_suppressed_result_logger_and_never_includes_labels():
-    from evalrx.eval_agent.stages.fix_agent import FixCandidate
+    from evalrx.eval_agent.stages.fix.agent import FixCandidate
     from tests.conftest import FakeModel
 
     events = []

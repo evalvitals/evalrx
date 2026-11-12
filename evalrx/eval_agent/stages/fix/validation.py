@@ -13,11 +13,11 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from evalrx.eval_agent.stages.fix_codegen import PipelineCoder
-from evalrx.eval_agent.stages.fix_internals import INTERNALS_PRIMITIVES, run_lora_repair
-from evalrx.eval_agent.stages.fix_pipeline import score_outputs
-from evalrx.eval_agent.stages.fix_recorder import FixRecorder
-from evalrx.eval_agent.stages.fix_tools import (
+from evalrx.eval_agent.stages.fix.codegen import PipelineCoder
+from evalrx.eval_agent.stages.fix.internals import INTERNALS_PRIMITIVES, run_lora_repair
+from evalrx.eval_agent.stages.fix.pipeline import score_outputs
+from evalrx.eval_agent.stages.fix.recorder import FixRecorder
+from evalrx.eval_agent.stages.fix.tools import (
     PipelineSpec,
     _safe_generation_kwargs,
     run_pipeline,
@@ -25,8 +25,8 @@ from evalrx.eval_agent.stages.fix_tools import (
     score_to_bool,
     spec_changes_input,
 )
-from evalrx.eval_agent.stages.fix_types import FixCandidate, FixValidation, truncated_count
-from evalrx.eval_agent.stages.fix_verdict import verdict
+from evalrx.eval_agent.stages.fix.types import FixCandidate, FixValidation, truncated_count
+from evalrx.eval_agent.stages.fix.verdict import verdict
 from evalrx.stats import compare, compare_paired_rates
 
 if TYPE_CHECKING:

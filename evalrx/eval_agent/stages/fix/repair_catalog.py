@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from evalrx.core.capability import Capability
-from evalrx.eval_agent.stages.fix_tiers import FixTier
+from evalrx.eval_agent.stages.fix.tiers import FixTier
 
 
 @dataclass(frozen=True)

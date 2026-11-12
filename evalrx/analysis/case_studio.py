@@ -437,7 +437,7 @@ def build_case_study(report_path: str | Path) -> "CaseStudy | None":
 
 #: One line per candidate ``kind`` saying what the intervention actually does.
 #: Sourced from this repo's own implementations (``models/paper_methods/*.py``,
-#: ``eval_agent/stages/fix_agent.py``) so the UI never invents a mechanism.
+#: ``eval_agent/stages/fix/agent.py``) so the UI never invents a mechanism.
 METHOD_NOTES: "dict[str, str]" = {
     "tcd": (
         "Temporal Contrastive Decoding (Li et al. 2026, arXiv:2604.15383): re-encodes "
@@ -487,7 +487,7 @@ METHOD_NOTES: "dict[str, str]" = {
 }
 
 #: Multi-call strategies a PipelineSpec can name in ``payload["strategy"]``.
-#: These are the ONLY values ``fix_tools._SCAFFOLD_STRATEGIES`` admits besides
+#: These are the ONLY values ``fix.tools._SCAFFOLD_STRATEGIES`` admits besides
 #: ``direct`` — a spec with no strategy runs ``n_samples`` plain calls and
 #: majority-votes them, which is what `self_consistency_5` actually is.
 STRATEGY_NOTES: "dict[str, str]" = {
@@ -500,7 +500,7 @@ STRATEGY_NOTES: "dict[str, str]" = {
 #: prepended for that call)``; an empty instruction means the call sends the
 #: task prompt unchanged.
 #:
-#: This MIRRORS ``fix_tools.STRATEGY_CALLS``, which is what actually formats
+#: This MIRRORS ``fix.tools.STRATEGY_CALLS``, which is what actually formats
 #: the calls. It is copied rather than imported because ``evalrx.analysis``
 #: must stay usable standalone and may not import ``evalrx.eval_agent`` at
 #: runtime (locked by test_agent_architecture). Drift is impossible anyway:

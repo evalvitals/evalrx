@@ -20,7 +20,7 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent import FixAgent
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.stages.fix_tools import SpecPipelineModel
+from evalrx.eval_agent.stages.fix.tools import SpecPipelineModel
 
 
 class ScriptedJudge(Model):

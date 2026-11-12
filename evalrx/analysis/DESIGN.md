@@ -32,7 +32,7 @@ M1 ProbeAgent      analyzers → probe_results（Result.findings["per_case"] 是
 
 → 推论：若 LAMBDA 只在 M2 **之后**提假设，它发现的任何新信号永远拿不到 e-value，M4 判非 decisive，假设全塌成 INCONCLUSIVE。**必须在 M2 跑之前把信号桥接进它的族。**
 
-**已具备的护栏（漏洞已修）**：充分统计量+宿主重算决策（`_reconstruct_decision`，[stats_tool_generator.py](stats_tool_generator.py)）；候选族 e-BH（`_ebh_survivors`，[fix_agent.py](../eval_agent/stages/fix_agent.py)）；留出 CONFIRM split（`_split_explore_confirm`，[loop.py](../eval_agent/loop.py)，`(label, probe_type)` 分层、按 id 不相交）。
+**已具备的护栏（漏洞已修）**：充分统计量+宿主重算决策（`_reconstruct_decision`，[stats_tool_generator.py](stats_tool_generator.py)）；候选族 e-BH（`ebh_survivors`，[fix/verdict.py](../eval_agent/stages/fix/verdict.py)）；留出 CONFIRM split（`_split_explore_confirm`，[loop.py](../eval_agent/loop.py)，`(label, probe_type)` 分层、按 id 不相交）。
 
 ---
 
