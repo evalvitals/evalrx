@@ -88,12 +88,12 @@ class _RecordingFixAgent:
         self.calls = 0
         self.tiers = []
         self.min_tiers = []
-        self.confirm_cap = None
 
-    def propose_and_validate(self, model, data, hypotheses, proposal_data=None):
+    def propose_and_validate(self, model, data, hypotheses, proposal_data=None, *,
+                             max_tier=None, min_tier=None):
         self.calls += 1
-        self.tiers.append(self.max_tier)
-        self.min_tiers.append(getattr(self, "min_tier", None))
+        self.tiers.append(max_tier if max_tier is not None else self.max_tier)
+        self.min_tiers.append(min_tier)
         self.seen_ids = {id(c) for c in data}
         self.proposal_ids = (
             {id(c) for c in proposal_data} if proposal_data is not None else None
@@ -117,7 +117,6 @@ class _RecordingFixAgent:
         )
 
     def validate_candidate(self, model, data, candidate):
-        self.confirm_cap = self.max_validation_cases
         self.confirm_ids = {id(c) for c in data}
         return FixValidation(
             candidate=candidate,
@@ -154,8 +153,6 @@ def test_run_fix_validates_on_confirm_partition():
     assert stub.confirm_ids == confirm_ids
     assert stub.seen_ids.isdisjoint(stub.confirm_ids)
     assert len(stub.confirm_ids) == 12
-    assert stub.confirm_cap == 0  # selection cap is disabled for final confirmation
-    assert stub.max_validation_cases == 5  # and restored afterwards
     assert outcome.selected_on_explore == "stub"
     assert outcome.selection_attempted[0]["n_fixed"] == 1
     assert len(outcome.attempted) == 1  # only the CONFIRM validation is final
@@ -297,7 +294,6 @@ def test_tvt_run_fix_develops_on_val_confirms_on_test():
     assert stub.confirm_ids == {id(c) for c in test}
     assert stub.seen_ids.isdisjoint({id(c) for c in train})
     assert stub.confirm_ids.isdisjoint(stub.seen_ids)
-    assert stub.confirm_cap == 0  # full TEST partition for the frozen winner
 
 
 def test_tvt_run_m5_surgery_stays_on_train():
@@ -348,7 +344,6 @@ def test_val_data_run_fix_develops_on_val_confirms_on_confirm():
     assert stub.confirm_ids == {id(c) for c in confirm}
     assert stub.seen_ids.isdisjoint({id(c) for c in explore})
     assert stub.seen_ids.isdisjoint(stub.confirm_ids)
-    assert stub.confirm_cap == 0  # full CONFIRM partition for the frozen winner
 
 
 def test_val_data_run_m5_surgery_stays_on_explore():
@@ -387,3 +382,50 @@ def test_confirm_with_no_explore_lead_routes_the_next_supported_tier():
     assert outcome.recommendation["recommend_tier"] == "L4"
     assert outcome.recommendation["reason"].startswith("no EXPLORE candidate had positive")
     assert "skipped unsupported tier(s) L3a, L3b" in outcome.recommendation["reason"]
+
+
+def test_confirm_routes_from_the_given_ceiling_not_the_agents():
+    """The loop passes the run's ceiling explicitly: an agent configured at L1
+    confirming under an L2 ceiling recommends past L2, not past L1."""
+    from evalrx.eval_agent.loop import _confirm_from_explore
+    from evalrx.eval_agent.stages.fix.agent import FixAgent
+
+    confirm = CaseBatch([
+        FailureCase.from_prompt("q", id="c0", expected="yes", observed="no", label=Label.FAIL),
+    ])
+    outcome = _confirm_from_explore(
+        FixAgent(max_tier="L1"), object(), confirm, [],
+        max_tier=FixTier.L2_SCAFFOLD, repair_rounds=1,
+    )
+    assert outcome.recommendation["recommend_tier"] == "L4"
+
+
+def test_run_fix_never_writes_to_the_fix_agent():
+    """Tier windows and log suppression are per-call arguments; the agent's own
+    configuration is the same after run_fix as before it."""
+    stub = _RecordingFixAgent()
+    stub.run_logger = SimpleNamespace(log_fix=lambda outcome: None)
+    before = dict(vars(stub))
+    _loop(fix_agent=stub, confirm_split=0.5).run_fix(
+        _report(), _batch(), auto_escalate=True, max_tier="L3a", allow_unverified=True
+    )
+    _loop(fix_agent=stub).run_fix(_report(), _batch(), max_tier="L1", allow_unverified=True)
+    after = vars(stub)
+    for name in ("max_tier", "min_tier", "max_validation_cases", "run_logger"):
+        assert after.get(name) is before.get(name)
+    assert stub.max_tier is FixTier.L2_SCAFFOLD
+
+
+def test_tier_ladder_rejects_an_agent_without_a_tier_window():
+    """An agent that cannot take max_tier/min_tier would run every rung at its
+    own tier; the ladder refuses it instead of silently mislabelling rungs."""
+    import pytest
+
+    class NoWindow(_RecordingFixAgent):
+        def propose_and_validate(self, model, data, hypotheses):
+            raise AssertionError("must not be called")
+
+    with pytest.raises(TypeError, match="max_tier"):
+        _loop(fix_agent=NoWindow(), confirm_split=0.5).run_fix(
+            _report(), _batch(), auto_escalate=True, allow_unverified=True
+        )

@@ -34,6 +34,25 @@ calls; `_ebh_survivors`/`_refine_signal` overrides are no longer used. Code
 that imported private helpers from `fix_agent` must import them from their
 new modules.
 
+### Changed — the fix loop no longer writes to the fix agent
+
+`VLDiagnoseLoop.run_fix` used to reconfigure its `FixAgent` between tier
+rungs by assigning `max_tier`, `min_tier`, `run_logger` and
+`max_validation_cases`, restoring them inconsistently afterwards. It now
+passes everything per call: `propose_and_validate(..., max_tier=, min_tier=,
+record=False)`, and `recommend()` / `no_fix_recommendation()` take the run's
+ceiling as `max_tier=`. `validate_candidate` always scores the whole batch
+(`max_validation_cases` is a search budget; every in-repo caller already
+confirmed uncapped). Proposals, validations, run-log events and outcomes are
+unchanged. Visible differences:
+
+- After `run_fix(max_tier=...)` or an `auto_escalate` run, the agent keeps
+  its configured `max_tier`; it used to keep the requested or last-tried
+  tier, which leaked into the next `run_fix` call.
+- A custom fix agent whose `propose_and_validate` cannot take
+  `max_tier`/`min_tier` now raises `TypeError` under `auto_escalate` or an
+  explicit `max_tier`, instead of running every rung at its own tier.
+
 ### Fixed — RunLoggerV2 outbox on multi-user hosts
 
 The Langfuse outbox lived in a single shared `/tmp/evalrx-v2-outbox`, owned by

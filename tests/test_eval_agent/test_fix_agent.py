@@ -1095,6 +1095,12 @@ def test_l0_telemetry_candidate_repairs_decode_budget_without_prompt_guessing():
     assert confirmation.fixed is True
     assert confirmation.n_fixed == 16 and confirmation.n_broken == 0
 
+    # max_validation_cases budgets the search only; confirmation uses every case.
+    capped = FixAgent(score_fn=_label_score, max_validation_cases=4).validate_candidate(
+        DecodeBudgetSensitiveModel(), batch, out.best.candidate
+    )
+    assert capped.n_fixed == 16
+
 
 def test_l0_does_not_admit_contrastive_decoding_candidates():
     visual = _gold_yes_batch(n=8, image=_img())

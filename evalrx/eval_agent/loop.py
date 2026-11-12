@@ -114,21 +114,40 @@ def _diagnose_with_optional_context(
     return diag_agent.diagnose(stats_report, **kwargs)
 
 
-def _propose_and_validate(agent: "Any", model: "Any", data: "Any", hypotheses: "Any",
-                          **kwargs: Any) -> "Any":
-    """Call ``agent.propose_and_validate`` passing ``prior_attempts`` /
-    ``context`` only when the agent accepts them (custom/stub fix agents keep
-    working unchanged — same pattern as ``_diagnose_with_optional_context``)."""
+def _call_supported(fn: "Any", *args: Any, required: "tuple[str, ...]" = (),
+                    **kwargs: Any) -> "Any":
+    """Call *fn* with the non-None *kwargs* it accepts.
+
+    Custom/stub fix agents keep working with optional extras such as
+    ``prior_attempts`` / ``context`` / ``record`` (same pattern as
+    ``_diagnose_with_optional_context``).  A *required* keyword the function
+    cannot take raises instead of being dropped: running a tier ladder on an
+    agent that ignores the tier window would silently test the wrong tier.
+    """
     import inspect as _inspect
 
     try:
-        params = _inspect.signature(agent.propose_and_validate).parameters
+        params = _inspect.signature(fn).parameters
     except (TypeError, ValueError):
         params = {}
     accepts_any = any(p.kind == p.VAR_KEYWORD for p in params.values())
     passed = {k: v for k, v in kwargs.items()
               if v is not None and (accepts_any or k in params)}
-    return agent.propose_and_validate(model, data, hypotheses, **passed)
+    missing = [k for k in required if kwargs.get(k) is not None and k not in passed]
+    if missing:
+        raise TypeError(
+            f"{getattr(fn, '__qualname__', fn)} does not accept {', '.join(missing)}; "
+            "the fix loop needs it to restrict the tier window"
+        )
+    return fn(*args, **passed)
+
+
+def _propose_and_validate(agent: "Any", model: "Any", data: "Any", hypotheses: "Any",
+                          **kwargs: Any) -> "Any":
+    """``agent.propose_and_validate`` with a per-call tier window (required when
+    given) and optional extras (see :func:`_call_supported`)."""
+    return _call_supported(agent.propose_and_validate, model, data, hypotheses,
+                           required=("max_tier", "min_tier"), **kwargs)
 
 
 def _unverified_hypotheses(report: "Any") -> "list[Any]":
@@ -1844,45 +1863,39 @@ class VLDiagnoseLoop:
                 else FixTier.L3B_INTERNALS_WRITE
             )
             agent_logger = getattr(agent, "run_logger", None)
-            original_min_tier = getattr(agent, "min_tier", None)
-            agent.run_logger = None
             attempted: "list" = []
             prior: "list" = []
             repair_rounds = 0
-            try:
-                for tier in ladder:
-                    if tier > ceiling:
-                        break
-                    agent.max_tier = tier
-                    agent.min_tier = tier
-                    logger.info(
-                        "run_fix: %s trying tier %s (%d prior attempt(s))",
-                        dev_label,
-                        tier.label,
-                        len(prior),
-                    )
-                    selection = _propose_and_validate(
-                        agent,
-                        self.model,
-                        dev_data,
-                        hypotheses,
-                        prior_attempts=prior if prior else None,
-                        context=context,
-                    )
-                    if not hasattr(selection, "attempted"):
-                        self._set_fix_outcome(report, selection)
-                        return selection
-                    attempted.extend(selection.attempted)
-                    repair_rounds += int(getattr(selection, "repair_rounds", 0) or 0)
-                    if selection.fixed:
-                        logger.info("run_fix: %s fixed at tier %s", dev_label, tier.label)
-                        break
-                    prior.extend(v for v in selection.attempted if not v.fixed)
-                    logger.info("run_fix: %s tier %s exhausted — escalating", dev_label, tier.label)
-            finally:
-                agent.run_logger = agent_logger
-                agent.max_tier = ceiling
-                agent.min_tier = original_min_tier
+            for tier in ladder:
+                if tier > ceiling:
+                    break
+                logger.info(
+                    "run_fix: %s trying tier %s (%d prior attempt(s))",
+                    dev_label,
+                    tier.label,
+                    len(prior),
+                )
+                selection = _propose_and_validate(
+                    agent,
+                    self.model,
+                    dev_data,
+                    hypotheses,
+                    prior_attempts=prior if prior else None,
+                    context=context,
+                    max_tier=tier,
+                    min_tier=tier,
+                    record=False,
+                )
+                if not hasattr(selection, "attempted"):
+                    self._set_fix_outcome(report, selection)
+                    return selection
+                attempted.extend(selection.attempted)
+                repair_rounds += int(getattr(selection, "repair_rounds", 0) or 0)
+                if selection.fixed:
+                    logger.info("run_fix: %s fixed at tier %s", dev_label, tier.label)
+                    break
+                prior.extend(v for v in selection.attempted if not v.fixed)
+                logger.info("run_fix: %s tier %s exhausted — escalating", dev_label, tier.label)
 
             outcome = _confirm_from_explore(
                 agent,
@@ -1912,38 +1925,32 @@ class VLDiagnoseLoop:
                 parse_tier(max_tier) if max_tier is not None
                 else FixTier.L3B_INTERNALS_WRITE
             )
-            # Suppress per-round log_fix so we can emit one combined outcome.
+            # Rounds record nothing (record=False) so we can emit one combined outcome.
             agent_logger = getattr(agent, "run_logger", None)
-            original_min_tier = getattr(agent, "min_tier", None)
-            agent.run_logger = None
-
             all_attempted: "list" = []
             all_prior: "list" = []
             last_outcome = None
 
-            try:
-                for tier in _LADDER:
-                    if tier > ceiling:
-                        break
-                    agent.max_tier = tier
-                    agent.min_tier = tier
-                    logger.info("run_fix: trying tier %s (%d prior attempt(s))",
-                                tier.label, len(all_prior))
-                    outcome = _propose_and_validate(
-                        agent, self.model, data, hypotheses,
-                        prior_attempts=all_prior if all_prior else None,
-                        context=context,
-                    )
-                    all_attempted.extend(outcome.attempted)
-                    all_prior.extend(v for v in outcome.attempted if not v.fixed)
-                    last_outcome = outcome
-                    if outcome.fixed:
-                        logger.info("run_fix: fixed at tier %s", tier.label)
-                        break
-                    logger.info("run_fix: tier %s exhausted — escalating", tier.label)
-            finally:
-                agent.run_logger = agent_logger
-                agent.min_tier = original_min_tier
+            for tier in _LADDER:
+                if tier > ceiling:
+                    break
+                logger.info("run_fix: trying tier %s (%d prior attempt(s))",
+                            tier.label, len(all_prior))
+                outcome = _propose_and_validate(
+                    agent, self.model, data, hypotheses,
+                    prior_attempts=all_prior if all_prior else None,
+                    context=context,
+                    max_tier=tier,
+                    min_tier=tier,
+                    record=False,
+                )
+                all_attempted.extend(outcome.attempted)
+                all_prior.extend(v for v in outcome.attempted if not v.fixed)
+                last_outcome = outcome
+                if outcome.fixed:
+                    logger.info("run_fix: fixed at tier %s", tier.label)
+                    break
+                logger.info("run_fix: tier %s exhausted — escalating", tier.label)
 
             # Merge all rounds into one combined outcome and emit once. The
             # merged set spans every escalated tier, so it is a LARGER best-of-N
@@ -1983,17 +1990,13 @@ class VLDiagnoseLoop:
         # exactly one frozen candidate is tested on the final partition.
         # Selection statistics are descriptive only; the final paired gate is
         # computed from the final partition alone.
-        if max_tier is not None:
-            agent.max_tier = parse_tier(max_tier)
+        requested = parse_tier(max_tier) if max_tier is not None else None
         if confirm is not None:
             agent_logger = getattr(agent, "run_logger", None)
-            agent.run_logger = None
-            try:
-                selection = _propose_and_validate(
-                    agent, self.model, dev_data, hypotheses, context=context
-                )
-            finally:
-                agent.run_logger = agent_logger
+            selection = _propose_and_validate(
+                agent, self.model, dev_data, hypotheses, context=context,
+                max_tier=requested, record=False,
+            )
 
             # Custom/legacy agents may return an opaque application-specific
             # result rather than FixOutcome.  They cannot participate in the
@@ -2009,7 +2012,7 @@ class VLDiagnoseLoop:
                 self.model,
                 final_data,
                 selection.attempted,
-                max_tier=agent.max_tier,
+                max_tier=requested if requested is not None else agent.max_tier,
                 repair_rounds=selection.repair_rounds,
             )
             try:
@@ -2020,7 +2023,8 @@ class VLDiagnoseLoop:
             self._set_fix_outcome(report, outcome)
             return outcome
 
-        outcome = _propose_and_validate(agent, self.model, data, hypotheses, context=context)
+        outcome = _propose_and_validate(agent, self.model, data, hypotheses, context=context,
+                                        max_tier=requested)
         self._set_fix_outcome(report, outcome)
         return outcome
 
@@ -2044,11 +2048,13 @@ def _confirm_from_explore(
         recommend = getattr(agent, "recommend", None)
         if callable(recommend):
             try:
-                return recommend(
+                return _call_supported(
+                    recommend,
                     routed,
                     model=model,
                     data=confirm,
                     reason_prefix=reason,
+                    max_tier=max_tier,
                 )
             except TypeError:
                 # Backward compatibility for application-specific FixAgents.
@@ -2112,20 +2118,10 @@ def _confirm_from_explore(
             ),
         )
 
-    # ``max_validation_cases`` is an EXPLORE-search budget.  Reusing that cap
-    # here would silently throw away untouched confirmation cases exactly when
-    # more power matters most.  The candidate is already frozen, so validate it
-    # on the complete CONFIRM partition and restore the agent's search budget
-    # afterwards.  Custom/legacy agents without this attribute keep their
-    # existing call contract.
-    selection_cap = getattr(agent, "max_validation_cases", None)
-    if selection_cap is not None:
-        agent.max_validation_cases = 0
-    try:
-        validation = agent.validate_candidate(model, confirm, selected.candidate)
-    finally:
-        if selection_cap is not None:
-            agent.max_validation_cases = selection_cap
+    # The candidate is frozen; validate_candidate scores it on the complete
+    # CONFIRM partition (the search budget ``max_validation_cases`` does not
+    # apply to confirmation).
+    validation = agent.validate_candidate(model, confirm, selected.candidate)
     survivors = ebh_survivors(
         [validation] if validation.e_value is not None else [], agent.alpha
     )
@@ -2143,8 +2139,9 @@ def _confirm_from_explore(
     if not outcome.fixed:
         no_fix = getattr(agent, "no_fix_recommendation", None)
         if callable(no_fix):
-            outcome.recommendation = no_fix(
-                [validation], [selected.candidate.tier], confirm, model
+            outcome.recommendation = _call_supported(
+                no_fix, [validation], [selected.candidate.tier], confirm, model,
+                max_tier=max_tier,
             )
             if outcome.recommendation is not None:
                 outcome.recommendation["reason"] = (

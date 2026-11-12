@@ -364,6 +364,10 @@ class FixAgent:
         prior_attempts: "list[FixValidation] | None" = None,
         context: "FixContext | None" = None,
         proposal_data: "CaseBatch | None" = None,
+        *,
+        max_tier: "FixTier | str | None" = None,
+        min_tier: "FixTier | str | None" = None,
+        record: bool = True,
     ) -> FixOutcome:
         """Generate candidates within the allowed tiers, validate, recommend.
 
@@ -373,8 +377,35 @@ class FixAgent:
         and the baseline decoding budget.  ``proposal_data``, when supplied,
         is the discovery partition available to the repair author; ``data``
         remains untouched confirmation data and permits only one round.
+
+        ``max_tier`` / ``min_tier`` narrow the tier window for this call only
+        (default: the agent's own).  ``record=False`` writes nothing to the
+        run logger, for a caller that records one combined outcome itself.
         """
-        outcome = FixOutcome(max_tier=self.max_tier)
+        window = (
+            parse_tier(max_tier) if max_tier is not None else self.max_tier,
+            parse_tier(min_tier) if min_tier is not None else self.min_tier,
+        )
+        if record:
+            return self._search(model, data, hypotheses, prior_attempts, context,
+                                proposal_data, *window)
+        with self.recorder.muted():
+            return self._search(model, data, hypotheses, prior_attempts, context,
+                                proposal_data, *window)
+
+    def _search(
+        self,
+        model: "Model",
+        data: "CaseBatch",
+        hypotheses: "list[Hypothesis]",
+        prior_attempts: "list[FixValidation] | None",
+        context: "FixContext | None",
+        proposal_data: "CaseBatch | None",
+        max_tier: FixTier,
+        min_tier: "FixTier | None",
+    ) -> FixOutcome:
+        """:meth:`propose_and_validate` within an explicit tier window."""
+        outcome = FixOutcome(max_tier=max_tier)
         # Winner-as-new-baseline: `model` as handed in is what the baseline
         # arm must measure (the deployed pipeline, when one is configured);
         # proposals and candidate arms run on the raw handle so a candidate
@@ -409,6 +440,7 @@ class FixAgent:
                 model=model,
                 data=data,
                 reason_prefix="no case carries a scoring rubric, so no fix can be validated",
+                max_tier=max_tier,
             )
             self.recorder.outcome(outcome)
             return outcome
@@ -423,7 +455,7 @@ class FixAgent:
         # (``baseline_executor``), so a clean greedy baseline does not bound
         # its e-value.
         repairable = True
-        if self.max_tier <= FixTier.L2_SCAFFOLD:
+        if max_tier <= FixTier.L2_SCAFFOLD:
             if self.validator.rates_mode:
                 repairable = any(
                     r is not None and r < 1.0 for r in baseline.rates.values()
@@ -468,7 +500,8 @@ class FixAgent:
             prior_names: "frozenset[str]" = frozenset(v.candidate.name for v in combined_prior)
             new_candidates: "list[FixCandidate]" = []
             for candidate in self._propose(
-                hypotheses, authoring_data, model, prior_text, prior_names, context=context
+                hypotheses, authoring_data, model, prior_text, prior_names, context=context,
+                window=(max_tier, min_tier),
             ):
                 sig = self._signature(candidate)
                 if sig in seen:
@@ -546,7 +579,7 @@ class FixAgent:
             if culled:
                 names = ", ".join(sorted(v.candidate.name for v in culled))
                 outcome.recommendation = {
-                    "recommend_tier": self.max_tier.label,
+                    "recommend_tier": max_tier.label,
                     "reason": (
                         f"{len(culled)} candidate(s) cleared their own gate "
                         f"({names}) but did NOT survive e-BH FDR across the "
@@ -557,7 +590,7 @@ class FixAgent:
                 }
             else:
                 outcome.recommendation = self.no_fix_recommendation(
-                    outcome.attempted, routed_tiers, data, model
+                    outcome.attempted, routed_tiers, data, model, max_tier=max_tier
                 )
         self.recorder.outcome(outcome)
         return outcome
@@ -573,9 +606,10 @@ class FixAgent:
         Candidate selection must happen before this method is called. Unlike
         :meth:`propose_and_validate`, this method never consults the judge and
         validates exactly one pre-registered candidate, so no best-of-N
-        selection correction is needed on the confirmation split.
+        selection correction is needed on the confirmation split.  It always
+        uses the whole batch: ``max_validation_cases`` budgets the search, and
+        dropping untouched confirmation cases would only cost power.
         """
-        data = self._validation_subset(data)
         # Same handle split as propose_and_validate: baseline arm = deployed
         # pipeline (when configured), candidate arm = raw model.
         baseline_model = model
@@ -592,13 +626,16 @@ class FixAgent:
         model: "Model | None" = None,
         data: "CaseBatch | None" = None,
         reason_prefix: str = "",
+        max_tier: "FixTier | None" = None,
     ) -> "dict[str, Any] | None":
-        """The next tier to try above this agent's ceiling, skipping unsupported ones.
+        """The next tier to try above the ceiling, skipping unsupported ones.
 
-        See :func:`~.verdict.recommend`.
+        The ceiling is *max_tier* (default: this agent's).  See
+        :func:`~.verdict.recommend`.
         """
         return recommend(
-            routed, self.max_tier, model=model, data=data, reason_prefix=reason_prefix,
+            routed, max_tier if max_tier is not None else self.max_tier,
+            model=model, data=data, reason_prefix=reason_prefix,
             allow_adapted=self._allow_adapted_paper_methods,
             allow_codegen=self._allow_codegen,
         )
@@ -609,14 +646,17 @@ class FixAgent:
         routed_tiers: "list[FixTier]",
         data: "CaseBatch",
         model: "Model",
+        *,
+        max_tier: "FixTier | None" = None,
     ) -> "dict[str, Any] | None":
         """What to do when none of *attempted* validated, under this agent's settings.
 
-        See :func:`~.verdict.no_fix_recommendation`.
+        The ceiling is *max_tier* (default: this agent's).  See
+        :func:`~.verdict.no_fix_recommendation`.
         """
         return no_fix_recommendation(
             attempted, routed_tiers, data, model,
-            max_tier=self.max_tier,
+            max_tier=max_tier if max_tier is not None else self.max_tier,
             alpha=self.alpha,
             baseline_rates=self._baseline_rates,
             paired_rates=self.validator.rates_mode,
@@ -760,11 +800,13 @@ class FixAgent:
         prior_text: str = "",
         prior_names: "frozenset[str]" = frozenset(),
         context: "FixContext | None" = None,
+        window: "tuple[FixTier, FixTier | None] | None" = None,
     ) -> "list[FixCandidate]":
-        """Candidates within this agent's current tier window."""
+        """Candidates within *window* (``(max_tier, min_tier)``; default: the agent's)."""
+        max_tier, min_tier = window or (self.max_tier, self.min_tier)
         return self.proposer.propose(
             hypotheses, data, model, prior_text, prior_names, context,
-            max_tier=self.max_tier, min_tier=self.min_tier,
+            max_tier=max_tier, min_tier=min_tier,
             max_tokens_floor=self._max_tokens_floor,
         )
 

@@ -7,9 +7,12 @@ Every write is best-effort: a logging failure never breaks a repair.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
     from evalrx.eval_agent.run_context import Trial
@@ -23,6 +26,15 @@ class FixRecorder:
 
     def __init__(self, run_logger: "Any | None" = None) -> None:
         self.run_logger = run_logger
+
+    @contextmanager
+    def muted(self) -> "Iterator[None]":
+        """Write nothing inside the block (the caller records a combined outcome)."""
+        run_logger, self.run_logger = self.run_logger, None
+        try:
+            yield
+        finally:
+            self.run_logger = run_logger
 
     def outcome(self, outcome: "FixOutcome") -> None:
         """Record the stage outcome as a ``fix`` event."""
