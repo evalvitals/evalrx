@@ -98,6 +98,7 @@ from evalrx.eval_agent.stages.fix_pipeline import (
     run_coded_pipeline,
     score_outputs,
 )
+from evalrx.eval_agent.stages.fix_recorder import FixRecorder
 from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier, route_min_tier
 from evalrx.eval_agent.stages.fix_tools import (
     PipelineSpec,
@@ -494,7 +495,7 @@ class FixAgent:
         # evaluates only the newly opened intervention space.
         self.min_tier = parse_tier(min_tier) if min_tier is not None else None
         self._score = score_fn or _default_score
-        self.run_logger = run_logger
+        self.recorder = FixRecorder(run_logger)
         self._cli_config = cli_config
         self._allow_codegen = allow_codegen
         self._sandbox = sandbox
@@ -544,6 +545,15 @@ class FixAgent:
         # candidate runs; _validate moves it onto the FixValidation.
         self._captured: "dict[str, str]" = {}
         self._max_tokens_floor: "int | None" = None
+
+    @property
+    def run_logger(self) -> "Any | None":
+        """The run logger fix events go to (callers may swap it between runs)."""
+        return self.recorder.run_logger
+
+    @run_logger.setter
+    def run_logger(self, value: "Any | None") -> None:
+        self.recorder.run_logger = value
 
     @property
     def codegen_available(self) -> bool:
@@ -612,7 +622,7 @@ class FixAgent:
                 allow_adapted=self._allow_adapted_paper_methods,
                 allow_codegen=self._allow_codegen,
             )
-            self._emit(outcome)
+            self.recorder.outcome(outcome)
             return outcome
 
         # With zero repairable failure mass in the fresh baseline no candidate
@@ -649,7 +659,7 @@ class FixAgent:
                     "spending the candidate budget."
                 ),
             }
-            self._emit(outcome)
+            self.recorder.outcome(outcome)
             return outcome
 
         # Feedback-driven repair rounds: propose -> validate; if nothing
@@ -761,7 +771,7 @@ class FixAgent:
                 outcome.recommendation = self.no_fix_recommendation(
                     outcome.attempted, routed_tiers, data, model
                 )
-        self._emit(outcome)
+        self.recorder.outcome(outcome)
         return outcome
 
     def validate_candidate(
@@ -1981,8 +1991,9 @@ class FixAgent:
         if _code_copies_example(code, examples) or _code_redefines_model_bridge(code):
             logger.warning("FixAgent: generated code violated anti-memorization/bridge rules; dropped")
             code = ""
-        self._emit_codegen(
-            "coded_pipeline", prompt, source, code, raw, ok=bool(code.strip()), trial=trial
+        self.recorder.codegen(
+            "coded_pipeline", prompt, source, code, raw, ok=bool(code.strip()), trial=trial,
+            usage=self._last_usage, raw_stream=self._last_raw_stream,
         )
         if not code.strip():
             return []
@@ -2143,65 +2154,6 @@ class FixAgent:
                 + "\n\n".join(implementations)
             )
         return block
-
-    def _emit_codegen(
-        self,
-        name: str,
-        prompt: str,
-        source: str,
-        code: str,
-        raw: str,
-        *,
-        ok: bool,
-        trial: "Trial | None" = None,
-    ) -> None:
-        """Log one codegen attempt; persist its prompt/code/thinking.
-
-        With a *trial*, the files live under ``trial.root`` (alongside the
-        rest of that attempt's record) instead of the run-global ``tools/`` —
-        only a lean event (paths via ``extra["trial_root"]``) goes through
-        :meth:`RunLogger.log_tool_codegen`, with no duplicate file copy.
-        """
-        extra = (
-            {"cli_usage": self._last_usage}
-            if source.startswith("cli:") and self._last_usage
-            else None
-        )
-        inline = bool(getattr(self.run_logger, "inline_text_artifacts", False))
-        if trial is not None and not inline:
-            if prompt:
-                trial.write(f"{name}_prompt.txt", prompt)
-            if code:
-                trial.write(f"{name}_code.py", code)
-            if raw:
-                trial.write(f"{name}_agent_thinking.txt", raw)
-            if self._last_raw_stream:
-                trial.write(f"{name}_agent_raw_stream.txt", self._last_raw_stream)
-            extra = {**(extra or {}), "trial_root": str(trial.root)}
-            prompt, code, raw = "", "", ""
-        elif trial is not None:
-            # V2 keeps the exact prompt/code/response in M5/log.json.  The
-            # trial workspace is ephemeral execution state and is snapshotted
-            # separately by log_experiment/log_fix.
-            extra = {**(extra or {}), "trial_root": str(trial.root)}
-        if self.run_logger is None:
-            return
-        try:
-            self.run_logger.log_tool_codegen(
-                module="fix_pipeline",
-                name=name,
-                need="L2 coded repair pipeline",
-                source=source,
-                ok=ok,
-                code=code,
-                prompt=prompt,
-                raw_output=raw,
-                raw_stream=self._last_raw_stream,
-                error="" if ok else "no code produced",
-                extra=extra,
-            )
-        except Exception as exc:  # logging must never break the fix step
-            logger.debug("FixAgent: log_tool_codegen failed: %s", exc)
 
     def _l3_candidates(
         self,
@@ -2379,9 +2331,9 @@ class FixAgent:
         except Exception as exc:
             logger.warning("FixAgent: judge call failed: %s", exc)
             error = str(exc)
-            self._log_model_exchange("fix_judge_object", prompt, raw, error=error)
+            self.recorder.judge_exchange("fix_judge_object", prompt, raw, error=error)
             return {}
-        self._log_model_exchange("fix_judge_object", prompt, raw)
+        self.recorder.judge_exchange("fix_judge_object", prompt, raw)
         match = re.search(
             r"\{.*\}", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL), flags=re.DOTALL
         )
@@ -2403,9 +2355,9 @@ class FixAgent:
         except Exception as exc:
             logger.warning("FixAgent: judge call failed: %s", exc)
             error = str(exc)
-            self._log_model_exchange("fix_judge_list", prompt, raw, error=error)
+            self.recorder.judge_exchange("fix_judge_list", prompt, raw, error=error)
             return []
-        self._log_model_exchange("fix_judge_list", prompt, raw)
+        self.recorder.judge_exchange("fix_judge_list", prompt, raw)
         match = re.search(
             r"\[.*\]", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL), flags=re.DOTALL
         )
@@ -2417,57 +2369,6 @@ class FixAgent:
             logger.warning("FixAgent: unparseable judge proposal; using defaults")
             return []
         return [p for p in parsed if isinstance(p, dict)] if isinstance(parsed, list) else []
-
-    def _log_model_exchange(
-        self, operation: str, prompt: str, output: str, *, error: "str | None" = None,
-    ) -> None:
-        """Best-effort detailed V2 model-call logging without changing V1."""
-        fn = getattr(self.run_logger, "log_model_exchange", None)
-        if not callable(fn):
-            return
-        try:
-            fn(
-                "M5", role="fix_judge", operation=operation,
-                inputs=prompt, output=output, error=error,
-            )
-        except Exception as exc:  # logging must never break repair
-            logger.debug("FixAgent: model exchange logging failed: %s", exc)
-
-    def _log_target_exchange(
-        self,
-        operation: str,
-        inputs: Any,
-        output: Any,
-        *,
-        case_id: str,
-        error: "str | None" = None,
-        duration_sec: "float | None" = None,
-        metadata: "dict[str, Any] | None" = None,
-    ) -> None:
-        fn = getattr(self.run_logger, "log_model_exchange", None)
-        if not callable(fn):
-            return
-        try:
-            fn(
-                "M5", role="target_model", operation=operation,
-                inputs=inputs, output=output, error=error, duration_sec=duration_sec,
-                metadata={"case_id": case_id, **(metadata or {})},
-            )
-        except Exception as exc:
-            logger.debug("FixAgent: target exchange logging failed: %s", exc)
-
-    def _log_bridge_exchange(self, record: "dict[str, Any]") -> None:
-        response = record.get("response") or {}
-        self._log_target_exchange(
-            "coded_pipeline_bridge", record.get("request"), response.get("output"),
-            case_id=str(record.get("case_id") or ""), error=response.get("error"),
-            duration_sec=record.get("duration_sec"),
-            metadata={
-                "replayed_from_recorded_baseline": bool(
-                    record.get("replayed_from_recorded_baseline")
-                )
-            },
-        )
 
     # -- strategy compilation + validation --------------------------------
 
@@ -2542,12 +2443,12 @@ class FixAgent:
                 output = str(model.generate(case.inputs))
             except Exception as exc:
                 logger.debug("FixAgent: baseline generate failed on %s: %s", case.id, exc)
-                self._log_target_exchange(
+                self.recorder.target_exchange(
                     "fresh_baseline", case.inputs, None, case_id=case.id,
                     error=str(exc), duration_sec=time.perf_counter() - started,
                 )
                 return case.id, None
-            self._log_target_exchange(
+            self.recorder.target_exchange(
                 "fresh_baseline", case.inputs, output, case_id=case.id,
                 duration_sec=time.perf_counter() - started,
             )
@@ -2675,7 +2576,7 @@ class FixAgent:
                         baseline_answer=getattr(case, "observed", None),
                         **candidate.payload,
                     )
-                    self._log_target_exchange(
+                    self.recorder.target_exchange(
                         "guided_visual_search", case.inputs, output, case_id=case.id,
                         duration_sec=time.perf_counter() - started,
                         metadata={"candidate": candidate.name, "parameters": candidate.payload},
@@ -2683,7 +2584,7 @@ class FixAgent:
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
-                    self._log_target_exchange(
+                    self.recorder.target_exchange(
                         "guided_visual_search", case.inputs, None, case_id=case.id,
                         error=str(exc), duration_sec=time.perf_counter() - started,
                         metadata={"candidate": candidate.name, "parameters": candidate.payload},
@@ -2703,7 +2604,7 @@ class FixAgent:
                         baseline_answer=getattr(case, "observed", None),
                         **candidate.payload,
                     )
-                    self._log_target_exchange(
+                    self.recorder.target_exchange(
                         "detector_visual_search", case.inputs, output, case_id=case.id,
                         duration_sec=time.perf_counter() - started,
                         metadata={"candidate": candidate.name, "parameters": candidate.payload},
@@ -2711,7 +2612,7 @@ class FixAgent:
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, str(output)))
                 except Exception as exc:
-                    self._log_target_exchange(
+                    self.recorder.target_exchange(
                         "detector_visual_search", case.inputs, None, case_id=case.id,
                         error=str(exc), duration_sec=time.perf_counter() - started,
                         metadata={"candidate": candidate.name, "parameters": candidate.payload},
@@ -2744,7 +2645,7 @@ class FixAgent:
                         inp, prompt=safe_format(template, template_context)
                     )
                     output = str(model.generate(new_inputs, **gen_kwargs))
-                    self._log_target_exchange(
+                    self.recorder.target_exchange(
                         "template_candidate", new_inputs, output, case_id=case.id,
                         duration_sec=time.perf_counter() - started,
                         metadata={"generation_kwargs": gen_kwargs, "candidate": candidate.name},
@@ -2752,7 +2653,7 @@ class FixAgent:
                     self._record_output(case.id, output)
                     return score_to_bool(self._score(case, output))
                 except Exception as exc:
-                    self._log_target_exchange(
+                    self.recorder.target_exchange(
                         "template_candidate", locals().get("new_inputs", inp), None,
                         case_id=case.id, error=str(exc),
                         duration_sec=time.perf_counter() - started,
@@ -2770,7 +2671,7 @@ class FixAgent:
             capture: "dict[str, Any]" = {}
             result = run_pipeline(
                 model, case, spec, self._score, capture=capture,
-                call_logger=lambda record: self._log_target_exchange(
+                call_logger=lambda record: self.recorder.target_exchange(
                     "declarative_pipeline", record.get("inputs"), record.get("output"),
                     case_id=case.id, error=record.get("error"),
                     duration_sec=record.get("duration_sec"),
@@ -2793,16 +2694,7 @@ class FixAgent:
     ) -> "dict[str, Optional[bool]]":
         """Per-case success of one candidate (batch path for coded pipelines)."""
         if candidate.kind == "primitive":
-            if getattr(self.run_logger, "preserve_full_model_io", False):
-                from evalrx.eval_agent.model_instrumentation import InstrumentedModel
-
-                model = InstrumentedModel(
-                    model, self.run_logger, stage="M5",
-                    cycle=int(getattr(self.run_logger, "current_cycle", -1)),
-                    analyzer=f"fix_primitive:{candidate.name}",
-                    case_prompts={case.inputs.prompt: case.id for case in data},
-                    batch_case_ids=[case.id for case in data],
-                )
+            model = self.recorder.instrument(model, data, f"fix_primitive:{candidate.name}")
             prim = INTERNALS_PRIMITIVES[candidate.payload["primitive"]]
             return prim.run(model, data, self._score, candidate.payload.get("params"))
         if candidate.kind == "code":
@@ -2813,16 +2705,7 @@ class FixAgent:
                 self._frozen_model_control(candidate, data)
             return score_outputs(result, data, self._score)
         if candidate.kind == "finetune_spec":
-            if getattr(self.run_logger, "preserve_full_model_io", False):
-                from evalrx.eval_agent.model_instrumentation import InstrumentedModel
-
-                model = InstrumentedModel(
-                    model, self.run_logger, stage="M5",
-                    cycle=int(getattr(self.run_logger, "current_cycle", -1)),
-                    analyzer=f"fix_finetune:{candidate.name}",
-                    case_prompts={case.inputs.prompt: case.id for case in data},
-                    batch_case_ids=[case.id for case in data],
-                )
+            model = self.recorder.instrument(model, data, f"fix_finetune:{candidate.name}")
             result = run_lora_repair(model, self._finetune_pool, data, candidate.payload, self._score)
             if isinstance(candidate.payload, dict):
                 candidate.payload["exec_error"] = "" if result.ok else result.error
@@ -2932,12 +2815,12 @@ class FixAgent:
             concurrency=self._concurrency,
             consensus_min_support=int(candidate.payload.get("consensus_min_support", 0)),
             max_calls_per_case=int(candidate.payload.get("max_calls_per_case", 0)),
-            call_logger=self._log_bridge_exchange,
+            call_logger=self.recorder.bridge_exchange,
         )
         if not result.ok and self.codegen_available:
             logger.warning("FixAgent: coded pipeline failed (%s) — one repair round", result.error)
             repaired, source, raw = self._repair_code(candidate, result.error)
-            self._emit_codegen(
+            self.recorder.codegen(
                 "coded_pipeline_repair",
                 self._last_repair_prompt,
                 source,
@@ -2945,6 +2828,8 @@ class FixAgent:
                 raw,
                 ok=bool(repaired.strip()),
                 trial=candidate.trial,
+                usage=self._last_usage,
+                raw_stream=self._last_raw_stream,
             )
             if repaired.strip():
                 candidate.payload["code"] = repaired
@@ -2961,7 +2846,7 @@ class FixAgent:
                         candidate.payload.get("consensus_min_support", 0)
                     ),
                     max_calls_per_case=int(candidate.payload.get("max_calls_per_case", 0)),
-                    call_logger=self._log_bridge_exchange,
+                    call_logger=self.recorder.bridge_exchange,
                 )
         candidate.payload["exec_error"] = "" if result.ok else result.error
         candidate.payload["selection_guard"] = {
@@ -3285,10 +3170,3 @@ class FixAgent:
 
     # -- recommendation + logging ------------------------------------------
 
-    def _emit(self, outcome: FixOutcome) -> None:
-        if self.run_logger is None:
-            return
-        try:
-            self.run_logger.log_fix(outcome)
-        except Exception as exc:  # logging must never break the fix step
-            logger.debug("FixAgent: log_fix failed: %s", exc)
