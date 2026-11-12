@@ -136,8 +136,8 @@ def test_deployed_spec_is_shown_to_the_proposer():
     judge = ScriptedJudge("[]")
     spec = {"name": "vote3", "prompt_template": "Scaffolded. {prompt}", "n_samples": 3}
     agent = FixAgent(judge=judge, max_tier="L1", deployed_spec=spec)
-    note = agent._edit_note(_gold_yes_batch())
+    note = agent.proposer._edit_note(_gold_yes_batch())
     assert "DEPLOYED PIPELINE" in note and '"vote3"' in note
-    candidates = agent._l1_candidates("h", "e", context_block=note)
+    candidates = agent.proposer._l1_candidates("h", "e", context_block=note)
     assert "DEPLOYED PIPELINE" in judge.prompts[0]
     assert candidates  # falls back to the conservative default on "[]"

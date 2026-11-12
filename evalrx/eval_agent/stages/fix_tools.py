@@ -708,7 +708,7 @@ def _safe_output_key_pattern(value: Any) -> str:
 #: llm_benchmark datasets) — the old 8192 was BELOW those, so a candidate could
 #: never even match the baseline on them. The floor (a candidate may not decode
 #: with LESS than the baseline budget) is enforced by the fix agent, which
-#: knows the baseline; see ``FixAgent._enforce_generation_floor``.
+#: knows the baseline; see ``fix_proposal.enforce_generation_floor``.
 MAX_TOKENS_CAP = 32768
 
 

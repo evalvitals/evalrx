@@ -21,14 +21,13 @@ from evalrx.eval_agent import (
     route_min_tier,
 )
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.stages.fix_agent import (
-    FixCandidate,
-    FixValidation,
+from evalrx.eval_agent.stages.fix_agent import FixCandidate, FixValidation
+from evalrx.eval_agent.stages.fix_codegen import code_copies_example, code_redefines_model_bridge
+from evalrx.eval_agent.stages.fix_proposal import (
     _chart_arithmetic_predicate,
     _chart_count_extract_predicate,
     _malformed_choice_predicate,
 )
-from evalrx.eval_agent.stages.fix_codegen import code_copies_example, code_redefines_model_bridge
 from evalrx.eval_agent.stages.fix_validation import Baseline
 from evalrx.eval_agent.stages.fix_verdict import recommend
 from evalrx.eval_agent.stages.repair_catalog import discover_methods
@@ -2168,7 +2167,7 @@ def test_run_fix_on_loop_report():
 
     # Default construction (no injection) builds a judge-less FixAgent.
     bare = VLDiagnoseLoop(model=BaselineFailsModel(), protocol=ExperimentProtocol(description="d"))
-    assert bare.fix_agent is not None and bare.fix_agent._judge is None
+    assert bare.fix_agent is not None and bare.fix_agent.proposer._judge is None
 
 
 # ── L2 coded pipelines (bridged model access) ────────────────────────────────
@@ -3023,12 +3022,12 @@ def test_self_refine_offered_for_image_reasoning_tasks_not_yes_no():
     should get neither, so the proven image-transform ladder is not diluted
     there."""
     agent = FixAgent(judge=None, max_tier="L2")
-    out = agent._l2_candidates(
+    out = agent.proposer._l2_candidates(
         "- some hypothesis", "", has_images=True, model=None, tasks={"multiple_choice"}
     )
     assert [c.name for c in out[:2]] == ["self_refine", "self_consistency_5"]
 
-    out_yn = agent._l2_candidates(
+    out_yn = agent.proposer._l2_candidates(
         "- some hypothesis", "", has_images=True, model=None, tasks={"yes_no"}
     )
     assert {"self_refine", "self_consistency_5"}.isdisjoint(c.name for c in out_yn)
@@ -3037,8 +3036,8 @@ def test_self_refine_offered_for_image_reasoning_tasks_not_yes_no():
 def test_l1_candidates_do_not_use_gold_direction_gates():
     """Changing expected labels must not alter the proposed repair family."""
     agent = FixAgent(judge=None, max_tier="L1")
-    first = agent._l1_candidates("- h", "", has_images=True, tasks={"yes_no"})
-    second = agent._l1_candidates("- h", "", has_images=True, tasks={"yes_no"})
+    first = agent.proposer._l1_candidates("- h", "", has_images=True, tasks={"yes_no"})
+    second = agent.proposer._l1_candidates("- h", "", has_images=True, tasks={"yes_no"})
     assert [c.name for c in first] == [c.name for c in second]
     assert "assertive_grounding" not in {c.name for c in first}
 

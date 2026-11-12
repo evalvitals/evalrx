@@ -107,9 +107,9 @@ def test_edit_note_shows_deployed_template_and_parser_accepts_edit():
         )
     )
     agent = FixAgent(judge=judge, max_tier="L1")
-    note = agent._edit_note(_batch())
+    note = agent.proposer._edit_note(_batch())
     assert "DEPLOYED TEMPLATE" in note and _DEPLOYED.rstrip() in note
-    candidates = agent._l1_candidates("h", "e", context_block=note)
+    candidates = agent.proposer._l1_candidates("h", "e", context_block=note)
     by_name = {c.name: c for c in candidates}
     assert by_name["drop_three_parts"].payload == {
         "prompt_template": "Answer directly. {original_prompt}"
@@ -120,10 +120,10 @@ def test_edit_note_shows_deployed_template_and_parser_accepts_edit():
 
 def test_default_batches_are_unchanged():
     agent = FixAgent(judge=ScriptedJudge("[]"), max_tier="L1")
-    assert agent._edit_note(_batch(recursive=False)) == ""
+    assert agent.proposer._edit_note(_batch(recursive=False)) == ""
     # a mixed batch (one case missing the stack) has no coherent template to edit
     mixed = CaseBatch(list(_batch(2)) + list(_batch(2, recursive=False)))
-    assert agent._edit_note(mixed) == ""
+    assert agent.proposer._edit_note(mixed) == ""
 
 
 def test_edit_candidate_replaces_deployed_template_end_to_end():

@@ -31,12 +31,8 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-from evalrx.eval_agent.stages.fix_agent import (
-    FixAgent,
-    FixCandidate,
-    FixContext,
-    _format_examples,
-)
+from evalrx.eval_agent.stages.fix_agent import FixAgent, FixCandidate, FixContext
+from evalrx.eval_agent.stages.fix_proposal import _format_examples
 from evalrx.eval_agent.stages.fix_tiers import FixTier
 from evalrx.eval_agent.stages.fix_tools import (
     MAX_TOKENS_CAP,
@@ -218,13 +214,13 @@ def test_floor_is_inferred_from_the_model_when_not_given():
         max_tokens = 2048
 
     agent = FixAgent(judge=None, max_tier="L2", allow_codegen=False, floor_candidates=())
-    assert agent._resolve_max_tokens_floor(Budgeted(), _mc_batch()) == 2048
+    assert agent.proposer.resolve_max_tokens_floor(Budgeted(), _mc_batch()) == 2048
     # case metadata as the last resort
     batch = _mc_batch()
     for c in batch:
         c.metadata["generation_config"] = {"max_tokens": 1024}
-    assert agent._resolve_max_tokens_floor(CountingModel(), batch) == 1024
-    assert agent._resolve_max_tokens_floor(CountingModel(), _mc_batch()) is None
+    assert agent.proposer.resolve_max_tokens_floor(CountingModel(), batch) == 1024
+    assert agent.proposer.resolve_max_tokens_floor(CountingModel(), _mc_batch()) is None
 
 
 def test_bridge_enforces_floor_and_passes_generation_kwargs(tmp_path):
@@ -352,9 +348,9 @@ def test_floor_skipped_for_image_yes_no_batches():
         for i in range(3)
     ])
     agent = FixAgent(judge=None, max_tier="L2", allow_codegen=False)
-    assert agent._floor_names(has_images=True, tasks={"yes_no"}) == ()
-    assert agent._floor_names(has_images=True, tasks={"multiple_choice"}) == ("self_consistency_5",)
-    assert agent._floor_names(has_images=False, tasks={""}) == ("self_consistency_5",)
+    assert agent.proposer._floor_names(has_images=True, tasks={"yes_no"}) == ()
+    assert agent.proposer._floor_names(has_images=True, tasks={"multiple_choice"}) == ("self_consistency_5",)
+    assert agent.proposer._floor_names(has_images=False, tasks={""}) == ("self_consistency_5",)
     del batch
 
 
