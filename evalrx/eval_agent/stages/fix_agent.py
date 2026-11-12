@@ -404,14 +404,11 @@ class FixAgent:
         baseline = self._baseline(baseline_model, data)
         if not any(v is not None for v in baseline.scores.values()):
             logger.warning("FixAgent: no scorable case (no rubrics); nothing to validate")
-            outcome.recommendation = recommend(
+            outcome.recommendation = self.recommend(
                 routed_tiers,
-                self.max_tier,
                 model=model,
                 data=data,
-                reason_prefix=("no case carries a scoring rubric, so no fix can be validated"),
-                allow_adapted=self._allow_adapted_paper_methods,
-                allow_codegen=self._allow_codegen,
+                reason_prefix="no case carries a scoring rubric, so no fix can be validated",
             )
             self.recorder.outcome(outcome)
             return outcome
@@ -587,6 +584,24 @@ class FixAgent:
         self._max_tokens_floor = self.proposer.resolve_max_tokens_floor(model, data)
         enforce_generation_floor([candidate], self._max_tokens_floor)
         return self._validate(candidate, model, data, self._baseline(baseline_model, data))
+
+    def recommend(
+        self,
+        routed: "list[FixTier]",
+        *,
+        model: "Model | None" = None,
+        data: "CaseBatch | None" = None,
+        reason_prefix: str = "",
+    ) -> "dict[str, Any] | None":
+        """The next tier to try above this agent's ceiling, skipping unsupported ones.
+
+        See :func:`~.fix_verdict.recommend`.
+        """
+        return recommend(
+            routed, self.max_tier, model=model, data=data, reason_prefix=reason_prefix,
+            allow_adapted=self._allow_adapted_paper_methods,
+            allow_codegen=self._allow_codegen,
+        )
 
     def no_fix_recommendation(
         self,

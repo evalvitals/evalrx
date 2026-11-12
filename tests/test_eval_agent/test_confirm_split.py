@@ -369,3 +369,21 @@ def test_val_data_run_m5_surgery_stays_on_explore():
     assert seen == {id(case) for case in explore}
     assert seen.isdisjoint(id(case) for case in confirm)
     assert seen.isdisjoint(id(case) for case in val_batch)
+
+
+def test_confirm_with_no_explore_lead_routes_the_next_supported_tier():
+    """With nothing to freeze, the recommendation comes from the agent's own tier
+    router (unsupported L3a/L3b skipped), not a flat "stay at the ceiling"."""
+    from evalrx.eval_agent.loop import _confirm_from_explore
+    from evalrx.eval_agent.stages.fix_agent import FixAgent
+
+    confirm = CaseBatch([
+        FailureCase.from_prompt("q", id="c0", expected="yes", observed="no", label=Label.FAIL),
+    ])
+    outcome = _confirm_from_explore(
+        FixAgent(max_tier="L2"), object(), confirm, [],
+        max_tier=FixTier.L2_SCAFFOLD, repair_rounds=1,
+    )
+    assert outcome.recommendation["recommend_tier"] == "L4"
+    assert outcome.recommendation["reason"].startswith("no EXPLORE candidate had positive")
+    assert "skipped unsupported tier(s) L3a, L3b" in outcome.recommendation["reason"]

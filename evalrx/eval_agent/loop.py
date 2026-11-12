@@ -2041,7 +2041,7 @@ def _confirm_from_explore(
 
     def _recommend(reason: str, validations: "list[Any]") -> "dict[str, Any] | None":
         routed = sorted({v.candidate.tier for v in validations})
-        recommend = getattr(agent, "_recommend", None)
+        recommend = getattr(agent, "recommend", None)
         if callable(recommend):
             try:
                 return recommend(
