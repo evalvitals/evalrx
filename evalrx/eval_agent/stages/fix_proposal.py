@@ -12,7 +12,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Iterable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from evalrx.eval_agent.prompts.fix_agent import (
     _L1_PROMPT,
@@ -186,6 +187,150 @@ def _chart_count_extract_predicate(case: Any) -> bool:
     )
 
 
+def _self_consistency_5(baseline_temperature: Any) -> PipelineSpec:
+    # Vote at a stochastic temperature: at T=0 five samples are one sample.
+    # Inherit the baseline temperature when it already samples.
+    try:
+        base_t = float(baseline_temperature) if baseline_temperature is not None else None
+    except (TypeError, ValueError):
+        base_t = None
+    temperature = base_t if (base_t is not None and base_t > 0.0) else 0.7
+    return PipelineSpec(
+        name="self_consistency_5",
+        prompt_template="{prompt}",
+        n_samples=5,
+        generation_kwargs={"temperature": temperature},
+    )
+
+
+#: Built-in L2 specs (the floor, the pre-registered defaults, and the base of
+#: some conditional defaults), by name. Each builder takes the baseline's
+#: sampling temperature. Adding a built-in spec is one entry here.
+BUILTIN_SPECS: "dict[str, Callable[[Any], PipelineSpec]]" = {
+    "self_consistency_5": _self_consistency_5,
+    "self_refine": lambda _t: PipelineSpec(
+        name="self_refine", prompt_template="{prompt}", strategy="self_refine"
+    ),
+    "least_to_most": lambda _t: PipelineSpec(
+        name="least_to_most", prompt_template="{prompt}", strategy="least_to_most"
+    ),
+    "chain_of_verification": lambda _t: PipelineSpec(
+        name="chain_of_verification", prompt_template="{prompt}",
+        strategy="chain_of_verification",
+    ),
+    "upscale_sharpen": lambda _t: PipelineSpec(
+        name="upscale_sharpen",
+        image_ops=[
+            {"tool": "upscale", "params": {"factor": 2.0}},
+            {"tool": "sharpen", "params": {"factor": 2.0}},
+        ],
+    ),
+    "zoom_equalize": lambda _t: PipelineSpec(
+        name="zoom_equalize",
+        image_ops=[
+            {"tool": "zoom_center", "params": {"factor": 1.6}},
+            {"tool": "equalize", "params": {}},
+        ],
+    ),
+}
+
+
+def builtin_spec(name: str, *, baseline_temperature: Any = None) -> "PipelineSpec | None":
+    """A fresh built-in L2 spec by name, or ``None`` for an unknown name."""
+    build = BUILTIN_SPECS.get(name)
+    return build(baseline_temperature) if build is not None else None
+
+
+@dataclass(frozen=True)
+class ConditionalDefault:
+    """A built-in L2 repair applied only to the cases its gold-free gate selects.
+
+    ``qualifies(tasks, has_images)`` decides whether the batch can use it at
+    all; ``predicate`` picks the cases it is applied to (and judged on).
+    ``opt_in`` defaults are proposed only when named in the candidate
+    allowlist; the others whenever the batch qualifies and no allowlist
+    excludes them. Adding a conditional repair is one entry in
+    :data:`CONDITIONAL_DEFAULTS`.
+    """
+
+    name: str
+    qualifies: "Callable[[set[str], bool], bool]"
+    predicate: "Callable[[Any], bool]"
+    spec: "Callable[[], PipelineSpec]"
+    opt_in: bool = True
+
+
+def _chart_batch(tasks: "set[str]", has_images: bool) -> bool:
+    return "exact_or_numeric" in tasks and has_images
+
+
+#: Proposed in this order, ahead of every judge proposal.
+CONDITIONAL_DEFAULTS: "tuple[ConditionalDefault, ...]" = (
+    # For audio/other A-D tasks whose baseline never committed to an option.
+    # It gates only on the observable output contract (never gold or
+    # correctness), so clean answers are preserved while malformed prose is
+    # re-asked and voted. Built in so codegen need not rediscover this simple,
+    # high-frequency failure and implement brittle option parsing from scratch.
+    ConditionalDefault(
+        name="malformed_choice_consensus",
+        qualifies=lambda tasks, has_images: tasks == {"multiple_choice_letter"},
+        predicate=_malformed_choice_predicate,
+        spec=lambda: PipelineSpec(
+            name="malformed_choice_consensus",
+            prompt_template=(
+                "{prompt}\n\nListen to the audio evidence carefully and decide silently. "
+                "Do not explain or repeat the choices. Reply with exactly one line: "
+                "FINAL: X, where X is A, B, C, or D."
+            ),
+            n_samples=3,
+            generation_kwargs={"do_sample": True, "temperature": 0.35, "top_p": 0.9},
+            output_key_pattern=r"(?:FINAL(?:\s+ANSWER)?|ANSWER)\s*:\s*\(?([A-D])\)?",
+        ),
+        opt_in=False,
+    ),
+    ConditionalDefault(
+        name="chart_arithmetic_verify",
+        qualifies=_chart_batch,
+        predicate=_chart_arithmetic_predicate,
+        spec=lambda: PipelineSpec(
+            name="chart_arithmetic_verify",
+            prompt_template=(
+                "Treat this as a chart measurement problem. First identify every "
+                "legend/category and plotted value needed by the question, respecting "
+                "the axis scale. Then perform the requested operation and independently "
+                "check the arithmetic. Do all work internally and return only the short "
+                "answer requested by the original question.\n\n{prompt}"
+            ),
+            strategy="chain_of_verification",
+        ),
+    ),
+    ConditionalDefault(
+        name="chart_verified_consensus",
+        qualifies=_chart_batch,
+        predicate=_chart_case_predicate,
+        spec=lambda: PipelineSpec(
+            name="chart_verified_consensus",
+            prompt_template=(
+                "Read the chart as measured evidence: identify the relevant labels, "
+                "legend entries, marks, and axis scale; derive the requested answer; "
+                "then check it independently. Work internally and return only the "
+                "short answer requested.\n\n{prompt}"
+            ),
+            strategy="chain_of_verification",
+            n_samples=3,
+            generation_kwargs={"temperature": 0.35, "top_p": 0.9},
+            baseline_override_min_support=3,
+        ),
+    ),
+    ConditionalDefault(
+        name="upscale_count_extract",
+        qualifies=_chart_batch,
+        predicate=_chart_count_extract_predicate,
+        spec=lambda: builtin_spec("upscale_sharpen"),
+    ),
+)
+
+
 def enforce_generation_floor(candidates: "list[FixCandidate]", floor: "int | None") -> None:
     """Raise any candidate ``max_tokens`` below the baseline budget to it.
 
@@ -322,140 +467,37 @@ class FixProposer:
         proposal_context = context_block + self._edit_note(data)
 
         candidates: "list[FixCandidate]" = []
-        # Pre-registered conditional repair for audio/other A-D tasks whose
-        # baseline never committed to an option.  It gates only on the
-        # observable output contract (never gold/correctness), so clean
-        # answers are preserved while malformed prose is re-asked and voted.
-        # Keeping it built-in also avoids asking codegen to rediscover this
-        # simple, high-frequency failure mode and then implement brittle
-        # option parsing from scratch.
-        malformed_name = "malformed_choice_consensus"
-        malformed_enabled = (
-            tasks == {"multiple_choice_letter"}
-            and malformed_name not in prior_names
-            and (
-                self._candidate_allowlist is None
-                or malformed_name in self._candidate_allowlist
-            )
-            and max_tier >= FixTier.L2_SCAFFOLD
-        )
-        if malformed_enabled:
-            spec = PipelineSpec(
-                name=malformed_name,
-                prompt_template=(
-                    "{prompt}\n\nListen to the audio evidence carefully and decide silently. "
-                    "Do not explain or repeat the choices. Reply with exactly one line: "
-                    "FINAL: X, where X is A, B, C, or D."
-                ),
-                n_samples=3,
-                generation_kwargs={"do_sample": True, "temperature": 0.35, "top_p": 0.9},
-                output_key_pattern=r"(?:FINAL(?:\s+ANSWER)?|ANSWER)\s*:\s*\(?([A-D])\)?",
-            )
-            candidates.append(
-                FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD,
-                    name=malformed_name,
-                    kind="spec",
-                    source="conditional_default",
-                    payload=spec.to_dict(),
-                    predicate=_malformed_choice_predicate,
+        allowlist = self._candidate_allowlist
+        if max_tier >= FixTier.L2_SCAFFOLD:
+            for default in CONDITIONAL_DEFAULTS:
+                wanted = (
+                    allowlist is not None and default.name in allowlist
+                    if default.opt_in
+                    else allowlist is None or default.name in allowlist
                 )
-            )
-        chart_name = "chart_arithmetic_verify"
-        chart_enabled = (
-            "exact_or_numeric" in tasks
-            and has_images
-            and chart_name not in prior_names
-            and self._candidate_allowlist is not None
-            and chart_name in self._candidate_allowlist
-            and max_tier >= FixTier.L2_SCAFFOLD
-        )
-        if chart_enabled:
-            spec = PipelineSpec(
-                name=chart_name,
-                prompt_template=(
-                    "Treat this as a chart measurement problem. First identify every "
-                    "legend/category and plotted value needed by the question, respecting "
-                    "the axis scale. Then perform the requested operation and independently "
-                    "check the arithmetic. Do all work internally and return only the short "
-                    "answer requested by the original question.\n\n{prompt}"
-                ),
-                strategy="chain_of_verification",
-            )
-            candidates.append(
-                FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD,
-                    name=chart_name,
-                    kind="spec",
-                    source="conditional_default",
-                    payload=spec.to_dict(),
-                    predicate=_chart_arithmetic_predicate,
-                )
-            )
-        consensus_name = "chart_verified_consensus"
-        consensus_enabled = (
-            "exact_or_numeric" in tasks
-            and has_images
-            and consensus_name not in prior_names
-            and self._candidate_allowlist is not None
-            and consensus_name in self._candidate_allowlist
-            and max_tier >= FixTier.L2_SCAFFOLD
-        )
-        if consensus_enabled:
-            spec = PipelineSpec(
-                name=consensus_name,
-                prompt_template=(
-                    "Read the chart as measured evidence: identify the relevant labels, "
-                    "legend entries, marks, and axis scale; derive the requested answer; "
-                    "then check it independently. Work internally and return only the "
-                    "short answer requested.\n\n{prompt}"
-                ),
-                strategy="chain_of_verification",
-                n_samples=3,
-                generation_kwargs={"temperature": 0.35, "top_p": 0.9},
-                baseline_override_min_support=3,
-            )
-            candidates.append(
-                FixCandidate(
-                    tier=FixTier.L2_SCAFFOLD,
-                    name=consensus_name,
-                    kind="spec",
-                    source="conditional_default",
-                    payload=spec.to_dict(),
-                    predicate=_chart_case_predicate,
-                )
-            )
-        count_name = "upscale_count_extract"
-        count_enabled = (
-            "exact_or_numeric" in tasks
-            and has_images
-            and count_name not in prior_names
-            and self._candidate_allowlist is not None
-            and count_name in self._candidate_allowlist
-            and max_tier >= FixTier.L2_SCAFFOLD
-        )
-        if count_enabled:
-            count_spec = self._default_spec("upscale_sharpen")
-            if count_spec is not None:
-                count_spec.name = count_name
+                if (
+                    not wanted
+                    or default.name in prior_names
+                    or not default.qualifies(tasks, has_images)
+                ):
+                    continue
+                spec = default.spec()
+                spec.name = default.name
                 candidates.append(
                     FixCandidate(
                         tier=FixTier.L2_SCAFFOLD,
-                        name=count_name,
+                        name=default.name,
                         kind="spec",
                         source="conditional_default",
-                        payload=count_spec.to_dict(),
-                        predicate=_chart_count_extract_predicate,
+                        payload=spec.to_dict(),
+                        predicate=default.predicate,
                     )
                 )
         # An explicit allowlist is a pre-registration request. Built-in L2
         # defaults must be materialised before any judge proposal/family-size
         # truncation; filtering only afterwards could silently leave the run
         # with attempted=0 even though the requested candidate exists.
-        requested_defaults = {
-            "self_consistency_5", "self_refine", "least_to_most",
-            "chain_of_verification", "upscale_sharpen", "zoom_equalize",
-        }
+        requested_defaults = set(BUILTIN_SPECS)
         if (
             self._candidate_allowlist is not None
             and len(self._candidate_allowlist) == 1
@@ -482,10 +524,8 @@ class FixProposer:
         code_only = self._candidate_allowlist == frozenset({"coded_pipeline"})
         catalog_method_names = method_names()
         preregistered_only = self._candidate_allowlist in {
-            frozenset({malformed_name}), frozenset({chart_name}),
-            frozenset({consensus_name}),
-            frozenset({count_name}),
-            *(frozenset({name}) for name in requested_defaults),
+            frozenset({name})
+            for name in [*(d.name for d in CONDITIONAL_DEFAULTS), *requested_defaults]
         }
         catalog_method_only = self._candidate_allowlist in {
             frozenset({name}) for name in catalog_method_names
@@ -607,48 +647,10 @@ class FixProposer:
         return tuple(self._floor_candidates)
 
     def _default_spec(self, name: str) -> "PipelineSpec | None":
-        """Built-in default L2 specs by name (the floor and the fallback)."""
-        if name == "self_consistency_5":
-            # Vote at a stochastic temperature: at T=0 five samples are one
-            # sample. Inherit the baseline temperature when it already samples.
-            base_t = self._baseline_generation_kwargs.get("temperature")
-            try:
-                base_t = float(base_t) if base_t is not None else None
-            except (TypeError, ValueError):
-                base_t = None
-            temperature = base_t if (base_t is not None and base_t > 0.0) else 0.7
-            return PipelineSpec(
-                name="self_consistency_5",
-                prompt_template="{prompt}",
-                n_samples=5,
-                generation_kwargs={"temperature": temperature},
-            )
-        if name == "self_refine":
-            return PipelineSpec(name="self_refine", prompt_template="{prompt}",
-                                strategy="self_refine")
-        if name == "least_to_most":
-            return PipelineSpec(name="least_to_most", prompt_template="{prompt}",
-                                strategy="least_to_most")
-        if name == "chain_of_verification":
-            return PipelineSpec(name="chain_of_verification", prompt_template="{prompt}",
-                                strategy="chain_of_verification")
-        if name == "upscale_sharpen":
-            return PipelineSpec(
-                name="upscale_sharpen",
-                image_ops=[
-                    {"tool": "upscale", "params": {"factor": 2.0}},
-                    {"tool": "sharpen", "params": {"factor": 2.0}},
-                ],
-            )
-        if name == "zoom_equalize":
-            return PipelineSpec(
-                name="zoom_equalize",
-                image_ops=[
-                    {"tool": "zoom_center", "params": {"factor": 1.6}},
-                    {"tool": "equalize", "params": {}},
-                ],
-            )
-        return None
+        """A built-in L2 spec by name, sampling at the baseline's temperature."""
+        return builtin_spec(
+            name, baseline_temperature=self._baseline_generation_kwargs.get("temperature")
+        )
 
     def resolve_max_tokens_floor(self, model: "Model | None", data: "CaseBatch") -> "int | None":
         """The baseline decode budget: explicit > model attribute > case metadata."""
