@@ -737,3 +737,13 @@ def test_hypothesis_id_joins_m3_to_m4_and_m5(tmp_path):
     # statement (id="", per _emit_every_method's `hyp`) would compute —
     # no drift between the log and an independent join.
     assert hid == hypothesis_id({"id": "", "statement": "s"})
+
+
+def test_outbox_dir_is_per_user(monkeypatch, tmp_path):
+    # A shared /tmp/evalrx-v2-outbox is owned by whoever created it first, so
+    # every other user on the host failed with "unable to open database file".
+    import evalrx.eval_agent.run_logger_v2 as v2
+
+    monkeypatch.setattr(v2.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(v2.getpass, "getuser", lambda: "alice")
+    assert v2._outbox_dir() == tmp_path / "evalrx-v2-outbox-alice"
