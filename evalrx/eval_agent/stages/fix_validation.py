@@ -250,157 +250,23 @@ class CandidateValidator:
                 return dict(pool.map(guarded, cases))
         return dict(guarded(case) for case in cases)
 
+    # -- per-candidate-kind execution ----------------------------------------
+    #
+    # A candidate kind either runs per case (a strategy: one model call chain
+    # per case, threaded by scores()) or as a batch (its own executor over the
+    # whole batch). Adding a kind is one method plus one entry below.
+
     def strategy(
         self, candidate: FixCandidate
     ) -> "Callable[[Model, FailureCase], Optional[bool]]":
         """Compile a candidate to a per-case success function (ab_runner shape)."""
-        if candidate.kind == "registered_repair":
-
-            def registered_repair(
-                model: "Model", case: "FailureCase"
-            ) -> "Optional[bool]":
-                executor_name = str(candidate.payload.get("executor", ""))
-                kwargs = dict(candidate.payload.get("kwargs") or {})
-                if candidate.payload.get("pass_baseline_answer"):
-                    kwargs["baseline_answer"] = str(getattr(case, "observed", ""))
-                try:
-                    executor = getattr(model, executor_name)
-                    output = executor(case.inputs, **kwargs)
-                    self._record_output(case.id, output)
-                    return score_to_bool(self.score(case, str(output)))
-                except Exception as exc:
-                    logger.debug(
-                        "Registered repair %s failed on %s: %s",
-                        candidate.name,
-                        case.id,
-                        exc,
-                    )
-                    return None
-
-            return registered_repair
-        if candidate.kind == "visual_search":
-
-            def visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                started = time.perf_counter()
-                try:
-                    search = getattr(model, "generate_visual_search")
-                    output = search(
-                        case.inputs,
-                        baseline_answer=getattr(case, "observed", None),
-                        **candidate.payload,
-                    )
-                    self.recorder.target_exchange(
-                        "guided_visual_search", case.inputs, output, case_id=case.id,
-                        duration_sec=time.perf_counter() - started,
-                        metadata={"candidate": candidate.name, "parameters": candidate.payload},
-                    )
-                    self._record_output(case.id, output)
-                    return score_to_bool(self.score(case, str(output)))
-                except Exception as exc:
-                    self.recorder.target_exchange(
-                        "guided_visual_search", case.inputs, None, case_id=case.id,
-                        error=str(exc), duration_sec=time.perf_counter() - started,
-                        metadata={"candidate": candidate.name, "parameters": candidate.payload},
-                    )
-                    logger.debug("Guided visual search failed on %s: %s", case.id, exc)
-                    return None
-
-            return visual_search
-        if candidate.kind == "detector_visual_search":
-
-            def detector_visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                started = time.perf_counter()
-                try:
-                    search = getattr(model, "generate_detector_visual_search")
-                    output = search(
-                        case.inputs,
-                        baseline_answer=getattr(case, "observed", None),
-                        **candidate.payload,
-                    )
-                    self.recorder.target_exchange(
-                        "detector_visual_search", case.inputs, output, case_id=case.id,
-                        duration_sec=time.perf_counter() - started,
-                        metadata={"candidate": candidate.name, "parameters": candidate.payload},
-                    )
-                    self._record_output(case.id, output)
-                    return score_to_bool(self.score(case, str(output)))
-                except Exception as exc:
-                    self.recorder.target_exchange(
-                        "detector_visual_search", case.inputs, None, case_id=case.id,
-                        error=str(exc), duration_sec=time.perf_counter() - started,
-                        metadata={"candidate": candidate.name, "parameters": candidate.payload},
-                    )
-                    logger.debug("Detector visual search failed on %s: %s", case.id, exc)
-                    return None
-
-            return detector_visual_search
-        if candidate.kind == "template":
-            template = candidate.payload["prompt_template"]
-            gen_kwargs = _safe_generation_kwargs(candidate.payload.get("generation_kwargs"))
-
-            def l1(model: "Model", case: "FailureCase") -> "Optional[bool]":
-                inp = case.inputs
-                metadata = getattr(case, "metadata", {}) or {}
-                template_context = {str(key): value for key, value in metadata.items()}
-                template_context["prompt"] = str(getattr(inp, "prompt", ""))
-                template_context.setdefault("failure_axis", "the relevant visual evidence")
-                # Inside the try, not before it: rendering the template is as
-                # capable of failing as generating from it, and a single bad
-                # case must score None rather than abort the whole validation.
-                started = time.perf_counter()
-                try:
-                    # dataclasses.replace, not a bare Inputs(prompt=..., image=...):
-                    # that silently dropped .video/.audio, so every L1 candidate was
-                    # unconditionally inapplicable (generate() raising on the
-                    # missing required modality field, caught below, scored as
-                    # None for every case) on any non-image FailureCase.
-                    new_inputs = dataclasses.replace(
-                        inp, prompt=safe_format(template, template_context)
-                    )
-                    output = str(model.generate(new_inputs, **gen_kwargs))
-                    self.recorder.target_exchange(
-                        "template_candidate", new_inputs, output, case_id=case.id,
-                        duration_sec=time.perf_counter() - started,
-                        metadata={"generation_kwargs": gen_kwargs, "candidate": candidate.name},
-                    )
-                    self._record_output(case.id, output)
-                    return score_to_bool(self.score(case, output))
-                except Exception as exc:
-                    self.recorder.target_exchange(
-                        "template_candidate", locals().get("new_inputs", inp), None,
-                        case_id=case.id, error=str(exc),
-                        duration_sec=time.perf_counter() - started,
-                        metadata={"generation_kwargs": gen_kwargs, "candidate": candidate.name},
-                    )
-                    return None
-
-            return l1
-
-        spec = PipelineSpec.from_dict(candidate.payload)
-        if spec is None:  # already validated at proposal time; belt and braces
-            return lambda model, case: None
-
-        def declarative(model: "Model", case: "FailureCase") -> "Optional[bool]":
-            capture: "dict[str, Any]" = {}
-            result = run_pipeline(
-                model, case, spec, self.score, capture=capture,
-                call_logger=lambda record: self.recorder.target_exchange(
-                    "declarative_pipeline", record.get("inputs"), record.get("output"),
-                    case_id=case.id, error=record.get("error"),
-                    duration_sec=record.get("duration_sec"),
-                    metadata={
-                        "candidate": candidate.name,
-                        "generation_kwargs": record.get("generation_kwargs") or {},
-                    },
-                ),
-            )
-            winner = capture.get("winner")
-            if winner is None and capture.get("outputs"):
-                winner = capture["outputs"][0]
-            self._record_output(case.id, winner)
-            return result
-
-        return declarative
+        build = {
+            "registered_repair": self._registered_repair_strategy,
+            "visual_search": self._visual_search_strategy,
+            "detector_visual_search": self._visual_search_strategy,
+            "template": self._template_strategy,
+        }.get(candidate.kind, self._spec_strategy)
+        return build(candidate)
 
     def scores(
         self,
@@ -410,26 +276,14 @@ class CandidateValidator:
         *,
         max_tokens_floor: "int | None" = None,
     ) -> "dict[str, Optional[bool]]":
-        """Per-case success of one candidate (batch path for coded pipelines)."""
-        if candidate.kind == "primitive":
-            model = self.recorder.instrument(model, data, f"fix_primitive:{candidate.name}")
-            prim = INTERNALS_PRIMITIVES[candidate.payload["primitive"]]
-            return prim.run(model, data, self.score, candidate.payload.get("params"))
-        if candidate.kind == "code":
-            result = self.coder.run(
-                candidate, model, data, max_tokens_floor=max_tokens_floor
-            )
-            for cid, output in result.outputs.items():
-                self._record_output(cid, output)
-            if result.ok:
-                self.coder.frozen_model_control(candidate, data)
-            return score_outputs(result, data, self.score)
-        if candidate.kind == "finetune_spec":
-            model = self.recorder.instrument(model, data, f"fix_finetune:{candidate.name}")
-            result = run_lora_repair(model, self.finetune_pool, data, candidate.payload, self.score)
-            if isinstance(candidate.payload, dict):
-                candidate.payload["exec_error"] = "" if result.ok else result.error
-            return result.scores
+        """Per-case success of one candidate on *data*."""
+        batch = {
+            "primitive": self._run_primitive,
+            "code": self._run_code,
+            "finetune_spec": self._run_finetune,
+        }.get(candidate.kind)
+        if batch is not None:
+            return batch(candidate, model, data, max_tokens_floor=max_tokens_floor)
         strategy = self.strategy(candidate)
         cases = list(data)
         from threading import Lock
@@ -467,6 +321,176 @@ class CandidateValidator:
                 results = list(pool.map(guarded, cases))
             return dict(results)
         return dict(guarded(case) for case in cases)
+
+    def _registered_repair_strategy(
+        self, candidate: FixCandidate
+    ) -> "Callable[[Model, FailureCase], Optional[bool]]":
+        def registered_repair(
+            model: "Model", case: "FailureCase"
+        ) -> "Optional[bool]":
+            executor_name = str(candidate.payload.get("executor", ""))
+            kwargs = dict(candidate.payload.get("kwargs") or {})
+            if candidate.payload.get("pass_baseline_answer"):
+                kwargs["baseline_answer"] = str(getattr(case, "observed", ""))
+            try:
+                executor = getattr(model, executor_name)
+                output = executor(case.inputs, **kwargs)
+                self._record_output(case.id, output)
+                return score_to_bool(self.score(case, str(output)))
+            except Exception as exc:
+                logger.debug(
+                    "Registered repair %s failed on %s: %s",
+                    candidate.name,
+                    case.id,
+                    exc,
+                )
+                return None
+
+        return registered_repair
+
+    #: kind -> (model method, logged operation, log label)
+    _VISUAL_SEARCH = {
+        "visual_search": ("generate_visual_search", "guided_visual_search",
+                          "Guided visual search"),
+        "detector_visual_search": ("generate_detector_visual_search",
+                                   "detector_visual_search", "Detector visual search"),
+    }
+
+    def _visual_search_strategy(
+        self, candidate: FixCandidate
+    ) -> "Callable[[Model, FailureCase], Optional[bool]]":
+        method, operation, label = self._VISUAL_SEARCH[candidate.kind]
+
+        def visual_search(model: "Model", case: "FailureCase") -> "Optional[bool]":
+            started = time.perf_counter()
+            try:
+                search = getattr(model, method)
+                output = search(
+                    case.inputs,
+                    baseline_answer=getattr(case, "observed", None),
+                    **candidate.payload,
+                )
+                self.recorder.target_exchange(
+                    operation, case.inputs, output, case_id=case.id,
+                    duration_sec=time.perf_counter() - started,
+                    metadata={"candidate": candidate.name, "parameters": candidate.payload},
+                )
+                self._record_output(case.id, output)
+                return score_to_bool(self.score(case, str(output)))
+            except Exception as exc:
+                self.recorder.target_exchange(
+                    operation, case.inputs, None, case_id=case.id,
+                    error=str(exc), duration_sec=time.perf_counter() - started,
+                    metadata={"candidate": candidate.name, "parameters": candidate.payload},
+                )
+                logger.debug("%s failed on %s: %s", label, case.id, exc)
+                return None
+
+        return visual_search
+
+    def _template_strategy(
+        self, candidate: FixCandidate
+    ) -> "Callable[[Model, FailureCase], Optional[bool]]":
+        template = candidate.payload["prompt_template"]
+        gen_kwargs = _safe_generation_kwargs(candidate.payload.get("generation_kwargs"))
+
+        def l1(model: "Model", case: "FailureCase") -> "Optional[bool]":
+            inp = case.inputs
+            metadata = getattr(case, "metadata", {}) or {}
+            template_context = {str(key): value for key, value in metadata.items()}
+            template_context["prompt"] = str(getattr(inp, "prompt", ""))
+            template_context.setdefault("failure_axis", "the relevant visual evidence")
+            # Inside the try, not before it: rendering the template is as
+            # capable of failing as generating from it, and a single bad
+            # case must score None rather than abort the whole validation.
+            started = time.perf_counter()
+            try:
+                # dataclasses.replace, not a bare Inputs(prompt=..., image=...):
+                # that silently dropped .video/.audio, so every L1 candidate was
+                # unconditionally inapplicable (generate() raising on the
+                # missing required modality field, caught below, scored as
+                # None for every case) on any non-image FailureCase.
+                new_inputs = dataclasses.replace(
+                    inp, prompt=safe_format(template, template_context)
+                )
+                output = str(model.generate(new_inputs, **gen_kwargs))
+                self.recorder.target_exchange(
+                    "template_candidate", new_inputs, output, case_id=case.id,
+                    duration_sec=time.perf_counter() - started,
+                    metadata={"generation_kwargs": gen_kwargs, "candidate": candidate.name},
+                )
+                self._record_output(case.id, output)
+                return score_to_bool(self.score(case, output))
+            except Exception as exc:
+                self.recorder.target_exchange(
+                    "template_candidate", locals().get("new_inputs", inp), None,
+                    case_id=case.id, error=str(exc),
+                    duration_sec=time.perf_counter() - started,
+                    metadata={"generation_kwargs": gen_kwargs, "candidate": candidate.name},
+                )
+                return None
+
+        return l1
+
+    def _spec_strategy(
+        self, candidate: FixCandidate
+    ) -> "Callable[[Model, FailureCase], Optional[bool]]":
+        spec = PipelineSpec.from_dict(candidate.payload)
+        if spec is None:  # already validated at proposal time; belt and braces
+            return lambda model, case: None
+
+        def declarative(model: "Model", case: "FailureCase") -> "Optional[bool]":
+            capture: "dict[str, Any]" = {}
+            result = run_pipeline(
+                model, case, spec, self.score, capture=capture,
+                call_logger=lambda record: self.recorder.target_exchange(
+                    "declarative_pipeline", record.get("inputs"), record.get("output"),
+                    case_id=case.id, error=record.get("error"),
+                    duration_sec=record.get("duration_sec"),
+                    metadata={
+                        "candidate": candidate.name,
+                        "generation_kwargs": record.get("generation_kwargs") or {},
+                    },
+                ),
+            )
+            winner = capture.get("winner")
+            if winner is None and capture.get("outputs"):
+                winner = capture["outputs"][0]
+            self._record_output(case.id, winner)
+            return result
+
+        return declarative
+
+    def _run_primitive(
+        self, candidate: FixCandidate, model: "Model", data: "CaseBatch", **_: Any
+    ) -> "dict[str, Optional[bool]]":
+        model = self.recorder.instrument(model, data, f"fix_primitive:{candidate.name}")
+        prim = INTERNALS_PRIMITIVES[candidate.payload["primitive"]]
+        return prim.run(model, data, self.score, candidate.payload.get("params"))
+
+    def _run_code(
+        self,
+        candidate: FixCandidate,
+        model: "Model",
+        data: "CaseBatch",
+        *,
+        max_tokens_floor: "int | None" = None,
+    ) -> "dict[str, Optional[bool]]":
+        result = self.coder.run(candidate, model, data, max_tokens_floor=max_tokens_floor)
+        for cid, output in result.outputs.items():
+            self._record_output(cid, output)
+        if result.ok:
+            self.coder.frozen_model_control(candidate, data)
+        return score_outputs(result, data, self.score)
+
+    def _run_finetune(
+        self, candidate: FixCandidate, model: "Model", data: "CaseBatch", **_: Any
+    ) -> "dict[str, Optional[bool]]":
+        model = self.recorder.instrument(model, data, f"fix_finetune:{candidate.name}")
+        result = run_lora_repair(model, self.finetune_pool, data, candidate.payload, self.score)
+        if isinstance(candidate.payload, dict):
+            candidate.payload["exec_error"] = "" if result.ok else result.error
+        return result.scores
 
     def rates(
         self,
