@@ -3931,34 +3931,34 @@ def test_a_judge_that_echoes_the_slug_contributes_nothing():
     reader exactly what the slug already told them, while looking like the run
     had described its own repair.
     """
-    from evalrx.eval_agent.stages.fix_agent import _judge_description
+    from evalrx.eval_agent.stages.fix_descriptions import judge_description
 
-    assert _judge_description({
+    assert judge_description({
         "name": "audio_evidence_then_answer",
         "what_it_does": "Audio evidence then answer.",
     }) == ""
-    assert _judge_description({
+    assert judge_description({
         "name": "audio_evidence_then_answer",
         "what_it_does": "Asks the model to describe what it hears before it answers.",
     }) == "Asks the model to describe what it hears before it answers."
-    assert _judge_description({"name": "x"}) == ""
-    assert _judge_description("not a proposal") == ""
+    assert judge_description({"name": "x"}) == ""
+    assert judge_description("not a proposal") == ""
 
 
 def test_a_coded_pipelines_own_header_is_its_description():
     """L2 code has no JSON proposal to carry `what_it_does`, so it declares it
     in the source, where the coding agent is already writing."""
-    from evalrx.eval_agent.stages.fix_agent import _code_description
+    from evalrx.eval_agent.stages.fix_descriptions import code_description
 
     code = (
         "# WHAT_IT_DOES: Asks the model twice and keeps the answer both tries agree on.\n"
         "import json\n"
         "print('x')\n"
     )
-    assert _code_description(code) == (
+    assert code_description(code) == (
         "Asks the model twice and keeps the answer both tries agree on."
     )
-    assert _code_description("import json\nprint('x')\n") == ""
+    assert code_description("import json\nprint('x')\n") == ""
 
     # A model that wraps the line anyway keeps its whole sentence.
     wrapped = (
@@ -3966,18 +3966,15 @@ def test_a_coded_pipelines_own_header_is_its_description():
         "#   the answer both tries agree on.\n"
         "import json\n"
     )
-    assert _code_description(wrapped) == (
+    assert code_description(wrapped) == (
         "Asks the model twice with different wording and keeps the answer both "
         "tries agree on."
     )
 
 
 def test_plain_description_never_falls_back_to_the_slug():
-    from evalrx.eval_agent.stages.fix_agent import (
-        FixCandidate,
-        FixTier,
-        plain_description,
-    )
+    from evalrx.eval_agent.stages.fix_agent import FixCandidate, FixTier
+    from evalrx.eval_agent.stages.fix_descriptions import plain_description
 
     judged = FixCandidate(
         tier=FixTier.L1_PROMPT, name="cross_modal_rules_terse", payload={},

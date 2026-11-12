@@ -696,11 +696,11 @@ def _headline(candidate: Any) -> str:
     if described:
         return described[:300]
     try:
-        from evalrx.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+        from evalrx.eval_agent.stages.fix_descriptions import BUILTIN_DESCRIPTIONS
     except Exception:
         return ""
     name = str(_val(candidate, "name", "") or "")
-    return _BUILTIN_DESCRIPTIONS.get(name, "")
+    return BUILTIN_DESCRIPTIONS.get(name, "")
 
 
 def _assign_refs(*groups: "list[FixAttemptWire]") -> None:

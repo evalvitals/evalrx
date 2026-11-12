@@ -1368,10 +1368,10 @@ def _repair_headline(value: Mapping[str, Any]) -> str:
     if headline:
         return headline[:300]
     try:
-        from evalrx.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+        from evalrx.eval_agent.stages.fix_descriptions import BUILTIN_DESCRIPTIONS
     except Exception:
         return ""
-    return _BUILTIN_DESCRIPTIONS.get(str(value.get("name") or ""), "")
+    return BUILTIN_DESCRIPTIONS.get(str(value.get("name") or ""), "")
 
 
 def _repair_name(value: Any) -> str:
@@ -1598,9 +1598,9 @@ def _backfill_repair_identity(payload: Any) -> None:
     if not isinstance(payload, dict):
         return
     try:
-        from evalrx.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+        from evalrx.eval_agent.stages.fix_descriptions import BUILTIN_DESCRIPTIONS
     except Exception:
-        _BUILTIN_DESCRIPTIONS = {}
+        BUILTIN_DESCRIPTIONS = {}
     refs: dict[str, str] = {}
     for group in ("selection", "attempted"):
         for row in payload.get(group) or []:
@@ -1616,7 +1616,7 @@ def _backfill_repair_identity(payload: Any) -> None:
                 row["ref"] = ref
             row.setdefault("headline", "")
             if not row["headline"]:
-                row["headline"] = _BUILTIN_DESCRIPTIONS.get(name, "")
+                row["headline"] = BUILTIN_DESCRIPTIONS.get(name, "")
 
 
 def _repair_outcomes(root: Path, contract: Mapping[str, Any]) -> dict[str, dict[str, Any]]:

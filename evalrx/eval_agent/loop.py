@@ -2034,7 +2034,8 @@ def _confirm_from_explore(
     repair_rounds: int,
 ) -> "Any":
     """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
-    from evalrx.eval_agent.stages.fix_agent import FixOutcome, plain_description
+    from evalrx.eval_agent.stages.fix_agent import FixOutcome
+    from evalrx.eval_agent.stages.fix_descriptions import plain_description
 
     def _recommend(reason: str, validations: "list[Any]") -> "dict[str, Any] | None":
         routed = sorted({v.candidate.tier for v in validations})
