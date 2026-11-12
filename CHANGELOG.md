@@ -6,6 +6,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — FixAgent split into single-purpose modules
+
+`stages/fix_agent.py` (3,952 lines, one 3,200-line class) is now an
+orchestrator over modules that each own one job and its state:
+`fix_types` (data model), `fix_proposal` (`FixProposer`; built-in repairs as
+the `BUILTIN_SPECS` / `CONDITIONAL_DEFAULTS` tables), `fix_codegen`
+(`PipelineCoder`), `fix_validation` (`CandidateValidator`, `Baseline`;
+execution dispatched by candidate kind), `fix_verdict` (verdicts, e-BH,
+recommendations), `fix_recorder` (run-log writes) and `fix_descriptions`.
+The `FixAgent` constructor, `propose_and_validate`, `validate_candidate` and
+its public attributes are unchanged; `FixAgent.alpha` and
+`FixAgent.no_fix_recommendation()` are now public, and the loop no longer
+reaches into `FixAgent` private methods. Code that imported private helpers
+from `fix_agent` must import them from their new modules.
+
+### Fixed — RunLoggerV2 outbox on multi-user hosts
+
+The Langfuse outbox lived in a single shared `/tmp/evalrx-v2-outbox`, owned by
+whichever user created it first; every other user's run then failed with
+`sqlite3.OperationalError: unable to open database file`. The directory is
+now per user.
+
 ### Fixed — hybrid analyzer compatibility with Transformers 5
 
 Recognize Qwen3.5 / Qwen3-Next linear-attention mixers when Transformers calls

@@ -246,7 +246,16 @@ eval_agent/
     ├── diagnosis.py      M3  DiagnosisAgent, DiagnosisResult
     ├── surgery.py        M5  SurgeryAgent, InterventionResult
     ├── experiment_writer.py  M5  ExperimentWriter
-    ├── fix_agent.py       M5 (post-loop)  FixAgent, FixCandidate, FixOutcome
+    ├── fix_agent.py       M5 (post-loop)  FixAgent — orchestrates the modules below
+    ├── fix_types.py       FixCandidate, FixValidation, FixOutcome, FixContext
+    ├── fix_proposal.py    FixProposer — candidates per tier; BUILTIN_SPECS,
+    │                      CONDITIONAL_DEFAULTS (built-in repairs as data)
+    ├── fix_codegen.py     PipelineCoder — writes/runs/repairs coded pipelines
+    ├── fix_validation.py  CandidateValidator, Baseline — runs candidates by kind,
+    │                      paired test against the baseline
+    ├── fix_verdict.py     verdicts, e-BH survivors, no-fix recommendations
+    ├── fix_recorder.py    FixRecorder — the only writer to the run logger
+    ├── fix_descriptions.py  plain-language candidate descriptions
     ├── fix_tiers.py       FixTier ladder (L1 prompt → L4 parameter space)
     ├── hypothesis_tester.py  M4  HypothesisTester, HypothesisTestResult
     ├── case_discovery.py  CaseDiscoveryAgent — runs candidates through a model,
@@ -670,7 +679,17 @@ neither. `RunContext` owns *output* (report/figures/artifacts/fixes/manifest).
 `loop.run_fix(report, data)` after `loop.run()` — distinct from `SurgeryAgent`
 above, which verifies *why* something fails; `FixAgent` proposes and validates
 candidate *fixes*. The allowed intervention space is an **input** (`FixTier`,
-default `L2_SCAFFOLD`); there is no automatic escalation:
+default `L2_SCAFFOLD`); there is no automatic escalation.
+
+`FixAgent` itself only orchestrates: `FixProposer` builds candidates,
+`PipelineCoder` handles agent-written pipelines, `CandidateValidator` measures
+the baseline and runs each candidate kind, `fix_verdict` turns validations
+into verdicts and recommendations, and `FixRecorder` logs. Each piece of
+per-run state has one owner; the agent passes the tier window, the decode
+floor and the `Baseline` explicitly. To add a built-in repair, add an entry to
+`BUILTIN_SPECS` or `CONDITIONAL_DEFAULTS`; to add a candidate kind, add one
+execution method to `CandidateValidator` and its entry in the kind map.
+
 
 ```text
 L1   input space        prompt rewrites, instruction strategies

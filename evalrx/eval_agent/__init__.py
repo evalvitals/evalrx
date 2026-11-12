@@ -71,8 +71,14 @@ stages/ (M1–M4 implementation):
                               + hypothesis -> minimum-tier routing
   fix_tools.py         Fix — L2 tool catalog (zoom/contrast/equalize/upscale)
                               + PipelineSpec executor around the unchanged model
-  fix_agent.py         Fix — FixAgent: tiered candidates -> paired McNemar
-                              validation -> FixOutcome (+ tier recommendation)
+  fix_agent.py         Fix — FixAgent: orchestrates propose -> validate ->
+                              FixOutcome (+ tier recommendation)
+  fix_types.py         Fix — FixCandidate / FixValidation / FixOutcome / FixContext
+  fix_proposal.py      Fix — FixProposer: candidates per tier, built-in repairs
+  fix_codegen.py       Fix — PipelineCoder: write / run / repair coded pipelines
+  fix_validation.py    Fix — CandidateValidator: baseline + paired validation
+  fix_verdict.py       Fix — verdicts, e-BH, no-fix recommendations
+  fix_recorder.py      Fix — FixRecorder: run-log writes
   fix_pipeline.py      Fix — L2 coded pipelines: sandboxed agent code with
                               bridged model access (model_generate/model_attend)
   fix_internals.py     Fix — L3a attention-guided crop, L3b intervention
