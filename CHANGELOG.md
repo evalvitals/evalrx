@@ -15,6 +15,16 @@ from `key` and failed with a shape mismatch (generic attention relevance and
 the delta-rule tap on hybrid models); it is now sized from the value heads.
 Verified on transformers 4.57.3, 5.20.2 and 5.23.0.
 
+### Removed — `evalrx.eval_agent.cli_agent` and `.cli_skills` (breaking)
+
+The two modules only re-exported `evalrx.agent_runtime`. Import from there:
+`CliAgentConfig`, `CliAgentResult`, `create_cli_agent`, `AgyModel`,
+`ClaudeModel`, `CodexModel` from `evalrx.agent_runtime`; the provider classes
+from `evalrx.agent_runtime.providers.<name>`; `SkillInstaller` /
+`CodexSkillInstaller` from `evalrx.agent_runtime.skills.installer`.
+`evalrx.eval_agent` still exports `CliAgentConfig`, `CliAgentResult` and
+`create_cli_agent`.
+
 ### Removed — the `dashboard` report server (breaking)
 
 Run reports have one UI: the React report (`evalrx serve` / `evalrx report` /

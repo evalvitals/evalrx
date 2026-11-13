@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from evalrx.eval_agent.cli_agent import _scan_agy_log
+from evalrx.agent_runtime.judges.agy import scan_agy_log as _scan_agy_log
 
 
 def test_scan_extracts_resource_exhausted(tmp_path):

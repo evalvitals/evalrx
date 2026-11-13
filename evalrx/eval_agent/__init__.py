@@ -10,16 +10,13 @@ Two loops are available:
 Stage modules live in ``stages/``; shared infrastructure stays at the top level.
 The CLI-agent runtime (sandboxing, code generation, providers, judge models,
 skills) lives in ``evalrx.agent_runtime`` — shared with ``evalrx.analysis``
-so neither package depends on the other. ``cli_agent.py`` / ``cli_skills.py``
-remain here as compatibility facades over that runtime.
+so neither package depends on the other.
 
 Top-level (shared / orchestration):
   loop.py              VLDiagnoseLoop
   loop_fix.py          run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
   run_logger_v2.py     RunLoggerV2 — run.json + per-stage M<n>/log.json event log
   hypothesis.py        Hypothesis, HypothesisStatus, serialization helpers
-  cli_agent.py         compatibility facade over agent_runtime CLI providers/judges
-  cli_skills.py        compatibility facade over agent_runtime.skills.installer
   store.py             Store / InMemoryStore / JsonlStore — persistent memory
   orchestrator.py      thin facade over the loop (pre-registered A/B)
   ab_runner.py         A/B execution across prompting strategies
