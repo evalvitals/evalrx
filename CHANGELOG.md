@@ -6,6 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — Docker-routed analyzers crashed on cases without a label
+
+`ProbeAgent(use_docker=True)` rebuilt each case inside the container with
+`label=None` when the case had no usable label, so anything that serialised
+the case (`FailureCase.to_dict()`) raised `AttributeError`. Such cases are
+now `Label.UNKNOWN`, the field's own default.
+
 ### Fixed — `ReportData.repairs` carried the per-case repair outcomes
 
 `build_report_data` reused the name `repairs` for M5's per-case outcomes, so

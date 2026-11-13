@@ -49,7 +49,7 @@ def _build_cases(raw_cases: list[dict]):
 
     cases = []
     for rec in raw_cases:
-        label = None
+        label = Label.UNKNOWN
         raw_label = rec.get("label")
         if raw_label is not None:
             try:
