@@ -108,6 +108,41 @@ export function M2Detail({ data }: { data: Partial<M2StageDetail> }) {
           <RecordTable rows={data.stats} />
         </details>
       )}
+      {data.agent && <ExploreAgent agent={data.agent} />}
+    </>
+  );
+}
+
+/** The analysis the explore agent wrote and ran: how to reproduce M2. */
+function ExploreAgent({ agent }: { agent: NonNullable<M2StageDetail["agent"]> }) {
+  const parts: Array<[string, string | null]> = [
+    ["Analysis code it wrote and ran", agent.code],
+    ["What the analysis printed", agent.stdout],
+    ["Errors the analysis printed", agent.stderr],
+    [
+      agent.transcript_truncated
+        ? "Agent trajectory (first part; the run directory keeps the whole file)"
+        : "Agent trajectory",
+      agent.transcript,
+    ],
+  ];
+  return (
+    <>
+      {parts.map(
+        ([title, text]) =>
+          text && (
+            <details className="agent-transcript" key={title}>
+              <summary>{title}</summary>
+              <pre>{text}</pre>
+            </details>
+          ),
+      )}
+      {agent.audit != null && (
+        <details className="agent-transcript">
+          <summary>Agent audit</summary>
+          <pre>{JSON.stringify(agent.audit, null, 2)}</pre>
+        </details>
+      )}
     </>
   );
 }

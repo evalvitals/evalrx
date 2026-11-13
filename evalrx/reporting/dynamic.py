@@ -614,7 +614,7 @@ def _stage_detail(
     ]
     return {
         "m1": _m1_detail(dict(raw.get("m1") or {}), cases, events),
-        "m2": _m2_detail(m2, explore, figures, stats),
+        "m2": _m2_detail(m2, explore, figures, stats, (raw.get("agents") or {}).get("explore")),
         "m3": _m3_detail(raw, explore, figures, stats),
         "m4": _m4_detail(dict(raw.get("m4") or {}), logs_dir, cases, events),
         "m5": _m5_detail(raw, cases, events),
@@ -706,6 +706,7 @@ def _m2_figures(
 def _m2_detail(
     m2: Mapping[str, Any], explore: Mapping[str, Any],
     figures: list[dict[str, Any]], stats: list[dict[str, Any]],
+    agent: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     takeaways = [
         {key: item.get(key) for key in (
@@ -721,6 +722,25 @@ def _m2_detail(
         "caveats": list(explore.get("caveats") or []),
         "candidate_signals": list(explore.get("candidate_signals") or []),
         "recommended_tests": list(explore.get("recommended_confirmatory_tests") or []),
+        "agent": _explore_agent(agent),
+    }
+
+
+#: The explore agent's CLI trajectory runs to megabytes on a long session;
+#: the report carries its head, the run directory the whole file.
+_TRANSCRIPT_CAP = 200_000
+
+
+def _explore_agent(agent: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The analysis the explore agent wrote and ran, or None if it left nothing."""
+    if not agent:
+        return None
+    transcript = str(agent.get("raw_streams") or agent.get("raw_output") or "")
+    return {
+        "code": agent.get("code"), "stdout": agent.get("stdout"), "stderr": agent.get("stderr"),
+        "transcript": transcript[:_TRANSCRIPT_CAP] or None,
+        "transcript_truncated": len(transcript) > _TRANSCRIPT_CAP,
+        "audit": agent.get("audit"),
     }
 
 

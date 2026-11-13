@@ -203,14 +203,16 @@ def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
             logs_dir = child.parent
             break
 
+    own_report = any((run_dir / name).is_file() for name in EXPLORE_REPORTS)
     explore_dir: Path | None
-    explore_dir = logs_dir / "explore"
-    if not explore_dir.is_dir() and (logs_dir.parent / "explore").is_dir():
-        explore_dir = logs_dir.parent / "explore"
-    if not explore_dir.is_dir():
-        explore_dir = None
-    if explore_dir is None and any((run_dir / name).is_file() for name in EXPLORE_REPORTS):
-        explore_dir = run_dir
+    if own_report and not (logs_dir / "run.json").exists():
+        explore_dir = run_dir  # an explore output; a sibling explore/ is another run's
+    else:
+        explore_dir = logs_dir / "explore"
+        if not explore_dir.is_dir() and (logs_dir.parent / "explore").is_dir():
+            explore_dir = logs_dir.parent / "explore"
+        if not explore_dir.is_dir():
+            explore_dir = run_dir if own_report else None
 
     fixes_dir: Path | None
     fixes_dir = logs_dir / "fixes"
@@ -951,9 +953,10 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         "explore_dir": explore_dir,
         "example_dir": example_dir or logs_dir.parent,
     }
-    if explore_dir is not None and explore_dir == logs_dir and explore_data:
-        # An explore output: no run log, so the stages that ran, the question
-        # and the data explored are all read off its report.
+    if not events and explore_data and explore_dir == logs_dir:
+        # An explore output: its report at the top and no run log, so the
+        # stages that ran, the question and the data explored are all read
+        # off the report. (A loop run's explore/ child is not one.)
         data["m2"]["ran"] = True
         data["m3"]["ran"] = bool(explore_data.get("hypotheses"))
         profile = explore_data.get("data_profile") or {}

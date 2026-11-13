@@ -189,6 +189,21 @@ class TakeawayView(WireModel):
     table_names: list[str] | None
 
 
+class ExploreAgentView(WireModel):
+    """What the explore coding agent left: the analysis it wrote and ran.
+
+    ``transcript`` is its CLI trajectory, cut to the report's budget; the run
+    directory keeps the whole file.
+    """
+
+    code: str | None
+    stdout: str | None
+    stderr: str | None
+    transcript: str | None
+    transcript_truncated: bool
+    audit: Any
+
+
 class M2StageDetail(WireModel):
     mode: str
     conclusion: str
@@ -200,6 +215,7 @@ class M2StageDetail(WireModel):
     caveats: list[Any]
     candidate_signals: list[CandidateSignalView]
     recommended_tests: list[Any]
+    agent: ExploreAgentView | None
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +441,7 @@ class StageDetail(WireModel):
 
 __all__ = [
     "CandidateSignalView",
+    "ExploreAgentView",
     "FigureView",
     "HypothesisView",
     "M1StageDetail",

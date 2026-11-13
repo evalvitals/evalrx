@@ -673,6 +673,52 @@ def test_an_explore_output_is_its_own_report(tmp_path):
     assert {s["id"]: s["status"] for s in without["stages"]}["m3"] == "not-run"
 
 
+def test_a_fused_output_reads_as_an_explore_report(tmp_path):
+    """A fused run writes FusedReport.to_dict(): no takeaways or hypotheses."""
+    from evalrx.analysis.fused_pipeline import FusedReport, FusedSignal
+    from evalrx.reporting.dynamic import build_report_data
+
+    report = FusedReport(
+        question="Which signal goes with hallucination?", ok=True,
+        observations=["Diffuse attention goes with false yes."],
+        candidate_signals=[FusedSignal(name="attn_entropy", source="explorer", reject=True)],
+        conclusion="attn_entropy held up on the confirm split.",
+    )
+    (tmp_path / "fused_report.json").write_text(json.dumps(report.to_dict()), encoding="utf-8")
+
+    data = build_report_data(tmp_path)
+    status = {stage["id"]: stage["status"] for stage in data["stages"]}
+    assert (status["m2"], status["m3"]) == ("completed", "not-run")
+    assert data["setting"]["kind"] == "explore"
+    assert data["setting"]["question"] == "Which signal goes with hallucination?"
+    m2 = data["stage_detail"]["m2"]
+    assert m2["observations"] == ["Diffuse attention goes with false yes."]
+    assert m2["candidate_signals"][0]["name"] == "attn_entropy"
+
+
+def test_a_loop_run_beside_an_explore_report_stays_a_loop_run(tmp_path):
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.dynamic import build_report_data
+
+    _explore_output(tmp_path)
+    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    logger.close()
+    assert build_report_data(tmp_path)["setting"]["kind"] == "loop"
+
+
+def test_the_explore_agent_code_reaches_the_m2_record(tmp_path):
+    from evalrx.reporting.dynamic import build_report_data
+
+    root = _explore_output(tmp_path)
+    (root / "analysis.py").write_text("print('hi')\n", encoding="utf-8")
+    (root / "agent_raw_output.txt").write_text("x" * 200_005, encoding="utf-8")
+    agent = build_report_data(root)["stage_detail"]["m2"]["agent"]
+    assert agent["code"] == "print('hi')\n"
+    assert len(agent["transcript"]) == 200_000 and agent["transcript_truncated"]
+    assert build_report_data(_explore_output(tmp_path / "bare"))["stage_detail"]["m2"]["agent"] is None
+
+
 def test_a_rerun_explore_output_invalidates_its_cached_report(tmp_path):
     from evalrx.reporting.dynamic import publish_report, report_is_current
 

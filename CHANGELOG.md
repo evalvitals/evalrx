@@ -99,11 +99,16 @@ Run reports have one UI: the React report (`evalrx serve` / `evalrx report` /
   run-codebase`, a fused run) is now read as its own report: M2 and M3 show
   as completed, the question and data come from its `exploratory_report.json`
   (or `fused_report.json`), and the header counts patterns, charts and
-  proposed causes instead of cases. `evalrx serve <explore out>` works on it,
+  proposed causes instead of cases. M2's full record carries what the legacy
+  page showed of the explore agent, for loop runs too: the analysis code it
+  ran, what it printed, its audit, and its trajectory (cut at 200 000
+  characters; the run directory keeps the whole file). `evalrx serve <explore out>` works on it,
   and the `report.html` these commands write is the React report's portable
   export (`evalrx.reporting.static_export.write_report`). A source checkout
   must build the renderer (`npm run build` in `evalrx/reporting/web`) for that
   file; without it the run finishes and says why the file was not written.
+  The example images that run an explore step build the renderer in a Node
+  stage, and no longer ask for the `dashboard` extra, which no longer exists.
 - `evalrx explore`, `evalrx run-codebase` and `evalrx-explore`:
   `--serve-report` opens the written `report.html` in a browser instead of starting a server;
   the deprecated `--dashboard` alias and `--port` are removed (`evalrx-explore`

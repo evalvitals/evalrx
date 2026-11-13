@@ -127,6 +127,21 @@ export interface CorrectedRejections {
 export type EvidenceGrade = "intervention" | "observational" | "none";
 
 /**
+ * What the explore coding agent left: the analysis it wrote and ran.
+ *
+ * ``transcript`` is its CLI trajectory, cut to the report's budget; the run
+ * directory keeps the whole file.
+ */
+export interface ExploreAgentView {
+  code: string | null;
+  stdout: string | null;
+  stderr: string | null;
+  transcript: string | null;
+  transcript_truncated: boolean;
+  audit: unknown;
+}
+
+/**
  * Descriptive EDA notes from the optional explore side-path.
  *
  * Never authoritative. It enters the M3 prompt and the dashboard and nothing
@@ -415,6 +430,7 @@ export interface M2StageDetail {
   caveats: (unknown)[];
   candidate_signals: (CandidateSignalView)[];
   recommended_tests: (unknown)[];
+  agent: ExploreAgentView | null;
 }
 
 export interface M3StageDetail {

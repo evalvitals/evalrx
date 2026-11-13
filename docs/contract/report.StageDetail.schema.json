@@ -7,6 +7,73 @@
       "title": "CandidateSignalView",
       "type": "object"
     },
+    "ExploreAgentView": {
+      "additionalProperties": false,
+      "description": "What the explore coding agent left: the analysis it wrote and ran.\n\n``transcript`` is its CLI trajectory, cut to the report's budget; the run\ndirectory keeps the whole file.",
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        },
+        "stdout": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stdout"
+        },
+        "stderr": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stderr"
+        },
+        "transcript": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Transcript"
+        },
+        "transcript_truncated": {
+          "title": "Transcript Truncated",
+          "type": "boolean"
+        },
+        "audit": {
+          "title": "Audit"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "transcript",
+        "transcript_truncated",
+        "audit"
+      ],
+      "title": "ExploreAgentView",
+      "type": "object"
+    },
     "FigureView": {
       "additionalProperties": false,
       "description": "A chart the run saved, with the reading written for it.",
@@ -315,6 +382,16 @@
           "items": {},
           "title": "Recommended Tests",
           "type": "array"
+        },
+        "agent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExploreAgentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -327,7 +404,8 @@
         "observations",
         "caveats",
         "candidate_signals",
-        "recommended_tests"
+        "recommended_tests",
+        "agent"
       ],
       "title": "M2StageDetail",
       "type": "object"
