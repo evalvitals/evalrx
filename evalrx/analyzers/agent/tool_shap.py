@@ -111,6 +111,11 @@ class ToolShap(Analyzer):
     requires_trajectories = True
     applies_to_modalities = frozenset({"text", "image"})
 
+    tool_names: list[str]
+    max_combinations: Optional[int]
+    max_cases: Optional[int]
+    seed: int
+
     def __init__(
         self,
         run_with_tools: Callable[["FailureCase", tuple], "Trajectory"],

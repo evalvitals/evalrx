@@ -59,6 +59,10 @@ class LogitLensAnalyzer(Analyzer):
     # starves it — on a curated batch the stratified subsample then carries only
     # ~16 FAILs, too few for M4 to clear the e-value bar. 128 covers typical
     # mined fail counts (tens) plus controls at one forward each.
+    pos: int
+    top_k: int
+    max_cases: int
+
     def __init__(self, pos: int = -1, top_k: int = 3, max_cases: int = 0) -> None:
         super().__init__(pos=pos, top_k=top_k, max_cases=max_cases)
 

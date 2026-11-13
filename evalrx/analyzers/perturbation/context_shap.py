@@ -82,6 +82,12 @@ class ContextShapAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    granularity: str
+    n_samples: int
+    max_chunks: int
+    max_cases: int
+    seed: int
+
     def __init__(
         self,
         granularity: str = "paragraph",

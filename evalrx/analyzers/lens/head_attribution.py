@@ -73,6 +73,10 @@ class HeadAttributionAnalyzer(Analyzer):
         "dla_linear_share": ("Linear-attention share", "Hybrid stacks only: share of all heads' absolute contribution written by the linear-attention (gated delta rule) layers rather than softmax attention."),
     }
 
+    target: str
+    top_k: int
+    max_cases: int
+
     def __init__(self, target: str = "prediction", top_k: int = 10, max_cases: int = 0) -> None:
         super().__init__(target=target, top_k=top_k, max_cases=max_cases)
 

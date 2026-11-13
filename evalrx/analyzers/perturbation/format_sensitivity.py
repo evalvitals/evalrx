@@ -146,6 +146,9 @@ class FormatSensitivityAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    n_variants: int
+    max_cases: int
+
     def __init__(self, n_variants: int = 3, max_cases: int = 0) -> None:
         super().__init__(n_variants=max(1, int(n_variants)), max_cases=max_cases)
 

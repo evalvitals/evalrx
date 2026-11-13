@@ -79,6 +79,13 @@ class AttentionSensitivityAnalyzer(Analyzer):
         "rw_flips_up": ("Answer flips, more looking", "Scaling media attention up changes the model's top next token."),
     }
 
+    down: float
+    up: float
+    band: str
+    target: str
+    fidelity_rtol: float
+    max_cases: int
+
     def __init__(self, down: float = 0.5, up: float = 2.0, band: str = "all",
                  target: str = "prediction", fidelity_rtol: float = 1e-2, max_cases: int = 0) -> None:
         if band not in _BANDS:

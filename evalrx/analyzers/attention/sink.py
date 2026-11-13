@@ -47,6 +47,9 @@ class AttentionSinkAnalyzer(Analyzer):
         "sink_peak_layer_frac": ("Strongest-sink depth", "Relative depth (0 = first layer, 1 = last) of the layer with the most attention on the sink."),
     }
 
+    sink_pos: int
+    max_cases: int
+
     def __init__(self, sink_pos: int = 0, max_cases: int = 0) -> None:
         super().__init__(sink_pos=sink_pos, max_cases=max_cases)
 

@@ -79,6 +79,10 @@ class SelfRepairAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    revise_with_critique: bool
+    max_cases: int
+    generate_missing: bool
+
     def __init__(
         self,
         revise_with_critique: bool = False,

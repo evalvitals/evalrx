@@ -82,6 +82,11 @@ class ModalityAblationAnalyzer(Analyzer):
     #: the analyzer would report a grounding rate over zero probes.
     requires_modalities = frozenset(MEDIA_SLOTS)
 
+    mode: str
+    slots: 'tuple[str, ...] | None'
+    score_fn: Optional[Callable[['FailureCase', str], Optional[bool]]]
+    max_cases: int
+
     def __init__(
         self,
         mode: str = "drop",

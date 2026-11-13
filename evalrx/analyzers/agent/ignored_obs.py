@@ -38,6 +38,8 @@ class IgnoredObservationDetector(Analyzer):
 
     DEFAULT_MARKERS = ("error", "not found", "failed", "no result", "none", "invalid", "empty", "exception")
 
+    markers: tuple[str, ...] | None
+
     def __init__(self, markers: tuple[str, ...] | None = None) -> None:
         super().__init__(markers=markers or self.DEFAULT_MARKERS)
 

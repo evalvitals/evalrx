@@ -51,6 +51,8 @@ class TokenEntropyAnalyzer(Analyzer):
     name = "token_entropy"
     requires = frozenset({Capability.LOGITS})
 
+    top_k: int
+
     def __init__(self, top_k: int = 5) -> None:
         super().__init__(top_k=top_k)
 

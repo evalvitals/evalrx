@@ -98,6 +98,14 @@ class TunedLensAnalyzer(Analyzer):
         "tl_kl_mid": ("Mid-stack disagreement", "Tuned-lens KL divergence from the final distribution, averaged over the middle third of the layers."),
     }
 
+    train_tokens: int
+    steps: int
+    batch_size: int
+    lr: float
+    seed: int
+    translators_path: 'str | None'
+    max_cases: int
+
     def __init__(self, train_tokens: int = 4096, steps: int = 200, batch_size: int = 256,
                  lr: float = 1e-3, seed: int = 0, translators_path: "str | None" = None,
                  max_cases: int = 0) -> None:

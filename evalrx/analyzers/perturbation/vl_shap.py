@@ -48,6 +48,12 @@ class VLShapAnalyzer(Analyzer):
     # audio batch matched here and then raised on the first case.
     requires_modalities = frozenset({"image"})
 
+    n_regions: int
+    region_score_fn: Optional[Callable[[set], float]]
+    n_samples: int
+    top_k: int
+    seed: int
+
     def __init__(
         self,
         n_regions: int = 16,

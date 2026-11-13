@@ -88,6 +88,11 @@ class AttentionKnockoutAnalyzer(Analyzer):
         "ko_delta_late": ("Drop, late layers", "Margin drop when media attention is blocked only in the last third of the layers."),
     }
 
+    target: str
+    queries: str
+    fidelity_rtol: float
+    max_cases: int
+
     def __init__(self, target: str = "prediction", queries: str = "text",
                  fidelity_rtol: float = 1e-2, max_cases: int = 0) -> None:
         if queries not in ("text", "last"):

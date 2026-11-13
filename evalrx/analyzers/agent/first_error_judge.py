@@ -65,6 +65,8 @@ class FirstErrorJudge(Analyzer):
     requires_trajectories = True
     applies_to_modalities = frozenset({"text", "image"})  # trajectory analysis is modality-agnostic
 
+    judge: Optional['Model']
+
     def __init__(self, judge: Optional["Model"] = None) -> None:
         super().__init__(judge=judge)
 

@@ -150,6 +150,9 @@ class PerturbationBattery(Analyzer):
         'sensitivity_rate': ('Responds to real changes', 'For this case: share of meaning-ALTERING edits that did change the answer. Low is bad — the model ignored a change that should matter.'),
     }
 
+    max_cases: int
+    gen_kwargs: Optional[dict]
+
     def __init__(
         self,
         perturbations: tuple = DEFAULT_PERTURBATIONS,

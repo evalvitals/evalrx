@@ -50,6 +50,9 @@ class CHAIRAnalyzer(Analyzer):
     # match alone still offers this on a batch with no images in it.
     requires_modalities = frozenset({"image"})
 
+    object_vocab: Iterable[str]
+    gt_key: str
+
     def __init__(self, object_vocab: Iterable[str], gt_key: str = "gt_objects") -> None:
         super().__init__(object_vocab=list(object_vocab), gt_key=gt_key)
 

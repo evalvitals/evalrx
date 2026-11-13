@@ -138,6 +138,14 @@ class PathPatchingAnalyzer(Analyzer):
         "pp_linear_share": ("Direct effect via linear heads", "Share of the patched heads' absolute exact direct effect carried by linear-attention heads (hybrid stacks)."),
     }
 
+    corruption: str
+    noise_scale: float
+    top_k: int
+    min_effect: float
+    target: str
+    seed: int
+    max_cases: int
+
     def __init__(self, corruption: str = "noise", noise_scale: float = 3.0, top_k: int = 8,
                  min_effect: float = 1.0, target: str = "prediction", seed: int = 0,
                  max_cases: int = 0) -> None:

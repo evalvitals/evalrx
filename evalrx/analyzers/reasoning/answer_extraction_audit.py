@@ -161,6 +161,10 @@ class AnswerExtractionAudit(Analyzer):
         'suspect_rate': ('Possible grading misses', 'Share of wrong answers that may be grading mistakes rather than model mistakes. High means the failure numbers are not trustworthy yet.'),
     }
 
+    reask: bool
+    max_cases: int
+    tail_chars: int
+
     def __init__(
         self,
         reask: bool = False,

@@ -115,6 +115,10 @@ class SelfConsistencyAnalyzer(Analyzer):
         'normalized_semantic_entropy': ('Answer spread', 'How spread out the answers were. High means the model has no settled view.'),
     }
 
+    n: int
+    gen_kwargs: dict | None
+    semantic: bool
+
     def __init__(
         self,
         n: int = 5,

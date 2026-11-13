@@ -92,6 +92,11 @@ class TerminationAudit(Analyzer):
         'truncation_rate': ('Cut off by length', 'Share of answers cut off by the length limit before finishing.'),
     }
 
+    continue_non_clean: bool
+    repetition_n: int
+    repetition_thresh: float
+    max_cases: int
+
     def __init__(
         self,
         continue_non_clean: bool = True,

@@ -79,6 +79,11 @@ class CoverageVerificationGap(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    k: int
+    self_verify: bool
+    max_cases: int
+    gen_kwargs: Optional[dict]
+
     def __init__(
         self,
         k: int = 5,

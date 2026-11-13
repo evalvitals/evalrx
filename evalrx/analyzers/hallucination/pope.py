@@ -55,6 +55,8 @@ class POPEAnalyzer(Analyzer):
     # match alone still offers this on a batch with no images in it.
     requires_modalities = frozenset({"image"})
 
+    label_key: str
+
     def __init__(self, label_key: str = "pope_label") -> None:
         super().__init__(label_key=label_key)
 

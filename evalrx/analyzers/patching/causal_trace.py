@@ -216,6 +216,15 @@ class CausalTraceAnalyzer(Analyzer):
         "ct_last_recovery_max": ("Best recovery at answer pos.", "Largest share of the lost margin recovered by restoring the final prompt position at any probed layer."),
     }
 
+    corruption: str
+    noise_scale: float
+    n_noise: int
+    n_points: int
+    min_effect: float
+    target: str
+    seed: int
+    max_cases: int
+
     def __init__(self, corruption: str = "noise", noise_scale: float = 3.0, n_noise: int = 1,
                  n_points: int = 8, min_effect: float = 1.0, target: str = "prediction",
                  seed: int = 0, max_cases: int = 0) -> None:

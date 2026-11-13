@@ -82,6 +82,12 @@ class StepRolloutValueAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    n_rollouts: int
+    max_steps: int
+    drop_threshold: float
+    max_cases: int
+    gen_kwargs: Optional[dict]
+
     def __init__(
         self,
         n_rollouts: int = 3,

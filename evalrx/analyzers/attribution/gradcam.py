@@ -74,6 +74,10 @@ class GradCAMAnalyzer(Analyzer):
         "gc_edge_mass": ("Grad-CAM on border", "Share of the map on the outermost ring of patches."),
     }
 
+    layer: 'int | float'
+    target: str
+    max_cases: int
+
     def __init__(self, layer: "int | float" = 0.5, target: str = "prediction", max_cases: int = 0) -> None:
         super().__init__(layer=layer, target=target, max_cases=max_cases)
 

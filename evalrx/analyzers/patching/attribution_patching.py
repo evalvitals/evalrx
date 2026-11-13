@@ -191,6 +191,18 @@ class AttributionPatchingAnalyzer(Analyzer):
         "ap_verified": ("Estimate verified", "ap_verify_mae is within verify_tol: this case's curves and relay token can be read (only these enter the aggregates)."),
     }
 
+    corruption: str
+    noise_scale: float
+    n_noise: int
+    ig_steps: int
+    direction: str
+    n_verify: int
+    verify_tol: float
+    min_effect: float
+    target: str
+    seed: int
+    max_cases: int
+
     def __init__(self, corruption: str = "noise", noise_scale: float = 3.0, n_noise: int = 1,
                  ig_steps: int = 5, direction: str = "denoise", n_verify: int = 2,
                  verify_tol: float = 0.25, min_effect: float = 1.0, target: str = "prediction",

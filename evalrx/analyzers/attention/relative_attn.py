@@ -358,6 +358,11 @@ class RelativeAttentionAnalyzer(Analyzer):
     # batch matches on "image" and would map attention over nothing.
     requires_modalities = frozenset({"image", "video"})
 
+    general_prompt: str
+    layer: 'int | float'
+    top_k: int
+    max_cases: int
+
     def __init__(
         self,
         general_prompt: str = "Describe the image.",

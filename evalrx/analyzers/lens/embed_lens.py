@@ -104,6 +104,14 @@ class EmbedLensAnalyzer(Analyzer):
         "el_prompt_best_sim": ("Its grounding similarity", "Cosine similarity of that word's embedding to its closest media token."),
     }
 
+    layer: 'int | float'
+    top_k: int
+    recurring_frac: float
+    min_images: int
+    norm_ratio: float
+    vocab_chunk: int
+    max_cases: int
+
     def __init__(self, layer: "int | float" = 0, top_k: int = 5, recurring_frac: float = 0.5,
                  min_images: int = 3, norm_ratio: float = 4.0, vocab_chunk: int = 32768,
                  max_cases: int = 0) -> None:

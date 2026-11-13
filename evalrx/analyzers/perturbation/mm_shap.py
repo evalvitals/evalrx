@@ -75,6 +75,12 @@ class MMShapAnalyzer(Analyzer):
     #: and the "modality contribution" it reports is a text-only tautology.
     requires_modalities = frozenset(MEDIA_SLOTS)
 
+    score_fn: Optional[Callable[[Inputs], float]]
+    n_samples: int
+    mask_token: str
+    top_k: int
+    seed: int
+
     def __init__(
         self,
         score_fn: Optional[Callable[[Inputs], float]] = None,
