@@ -232,6 +232,7 @@ eval_agent/
     ├── diagnosis.py      M3  DiagnosisAgent, DiagnosisResult
     ├── surgery.py        M5  SurgeryAgent, InterventionResult
     ├── experiment_writer.py  M5  ExperimentWriter
+    ├── experiment_code.py    M5  reading + static checks of the code it writes
     ├── fix/              M5 (post-loop) tiered repair
     │   ├── agent.py       FixAgent — orchestrates the modules below
     │   ├── types.py       FixCandidate, FixValidation, FixOutcome, FixContext
