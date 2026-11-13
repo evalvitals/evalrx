@@ -51,11 +51,11 @@ def test_top_level_explore_help(capsys):
     assert "single-shot exploratory analysis" in out.lower() or "no interactive repl" in out.lower()
 
 
-def test_top_level_dashboard_help(capsys):
+def test_the_dashboard_command_is_retired(capsys):
     with pytest.raises(SystemExit) as exc:
-        main(["dashboard", "--help"])
-    assert exc.value.code == 0
-    assert "Deprecated alias" in capsys.readouterr().out
+        main(["dashboard", "out"])
+    assert exc.value.code == 2
+    assert "invalid choice: 'dashboard'" in capsys.readouterr().err
 
 
 def test_top_level_serve_help(capsys):
@@ -125,6 +125,16 @@ def test_top_level_explore_holdout_dispatch(monkeypatch):
     assert captured["holdout_confirm"] is True
     assert captured["holdout_seed"] == 7
     assert captured["judge_model"] == "claude-opus-4-8"
+    assert captured["open_report"] is False
+
+
+def test_serve_report_opens_the_explore_report(monkeypatch):
+    import evalrx.cli as cli_mod
+
+    captured = {}
+    monkeypatch.setattr(cli_mod, "run_explore", lambda path, **kwargs: captured.update(kwargs) or 0)
+    assert main(["explore", "data", "--serve-report"]) == 0
+    assert captured["open_report"] is True
 
 
 def test_explore_entry_help(capsys):
@@ -133,7 +143,7 @@ def test_explore_entry_help(capsys):
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "evalrx-explore" in out
-    assert "--dashboard" in out
+    assert "--serve-report" in out and "--dashboard" not in out
 
 
 def test_chat_repl_is_retired():

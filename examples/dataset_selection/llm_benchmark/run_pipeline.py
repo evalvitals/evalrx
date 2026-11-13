@@ -2,7 +2,7 @@
 
     python run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
     python run_pipeline.py --analysis-only        # M1->M2->M3, stop before M4/M5
-    python -m evalrx.cli dashboard outputs/qwen3.5-9b/supergpqa_law
+    python -m evalrx.cli serve outputs/qwen3.5-9b/supergpqa_law
 
 Stages (evalrx.eval_agent.loop.VLDiagnoseLoop -- the class name says VL, but
 it takes a plain Model plus an ExperimentProtocol whose target_modalities is
@@ -1017,7 +1017,7 @@ def main() -> None:
     summary_name = "summary_confirm.json" if args.confirm_only else "summary.json"
     (out / summary_name).write_text(json.dumps(summary, indent=2, ensure_ascii=False))
     print(f"\nwrote {out/summary_name}")
-    print(f"dashboard: python -m evalrx.cli dashboard {out}")
+    print(f"report: python -m evalrx.cli serve {out}")
     # Flushes every M<n>/log.json one last time (so a stage that ran but never
     # logged a trailing event still lands on disk) and persists the Langfuse
     # trace bundle. Incremental writes during the run are already durable —

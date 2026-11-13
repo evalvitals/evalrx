@@ -80,7 +80,7 @@ _STOPPED_BY_NO_HYPS   = "no_hypotheses"
 _STOPPED_BY_DIAG_ERROR = "diagnosis_error"
 _STOPPED_BY_NO_PROBE  = "no_probe_results"
 # run_analysis() ran M1->M2->M3 and proposed hypotheses without confirming them
-# (M4 deferred to run_confirm()). Not a failure — the analysis dashboard is ready.
+# (M4 deferred to run_confirm()). Not a failure — the analysis report is ready.
 _STOPPED_BY_ANALYSIS  = "analysis_complete"
 
 
@@ -146,7 +146,7 @@ class VLDiagnoseLoop:
 
     **Decoupled two-phase use** (analysis → deferred confirm + fix)::
 
-        # Phase 1 — analyse + propose, build the dashboard. No M4, no fix.
+        # Phase 1 — analyse + propose, ready to report. No M4, no fix.
         report = loop.run_analysis(data)        # M1 → M2 → M3, stop
         save(report.final_hypotheses, report.final_stats_report)
 
@@ -156,7 +156,7 @@ class VLDiagnoseLoop:
 
     :meth:`run` is the all-in-one path (M1→M2→M3→M4 + stopping). Use
     :meth:`run_analysis` + :meth:`run_confirm` when you want the analysis
-    dashboard *before* deciding whether to confirm hypotheses and repair.
+    report *before* deciding whether to confirm hypotheses and repair.
 
     Args:
         model:              The model under evaluation.
@@ -220,7 +220,7 @@ class VLDiagnoseLoop:
                             sees (M1 analyzer signals + labels). Its output is
                             DESCRIPTIVE ONLY: observations/charts/caveats go to
                             M3 as an ``ExploreContext`` (which hypotheses to
-                            propose) and to disk for the dashboard — never into
+                            propose) and to disk for the report — never into
                             M2's confirmatory family, M4, or the fix gate. The
                             catalog M2 is unchanged. Best-effort: an explorer
                             failure logs a warning and the cycle continues.
@@ -230,7 +230,7 @@ class VLDiagnoseLoop:
                             Default: ``<ctx.root>/explore`` for a RunContext-
                             backed logger, ``<run>/explore`` beside a standalone
                             ``logs*/`` dir, else ``<run_dir>/explore`` — always
-                            inside the run, where the dashboard looks; with no
+                            inside the run, where the report looks; with no
                             run_logger, nothing is persisted.
         explore_question:   The question handed to the explorer. Defaults to
                             :func:`~evalrx.eval_agent.prompts.explore_step.default_explore_question`
@@ -345,7 +345,7 @@ class VLDiagnoseLoop:
         self._explore_context = _coerce_explore_context(explore_report)
         # In-cycle explore step (off by default): a free-form EDA pass over the
         # M1 per-case table, run between M1 and M2. Same standing as a Step-1
-        # explore_report — descriptive notes for M3 + files for the dashboard.
+        # explore_report — descriptive notes for M3 + files for the report.
         # AgenticDiagnoseLoop overrides `self.explorer` after this constructor
         # and drives it through its own judge-decided `explore_data` tool
         # instead of the fixed in-cycle call (see run()/run_analysis()).
@@ -648,7 +648,8 @@ class VLDiagnoseLoop:
 
         Explicit ``explore_dir`` wins. Otherwise it is derived from the run
         logger so the files land INSIDE the run, beside the log, where the
-        dashboard's ``_find_explore_report`` looks (``<root>/*/exploratory_report.json``):
+        report reader looks (``reporting.run_data``: ``<logs>/explore``, else a
+        sibling ``explore/``):
 
         - a :class:`~evalrx.eval_agent.run_context.RunContext`-backed logger
           → ``ctx.explore_dir``, an ephemeral tree under ``ctx.runtime_root``
@@ -658,7 +659,7 @@ class VLDiagnoseLoop:
         - a standalone ``RunLoggerV2("<run>/logs")`` / ``logs_confirm`` … →
           ``<run>/explore`` (a sibling of the ``logs*/`` dir, the llm_benchmark
           layout — under the log dir it would be two levels down for a
-          ``logs_confirm/`` carrier log and the dashboard would miss it);
+          ``logs_confirm/`` carrier log and the report would miss it);
         - any other standalone run dir → ``<run_dir>/explore``.
 
         ``None`` (nothing persisted, context in memory only) without a logger."""
@@ -691,7 +692,7 @@ class VLDiagnoseLoop:
         - M3, as an :class:`~evalrx.eval_agent.stages.diagnosis.ExploreContext`
           (observations / rendered charts / caveats — descriptive, UNCONFIRMED,
           used only to decide WHICH hypotheses to propose);
-        - the dashboard, via ``exploratory_report.json`` + ``tables/`` +
+        - the report, via ``exploratory_report.json`` + ``tables/`` +
           ``figures/`` under :meth:`_explore_out_dir` (one directory, rewritten
           each cycle — it always holds what the *latest* M3 was shown; the
           per-cycle ``explore`` run-log events keep every cycle's counts and
@@ -742,7 +743,7 @@ class VLDiagnoseLoop:
 
                 # Renders chart specs from the copied tables/ CSVs, so the
                 # persisted report carries each chart's absolute figure_path —
-                # the PNGs M3 is shown and the dashboard displays.
+                # the PNGs M3 is shown and the report displays.
                 write_report_artifacts(report, out_dir)
             ctx = ExploreContext.from_report(
                 report.to_dict() if hasattr(report, "to_dict") else None
@@ -875,7 +876,7 @@ class VLDiagnoseLoop:
 
         The analysis phase runs M2 with the e-BH validity verdict DEFERRED
         (``descriptive_only=True``). The confirm phase recomputes e-BH FDR
-        correction over the report's stats results so M4 and the dashboard see
+        correction over the report's stats results so M4 and the report see
         the family-level reject decision. No-op when already confirmatory."""
         if stats_report is None:
             return
@@ -1221,7 +1222,7 @@ class VLDiagnoseLoop:
         Runs a single **M1 → M2 → M3** pass: select+execute analyzers (M1),
         rigorous protocol-aware stats + charts (M2, e-BH adjudication kept),
         and propose root-cause hypotheses (M3) — then stop. This is the path
-        that feeds the dashboard *before* deciding whether to confirm and
+        that feeds the report *before* deciding whether to confirm and
         repair.
 
         The returned :class:`VLDiagnoseReport` carries:
@@ -1271,17 +1272,17 @@ class VLDiagnoseLoop:
             logger.info("M1 produced no probe results — stopping.")
             stopped_by = _STOPPED_BY_NO_PROBE
         else:
-            # Optional explore step (descriptive EDA → M3 notes + dashboard files).
+            # Optional explore step (descriptive EDA → M3 notes + report files).
             self._do_explore(0, probe_results, data, timings)
             # Descriptive M2: effect sizes + charts, but DEFER the e-BH validity
-            # verdict to run_confirm so the analysis dashboard shows no
+            # verdict to run_confirm so the analysis report shows no
             # "supported/not-supported" claim (Q2: no validity before confirm).
             final_stats_report = self._do_m2(
                 0, probe_results, data, artifact_pngs, timings, confirmatory=False
             )
             diag = self._do_m3(0, final_stats_report, [], timings, cases=data)
             if diag is None or not diag.hypotheses:
-                # Stats + dashboard are still valid; just no hypotheses to confirm.
+                # Stats + report are still valid; just no hypotheses to confirm.
                 if diag is not None:
                     logger.info("M3 produced no hypotheses.")
                 stopped_by = _STOPPED_BY_DIAG_ERROR if diag is None else _STOPPED_BY_NO_HYPS
@@ -1318,12 +1319,12 @@ class VLDiagnoseLoop:
         Runs **M4** (:class:`~evalrx.eval_agent.stages.hypothesis_tester.HypothesisTester`)
         on ``hypotheses`` — typically reloaded from :meth:`run_analysis`'s output
         via :func:`~evalrx.eval_agent.hypothesis.hypothesis_from_dict` — so
-        the *same* hypotheses the dashboard showed are the ones confirmed.
+        the *same* hypotheses the report showed are the ones confirmed.
 
         ``stats_report`` is the M2 report M4 reads its rigorous evidence from
         (effect + CI + e-value, FDR-corrected). Pass the
         ``final_stats_report`` persisted by :meth:`run_analysis` to confirm
-        against the *exact* statistics the dashboard displayed; when omitted,
+        against the *exact* statistics the report displayed; when omitted,
         M1→M2 are re-run silently (not logged — they belong to the analysis
         phase) to regenerate it.
 
@@ -1357,7 +1358,7 @@ class VLDiagnoseLoop:
 
         # Regenerate the stats the tester needs only when not supplied. The M1/M2
         # events are NOT logged here — they were recorded in the analysis phase,
-        # and re-logging them would double up the dashboard's analysis story.
+        # and re-logging them would double up the report's analysis story.
         if stats_report is None:
             probe_results, artifact_pngs = self._do_m1(
                 0, data, hypotheses, timings, log=False
@@ -1382,7 +1383,7 @@ class VLDiagnoseLoop:
 
         # The confirm phase OWNS the validity verdict: if the reused report came
         # from the descriptive analysis phase (e-BH deferred), compute e-BH now,
-        # flip descriptive_only off, and log the confirmatory M2 so the dashboard
+        # flip descriptive_only off, and log the confirmatory M2 so the report
         # surfaces the signal validity it withheld before confirmation.
         self._finalize_confirmatory_stats(stats_report)
         if self.run_logger and stats_report is not None:

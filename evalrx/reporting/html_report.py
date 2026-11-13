@@ -1287,6 +1287,16 @@ updateGrid();
 # CLI Entry Point
 # ---------------------------------------------------------------------------
 
+def open_in_browser(report: Path) -> None:
+    """Open a written report. It is self-contained, so no server is needed."""
+    import webbrowser
+
+    from evalrx.term_links import hyperlink
+
+    print(f"Opening report: {hyperlink(report.as_uri())}")
+    webbrowser.open(report.as_uri())
+
+
 def build_html_report(
     run_dir: str | Path,
     example_dir: str | Path | None = None,

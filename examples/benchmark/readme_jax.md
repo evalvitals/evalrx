@@ -128,7 +128,7 @@ the suffix; without one the directory is `chartqa/`):
 
 ```bash
 cd ../../../..          # repo root
-.venv/bin/python -m evalrx.cli dashboard examples/benchmark/vlm/gemma_jax/outputs/gemma-4-e2b/chartqa.demo
+.venv/bin/python -m evalrx.cli serve examples/benchmark/vlm/gemma_jax/outputs/gemma-4-e2b/chartqa.demo
 ```
 
 The container runs as root, so the output tree is root-owned. To work on it as

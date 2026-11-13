@@ -15,6 +15,32 @@ from `key` and failed with a shape mismatch (generic attention relevance and
 the delta-rule tap on hybrid models); it is now sized from the value heads.
 Verified on transformers 4.57.3, 5.20.2 and 5.23.0.
 
+### Removed — the `dashboard` report server (breaking)
+
+Run reports have one UI: the React report (`evalrx serve` / `evalrx report` /
+`evalrx publish-report`).
+
+- `evalrx dashboard` and `evalrx.analysis.dashboard` are removed: the
+  standard-library server that served the legacy static `report.html`, and the
+  `load_run` / `load_case_studies` / `load_loop_story` loaders, which nothing
+  outside their tests used. Use `evalrx serve <run dir>` for a run.
+- `evalrx explore`, `evalrx run-codebase` and `evalrx-explore`: an explore
+  output is not an M1–M5 run, and the React report cannot render one (all five
+  stages read "not run"), so these keep writing the legacy static
+  `report.html` (`evalrx.reporting.html_report`, now used only for this).
+  `--serve-report` opens that file in a browser instead of starting a server;
+  the deprecated `--dashboard` alias and `--port` are removed (`evalrx-explore`
+  had `--dashboard`, now `--serve-report`). The `run_explore` /
+  `run_codebase_cli` keywords `dashboard` / `dashboard_port` become
+  `open_report`.
+- Removed with them, as nothing else used them: `evalrx.analysis.case_studio`,
+  and the old workbench view models `evalrx.analysis.run_view` and
+  `evalrx.analysis.stage_views`.
+- The `deco_hallu` example's scripts open each phase's run with `evalrx serve`
+  (`--dashboard` → `--serve`; `run_fused.py --serve-report` writes and opens the
+  static report of its explore-shaped output). The example READMEs no longer
+  claim the report merges several log directories — it never did.
+
 ### Changed — the report server's API is scoped by run (breaking)
 
 `evalrx serve` kept one global "current run": opening another run from the

@@ -182,7 +182,7 @@ evalrx explore /path/to/results \
   --backend antigravity \
   -q "Which failure patterns distinguish wrong answers from correct ones?" \
   --out evalrx_explore_output \
-  --serve-report       # optional local browser server
+  --serve-report       # optional: open report.html when done
 ```
 
 The run writes the generated code, stdout/stderr, a structured exploratory

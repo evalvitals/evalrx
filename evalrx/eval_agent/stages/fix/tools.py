@@ -654,12 +654,7 @@ _SCAFFOLD_STRATEGIES = frozenset({
 #: means the call sends the task prompt with nothing added.
 #:
 #: Hoisted out of ``run_pipeline`` (which now formats from these) so that the
-#: dashboard can SHOW the text a strategy actually sends instead of
-#: paraphrasing it. ``analysis/case_studio.py`` keeps a mirror of this table —
-#: it may not import this package at runtime (analysis has to stay standalone)
-#: — and ``test_strategy_flow_matches_what_the_pipeline_sends`` asserts the two
-#: are equal, so re-wording a prompt here without updating the mirror fails the
-#: suite rather than silently leaving the UI describing a pipeline that is gone.
+#: text a strategy actually sends can be shown rather than paraphrased.
 STRATEGY_CALLS: "dict[str, tuple[tuple[str, str], ...]]" = {
     "self_refine": (
         ("answer", ""),

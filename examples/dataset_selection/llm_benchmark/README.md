@@ -32,7 +32,7 @@ cd evalsmith/evalrx          # 有 pyproject.toml 的那一层
 # (a) 评测环境 —— 跑本目录的脚本
 python3 -m venv .venv            # 需要 python >= 3.10
 .venv/bin/pip install -U pip
-.venv/bin/pip install -e ".[stats,viz,dashboard]"
+.venv/bin/pip install -e ".[stats,viz,ui]"
 .venv/bin/pip install requests
 
 # (b) 服务环境 —— 只用来起 vLLM
@@ -51,7 +51,7 @@ export VLLM_BIN=/your/vllm
 ```
 
 **extras 各自的用途**:`stats`(statsmodels + scikit-learn)是 **M2 统计的硬依赖**,
-缺了整条链走不到 M3;`viz` 是 M2 出图;`dashboard` 只影响 dashboard 命令。
+缺了整条链走不到 M3;`viz` 是 M2 出图;`ui` 只影响 `serve`(报告界面)。
 
 ### 2. claude CLI(judge,不可省)
 
@@ -213,7 +213,7 @@ supergpqa_medicine_hard  0.360   ← 9B 上就已经偏难,小模型大概率地
 
 按上面「从零搭建」装好后,`evalrx` 是 **`pip install -e` 进 venv 的**,
 任何 cwd 都能 import。若你跳过了安装、直接用系统 python 跑,
-本目录的脚本仍能工作(它们自己插 `sys.path`),但 `python -m evalrx.cli dashboard`
+本目录的脚本仍能工作(它们自己插 `sys.path`),但 `python -m evalrx.cli serve`
 必须先 `cd` 到 `evalrx/`。
 
 ---
@@ -552,9 +552,9 @@ $PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law
 ```bash
 $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law --analysis-only
 
-# dashboard 要在 evalrx/ 下跑(`evalrx` 包才在 import path 上)
+# serve 要在 evalrx/ 下跑(`evalrx` 包才在 import path 上)
 cd <repo>/evalrx
-$PY -m evalrx.cli dashboard examples/dataset_selection/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
+$PY -m evalrx.cli serve examples/dataset_selection/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
 ```
 
 产出提出的假设,但**不做 M4 确认、不做修复**。先把分析故事看明白再决定要不要往下走。

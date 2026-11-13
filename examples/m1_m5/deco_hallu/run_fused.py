@@ -45,8 +45,8 @@ def main() -> None:
         "Among these labeled cases, what per-case signals distinguish the FAIL cases "
         "(false 'Yes' on an absent object) from the PASS cases? Propose composite "
         "signals as deterministic recipes over the available numeric columns."))
-    ap.add_argument("--dashboard", action="store_true",
-                    help="open the Streamlit dashboard on the fused output when done")
+    ap.add_argument("--serve-report", action="store_true",
+                    help="write and open a static HTML report of the fused output when done")
     ap.add_argument("--skill", action="append", default=[], metavar="DIR",
                     help="Agent-Skill dir (e.g. nature-figure) to style agent figures; repeatable")
     ap.add_argument("--allow-skills", action="store_true",
@@ -110,7 +110,7 @@ def main() -> None:
         print(f"  [caveat] {c}")
 
     # ── render the explorer's chart specs (host-side, spec + CSV -> PNG) so the
-    #    fused_report.json carries figure_path for Step 2's M3 and the dashboard ──
+    #    fused_report.json carries figure_path for Step 2's M3 and the report ──
     from evalrx.viz.renderer import render_chart_specs
 
     try:
@@ -140,10 +140,10 @@ def main() -> None:
         print("(you can still feed M3 the charts/observations: "
               "run_m2-5.py --explore-report outputs/fused/fused_report.json)")
 
-    if args.dashboard:
-        from evalrx.analysis.dashboard import launch_dashboard
+    if args.serve_report:
+        from evalrx.reporting.html_report import build_html_report, open_in_browser
 
-        raise SystemExit(launch_dashboard(FUSED_DIR))
+        open_in_browser(build_html_report(FUSED_DIR, out_path=FUSED_DIR / "report.html"))
 
 
 if __name__ == "__main__":

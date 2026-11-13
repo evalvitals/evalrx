@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from evalrx.analysis.dashboard import launch_dashboard
 from evalrx.analysis.explore_run import run_explore
 from evalrx.analysis.run_codebase import run_codebase_cli
 
@@ -111,14 +110,8 @@ def main(argv: list[str] | None = None) -> int:
     explore.add_argument("--include-tool-calls", action="store_true")
     explore.add_argument("--timeout-sec", type=int, default=120)
     explore.add_argument("--max-attempts", type=int, default=2)
-    explore.add_argument(
-        "--dashboard",
-        action="store_true",
-        help="Deprecated alias for --serve-report.",
-    )
     explore.add_argument("--serve-report", action="store_true",
-                         help="Serve the generated static HTML report when done.")
-    explore.add_argument("--port", type=int, default=None, help="Optional report-server port.")
+                         help="Open the generated static HTML report in a browser when done.")
     explore.add_argument(
         "--skill", action="append", default=[], metavar="DIR",
         help="Agent-Skill directory (with SKILL.md) to style agent-authored "
@@ -146,8 +139,8 @@ def main(argv: list[str] | None = None) -> int:
     explore.add_argument(
         "--holdout-confirm", action="store_true",
         help="After exploring, re-test the frozen recipes + hypotheses on the "
-             "held-out rows (writes confirm_report.json — the dashboard's "
-             "Held-out Verdicts tab). Requires --holdout-frac > 0.",
+             "held-out rows (writes confirm_report.json beside the report). "
+             "Requires --holdout-frac > 0.",
     )
     explore.add_argument("--holdout-seed", type=int, default=0,
                          help="Seed for the held-out split (default 0).")
@@ -200,25 +193,13 @@ def main(argv: list[str] | None = None) -> int:
         "--no-explore", dest="analyze", action="store_false", default=True,
         help="Only run the codebase and harvest records; skip the explore (M2+M3) step.",
     )
-    run_codebase.add_argument(
-        "--dashboard", action="store_true",
-        help="Deprecated alias for --serve-report.",
-    )
     run_codebase.add_argument("--serve-report", action="store_true",
-                              help="Serve the generated static HTML report when done.")
-    run_codebase.add_argument("--port", type=int, default=None, help="Optional report-server port.")
+                              help="Open the generated static HTML report in a browser when done.")
     run_codebase.add_argument(
         "--no-narrate", dest="narrate", action="store_false", default=True,
         help="Do not print live per-stage narration (run/M2/M3/... lines) to the terminal.",
     )
 
-    dashboard = sub.add_parser(
-        "dashboard",
-        help="Deprecated alias for the dependency-free 'serve' command.",
-        description="Deprecated alias for the dependency-free static report server.",
-    )
-    dashboard.add_argument("run_dir", help="An explore output dir or a loop-run dir.")
-    dashboard.add_argument("--port", type=int, default=None, help="Optional report-server port.")
 
     serve = sub.add_parser(
         "serve",
@@ -311,8 +292,7 @@ def main(argv: list[str] | None = None) -> int:
             include_tool_calls=args.include_tool_calls,
             timeout_sec=args.timeout_sec,
             max_attempts=args.max_attempts,
-            dashboard=args.dashboard or args.serve_report,
-            dashboard_port=args.port,
+            open_report=args.serve_report,
             skills=args.skill,
             allow_skills=args.allow_skills,
             use_bundled_skills=args.use_bundled_skills,
@@ -346,12 +326,9 @@ def main(argv: list[str] | None = None) -> int:
             max_attempts=args.max_attempts,
             question=args.question,
             analyze=args.analyze,
-            dashboard=args.dashboard or args.serve_report,
-            dashboard_port=args.port,
+            open_report=args.serve_report,
             progress_sink=TerminalNarrator() if args.narrate else None,
         )
-    if args.command == "dashboard":
-        return launch_dashboard(args.run_dir, port=args.port)
     if args.command == "serve":
         try:
             source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)

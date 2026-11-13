@@ -915,8 +915,8 @@ exports the same UI as one portable `report.html` — see the
 `evalrx/reporting/server.py` (the `serve` FastAPI app) and
 `evalrx/reporting/static_export.py` (the `report` exporter); all three share
 the same React/json-render renderer. (`evalrx/reporting/html_report.py` is
-the older, pre-React renderer behind the now-deprecated `evalrx dashboard`
-command — not this contract.) Read this section as the contract that
+the older, pre-React renderer that `evalrx explore` / `run-codebase` still
+use for their explore-shaped output — not this contract.) Read this section as the contract that
 renderer must preserve.
 
 ### Requirements for the new UI
