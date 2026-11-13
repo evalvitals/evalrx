@@ -219,11 +219,9 @@ log lines now come from the `evalrx.eval_agent.loop_fix` logger.
 
 `extract_run_data` (and the run-layout helpers and analyzer glossary it uses)
 moved from `evalrx.reporting.html_report` to `evalrx.reporting.run_data`. It
-is the reader behind the dynamic report, the Langfuse bundle export and the
-legacy static page, and no longer lives inside the legacy renderer.
-`html_report` keeps the static page (`build_html_report`,
-`generate_html_report`, `embed_figures`, `embed_media`). Import
-`extract_run_data` from `evalrx.reporting.run_data`.
+is the reader behind the report and the Langfuse bundle export. Import
+`extract_run_data` from `evalrx.reporting.run_data`; `html_report` itself is
+gone (see the removal above).
 
 ### Changed — FixAgent split into the `stages/fix/` package
 

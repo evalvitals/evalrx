@@ -47,8 +47,9 @@ From an actual run (temperature r=0.86 with yield, the strongest association):
      mass-transfer/gas-solubility limited across the operating window
      tested — pressure's true effect, if any, lies outside the range sampled.
 
-Open the report to see the charts and hypothesis cards (`outputs/report.html`
-also opens straight from disk):
+Open the report to see the charts and hypothesis cards: `outputs/report.html`
+opens straight from disk, and `evalrx serve` (needs the `ui` extra,
+`pip install -e ".[ui]"`) shows it live:
 
 ```bash
 evalrx serve outputs

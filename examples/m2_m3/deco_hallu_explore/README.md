@@ -52,8 +52,9 @@ M3 hypotheses proposed from these findings (not validated):
    affirmative answers) between checkpoints, rather than a genuine capability
    regression with scale.
 
-Open the report to see the charts and hypothesis cards (`outputs/report.html`
-also opens straight from disk):
+Open the report to see the charts and hypothesis cards: `outputs/report.html`
+opens straight from disk, and `evalrx serve` (needs the `ui` extra,
+`pip install -e ".[ui]"`) shows it live:
 
 ```bash
 evalrx serve outputs
