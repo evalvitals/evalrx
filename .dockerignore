@@ -6,6 +6,8 @@
 **/__pycache__
 **/*.pyc
 examples/**/data
+# deco_hallu_explore copies these frozen case manifests (276 KB) into its image.
+!examples/m1_m5/deco_hallu/data/cases
 examples/**/outputs
 examples/**/outputs.*
 examples/**/*.zip
