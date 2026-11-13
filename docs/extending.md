@@ -381,6 +381,7 @@ sequence assigned under the logger's lock), and stage-specific fields:
 | `M3/log.json["diagnosis"]` | `hypotheses`, `raw_judge_output` (full LLM response) |
 | `M4/log.json["surgery"]` | `hypothesis`, `status`, `fixed`, `evidence`, `n_refocused_cases` |
 | `run.json["loop_end"]` | `cycles`, `resolved`, `final_hypotheses` |
+| `run.json["run_end"]` | envelope only — written when the logger closes (schema 7) |
 
 The full, authoritative field contract is the published JSON Schema
 (`evalrx/eval_agent/run_log.schema.json`, from `log_schema.py`); validate one

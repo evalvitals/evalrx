@@ -493,6 +493,7 @@ class RunLoggerV2:
             "diagnose_reports": [],
             "manifest": None,
             "loop_end": [],
+            "run_end": [],
             "agent_decisions": [],
             "agent_tool_calls": [],
             "unrouted": [],
@@ -1748,6 +1749,8 @@ class RunLoggerV2:
         """Flush every doc one last time and persist the Langfuse trace bundle."""
         if self._closed:
             return
+        # The run-level completion signal: everything this run logs is above it.
+        self._append_run("run_end", {})
         with self._lock:
             self._flush_run()
             for stage in _STAGES:

@@ -59,7 +59,7 @@ def read_v2_events(root: str | Path) -> list[dict[str, Any]]:
     for row in run.get("cases") or []:
         append("case_record", row)
     for key in (
-        "report_published", "diagnose_reports", "loop_end",
+        "report_published", "diagnose_reports", "loop_end", "run_end",
         "agent_decisions", "agent_tool_calls", "unrouted",
     ):
         event_name = {
@@ -112,6 +112,7 @@ _RUN_EVENT_TO_KEY = {
     "agent_tool": "agent_tool_calls",
     "report_published": "report_published",
     "loop_end": "loop_end",
+    "run_end": "run_end",
 }
 
 # A source that recovers events out-of-band (e.g. Langfuse observations

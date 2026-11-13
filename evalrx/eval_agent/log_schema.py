@@ -60,7 +60,9 @@ from typing import Any
 #     `unrouted`) and the `stage`/`event_seq`/`span_id` envelope fields that
 #     were previously a separate, RunLoggerV2-only schema layered on top of
 #     this one — there is now one event schema, not a base plus an overlay.
-RUN_LOG_SCHEMA_VERSION = 6
+# v7: `run_end`, written when the logger closes: the run-level completion
+#     signal. `loop_end` ends M1-M4 only; M5 and the fix step log after it.
+RUN_LOG_SCHEMA_VERSION = 7
 
 #: The event types a run logs.
 EVENT_TYPES: tuple[str, ...] = (
@@ -73,6 +75,7 @@ EVENT_TYPES: tuple[str, ...] = (
     "experiment",
     "fix",
     "loop_end",
+    "run_end",
     "tool_codegen",
     "tool_registry",
     "agent_decision",
@@ -281,6 +284,7 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "verified_hypotheses": {"type": "array"},
         },
     },
+    "run_end": {"required": [], "properties": {}},
     "tool_codegen": {
         "required": ["cycle", "module", "tool_name", "need", "source", "ok"],
         "properties": {

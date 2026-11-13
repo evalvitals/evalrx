@@ -80,7 +80,8 @@ def test_backfill_dry_run_preserves_existing_trace_and_order(tmp_path):
 
     summary = backfill_run_to_langfuse(tmp_path, dry_run=True)
 
-    assert summary == {"trace_id": trace_id, "events": 2, "pending": 2, "published": 0}
+    # run_start, analysis, and the run_end close() writes.
+    assert summary == {"trace_id": trace_id, "events": 3, "pending": 3, "published": 0}
 
 
 def test_tracer_flushes_events_through_langfuse_client(tmp_path):

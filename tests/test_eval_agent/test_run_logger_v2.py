@@ -693,11 +693,13 @@ def test_persisted_event_identity_orders_concurrent_calls_and_validates(tmp_path
                 f"M{index % 5 + 1}", role="test", operation="generate", inputs=index, output=index,
             ), range(30)))
     events = read_v2_events(root)
-    assert [event["event_seq"] for event in events] == list(range(1, 31))
-    assert len({event["span_id"] for event in events}) == 30
+    # 30 calls, then the run_end the logger writes as it closes.
+    assert [event["event_seq"] for event in events] == list(range(1, 32))
+    assert events[-1]["event"] == "run_end"
+    assert len({event["span_id"] for event in events}) == 31
     for event in events:
         validator.validate(event)
-    assert [event["event_seq"] for event in read_v2_events(root)] == list(range(1, 31))
+    assert [event["event_seq"] for event in read_v2_events(root)] == list(range(1, 32))
 
 
 def test_v2_schema_validation_warns_but_preserves_invalid_event(tmp_path, monkeypatch):
