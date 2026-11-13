@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from evalrx.core.capability import Capability
 from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.stages.experiment_code import contains_forbidden_model_load
 from evalrx.eval_agent.stages.experiment_writer import (
     ExperimentWriter,
     ExperimentWriterConfig,
@@ -80,4 +81,4 @@ def test_writer_blocks_generated_second_model_load_before_execution():
 
 def test_json_load_is_not_mistaken_for_model_loading():
     code = "import json\nwith open('cases.json') as f:\n    cases = json.load(f)\n"
-    assert ExperimentWriter._contains_forbidden_model_load({"experiment.py": code}) is False
+    assert contains_forbidden_model_load({"experiment.py": code}) is False

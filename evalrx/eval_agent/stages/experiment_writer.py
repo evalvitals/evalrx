@@ -58,6 +58,18 @@ from evalrx.eval_agent.prompts.experiment_writer import (
     _WRITE_USER,
     build_cli_prompt,
 )
+from evalrx.eval_agent.stages.experiment_code import (
+    build_code_summary,
+    contains_forbidden_model_load,
+    extract_code_block,
+    extract_files,
+    extract_single_file_code,
+    format_files,
+    hard_validate,
+    is_valid_blueprint,
+    parse_error_location,
+    parse_json,
+)
 
 if TYPE_CHECKING:
     from evalrx.agent_runtime.sandbox import SandboxProtocol
@@ -368,7 +380,7 @@ class ExperimentWriter:
         if (
             self._cfg.sequential_generation
             and blueprint_dict is not None
-            and self._is_valid_blueprint(blueprint_dict)
+            and is_valid_blueprint(blueprint_dict)
         ):
             files = self._phase2_sequential(
                 hypothesis, model_context, cases_json, blueprint_yaml, blueprint_dict
@@ -395,7 +407,7 @@ class ExperimentWriter:
         if self._cfg.hard_validation and files:
             files = self._phase3_hard_validate(files, hypothesis, model_context, cases_json)
 
-        if self._forbid_model_load and self._contains_forbidden_model_load(files):
+        if self._forbid_model_load and contains_forbidden_model_load(files):
             message = (
                 "generated M5 code attempted to reconstruct or download a second model; "
                 "execution blocked to protect the resident host model and GPU memory"
@@ -566,15 +578,6 @@ class ExperimentWriter:
                 self._log_event(f"  Blueprint YAML parse error: {exc}")
         return None
 
-    @staticmethod
-    def _is_valid_blueprint(blueprint: dict[str, Any]) -> bool:
-        files = blueprint.get("files", [])
-        if not files or not isinstance(files, list):
-            return False
-        has_order = sum(
-            1 for f in files if isinstance(f, dict) and "generation_order" in f
-        )
-        return has_order >= 2
 
     # ------------------------------------------------------------------
     # Phase 2a: Sequential file generation
@@ -636,13 +639,13 @@ class ExperimentWriter:
                 model_access_note=model_context.get("access_note", ""),
             )
             raw = self._llm_call(system, user)
-            code = self._extract_single_file_code(raw, file_name)
+            code = extract_single_file_code(raw, file_name)
             if not code:
                 self._log_event(f"  WARNING: Empty code for {file_name}")
                 continue
 
             generated[file_name] = code
-            code_memory[file_name] = self._build_code_summary(file_name, code)
+            code_memory[file_name] = build_code_summary(file_name, code)
             self._log_event(
                 f"  {file_name}: {len(code.splitlines())} lines, "
                 f"{len(code_memory[file_name].get('classes', []))} classes"
@@ -686,7 +689,7 @@ class ExperimentWriter:
             cases_json=cases_json,
         )
         raw = self._llm_call(system, user)
-        code = self._extract_code_block(raw)
+        code = extract_code_block(raw)
         self._log_event(f"  Script: {len(code)} chars")
         return code
 
@@ -705,7 +708,7 @@ class ExperimentWriter:
         self._log_event("Phase 3: Hard validation")
 
         for attempt in range(self._cfg.hard_validation_max_repairs + 1):
-            critical, warnings = self._hard_validate(files)
+            critical, warnings = hard_validate(files, forbid_model_load=self._forbid_model_load)
 
             for w in warnings:
                 self._log_event(f"  WARNING: {w}")
@@ -732,145 +735,6 @@ class ExperimentWriter:
 
         return files
 
-    def _hard_validate(
-        self, files: dict[str, str]
-    ) -> tuple[list[str], list[str]]:
-        """Return (critical_issues, warnings)."""
-        critical: list[str] = []
-        warnings: list[str] = []
-
-        # 1. Syntax errors — always critical
-        for fname, code in files.items():
-            if not fname.endswith(".py"):
-                continue
-            try:
-                ast.parse(code)
-            except SyntaxError as exc:
-                critical.append(
-                    f"[{fname}] SyntaxError at line {exc.lineno}: {exc.msg}"
-                )
-
-        # 2. main.py MUST have `if __name__ == "__main__":` block (BUG-R41-04)
-        main_code = files.get("main.py", "")
-        if main_code:
-            try:
-                main_tree = ast.parse(main_code)
-                has_main_guard = any(
-                    isinstance(node, ast.If)
-                    and isinstance(node.test, ast.Compare)
-                    and isinstance(node.test.left, ast.Name)
-                    and node.test.left.id == "__name__"
-                    and len(node.test.comparators) == 1
-                    and isinstance(node.test.comparators[0], ast.Constant)
-                    and node.test.comparators[0].value == "__main__"
-                    for node in ast.walk(main_tree)
-                )
-                if not has_main_guard:
-                    critical.append(
-                        '[main.py] Missing `if __name__ == "__main__":` block — '
-                        "script will define functions/classes but never execute. "
-                        "Add a main guard that calls the experiment entry point."
-                    )
-            except SyntaxError:
-                pass  # already caught above
-
-        # 3. verdict line must be reachable in main.py (warning only)
-        if main_code and "verdict:" not in main_code:
-            warnings.append(
-                "[main.py] No 'verdict:' output found — "
-                "the script must print 'verdict: 1.0' or 'verdict: 0.0'"
-            )
-
-        # 4. Cross-file import consistency
-        known_modules = {
-            fname.replace(".py", "")
-            for fname in files
-            if fname.endswith(".py")
-        }
-        for fname, code in files.items():
-            if not fname.endswith(".py"):
-                continue
-            try:
-                tree = ast.parse(code)
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and node.module:
-                    mod_top = node.module.split(".")[0]
-                    if mod_top in known_modules:
-                        target_file = f"{mod_top}.py"
-                        if target_file in files and node.names:
-                            try:
-                                target_tree = ast.parse(files[target_file])
-                            except SyntaxError:
-                                continue
-                            exported = {
-                                n.name
-                                for n in ast.walk(target_tree)
-                                if isinstance(n, (ast.ClassDef, ast.FunctionDef))
-                            }
-                            for alias in node.names:
-                                name = alias.name
-                                if name != "*" and name not in exported:
-                                    critical.append(
-                                        f"[{fname}] ImportError: '{name}' not "
-                                        f"defined in '{target_file}' — will crash"
-                                    )
-
-        if self._forbid_model_load and self._contains_forbidden_model_load(files):
-            critical.append(
-                "[project] Model reconstruction is forbidden in this artifact-only M5 "
-                "sandbox. Remove evalrx.load/compose/from_pretrained/model-client "
-                "construction and analyze the stored case artifacts; if those cannot "
-                "test the hypothesis, emit inconclusive: 1.0 without a verdict."
-            )
-
-        return critical, warnings
-
-    @staticmethod
-    def _contains_forbidden_model_load(files: dict[str, str]) -> bool:
-        """Detect heavyweight/network model construction in generated M5 code."""
-        for name, code in files.items():
-            if not name.endswith(".py"):
-                continue
-            try:
-                tree = ast.parse(code)
-            except SyntaxError:
-                continue
-            evalrx_aliases = {"evalrx"}
-            direct_loaders: set[str] = set()
-            model_classes: set[str] = set()
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name == "evalrx":
-                            evalrx_aliases.add(alias.asname or alias.name)
-                elif isinstance(node, ast.ImportFrom):
-                    module = node.module or ""
-                    for alias in node.names:
-                        local = alias.asname or alias.name
-                        if module == "evalrx" and alias.name in {"load", "compose"}:
-                            direct_loaders.add(local)
-                        if module.startswith(("transformers", "evalrx.models")) and (
-                            alias.name.startswith("AutoModel") or alias.name == "GeminiModel"
-                        ):
-                            model_classes.add(local)
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                fn = node.func
-                if isinstance(fn, ast.Attribute):
-                    if fn.attr.startswith("from_pretrained"):
-                        return True
-                    if (
-                        fn.attr in {"load", "compose"}
-                        and isinstance(fn.value, ast.Name)
-                        and fn.value.id in evalrx_aliases
-                    ):
-                        return True
-                if isinstance(fn, ast.Name) and fn.id in direct_loaders | model_classes:
-                    return True
-        return False
 
     def _repair_critical_issues(
         self,
@@ -890,7 +754,7 @@ class ExperimentWriter:
         if not affected:
             affected.update(f for f in files if f.endswith(".py"))
 
-        files_ctx = self._format_files(files)
+        files_ctx = format_files(files)
         issues_text = "\n".join(f"- {issue}" for issue in critical_issues)
 
         prompt = (
@@ -908,7 +772,7 @@ class ExperimentWriter:
             "You are an expert Python debugging engineer. Fix the code issues listed.",
             prompt,
         )
-        fixed = self._extract_files(raw)
+        fixed = extract_files(raw)
         if fixed:
             merged = dict(files)
             merged.update(fixed)
@@ -916,7 +780,7 @@ class ExperimentWriter:
             return merged
         # Fall back to single-file repair if multi-file extraction failed
         if "main.py" in files:
-            single = self._extract_code_block(raw)
+            single = extract_code_block(raw)
             if single.strip():
                 result = dict(files)
                 result["main.py"] = single
@@ -969,7 +833,7 @@ class ExperimentWriter:
     ) -> dict[str, str]:
         """Targeted or full-file repair after a sandbox crash (E-05 pattern)."""
         stderr_tail = result.stderr[-3000:]
-        error_loc = self._parse_error_location(stderr_tail, files)
+        error_loc = parse_error_location(stderr_tail, files)
 
         if error_loc:
             fname, lineno, error_msg = error_loc
@@ -985,12 +849,12 @@ class ExperimentWriter:
                 _REPAIR_SYSTEM,
                 _REPAIR_USER.format(error=stderr_tail[-2000:], code=code),
             )
-            repaired_code = self._extract_code_block(repaired)
+            repaired_code = extract_code_block(repaired)
             if repaired_code.strip():
                 fname = next(iter(files))
                 return {fname: repaired_code}
         else:
-            files_ctx = self._format_files(files)
+            files_ctx = format_files(files)
             prompt = (
                 f"## Error\n```\n{stderr_tail}\n```\n\n"
                 f"## Code\n{files_ctx}\n\n"
@@ -999,7 +863,7 @@ class ExperimentWriter:
             raw = self._llm_call(
                 "You are a Python debugging expert. Fix the runtime error.", prompt
             )
-            fixed = self._extract_files(raw)
+            fixed = extract_files(raw)
             if fixed:
                 merged = dict(files)
                 merged.update(fixed)
@@ -1007,24 +871,6 @@ class ExperimentWriter:
 
         return files
 
-    @staticmethod
-    def _parse_error_location(
-        stderr: str, files: dict[str, str]
-    ) -> tuple[str, int, str] | None:
-        """Parse Python traceback to find (filename, line_number, error_message)."""
-        known_files = set(files.keys())
-        tb_pattern = re.compile(r'File "(?:[^"]*[/\\])?([^"]+\.py)", line (\d+)')
-        matches = list(tb_pattern.finditer(stderr))
-        if not matches:
-            return None
-        for m in reversed(matches):
-            fname = m.group(1)
-            lineno = int(m.group(2))
-            if fname in known_files:
-                lines = stderr.strip().split("\n")
-                error_msg = lines[-1] if lines else "Unknown error"
-                return fname, lineno, error_msg
-        return None
 
     def _targeted_file_repair(
         self,
@@ -1051,7 +897,7 @@ class ExperimentWriter:
         dep_summaries = ""
         for fname, fcode in files.items():
             if fname != target_file and fname.endswith(".py"):
-                summary = self._build_code_summary(fname, fcode)
+                summary = build_code_summary(fname, fcode)
                 dep_summaries += (
                     f"\n### {fname}: "
                     f"{len(summary.get('classes', []))} classes, "
@@ -1081,7 +927,7 @@ class ExperimentWriter:
             "Output the COMPLETE fixed file.",
             prompt,
         )
-        fixed = self._extract_files(raw)
+        fixed = extract_files(raw)
         if not fixed:
             m = re.search(r"```(?:python|filename:\S+)\s*\n(.*?)```", raw, re.DOTALL)
             if m:
@@ -1221,12 +1067,12 @@ class ExperimentWriter:
 
         for r in range(self._cfg.review_max_rounds):
             rounds += 1
-            files_ctx = self._format_files(files)
+            files_ctx = format_files(files)
             raw = self._llm_call(
                 _REVIEW_SYSTEM,
                 f"## Experiment Code\n{files_ctx}\n\nReturn JSON only.",
             )
-            review = self._parse_json(raw)
+            review = parse_json(raw)
             if not isinstance(review, dict):
                 self._log_event(f"  Review round {r + 1}: could not parse JSON, skipping")
                 break
@@ -1254,7 +1100,7 @@ class ExperimentWriter:
                 "You are an expert Python engineer. Fix the critical issues listed.",
                 fix_prompt,
             )
-            fixed = self._extract_files(fix_raw)
+            fixed = extract_files(fix_raw)
             if not fixed:
                 break
 
@@ -1353,7 +1199,7 @@ class ExperimentWriter:
         code = cli_result.files.get("experiment.py") or next(iter(cli_result.files.values()))
         self._log_event(f"  collected script: {len(code)} chars")
 
-        if self._forbid_model_load and self._contains_forbidden_model_load(
+        if self._forbid_model_load and contains_forbidden_model_load(
             {"experiment.py": code}
         ):
             message = (
@@ -1410,15 +1256,6 @@ class ExperimentWriter:
             model_calls=list(self._model_calls),
         )
 
-    @staticmethod
-    def _build_cli_prompt(
-        hypothesis: "Hypothesis",
-        model_context: dict[str, Any],
-        timeout_sec: int,
-        n_images: int = 0,
-    ) -> str:
-        """Backward-compatible wrapper for the external CLI-agent prompt."""
-        return build_cli_prompt(hypothesis, model_context, timeout_sec, n_images=n_images)
 
     # ------------------------------------------------------------------
     # Sandbox execution helpers
@@ -1464,143 +1301,6 @@ class ExperimentWriter:
         )
         return result
 
-    # ------------------------------------------------------------------
-    # Code extraction helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _extract_code_block(text: str) -> str:
-        """Extract the first ```python … ``` block, or the raw text if none found."""
-        m = re.search(r"```(?:python)?\s*\n(.*?)```", text, re.DOTALL)
-        if m:
-            return m.group(1).strip()
-        lines = text.strip().splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
-
-    @staticmethod
-    def _extract_single_file_code(content: str, expected_name: str) -> str:
-        """Extract Python code from LLM response for a single named file."""
-        m = re.search(r"```python\s*\n(.*?)```", content, re.DOTALL)
-        if m:
-            return m.group(1).strip()
-        m = re.search(
-            rf"```(?:filename:)?{re.escape(expected_name)}\s*\n(.*?)```",
-            content, re.DOTALL,
-        )
-        if m:
-            return m.group(1).strip()
-        stripped = content.strip()
-        if stripped and stripped.startswith(
-            ("import ", "from ", "#", "def ", "class ", '"""')
-        ):
-            return stripped
-        return ""
-
-    @staticmethod
-    def _extract_files(content: str) -> dict[str, str]:
-        """Extract multi-file blocks from LLM output.
-
-        Recognises both:
-            ```filename:foo.py
-            ...code...
-            ```
-        and:
-            ```python  # foo.py
-            ...code...
-            ```
-        """
-        files: dict[str, str] = {}
-        # Primary format: ```filename:xxx.py
-        for m in re.finditer(
-            r"```filename:([^\s`]+\.py)\s*\n(.*?)```", content, re.DOTALL
-        ):
-            fname = m.group(1).strip()
-            code = m.group(2).strip()
-            if fname and code:
-                files[fname] = code
-        if files:
-            return files
-        # Fallback: single ```python block → treat as main.py
-        block = re.search(r"```python\s*\n(.*?)```", content, re.DOTALL)
-        if block:
-            return {"main.py": block.group(1).strip()}
-        return files
-
-    @staticmethod
-    def _format_files(files: dict[str, str]) -> str:
-        parts = [f"```filename:{fname}\n{files[fname]}\n```" for fname in sorted(files)]
-        return "\n\n".join(parts)
-
-    @staticmethod
-    def _build_code_summary(filename: str, code: str) -> dict[str, Any]:
-        """Build a CodeMem-style AST summary (mirrors ARC's implementation)."""
-        summary: dict[str, Any] = {
-            "filename": filename,
-            "classes": [],
-            "functions": [],
-            "imports": [],
-        }
-        try:
-            tree = ast.parse(code)
-        except SyntaxError:
-            summary["parse_error"] = True
-            return summary
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                methods = [
-                    {"name": n.name, "args": [a.arg for a in n.args.args if a.arg != "self"]}
-                    for n in node.body
-                    if isinstance(n, ast.FunctionDef)
-                ]
-                summary["classes"].append({
-                    "name": node.name,
-                    "bases": [ast.unparse(b) for b in node.bases],
-                    "methods": methods,
-                })
-            elif isinstance(node, ast.FunctionDef) and node.col_offset == 0:
-                summary["functions"].append({
-                    "name": node.name,
-                    "args": [a.arg for a in node.args.args],
-                })
-            elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                try:
-                    summary["imports"].append(ast.unparse(node))
-                except Exception:
-                    pass
-
-        return summary
-
-    @staticmethod
-    def _parse_json(text: str) -> dict[str, Any] | None:
-        """Best-effort JSON extraction from LLM response."""
-        def _as_dict(val: Any) -> dict[str, Any] | None:
-            return val if isinstance(val, dict) else None
-
-        try:
-            return _as_dict(json.loads(text))
-        except (json.JSONDecodeError, ValueError):
-            pass
-        m = re.search(r"```json\s*\n(.*?)```", text, re.DOTALL)
-        if m:
-            try:
-                return _as_dict(json.loads(m.group(1)))
-            except (json.JSONDecodeError, ValueError):
-                pass
-        m = re.search(
-            r"\{[^{}]*(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}[^{}]*)*\}",
-            text, re.DOTALL,
-        )
-        if m:
-            try:
-                return _as_dict(json.loads(m.group(0)))
-            except (json.JSONDecodeError, ValueError):
-                pass
-        return None
 
     # ------------------------------------------------------------------
     # LLM call
